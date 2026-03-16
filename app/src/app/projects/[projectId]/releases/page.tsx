@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react"
 import { useParams } from "next/navigation"
 import { useLanguage } from "@/lib/language-context"
+import { useConfirm } from "@/components/confirm-dialog"
 
 interface PbItem {
   id: string
@@ -45,6 +46,7 @@ export default function ReleasesPage() {
   const params = useParams()
   const projectId = params.projectId as string
   const { t, pt } = useLanguage()
+  const confirm = useConfirm()
 
   const [items, setItems] = useState<ReleaseItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -170,7 +172,7 @@ export default function ReleasesPage() {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm(t.releaseDeleteConfirm)) return
+    if (!await confirm({ message: t.releaseDeleteConfirm, confirmLabel: t.delete, cancelLabel: t.cancel, variant: "danger" })) return
     const res = await fetch(`/api/projects/${projectId}/releases/${id}`, { method: "DELETE" })
     if (res.ok) {
       setEditingItem(null)
@@ -183,7 +185,7 @@ export default function ReleasesPage() {
   async function handleBulkRelease(version: string) {
     const versionItems = items.filter((i) => (i.planVersion ?? "__uncategorized__") === version && i.status !== "released")
     if (versionItems.length === 0) return
-    if (!confirm(`${versionItems.length} ${t.releaseBulkConfirm}`)) return
+    if (!await confirm({ message: `${versionItems.length} ${t.releaseBulkConfirm}`, confirmLabel: t.confirm, cancelLabel: t.cancel, variant: "warning" })) return
 
     const results = await Promise.allSettled(
       versionItems.map((item) =>

@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const collaboraUrl = process.env.NEXT_PUBLIC_COLLABORA_URL ?? "http://localhost:9980";
+const collaboraWs = collaboraUrl.replace(/^http/, "ws");
 
 const nextConfig: NextConfig = {
   async headers() {
@@ -15,7 +16,7 @@ const nextConfig: NextConfig = {
               `script-src 'self' 'unsafe-inline' 'unsafe-eval' ${collaboraUrl}`,
               `style-src 'self' 'unsafe-inline' ${collaboraUrl}`,
               `frame-src 'self' ${collaboraUrl}`,
-              `connect-src 'self' ${collaboraUrl}`,
+              `connect-src 'self' ${collaboraUrl} ${collaboraWs}`,
               `img-src 'self' data: blob: ${collaboraUrl}`,
               `font-src 'self' data: ${collaboraUrl}`,
             ].join("; "),

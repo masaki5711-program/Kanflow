@@ -35,7 +35,11 @@ export default async function ProjectLayout({
         <Header projectName={project?.name} projectId={projectId} />
         <div className="flex">
           <Sidebar projectId={projectId} />
-          <main className="flex-1 min-w-0 overflow-x-auto p-6 max-w-[1200px]">{children}</main>
+          <main className="flex-1 min-w-0 overflow-x-auto p-6 lg:p-8 max-w-[1200px]">
+            <div className="rounded-xl bg-white/40 shadow-sm shadow-gray-200/30 ring-1 ring-gray-100/50 p-6">
+              {children}
+            </div>
+          </main>
         </div>
       </div>
     </LanguageProvider>

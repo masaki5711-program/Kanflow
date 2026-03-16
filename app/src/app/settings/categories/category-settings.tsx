@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
 import { useLanguage } from "@/lib/language-context"
+import { useConfirm } from "@/components/confirm-dialog"
 
 interface Category {
   id: string
@@ -38,6 +39,7 @@ const colorDot: Record<string, string> = {
 
 export function CategorySettings() {
   const { t } = useLanguage()
+  const confirm = useConfirm()
   const [categories, setCategories] = useState<Category[]>([])
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
@@ -101,7 +103,7 @@ export function CategorySettings() {
   }
 
   async function handleDelete(categoryId: string) {
-    if (!confirm(t.categoryDeleteConfirm)) return
+    if (!await confirm({ message: t.categoryDeleteConfirm, confirmLabel: t.delete, cancelLabel: t.cancel, variant: "danger" })) return
     const res = await fetch(`/api/user/categories/${categoryId}`, { method: "DELETE" })
     if (res.ok) fetchCategories()
   }

@@ -1,8 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import Link from "next/link"
 import { ProjectList } from "./project-list"
-import { UserManagementInline } from "./user-management-inline"
 import { MySprintTasks, type MyTask } from "./my-sprint-tasks"
 import { useLanguage } from "@/lib/language-context"
 
@@ -31,8 +30,6 @@ interface Category {
   assignments: { projectId: string }[]
 }
 
-type Mode = "projects" | "users"
-
 interface Props {
   activeProjects: Project[]
   archivedProjects: Project[]
@@ -43,59 +40,30 @@ interface Props {
 
 export function TopPage({ activeProjects, archivedProjects, categories, isAdmin, myTasks }: Props) {
   const { t } = useLanguage()
-  const [mode, setMode] = useState<Mode>("projects")
 
   return (
     <div>
       {myTasks.length > 0 && <MySprintTasks tasks={myTasks} />}
 
-      {isAdmin && (
-        <div className="flex justify-center mb-6">
-          <div className="flex bg-gray-100 rounded-xl p-1 shadow-inner">
-            <button
-              onClick={() => setMode("projects")}
-              className={`px-5 py-2 text-sm font-medium rounded-lg transition-all ${
-                mode === "projects"
-                  ? "bg-white text-gray-900 shadow-sm"
-                  : "text-gray-500 hover:text-gray-700"
-              }`}
-            >
-              <span className="flex items-center gap-2">
-                <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-                  <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"/>
-                </svg>
-                {t.projectListTitle}
-              </span>
-            </button>
-            <button
-              onClick={() => setMode("users")}
-              className={`px-5 py-2 text-sm font-medium rounded-lg transition-all ${
-                mode === "users"
-                  ? "bg-white text-gray-900 shadow-sm"
-                  : "text-gray-500 hover:text-gray-700"
-              }`}
-            >
-              <span className="flex items-center gap-2">
-                <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-                  <path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z"/>
-                </svg>
-                {t.userManagementTitle}
-              </span>
-            </button>
-          </div>
-        </div>
-      )}
+      {/* Category settings link */}
+      <div className="flex justify-end mb-4">
+        <Link
+          href="/settings/categories"
+          className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-blue-600 transition-colors px-3 py-1.5 rounded-lg hover:bg-blue-50 font-medium"
+        >
+          <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M17.707 9.293a1 1 0 010 1.414l-7 7a1 1 0 01-1.414 0l-7-7A.997.997 0 012 10V5a3 3 0 013-3h5c.256 0 .512.098.707.293l7 7zM5 6a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd"/>
+          </svg>
+          {t.categorySettingsTitle}
+        </Link>
+      </div>
 
-      {mode === "projects" ? (
-        <ProjectList
-          activeProjects={activeProjects}
-          archivedProjects={archivedProjects}
-          categories={categories}
-          isAdmin={isAdmin}
-        />
-      ) : (
-        <UserManagementInline />
-      )}
+      <ProjectList
+        activeProjects={activeProjects}
+        archivedProjects={archivedProjects}
+        categories={categories}
+        isAdmin={isAdmin}
+      />
     </div>
   )
 }

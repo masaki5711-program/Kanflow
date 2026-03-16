@@ -20,11 +20,13 @@ services:
     ports:
       - "127.0.0.1:9980:9980"
     environment:
-      - "extra_params=--o:ssl.enable=false --o:ssl.termination=true"
+      - "extra_params=--o:ssl.enable=false --o:ssl.termination=false"
       - "aliasgroup1=http://host.docker.internal:3000"
       - "username=${COLLABORA_ADMIN_USER:-admin}"
       - "password=${COLLABORA_ADMIN_PASSWORD}"
       - "dictionaries=ja_JP"
+    volumes:
+      - ./collabora-coolwsd.xml:/etc/coolwsd/coolwsd.xml
     extra_hosts:
       - "host.docker.internal:host-gateway"
     cap_add:

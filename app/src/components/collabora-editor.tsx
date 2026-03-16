@@ -12,6 +12,7 @@ interface CollaboraEditorProps {
 export function CollaboraEditor({ projectId, attachmentId, onClose }: CollaboraEditorProps) {
   const { t } = useLanguage()
   const [editorUrl, setEditorUrl] = useState<string | null>(null)
+  const [accessToken, setAccessToken] = useState("collabora-token")
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const formRef = useRef<HTMLFormElement>(null)
@@ -32,6 +33,7 @@ export function CollaboraEditor({ projectId, attachmentId, onClose }: CollaboraE
 
         const config = await res.json()
         setEditorUrl(config.editorUrl)
+        setAccessToken(config.accessToken ?? "collabora-token")
         setLoading(false)
       } catch {
         setError("Failed to initialize editor")
@@ -84,7 +86,7 @@ export function CollaboraEditor({ projectId, attachmentId, onClose }: CollaboraE
             target="collabora-frame"
             className="hidden"
           >
-            <input type="hidden" name="access_token" value="collabora-token" />
+            <input type="hidden" name="access_token" value={accessToken} />
           </form>
           <iframe
             name="collabora-frame"

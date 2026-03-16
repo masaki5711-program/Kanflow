@@ -41,16 +41,39 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
-      <div className="w-full max-w-md">
+    <div className="min-h-screen flex items-center justify-center relative overflow-hidden">
+      {/* Animated gradient background */}
+      <div
+        className="absolute inset-0 -z-10"
+        style={{
+          background: "linear-gradient(-45deg, #f0f9ff, #e0f2fe, #ede9fe, #f0f9ff)",
+          backgroundSize: "400% 400%",
+          animation: "gradientShift 15s ease infinite",
+        }}
+      />
+
+      {/* Decorative blurred circles */}
+      <div className="absolute top-1/4 -left-32 w-96 h-96 bg-blue-200/30 rounded-full blur-3xl" />
+      <div className="absolute bottom-1/4 -right-32 w-96 h-96 bg-indigo-200/30 rounded-full blur-3xl" />
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-sky-100/20 rounded-full blur-3xl" />
+
+      <style jsx>{`
+        @keyframes gradientShift {
+          0% { background-position: 0% 50%; }
+          50% { background-position: 100% 50%; }
+          100% { background-position: 0% 50%; }
+        }
+      `}</style>
+
+      <div className="w-full max-w-md relative">
         <div className="text-center mb-8">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo.svg" alt="Kanflow" width={56} height={56} className="mx-auto mb-4 shadow-lg shadow-blue-500/25 rounded-2xl" />
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Kanflow</h1>
-          <p className="text-sm text-gray-500 mt-1">{t.loginSubtitle}</p>
+          <img src="/logo.svg" alt="Kanflow" width={64} height={64} className="mx-auto mb-4 shadow-lg shadow-blue-500/20 rounded-2xl" />
+          <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Kanflow</h1>
+          <p className="text-sm text-gray-500 mt-1.5">{t.loginSubtitle}</p>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-xl shadow-gray-200/50 border border-gray-100 p-8">
+        <div className="bg-white/80 backdrop-blur-xl rounded-2xl shadow-xl shadow-gray-900/5 border border-white/60 p-8">
           <h2 className="text-lg font-semibold text-gray-900 mb-6">{t.loginTitle}</h2>
 
           <form onSubmit={handleSubmit} className="space-y-5">
@@ -64,7 +87,7 @@ export default function LoginPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 required
                 placeholder="you@example.com"
-                className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 placeholder:text-gray-300"
+                className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm bg-white/60 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 placeholder:text-gray-300 transition-all duration-200"
               />
             </div>
 
@@ -79,7 +102,7 @@ export default function LoginPage() {
                 required
                 minLength={6}
                 placeholder={t.loginPasswordPlaceholder}
-                className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 placeholder:text-gray-300"
+                className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm bg-white/60 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 placeholder:text-gray-300 transition-all duration-200"
               />
             </div>
 
@@ -95,7 +118,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-2.5 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl font-medium text-sm hover:from-blue-700 hover:to-indigo-700 disabled:opacity-50 shadow-sm shadow-blue-500/25 hover:shadow-md hover:shadow-blue-500/30 transition-all"
+              className="w-full py-2.5 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl font-medium text-sm hover:from-blue-700 hover:to-indigo-700 disabled:opacity-50 shadow-md shadow-blue-500/20 hover:shadow-lg hover:shadow-blue-500/25 transition-all duration-200 active:scale-[0.98]"
             >
               {loading ? t.loginProcessing : t.loginButton}
             </button>

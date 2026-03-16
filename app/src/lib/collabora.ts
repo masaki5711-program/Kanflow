@@ -62,6 +62,11 @@ export async function getCollaboraEditorUrl(
     }
   }
 
+  // Collabora may return https:// URLs even when SSL is disabled.
+  // Replace with the configured COLLABORA_URL scheme to avoid SSL errors.
+  const collaboraOrigin = new URL(COLLABORA_URL).origin
+  editorBaseUrl = editorBaseUrl.replace(/^https?:\/\/[^/]+/, collaboraOrigin)
+
   const editorUrl = `${editorBaseUrl}WOPISrc=${encodeURIComponent(wopiSrc)}&lang=ja`
 
   return { editorUrl, wopiSrc }

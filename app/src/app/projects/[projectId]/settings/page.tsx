@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { useParams } from "next/navigation"
 import { useLanguage } from "@/lib/language-context"
+import { useConfirm } from "@/components/confirm-dialog"
 import { type Language, languageLabels } from "@/lib/i18n"
 import { type ProjectType, projectTypeOptions } from "@/lib/project-type-labels"
 
@@ -36,6 +37,7 @@ export default function SettingsPage() {
   const params = useParams()
   const projectId = params.projectId as string
   const { t, pt, language, setLanguage, projectType, setProjectType } = useLanguage()
+  const confirm = useConfirm()
 
   const [members, setMembers] = useState<Member[]>([])
   const [email, setEmail] = useState("")
@@ -177,7 +179,7 @@ export default function SettingsPage() {
   }
 
   async function handleRemove(memberId: string) {
-    if (!confirm(t.settingsRemoveConfirm)) return
+    if (!await confirm({ message: t.settingsRemoveConfirm, confirmLabel: t.delete, cancelLabel: t.cancel, variant: "danger" })) return
     const res = await fetch(
       `/api/projects/${projectId}/members/${memberId}`,
       { method: "DELETE" }

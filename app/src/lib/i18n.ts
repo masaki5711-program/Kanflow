@@ -237,11 +237,19 @@ interface Translations {
   reportItems: string
 
   // Calendar / Event
+  // Gantt chart
+  ganttTitle: string
+  ganttToday: string
+  ganttNoData: string
+
   calendarTitle: string
   calendarShow: string
   calendarHide: string
   calendarWeekdays: string[]
   calendarNoEvents: string
+  calendarWeekView: string
+  calendarMonthView: string
+  calendarTeamView: string
   eventAdd: string
   eventEdit: string
   eventTitle: string
@@ -567,11 +575,18 @@ const ja: Translations = {
   reportNoEvents: "直近のイベントはありません",
   reportItems: "件",
 
+  ganttTitle: "ガントチャート",
+  ganttToday: "今日",
+  ganttNoData: "表示するスプリント・タスクがありません",
+
   calendarTitle: "カレンダー",
   calendarShow: "カレンダーを表示",
   calendarHide: "カレンダーを隠す",
   calendarWeekdays: ["日", "月", "火", "水", "木", "金", "土"],
   calendarNoEvents: "イベントはありません",
+  calendarWeekView: "週表示",
+  calendarMonthView: "月表示",
+  calendarTeamView: "チーム",
   eventAdd: "イベント追加",
   eventEdit: "イベント編集",
   eventTitle: "タイトル",
@@ -889,11 +904,18 @@ const en: Translations = {
   reportNoEvents: "No upcoming events",
   reportItems: "items",
 
+  ganttTitle: "Gantt Chart",
+  ganttToday: "Today",
+  ganttNoData: "No sprints or tasks to display",
+
   calendarTitle: "Calendar",
   calendarShow: "Show Calendar",
   calendarHide: "Hide Calendar",
   calendarWeekdays: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
   calendarNoEvents: "No events",
+  calendarWeekView: "Week",
+  calendarMonthView: "Month",
+  calendarTeamView: "Team",
   eventAdd: "Add Event",
   eventEdit: "Edit Event",
   eventTitle: "Title",
@@ -1211,11 +1233,18 @@ const id: Translations = {
   reportNoEvents: "Tidak ada acara mendatang",
   reportItems: "item",
 
+  ganttTitle: "Gantt Chart",
+  ganttToday: "Hari Ini",
+  ganttNoData: "Tidak ada sprint atau tugas untuk ditampilkan",
+
   calendarTitle: "Kalender",
   calendarShow: "Tampilkan Kalender",
   calendarHide: "Sembunyikan Kalender",
   calendarWeekdays: ["Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab"],
   calendarNoEvents: "Tidak ada acara",
+  calendarWeekView: "Minggu",
+  calendarMonthView: "Bulan",
+  calendarTeamView: "Tim",
   eventAdd: "Tambah Acara",
   eventEdit: "Edit Acara",
   eventTitle: "Judul",

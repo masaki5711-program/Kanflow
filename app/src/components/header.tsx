@@ -18,12 +18,14 @@ export function Header({ projectName, projectId }: HeaderProps = {}) {
     ? session.user.name.slice(0, 2).toUpperCase()
     : "?"
 
+  const isAdmin = session?.user?.role === "admin"
+
   return (
-    <header className="bg-white border-b border-gray-200/80 px-6 py-2.5 flex items-center justify-between sticky top-0 z-40 backdrop-blur-sm bg-white/95">
+    <header className="bg-white/80 backdrop-blur-md border-b border-gray-200/60 shadow-sm shadow-gray-200/40 px-6 py-2.5 flex items-center justify-between sticky top-0 z-40">
       <div className="flex items-center gap-2">
         <Link href="/" className="flex items-center gap-2.5 group">
-          <Image src="/logo.svg" alt="Kanflow" width={32} height={32} className="shadow-sm group-hover:shadow-md transition-shadow rounded-lg" />
-          <span className="text-lg font-semibold text-gray-800 tracking-tight group-hover:text-blue-600 transition-colors">
+          <Image src="/logo.svg" alt="Kanflow" width={32} height={32} className="shadow-sm group-hover:shadow-md transition-shadow duration-200 rounded-lg" />
+          <span className="text-lg font-semibold text-gray-800 tracking-tight group-hover:text-blue-600 transition-colors duration-200">
             {t.appTitle}
           </span>
         </Link>
@@ -34,7 +36,7 @@ export function Header({ projectName, projectId }: HeaderProps = {}) {
             </svg>
             <Link
               href={`/projects/${projectId}`}
-              className="text-sm font-medium text-gray-500 hover:text-blue-600 transition-colors truncate max-w-[200px]"
+              className="text-sm font-medium text-gray-500 hover:text-blue-600 transition-colors duration-200 truncate max-w-[200px]"
               title={projectName}
             >
               {projectName}
@@ -43,26 +45,45 @@ export function Header({ projectName, projectId }: HeaderProps = {}) {
         )}
       </div>
       {session?.user && (
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-1">
+          {/* Project list - always visible */}
           <Link
-            href="/settings/categories"
-            className="text-sm text-gray-500 hover:text-blue-600 transition-colors px-3 py-1.5 rounded-lg hover:bg-blue-50 font-medium"
+            href="/"
+            className="text-sm text-gray-500 hover:text-blue-600 transition-all duration-200 px-3 py-1.5 rounded-full hover:bg-blue-50/80 font-medium flex items-center gap-1.5"
           >
-            {t.categorySettingsTitle}
+            <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"/>
+            </svg>
+            {t.projectListTitle}
           </Link>
-          <div className="w-px h-5 bg-gray-200" />
+
+          {/* User management - admin only */}
+          {isAdmin && (
+            <Link
+              href="/admin/users"
+              className="text-sm text-gray-500 hover:text-blue-600 transition-all duration-200 px-3 py-1.5 rounded-full hover:bg-blue-50/80 font-medium flex items-center gap-1.5"
+            >
+              <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                <path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z"/>
+              </svg>
+              {t.userManagementTitle}
+            </Link>
+          )}
+
+          <div className="w-px h-5 bg-gray-200/80 mx-1.5" />
+
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center text-xs font-semibold text-slate-600 ring-2 ring-white shadow-sm">
+            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center text-xs font-semibold text-blue-700 ring-2 ring-white shadow-sm">
               {initials}
             </div>
             <span className="text-sm font-medium text-gray-700 hidden sm:block">
               {session.user.name}
             </span>
           </div>
-          <div className="w-px h-5 bg-gray-200" />
+          <div className="w-px h-5 bg-gray-200/80 mx-1.5" />
           <button
             onClick={() => signOut()}
-            className="text-sm text-gray-400 hover:text-red-500 transition-colors px-2 py-1 rounded-md hover:bg-red-50"
+            className="text-sm text-gray-400 hover:text-red-500 transition-all duration-200 px-2.5 py-1.5 rounded-full hover:bg-red-50/80"
           >
             {t.logout}
           </button>
