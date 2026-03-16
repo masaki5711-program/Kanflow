@@ -17,10 +17,11 @@ const navItems: { labelKey: keyof ProjectTypeLabels; href: string; icon: string 
 ]
 
 // i18n key nav items (not project-type dependent)
-type I18nNavItem = { labelKey: "ganttTitle" | "calendarTitle"; href: string; icon: string }
+type I18nNavItem = { labelKey: "ganttTitle" | "calendarTitle" | "guideTitle"; href: string; icon: string }
 const i18nNavItems: I18nNavItem[] = [
   { labelKey: "ganttTitle", href: "/gantt", icon: "gantt" },
   { labelKey: "calendarTitle", href: "/calendar", icon: "calendar" },
+  { labelKey: "guideTitle", href: "/guide", icon: "guide" },
 ]
 
 function NavIcon({ type, active }: { type: string; active: boolean }) {
@@ -69,6 +70,12 @@ function NavIcon({ type, active }: { type: string; active: boolean }) {
       return (
         <svg className={cls} viewBox="0 0 20 20" fill="currentColor">
           <path fillRule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clipRule="evenodd"/>
+        </svg>
+      )
+    case "guide":
+      return (
+        <svg className={cls} viewBox="0 0 20 20" fill="currentColor">
+          <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a.75.75 0 000 1.5h.253a.25.25 0 01.244.304l-.459 2.066A1.75 1.75 0 0010.747 15H11a.75.75 0 000-1.5h-.253a.25.25 0 01-.244-.304l.459-2.066A1.75 1.75 0 009.253 9H9z" clipRule="evenodd"/>
         </svg>
       )
     case "settings":

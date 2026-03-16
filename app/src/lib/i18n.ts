@@ -238,6 +238,9 @@ interface Translations {
 
   // Calendar / Event
   // Gantt chart
+  // Guide / Help
+  guideTitle: string
+
   ganttTitle: string
   ganttToday: string
   ganttNoData: string
@@ -575,6 +578,8 @@ const ja: Translations = {
   reportNoEvents: "直近のイベントはありません",
   reportItems: "件",
 
+  guideTitle: "ガイド & ヘルプ",
+
   ganttTitle: "ガントチャート",
   ganttToday: "今日",
   ganttNoData: "表示するスプリント・タスクがありません",
@@ -905,6 +910,8 @@ const en: Translations = {
   reportItems: "items",
 
   ganttTitle: "Gantt Chart",
+  guideTitle: "Guide & Help",
+
   ganttToday: "Today",
   ganttNoData: "No sprints or tasks to display",
 
@@ -1235,6 +1242,8 @@ const id: Translations = {
 
   ganttTitle: "Gantt Chart",
   ganttToday: "Hari Ini",
+  guideTitle: "Panduan & Bantuan",
+
   ganttNoData: "Tidak ada sprint atau tugas untuk ditampilkan",
 
   calendarTitle: "Kalender",
