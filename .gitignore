@@ -1,0 +1,40 @@
+# Environment files
+.env
+.env.local
+
+# Node
+node_modules/
+
+# Next.js
+app/.next/
+app/out/
+
+# Prisma
+app/src/generated/
+
+# Uploads
+app/private/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Claude Code
+.claude/
+
+# Separate projects
+api/
+scripts/
+
+# Excel
+*.xlsx
+*.xls
+
+# Misc
+*.log
+*.bak
+*.db

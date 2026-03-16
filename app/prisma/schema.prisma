@@ -1,0 +1,319 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+model User {
+  id                String                @id @default(cuid())
+  name              String
+  email             String                @unique
+  password          String
+  avatarUrl         String?               @db.Text
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  isActive          Boolean               @default(true)
+  role              String                @default("member")
+  accounts          Account[]
+  memberships       ProjectMember[]
+  sessions          Session[]
+  projectCategories UserProjectCategory[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Project {
+  id                  String                          @id @default(cuid())
+  name                String
+  description         String?                         @db.Text
+  status              String                          @default("active")
+  defaultCapacity     Int                             @default(0)
+  sprintDurationWeeks Int                             @default(1)
+  pointUnit           String                          @default("人日")
+  pointDescription    String?                         @db.Text
+  language            String                          @default("ja")
+  createdAt           DateTime                        @default(now())
+  updatedAt           DateTime                        @updatedAt
+  projectType         String                          @default("software")
+  attachmentFolders   AttachmentFolder[]
+  calendarEvents      CalendarEvent[]
+  iceboxItems         IceboxItem[]
+  backlogItems        ProductBacklogItem[]
+  productGoals        ProductGoal[]
+  attachments         ProjectAttachment[]
+  members             ProjectMember[]
+  releaseItems        ReleaseBacklogItem[]
+  sprints             Sprint[]
+  categoryAssignments UserProjectCategoryAssignment[]
+}
+
+model ProjectMember {
+  id        String   @id @default(cuid())
+  projectId String
+  userId    String
+  role      String
+  joinedAt  DateTime @default(now())
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+  @@index([projectId])
+  @@index([userId])
+}
+
+model ProductGoal {
+  id           String               @id @default(cuid())
+  projectId    String
+  title        String
+  description  String?              @db.Text
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+  backlogItems ProductBacklogItem[]
+  project      Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+model IceboxItem {
+  id              String               @id @default(cuid())
+  projectId       String
+  displayId       Int
+  author          String
+  request         String               @db.Text
+  background      String?              @db.Text
+  policyDoc       String?              @db.Text
+  planningDoc     String?              @db.Text
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  assignedPo      String?
+  status          String               @default("unreviewed")
+  pbEpic          String?
+  rejectionReason String?              @db.Text
+  freezeReason    String?              @db.Text
+  poHearingMemo   String?              @db.Text
+  poReviewMemo    String?              @db.Text
+  poFlag          String?
+  sortOrder       Int                  @default(0)
+  attachments     IceboxAttachment[]
+  project         Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  backlogItems    ProductBacklogItem[]
+
+  @@index([projectId])
+}
+
+model IceboxAttachment {
+  id           String     @id @default(cuid())
+  iceboxItemId String
+  fileName     String
+  originalName String
+  fileSize     Int
+  mimeType     String
+  createdAt    DateTime   @default(now())
+  iceboxItem   IceboxItem @relation(fields: [iceboxItemId], references: [id], onDelete: Cascade)
+
+  @@index([iceboxItemId])
+}
+
+model ProductBacklogItem {
+  id                 String               @id @default(cuid())
+  projectId          String
+  displayId          Int
+  iceboxItemId       String?
+  initiative         String?
+  epic               String?
+  userStory          String?              @db.Text
+  acceptanceCriteria String?              @db.Text
+  referenceDoc       String?              @db.Text
+  workloadScore      Int                  @default(0)
+  completedAt        DateTime?
+  assignedPo         String?
+  poNote             String?              @db.Text
+  status             String               @default("not_ready")
+  notReadyReason     String?              @db.Text
+  sortOrder          Int                  @default(0)
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  productGoalId      String?
+  iceboxItem         IceboxItem?          @relation(fields: [iceboxItemId], references: [id])
+  productGoal        ProductGoal?         @relation(fields: [productGoalId], references: [id])
+  project            Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  releaseItems       ReleaseBacklogItem[]
+  sprintItems        SprintBacklogItem[]
+
+  @@index([projectId])
+  @@index([iceboxItemId])
+  @@index([productGoalId])
+}
+
+model Sprint {
+  id                String              @id @default(cuid())
+  projectId         String
+  sprintName        String
+  startDate         DateTime
+  endDate           DateTime
+  sprintGoal        String?             @db.Text
+  capacity          Int                 @default(0)
+  actualScore       Int                 @default(0)
+  status            String              @default("planning")
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  retrospectiveMemo String?             @db.Text
+  reviewComment     String?             @db.Text
+  calendarEvents    CalendarEvent[]
+  project           Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  items             SprintBacklogItem[]
+
+  @@index([projectId])
+}
+
+model SprintBacklogItem {
+  id             String             @id @default(cuid())
+  sprintId       String
+  pbItemId       String
+  taskName       String?
+  assignee       String?
+  estimatedHours Float?
+  actualHours    Float?
+  status         String             @default("todo")
+  completedAt    DateTime?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  pbItem         ProductBacklogItem @relation(fields: [pbItemId], references: [id])
+  sprint         Sprint             @relation(fields: [sprintId], references: [id], onDelete: Cascade)
+
+  @@index([sprintId])
+  @@index([pbItemId])
+}
+
+model ReleaseBacklogItem {
+  id             String              @id @default(cuid())
+  projectId      String
+  planVersion    String?
+  pbItemId       String?
+  iceboxId       String?
+  initiative     String?
+  epic           String?
+  userStory      String?             @db.Text
+  assignedPo     String?
+  releaseVersion String?
+  releaseDate    DateTime?
+  releaseNote    String?             @db.Text
+  manualLink     String?             @db.Text
+  poNote         String?             @db.Text
+  status         String              @default("staged")
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  pbItem         ProductBacklogItem? @relation(fields: [pbItemId], references: [id])
+  project        Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([pbItemId])
+}
+
+model CalendarEvent {
+  id          String    @id @default(cuid())
+  projectId   String
+  sprintId    String?
+  title       String
+  description String?   @db.Text
+  date        DateTime
+  endDate     DateTime?
+  color       String    @default("blue")
+  allDay      Boolean   @default(true)
+  createdBy   String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sprint      Sprint?   @relation(fields: [sprintId], references: [id])
+
+  @@index([projectId])
+  @@index([sprintId])
+}
+
+model AttachmentFolder {
+  id          String              @id @default(cuid())
+  projectId   String
+  name        String
+  sortOrder   Int                 @default(0)
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  project     Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  attachments ProjectAttachment[]
+
+  @@index([projectId])
+}
+
+model ProjectAttachment {
+  id           String            @id @default(cuid())
+  projectId    String
+  folderId     String?
+  fileName     String
+  originalName String
+  fileSize     Int
+  mimeType     String
+  uploadedBy   String?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  folder       AttachmentFolder? @relation(fields: [folderId], references: [id])
+  project      Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([folderId])
+}
+
+model UserProjectCategory {
+  id          String                          @id @default(cuid())
+  userId      String
+  name        String
+  color       String                          @default("gray")
+  sortOrder   Int                             @default(0)
+  createdAt   DateTime                        @default(now())
+  updatedAt   DateTime                        @updatedAt
+  user        User                            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assignments UserProjectCategoryAssignment[]
+
+  @@unique([userId, name])
+  @@index([userId])
+}
+
+model UserProjectCategoryAssignment {
+  id         String              @id @default(cuid())
+  categoryId String
+  projectId  String
+  category   UserProjectCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  project    Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([categoryId, projectId])
+  @@index([categoryId])
+  @@index([projectId])
+}

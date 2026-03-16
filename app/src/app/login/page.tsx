@@ -1,0 +1,111 @@
+"use client"
+
+import { signIn } from "next-auth/react"
+import { useRouter } from "next/navigation"
+import { useState } from "react"
+import { getTranslations } from "@/lib/i18n"
+
+const t = getTranslations("ja")
+
+export default function LoginPage() {
+  const router = useRouter()
+  const [email, setEmail] = useState("")
+  const [password, setPassword] = useState("")
+  const [error, setError] = useState("")
+  const [loading, setLoading] = useState(false)
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setError("")
+    setLoading(true)
+
+    try {
+      const result = await signIn("credentials", {
+        email,
+        password,
+        redirect: false,
+      })
+
+      if (result?.error) {
+        setError(t.loginError)
+        setLoading(false)
+        return
+      }
+
+      router.push("/")
+      router.refresh()
+    } catch {
+      setError(t.error)
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
+      <div className="w-full max-w-md">
+        <div className="text-center mb-8">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo.svg" alt="Kanflow" width={56} height={56} className="mx-auto mb-4 shadow-lg shadow-blue-500/25 rounded-2xl" />
+          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Kanflow</h1>
+          <p className="text-sm text-gray-500 mt-1">{t.loginSubtitle}</p>
+        </div>
+
+        <div className="bg-white rounded-2xl shadow-xl shadow-gray-200/50 border border-gray-100 p-8">
+          <h2 className="text-lg font-semibold text-gray-900 mb-6">{t.loginTitle}</h2>
+
+          <form onSubmit={handleSubmit} className="space-y-5">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                {t.loginEmail}
+              </label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                placeholder="you@example.com"
+                className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 placeholder:text-gray-300"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                {t.loginPassword}
+              </label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                minLength={6}
+                placeholder={t.loginPasswordPlaceholder}
+                className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 placeholder:text-gray-300"
+              />
+            </div>
+
+            {error && (
+              <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 rounded-xl px-4 py-3">
+                <svg className="w-4 h-4 shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd"/>
+                </svg>
+                {error}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-2.5 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl font-medium text-sm hover:from-blue-700 hover:to-indigo-700 disabled:opacity-50 shadow-sm shadow-blue-500/25 hover:shadow-md hover:shadow-blue-500/30 transition-all"
+            >
+              {loading ? t.loginProcessing : t.loginButton}
+            </button>
+          </form>
+
+          <p className="mt-6 pt-6 border-t border-gray-100 text-center text-xs text-gray-400">
+            {t.loginAccountNote}
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}

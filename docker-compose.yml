@@ -1,0 +1,34 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: scrum-mysql
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-scrum_tool}
+      MYSQL_USER: ${MYSQL_APP_USER:-scrum_app}
+      MYSQL_PASSWORD: ${MYSQL_APP_PASSWORD}
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+  collabora:
+    image: collabora/code:latest
+    container_name: scrum-collabora
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9980:9980"
+    environment:
+      - "extra_params=--o:ssl.enable=false --o:ssl.termination=true"
+      - "aliasgroup1=http://host.docker.internal:3000"
+      - "username=${COLLABORA_ADMIN_USER:-admin}"
+      - "password=${COLLABORA_ADMIN_PASSWORD}"
+      - "dictionaries=ja_JP"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    cap_add:
+      - MKNOD
+
+volumes:
+  mysql_data:
