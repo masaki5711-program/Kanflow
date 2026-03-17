@@ -516,7 +516,7 @@ function GlossaryTab() {
       <div className="grid gap-3 sm:grid-cols-2">
         {filtered.map((entry) => (
           <div
-            key={entry.english}
+            key={entry.term}
             className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-gray-800 p-4 hover:shadow-md transition-shadow"
           >
             <div className="flex items-start justify-between gap-2 mb-2">
