@@ -208,7 +208,7 @@ model SprintBacklogItem {
   completedAt    DateTime?
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
-  pbItem         ProductBacklogItem @relation(fields: [pbItemId], references: [id])
+  pbItem         ProductBacklogItem @relation(fields: [pbItemId], references: [id], onDelete: Cascade)
   sprint         Sprint             @relation(fields: [sprintId], references: [id], onDelete: Cascade)
 
   @@index([sprintId])
@@ -233,7 +233,7 @@ model ReleaseBacklogItem {
   status         String              @default("staged")
   createdAt      DateTime            @default(now())
   updatedAt      DateTime            @updatedAt
-  pbItem         ProductBacklogItem? @relation(fields: [pbItemId], references: [id])
+  pbItem         ProductBacklogItem? @relation(fields: [pbItemId], references: [id], onDelete: SetNull)
   project        Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@index([projectId])
