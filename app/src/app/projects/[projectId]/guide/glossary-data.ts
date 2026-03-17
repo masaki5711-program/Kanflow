@@ -163,4 +163,81 @@ export const GLOSSARY_ENTRIES: GlossaryEntry[] = [
     description: "毎日15分の進捗確認ミーティング。",
     category: "event",
   },
+
+  // ── 省略用語（略語から正式名称への参照） ──
+
+  {
+    term: "PO",
+    english: "Product Owner",
+    description: "プロダクトオーナーの略。プロダクトの価値を最大化する責任者。バックログの優先順位決定、IceBoxのレビュー、リリース管理を担当する。",
+    kanflow: "プロジェクト設定 → メンバーのロールで「PO」を選択",
+    category: "role",
+  },
+  {
+    term: "SM",
+    english: "Scrum Master",
+    description: "スクラムマスターの略。スクラムのルールとプロセスが正しく運用されるよう支援するファシリテーター。障害の除去やチームの改善を推進する。",
+    kanflow: "プロジェクト設定 → メンバーのロールで「SM」を選択",
+    category: "role",
+  },
+  {
+    term: "Dev",
+    english: "Developer",
+    description: "開発チームメンバーの略。スプリント内でタスクを実行し、成果物を作成する。IceBoxへの投稿やタスクステータスの更新が可能。",
+    kanflow: "プロジェクト設定 → メンバーのロールで「Dev」を選択",
+    category: "role",
+  },
+  {
+    term: "PB",
+    english: "Product Backlog",
+    description: "プロダクトバックログの略。プロダクトに必要な全ての機能・改善・修正をPOが優先順位をつけて管理するリスト。",
+    kanflow: "サイドバー → バックログ（プロダクトバックログ画面）",
+    category: "artifact",
+  },
+  {
+    term: "PBI",
+    english: "Product Backlog Item",
+    description: "プロダクトバックログアイテムの略。バックログ内の個々の項目。ユーザーストーリー、業務負荷点数、受入条件を含む。",
+    kanflow: "バックログ画面の各カード（#ID付き）がPBI",
+    category: "artifact",
+  },
+  {
+    term: "SBI",
+    english: "Sprint Backlog Item",
+    description: "スプリントバックログアイテムの略。PBIを分解した個別のタスク。担当者、見積時間、ステータス（Todo/進行中/完了）を持つ。",
+    kanflow: "スプリント画面のPBI配下に表示されるタスク行",
+    category: "artifact",
+  },
+  {
+    term: "MVP",
+    english: "Minimum Viable Product",
+    description: "最小実行可能製品の略。価値を検証するために必要最小限の機能を持つ製品バージョン。",
+    category: "artifact",
+  },
+  {
+    term: "WIP",
+    english: "Work In Progress",
+    description: "仕掛り中の作業の略。同時に進行中のタスク数。WIPを制限することでフロー効率が向上する。",
+    kanflow: "スプリント画面のタスクステータス「進行中」の数",
+    category: "tool",
+  },
+  {
+    term: "PDCA",
+    english: "Plan-Do-Check-Act",
+    description: "計画→実行→確認→改善のサイクル。スクラムのスプリントはPDCAサイクルの一種。",
+    category: "tool",
+  },
+  {
+    term: "ROI",
+    english: "Return On Investment",
+    description: "投資対効果の略。プロジェクトの投入コストに対する成果の比率。POがバックログの優先順位を決める際の判断基準の一つ。",
+    category: "tool",
+  },
+  {
+    term: "SP",
+    english: "Story Points",
+    description: "ストーリーポイントの略。PBIの相対的な作業量を表す単位。チームの合意で決定する。",
+    kanflow: "プロジェクト設定 → 1点の単位で「ストーリーポイント (SP)」を選択可能",
+    category: "tool",
+  },
 ]
