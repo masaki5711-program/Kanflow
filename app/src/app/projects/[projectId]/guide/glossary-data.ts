@@ -164,6 +164,21 @@ export const GLOSSARY_ENTRIES: GlossaryEntry[] = [
     category: "event",
   },
 
+  {
+    term: "プロダクトゴール",
+    english: "Product Goal",
+    description: "プロダクトの将来の状態を表す長期的な目標。チームが目指す方向性を示す「北極星」。全てのバックログアイテムはプロダクトゴールに貢献するものであるべき。",
+    kanflow: "ダッシュボード → プロダクトゴール セクション",
+    category: "artifact",
+  },
+  {
+    term: "スプリントゴール",
+    english: "Sprint Goal",
+    description: "各スプリントで達成すべき具体的な目標。プロダクトゴールに向かうための中間ステップ。チームの意思決定の指針となる。",
+    kanflow: "スプリント作成時の「スプリントゴール」フィールド",
+    category: "event",
+  },
+
   // ── 省略用語（略語から正式名称への参照） ──
 
   {
