@@ -1,7 +1,9 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useCallback } from "react"
 import { useLanguage } from "@/lib/language-context"
+import type { ProjectType } from "@/lib/project-type-labels"
+import type { ProjectTypeLabels } from "@/lib/project-type-labels"
 import {
   GLOSSARY_ENTRIES,
   CATEGORY_LABELS,
@@ -31,77 +33,242 @@ interface StepData {
 }
 
 // ---------------------------------------------------------------------------
-// Step data
+// Step data (per project type)
 // ---------------------------------------------------------------------------
 
-const STEPS: StepData[] = [
-  {
-    icon: "M10 18a8 8 0 100-16 8 8 0 000 16zm0-2a6 6 0 100-12 6 6 0 000 12zm0-2a4 4 0 100-8 4 4 0 000 8zm0-2a2 2 0 100-4 2 2 0 000 4z",
-    title: "プロダクトゴール — 目指す姿を定める",
-    description:
-      "プロジェクト開始時に、チームが目指すプロダクトの最終的な目標を設定します。プロダクトゴールは全ての活動の方向性を示す「北極星」です。バックログの優先順位もゴールに基づいて判断します。",
-    operation: "ダッシュボード → プロダクトゴール → ゴール追加",
-    hint: "ゴールは具体的で測定可能なものが理想的です。例:「顧客満足度を20%向上」「月間アクティブユーザー1000人達成」",
-    color: "bg-violet-500",
-  },
-  {
-    icon: "M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z",
-    title: "IceBox — アイデアを集める",
-    description:
-      "チームメンバーの誰でも改善要望やアイデアを投稿できます。写真や資料も添付可能です。",
-    operation: "サイドバーの IceBox → 要望を追加 ボタン",
-    hint: "気軽に投稿してください。この段階では精査は不要です。",
-    color: "bg-yellow-500",
-  },
-  {
-    icon: "M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z",
-    title: "POレビュー — アイデアを精査する",
-    description:
-      "PO（プロダクトオーナー）がIceBoxの要望をレビューし、確認済み・凍結に分類します。",
-    operation: "各カードの右側のステータス変更ボタン",
-    color: "bg-indigo-500",
-  },
-  {
-    icon: "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01",
-    title: "バックログ — 優先順位を決める",
-    description:
-      "確認済みの要望をプロダクトバックログに移し、ユーザーストーリー形式で詳細化。POが業務負荷点数と優先順位を設定します。",
-    operation: "バックログ → PBI追加、ドラッグで並び替え",
-    hint: "ユーザーストーリーの書き方：「＜誰が＞として、＜何を＞したい。それは＜なぜ＞だからだ。」",
-    color: "bg-emerald-500",
-  },
-  {
-    icon: "M13 10V3L4 14h7v7l9-11h-7z",
-    title: "スプリント計画 — 次にやることを決める",
-    description:
-      "1〜4週間のスプリントを作成し、バックログの上位アイテムを取り込みます。キャパシティ（チームの処理能力）を設定し、過負荷にならないよう調整します。",
-    operation: "スプリント → 新規スプリント → PBから取り込み",
-    color: "bg-blue-500",
-  },
-  {
-    icon: "M13 7h8m0 0v8m0-8l-8 8-4-4-6 6",
-    title: "スプリント実行 — タスクを進める",
-    description:
-      "PBIをタスクに分解し、担当者をアサイン。ステータスをクリックで Todo → 進行中 → 完了 と更新します。",
-    operation: "各タスクのステータスアイコンをクリック",
-    color: "bg-orange-500",
-  },
-  {
-    icon: "M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15",
-    title: "レビュー＆振り返り — 改善する",
-    description:
-      "スプリント終了時にレビューコメントと振り返りメモ（KPT）を記録。次のスプリントに活かします。",
-    color: "bg-teal-500",
-  },
-  {
-    icon: "M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.631 8.41m5.96 5.96a14.926 14.926 0 01-5.841 2.58m-.119-8.54a6 6 0 00-7.381 5.84h4.8m2.581-5.84a14.927 14.927 0 00-2.58 5.84m2.699 2.7c-.103.021-.207.041-.311.06a15.09 15.09 0 01-2.448-2.448 14.9 14.9 0 01.06-.312m-2.24 2.39a4.493 4.493 0 00-1.757 4.306 4.493 4.493 0 004.306-1.758M16.5 9a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z",
-    title: "リリース — 成果を届ける",
-    description:
-      "完了したPBIをリリースバックログに取り込み、バージョン管理してリリースします。",
-    operation: "サイドバー → リリース → リリース作成",
-    color: "bg-rose-500",
-  },
-]
+const STEP_ICONS = [
+  "M10 18a8 8 0 100-16 8 8 0 000 16zm0-2a6 6 0 100-12 6 6 0 000 12zm0-2a4 4 0 100-8 4 4 0 000 8zm0-2a2 2 0 100-4 2 2 0 000 4z",
+  "M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z",
+  "M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z",
+  "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01",
+  "M13 10V3L4 14h7v7l9-11h-7z",
+  "M13 7h8m0 0v8m0-8l-8 8-4-4-6 6",
+  "M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15",
+  "M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.631 8.41m5.96 5.96a14.926 14.926 0 01-5.841 2.58m-.119-8.54a6 6 0 00-7.381 5.84h4.8m2.581-5.84a14.927 14.927 0 00-2.58 5.84m2.699 2.7c-.103.021-.207.041-.311.06a15.09 15.09 0 01-2.448-2.448 14.9 14.9 0 01.06-.312m-2.24 2.39a4.493 4.493 0 00-1.757 4.306 4.493 4.493 0 004.306-1.758M16.5 9a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z",
+] as const
+
+const STEP_COLORS = [
+  "bg-violet-500",
+  "bg-yellow-500",
+  "bg-indigo-500",
+  "bg-emerald-500",
+  "bg-blue-500",
+  "bg-orange-500",
+  "bg-teal-500",
+  "bg-rose-500",
+] as const
+
+function getSteps(projectType: ProjectType, pt: ProjectTypeLabels): StepData[] {
+  if (projectType === "process_improvement") {
+    return [
+      {
+        icon: STEP_ICONS[0],
+        title: "改善ゴール — 目指す姿を定める",
+        description:
+          "プロジェクト開始時に、チームが目指す改善の最終的な目標を設定します。改善ゴールは全ての活動の方向性を示す「北極星」です。改善バックログの優先順位もゴールに基づいて判断します。",
+        operation: "ダッシュボード → プロダクトゴール → ゴール追加",
+        hint: "ゴールは具体的で測定可能なものが理想的です。例:「不良率を50%削減」「段取替え時間を10分以内に短縮」",
+        color: STEP_COLORS[0],
+      },
+      {
+        icon: STEP_ICONS[1],
+        title: "改善要望 — 現場の気づきを集める",
+        description:
+          "チームメンバーの誰でも改善要望や現場の気づきを投稿できます。写真や資料も添付可能です。",
+        operation: `サイドバーの ${pt.navIcebox} → 要望を追加 ボタン`,
+        hint: "気軽に投稿してください。この段階では精査は不要です。",
+        color: STEP_COLORS[1],
+      },
+      {
+        icon: STEP_ICONS[2],
+        title: "改善オーナーレビュー — 要望を精査する",
+        description:
+          `${pt.rolePO}（改善オーナー）が${pt.navIcebox}の要望をレビューし、確認済み・凍結に分類します。`,
+        operation: "各カードの右側のステータス変更ボタン",
+        color: STEP_COLORS[2],
+      },
+      {
+        icon: STEP_ICONS[3],
+        title: "改善バックログ — 優先順位を決める",
+        description:
+          `確認済みの要望を${pt.navBacklog}に移し、詳細化します。${pt.rolePO}が業務負荷点数と優先順位を設定します。`,
+        operation: `${pt.navBacklog} → PBI追加、ドラッグで並び替え`,
+        color: STEP_COLORS[3],
+      },
+      {
+        icon: STEP_ICONS[4],
+        title: "改善サイクル計画 — 次にやることを決める",
+        description:
+          `1〜4週間の${pt.navSprints}を作成し、${pt.navBacklog}の上位アイテムを取り込みます。キャパシティ（チームの処理能力）を設定し、過負荷にならないよう調整します。`,
+        operation: `${pt.navSprints} → 新規作成 → バックログから取り込み`,
+        color: STEP_COLORS[4],
+      },
+      {
+        icon: STEP_ICONS[5],
+        title: "改善実行 — 改善施策を進める",
+        description:
+          "改善項目をタスクに分解し、担当者をアサイン。ステータスをクリックで Todo → 進行中 → 完了 と更新します。",
+        operation: "各タスクのステータスアイコンをクリック",
+        color: STEP_COLORS[5],
+      },
+      {
+        icon: STEP_ICONS[6],
+        title: "効果検証＆振り返り — 改善効果を確認する",
+        description:
+          "改善サイクル終了時に効果検証と振り返りメモ（KPT）を記録。改善前後の数値を比較し、次のサイクルに活かします。",
+        color: STEP_COLORS[6],
+      },
+      {
+        icon: STEP_ICONS[7],
+        title: "標準化・展開 — 成果を展開する",
+        description:
+          "効果が確認された改善施策を標準作業手順書（SOP）に落とし込み、他のラインや工程にも水平展開します。",
+        operation: `サイドバー → ${pt.navReleases} → 作成`,
+        color: STEP_COLORS[7],
+      },
+    ]
+  }
+
+  if (projectType === "general") {
+    return [
+      {
+        icon: STEP_ICONS[0],
+        title: "プロジェクトゴール — 目指す姿を定める",
+        description:
+          "プロジェクト開始時に、チームが目指す最終的な目標を設定します。プロジェクトゴールは全ての活動の方向性を示す「北極星」です。バックログの優先順位もゴールに基づいて判断します。",
+        operation: "ダッシュボード → プロダクトゴール → ゴール追加",
+        hint: "ゴールは具体的で測定可能なものが理想的です。例:「イベント参加者を200名達成」「業務効率を30%改善」",
+        color: STEP_COLORS[0],
+      },
+      {
+        icon: STEP_ICONS[1],
+        title: "アイデアBox — アイデアを集める",
+        description:
+          "チームメンバーの誰でもアイデアや提案を投稿できます。写真や資料も添付可能です。",
+        operation: `サイドバーの ${pt.navIcebox} → 要望を追加 ボタン`,
+        hint: "気軽に投稿してください。この段階では精査は不要です。",
+        color: STEP_COLORS[1],
+      },
+      {
+        icon: STEP_ICONS[2],
+        title: "オーナーレビュー — アイデアを精査する",
+        description:
+          `${pt.rolePO}（オーナー）が${pt.navIcebox}の提案をレビューし、確認済み・凍結に分類します。`,
+        operation: "各カードの右側のステータス変更ボタン",
+        color: STEP_COLORS[2],
+      },
+      {
+        icon: STEP_ICONS[3],
+        title: "プロジェクトバックログ — 優先順位を決める",
+        description:
+          `確認済みの提案を${pt.navBacklog}に移し、詳細化します。${pt.rolePO}が業務負荷点数と優先順位を設定します。`,
+        operation: `${pt.navBacklog} → PBI追加、ドラッグで並び替え`,
+        color: STEP_COLORS[3],
+      },
+      {
+        icon: STEP_ICONS[4],
+        title: "スプリント計画 — 次にやることを決める",
+        description:
+          `1〜4週間の${pt.navSprints}を作成し、${pt.navBacklog}の上位アイテムを取り込みます。キャパシティ（チームの処理能力）を設定し、過負荷にならないよう調整します。`,
+        operation: `${pt.navSprints} → 新規作成 → バックログから取り込み`,
+        color: STEP_COLORS[4],
+      },
+      {
+        icon: STEP_ICONS[5],
+        title: "タスク実行 — タスクを進める",
+        description:
+          "バックログ項目をタスクに分解し、担当者をアサイン。ステータスをクリックで Todo → 進行中 → 完了 と更新します。",
+        operation: "各タスクのステータスアイコンをクリック",
+        color: STEP_COLORS[5],
+      },
+      {
+        icon: STEP_ICONS[6],
+        title: "レビュー＆振り返り — 改善する",
+        description:
+          "スプリント終了時にレビューコメントと振り返りメモ（KPT）を記録。次のスプリントに活かします。",
+        color: STEP_COLORS[6],
+      },
+      {
+        icon: STEP_ICONS[7],
+        title: "成果物・マイルストーン — 成果を届ける",
+        description:
+          "完了した項目をまとめ、マイルストーンとして管理・共有します。",
+        operation: `サイドバー → ${pt.navReleases} → 作成`,
+        color: STEP_COLORS[7],
+      },
+    ]
+  }
+
+  // software (default)
+  return [
+    {
+      icon: STEP_ICONS[0],
+      title: "プロダクトゴール — 目指す姿を定める",
+      description:
+        "プロジェクト開始時に、チームが目指すプロダクトの最終的な目標を設定します。プロダクトゴールは全ての活動の方向性を示す「北極星」です。バックログの優先順位もゴールに基づいて判断します。",
+      operation: "ダッシュボード → プロダクトゴール → ゴール追加",
+      hint: "ゴールは具体的で測定可能なものが理想的です。例:「顧客満足度を20%向上」「月間アクティブユーザー1000人達成」",
+      color: STEP_COLORS[0],
+    },
+    {
+      icon: STEP_ICONS[1],
+      title: "IceBox — アイデアを集める",
+      description:
+        "チームメンバーの誰でも改善要望やアイデアを投稿できます。写真や資料も添付可能です。",
+      operation: "サイドバーの IceBox → 要望を追加 ボタン",
+      hint: "気軽に投稿してください。この段階では精査は不要です。",
+      color: STEP_COLORS[1],
+    },
+    {
+      icon: STEP_ICONS[2],
+      title: "POレビュー — アイデアを精査する",
+      description:
+        "PO（プロダクトオーナー）がIceBoxの要望をレビューし、確認済み・凍結に分類します。",
+      operation: "各カードの右側のステータス変更ボタン",
+      color: STEP_COLORS[2],
+    },
+    {
+      icon: STEP_ICONS[3],
+      title: "バックログ — 優先順位を決める",
+      description:
+        "確認済みの要望をプロダクトバックログに移し、ユーザーストーリー形式で詳細化。POが業務負荷点数と優先順位を設定します。",
+      operation: "バックログ → PBI追加、ドラッグで並び替え",
+      hint: "ユーザーストーリーの書き方：「＜誰が＞として、＜何を＞したい。それは＜なぜ＞だからだ。」",
+      color: STEP_COLORS[3],
+    },
+    {
+      icon: STEP_ICONS[4],
+      title: "スプリント計画 — 次にやることを決める",
+      description:
+        "1〜4週間のスプリントを作成し、バックログの上位アイテムを取り込みます。キャパシティ（チームの処理能力）を設定し、過負荷にならないよう調整します。",
+      operation: "スプリント → 新規スプリント → PBから取り込み",
+      color: STEP_COLORS[4],
+    },
+    {
+      icon: STEP_ICONS[5],
+      title: "スプリント実行 — タスクを進める",
+      description:
+        "PBIをタスクに分解し、担当者をアサイン。ステータスをクリックで Todo → 進行中 → 完了 と更新します。",
+      operation: "各タスクのステータスアイコンをクリック",
+      color: STEP_COLORS[5],
+    },
+    {
+      icon: STEP_ICONS[6],
+      title: "レビュー＆振り返り — 改善する",
+      description:
+        "スプリント終了時にレビューコメントと振り返りメモ（KPT）を記録。次のスプリントに活かします。",
+      color: STEP_COLORS[6],
+    },
+    {
+      icon: STEP_ICONS[7],
+      title: "リリース — 成果を届ける",
+      description:
+        "完了したPBIをリリースバックログに取り込み、バージョン管理してリリースします。",
+      operation: "サイドバー → リリース → リリース作成",
+      color: STEP_COLORS[7],
+    },
+  ]
+}
 
 // ---------------------------------------------------------------------------
 // Tab labels
@@ -233,27 +400,39 @@ function StepItem({
 // Getting Started tab
 // ---------------------------------------------------------------------------
 
+const INTRO_TEXT: Record<ProjectType, string> = {
+  software:
+    "Kanflowを使ったスクラム開発の流れを、8つのステップで説明します。各ステップをクリックして詳細を確認してください。",
+  process_improvement:
+    "Kanflowを使った工程改善の流れを、8つのステップで説明します。各ステップをクリックして詳細を確認してください。",
+  general:
+    "Kanflowを使ったプロジェクト運営の流れを、8つのステップで説明します。各ステップをクリックして詳細を確認してください。",
+}
+
 function GettingStartedTab() {
+  const { projectType, pt } = useLanguage()
   const [openSteps, setOpenSteps] = useState<Record<number, boolean>>({ 0: true })
 
-  const toggle = (idx: number) => {
+  const steps = useMemo(() => getSteps(projectType, pt), [projectType, pt])
+
+  const toggle = useCallback((idx: number) => {
     setOpenSteps((prev) => ({ ...prev, [idx]: !prev[idx] }))
-  }
+  }, [])
 
   return (
     <div className="space-y-0">
       <div className="mb-6">
         <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-          Kanflowを使ったスクラム開発の流れを、7つのステップで説明します。各ステップをクリックして詳細を確認してください。
+          {INTRO_TEXT[projectType]}
         </p>
       </div>
-      {STEPS.map((step, i) => (
+      {steps.map((step, i) => (
         <StepItem
           key={i}
           step={step}
           index={i}
           isOpen={!!openSteps[i]}
-          isLast={i === STEPS.length - 1}
+          isLast={i === steps.length - 1}
           onToggle={() => toggle(i)}
         />
       ))}
@@ -266,21 +445,23 @@ function GettingStartedTab() {
 // ---------------------------------------------------------------------------
 
 function GlossaryTab() {
+  const { projectType } = useLanguage()
   const [search, setSearch] = useState("")
   const [filterCategory, setFilterCategory] = useState<GlossaryCategory | "all">("all")
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase()
     return GLOSSARY_ENTRIES.filter((entry) => {
+      const matchesType = !entry.projectTypes || entry.projectTypes.includes(projectType)
       const matchesSearch =
         !q ||
         entry.term.toLowerCase().includes(q) ||
         entry.english.toLowerCase().includes(q) ||
         entry.description.toLowerCase().includes(q)
       const matchesCategory = filterCategory === "all" || entry.category === filterCategory
-      return matchesSearch && matchesCategory
+      return matchesType && matchesSearch && matchesCategory
     })
-  }, [search, filterCategory])
+  }, [search, filterCategory, projectType])
 
   return (
     <div>
@@ -383,13 +564,17 @@ function GlossaryTab() {
 // ---------------------------------------------------------------------------
 
 function HelpTab() {
+  const { projectType } = useLanguage()
   const [openItems, setOpenItems] = useState<Record<number, boolean>>({})
   const [filterCategory, setFilterCategory] = useState<FaqCategory | "all">("all")
 
   const filtered = useMemo(() => {
-    if (filterCategory === "all") return FAQ_ENTRIES
-    return FAQ_ENTRIES.filter((item) => item.category === filterCategory)
-  }, [filterCategory])
+    return FAQ_ENTRIES.filter((item) => {
+      const matchesType = !item.projectTypes || item.projectTypes.includes(projectType)
+      const matchesCategory = filterCategory === "all" || item.category === filterCategory
+      return matchesType && matchesCategory
+    })
+  }, [filterCategory, projectType])
 
   const toggle = (idx: number) => {
     setOpenItems((prev) => ({ ...prev, [idx]: !prev[idx] }))

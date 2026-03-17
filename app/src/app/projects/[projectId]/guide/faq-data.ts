@@ -1,9 +1,12 @@
+import type { ProjectType } from "@/lib/project-type-labels"
+
 export type FaqCategory = "basic" | "icebox" | "backlog" | "sprint" | "other"
 
 export interface FaqItem {
   question: string
   answer: string
   category: FaqCategory
+  projectTypes?: ProjectType[]
 }
 
 export const FAQ_CATEGORY_LABELS: Record<FaqCategory, string> = {
@@ -107,5 +110,29 @@ export const FAQ_ENTRIES: FaqItem[] = [
     answer:
       "ダッシュボードのファイル一覧で「編集」ボタンをクリックすると、Collabora Onlineでブラウザ上から直接編集できます。",
     category: "other",
+  },
+
+  // ── 工程改善プロジェクト専用FAQ ──
+
+  {
+    question: "改善サイクルとスプリントの違いは？",
+    answer:
+      "基本的な仕組みは同じですが、工程改善プロジェクトでは「改善サイクル」と呼びます。改善施策の計画・実行・効果検証を一定期間で繰り返す点はスプリントと同様です。",
+    category: "sprint",
+    projectTypes: ["process_improvement"],
+  },
+  {
+    question: "改善効果をどう測定する？",
+    answer:
+      "改善前後の数値を比較して効果を測定します。OEE（設備総合効率）、不良率、工数、リードタイムなどをKPIとして設定し、改善サイクルごとに振り返りで確認します。",
+    category: "sprint",
+    projectTypes: ["process_improvement"],
+  },
+  {
+    question: "標準化とは？",
+    answer:
+      "改善成果を標準作業手順書（SOP）に落とし込み、組織全体に展開することです。改善が一時的なものにならないよう、手順として定着させることが重要です。",
+    category: "other",
+    projectTypes: ["process_improvement"],
   },
 ]

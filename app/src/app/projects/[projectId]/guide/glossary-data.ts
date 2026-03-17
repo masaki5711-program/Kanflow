@@ -1,3 +1,5 @@
+import type { ProjectType } from "@/lib/project-type-labels"
+
 export type GlossaryCategory = "role" | "event" | "artifact" | "tool"
 
 export interface GlossaryEntry {
@@ -6,6 +8,7 @@ export interface GlossaryEntry {
   description: string
   kanflow?: string
   category: GlossaryCategory
+  projectTypes?: ProjectType[]
 }
 
 export const CATEGORY_LABELS: Record<GlossaryCategory, string> = {
@@ -79,6 +82,7 @@ export const GLOSSARY_ENTRIES: GlossaryEntry[] = [
     description: "「誰が、何を、なぜ」の形式で書いた要求。",
     kanflow: "バックログの各PBIに記述",
     category: "artifact",
+    projectTypes: ["software"],
   },
   {
     term: "受入条件",
@@ -86,6 +90,7 @@ export const GLOSSARY_ENTRIES: GlossaryEntry[] = [
     description: "ストーリーが完了したとみなす条件。",
     kanflow: "PBI詳細画面の受入条件フィールド",
     category: "artifact",
+    projectTypes: ["software"],
   },
   {
     term: "バーンダウンチャート",
@@ -121,6 +126,7 @@ export const GLOSSARY_ENTRIES: GlossaryEntry[] = [
     description: "リリース予定の項目リスト。",
     kanflow: "サイドバー → リリース",
     category: "artifact",
+    projectTypes: ["software"],
   },
   {
     term: "KPT",
@@ -142,6 +148,7 @@ export const GLOSSARY_ENTRIES: GlossaryEntry[] = [
     description: "大きなユーザーストーリーの集まり。",
     kanflow: "バックログのエピックフィールド",
     category: "artifact",
+    projectTypes: ["software"],
   },
   {
     term: "イニシアティブ",
@@ -149,6 +156,7 @@ export const GLOSSARY_ENTRIES: GlossaryEntry[] = [
     description: "エピックの上位概念。戦略的な施策。",
     kanflow: "バックログのイニシアティブフィールド",
     category: "artifact",
+    projectTypes: ["software"],
   },
   {
     term: "ガントチャート",
@@ -228,6 +236,7 @@ export const GLOSSARY_ENTRIES: GlossaryEntry[] = [
     english: "Minimum Viable Product",
     description: "最小実行可能製品の略。価値を検証するために必要最小限の機能を持つ製品バージョン。",
     category: "artifact",
+    projectTypes: ["software"],
   },
   {
     term: "WIP",
@@ -254,5 +263,74 @@ export const GLOSSARY_ENTRIES: GlossaryEntry[] = [
     description: "ストーリーポイントの略。PBIの相対的な作業量を表す単位。チームの合意で決定する。",
     kanflow: "プロジェクト設定 → 1点の単位で「ストーリーポイント (SP)」を選択可能",
     category: "tool",
+  },
+
+  // ── 工程改善プロジェクト専用用語 ──
+
+  {
+    term: "改善",
+    english: "Kaizen",
+    description: "日本発の継続的改善の概念。小さな改善を積み重ねて大きな成果を得る手法。英語でもKaizenとして定着している。",
+    category: "tool",
+    projectTypes: ["process_improvement"],
+  },
+  {
+    term: "改善サイクル",
+    english: "Kaizen Cycle",
+    description: "スプリントの工程改善版。一定期間で改善施策を計画・実行・検証するサイクル。",
+    kanflow: "サイドバー → 改善サイクル",
+    category: "event",
+    projectTypes: ["process_improvement"],
+  },
+  {
+    term: "改善バックログ",
+    english: "Kaizen Backlog",
+    description: "プロダクトバックログの工程改善版。改善すべき項目を優先順位付きで管理するリスト。",
+    kanflow: "サイドバー → 改善バックログ",
+    category: "artifact",
+    projectTypes: ["process_improvement"],
+  },
+  {
+    term: "改善オーナー",
+    english: "Kaizen Owner",
+    description: "プロダクトオーナーの工程改善版。改善活動の方向性と優先順位を決定する責任者。",
+    kanflow: "プロジェクト設定でロールを割り当て",
+    category: "role",
+    projectTypes: ["process_improvement"],
+  },
+  {
+    term: "標準化",
+    english: "Standardization",
+    description: "改善成果を標準作業手順書（SOP）に組み込み、組織全体に展開すること。",
+    category: "tool",
+    projectTypes: ["process_improvement"],
+  },
+  {
+    term: "QCサークル",
+    english: "QC Circle",
+    description: "品質管理の小グループ活動。現場の作業者が自主的に品質改善に取り組む。",
+    category: "tool",
+    projectTypes: ["process_improvement"],
+  },
+  {
+    term: "5S",
+    english: "5S",
+    description: "整理・整頓・清掃・清潔・躾の頭文字。職場環境改善の基本手法。",
+    category: "tool",
+    projectTypes: ["process_improvement"],
+  },
+  {
+    term: "OEE",
+    english: "Overall Equipment Effectiveness",
+    description: "設備総合効率。可用率×性能率×品質率で算出し、設備の生産性を測定する指標。",
+    category: "tool",
+    projectTypes: ["process_improvement"],
+  },
+  {
+    term: "SMED",
+    english: "Single-Minute Exchange of Die",
+    description: "段取替え時間を10分以内に短縮する手法。生産のリードタイム短縮に貢献する。",
+    category: "tool",
+    projectTypes: ["process_improvement"],
   },
 ]
