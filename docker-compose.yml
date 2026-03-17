@@ -12,6 +12,38 @@ services:
       MYSQL_PASSWORD: ${MYSQL_APP_PASSWORD}
     volumes:
       - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    container_name: scrum-app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: "mysql://${MYSQL_APP_USER:-scrum_app}:${MYSQL_APP_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-scrum_tool}"
+      DATABASE_HOST: mysql
+      DATABASE_PORT: "3306"
+      DATABASE_USER: ${MYSQL_APP_USER:-scrum_app}
+      DATABASE_PASSWORD: ${MYSQL_APP_PASSWORD}
+      DATABASE_NAME: ${MYSQL_DATABASE:-scrum_tool}
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+      AUTH_TRUST_HOST: "true"
+      NEXT_PUBLIC_COLLABORA_URL: ${NEXT_PUBLIC_COLLABORA_URL:-http://localhost:9980}
+      COLLABORA_INTERNAL_URL: http://scrum-collabora:9980
+      APP_EXTERNAL_URL: ${APP_EXTERNAL_URL:-http://scrum-app:3000}
+    volumes:
+      - app_uploads:/app/public/uploads
+    depends_on:
+      mysql:
+        condition: service_healthy
 
   collabora:
     image: collabora/code:latest
@@ -21,7 +53,7 @@ services:
       - "127.0.0.1:9980:9980"
     environment:
       - "extra_params=--o:ssl.enable=false --o:ssl.termination=false"
-      - "aliasgroup1=http://host.docker.internal:3000"
+      - "aliasgroup1=http://scrum-app:3000"
       - "username=${COLLABORA_ADMIN_USER:-admin}"
       - "password=${COLLABORA_ADMIN_PASSWORD}"
       - "dictionaries=ja_JP"
@@ -34,3 +66,4 @@ services:
 
 volumes:
   mysql_data:
+  app_uploads:

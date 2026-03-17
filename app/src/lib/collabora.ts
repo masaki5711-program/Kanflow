@@ -1,4 +1,6 @@
-const COLLABORA_URL = process.env.NEXT_PUBLIC_COLLABORA_URL ?? "http://localhost:9980"
+// Server-side: use internal Docker hostname; Browser: use public URL
+const COLLABORA_URL = process.env.COLLABORA_INTERNAL_URL ?? process.env.NEXT_PUBLIC_COLLABORA_URL ?? "http://localhost:9980"
+const COLLABORA_PUBLIC_URL = process.env.NEXT_PUBLIC_COLLABORA_URL ?? "http://localhost:9980"
 const APP_EXTERNAL_URL = process.env.APP_EXTERNAL_URL ?? "http://host.docker.internal:3000"
 
 export function isEditableInCollabora(mimeType: string): boolean {
@@ -62,9 +64,9 @@ export async function getCollaboraEditorUrl(
     }
   }
 
-  // Collabora may return https:// URLs even when SSL is disabled.
-  // Replace with the configured COLLABORA_URL scheme to avoid SSL errors.
-  const collaboraOrigin = new URL(COLLABORA_URL).origin
+  // Collabora may return internal URLs or https:// even when SSL is disabled.
+  // Replace with the public COLLABORA_URL so the browser can reach it.
+  const collaboraOrigin = new URL(COLLABORA_PUBLIC_URL).origin
   editorBaseUrl = editorBaseUrl.replace(/^https?:\/\/[^/]+/, collaboraOrigin)
 
   const editorUrl = `${editorBaseUrl}WOPISrc=${encodeURIComponent(wopiSrc)}&lang=ja`

@@ -208,14 +208,14 @@ export const FAQ_ENTRIES: FaqItem[] = [
 
   {
     question: {
-      ja: "改善サイクルとスプリントの違いは？",
-      en: "What is the difference between a Kaizen Cycle and a Sprint?",
-      id: "Apa perbedaan antara Siklus Kaizen dan Sprint?",
+      ja: "改善スプリントとスプリントの違いは？",
+      en: "What is the difference between a KAIZEN Sprint and a Sprint?",
+      id: "Apa perbedaan antara KAIZEN Sprint dan Sprint?",
     },
     answer: {
-      ja: "基本的な仕組みは同じですが、工程改善プロジェクトでは「改善サイクル」と呼びます。改善施策の計画・実行・効果検証を一定期間で繰り返す点はスプリントと同様です。",
-      en: "The basic mechanism is the same, but in process improvement projects it is called a 'Kaizen Cycle'. Like sprints, it repeats the cycle of planning, executing, and verifying improvement measures within a fixed period.",
-      id: "Mekanisme dasarnya sama, tetapi dalam proyek perbaikan proses disebut 'Siklus Kaizen'. Seperti sprint, ini mengulangi siklus perencanaan, pelaksanaan, dan verifikasi langkah-langkah perbaikan dalam periode tetap.",
+      ja: "基本的な仕組みは同じですが、工程改善プロジェクトでは「改善スプリント」と呼びます。改善施策の計画・実行・効果検証を一定期間で繰り返す点はスプリントと同様です。",
+      en: "The basic mechanism is the same, but in process improvement projects it is called a 'KAIZEN Sprint'. Like sprints, it repeats the cycle of planning, executing, and verifying improvement measures within a fixed period.",
+      id: "Mekanisme dasarnya sama, tetapi dalam proyek perbaikan proses disebut 'KAIZEN Sprint'. Seperti sprint, ini mengulangi siklus perencanaan, pelaksanaan, dan verifikasi langkah-langkah perbaikan dalam periode tetap.",
     },
     category: "sprint",
     projectTypes: ["process_improvement"],
@@ -227,9 +227,9 @@ export const FAQ_ENTRIES: FaqItem[] = [
       id: "Bagaimana cara mengukur efektivitas perbaikan?",
     },
     answer: {
-      ja: "改善前後の数値を比較して効果を測定します。OEE（設備総合効率）、不良率、工数、リードタイムなどをKPIとして設定し、改善サイクルごとに振り返りで確認します。",
-      en: "Measure effectiveness by comparing numbers before and after improvement. Set KPIs such as OEE (Overall Equipment Effectiveness), defect rate, labor hours, and lead time, and review them in each Kaizen Cycle retrospective.",
-      id: "Ukur efektivitas dengan membandingkan angka sebelum dan sesudah perbaikan. Tetapkan KPI seperti OEE (Overall Equipment Effectiveness), tingkat cacat, jam kerja, dan waktu tunggu, dan tinjau di setiap retrospektif Siklus Kaizen.",
+      ja: "改善前後の数値を比較して効果を測定します。OEE（設備総合効率）、不良率、工数、リードタイムなどをKPIとして設定し、改善スプリントごとに振り返りで確認します。",
+      en: "Measure effectiveness by comparing numbers before and after improvement. Set KPIs such as OEE (Overall Equipment Effectiveness), defect rate, labor hours, and lead time, and review them in each KAIZEN Sprint retrospective.",
+      id: "Ukur efektivitas dengan membandingkan angka sebelum dan sesudah perbaikan. Tetapkan KPI seperti OEE (Overall Equipment Effectiveness), tingkat cacat, jam kerja, dan waktu tunggu, dan tinjau di setiap retrospektif KAIZEN Sprint.",
     },
     category: "sprint",
     projectTypes: ["process_improvement"],

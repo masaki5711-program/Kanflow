@@ -98,7 +98,7 @@ function getSteps(projectType: ProjectType, pt: ProjectTypeLabels, language: Lan
           operation: `${pt.navBacklog} → PBI追加、ドラッグで並び替え`,
         },
         {
-          title: "改善サイクル計画 — 次にやることを決める",
+          title: "改善スプリント計画 — 次にやることを決める",
           description: `1〜4週間の${pt.navSprints}を作成し、${pt.navBacklog}の上位アイテムを取り込みます。キャパシティ（チームの処理能力）を設定し、過負荷にならないよう調整します。`,
           operation: `${pt.navSprints} → 新規作成 → バックログから取り込み`,
         },
@@ -109,7 +109,7 @@ function getSteps(projectType: ProjectType, pt: ProjectTypeLabels, language: Lan
         },
         {
           title: "効果検証＆振り返り — 改善効果を確認する",
-          description: "改善サイクル終了時に効果検証と振り返りメモ（KPT）を記録。改善前後の数値を比較し、次のサイクルに活かします。",
+          description: "改善スプリント終了時に効果検証と振り返りメモ（KPT）を記録。改善前後の数値を比較し、次のスプリントに活かします。",
         },
         {
           title: "標準化・展開 — 成果を展開する",
@@ -120,7 +120,7 @@ function getSteps(projectType: ProjectType, pt: ProjectTypeLabels, language: Lan
       en: [
         {
           title: "Kaizen Goal — Define the Target State",
-          description: "At the start of the project, set the ultimate improvement goal the team aims for. The Kaizen Goal is the 'North Star' guiding all activities. Kaizen Backlog priorities are also determined based on this goal.",
+          description: "At the start of the project, set the ultimate improvement goal the team aims for. The KAIZEN Goal is the 'North Star' guiding all activities. KAIZEN Backlog priorities are also determined based on this goal.",
           operation: "Dashboard → Product Goal → Add Goal",
           hint: "Goals should ideally be specific and measurable. Example: 'Reduce defect rate by 50%' or 'Shorten changeover time to under 10 minutes'",
         },
@@ -136,12 +136,12 @@ function getSteps(projectType: ProjectType, pt: ProjectTypeLabels, language: Lan
           operation: "Status change button on the right side of each card",
         },
         {
-          title: "Kaizen Backlog — Set Priorities",
+          title: "KAIZEN Backlog — Set Priorities",
           description: `Move confirmed requests to the ${pt.navBacklog} and refine them. The ${pt.rolePO} sets effort points and priorities.`,
           operation: `${pt.navBacklog} → Add PBI, drag to reorder`,
         },
         {
-          title: "Kaizen Cycle Planning — Decide What to Do Next",
+          title: "KAIZEN Sprint Planning — Decide What to Do Next",
           description: `Create a 1-4 week ${pt.navSprints}, and pull in top items from the ${pt.navBacklog}. Set the capacity (team throughput) and adjust to avoid overload.`,
           operation: `${pt.navSprints} → Create New → Pull from Backlog`,
         },
@@ -152,7 +152,7 @@ function getSteps(projectType: ProjectType, pt: ProjectTypeLabels, language: Lan
         },
         {
           title: "Verify & Reflect — Confirm Improvement Effects",
-          description: "At the end of the Kaizen Cycle, record effect verification and retrospective notes (KPT). Compare before-and-after metrics and apply learnings to the next cycle.",
+          description: "At the end of the KAIZEN Sprint, record effect verification and retrospective notes (KPT). Compare before-and-after metrics and apply learnings to the next sprint.",
         },
         {
           title: "Standardize & Deploy — Roll Out Results",
@@ -163,7 +163,7 @@ function getSteps(projectType: ProjectType, pt: ProjectTypeLabels, language: Lan
       id: [
         {
           title: "Tujuan Kaizen — Tentukan Target",
-          description: "Di awal proyek, tetapkan tujuan perbaikan akhir yang ingin dicapai tim. Tujuan Kaizen adalah 'Bintang Utara' yang memandu semua aktivitas. Prioritas Kaizen Backlog juga ditentukan berdasarkan tujuan ini.",
+          description: "Di awal proyek, tetapkan tujuan perbaikan akhir yang ingin dicapai tim. Tujuan KAIZEN adalah 'Bintang Utara' yang memandu semua aktivitas. Prioritas KAIZEN Backlog juga ditentukan berdasarkan tujuan ini.",
           operation: "Dashboard → Product Goal → Tambah Goal",
           hint: "Tujuan idealnya spesifik dan terukur. Contoh: 'Kurangi tingkat cacat 50%' atau 'Persingkat waktu pergantian menjadi di bawah 10 menit'",
         },
@@ -179,12 +179,12 @@ function getSteps(projectType: ProjectType, pt: ProjectTypeLabels, language: Lan
           operation: "Tombol perubahan status di sisi kanan setiap kartu",
         },
         {
-          title: "Kaizen Backlog — Tetapkan Prioritas",
+          title: "KAIZEN Backlog — Tetapkan Prioritas",
           description: `Pindahkan permintaan yang dikonfirmasi ke ${pt.navBacklog} dan perinci. ${pt.rolePO} menetapkan poin upaya dan prioritas.`,
           operation: `${pt.navBacklog} → Tambah PBI, seret untuk mengurutkan`,
         },
         {
-          title: "Perencanaan Siklus Kaizen — Putuskan Apa yang Dilakukan Selanjutnya",
+          title: "Perencanaan KAIZEN Sprint — Putuskan Apa yang Dilakukan Selanjutnya",
           description: `Buat ${pt.navSprints} 1-4 minggu, dan tarik item teratas dari ${pt.navBacklog}. Atur kapasitas (throughput tim) dan sesuaikan untuk menghindari kelebihan beban.`,
           operation: `${pt.navSprints} → Buat Baru → Tarik dari Backlog`,
         },
@@ -195,7 +195,7 @@ function getSteps(projectType: ProjectType, pt: ProjectTypeLabels, language: Lan
         },
         {
           title: "Verifikasi & Refleksi — Konfirmasi Efek Perbaikan",
-          description: "Di akhir Siklus Kaizen, catat verifikasi efek dan catatan retrospektif (KPT). Bandingkan metrik sebelum dan sesudah dan terapkan pembelajaran ke siklus berikutnya.",
+          description: "Di akhir KAIZEN Sprint, catat verifikasi efek dan catatan retrospektif (KPT). Bandingkan metrik sebelum dan sesudah dan terapkan pembelajaran ke sprint berikutnya.",
         },
         {
           title: "Standardisasi & Penyebaran — Sebarkan Hasil",

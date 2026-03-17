@@ -4,6 +4,7 @@ const collaboraUrl = process.env.NEXT_PUBLIC_COLLABORA_URL ?? "http://localhost:
 const collaboraWs = collaboraUrl.replace(/^http/, "ws");
 
 const nextConfig: NextConfig = {
+  output: "standalone",
   async headers() {
     return [
       {

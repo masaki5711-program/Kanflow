@@ -516,24 +516,24 @@ export const GLOSSARY_ENTRIES: GlossaryEntry[] = [
     projectTypes: ["process_improvement"],
   },
   {
-    term: { ja: "改善サイクル", en: "Kaizen Cycle", id: "Siklus Kaizen" },
-    english: "Kaizen Cycle",
+    term: { ja: "改善スプリント", en: "KAIZEN Sprint", id: "KAIZEN Sprint" },
+    english: "KAIZEN Sprint",
     description: {
       ja: "スプリントの工程改善版。一定期間で改善施策を計画・実行・検証するサイクル。",
       en: "The process improvement version of a sprint. A cycle for planning, executing, and verifying improvement measures within a fixed period.",
       id: "Versi perbaikan proses dari sprint. Siklus untuk merencanakan, melaksanakan, dan memverifikasi langkah-langkah perbaikan dalam periode tetap.",
     },
     kanflow: {
-      ja: "サイドバー → 改善サイクル",
-      en: "Sidebar → Kaizen Cycles",
-      id: "Sidebar → Siklus Kaizen",
+      ja: "サイドバー → 改善スプリント",
+      en: "Sidebar → KAIZEN Sprint",
+      id: "Sidebar → KAIZEN Sprint",
     },
     category: "event",
     projectTypes: ["process_improvement"],
   },
   {
-    term: { ja: "改善バックログ", en: "Kaizen Backlog", id: "Kaizen Backlog" },
-    english: "Kaizen Backlog",
+    term: { ja: "改善バックログ", en: "KAIZEN Backlog", id: "KAIZEN Backlog" },
+    english: "KAIZEN Backlog",
     description: {
       ja: "プロダクトバックログの工程改善版。改善すべき項目を優先順位付きで管理するリスト。",
       en: "The process improvement version of a product backlog. A prioritized list of items to be improved.",
@@ -541,8 +541,8 @@ export const GLOSSARY_ENTRIES: GlossaryEntry[] = [
     },
     kanflow: {
       ja: "サイドバー → 改善バックログ",
-      en: "Sidebar → Kaizen Backlog",
-      id: "Sidebar → Kaizen Backlog",
+      en: "Sidebar → KAIZEN Backlog",
+      id: "Sidebar → KAIZEN Backlog",
     },
     category: "artifact",
     projectTypes: ["process_improvement"],
