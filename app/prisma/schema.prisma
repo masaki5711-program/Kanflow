@@ -17,6 +17,7 @@ model User {
   updatedAt         DateTime              @updatedAt
   isActive          Boolean               @default(true)
   role              String                @default("member")
+  language          String                @default("ja")
   accounts          Account[]
   memberships       ProjectMember[]
   sessions          Session[]

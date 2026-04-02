@@ -5,7 +5,7 @@ import { type Language } from "@/lib/i18n"
 import { type ProjectType } from "@/lib/project-type-labels"
 import { Header } from "@/components/header"
 import { Sidebar } from "@/components/sidebar"
-import { LanguageProvider } from "@/lib/language-context"
+import { ProjectLanguageSync } from "./project-language-sync"
 
 export default async function ProjectLayout({
   children,
@@ -30,7 +30,7 @@ export default async function ProjectLayout({
   const projectType = (project?.projectType as ProjectType) ?? "software"
 
   return (
-    <LanguageProvider initialLanguage={language} initialProjectType={projectType}>
+    <ProjectLanguageSync language={language} projectType={projectType}>
       <div className="min-h-screen bg-gray-50/50">
         <Header projectName={project?.name} projectId={projectId} />
         <div className="flex">
@@ -42,6 +42,6 @@ export default async function ProjectLayout({
           </main>
         </div>
       </div>
-    </LanguageProvider>
+    </ProjectLanguageSync>
   )
 }
