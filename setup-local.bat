@@ -56,36 +56,38 @@ REM -----------------------------------------------
 echo [2/7] Port configuration...
 echo.
 
+REM --- App port ---
 set APP_PORT=3000
 echo   Default app port: %APP_PORT%
 
-call :check_port %APP_PORT% APP_PORT_USED
-if "!APP_PORT_USED!"=="1" (
-    echo   [WARN] Port %APP_PORT% is already in use!
-    call :find_free_port 3000 APP_PORT
-    echo   [INFO] Found free port: !APP_PORT!
+netstat -an | findstr ":3000 .*LISTENING" >nul 2>&1
+if %errorlevel% equ 0 (
+    echo   [WARN] Port 3000 is already in use!
+    set APP_PORT=3001
+    netstat -an | findstr ":3001 .*LISTENING" >nul 2>&1
+    if !errorlevel! equ 0 (
+        set APP_PORT=3002
+        netstat -an | findstr ":3002 .*LISTENING" >nul 2>&1
+        if !errorlevel! equ 0 set APP_PORT=3003
+    )
+    echo   [INFO] Suggested free port: !APP_PORT!
 )
+
 set /p INPUT_APP_PORT="  App port [!APP_PORT!]: "
 if not "!INPUT_APP_PORT!"=="" set APP_PORT=!INPUT_APP_PORT!
 
-call :check_port !APP_PORT! APP_PORT_USED2
-if "!APP_PORT_USED2!"=="1" (
+netstat -an | findstr ":!APP_PORT! .*LISTENING" >nul 2>&1
+if %errorlevel% equ 0 (
     echo   [ERROR] Port !APP_PORT! is in use. Choose another port.
     goto :error
 )
 echo   [OK] App port: !APP_PORT!
 echo.
 
+REM --- MySQL port ---
 set DB_PORT=3306
 echo   Default MySQL port: %DB_PORT%
 
-call :check_port %DB_PORT% DB_PORT_USED
-if "!DB_PORT_USED!"=="1" (
-    echo   [INFO] MySQL is running on port %DB_PORT%
-) else (
-    echo   [WARN] MySQL not found on port %DB_PORT%.
-    echo          Make sure MySQL is running.
-)
 set /p INPUT_DB_PORT="  MySQL port [!DB_PORT!]: "
 if not "!INPUT_DB_PORT!"=="" set DB_PORT=!INPUT_DB_PORT!
 echo   [OK] MySQL port: !DB_PORT!
@@ -136,7 +138,7 @@ call :generate_password APP_DB_PW
 mysql -u root -p%MYSQL_ROOT_PW% -P !DB_PORT! -e "CREATE DATABASE IF NOT EXISTS scrum_tool CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>nul
 if %errorlevel% neq 0 (
     echo [ERROR] Failed to connect to MySQL.
-    echo         Check MySQL is running and password is correct.
+    echo         Check MySQL is running and password/port is correct.
     goto :error
 )
 
@@ -170,7 +172,7 @@ call :generate_password NEXTAUTH_SEC2
     echo APP_EXTERNAL_URL=http://localhost:!APP_PORT!
 ) > .env
 
-echo   [OK] app\.env generated (App=!APP_PORT!, MySQL=!DB_PORT!)
+echo   [OK] .env generated (App=!APP_PORT!, MySQL=!DB_PORT!)
 echo.
 
 REM -----------------------------------------------
@@ -234,30 +236,6 @@ exit /b 0
 REM ===============================================
 REM Subroutines
 REM ===============================================
-
-:check_port
-netstat -an | findstr /r ":%1 .*LISTENING" >nul 2>&1
-if %errorlevel% equ 0 (
-    set "%2=1"
-) else (
-    set "%2=0"
-)
-exit /b
-
-:find_free_port
-set /a "_port=%1 + 1"
-:find_loop
-if !_port! gtr 65535 (
-    set "%2=0"
-    exit /b
-)
-netstat -an | findstr /r ":!_port! .*LISTENING" >nul 2>&1
-if %errorlevel% equ 0 (
-    set /a "_port+=1"
-    goto :find_loop
-)
-set "%2=!_port!"
-exit /b
 
 :generate_password
 set "_pw="
