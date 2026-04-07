@@ -3,28 +3,28 @@ chcp 65001 >nul 2>&1
 setlocal enabledelayedexpansion
 
 echo ============================================
-echo   Scrum Tool (KanFlow) - ローカルセットアップ
-echo   （Docker不要）
+echo   Scrum Tool (KanFlow) - Local Setup
+echo   (No Docker required)
 echo ============================================
 echo.
 
-:: -----------------------------------------------
-:: 1. 前提条件チェック
-:: -----------------------------------------------
-echo [1/7] 前提条件を確認中...
+REM -----------------------------------------------
+REM 1. Prerequisites check
+REM -----------------------------------------------
+echo [1/7] Checking prerequisites...
 
 where git >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [ERROR] Git がインストールされていません。
-    echo         https://git-scm.com/downloads からインストールしてください。
+    echo [ERROR] Git is not installed.
+    echo         https://git-scm.com/downloads
     goto :error
 )
 echo   [OK] Git
 
 where node >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [ERROR] Node.js がインストールされていません。
-    echo         https://nodejs.org/ から v20 以上をインストールしてください。
+    echo [ERROR] Node.js is not installed.
+    echo         https://nodejs.org/ v20+
     goto :error
 )
 for /f "tokens=*" %%v in ('node -v') do set NODE_VER=%%v
@@ -32,19 +32,17 @@ echo   [OK] Node.js %NODE_VER%
 
 where npm >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [ERROR] npm がインストールされていません。
+    echo [ERROR] npm is not installed.
     goto :error
 )
 echo   [OK] npm
 
 where mysql >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [WARN] mysql コマンドが見つかりません。
-    echo        MySQL 8.0 がインストールされていることを確認してください。
+    echo [WARN] mysql command not found.
+    echo        Make sure MySQL 8.0 is installed.
     echo        https://dev.mysql.com/downloads/installer/
     echo.
-    echo        既にインストール済みの場合は PATH を通してください。
-    echo        続行しますか？
     pause
 ) else (
     echo   [OK] MySQL client
@@ -52,195 +50,178 @@ if %errorlevel% neq 0 (
 
 echo.
 
-:: -----------------------------------------------
-:: 2. ポート設定
-:: -----------------------------------------------
-echo [2/7] ポート設定...
+REM -----------------------------------------------
+REM 2. Port configuration
+REM -----------------------------------------------
+echo [2/7] Port configuration...
 echo.
 
-:: --- アプリポート ---
 set APP_PORT=3000
-echo   Next.js アプリのデフォルトポート: %APP_PORT%
+echo   Default app port: %APP_PORT%
 
-:: ポートが使用中かチェック
 call :check_port %APP_PORT% APP_PORT_USED
 if "!APP_PORT_USED!"=="1" (
-    echo   [WARN] ポート %APP_PORT% は既に使用中です！
+    echo   [WARN] Port %APP_PORT% is already in use!
     call :find_free_port 3000 APP_PORT
-    echo   [INFO] 空きポート !APP_PORT! を検出しました。
+    echo   [INFO] Found free port: !APP_PORT!
 )
-set /p INPUT_APP_PORT="  アプリポート [!APP_PORT!]: "
+set /p INPUT_APP_PORT="  App port [!APP_PORT!]: "
 if not "!INPUT_APP_PORT!"=="" set APP_PORT=!INPUT_APP_PORT!
 
-:: 入力されたポートを再チェック
 call :check_port !APP_PORT! APP_PORT_USED2
 if "!APP_PORT_USED2!"=="1" (
-    echo   [ERROR] ポート !APP_PORT! は使用中です。別のポートを指定してください。
+    echo   [ERROR] Port !APP_PORT! is in use. Choose another port.
     goto :error
 )
-echo   [OK] アプリポート: !APP_PORT!
+echo   [OK] App port: !APP_PORT!
 echo.
 
-:: --- MySQL ポート ---
 set DB_PORT=3306
-echo   MySQL のデフォルトポート: %DB_PORT%
+echo   Default MySQL port: %DB_PORT%
 
 call :check_port %DB_PORT% DB_PORT_USED
 if "!DB_PORT_USED!"=="1" (
-    echo   [INFO] ポート %DB_PORT% で MySQL が動作中です（そのまま使用します）
+    echo   [INFO] MySQL is running on port %DB_PORT%
 ) else (
-    echo   [WARN] ポート %DB_PORT% で MySQL が見つかりません。
-    echo          MySQL が起動しているか確認してください。
+    echo   [WARN] MySQL not found on port %DB_PORT%.
+    echo          Make sure MySQL is running.
 )
-set /p INPUT_DB_PORT="  MySQL ポート [!DB_PORT!]: "
+set /p INPUT_DB_PORT="  MySQL port [!DB_PORT!]: "
 if not "!INPUT_DB_PORT!"=="" set DB_PORT=!INPUT_DB_PORT!
-echo   [OK] MySQL ポート: !DB_PORT!
+echo   [OK] MySQL port: !DB_PORT!
 echo.
 
-:: -----------------------------------------------
-:: 3. リポジトリ取得
-:: -----------------------------------------------
-echo [3/7] リポジトリを取得中...
+REM -----------------------------------------------
+REM 3. Clone repository
+REM -----------------------------------------------
+echo [3/7] Getting repository...
 
 set REPO_URL=https://gitlab.scm.service.infosys.yamaha.com/ymma/stragegic-planning/appications/kanflow.git
 set APP_DIR=kanflow
 
 if exist "%APP_DIR%\.git" (
-    echo   既にクローン済み。最新を取得します...
+    echo   Already cloned. Pulling latest...
     pushd "%APP_DIR%"
     git pull origin main
     popd
 ) else if exist "%APP_DIR%" (
-    echo [ERROR] %APP_DIR% フォルダが既に存在しますが、Gitリポジトリではありません。
+    echo [ERROR] %APP_DIR% folder exists but is not a git repo.
     goto :error
 ) else (
     git clone %REPO_URL% %APP_DIR%
 )
 
 if %errorlevel% neq 0 (
-    echo [ERROR] リポジトリの取得に失敗しました。
+    echo [ERROR] Failed to get repository.
     goto :error
 )
-echo   [OK] リポジトリ取得完了
+echo   [OK] Repository ready
 echo.
 
-:: -----------------------------------------------
-:: 4. MySQL データベース作成
-:: -----------------------------------------------
-echo [4/7] MySQL データベースをセットアップ中...
+REM -----------------------------------------------
+REM 4. MySQL database setup
+REM -----------------------------------------------
+echo [4/7] Setting up MySQL database...
 echo.
-echo   MySQL root パスワードを入力してください。
-echo   （MySQL インストール時に設定したパスワード）
+echo   Enter MySQL root password:
 echo.
 
-set /p MYSQL_ROOT_PW="  MySQL root パスワード: "
+set /p MYSQL_ROOT_PW="  MySQL root password: "
 
-:: DB とユーザーを作成
-echo   データベースとユーザーを作成中...
+echo   Creating database and user...
 
 set "CHARS=abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 call :generate_password APP_DB_PW
 
 mysql -u root -p%MYSQL_ROOT_PW% -P !DB_PORT! -e "CREATE DATABASE IF NOT EXISTS scrum_tool CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>nul
 if %errorlevel% neq 0 (
-    echo [ERROR] MySQL への接続に失敗しました。
-    echo         MySQL が起動しているか、パスワード・ポートが正しいか確認してください。
+    echo [ERROR] Failed to connect to MySQL.
+    echo         Check MySQL is running and password is correct.
     goto :error
 )
 
 mysql -u root -p%MYSQL_ROOT_PW% -P !DB_PORT! -e "CREATE USER IF NOT EXISTS 'scrum_app'@'localhost' IDENTIFIED BY '!APP_DB_PW!';" 2>nul
 mysql -u root -p%MYSQL_ROOT_PW% -P !DB_PORT! -e "GRANT ALL PRIVILEGES ON scrum_tool.* TO 'scrum_app'@'localhost'; FLUSH PRIVILEGES;" 2>nul
 
-echo   [OK] データベース scrum_tool 作成完了
-echo   [OK] ユーザー scrum_app 作成完了
+echo   [OK] Database: scrum_tool
+echo   [OK] User: scrum_app
 echo.
 
-:: -----------------------------------------------
-:: 5. .env ファイル作成
-:: -----------------------------------------------
+REM -----------------------------------------------
+REM 5. Generate .env
+REM -----------------------------------------------
 pushd "%APP_DIR%\app"
 
-echo [5/7] 環境設定ファイルを準備中...
-
-if exist .env (
-    echo   [INFO] .env は既に存在します。ポート設定を更新します...
-)
+echo [5/7] Generating .env file...
 
 call :generate_password NEXTAUTH_SEC1
 call :generate_password NEXTAUTH_SEC2
 
 (
-    echo # Auto-generated by setup-local.bat
-    echo.
-    echo # Database
     echo DATABASE_URL=mysql://scrum_app:!APP_DB_PW!@localhost:!DB_PORT!/scrum_tool
     echo DATABASE_HOST=localhost
     echo DATABASE_PORT=!DB_PORT!
     echo DATABASE_USER=scrum_app
     echo DATABASE_PASSWORD=!APP_DB_PW!
     echo DATABASE_NAME=scrum_tool
-    echo.
-    echo # NextAuth
     echo NEXTAUTH_URL=http://localhost:!APP_PORT!
     echo NEXTAUTH_SECRET=!NEXTAUTH_SEC1!!NEXTAUTH_SEC2!
-    echo.
-    echo # Collabora Online (optional - document editing)
     echo NEXT_PUBLIC_COLLABORA_URL=http://localhost:9980
     echo APP_EXTERNAL_URL=http://localhost:!APP_PORT!
 ) > .env
 
-echo   [OK] app\.env を生成しました（APP=!APP_PORT!, MySQL=!DB_PORT!）
+echo   [OK] app\.env generated (App=!APP_PORT!, MySQL=!DB_PORT!)
 echo.
 
-:: -----------------------------------------------
-:: 6. npm install & Prisma セットアップ
-:: -----------------------------------------------
-echo [6/7] 依存パッケージをインストール中...
-echo   （初回は数分かかります...）
+REM -----------------------------------------------
+REM 6. npm install and Prisma setup
+REM -----------------------------------------------
+echo [6/7] Installing dependencies...
+echo   (This may take a few minutes...)
 echo.
 
 call npm ci
 if %errorlevel% neq 0 (
-    echo [ERROR] npm ci に失敗しました。
+    echo [ERROR] npm ci failed.
     goto :error_pop
 )
-echo   [OK] npm パッケージインストール完了
+echo   [OK] npm packages installed
 
 echo.
-echo   Prisma クライアントを生成中...
+echo   Generating Prisma client...
 call npx prisma generate --schema=prisma/schema.prisma
 if %errorlevel% neq 0 (
-    echo [ERROR] Prisma generate に失敗しました。
+    echo [ERROR] Prisma generate failed.
     goto :error_pop
 )
-echo   [OK] Prisma クライアント生成完了
+echo   [OK] Prisma client generated
 
 echo.
-echo   データベースマイグレーションを実行中...
+echo   Running database migrations...
 call npx prisma migrate deploy --schema=prisma/schema.prisma
 if %errorlevel% neq 0 (
-    echo [ERROR] Prisma migrate に失敗しました。
-    echo         MySQL が起動しているか確認してください。
+    echo [ERROR] Prisma migrate failed.
+    echo         Make sure MySQL is running.
     goto :error_pop
 )
-echo   [OK] マイグレーション完了
+echo   [OK] Migrations complete
 echo.
 
-:: -----------------------------------------------
-:: 7. アプリ起動
-:: -----------------------------------------------
-echo [7/7] アプリケーションを起動中...
+REM -----------------------------------------------
+REM 7. Start app
+REM -----------------------------------------------
+echo [7/7] Starting application...
 echo.
 
 echo ============================================
-echo   セットアップ完了！
+echo   Setup complete!
 echo ============================================
 echo.
-echo   アプリ:    http://localhost:!APP_PORT!
-echo   MySQL:     localhost:!DB_PORT!
+echo   App:   http://localhost:!APP_PORT!
+echo   MySQL: localhost:!DB_PORT!
 echo.
-echo   開発モードで起動します...
-echo   （停止するには Ctrl+C）
+echo   Starting dev server...
+echo   (Press Ctrl+C to stop)
 echo ============================================
 echo.
 
@@ -250,14 +231,10 @@ popd
 endlocal
 exit /b 0
 
-:: ===============================================
-:: サブルーチン
-:: ===============================================
+REM ===============================================
+REM Subroutines
+REM ===============================================
 
-:: -----------------------------------------------
-:: ポート使用中チェック (戻り値: 1=使用中, 0=空き)
-:: 引数: %1=ポート番号, %2=結果変数名
-:: -----------------------------------------------
 :check_port
 netstat -an | findstr /r ":%1 .*LISTENING" >nul 2>&1
 if %errorlevel% equ 0 (
@@ -267,15 +244,10 @@ if %errorlevel% equ 0 (
 )
 exit /b
 
-:: -----------------------------------------------
-:: 空きポート検索 (指定ポートから+1ずつ探す)
-:: 引数: %1=開始ポート, %2=結果変数名
-:: -----------------------------------------------
 :find_free_port
 set /a "_port=%1 + 1"
 :find_loop
 if !_port! gtr 65535 (
-    echo [ERROR] 空きポートが見つかりません。
     set "%2=0"
     exit /b
 )
@@ -287,9 +259,6 @@ if %errorlevel% equ 0 (
 set "%2=!_port!"
 exit /b
 
-:: -----------------------------------------------
-:: パスワード生成サブルーチン (16文字)
-:: -----------------------------------------------
 :generate_password
 set "_pw="
 for /L %%i in (1,1,16) do (
@@ -303,7 +272,7 @@ exit /b
 popd
 :error
 echo.
-echo セットアップに失敗しました。上記のエラーを確認してください。
+echo Setup failed. Check the errors above.
 endlocal
 pause
 exit /b 1
