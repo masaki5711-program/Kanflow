@@ -1,0 +1,29 @@
+services:
+  collabora:
+    image: collabora/code:latest
+    container_name: kanflow-collabora
+    restart: unless-stopped
+    ports:
+      - "9980:9980"
+    environment:
+      # SSL off — Next.js runs on plain http on the host
+      - "extra_params=--o:ssl.enable=false --o:ssl.termination=false"
+      # Allow Collabora to talk to the Next.js app running on the Windows host.
+      # Rancher Desktop / Docker Desktop expose the host via host.docker.internal
+      # and we also add the LAN IP explicitly (see .env APP_EXTERNAL_URL).
+      - "aliasgroup1=http://host.docker.internal:3000"
+      - "aliasgroup2=http://10.107.39.36:3000"
+      - "aliasgroup3=http://localhost:3000"
+      - "username=${COLLABORA_ADMIN_USER:-admin}"
+      - "password=${COLLABORA_ADMIN_PASSWORD:-kanflow_admin}"
+      - "dictionaries=ja_JP en_US"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    cap_add:
+      - MKNOD
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9980/hosting/discovery || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s

@@ -15,6 +15,7 @@ export function CollaboraEditor({ projectId, attachmentId, onClose }: CollaboraE
   const [accessToken, setAccessToken] = useState("collabora-token")
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [fallbackDownload, setFallbackDownload] = useState<{ url: string; name: string } | null>(null)
   const formRef = useRef<HTMLFormElement>(null)
   const submittedRef = useRef(false)
 
@@ -27,6 +28,9 @@ export function CollaboraEditor({ projectId, attachmentId, onClose }: CollaboraE
         if (!res.ok) {
           const err = await res.json()
           setError(err.error ?? "Failed to load editor config")
+          if (err.downloadUrl) {
+            setFallbackDownload({ url: err.downloadUrl, name: err.originalName ?? "download" })
+          }
           setLoading(false)
           return
         }
@@ -65,14 +69,25 @@ export function CollaboraEditor({ projectId, attachmentId, onClose }: CollaboraE
 
       {error && (
         <div className="flex items-center justify-center flex-1">
-          <div className="text-center">
-            <p className="text-red-600 mb-4">{error}</p>
-            <button
-              onClick={onClose}
-              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-            >
-              {t.back}
-            </button>
+          <div className="text-center max-w-lg px-6">
+            <p className="text-red-600 mb-4 whitespace-pre-wrap">{error}</p>
+            <div className="flex items-center justify-center gap-3">
+              {fallbackDownload && (
+                <a
+                  href={`${fallbackDownload.url}?download`}
+                  download={fallbackDownload.name}
+                  className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
+                >
+                  {fallbackDownload.name} をダウンロード
+                </a>
+              )}
+              <button
+                onClick={onClose}
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+              >
+                {t.back}
+              </button>
+            </div>
           </div>
         </div>
       )}

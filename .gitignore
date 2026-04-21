@@ -26,9 +26,9 @@ Thumbs.db
 # Claude Code
 .claude/
 
-# Separate projects
-api/
-scripts/
+# Separate projects (root-level only — do NOT match app/src/app/api)
+/api/
+/scripts/
 
 # Excel
 *.xlsx
@@ -38,3 +38,11 @@ scripts/
 *.log
 *.bak
 *.db
+
+# Local data and secrets
+mysql-data/
+.db-pw
+
+# Local working notes
+memo.txt
+RESUME-STATE.md
