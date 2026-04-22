@@ -92,6 +92,55 @@ export async function saveUploadedFile(
   }
 }
 
+/**
+ * Copy a template file from private/templates/ into the project's uploads directory.
+ * Used to seed default attachments when a project is created.
+ * Returns the stored metadata, or null if the template file does not exist.
+ */
+export async function copyTemplateFile(
+  projectId: string,
+  templateFileName: string,
+  displayName: string,
+  mimeType: string
+): Promise<
+  | { ok: true; fileName: string; originalName: string; fileSize: number; mimeType: string }
+  | { ok: false; error: string }
+> {
+  const templatePath = path.resolve(process.cwd(), "private", "templates", templateFileName)
+  const templatesRoot = path.join(process.cwd(), "private", "templates")
+  if (!templatePath.startsWith(templatesRoot + path.sep)) {
+    return { ok: false, error: "テンプレートパスが不正です" }
+  }
+
+  let buf: Buffer
+  try {
+    buf = await fs.readFile(templatePath)
+  } catch {
+    return { ok: false, error: "テンプレートファイルが見つかりません" }
+  }
+
+  const rawExt = path.extname(displayName)
+  const ext = safeExtension(rawExt)
+  const token = crypto.randomBytes(16).toString("hex")
+  const fileName = `${Date.now()}_${token}${ext}`
+
+  const projectDir = path.join(process.cwd(), "private", "uploads", projectId)
+  await fs.mkdir(projectDir, { recursive: true })
+
+  const full = safeFilePath(projectId, fileName)
+  if (!full) return { ok: false, error: "パスが不正です" }
+
+  await fs.writeFile(full, buf)
+
+  return {
+    ok: true,
+    fileName,
+    originalName: displayName,
+    fileSize: buf.length,
+    mimeType,
+  }
+}
+
 export async function deleteUploadedFile(projectId: string, fileName: string): Promise<void> {
   const full = safeFilePath(projectId, fileName)
   if (!full) return

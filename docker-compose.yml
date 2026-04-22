@@ -41,6 +41,7 @@ services:
       APP_EXTERNAL_URL: ${APP_EXTERNAL_URL:-http://scrum-app:3000}
     volumes:
       - app_uploads:/app/public/uploads
+      - ./app/private/templates:/app/private/templates:ro
     depends_on:
       mysql:
         condition: service_healthy
