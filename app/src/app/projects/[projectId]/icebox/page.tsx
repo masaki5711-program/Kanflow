@@ -4,6 +4,8 @@ import { useEffect, useState, useCallback, useRef } from "react"
 import { useParams } from "next/navigation"
 import { useLanguage } from "@/lib/language-context"
 import { useConfirm } from "@/components/confirm-dialog"
+import { compressImageFile } from "@/lib/image-compress"
+import MediaPreviewModal, { type MediaItem } from "@/components/media-preview-modal"
 
 interface IceboxAttachment {
   id: string
@@ -131,7 +133,26 @@ export default function IceboxPage() {
   const [uploading, setUploading] = useState(false)
   const editFileInputRef = useRef<HTMLInputElement>(null)
 
-  const [previewImage, setPreviewImage] = useState<{ url: string; name: string } | null>(null)
+  const [previewState, setPreviewState] = useState<{ items: MediaItem[]; index: number } | null>(null)
+
+  function openMediaPreview(
+    itemId: string,
+    attachments: IceboxAttachment[],
+    startAttachmentId: string,
+  ) {
+    const previewable = attachments.filter(
+      (a) => a.mimeType.startsWith("image/") || a.mimeType.startsWith("video/") || a.mimeType.startsWith("audio/"),
+    )
+    if (previewable.length === 0) return
+    const items: MediaItem[] = previewable.map((a) => ({
+      id: a.id,
+      originalName: a.originalName,
+      mimeType: a.mimeType,
+      url: getAttachmentUrl(itemId, a.id),
+    }))
+    const idx = items.findIndex((m) => m.id === startAttachmentId)
+    setPreviewState({ items, index: idx >= 0 ? idx : 0 })
+  }
 
   const totalCount = items.unreviewed.length + items.reviewed.length + items.frozen.length
 
@@ -219,10 +240,13 @@ export default function IceboxPage() {
 
   async function handleUploadAttachment(e: React.ChangeEvent<HTMLInputElement>) {
     if (!editingItem) return
-    const file = e.target.files?.[0]
-    if (!file) return
+    const raw = e.target.files?.[0]
+    if (!raw) return
     setUploading(true)
     try {
+      const file = raw.type.startsWith("image/")
+        ? await compressImageFile(raw)
+        : raw
       const formData = new FormData()
       formData.append("file", file)
       const res = await fetch(
@@ -335,7 +359,7 @@ export default function IceboxPage() {
                         {imageAttachments.map((att) => (
                           <button
                             key={att.id}
-                            onClick={() => setPreviewImage({ url: getAttachmentUrl(item.id, att.id), name: att.originalName })}
+                            onClick={() => openMediaPreview(item.id, item.attachments ?? [], att.id)}
                             className="relative group/img rounded-lg overflow-hidden border border-gray-200 hover:border-blue-300 shadow-sm hover:shadow transition-all"
                           >
                             <img src={getAttachmentUrl(item.id, att.id)} alt={att.originalName} className="w-24 h-24 object-cover" loading="lazy" width={96} height={96} />
@@ -348,19 +372,39 @@ export default function IceboxPage() {
                     )}
                     {otherAttachments.length > 0 && (
                       <div className="flex flex-wrap gap-1.5 mt-2">
-                        {otherAttachments.map((att) => (
-                          <a
-                            key={att.id}
-                            href={getAttachmentUrl(item.id, att.id)}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 bg-gray-50 text-gray-600 rounded-lg border border-gray-200 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200 transition-colors"
-                            title={`${att.originalName} (${formatFileSize(att.fileSize)})`}
-                          >
-                            {I("file", "w-3 h-3")}
-                            {att.originalName.length > 20 ? att.originalName.slice(0, 18) + "..." : att.originalName}
-                          </a>
-                        ))}
+                        {otherAttachments.map((att) => {
+                          const previewable = att.mimeType.startsWith("video/") || att.mimeType.startsWith("audio/")
+                          const icon = att.mimeType.startsWith("video/")
+                            ? I("file", "w-3 h-3")
+                            : I("file", "w-3 h-3")
+                          const label = att.originalName.length > 20 ? att.originalName.slice(0, 18) + "..." : att.originalName
+                          if (previewable) {
+                            return (
+                              <button
+                                key={att.id}
+                                type="button"
+                                onClick={() => openMediaPreview(item.id, item.attachments ?? [], att.id)}
+                                className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 bg-sky-50 text-sky-700 rounded-lg border border-sky-200 hover:bg-sky-100 hover:border-sky-300 transition-colors"
+                                title={`${att.originalName} (${formatFileSize(att.fileSize)})`}
+                              >
+                                {att.mimeType.startsWith("video/") ? "▶" : "♪"} {label}
+                              </button>
+                            )
+                          }
+                          return (
+                            <a
+                              key={att.id}
+                              href={getAttachmentUrl(item.id, att.id)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 bg-gray-50 text-gray-600 rounded-lg border border-gray-200 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200 transition-colors"
+                              title={`${att.originalName} (${formatFileSize(att.fileSize)})`}
+                            >
+                              {icon}
+                              {label}
+                            </a>
+                          )
+                        })}
                       </div>
                     )}
                     {item.poHearingMemo && (
@@ -519,7 +563,7 @@ export default function IceboxPage() {
                 type="file"
                 onChange={handleUploadAttachment}
                 className="hidden"
-                accept="image/png,image/jpeg,image/gif,image/webp,application/pdf,text/plain"
+                accept="image/*,video/*,audio/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv"
               />
               <button
                 type="button"
@@ -531,7 +575,7 @@ export default function IceboxPage() {
                 {uploading ? t.loading : t.dashboardUploadFile}
               </button>
               <p className="text-[10px] text-gray-400 mt-1.5 text-center">
-                PNG, JPEG, GIF, WebP, PDF, TXT (max 5MB, {editAttachments.length}/10)
+                画像・動画・音声・PDF・Office文書 (max 200MB, {editAttachments.length}/10)
               </p>
             </div>
 
@@ -603,42 +647,13 @@ export default function IceboxPage() {
   }
 
   function renderImagePreview() {
-    if (!previewImage) return null
+    if (!previewState) return null
     return (
-      <div
-        className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[60] cursor-pointer"
-        onClick={() => setPreviewImage(null)}
-      >
-        <div className="max-w-[90vw] max-h-[90vh] relative" onClick={(e) => e.stopPropagation()}>
-          <img
-            src={previewImage.url}
-            alt={previewImage.name}
-            className="max-w-full max-h-[85vh] object-contain rounded-2xl shadow-2xl"
-          />
-          <div className="absolute top-3 right-3 flex gap-2">
-            <a
-              href={previewImage.url}
-              download
-              className="p-2 bg-white/90 rounded-full shadow-lg hover:bg-white transition-colors"
-              title={t.dashboardDownload}
-              onClick={(e) => e.stopPropagation()}
-            >
-              {I("download", "w-4 h-4 text-gray-700")}
-            </a>
-            <button
-              onClick={() => setPreviewImage(null)}
-              className="p-2 bg-white/90 rounded-full shadow-lg hover:bg-white transition-colors"
-            >
-              {I("x", "w-4 h-4 text-gray-700")}
-            </button>
-          </div>
-          <div className="mt-3 text-center">
-            <span className="inline-block bg-black/50 text-white/90 text-sm px-4 py-1.5 rounded-full">
-              {previewImage.name}
-            </span>
-          </div>
-        </div>
-      </div>
+      <MediaPreviewModal
+        items={previewState.items}
+        startIndex={previewState.index}
+        onClose={() => setPreviewState(null)}
+      />
     )
   }
 

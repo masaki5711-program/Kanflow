@@ -42,28 +42,26 @@ export async function POST(request: Request) {
       },
     })
 
-    if (projectType === "software") {
-      const copied = await copyTemplateFile(
-        project.id,
-        PRODUCT_GOAL_TEMPLATE.fileName,
-        PRODUCT_GOAL_TEMPLATE.displayName,
-        PRODUCT_GOAL_TEMPLATE.mimeType
-      )
-      if (copied.ok) {
-        await prisma.projectAttachment.create({
-          data: {
-            projectId: project.id,
-            folderId: null,
-            fileName: copied.fileName,
-            originalName: copied.originalName,
-            fileSize: copied.fileSize,
-            mimeType: copied.mimeType,
-            uploadedBy: gate.session.user.name ?? null,
-          },
-        })
-      } else {
-        console.warn("Default template attach skipped:", copied.error)
-      }
+    const copied = await copyTemplateFile(
+      project.id,
+      PRODUCT_GOAL_TEMPLATE.fileName,
+      PRODUCT_GOAL_TEMPLATE.displayName,
+      PRODUCT_GOAL_TEMPLATE.mimeType
+    )
+    if (copied.ok) {
+      await prisma.projectAttachment.create({
+        data: {
+          projectId: project.id,
+          folderId: null,
+          fileName: copied.fileName,
+          originalName: copied.originalName,
+          fileSize: copied.fileSize,
+          mimeType: copied.mimeType,
+          uploadedBy: gate.session.user.name ?? null,
+        },
+      })
+    } else {
+      console.warn("Default template attach skipped:", copied.error)
     }
 
     return NextResponse.json(project, { status: 201 })

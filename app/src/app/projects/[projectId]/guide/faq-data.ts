@@ -248,4 +248,120 @@ export const FAQ_ENTRIES: FaqItem[] = [
     category: "other",
     projectTypes: ["process_improvement"],
   },
+
+  // === Scrum roles ===
+  {
+    question: {
+      ja: "プロダクトオーナー（PO）の責任は？",
+      en: "What is the Product Owner (PO) responsible for?",
+      id: "Apa tanggung jawab Product Owner (PO)?",
+    },
+    answer: {
+      ja: "プロダクトの価値を最大化する責任者。プロダクトゴール策定、プロダクトバックログの作成・優先順位付け・精緻化、ステークホルダーとの調整、受入判断を担います。Kanflowでは PBI の新規作成・編集・並び替えは PO のみが行えます。",
+      en: "Accountable for maximizing product value. Owns the Product Goal, creates/prioritizes/refines the Product Backlog, aligns with stakeholders, and makes acceptance decisions. In Kanflow only the PO can create, edit, or reorder PBIs.",
+      id: "Bertanggung jawab memaksimalkan nilai produk. Membuat Product Goal, menyusun/memprioritaskan/menghaluskan Product Backlog, menyelaraskan dengan pemangku kepentingan, dan membuat keputusan penerimaan. Di Kanflow hanya PO yang dapat membuat, mengedit, atau menyusun ulang PBI.",
+    },
+    category: "basic",
+    projectTypes: ["software"],
+  },
+  {
+    question: {
+      ja: "スクラムマスター（SM）の責任は？",
+      en: "What is the Scrum Master (SM) responsible for?",
+      id: "Apa tanggung jawab Scrum Master (SM)?",
+    },
+    answer: {
+      ja: "スクラムの実践・推進・継続的改善を支援するサーバントリーダー。チームのブロッカー除去、スクラムイベントの円滑な運営、組織へのスクラム浸透、コーチングが主な役割です。プロダクトの内容には直接関与せず、プロセスとチームの成長に責任を持ちます。",
+      en: "A servant leader who coaches the team in practicing, promoting, and continuously improving Scrum. Removes impediments, facilitates Scrum events, and fosters Scrum adoption across the organization. Does not decide product content — owns process and team growth.",
+      id: "Pemimpin yang melayani, membimbing tim dalam menerapkan, mempromosikan, dan terus meningkatkan Scrum. Menghilangkan hambatan, memfasilitasi acara Scrum, dan mendorong adopsi Scrum di seluruh organisasi. Tidak menentukan isi produk — bertanggung jawab atas proses dan pertumbuhan tim.",
+    },
+    category: "basic",
+    projectTypes: ["software"],
+  },
+  {
+    question: {
+      ja: "デベロッパー（Dev）の責任は？",
+      en: "What is the Developer responsible for?",
+      id: "Apa tanggung jawab Developer?",
+    },
+    answer: {
+      ja: "スプリントで Done にする成果物を実際に作る自己組織化されたメンバー。スプリントプランニングで選択した PBI をタスクに分解し、品質を担保しつつ日々進捗させます。全員が集まり毎日デイリースクラムを行い、問題を早期に可視化・解決します。",
+      en: "A self-organizing member who actually builds the Done increment each sprint. Decomposes selected PBIs into tasks, safeguards quality, and makes progress daily. Attends the Daily Scrum to surface and resolve issues early.",
+      id: "Anggota yang terorganisasi sendiri yang benar-benar membangun increment Selesai setiap sprint. Memecah PBI terpilih menjadi tugas, menjaga kualitas, dan membuat kemajuan harian. Menghadiri Daily Scrum untuk memunculkan dan menyelesaikan masalah sejak dini.",
+    },
+    category: "basic",
+    projectTypes: ["software"],
+  },
+
+  // === Scrum events ===
+  {
+    question: {
+      ja: "スプリントプランニングとは？ 誰が参加する？",
+      en: "What is Sprint Planning? Who attends?",
+      id: "Apa itu Sprint Planning? Siapa yang hadir?",
+    },
+    answer: {
+      ja: "スプリントの開始時に行う計画会議。参加は PO・SM・Dev の全員。PO がスプリントゴールと候補 PBI を提示し、Dev が容量を踏まえて取り込む PBI を決定、タスクに分解します。時間目安は1週スプリントで最大2時間、4週で最大8時間。",
+      en: "A planning meeting at the start of each sprint. All of PO, SM, Developers attend. The PO presents the Sprint Goal and candidate PBIs, and Developers decide what they can deliver based on capacity and break it into tasks. Timebox: up to 2h for a 1-week sprint, up to 8h for a 4-week sprint.",
+      id: "Pertemuan perencanaan di awal setiap sprint. Dihadiri oleh PO, SM, dan semua Developer. PO menyajikan Sprint Goal dan PBI kandidat, lalu Developer memutuskan apa yang dapat mereka kirimkan berdasarkan kapasitas dan memecahnya menjadi tugas. Batas waktu: hingga 2 jam untuk sprint 1 minggu, hingga 8 jam untuk 4 minggu.",
+    },
+    category: "sprint",
+    projectTypes: ["software"],
+  },
+  {
+    question: {
+      ja: "デイリースクラムとは？ 誰が参加する？",
+      en: "What is the Daily Scrum? Who attends?",
+      id: "Apa itu Daily Scrum? Siapa yang hadir?",
+    },
+    answer: {
+      ja: "Dev が毎日 15 分で行うスプリントゴール達成のための調整ミーティング。Dev 全員が必須参加、PO と SM は必要に応じ参加・傾聴。進捗共有・障害の可視化・翌日以降のプランの再調整を目的とする。",
+      en: "A 15-minute daily event for Developers to inspect progress toward the Sprint Goal and adjust the plan. Developers must attend; PO and SM may listen in when useful. Purpose: share progress, surface impediments, replan the next 24 hours.",
+      id: "Acara harian 15 menit bagi Developer untuk memeriksa kemajuan menuju Sprint Goal dan menyesuaikan rencana. Developer wajib hadir; PO dan SM dapat menyimak jika perlu. Tujuan: berbagi kemajuan, memunculkan hambatan, merencanakan kembali 24 jam berikutnya.",
+    },
+    category: "sprint",
+    projectTypes: ["software"],
+  },
+  {
+    question: {
+      ja: "スプリントレビューとは？ 誰が参加する？",
+      en: "What is the Sprint Review? Who attends?",
+      id: "Apa itu Sprint Review? Siapa yang hadir?",
+    },
+    answer: {
+      ja: "スプリント終了前に増分（Done の成果）をステークホルダーとともに点検する会議。PO・SM・Dev に加え、ステークホルダー（顧客・関係部署）が参加。成果を実演しフィードバックを得て、PB を調整する。1週で最大1時間、4週で最大4時間。",
+      en: "A working session at the end of the sprint where the increment is inspected with stakeholders. PO, SM, Developers, plus stakeholders (customers, related teams). Demo results, gather feedback, and adjust the Product Backlog. Up to 1h for 1-week / 4h for 4-week sprints.",
+      id: "Sesi kerja di akhir sprint tempat increment diperiksa bersama pemangku kepentingan. PO, SM, Developer, plus pemangku kepentingan (pelanggan, tim terkait). Menunjukkan hasil, mendapatkan umpan balik, dan menyesuaikan Product Backlog. Hingga 1 jam untuk 1 minggu / 4 jam untuk 4 minggu.",
+    },
+    category: "sprint",
+    projectTypes: ["software"],
+  },
+  {
+    question: {
+      ja: "スプリントレトロスペクティブとは？ 誰が参加する？",
+      en: "What is the Sprint Retrospective? Who attends?",
+      id: "Apa itu Sprint Retrospective? Siapa yang hadir?",
+    },
+    answer: {
+      ja: "スプリント終了後にチームのプロセスと協働を振り返り改善する会議。PO・SM・Dev が参加（通常ステークホルダーは不参加）。KPT（Keep/Problem/Try）で継続する良い取り組み、改善すべき問題、次に試すアクションを決める。1週で最大45分、4週で最大3時間。",
+      en: "A working session after the Sprint for the team to inspect and adapt its process and collaboration. PO, SM, Developers attend (typically no stakeholders). Use KPT (Keep/Problem/Try) to agree on what to keep, problems to fix, and actions to try. Up to 45min for 1-week / 3h for 4-week sprints.",
+      id: "Sesi kerja setelah Sprint bagi tim untuk memeriksa dan menyesuaikan proses serta kolaborasinya. PO, SM, Developer hadir (biasanya tanpa pemangku kepentingan). Gunakan KPT (Keep/Problem/Try) untuk menyepakati apa yang dipertahankan, masalah yang harus diperbaiki, dan tindakan yang akan dicoba. Hingga 45 menit untuk 1 minggu / 3 jam untuk 4 minggu.",
+    },
+    category: "sprint",
+    projectTypes: ["software"],
+  },
+  {
+    question: {
+      ja: "プロダクトバックログリファインメントとは？ 誰が参加する？",
+      en: "What is Product Backlog Refinement? Who attends?",
+      id: "Apa itu Product Backlog Refinement? Siapa yang hadir?",
+    },
+    answer: {
+      ja: "PBI の詳細化・分解・見積もり・並び替えを継続的に行う活動。PO 主導で Dev が参加、必要に応じ SM も参加。Kanflow では Not Ready → Ready への遷移がリファインメントの成果物。一般的にスプリント容量の 10% 以下で実施。",
+      en: "An ongoing activity to add detail, break down, estimate, and order PBIs. Led by PO with Developers; SM joins as needed. In Kanflow, moving a PBI from Not Ready to Ready is the outcome of refinement. Typically kept to ≤10% of sprint capacity.",
+      id: "Aktivitas berkelanjutan untuk menambah detail, memecah, mengestimasi, dan mengurutkan PBI. Dipimpin oleh PO bersama Developer; SM bergabung sesuai kebutuhan. Di Kanflow, memindahkan PBI dari Not Ready ke Ready adalah hasil dari refinement. Biasanya dijaga ≤10% dari kapasitas sprint.",
+    },
+    category: "backlog",
+    projectTypes: ["software"],
+  },
 ]

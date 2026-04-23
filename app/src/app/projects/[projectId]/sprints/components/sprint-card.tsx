@@ -32,6 +32,9 @@ interface Sprint {
   status: string
   reviewComment: string | null
   retrospectiveMemo: string | null
+  retrospectiveKeep: string | null
+  retrospectiveProblem: string | null
+  retrospectiveTry: string | null
   items: SprintItem[]
 }
 
@@ -52,13 +55,26 @@ interface SprintCardProps {
   isExpanded: boolean
   onToggleExpand: () => void
   onRequestStatusChange: (sprintId: string, nextStatus: string) => void
-  onUpdateSprintStatus: (sprintId: string, status: string, reviewComment: string | null, retrospectiveMemo: string | null) => void
+  onUpdateSprintStatus: (
+    sprintId: string,
+    status: string,
+    retroPayload: {
+      reviewComment?: string | null
+      retrospectiveMemo?: string | null
+      retrospectiveKeep?: string | null
+      retrospectiveProblem?: string | null
+      retrospectiveTry?: string | null
+    } | null
+  ) => void
   onDeleteSprint: (sprintId: string) => void
   onOpenTaskForm: (sprintId: string, pbItemId?: string) => void
   onStartEditTask: (sprintId: string, task: SprintItem) => void
   onDeleteTask: (sprintId: string, taskId: string) => void
   onQuickUpdateTaskStatus: (sprintId: string, taskId: string, status: string) => void
   onOpenStatusDialog: (sprint: Sprint) => void
+  onAddPbi: (sprintId: string) => void
+  onRemovePbi: (sprintId: string, pbItemId: string) => void
+  onViewPbiDetail: (pbiId: string) => void
   pointUnit: string
 }
 
@@ -191,6 +207,7 @@ export default function SprintCard({
   sprint, events, isExpanded, onToggleExpand, onRequestStatusChange,
   onUpdateSprintStatus, onDeleteSprint, onOpenTaskForm, onStartEditTask,
   onDeleteTask, onQuickUpdateTaskStatus, onOpenStatusDialog, pointUnit,
+  onAddPbi, onRemovePbi, onViewPbiDetail,
 }: SprintCardProps) {
   const { language, t, pt } = useLanguage()
 
@@ -201,6 +218,9 @@ export default function SprintCard({
     planning: t.sprintStatusPlanning, active: t.sprintStatusActive,
     review: t.sprintStatusReview, done: t.sprintStatusDone, archived: t.sprintStatusArchived,
   }
+
+  const isPlaceholder = (i: SprintItem) => !(i.taskName && i.taskName.trim().length > 0)
+  const realItems = sprint.items.filter((i) => !isPlaceholder(i))
 
   const seenPbIds = new Set<string>()
   const currentWorkload = sprint.items.reduce((sum, i) => {
@@ -213,14 +233,16 @@ export default function SprintCard({
   const progress = sprint.capacity > 0 ? Math.round((currentWorkload / sprint.capacity) * 100) : 0
   const sprintEvents = events.filter((ev) => ev.sprintId === sprint.id)
   const pbGroups = groupTasksByPb(sprint.items)
-  const totalTasks = sprint.items.length
-  const doneTasks = sprint.items.filter((i) => i.status === "done").length
-  const inProgressTasks = sprint.items.filter((i) => i.status === "in_progress").length
+  const totalTasks = realItems.length
+  const doneTasks = realItems.filter((i) => i.status === "done").length
+  const inProgressTasks = realItems.filter((i) => i.status === "in_progress").length
   const todoTasks = totalTasks - doneTasks - inProgressTasks
 
+  // Sprint lifecycle: planning → active → review → done (auto-archives).
+  // Done and archived are effectively the same final state.
   const nextStatuses: Record<string, string[]> = {
     planning: ["active"], active: ["review", "done"], review: ["done", "active"],
-    done: ["review", "active"], archived: ["done"],
+    done: [], archived: [],
   }
 
   const locale = language === "ja" ? "ja-JP" : language === "id" ? "id-ID" : "en-US"
@@ -252,27 +274,24 @@ export default function SprintCard({
             <IconCalendar className="w-4 h-4 text-gray-400" />
             {new Date(sprint.startDate).toLocaleDateString(locale)} - {new Date(sprint.endDate).toLocaleDateString(locale)}
           </span>
+          {sprint.status !== "archived" && sprint.status !== "done" && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onAddPbi(sprint.id) }}
+              className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-2.5 py-1 rounded-lg transition-colors"
+              title={t.sprintAddPbi}
+            >
+              <IconPlusCircle className="w-3.5 h-3.5" />
+              {t.sprintAddPbi}
+            </button>
+          )}
           {(sprint.status === "review" || sprint.status === "done") && (
             <button onClick={() => onOpenStatusDialog(sprint)}
-              className="inline-flex items-center gap-1 text-xs text-violet-600 hover:text-violet-800 bg-violet-50 px-2.5 py-1 rounded-lg transition-colors">
+              className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 bg-blue-50 px-2.5 py-1 rounded-lg transition-colors">
               <IconChatBubble className="w-3.5 h-3.5" />
-              {t.sprintReviewComment}
+              {t.sprintRetrospectiveMemo}
             </button>
           )}
-          {sprint.status === "done" && (
-            <button onClick={() => onUpdateSprintStatus(sprint.id, "archived", null, null)}
-              className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 border border-gray-200 px-2.5 py-1 rounded-lg transition-colors">
-              <IconArchive className="w-3.5 h-3.5" />
-              {t.sprintArchive}
-            </button>
-          )}
-          {sprint.status === "archived" && (
-            <button onClick={() => onUpdateSprintStatus(sprint.id, "done", null, null)}
-              className="inline-flex items-center gap-1 text-xs text-blue-500 hover:text-blue-700 border border-blue-200 px-2.5 py-1 rounded-lg transition-colors">
-              <IconArchive className="w-3.5 h-3.5" />
-              {t.sprintUnarchive}
-            </button>
-          )}
+          {/* Archive button removed — sprints auto-archive when marked done. */}
           <button onClick={() => onDeleteSprint(sprint.id)}
             className="p-1.5 text-gray-300 hover:text-red-500 rounded-lg hover:bg-red-50 transition-colors">
             <IconTrash className="w-4 h-4" />
@@ -288,18 +307,56 @@ export default function SprintCard({
       )}
 
       {/* ── Review / Retro ── */}
-      {(sprint.reviewComment || sprint.retrospectiveMemo) && (
+      {(sprint.reviewComment
+        || sprint.retrospectiveKeep
+        || sprint.retrospectiveProblem
+        || sprint.retrospectiveTry
+        || sprint.retrospectiveMemo) && (
         <div className="px-6 pb-3 space-y-2">
           {sprint.reviewComment && (
-            <div className="bg-violet-50 border border-violet-200 rounded-lg px-3 py-2">
-              <span className="text-xs font-semibold text-violet-700">{t.sprintReviewComment}</span>
-              <p className="text-sm text-violet-900 whitespace-pre-wrap mt-0.5">{sprint.reviewComment}</p>
+            <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              <span className="text-xs font-semibold text-amber-700">
+                {t.sprintReviewComment}
+                <span className="text-amber-500 font-normal ml-1">（legacy）</span>
+              </span>
+              <p className="text-sm text-amber-900 whitespace-pre-wrap mt-0.5">{sprint.reviewComment}</p>
+            </div>
+          )}
+          {(sprint.retrospectiveKeep || sprint.retrospectiveProblem || sprint.retrospectiveTry) && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+              {sprint.retrospectiveKeep && (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+                  <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700">
+                    <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-emerald-500 text-white text-[10px]">K</span>
+                    {t.sprintKptKeep}
+                  </span>
+                  <p className="text-sm text-emerald-900 whitespace-pre-wrap mt-1">{sprint.retrospectiveKeep}</p>
+                </div>
+              )}
+              {sprint.retrospectiveProblem && (
+                <div className="bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
+                  <span className="inline-flex items-center gap-1 text-xs font-semibold text-rose-700">
+                    <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-rose-500 text-white text-[10px]">P</span>
+                    {t.sprintKptProblem}
+                  </span>
+                  <p className="text-sm text-rose-900 whitespace-pre-wrap mt-1">{sprint.retrospectiveProblem}</p>
+                </div>
+              )}
+              {sprint.retrospectiveTry && (
+                <div className="bg-sky-50 border border-sky-200 rounded-lg px-3 py-2">
+                  <span className="inline-flex items-center gap-1 text-xs font-semibold text-sky-700">
+                    <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-sky-500 text-white text-[10px]">T</span>
+                    {t.sprintKptTry}
+                  </span>
+                  <p className="text-sm text-sky-900 whitespace-pre-wrap mt-1">{sprint.retrospectiveTry}</p>
+                </div>
+              )}
             </div>
           )}
           {sprint.retrospectiveMemo && (
-            <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
-              <span className="text-xs font-semibold text-blue-700">{t.sprintRetrospectiveMemo}</span>
-              <p className="text-sm text-blue-900 whitespace-pre-wrap mt-0.5">{sprint.retrospectiveMemo}</p>
+            <div className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+              <span className="text-xs font-semibold text-gray-600">{t.sprintRetrospectiveOther}</span>
+              <p className="text-sm text-gray-800 whitespace-pre-wrap mt-0.5">{sprint.retrospectiveMemo}</p>
             </div>
           )}
         </div>
@@ -347,17 +404,30 @@ export default function SprintCard({
       {isExpanded && (
         <div className="border-t border-gray-100 px-6 py-4 space-y-4 bg-gray-50/50">
           {pbGroups.length === 0 ? (
-            <p className="text-sm text-gray-400 text-center py-6">{t.sprintNoTasks}</p>
+            <div className="text-center py-6">
+              <p className="text-sm text-gray-400 mb-3">{t.sprintNoTasks}</p>
+              {sprint.status !== "archived" && sprint.status !== "done" && (
+                <button
+                  onClick={() => onAddPbi(sprint.id)}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium shadow-sm"
+                >
+                  <IconPlusCircle className="w-4 h-4" />
+                  {t.sprintAddPbi}
+                </button>
+              )}
+            </div>
           ) : pbGroups.map(({ pbItem, tasks }) => {
-            const taskEffortSum = tasks.reduce((sum, tsk) => sum + (tsk.estimatedHours ?? 0), 0)
+            const realPbTasks = tasks.filter((t) => (t.taskName ?? "").trim().length > 0)
+            const taskEffortSum = realPbTasks.reduce((sum, tsk) => sum + (tsk.estimatedHours ?? 0), 0)
             const pbCapacity = pbItem.workloadScore
             const pbProgress = pbCapacity > 0 ? Math.round((taskEffortSum / pbCapacity) * 100) : 0
             const pbIsOver = taskEffortSum > pbCapacity && pbCapacity > 0
+            const canEditMembership = sprint.status !== "archived" && sprint.status !== "done"
             return (
               <div key={pbItem.id} className="bg-white border border-gray-200 rounded-lg p-4">
                 {/* PBI header */}
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2 min-w-0">
+                <div className="flex items-center justify-between mb-2 gap-2">
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
                     <IconClipboard className="w-4 h-4 text-gray-400 flex-shrink-0" />
                     <span className="text-xs font-mono text-gray-400">#{pbItem.displayId}</span>
                     <span className="text-sm font-medium text-gray-800 truncate">
@@ -368,11 +438,28 @@ export default function SprintCard({
                       {pbItem.workloadScore} {pointUnit}
                     </span>
                   </div>
-                  <button onClick={() => onOpenTaskForm(sprint.id, pbItem.id)}
-                    className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-50 px-2 py-1 rounded-lg transition-colors">
-                    <IconPlusCircle className="w-4 h-4" />
-                    {t.sprintAddTaskShort}
-                  </button>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <button onClick={() => onViewPbiDetail(pbItem.id)}
+                      className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                      title={t.view}>
+                      <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                        <path d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" />
+                        <path fillRule="evenodd" d="M.664 10.59a1.65 1.65 0 010-1.186A10 10 0 0110 3c4.257 0 7.893 2.66 9.336 6.41.147.381.146.804 0 1.186A10 10 0 0110 17c-4.257 0-7.893-2.66-9.336-6.41zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" />
+                      </svg>
+                    </button>
+                    <button onClick={() => onOpenTaskForm(sprint.id, pbItem.id)}
+                      className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2.5 py-1 rounded-lg transition-colors">
+                      <IconPlusCircle className="w-4 h-4" />
+                      {t.sprintAddTaskShort}
+                    </button>
+                    {canEditMembership && (
+                      <button onClick={() => onRemovePbi(sprint.id, pbItem.id)}
+                        className="p-1.5 text-gray-300 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                        title={t.sprintRemovePbi}>
+                        <IconTrash className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {/* PBI progress bar */}
@@ -394,8 +481,16 @@ export default function SprintCard({
                 )}
 
                 {/* Tasks */}
+                {realPbTasks.length === 0 ? (
+                  <button
+                    onClick={() => onOpenTaskForm(sprint.id, pbItem.id)}
+                    className="w-full border border-dashed border-gray-300 rounded-lg py-3 text-xs text-gray-400 hover:border-blue-300 hover:text-blue-600 hover:bg-blue-50/40 transition-colors"
+                  >
+                    + {t.sprintNoTasksYet} — {t.sprintAddTask}
+                  </button>
+                ) : (
                 <div className="space-y-0.5">
-                  {tasks.map((task) => (
+                  {realPbTasks.map((task) => (
                     <div key={task.id} className="flex items-center gap-2.5 py-2 px-2 rounded-lg hover:bg-gray-50 group transition-colors">
                       <button
                         onClick={() => {
@@ -443,6 +538,7 @@ export default function SprintCard({
                     </div>
                   ))}
                 </div>
+                )}
               </div>
             )
           })}

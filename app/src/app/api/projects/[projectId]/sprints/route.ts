@@ -29,6 +29,7 @@ export async function GET(
             select: {
               id: true,
               displayId: true,
+              initiative: true,
               userStory: true,
               epic: true,
               workloadScore: true,

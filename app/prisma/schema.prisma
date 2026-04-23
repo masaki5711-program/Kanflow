@@ -18,10 +18,14 @@ model User {
   isActive          Boolean               @default(true)
   role              String                @default("member")
   language          String                @default("ja")
+  employeeNumber    String?               @unique
+  department        String?
   accounts          Account[]
   memberships       ProjectMember[]
   sessions          Session[]
   projectCategories UserProjectCategory[]
+
+  @@index([department])
 }
 
 model Account {
@@ -66,6 +70,7 @@ model Project {
   createdAt           DateTime                        @default(now())
   updatedAt           DateTime                        @updatedAt
   projectType         String                          @default("software")
+  progressPct         Int                             @default(0)
   attachmentFolders   AttachmentFolder[]
   calendarEvents      CalendarEvent[]
   iceboxItems         IceboxItem[]
@@ -189,6 +194,9 @@ model Sprint {
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
   retrospectiveMemo String?             @db.Text
+  retrospectiveKeep String?             @db.Text
+  retrospectiveProblem String?          @db.Text
+  retrospectiveTry  String?             @db.Text
   reviewComment     String?             @db.Text
   calendarEvents    CalendarEvent[]
   project           Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)

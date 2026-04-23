@@ -12,6 +12,9 @@ const updateSchema = z.object({
   status: z.enum(["planning", "active", "review", "done", "archived"]).optional(),
   reviewComment: z.string().max(10000).nullable().optional(),
   retrospectiveMemo: z.string().max(10000).nullable().optional(),
+  retrospectiveKeep: z.string().max(10000).nullable().optional(),
+  retrospectiveProblem: z.string().max(10000).nullable().optional(),
+  retrospectiveTry: z.string().max(10000).nullable().optional(),
 })
 
 export async function GET(
@@ -47,6 +50,12 @@ export async function PATCH(
     const updateData: Record<string, unknown> = { ...data }
     if (data.startDate) updateData.startDate = new Date(data.startDate)
     if (data.endDate) updateData.endDate = new Date(data.endDate)
+    // Auto-archive on "done" — the UX treats done and archived as one step.
+    // The KPT dialog is still triggered when transitioning to "done"; by the
+    // time the PATCH is received, we promote it directly to "archived".
+    if (data.status === "done") {
+      updateData.status = "archived"
+    }
 
     const sprint = await prisma.sprint.update({
       where: { id: sprintId, projectId },

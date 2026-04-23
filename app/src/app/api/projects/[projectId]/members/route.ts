@@ -4,8 +4,12 @@ import { requireProjectMember } from "@/lib/api-helpers"
 import { z } from "zod"
 
 const addSchema = z.object({
-  email: z.string().email(),
+  email: z.string().email().optional(),
+  userId: z.string().min(1).optional(),
+  userIds: z.array(z.string().min(1)).min(1).max(50).optional(),
   role: z.enum(["po", "sm", "dev"]),
+}).refine((v) => !!v.email || !!v.userId || (!!v.userIds && v.userIds.length > 0), {
+  message: "email / userId / userIds のいずれかが必要です",
 })
 
 export async function GET(
@@ -19,7 +23,15 @@ export async function GET(
   const members = await prisma.projectMember.findMany({
     where: { projectId },
     include: {
-      user: { select: { id: true, name: true, email: true } },
+      user: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          employeeNumber: true,
+          department: true,
+        },
+      },
     },
     orderBy: { joinedAt: "asc" },
   })
@@ -39,7 +51,56 @@ export async function POST(
     const body = await request.json()
     const data = addSchema.parse(body)
 
-    const user = await prisma.user.findUnique({ where: { email: data.email } })
+    // Bulk add path
+    if (data.userIds && data.userIds.length > 0) {
+      const users = await prisma.user.findMany({
+        where: { id: { in: data.userIds }, isActive: true },
+        select: { id: true },
+      })
+      const validIds = new Set(users.map((u) => u.id))
+
+      const existing = await prisma.projectMember.findMany({
+        where: { projectId, userId: { in: Array.from(validIds) } },
+        select: { userId: true },
+      })
+      const existingIds = new Set(existing.map((m) => m.userId))
+
+      const toInsert = Array.from(validIds).filter((id) => !existingIds.has(id))
+      if (toInsert.length === 0) {
+        return NextResponse.json({ added: 0, skipped: data.userIds.length }, { status: 200 })
+      }
+
+      await prisma.projectMember.createMany({
+        data: toInsert.map((userId) => ({ projectId, userId, role: data.role })),
+      })
+
+      const created = await prisma.projectMember.findMany({
+        where: { projectId, userId: { in: toInsert } },
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              employeeNumber: true,
+              department: true,
+            },
+          },
+        },
+      })
+
+      return NextResponse.json({
+        added: created.length,
+        skipped: data.userIds.length - created.length,
+        members: created,
+      }, { status: 201 })
+    }
+
+    // Single add path — find user by id or email
+    const user = data.userId
+      ? await prisma.user.findUnique({ where: { id: data.userId } })
+      : await prisma.user.findUnique({ where: { email: data.email! } })
+
     if (!user) {
       return NextResponse.json({ error: "ユーザーが見つかりません" }, { status: 404 })
     }
@@ -56,7 +117,17 @@ export async function POST(
 
     const member = await prisma.projectMember.create({
       data: { projectId, userId: user.id, role: data.role },
-      include: { user: { select: { id: true, name: true, email: true } } },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            employeeNumber: true,
+            department: true,
+          },
+        },
+      },
     })
 
     return NextResponse.json(member, { status: 201 })

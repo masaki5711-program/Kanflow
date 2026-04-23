@@ -23,6 +23,8 @@ export async function GET() {
       role: true,
       isActive: true,
       createdAt: true,
+      employeeNumber: true,
+      department: true,
       _count: { select: { memberships: true } },
     },
     orderBy: { createdAt: "desc" },
@@ -35,7 +37,15 @@ const createSchema = z.object({
   email: z.string().email().max(200),
   password: z.string().min(6).max(200),
   role: z.enum(["admin", "member"]),
+  employeeNumber: z.string().max(50).optional().nullable(),
+  department: z.string().max(100).optional().nullable(),
 })
+
+function normalizeOptional(value: string | null | undefined): string | null {
+  if (value === undefined || value === null) return null
+  const trimmed = value.trim()
+  return trimmed === "" ? null : trimmed
+}
 
 export async function POST(request: Request) {
   const gate = await requireAdmin()
@@ -47,9 +57,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "入力値が不正です" }, { status: 400 })
   }
 
-  const existing = await prisma.user.findUnique({ where: { email: parsed.data.email } })
-  if (existing) {
+  const employeeNumber = normalizeOptional(parsed.data.employeeNumber)
+  const department = normalizeOptional(parsed.data.department)
+
+  const existingEmail = await prisma.user.findUnique({ where: { email: parsed.data.email } })
+  if (existingEmail) {
     return NextResponse.json({ error: "このメールアドレスは既に使用されています" }, { status: 409 })
+  }
+
+  if (employeeNumber) {
+    const existingEmp = await prisma.user.findUnique({ where: { employeeNumber } })
+    if (existingEmp) {
+      return NextResponse.json({ error: "この従業員番号は既に使用されています" }, { status: 409 })
+    }
   }
 
   const hash = await bcrypt.hash(parsed.data.password, 12)
@@ -59,8 +79,19 @@ export async function POST(request: Request) {
       email: parsed.data.email,
       password: hash,
       role: parsed.data.role,
+      employeeNumber,
+      department,
     },
-    select: { id: true, name: true, email: true, role: true, isActive: true, createdAt: true },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      role: true,
+      isActive: true,
+      createdAt: true,
+      employeeNumber: true,
+      department: true,
+    },
   })
   return NextResponse.json(user, { status: 201 })
 }

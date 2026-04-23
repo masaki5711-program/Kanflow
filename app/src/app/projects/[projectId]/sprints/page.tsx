@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useState, useCallback, useRef } from "react"
 import { useParams } from "next/navigation"
 import BurndownChart from "@/components/burndown-chart"
 import { useLanguage } from "@/lib/language-context"
@@ -10,6 +10,8 @@ import SprintStatusDialog from "./components/sprint-status-dialog"
 import EventFormModal from "./components/event-form-modal"
 import TaskFormModal from "./components/task-form-modal"
 import SprintCard from "./components/sprint-card"
+import AddPbiModal from "./components/add-pbi-modal"
+import PbiDetailModal from "@/components/pbi-detail-modal"
 
 interface PbItemFull {
   id: string
@@ -51,6 +53,9 @@ interface Sprint {
   status: string
   reviewComment: string | null
   retrospectiveMemo: string | null
+  retrospectiveKeep: string | null
+  retrospectiveProblem: string | null
+  retrospectiveTry: string | null
   items: SprintItem[]
 }
 
@@ -210,12 +215,24 @@ export default function SprintsPage() {
     pbItemId: "", taskName: "", assignee: "", estimatedHours: "", actualHours: "", status: "todo" as string,
   })
 
-  const [expandedSprintId, setExpandedSprintId] = useState<string | null>(null)
+  // Multi-expand: by default non-archived/non-done sprints are open so users
+  // immediately see imported PBs + tasks after sprint creation.
+  const [expandedSprintIds, setExpandedSprintIds] = useState<Set<string>>(new Set())
+  const sprintsInitializedRef = useRef(false)
   const [burndownKey, setBurndownKey] = useState(0)
   const [showArchived, setShowArchived] = useState(false)
+  const [addPbiSprintId, setAddPbiSprintId] = useState<string | null>(null)
+  const [detailPbiId, setDetailPbiId] = useState<string | null>(null)
 
   const [statusDialog, setStatusDialog] = useState<{
-    sprintId: string; sprintName: string; nextStatus: string; reviewComment: string; retrospectiveMemo: string;
+    sprintId: string
+    sprintName: string
+    nextStatus: string
+    reviewComment: string
+    retrospectiveMemo: string
+    retrospectiveKeep: string
+    retrospectiveProblem: string
+    retrospectiveTry: string
   } | null>(null)
 
   const [form, setForm] = useState({
@@ -262,6 +279,25 @@ export default function SprintsPage() {
       })
   }, [fetchSprints, fetchReadyPbItems, fetchEvents, fetchMembers, projectId])
 
+  // First-load default: expand all non-archived sprints so users see PBs/tasks.
+  // New sprints (seen for the first time in later fetches) also auto-expand.
+  useEffect(() => {
+    if (sprints.length === 0) return
+    setExpandedSprintIds((prev) => {
+      const next = new Set(prev)
+      const initial = !sprintsInitializedRef.current
+      for (const s of sprints) {
+        if (s.status === "archived") continue
+        if (initial || !prev.has(s.id)) {
+          // Expand on initial load or for newly-appearing sprint ids
+          if (initial || !prev.has(s.id)) next.add(s.id)
+        }
+      }
+      return next
+    })
+    sprintsInitializedRef.current = true
+  }, [sprints])
+
   function togglePbSelection(id: string) {
     setSelectedPbIds((prev) => {
       const next = new Set(prev)
@@ -299,20 +335,37 @@ export default function SprintsPage() {
     if (nextStatus === "review" || nextStatus === "done") {
       const sprint = sprints.find((s) => s.id === sprintId)
       setStatusDialog({
-        sprintId, sprintName: sprint?.sprintName ?? "", nextStatus,
-        reviewComment: sprint?.reviewComment ?? "", retrospectiveMemo: sprint?.retrospectiveMemo ?? "",
+        sprintId,
+        sprintName: sprint?.sprintName ?? "",
+        nextStatus,
+        reviewComment: sprint?.reviewComment ?? "",
+        retrospectiveMemo: sprint?.retrospectiveMemo ?? "",
+        retrospectiveKeep: sprint?.retrospectiveKeep ?? "",
+        retrospectiveProblem: sprint?.retrospectiveProblem ?? "",
+        retrospectiveTry: sprint?.retrospectiveTry ?? "",
       })
     } else {
-      updateSprintStatus(sprintId, nextStatus, null, null)
+      updateSprintStatus(sprintId, nextStatus, null)
     }
   }
 
   async function updateSprintStatus(
-    sprintId: string, status: string, reviewComment: string | null, retrospectiveMemo: string | null
+    sprintId: string,
+    status: string,
+    retroPayload: {
+      reviewComment?: string | null
+      retrospectiveMemo?: string | null
+      retrospectiveKeep?: string | null
+      retrospectiveProblem?: string | null
+      retrospectiveTry?: string | null
+    } | null
   ) {
     const payload: Record<string, unknown> = { status }
-    if (reviewComment !== null) payload.reviewComment = reviewComment || null
-    if (retrospectiveMemo !== null) payload.retrospectiveMemo = retrospectiveMemo || null
+    if (retroPayload) {
+      for (const k of ["reviewComment", "retrospectiveMemo", "retrospectiveKeep", "retrospectiveProblem", "retrospectiveTry"] as const) {
+        if (retroPayload[k] !== undefined) payload[k] = retroPayload[k] || null
+      }
+    }
     const res = await fetch(`/api/projects/${projectId}/sprints/${sprintId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -326,10 +379,13 @@ export default function SprintsPage() {
 
   async function handleStatusDialogSubmit() {
     if (!statusDialog) return
-    await updateSprintStatus(
-      statusDialog.sprintId, statusDialog.nextStatus,
-      statusDialog.reviewComment, statusDialog.retrospectiveMemo
-    )
+    await updateSprintStatus(statusDialog.sprintId, statusDialog.nextStatus, {
+      reviewComment: statusDialog.reviewComment,
+      retrospectiveMemo: statusDialog.retrospectiveMemo,
+      retrospectiveKeep: statusDialog.retrospectiveKeep,
+      retrospectiveProblem: statusDialog.retrospectiveProblem,
+      retrospectiveTry: statusDialog.retrospectiveTry,
+    })
     setStatusDialog(null)
   }
 
@@ -481,6 +537,31 @@ export default function SprintsPage() {
     }
   }
 
+  async function handleRemovePbi(sprintId: string, pbItemId: string) {
+    if (!await confirm({
+      message: t.sprintRemovePbiConfirm,
+      confirmLabel: t.delete,
+      cancelLabel: t.cancel,
+      variant: "danger",
+    })) return
+    const res = await fetch(
+      `/api/projects/${projectId}/sprints/${sprintId}/pbis`,
+      {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pbItemId }),
+      }
+    )
+    if (res.ok) {
+      fetchSprints()
+      fetchReadyPbItems()
+      setBurndownKey((k) => k + 1)
+    } else {
+      const err = await res.json().catch(() => null)
+      alert(`${t.error}: ${err?.error || res.statusText}`)
+    }
+  }
+
   const doneSprints = sprints.filter((s) => s.status === "done" || s.status === "archived")
   const avgActual = doneSprints.length > 0
     ? Math.round(doneSprints.reduce((sum, s) => sum + s.actualScore, 0) / doneSprints.length)
@@ -505,6 +586,28 @@ export default function SprintsPage() {
         <SprintStatusDialog sprint={sprints.find((s) => s.id === statusDialog.sprintId)}
           dialog={statusDialog} onDialogChange={setStatusDialog}
           onSubmit={handleStatusDialogSubmit} onCancel={() => setStatusDialog(null)} />
+      )}
+      {addPbiSprintId && (() => {
+        const sprint = sprints.find((s) => s.id === addPbiSprintId)
+        if (!sprint) return null
+        return (
+          <AddPbiModal
+            projectId={projectId}
+            sprintId={sprint.id}
+            sprintName={sprint.sprintName}
+            existingPbIds={new Set(sprint.items.map((i) => i.pbItem.id))}
+            pointUnit={projectSettings?.pointUnit ?? ""}
+            onAdded={() => { fetchSprints(); fetchReadyPbItems(); setBurndownKey((k) => k + 1) }}
+            onClose={() => setAddPbiSprintId(null)}
+          />
+        )
+      })()}
+      {detailPbiId && (
+        <PbiDetailModal
+          projectId={projectId}
+          pbiId={detailPbiId}
+          onClose={() => setDetailPbiId(null)}
+        />
       )}
 
       {/* ── Page Header ── */}
@@ -643,14 +746,27 @@ export default function SprintsPage() {
                   {readyPbItems.length === 0 ? (
                     <p className="text-sm text-gray-400 text-center py-4">{t.sprintNoPbReady}</p>
                   ) : readyPbItems.map((item) => (
-                    <label key={item.id} className={`flex items-center gap-3 px-3 py-2.5 border-b border-gray-100 last:border-0 cursor-pointer hover:bg-blue-50/50 transition-colors ${selectedPbIds.has(item.id) ? "bg-blue-50" : ""}`}>
-                      <input type="checkbox" checked={selectedPbIds.has(item.id)} onChange={() => togglePbSelection(item.id)}
-                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
-                      <IconClipboard className="w-3.5 h-3.5 text-gray-300 flex-shrink-0" />
-                      <span className="text-xs font-mono text-gray-400">#{item.displayId}</span>
-                      <span className="flex-1 text-sm truncate">{item.initiative || item.userStory || t.sprintNotEntered}</span>
-                      <span className="text-xs font-medium bg-orange-50 text-orange-700 border border-orange-200 px-2 py-0.5 rounded-full">{item.workloadScore}</span>
-                    </label>
+                    <div key={item.id} className={`flex items-center gap-3 px-3 py-2.5 border-b border-gray-100 last:border-0 hover:bg-blue-50/50 transition-colors ${selectedPbIds.has(item.id) ? "bg-blue-50" : ""}`}>
+                      <label className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer">
+                        <input type="checkbox" checked={selectedPbIds.has(item.id)} onChange={() => togglePbSelection(item.id)}
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                        <IconClipboard className="w-3.5 h-3.5 text-gray-300 flex-shrink-0" />
+                        <span className="text-xs font-mono text-gray-400">#{item.displayId}</span>
+                        <span className="flex-1 text-sm truncate">{item.initiative || item.userStory || t.sprintNotEntered}</span>
+                        <span className="text-xs font-medium bg-orange-50 text-orange-700 border border-orange-200 px-2 py-0.5 rounded-full">{item.workloadScore}</span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setDetailPbiId(item.id) }}
+                        className="p-1 text-gray-300 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors flex-shrink-0"
+                        title={t.view}
+                      >
+                        <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                          <path d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" />
+                          <path fillRule="evenodd" d="M.664 10.59a1.65 1.65 0 010-1.186A10 10 0 0110 3c4.257 0 7.893 2.66 9.336 6.41.147.381.146.804 0 1.186A10 10 0 0110 17c-4.257 0-7.893-2.66-9.336-6.41zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" />
+                        </svg>
+                      </button>
+                    </div>
                   ))}
                 </div>
               </div>
@@ -675,15 +791,28 @@ export default function SprintsPage() {
       <div className="space-y-4">
         {sprints.filter((s) => s.status !== "archived").map((sprint) => (
           <SprintCard key={sprint.id} sprint={sprint} events={events}
-            isExpanded={expandedSprintId === sprint.id}
-            onToggleExpand={() => setExpandedSprintId(expandedSprintId === sprint.id ? null : sprint.id)}
+            isExpanded={expandedSprintIds.has(sprint.id)}
+            onToggleExpand={() => setExpandedSprintIds((prev) => {
+              const next = new Set(prev)
+              if (next.has(sprint.id)) next.delete(sprint.id); else next.add(sprint.id)
+              return next
+            })}
             onRequestStatusChange={requestStatusChange} onUpdateSprintStatus={updateSprintStatus}
             onDeleteSprint={handleDeleteSprint} onOpenTaskForm={openTaskForm}
             onStartEditTask={startEditTask} onDeleteTask={handleDeleteTask}
             onQuickUpdateTaskStatus={quickUpdateTaskStatus}
+            onAddPbi={(sid) => setAddPbiSprintId(sid)}
+            onRemovePbi={handleRemovePbi}
+            onViewPbiDetail={(pbiId) => setDetailPbiId(pbiId)}
             onOpenStatusDialog={(s) => setStatusDialog({
-              sprintId: s.id, sprintName: s.sprintName, nextStatus: s.status,
-              reviewComment: s.reviewComment ?? "", retrospectiveMemo: s.retrospectiveMemo ?? "",
+              sprintId: s.id,
+              sprintName: s.sprintName,
+              nextStatus: s.status,
+              reviewComment: s.reviewComment ?? "",
+              retrospectiveMemo: s.retrospectiveMemo ?? "",
+              retrospectiveKeep: s.retrospectiveKeep ?? "",
+              retrospectiveProblem: s.retrospectiveProblem ?? "",
+              retrospectiveTry: s.retrospectiveTry ?? "",
             })}
             pointUnit={projectSettings?.pointUnit ?? ""} />
         ))}
@@ -735,10 +864,6 @@ export default function SprintsPage() {
                           <IconCalendar className="w-3.5 h-3.5" />
                           {new Date(sprint.startDate).toLocaleDateString(locale)} - {new Date(sprint.endDate).toLocaleDateString(locale)}
                         </span>
-                        <button onClick={() => updateSprintStatus(sprint.id, "done", null, null)}
-                          className="inline-flex items-center gap-1 text-xs text-blue-500 hover:text-blue-700 border border-blue-200 px-2.5 py-1 rounded-lg transition-colors">
-                          {t.sprintUnarchive}
-                        </button>
                         <button onClick={() => handleDeleteSprint(sprint.id)}
                           className="p-1 text-gray-300 hover:text-red-500 rounded-lg hover:bg-red-50 transition-colors">
                           <IconDelete className="w-4 h-4" />

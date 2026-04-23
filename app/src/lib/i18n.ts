@@ -138,6 +138,13 @@ interface Translations {
   backlogStatusCompleted: string
   backlogMoveToCompleted: string
   backlogMoveToReady: string
+  backlogMoveToNotReady: string
+  backlogReadyHint: string
+  backlogNotReadyHint: string
+  backlogCompletedHint: string
+  projectProgress: string
+  projectProgressHint: string
+  view: string
   backlogCompletedDate: string
   backlogShowCompleted: string
   backlogHideCompleted: string
@@ -192,6 +199,13 @@ interface Translations {
   sprintDeleteFullConfirm: string
   sprintTaskEdit: string
   sprintPbItem: string
+  sprintAddPbi: string
+  sprintAddPbiTitle: string
+  sprintAddPbiSubmit: string
+  sprintAddPbiSearchPlaceholder: string
+  sprintNoTasksYet: string
+  sprintRemovePbi: string
+  sprintRemovePbiConfirm: string
   sprintSelect: string
   sprintUnassigned: string
   sprintEstimatedHoursShort: string
@@ -208,6 +222,14 @@ interface Translations {
   sprintReviewCommentPlaceholder: string
   sprintRetrospectiveMemo: string
   sprintRetrospectiveMemoPlaceholder: string
+  sprintKptKeep: string
+  sprintKptKeepPlaceholder: string
+  sprintKptProblem: string
+  sprintKptProblemPlaceholder: string
+  sprintKptTry: string
+  sprintKptTryPlaceholder: string
+  sprintRetrospectiveOther: string
+  sprintRetrospectiveOtherPlaceholder: string
   sprintStatusChangeConfirm: string
   sprintSubmitAndChangeStatus: string
   sprintStatusArchived: string
@@ -298,6 +320,21 @@ interface Translations {
   userDeactivate: string
   userActivate: string
   userPasswordMinError: string
+  userEmployeeNumber: string
+  userEmployeeNumberPlaceholder: string
+  userDepartment: string
+  userDepartmentPlaceholder: string
+  userSearchPlaceholder: string
+  userFilterRoleAll: string
+  userFilterStatusAll: string
+  userFilterActive: string
+  userFilterInactive: string
+  userNoResults: string
+  memberPickerSearchPlaceholder: string
+  memberPickerAlreadyAdded: string
+  memberPickerSelected: string
+  memberPickerAddSelected: string
+  memberPickerEmpty: string
   errorCreationFailed: string
   errorUpdateFailed: string
   errorChangeFailed: string
@@ -486,6 +523,13 @@ const ja: Translations = {
   backlogStatusCompleted: "完了",
   backlogMoveToCompleted: "完了にする",
   backlogMoveToReady: "着手可能に戻す",
+  backlogMoveToNotReady: "未準備に戻す",
+  backlogReadyHint: "次スプリントに取り込む候補。ユーザーストーリー・受入条件・工数が揃った PBI が並びます。",
+  backlogNotReadyHint: "まだ詳細が固まっていない・見積り前の PBI。精緻化（リファインメント）を経て Ready に移動します。",
+  backlogCompletedHint: "スプリントで完了した PBI。履歴として保持し、統計やレポートに使います。",
+  projectProgress: "プロジェクト進捗",
+  projectProgressHint: "このプロジェクトの全スプリントタスクのうち、完了済みタスクの割合。",
+  view: "詳細",
   backlogCompletedDate: "完了日",
   backlogShowCompleted: "完了済みを表示",
   backlogHideCompleted: "完了済みを非表示",
@@ -535,6 +579,13 @@ const ja: Translations = {
   sprintDeleteFullConfirm: "このスプリントを削除しますか？関連するタスクも全て削除されます。",
   sprintTaskEdit: "タスク編集",
   sprintPbItem: "PBアイテム",
+  sprintAddPbi: "PBアイテムを追加",
+  sprintAddPbiTitle: "このスプリントに PBアイテムを追加",
+  sprintAddPbiSubmit: "選択したPBを追加",
+  sprintAddPbiSearchPlaceholder: "PB番号・Initiative・Epic・ユーザーストーリーで検索",
+  sprintNoTasksYet: "タスクがまだありません",
+  sprintRemovePbi: "このPBをスプリントから外す",
+  sprintRemovePbiConfirm: "このPBと紐づく全タスクをスプリントから削除します。続行しますか？",
   sprintSelect: "選択",
   sprintUnassigned: "未割当",
   sprintEstimatedHoursShort: "見積工数",
@@ -551,6 +602,14 @@ const ja: Translations = {
   sprintReviewCommentPlaceholder: "スプリントレビューの結果・フィードバックを記入...",
   sprintRetrospectiveMemo: "振り返りメモ",
   sprintRetrospectiveMemoPlaceholder: "KPT（Keep/Problem/Try）や改善点を記入...",
+  sprintKptKeep: "Keep（継続すること）",
+  sprintKptKeepPlaceholder: "うまく行っていること、継続したい良い習慣を記入...",
+  sprintKptProblem: "Problem（課題）",
+  sprintKptProblemPlaceholder: "問題点・困ったこと・改善すべき点を記入...",
+  sprintKptTry: "Try（次に試すこと）",
+  sprintKptTryPlaceholder: "次のスプリントで試したいこと・改善アクションを記入...",
+  sprintRetrospectiveOther: "その他メモ",
+  sprintRetrospectiveOtherPlaceholder: "KPTに収まらない所感やメモを記入...",
   sprintStatusChangeConfirm: "ステータスを変更しますか？",
   sprintSubmitAndChangeStatus: "保存してステータス変更",
   sprintStatusArchived: "アーカイブ",
@@ -635,6 +694,21 @@ const ja: Translations = {
   userDeactivate: "無効化",
   userActivate: "有効化",
   userPasswordMinError: "パスワードは6文字以上で入力してください",
+  userEmployeeNumber: "従業員番号",
+  userEmployeeNumberPlaceholder: "EMP0001",
+  userDepartment: "所属",
+  userDepartmentPlaceholder: "例：戦略企画部",
+  userSearchPlaceholder: "名前・メール・従業員番号・所属で検索",
+  userFilterRoleAll: "すべての権限",
+  userFilterStatusAll: "すべての状態",
+  userFilterActive: "有効のみ",
+  userFilterInactive: "無効のみ",
+  userNoResults: "該当するユーザーがいません",
+  memberPickerSearchPlaceholder: "名前・メール・従業員番号・所属で検索",
+  memberPickerAlreadyAdded: "追加済み",
+  memberPickerSelected: "人を選択中",
+  memberPickerAddSelected: "選択したメンバーを追加",
+  memberPickerEmpty: "2文字以上入力して検索",
   errorCreationFailed: "作成に失敗しました",
   errorUpdateFailed: "更新に失敗しました",
   errorChangeFailed: "変更に失敗しました",
@@ -817,6 +891,13 @@ const en: Translations = {
   backlogStatusCompleted: "Completed",
   backlogMoveToCompleted: "Mark Completed",
   backlogMoveToReady: "Move to Ready",
+  backlogMoveToNotReady: "Move to Not Ready",
+  backlogReadyHint: "Candidates to pull into the next sprint. These PBIs have user story, acceptance criteria, and effort estimates.",
+  backlogNotReadyHint: "PBIs still being refined or not yet estimated. They move to Ready after refinement.",
+  backlogCompletedHint: "PBIs completed in past sprints. Kept for history, metrics, and reports.",
+  projectProgress: "Project progress",
+  projectProgressHint: "Percentage of completed tasks across all sprints in this project.",
+  view: "View",
   backlogCompletedDate: "Completed",
   backlogShowCompleted: "Show Completed",
   backlogHideCompleted: "Hide Completed",
@@ -866,6 +947,13 @@ const en: Translations = {
   sprintDeleteFullConfirm: "Delete this sprint? All related tasks will also be deleted.",
   sprintTaskEdit: "Edit Task",
   sprintPbItem: "PB Item",
+  sprintAddPbi: "Add PB item",
+  sprintAddPbiTitle: "Add PB items to this sprint",
+  sprintAddPbiSubmit: "Add selected PBs",
+  sprintAddPbiSearchPlaceholder: "Search by PB number, initiative, epic, user story",
+  sprintNoTasksYet: "No tasks yet",
+  sprintRemovePbi: "Remove PB from sprint",
+  sprintRemovePbiConfirm: "This removes the PB and all its tasks from the sprint. Continue?",
   sprintSelect: "Select",
   sprintUnassigned: "Unassigned",
   sprintEstimatedHoursShort: "Estimated",
@@ -882,6 +970,14 @@ const en: Translations = {
   sprintReviewCommentPlaceholder: "Enter sprint review results and feedback...",
   sprintRetrospectiveMemo: "Retrospective Memo",
   sprintRetrospectiveMemoPlaceholder: "Enter KPT (Keep/Problem/Try) or improvements...",
+  sprintKptKeep: "Keep (What's working)",
+  sprintKptKeepPlaceholder: "Good habits and things that are going well...",
+  sprintKptProblem: "Problem (Issues)",
+  sprintKptProblemPlaceholder: "Pain points, blockers, things to improve...",
+  sprintKptTry: "Try (Next actions)",
+  sprintKptTryPlaceholder: "Experiments and improvements for the next sprint...",
+  sprintRetrospectiveOther: "Other Notes",
+  sprintRetrospectiveOtherPlaceholder: "Freeform notes that don't fit into KPT...",
   sprintStatusChangeConfirm: "Change status?",
   sprintSubmitAndChangeStatus: "Save & Change Status",
   sprintStatusArchived: "Archived",
@@ -966,6 +1062,21 @@ const en: Translations = {
   userDeactivate: "Deactivate",
   userActivate: "Activate",
   userPasswordMinError: "Password must be at least 6 characters",
+  userEmployeeNumber: "Employee ID",
+  userEmployeeNumberPlaceholder: "EMP0001",
+  userDepartment: "Department",
+  userDepartmentPlaceholder: "e.g. Strategic Planning",
+  userSearchPlaceholder: "Search by name, email, employee ID, or department",
+  userFilterRoleAll: "All roles",
+  userFilterStatusAll: "All statuses",
+  userFilterActive: "Active only",
+  userFilterInactive: "Inactive only",
+  userNoResults: "No users match your search",
+  memberPickerSearchPlaceholder: "Search by name, email, employee ID, or department",
+  memberPickerAlreadyAdded: "Already added",
+  memberPickerSelected: "selected",
+  memberPickerAddSelected: "Add selected members",
+  memberPickerEmpty: "Type at least 2 characters to search",
   errorCreationFailed: "Creation failed",
   errorUpdateFailed: "Update failed",
   errorChangeFailed: "Change failed",
@@ -1148,6 +1259,13 @@ const id: Translations = {
   backlogStatusCompleted: "Selesai",
   backlogMoveToCompleted: "Tandai Selesai",
   backlogMoveToReady: "Kembali ke Siap",
+  backlogMoveToNotReady: "Kembali ke Belum Siap",
+  backlogReadyHint: "Kandidat untuk ditarik ke sprint berikutnya. PBI yang sudah memiliki user story, kriteria penerimaan, dan estimasi upaya.",
+  backlogNotReadyHint: "PBI yang masih diperjelas atau belum diestimasi. Akan pindah ke Siap setelah refinement.",
+  backlogCompletedHint: "PBI yang diselesaikan di sprint sebelumnya. Disimpan untuk riwayat, metrik, dan laporan.",
+  projectProgress: "Progres proyek",
+  projectProgressHint: "Persentase tugas yang selesai di seluruh sprint dalam proyek ini.",
+  view: "Lihat",
   backlogCompletedDate: "Tanggal Selesai",
   backlogShowCompleted: "Tampilkan Selesai",
   backlogHideCompleted: "Sembunyikan Selesai",
@@ -1197,6 +1315,13 @@ const id: Translations = {
   sprintDeleteFullConfirm: "Hapus sprint ini? Semua tugas terkait juga akan dihapus.",
   sprintTaskEdit: "Edit Tugas",
   sprintPbItem: "Item PB",
+  sprintAddPbi: "Tambah item PB",
+  sprintAddPbiTitle: "Tambahkan item PB ke sprint ini",
+  sprintAddPbiSubmit: "Tambahkan PB terpilih",
+  sprintAddPbiSearchPlaceholder: "Cari berdasarkan nomor PB, initiative, epic, user story",
+  sprintNoTasksYet: "Belum ada tugas",
+  sprintRemovePbi: "Hapus PB dari sprint",
+  sprintRemovePbiConfirm: "Ini akan menghapus PB beserta semua tugasnya dari sprint. Lanjutkan?",
   sprintSelect: "Pilih",
   sprintUnassigned: "Belum ditugaskan",
   sprintEstimatedHoursShort: "Estimasi",
@@ -1213,6 +1338,14 @@ const id: Translations = {
   sprintReviewCommentPlaceholder: "Masukkan hasil review sprint dan umpan balik...",
   sprintRetrospectiveMemo: "Memo Retrospektif",
   sprintRetrospectiveMemoPlaceholder: "Masukkan KPT (Keep/Problem/Try) atau perbaikan...",
+  sprintKptKeep: "Keep (Yang berjalan baik)",
+  sprintKptKeepPlaceholder: "Kebiasaan baik dan hal-hal yang berjalan lancar...",
+  sprintKptProblem: "Problem (Masalah)",
+  sprintKptProblemPlaceholder: "Masalah, hambatan, hal yang perlu diperbaiki...",
+  sprintKptTry: "Try (Aksi berikutnya)",
+  sprintKptTryPlaceholder: "Eksperimen dan perbaikan untuk sprint berikutnya...",
+  sprintRetrospectiveOther: "Catatan Lain",
+  sprintRetrospectiveOtherPlaceholder: "Catatan bebas yang tidak termasuk KPT...",
   sprintStatusChangeConfirm: "Ubah status?",
   sprintSubmitAndChangeStatus: "Simpan & Ubah Status",
   sprintStatusArchived: "Diarsipkan",
@@ -1297,6 +1430,21 @@ const id: Translations = {
   userDeactivate: "Nonaktifkan",
   userActivate: "Aktifkan",
   userPasswordMinError: "Kata sandi minimal 6 karakter",
+  userEmployeeNumber: "Nomor Karyawan",
+  userEmployeeNumberPlaceholder: "EMP0001",
+  userDepartment: "Departemen",
+  userDepartmentPlaceholder: "mis. Perencanaan Strategis",
+  userSearchPlaceholder: "Cari berdasarkan nama, email, nomor karyawan, atau departemen",
+  userFilterRoleAll: "Semua peran",
+  userFilterStatusAll: "Semua status",
+  userFilterActive: "Aktif saja",
+  userFilterInactive: "Nonaktif saja",
+  userNoResults: "Tidak ada pengguna yang cocok",
+  memberPickerSearchPlaceholder: "Cari berdasarkan nama, email, nomor karyawan, atau departemen",
+  memberPickerAlreadyAdded: "Sudah ditambahkan",
+  memberPickerSelected: "dipilih",
+  memberPickerAddSelected: "Tambahkan anggota terpilih",
+  memberPickerEmpty: "Ketik minimal 2 karakter untuk mencari",
   errorCreationFailed: "Gagal membuat",
   errorUpdateFailed: "Gagal memperbarui",
   errorChangeFailed: "Gagal mengubah",

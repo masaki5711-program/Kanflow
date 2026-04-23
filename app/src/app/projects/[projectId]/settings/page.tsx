@@ -1,16 +1,23 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { useLanguage } from "@/lib/language-context"
 import { useConfirm } from "@/components/confirm-dialog"
+import { MemberPicker } from "@/components/member-picker"
 import { type Language, languageLabels } from "@/lib/i18n"
 import { type ProjectType, projectTypeOptions } from "@/lib/project-type-labels"
 
 interface Member {
   id: string
   role: string
-  user: { id: string; name: string; email: string }
+  user: {
+    id: string
+    name: string
+    email: string
+    employeeNumber: string | null
+    department: string | null
+  }
 }
 
 interface SprintSettings {
@@ -41,9 +48,6 @@ export default function SettingsPage() {
   const confirm = useConfirm()
 
   const [members, setMembers] = useState<Member[]>([])
-  const [email, setEmail] = useState("")
-  const [role, setRole] = useState("dev")
-  const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
 
   const [sprintSettings, setSprintSettings] = useState<SprintSettings>({
@@ -58,11 +62,15 @@ export default function SettingsPage() {
   const [langSaving, setLangSaving] = useState(false)
   const [typeSaving, setTypeSaving] = useState(false)
 
-  useEffect(() => {
+  const fetchMembers = useCallback(() => {
     fetch(`/api/projects/${projectId}/members`)
       .then((r) => r.ok ? r.json() : Promise.reject(r))
       .then((data) => { if (Array.isArray(data)) setMembers(data) })
       .catch(() => {})
+  }, [projectId])
+
+  useEffect(() => {
+    fetchMembers()
 
     fetch(`/api/projects/${projectId}`)
       .then((r) => r.ok ? r.json() : Promise.reject(r))
@@ -92,14 +100,7 @@ export default function SettingsPage() {
   async function handleLanguageChange(newLang: Language) {
     setLangSaving(true)
     try {
-      const res = await fetch(`/api/projects/${projectId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ language: newLang }),
-      })
-      if (res.ok) {
-        setLanguage(newLang)
-      }
+      setLanguage(newLang)
     } finally {
       setLangSaving(false)
     }
@@ -137,29 +138,6 @@ export default function SettingsPage() {
       }
     } finally {
       setSettingsLoading(false)
-    }
-  }
-
-  async function handleAddMember(e: React.FormEvent) {
-    e.preventDefault()
-    setError("")
-    setLoading(true)
-    try {
-      const res = await fetch(`/api/projects/${projectId}/members`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, role }),
-      })
-      if (!res.ok) {
-        const data = await res.json()
-        setError(data.error || t.settingsAddError)
-        return
-      }
-      const newMember = await res.json()
-      setMembers((prev) => [...prev, newMember])
-      setEmail("")
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -426,27 +404,47 @@ export default function SettingsPage() {
         )}
       </div>
 
+      {/* Add Member */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
+        <h2 className="text-lg font-semibold mb-4">{t.settingsAddMember}</h2>
+        <MemberPicker
+          projectId={projectId}
+          rolePT={{ rolePO: pt.rolePO, roleSM: pt.roleSM, roleDev: pt.roleDev }}
+          onAdded={fetchMembers}
+        />
+        {error && <p className="text-sm text-red-600 mt-2">{error}</p>}
+      </div>
+
       {/* Members */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
-        <h2 className="text-lg font-semibold mb-4">{t.settingsMembers}</h2>
-        <div className="space-y-3">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold">{t.settingsMembers}</h2>
+          <span className="text-xs text-gray-400">{members.length}</span>
+        </div>
+        <div className="space-y-2">
           {members.map((m) => (
             <div
               key={m.id}
-              className="flex items-center justify-between py-3 border-b border-gray-100 last:border-0"
+              className="flex items-center justify-between gap-3 py-2.5 px-3 rounded-lg hover:bg-gray-50 border-b border-gray-100 last:border-0"
             >
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-gray-300 flex items-center justify-center text-sm font-medium text-white">
-                  {m.user.name.charAt(0)}
+              <div className="flex items-center gap-3 min-w-0 flex-1">
+                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center text-sm font-semibold text-slate-600 shrink-0">
+                  {m.user.name.slice(0, 2)}
                 </div>
-                <div>
-                  <p className="text-sm font-medium text-gray-900">
-                    {m.user.name}
-                  </p>
-                  <p className="text-xs text-gray-500">{m.user.email}</p>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-semibold text-gray-900 truncate">{m.user.name}</span>
+                    {m.user.employeeNumber && (
+                      <span className="text-xs text-gray-400 font-mono">{m.user.employeeNumber}</span>
+                    )}
+                  </div>
+                  <div className="text-xs text-gray-500 truncate flex items-center gap-2">
+                    <span>{m.user.email}</span>
+                    {m.user.department && <span className="text-gray-400">· {m.user.department}</span>}
+                  </div>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 shrink-0">
                 <select
                   value={m.role}
                   onChange={(e) => handleRoleChange(m.id, e.target.value)}
@@ -468,38 +466,6 @@ export default function SettingsPage() {
             </div>
           ))}
         </div>
-      </div>
-
-      {/* Add Member */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-        <h2 className="text-lg font-semibold mb-4">{t.settingsAddMember}</h2>
-        <form onSubmit={handleAddMember} className="flex gap-3">
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder={t.settingsEmail}
-            required
-            className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-          <select
-            value={role}
-            onChange={(e) => setRole(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-md text-sm"
-          >
-            <option value="dev">{pt.roleDev}</option>
-            <option value="sm">{pt.roleSM}</option>
-            <option value="po">{pt.rolePO}</option>
-          </select>
-          <button
-            type="submit"
-            disabled={loading}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 text-sm"
-          >
-            {t.add}
-          </button>
-        </form>
-        {error && <p className="text-sm text-red-600 mt-2">{error}</p>}
       </div>
 
       {/* Danger Zone — Project Delete */}

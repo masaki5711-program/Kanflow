@@ -5,6 +5,12 @@ import { useRouter } from "next/navigation"
 import { useLanguage } from "@/lib/language-context"
 import type { Translations } from "@/lib/i18n"
 import { useConfirm } from "@/components/confirm-dialog"
+import { compressImageFile } from "@/lib/image-compress"
+import MediaPreviewModal, { type MediaItem } from "@/components/media-preview-modal"
+
+function isPreviewable(mime: string): boolean {
+  return mime.startsWith("image/") || mime.startsWith("video/") || mime.startsWith("audio/")
+}
 
 interface ProductGoal { id: string; title: string; description: string | null }
 interface Attachment { id: string; originalName: string; fileName: string; fileSize: number; mimeType: string; folderId: string | null; createdAt: string }
@@ -14,6 +20,8 @@ interface DashboardContentProps {
   projectId: string; projectName: string; projectDescription: string | null
   productGoals: ProductGoal[]; folders: Folder[]; attachments: Attachment[]
   iceboxCount: number; backlogCount: number; sprintCount: number
+  projectProgressPct: number
+  currentUserRole: string
   activeSprint: { name: string; goal: string | null; startDate: string; endDate: string; capacity: number; taskCounts: { todo: number; inProgress: number; done: number } } | null
 }
 
@@ -73,19 +81,34 @@ const IconX = () => <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentCo
 const IconPlus = () => <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd"/></svg>
 
 /* Reusable file row */
-function FileRow({ file, projectId, folderId, folders, onDelete, onMove, onEdit, t }: {
+function FileRow({ file, projectId, folderId, folders, onDelete, onMove, onEdit, onPreview, t }: {
   file: Attachment; projectId: string; folderId: string | null; folders: Folder[]
   onDelete: (id: string, folderId: string | null) => void
   onMove: (id: string, targetId: string | null, sourceId: string | null) => void
-  onEdit: (id: string) => void; t: Translations
+  onEdit: (id: string) => void
+  onPreview: (id: string) => void
+  t: Translations
 }) {
   const otherFolders = folderId ? folders.filter((f) => f.id !== folderId) : folders
   const canMove = folderId ? true : otherFolders.length > 0
+  const previewable = isPreviewable(file.mimeType)
+  const fileUrl = `/api/projects/${projectId}/attachments/${file.id}`
+  const downloadUrl = `${fileUrl}?download=1`
   return (
     <div className="flex items-center gap-3 bg-gray-50/80 rounded-lg px-3 py-2.5 group hover:bg-gray-100/80 transition-colors">
       <span className="shrink-0">{getFileIcon(file.mimeType)}</span>
       <div className="flex-1 min-w-0">
-        <a href={`/api/projects/${projectId}/attachments/${file.id}/download`} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline truncate block">{file.originalName}</a>
+        {previewable ? (
+          <button
+            type="button"
+            onClick={() => onPreview(file.id)}
+            className="text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline truncate block text-left w-full"
+          >
+            {file.originalName}
+          </button>
+        ) : (
+          <a href={fileUrl} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline truncate block">{file.originalName}</a>
+        )}
         <div className="flex gap-3 text-xs text-gray-400"><span>{formatFileSize(file.fileSize)}</span><span>{new Date(file.createdAt).toLocaleDateString()}</span></div>
       </div>
       {isEditableInBrowser(file.mimeType) && (
@@ -98,13 +121,13 @@ function FileRow({ file, projectId, folderId, folders, onDelete, onMove, onEdit,
           {otherFolders.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
         </select>
       )}
-      <a href={`/api/projects/${projectId}/attachments/${file.id}/download`} download className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-blue-600 transition-opacity" title={t.dashboardDownload}><IconDownload /></a>
+      <a href={downloadUrl} download className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-blue-600 transition-opacity" title={t.dashboardDownload}><IconDownload /></a>
       <button onClick={() => onDelete(file.id, folderId)} className="opacity-0 group-hover:opacity-100 text-xs text-red-500 hover:text-red-700 transition-opacity">{t.delete}</button>
     </div>
   )
 }
 
-export function DashboardContent({ projectId, projectName, projectDescription, productGoals: initialGoals, folders: initialFolders, attachments: initialAttachments, iceboxCount, backlogCount, sprintCount, activeSprint }: DashboardContentProps) {
+export function DashboardContent({ projectId, projectName, projectDescription, productGoals: initialGoals, folders: initialFolders, attachments: initialAttachments, iceboxCount, backlogCount, sprintCount, projectProgressPct, currentUserRole, activeSprint }: DashboardContentProps) {
   const { t, pt } = useLanguage()
   const confirm = useConfirm()
   const router = useRouter()
@@ -126,6 +149,48 @@ export function DashboardContent({ projectId, projectName, projectDescription, p
   const [editFolderName, setEditFolderName] = useState("")
   const [openFolders, setOpenFolders] = useState<Set<string>>(new Set(initialFolders.map((f) => f.id)))
   const folderFileInputRefs = useRef<Record<string, HTMLInputElement | null>>({})
+  const [preview, setPreview] = useState<{ items: MediaItem[]; index: number } | null>(null)
+  const [progress, setProgress] = useState<number>(projectProgressPct)
+  const [editingProgress, setEditingProgress] = useState(false)
+  const [progressDraft, setProgressDraft] = useState<string>(String(projectProgressPct))
+  const [progressSaving, setProgressSaving] = useState(false)
+  const canEditProgress = currentUserRole === "po"
+
+  async function saveProgress() {
+    const parsed = Math.max(0, Math.min(100, Math.round(Number(progressDraft))))
+    if (Number.isNaN(parsed)) { setEditingProgress(false); return }
+    setProgressSaving(true)
+    try {
+      const res = await fetch(`/api/projects/${projectId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ progressPct: parsed }),
+      })
+      if (res.ok) {
+        setProgress(parsed)
+        setEditingProgress(false)
+      } else {
+        const err = await res.json().catch(() => null)
+        alert(err?.error || t.error)
+      }
+    } finally {
+      setProgressSaving(false)
+    }
+  }
+
+  function openPreview(file: Attachment, folderId: string | null) {
+    const sourceList = folderId
+      ? folders.find((f) => f.id === folderId)?.attachments ?? []
+      : attachments
+    // Only media items participate in prev/next but we include the clicked
+    // file even if it is audio/video so the modal has context.
+    const mediaItems: MediaItem[] = sourceList
+      .filter((a) => isPreviewable(a.mimeType))
+      .map((a) => ({ id: a.id, originalName: a.originalName, mimeType: a.mimeType }))
+    if (mediaItems.length === 0) return
+    const idx = mediaItems.findIndex((m) => m.id === file.id)
+    setPreview({ items: mediaItems, index: idx >= 0 ? idx : 0 })
+  }
 
   const saveDescription = useCallback(async () => {
     setDescSaving(true)
@@ -153,9 +218,14 @@ export function DashboardContent({ projectId, projectName, projectDescription, p
   function startEditGoal(goal: ProductGoal) { setEditingGoalId(goal.id); setGoalForm({ title: goal.title, description: goal.description ?? "" }); setShowGoalForm(true) }
 
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>, folderId?: string | null) {
-    const file = e.target.files?.[0]; if (!file) return
+    const rawFile = e.target.files?.[0]; if (!rawFile) return
     setUploading(true); setUploadingFolderId(folderId ?? null)
     try {
+      // Client-side compression for images (longest edge 1920px, JPEG 0.82).
+      // Videos / other types pass through unchanged.
+      const file = rawFile.type.startsWith("image/")
+        ? await compressImageFile(rawFile)
+        : rawFile
       const formData = new FormData(); formData.append("file", file)
       if (folderId) formData.append("folderId", folderId)
       const res = await fetch(`/api/projects/${projectId}/attachments`, { method: "POST", body: formData })
@@ -204,7 +274,7 @@ export function DashboardContent({ projectId, projectName, projectDescription, p
   }
 
   const totalTasks = activeSprint ? activeSprint.taskCounts.todo + activeSprint.taskCounts.inProgress + activeSprint.taskCounts.done : 0
-  const donePercent = totalTasks > 0 && activeSprint ? Math.round((activeSprint.taskCounts.done / totalTasks) * 100) : 0
+  const donePercent = totalTasks > 0 && activeSprint ? Math.min(100, Math.round((activeSprint.taskCounts.done / totalTasks) * 100)) : 0
 
   return (
     <div className="space-y-6">
@@ -227,21 +297,100 @@ export function DashboardContent({ projectId, projectName, projectDescription, p
             <IconBriefcase />
             <h2 className="text-2xl font-bold text-gray-900">{projectName}</h2>
           </div>
+          <div className="mb-5 bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 border border-emerald-100 rounded-xl p-4">
+            <div className="flex items-center justify-between mb-2 gap-3">
+              <div className="flex items-center gap-2 flex-1">
+                <span className="text-sm font-semibold text-emerald-800">{t.projectProgress}</span>
+                {!canEditProgress && (
+                  <span className="text-xs text-emerald-600">(PO が設定)</span>
+                )}
+              </div>
+              {editingProgress && canEditProgress ? (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={progressDraft}
+                    onChange={(e) => setProgressDraft(e.target.value)}
+                    className="w-40 accent-emerald-600"
+                  />
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={progressDraft}
+                    onChange={(e) => setProgressDraft(e.target.value)}
+                    className="w-16 px-2 py-1 text-sm border border-emerald-200 rounded-md text-emerald-700 font-semibold text-right"
+                  />
+                  <span className="text-sm text-emerald-700 font-semibold">%</span>
+                  <button
+                    onClick={saveProgress}
+                    disabled={progressSaving}
+                    className="px-3 py-1 bg-emerald-600 text-white rounded-md text-xs font-semibold hover:bg-emerald-700 disabled:opacity-50"
+                  >
+                    {progressSaving ? t.saving : t.save}
+                  </button>
+                  <button
+                    onClick={() => { setProgressDraft(String(progress)); setEditingProgress(false) }}
+                    className="px-2 py-1 text-xs text-gray-500 hover:text-gray-700"
+                  >
+                    {t.cancel}
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => canEditProgress && setEditingProgress(true)}
+                  disabled={!canEditProgress}
+                  className={`text-2xl font-bold text-emerald-700 ${canEditProgress ? "hover:bg-emerald-100 cursor-pointer" : "cursor-default"} px-2 py-0.5 rounded-md transition-colors`}
+                  title={canEditProgress ? "クリックして編集" : ""}
+                >
+                  {Math.min(100, Math.max(0, progress))}<span className="text-sm">%</span>
+                </button>
+              )}
+            </div>
+            <div className="w-full bg-white/70 rounded-full h-2.5 overflow-hidden ring-1 ring-emerald-100">
+              <div
+                className="h-full bg-gradient-to-r from-emerald-400 to-emerald-600 rounded-full transition-all duration-700"
+                style={{ width: `${Math.min(100, Math.max(0, editingProgress ? Number(progressDraft) || 0 : progress))}%` }}
+              />
+            </div>
+          </div>
           {/* Description */}
           <div className="mb-5">
-            <label className="block text-sm font-medium text-gray-500 mb-1.5">{t.dashboardDescription}</label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-sm font-medium text-gray-500">{t.dashboardDescription}</label>
+              {!editingDescription && (
+                <button
+                  onClick={() => setEditingDescription(true)}
+                  className="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-blue-600 hover:bg-blue-50 px-2 py-1 rounded-md transition-colors"
+                  title={t.edit}
+                >
+                  <IconPencil />
+                  <span>{t.edit}</span>
+                </button>
+              )}
+            </div>
             {editingDescription ? (
               <div>
-                <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={4} placeholder={t.dashboardDescriptionPlaceholder} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+                <textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  rows={10}
+                  placeholder={t.dashboardDescriptionPlaceholder}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-y min-h-[200px]"
+                />
                 <div className="flex gap-2 mt-2">
                   <button onClick={saveDescription} disabled={descSaving} className="px-4 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium disabled:opacity-50 transition-colors">{descSaving ? t.saving : t.save}</button>
                   <button onClick={() => { setDescription(projectDescription ?? ""); setEditingDescription(false) }} className="px-4 py-1.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 text-sm font-medium transition-colors">{t.cancel}</button>
                 </div>
               </div>
             ) : (
-              <div onClick={() => setEditingDescription(true)} className="group relative min-h-[60px] px-4 py-3 bg-gray-50 rounded-lg text-sm text-gray-700 cursor-pointer hover:bg-gray-100 whitespace-pre-wrap transition-colors">
+              <div className="min-h-[160px] max-h-[480px] overflow-y-auto px-4 py-3 bg-gray-50 rounded-lg text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">
                 {description || <span className="text-gray-400">{t.dashboardDescriptionPlaceholder}</span>}
-                <span className="absolute top-3 right-3 text-gray-300 group-hover:text-gray-500 transition-colors"><IconPencil /></span>
               </div>
             )}
           </div>
@@ -362,7 +511,7 @@ export function DashboardContent({ projectId, projectName, projectDescription, p
           <div className="flex items-center gap-2"><IconPaperclip /><h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">{t.dashboardAttachments}</h2></div>
           <div className="flex gap-2">
             <button onClick={() => setShowNewFolder(true)} className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 border border-gray-200 font-medium transition-colors"><IconFolder />{t.folderNew}</button>
-            <input ref={fileInputRef} type="file" onChange={(e) => handleFileUpload(e)} className="hidden" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.png,.jpg,.jpeg,.gif,.webp" />
+            <input ref={fileInputRef} type="file" onChange={(e) => handleFileUpload(e)} className="hidden" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,image/*,video/*,audio/*" />
             <button onClick={() => fileInputRef.current?.click()} disabled={uploading && !uploadingFolderId} className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 font-medium transition-colors"><IconCloudUp />{uploading && !uploadingFolderId ? t.loading : t.dashboardUploadFile}</button>
           </div>
         </div>
@@ -387,7 +536,7 @@ export function DashboardContent({ projectId, projectName, projectDescription, p
                 <span className="flex-1 text-sm font-medium text-gray-700 cursor-pointer" onClick={() => toggleFolder(folder.id)}>{folder.name}<span className="text-xs text-gray-400 ml-2">({folder.attachments.length})</span></span>
               )}
               <div className="opacity-0 group-hover/folder:opacity-100 flex items-center gap-1 transition-opacity">
-                <input ref={(el) => { folderFileInputRefs.current[folder.id] = el }} type="file" onChange={(e) => handleFileUpload(e, folder.id)} className="hidden" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.png,.jpg,.jpeg,.gif,.webp" />
+                <input ref={(el) => { folderFileInputRefs.current[folder.id] = el }} type="file" onChange={(e) => handleFileUpload(e, folder.id)} className="hidden" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,image/*,video/*,audio/*" />
                 <button onClick={() => folderFileInputRefs.current[folder.id]?.click()} disabled={uploading && uploadingFolderId === folder.id} className="p-1 bg-blue-50 text-blue-600 rounded-md hover:bg-blue-100 transition-colors" title={t.dashboardUploadFile}>
                   {uploading && uploadingFolderId === folder.id ? <span className="w-4 h-4 block text-xs leading-4 text-center">...</span> : <IconPlus />}
                 </button>
@@ -398,7 +547,7 @@ export function DashboardContent({ projectId, projectName, projectDescription, p
             {openFolders.has(folder.id) && (
               <div className="px-3 py-2 space-y-1">
                 {folder.attachments.length > 0 ? folder.attachments.map((file) => (
-                  <FileRow key={file.id} file={file} projectId={projectId} folderId={folder.id} folders={folders} onDelete={handleDeleteAttachment} onMove={handleMoveToFolder} onEdit={(id) => router.push(`/projects/${projectId}/editor/${id}`)} t={t} />
+                  <FileRow key={file.id} file={file} projectId={projectId} folderId={folder.id} folders={folders} onDelete={handleDeleteAttachment} onMove={handleMoveToFolder} onEdit={(id) => router.push(`/projects/${projectId}/editor/${id}`)} onPreview={() => openPreview(file, folder.id)} t={t} />
                 )) : <p className="text-xs text-gray-400 py-2">{t.folderNoFiles}</p>}
               </div>
             )}
@@ -409,11 +558,20 @@ export function DashboardContent({ projectId, projectName, projectDescription, p
           <div className="space-y-1 mt-2">
             {folders.length > 0 && <p className="text-xs text-gray-400 mb-1">{t.folderUnfiled}</p>}
             {attachments.map((file) => (
-              <FileRow key={file.id} file={file} projectId={projectId} folderId={null} folders={folders} onDelete={handleDeleteAttachment} onMove={handleMoveToFolder} onEdit={(id) => router.push(`/projects/${projectId}/editor/${id}`)} t={t} />
+              <FileRow key={file.id} file={file} projectId={projectId} folderId={null} folders={folders} onDelete={handleDeleteAttachment} onMove={handleMoveToFolder} onEdit={(id) => router.push(`/projects/${projectId}/editor/${id}`)} onPreview={() => openPreview(file, null)} t={t} />
             ))}
           </div>
         ) : folders.length === 0 && <p className="text-sm text-gray-400">{t.dashboardNoAttachments}</p>}
       </div>
+
+      {preview && (
+        <MediaPreviewModal
+          projectId={projectId}
+          items={preview.items}
+          startIndex={preview.index}
+          onClose={() => setPreview(null)}
+        />
+      )}
     </div>
   )
 }

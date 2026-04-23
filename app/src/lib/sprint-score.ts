@@ -3,18 +3,24 @@ import { prisma } from "@/lib/prisma"
 /**
  * Recalculate a sprint's actualScore based on completed PBI work.
  *
- * Logic: For each unique PBI in the sprint, if ALL tasks for that PBI
- * are "done", then that PBI's workloadScore is added to the total.
- * Partially completed PBIs are not counted.
+ * Logic: For each unique PBI in the sprint that has at least one real task,
+ * if ALL real tasks for that PBI are "done", then that PBI's workloadScore
+ * is added to the total. Partially completed PBIs are not counted.
+ *
+ * Placeholder items (those with no taskName) are PBI-membership markers
+ * created at sprint creation time and must be excluded from this calculation.
  */
 export async function recalcSprintActualScore(sprintId: string): Promise<number> {
-  const sprintItems = await prisma.sprintBacklogItem.findMany({
+  const rawItems = await prisma.sprintBacklogItem.findMany({
     where: { sprintId },
     select: {
       status: true,
+      taskName: true,
       pbItem: { select: { id: true, workloadScore: true } },
     },
   })
+
+  const sprintItems = rawItems.filter((i) => !!(i.taskName && i.taskName.trim().length > 0))
 
   // Group tasks by PBI
   const pbiMap = new Map<string, { workloadScore: number; allDone: boolean }>()
@@ -34,7 +40,7 @@ export async function recalcSprintActualScore(sprintId: string): Promise<number>
     }
   }
 
-  // Sum workloadScore for PBIs where all tasks are done
+  // Sum workloadScore for PBIs where all real tasks are done
   let totalScore = 0
   for (const pbi of pbiMap.values()) {
     if (pbi.allDone) {
@@ -42,7 +48,6 @@ export async function recalcSprintActualScore(sprintId: string): Promise<number>
     }
   }
 
-  // Update the sprint
   await prisma.sprint.update({
     where: { id: sprintId },
     data: { actualScore: totalScore },

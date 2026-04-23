@@ -99,6 +99,9 @@ export default async function ReportPage({
     status: s.status,
     reviewComment: s.reviewComment,
     retrospectiveMemo: s.retrospectiveMemo,
+    retrospectiveKeep: s.retrospectiveKeep,
+    retrospectiveProblem: s.retrospectiveProblem,
+    retrospectiveTry: s.retrospectiveTry,
     items: s.items.map((item) => ({
       id: item.id,
       taskName: item.taskName,

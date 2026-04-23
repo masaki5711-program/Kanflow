@@ -20,6 +20,7 @@ interface Project {
     backlogItems: number
     sprints: number
   }
+  progressPct: number
 }
 
 interface Category {
@@ -63,7 +64,7 @@ const colorDot: Record<string, string> = {
 
 export function ProjectList({ activeProjects, archivedProjects, categories, isAdmin }: Props) {
   const router = useRouter()
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
   const [showCreate, setShowCreate] = useState(false)
   const [name, setName] = useState("")
   const [description, setDescription] = useState("")
@@ -292,6 +293,19 @@ export function ProjectList({ activeProjects, archivedProjects, categories, isAd
             </div>
           </div>
         </div>
+        {/* Progress bar — manually set by PO on the dashboard */}
+        <div className="mt-3">
+          <div className="flex items-center justify-between text-xs mb-1">
+            <span className="text-gray-500">{t.projectProgress}</span>
+            <span className="font-semibold text-emerald-600">{Math.min(100, Math.max(0, project.progressPct))}%</span>
+          </div>
+          <div className="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
+            <div
+              className="h-full bg-gradient-to-r from-emerald-400 to-emerald-500 rounded-full transition-all duration-500"
+              style={{ width: `${Math.min(100, Math.max(0, project.progressPct))}%` }}
+            />
+          </div>
+        </div>
         <div className="mt-4 flex flex-wrap gap-2">
           {project.members.map((m) => (
             <span
@@ -460,8 +474,8 @@ export function ProjectList({ activeProjects, archivedProjects, categories, isAd
                     <div className="text-lg mb-1">
                       {opt.value === "software" ? "\uD83D\uDCBB" : opt.value === "process_improvement" ? "\uD83C\uDFED" : "\uD83D\uDCCB"}
                     </div>
-                    <div className="text-sm font-semibold text-gray-900">{opt.labelJa}</div>
-                    <div className="text-xs text-gray-500 mt-0.5">{opt.descJa}</div>
+                    <div className="text-sm font-semibold text-gray-900">{language === "ja" ? opt.labelJa : language === "id" ? opt.labelId : opt.labelEn}</div>
+                    <div className="text-xs text-gray-500 mt-0.5">{language === "ja" ? opt.descJa : language === "id" ? opt.descId : opt.descEn}</div>
                   </button>
                 ))}
               </div>

@@ -21,6 +21,7 @@ interface Project {
     backlogItems: number
     sprints: number
   }
+  progressPct: number
 }
 
 interface Category {

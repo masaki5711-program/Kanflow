@@ -92,14 +92,24 @@ function isWeekend(d: Date): boolean {
   return day === 0 || day === 6
 }
 
+function isRealTask(item: SprintItem): boolean {
+  return !!(item.taskName && item.taskName.trim().length > 0)
+}
+
 function groupItemsByPbi(items: SprintItem[]): PbiGroup[] {
+  // Preserve all PBIs (via every item including placeholders) so empty
+  // PBs still appear in the tree, but only real tasks populate the
+  // tasks array used for row rendering.
   const map = new Map<string, PbiGroup>()
   for (const item of items) {
     const existing = map.get(item.pbItem.id)
     if (existing) {
-      existing.tasks = [...existing.tasks, item]
+      if (isRealTask(item)) existing.tasks = [...existing.tasks, item]
     } else {
-      map.set(item.pbItem.id, { pbItem: item.pbItem, tasks: [item] })
+      map.set(item.pbItem.id, {
+        pbItem: item.pbItem,
+        tasks: isRealTask(item) ? [item] : [],
+      })
     }
   }
   return Array.from(map.values())
@@ -110,9 +120,10 @@ function getInitials(name: string): string {
 }
 
 function sprintDonePercent(sprint: Sprint): number {
-  if (sprint.items.length === 0) return 0
-  const done = sprint.items.filter((i) => i.status === "done").length
-  return Math.round((done / sprint.items.length) * 100)
+  const realTasks = sprint.items.filter(isRealTask)
+  if (realTasks.length === 0) return 0
+  const done = realTasks.filter((i) => i.status === "done").length
+  return Math.round((done / realTasks.length) * 100)
 }
 
 function pbiDonePercent(tasks: SprintItem[]): number {
@@ -313,8 +324,11 @@ export default function GanttPage() {
   }, [totalDays, timelineStart])
 
   // ---- Summary stats ----
-  const totalTasks = sprints.reduce((sum, s) => sum + s.items.length, 0)
-  const doneTasks = sprints.reduce((sum, s) => sum + s.items.filter((i) => i.status === "done").length, 0)
+  const totalTasks = sprints.reduce((sum, s) => sum + s.items.filter(isRealTask).length, 0)
+  const doneTasks = sprints.reduce(
+    (sum, s) => sum + s.items.filter((i) => isRealTask(i) && i.status === "done").length,
+    0
+  )
   const completionPct = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0
 
   // ---- Position helpers ----

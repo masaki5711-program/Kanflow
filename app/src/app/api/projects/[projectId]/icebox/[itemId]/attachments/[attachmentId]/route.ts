@@ -1,10 +1,9 @@
 import { NextResponse } from "next/server"
-import fs from "fs/promises"
 import { prisma } from "@/lib/prisma"
-import { requireProjectMember, safeFilePath, deleteUploadedFile } from "@/lib/api-helpers"
+import { requireProjectMember, deleteUploadedFile, serveStoredFile } from "@/lib/api-helpers"
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ projectId: string; itemId: string; attachmentId: string }> }
 ) {
   const { projectId, itemId, attachmentId } = await params
@@ -16,24 +15,17 @@ export async function GET(
   })
   if (!attachment) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
-  const full = safeFilePath(projectId, attachment.fileName)
-  if (!full) return NextResponse.json({ error: "パスが不正です" }, { status: 400 })
+  const { searchParams } = new URL(request.url)
+  const forceDownload = searchParams.get("download") !== null
 
-  try {
-    const buf = await fs.readFile(full)
-    const arrayBuffer = buf.buffer.slice(
-      buf.byteOffset,
-      buf.byteOffset + buf.byteLength,
-    ) as ArrayBuffer
-    return new NextResponse(arrayBuffer, {
-      headers: {
-        "Content-Type": attachment.mimeType,
-        "Content-Disposition": `inline; filename="${encodeURIComponent(attachment.originalName)}"`,
-      },
-    })
-  } catch {
-    return NextResponse.json({ error: "File missing" }, { status: 404 })
-  }
+  return serveStoredFile(
+    projectId,
+    attachment.fileName,
+    attachment.mimeType,
+    attachment.originalName,
+    request,
+    forceDownload,
+  )
 }
 
 export async function DELETE(

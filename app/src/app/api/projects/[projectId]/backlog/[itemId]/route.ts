@@ -3,6 +3,25 @@ import { prisma } from "@/lib/prisma"
 import { requireProjectMember } from "@/lib/api-helpers"
 import { z } from "zod"
 
+export async function GET(
+  _request: Request,
+  { params }: { params: Promise<{ projectId: string; itemId: string }> }
+) {
+  const { projectId, itemId } = await params
+  const result = await requireProjectMember(projectId)
+  if ("error" in result) return result.error
+
+  const item = await prisma.productBacklogItem.findFirst({
+    where: { id: itemId, projectId },
+    include: {
+      iceboxItem: { select: { id: true, displayId: true, request: true } },
+      productGoal: { select: { id: true, title: true } },
+    },
+  })
+  if (!item) return NextResponse.json({ error: "Not found" }, { status: 404 })
+  return NextResponse.json(item)
+}
+
 const updateSchema = z.object({
   initiative: z.string().optional(),
   epic: z.string().optional(),

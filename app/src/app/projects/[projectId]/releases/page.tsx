@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react"
 import { useParams } from "next/navigation"
 import { useLanguage } from "@/lib/language-context"
 import { useConfirm } from "@/components/confirm-dialog"
+import { HelpTooltip } from "@/components/help-tooltip"
 
 interface PbItem {
   id: string
@@ -466,7 +467,10 @@ export default function ReleasesPage() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">{pt.backlogInitiative}</label>
+                  <label className="flex items-center gap-1.5 text-xs font-medium text-gray-600 mb-1">
+                    {pt.backlogInitiative}
+                    <HelpTooltip content={pt.backlogInitiativeHelp} ariaLabel={pt.backlogInitiative} side="right" />
+                  </label>
                   <input
                     type="text"
                     value={editingItem.initiative ?? ""}
@@ -475,7 +479,10 @@ export default function ReleasesPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">{pt.backlogEpic}</label>
+                  <label className="flex items-center gap-1.5 text-xs font-medium text-gray-600 mb-1">
+                    {pt.backlogEpic}
+                    <HelpTooltip content={pt.backlogEpicHelp} ariaLabel={pt.backlogEpic} side="right" />
+                  </label>
                   <input
                     type="text"
                     value={editingItem.epic ?? ""}

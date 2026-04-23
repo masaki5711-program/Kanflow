@@ -70,6 +70,8 @@ export default function TaskFormModal({
 
   // PB items available for this sprint
   const sprintPbItems = [...new Map(sprint.items.map((i) => [i.pbItem.id, i.pbItem])).values()]
+  const hasPbItems = sprintPbItems.length > 0
+  const selectedPb = sprintPbItems.find((p) => p.id === taskForm.pbItemId)
 
   return (
     <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={onCancel}>
@@ -78,15 +80,30 @@ export default function TaskFormModal({
           {editingTaskId ? t.sprintTaskEdit : t.sprintAddTask}
           <span className="text-sm font-normal text-gray-500 ml-2">{sprint.sprintName}</span>
         </h3>
+
+        {!editingTaskId && !hasPbItems && (
+          <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-sm text-amber-800 mb-4">
+            {t.sprintAddPbi} — まず PBアイテムを取り込んでからタスクを追加してください。
+          </div>
+        )}
+
         <form onSubmit={onSubmit} className="space-y-3">
           {!editingTaskId && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t.sprintPbItem}</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {t.sprintPbItem}
+                {selectedPb && (
+                  <span className="ml-2 text-xs font-normal text-blue-600">
+                    #{selectedPb.displayId} {selectedPb.initiative || selectedPb.userStory || ""}
+                  </span>
+                )}
+              </label>
               <select
                 value={taskForm.pbItemId}
                 onChange={(e) => onChange({ ...taskForm, pbItemId: e.target.value })}
                 required
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                disabled={!hasPbItems}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm disabled:bg-gray-100 disabled:text-gray-400"
               >
                 <option value="">-- {t.sprintSelect} --</option>
                 {sprintPbItems.map((pb) => (

@@ -44,6 +44,9 @@ interface Sprint {
   status: string
   reviewComment: string | null
   retrospectiveMemo: string | null
+  retrospectiveKeep: string | null
+  retrospectiveProblem: string | null
+  retrospectiveTry: string | null
   items: SprintItem[]
 }
 
@@ -279,18 +282,46 @@ export function ReportContent({
         )}
 
         {/* Review / Retrospective */}
-        {(sprint.reviewComment || sprint.retrospectiveMemo) && (
-          <div className="mt-2 space-y-1">
+        {(sprint.reviewComment
+          || sprint.retrospectiveKeep
+          || sprint.retrospectiveProblem
+          || sprint.retrospectiveTry
+          || sprint.retrospectiveMemo) && (
+          <div className="mt-2 space-y-1.5">
             {sprint.reviewComment && (
-              <div className="bg-purple-50 border border-purple-200 rounded px-2 py-1.5">
-                <span className="text-[10px] font-semibold text-purple-700">{t.sprintReviewComment}:</span>
-                <p className="text-xs text-purple-900 whitespace-pre-wrap">{sprint.reviewComment}</p>
+              <div className="bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
+                <span className="text-[10px] font-semibold text-amber-700">
+                  {t.sprintReviewComment} (legacy):
+                </span>
+                <p className="text-xs text-amber-900 whitespace-pre-wrap">{sprint.reviewComment}</p>
+              </div>
+            )}
+            {(sprint.retrospectiveKeep || sprint.retrospectiveProblem || sprint.retrospectiveTry) && (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-1.5">
+                {sprint.retrospectiveKeep && (
+                  <div className="bg-emerald-50 border border-emerald-200 rounded px-2 py-1.5">
+                    <span className="text-[10px] font-semibold text-emerald-700">K {t.sprintKptKeep}:</span>
+                    <p className="text-xs text-emerald-900 whitespace-pre-wrap">{sprint.retrospectiveKeep}</p>
+                  </div>
+                )}
+                {sprint.retrospectiveProblem && (
+                  <div className="bg-rose-50 border border-rose-200 rounded px-2 py-1.5">
+                    <span className="text-[10px] font-semibold text-rose-700">P {t.sprintKptProblem}:</span>
+                    <p className="text-xs text-rose-900 whitespace-pre-wrap">{sprint.retrospectiveProblem}</p>
+                  </div>
+                )}
+                {sprint.retrospectiveTry && (
+                  <div className="bg-sky-50 border border-sky-200 rounded px-2 py-1.5">
+                    <span className="text-[10px] font-semibold text-sky-700">T {t.sprintKptTry}:</span>
+                    <p className="text-xs text-sky-900 whitespace-pre-wrap">{sprint.retrospectiveTry}</p>
+                  </div>
+                )}
               </div>
             )}
             {sprint.retrospectiveMemo && (
-              <div className="bg-blue-50 border border-blue-200 rounded px-2 py-1.5">
-                <span className="text-[10px] font-semibold text-blue-700">{t.sprintRetrospectiveMemo}:</span>
-                <p className="text-xs text-blue-900 whitespace-pre-wrap">{sprint.retrospectiveMemo}</p>
+              <div className="bg-gray-50 border border-gray-200 rounded px-2 py-1.5">
+                <span className="text-[10px] font-semibold text-gray-600">{t.sprintRetrospectiveOther}:</span>
+                <p className="text-xs text-gray-800 whitespace-pre-wrap">{sprint.retrospectiveMemo}</p>
               </div>
             )}
           </div>

@@ -37,9 +37,7 @@ export default async function ProjectDashboard({
       sprints: {
         where: { status: "active" },
         take: 1,
-        include: {
-          items: true,
-        },
+        include: { items: true },
       },
     },
   })
@@ -47,6 +45,9 @@ export default async function ProjectDashboard({
   if (!project) {
     notFound()
   }
+
+  // Project progress is a manual value the PO maintains on the dashboard.
+  const projectProgressPct = project.progressPct ?? 0
 
   const activeSprint = project.sprints[0] ?? null
   const sprintTaskCounts = activeSprint
@@ -94,6 +95,8 @@ export default async function ProjectDashboard({
       iceboxCount={project._count.iceboxItems}
       backlogCount={project._count.backlogItems}
       sprintCount={project._count.sprints}
+      projectProgressPct={projectProgressPct}
+      currentUserRole={membership.role}
       activeSprint={
         activeSprint
           ? {

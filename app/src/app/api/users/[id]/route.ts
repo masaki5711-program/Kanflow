@@ -8,7 +8,16 @@ const patchSchema = z.object({
   email: z.string().email().max(200).optional(),
   role: z.enum(["admin", "member"]).optional(),
   isActive: z.boolean().optional(),
+  employeeNumber: z.string().max(50).nullable().optional(),
+  department: z.string().max(100).nullable().optional(),
 })
+
+function normalizeOptional(value: string | null | undefined): string | null | undefined {
+  if (value === undefined) return undefined
+  if (value === null) return null
+  const trimmed = value.trim()
+  return trimmed === "" ? null : trimmed
+}
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth()
@@ -38,10 +47,35 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     }
   }
 
+  const employeeNumber = normalizeOptional(parsed.data.employeeNumber)
+  if (typeof employeeNumber === "string") {
+    const existing = await prisma.user.findFirst({
+      where: { employeeNumber, NOT: { id } },
+    })
+    if (existing) {
+      return NextResponse.json({ error: "この従業員番号は既に使用されています" }, { status: 409 })
+    }
+  }
+
+  const department = normalizeOptional(parsed.data.department)
+
+  const { employeeNumber: _en, department: _dept, ...rest } = parsed.data
+  const updateData: Record<string, unknown> = { ...rest }
+  if (employeeNumber !== undefined) updateData.employeeNumber = employeeNumber
+  if (department !== undefined) updateData.department = department
+
   const user = await prisma.user.update({
     where: { id },
-    data: parsed.data,
-    select: { id: true, name: true, email: true, role: true, isActive: true },
+    data: updateData,
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      role: true,
+      isActive: true,
+      employeeNumber: true,
+      department: true,
+    },
   })
   return NextResponse.json(user)
 }

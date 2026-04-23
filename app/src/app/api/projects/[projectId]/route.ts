@@ -13,6 +13,7 @@ const updateSchema = z.object({
   pointDescription: z.string().max(200).optional(),
   language: z.enum(["ja", "en", "id"]).optional(),
   projectType: z.enum(["software", "process_improvement", "general"]).optional(),
+  progressPct: z.number().int().min(0).max(100).optional(),
 })
 
 export async function GET(
@@ -73,6 +74,11 @@ export async function PATCH(
   try {
     const body = await request.json()
     const data = updateSchema.parse(body)
+
+    // Progress percentage is set by the PO.
+    if (data.progressPct !== undefined && member.role !== "po") {
+      return NextResponse.json({ error: "進捗の編集は PO のみが行えます" }, { status: 403 })
+    }
 
     const project = await prisma.project.update({
       where: { id: projectId },

@@ -46,11 +46,19 @@ export async function GET(
   const result = await requireProjectMember(projectId)
   if ("error" in result) return result.error
 
-  const sprints = await prisma.sprint.findMany({
+  const rawSprints = await prisma.sprint.findMany({
     where: { projectId, status: { in: ["planning", "active", "review", "done"] } },
     include: { items: true },
     orderBy: { startDate: "asc" },
   })
+
+  // Exclude placeholder SprintBacklogItems (those without a taskName).
+  // Placeholders only signal PBI membership at sprint creation time;
+  // they are not real work units and would inflate the burn.
+  const sprints = rawSprints.map((s) => ({
+    ...s,
+    items: s.items.filter((i) => !!(i.taskName && i.taskName.trim().length > 0)),
+  }))
 
   if (sprints.length === 0) {
     const empty: BurndownData = {

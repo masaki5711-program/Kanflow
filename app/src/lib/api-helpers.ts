@@ -25,10 +25,12 @@ export function safeExtension(rawExt: string): string {
   return /^\.[a-zA-Z0-9]+$/.test(rawExt) ? rawExt : ""
 }
 
-export const MAX_UPLOAD_SIZE = 50 * 1024 * 1024
+export const MAX_UPLOAD_SIZE = 200 * 1024 * 1024
 
 const ALLOWED_MIME_PREFIXES = [
   "image/",
+  "video/",
+  "audio/",
   "application/pdf",
   "application/msword",
   "application/vnd.openxmlformats-officedocument",
@@ -138,6 +140,90 @@ export async function copyTemplateFile(
     originalName: displayName,
     fileSize: buf.length,
     mimeType,
+  }
+}
+
+/**
+ * Serve a stored file to the browser with HTTP Range support. Returns a
+ * NextResponse usable directly from route handlers. Required for HTML5
+ * <video>/<audio> to seek/stream.
+ */
+export async function serveStoredFile(
+  projectId: string,
+  fileName: string,
+  mimeType: string,
+  originalName: string,
+  request: Request,
+  forceDownload: boolean
+): Promise<import("next/server").NextResponse> {
+  const { NextResponse } = await import("next/server")
+  const full = safeFilePath(projectId, fileName)
+  if (!full) return NextResponse.json({ error: "パスが不正です" }, { status: 400 })
+
+  let stat: import("fs").Stats
+  try {
+    stat = await (await import("fs/promises")).stat(full)
+  } catch {
+    return NextResponse.json({ error: "File missing" }, { status: 404 })
+  }
+
+  const encoded = encodeURIComponent(originalName)
+  const disposition = forceDownload ? "attachment" : "inline"
+  const contentDisposition = `${disposition}; filename="${encoded}"; filename*=UTF-8''${encoded}`
+  const totalSize = stat.size
+  const rangeHeader = request.headers.get("range")
+
+  if (rangeHeader && /^bytes=\d*-\d*$/.test(rangeHeader)) {
+    const [startStr, endStr] = rangeHeader.replace("bytes=", "").split("-")
+    const start = startStr === "" ? Math.max(totalSize - parseInt(endStr || "0", 10), 0) : parseInt(startStr, 10)
+    const end = endStr === "" || startStr === ""
+      ? totalSize - 1
+      : Math.min(parseInt(endStr, 10), totalSize - 1)
+    if (isNaN(start) || isNaN(end) || start > end || start >= totalSize) {
+      return new NextResponse(null, {
+        status: 416,
+        headers: { "Content-Range": `bytes */${totalSize}` },
+      })
+    }
+    const chunkSize = end - start + 1
+    const fh = await fs.open(full, "r")
+    try {
+      const buf = Buffer.alloc(chunkSize)
+      await fh.read(buf, 0, chunkSize, start)
+      const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer
+      return new NextResponse(ab, {
+        status: 206,
+        headers: {
+          "Content-Type": mimeType,
+          "Content-Disposition": contentDisposition,
+          "Content-Range": `bytes ${start}-${end}/${totalSize}`,
+          "Accept-Ranges": "bytes",
+          "Content-Length": String(chunkSize),
+          "Cache-Control": "private, max-age=3600",
+        },
+      })
+    } finally {
+      await fh.close()
+    }
+  }
+
+  try {
+    const buf = await fs.readFile(full)
+    const arrayBuffer = buf.buffer.slice(
+      buf.byteOffset,
+      buf.byteOffset + buf.byteLength,
+    ) as ArrayBuffer
+    return new NextResponse(arrayBuffer, {
+      headers: {
+        "Content-Type": mimeType,
+        "Content-Disposition": contentDisposition,
+        "Content-Length": String(totalSize),
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "private, max-age=3600",
+      },
+    })
+  } catch {
+    return NextResponse.json({ error: "File missing" }, { status: 404 })
   }
 }
 

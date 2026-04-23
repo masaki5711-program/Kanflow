@@ -1,7 +1,6 @@
 import { auth } from "@/lib/auth"
 import { redirect } from "next/navigation"
 import { prisma } from "@/lib/prisma"
-import { type Language } from "@/lib/i18n"
 import { type ProjectType } from "@/lib/project-type-labels"
 import { Header } from "@/components/header"
 import { Sidebar } from "@/components/sidebar"
@@ -23,19 +22,18 @@ export default async function ProjectLayout({
 
   const project = await prisma.project.findUnique({
     where: { id: projectId },
-    select: { name: true, language: true, projectType: true },
+    select: { name: true, projectType: true },
   })
 
-  const language = (project?.language as Language) ?? "ja"
   const projectType = (project?.projectType as ProjectType) ?? "software"
 
   return (
-    <ProjectLanguageSync language={language} projectType={projectType}>
+    <ProjectLanguageSync projectType={projectType}>
       <div className="min-h-screen bg-gray-50/50">
         <Header projectName={project?.name} projectId={projectId} />
         <div className="flex">
           <Sidebar projectId={projectId} />
-          <main className="flex-1 min-w-0 overflow-x-auto p-6 lg:p-8 max-w-[1200px]">
+          <main className="flex-1 min-w-0 overflow-x-auto p-6 lg:p-8">
             <div className="rounded-xl bg-white/40 shadow-sm shadow-gray-200/30 ring-1 ring-gray-100/50 p-6">
               {children}
             </div>

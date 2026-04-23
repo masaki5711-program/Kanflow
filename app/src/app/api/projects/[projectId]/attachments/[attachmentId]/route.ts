@@ -8,6 +8,11 @@ const patchSchema = z.object({
   folderId: z.string().nullable().optional(),
 })
 
+/**
+ * Serve an attachment. Supports HTTP Range requests so browsers can stream
+ * video/audio (HTML5 <video>/<audio> require 206 Partial Content to seek).
+ * Query `?download=1` forces attachment Content-Disposition.
+ */
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ projectId: string; attachmentId: string }> }
@@ -24,20 +29,73 @@ export async function GET(
   const full = safeFilePath(projectId, attachment.fileName)
   if (!full) return NextResponse.json({ error: "パスが不正です" }, { status: 400 })
 
+  let stat: import("fs").Stats
+  try {
+    stat = await (await import("fs/promises")).stat(full)
+  } catch {
+    return NextResponse.json({ error: "File missing" }, { status: 404 })
+  }
+
+  const { searchParams } = new URL(request.url)
+  const forceDownload = searchParams.get("download") !== null
+  const encoded = encodeURIComponent(attachment.originalName)
+  const disposition = forceDownload ? "attachment" : "inline"
+  const contentDisposition = `${disposition}; filename="${encoded}"; filename*=UTF-8''${encoded}`
+
+  const totalSize = stat.size
+  const rangeHeader = request.headers.get("range")
+
+  // Range request — serve 206 partial content
+  if (rangeHeader && /^bytes=\d*-\d*$/.test(rangeHeader)) {
+    const [startStr, endStr] = rangeHeader.replace("bytes=", "").split("-")
+    const start = startStr === "" ? Math.max(totalSize - parseInt(endStr || "0", 10), 0) : parseInt(startStr, 10)
+    const end = endStr === "" || startStr === ""
+      ? totalSize - 1
+      : Math.min(parseInt(endStr, 10), totalSize - 1)
+
+    if (isNaN(start) || isNaN(end) || start > end || start >= totalSize) {
+      return new NextResponse(null, {
+        status: 416,
+        headers: { "Content-Range": `bytes */${totalSize}` },
+      })
+    }
+
+    const chunkSize = end - start + 1
+    const fh = await fs.open(full, "r")
+    try {
+      const buf = Buffer.alloc(chunkSize)
+      await fh.read(buf, 0, chunkSize, start)
+      const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer
+      return new NextResponse(ab, {
+        status: 206,
+        headers: {
+          "Content-Type": attachment.mimeType,
+          "Content-Disposition": contentDisposition,
+          "Content-Range": `bytes ${start}-${end}/${totalSize}`,
+          "Accept-Ranges": "bytes",
+          "Content-Length": String(chunkSize),
+          "Cache-Control": "private, max-age=3600",
+        },
+      })
+    } finally {
+      await fh.close()
+    }
+  }
+
+  // Full response
   try {
     const buf = await fs.readFile(full)
     const arrayBuffer = buf.buffer.slice(
       buf.byteOffset,
       buf.byteOffset + buf.byteLength,
     ) as ArrayBuffer
-    const { searchParams } = new URL(request.url)
-    const disposition = searchParams.get("download") !== null ? "attachment" : "inline"
-    const encoded = encodeURIComponent(attachment.originalName)
     return new NextResponse(arrayBuffer, {
       headers: {
         "Content-Type": attachment.mimeType,
-        "Content-Disposition": `${disposition}; filename="${encoded}"; filename*=UTF-8''${encoded}`,
-        "Content-Length": String(buf.length),
+        "Content-Disposition": contentDisposition,
+        "Content-Length": String(totalSize),
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "private, max-age=3600",
       },
     })
   } catch {

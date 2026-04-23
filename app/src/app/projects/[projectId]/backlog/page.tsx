@@ -2,8 +2,11 @@
 
 import { useEffect, useState, useCallback } from "react"
 import { useParams } from "next/navigation"
+import { useSession } from "next-auth/react"
 import { useLanguage } from "@/lib/language-context"
 import { useConfirm } from "@/components/confirm-dialog"
+import { HelpTooltip } from "@/components/help-tooltip"
+import PbiDetailModal from "@/components/pbi-detail-modal"
 
 interface ProductGoal {
   id: string
@@ -140,6 +143,10 @@ export default function BacklogPage() {
   const projectId = params.projectId as string
   const { t, pt } = useLanguage()
   const confirm = useConfirm()
+  const { data: session } = useSession()
+  const [myRole, setMyRole] = useState<string | null>(null)
+  const canEdit = myRole === "po"
+  const [detailPbiId, setDetailPbiId] = useState<string | null>(null)
 
   const [readyItems, setReadyItems] = useState<BacklogItem[]>([])
   const [notReadyItems, setNotReadyItems] = useState<BacklogItem[]>([])
@@ -202,6 +209,19 @@ export default function BacklogPage() {
     fetchIceboxItems()
     fetchProductGoals()
   }, [fetchItems, fetchIceboxItems, fetchProductGoals])
+
+  // Determine current user's role in this project. Only PO can edit PBIs.
+  useEffect(() => {
+    if (!session?.user?.id) return
+    const uid = session.user.id
+    fetch(`/api/projects/${projectId}/members`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(r)))
+      .then((members: { role: string; user: { id: string } }[]) => {
+        const me = members.find((m) => m.user.id === uid)
+        setMyRole(me?.role ?? null)
+      })
+      .catch(() => setMyRole(null))
+  }, [projectId, session?.user?.id])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -427,16 +447,7 @@ export default function BacklogPage() {
               {item.workloadScore}
             </span>
 
-            {sectionStatus === "ready" && (
-              <button
-                onClick={() => handleStatusChange(item.id, "completed")}
-                className="p-1.5 rounded-lg text-green-500 hover:bg-green-50 hover:text-green-700 transition-colors"
-                title={t.backlogMoveToCompleted}
-              >
-                <IconCheckCircle className="w-4 h-4" />
-              </button>
-            )}
-            {sectionStatus === "completed" && (
+            {canEdit && sectionStatus === "not_ready" && (
               <button
                 onClick={() => handleStatusChange(item.id, "ready")}
                 className="p-1.5 rounded-lg text-blue-500 hover:bg-blue-50 hover:text-blue-700 transition-colors"
@@ -445,7 +456,39 @@ export default function BacklogPage() {
                 <IconCheckCircle className="w-4 h-4" />
               </button>
             )}
-            {sectionStatus !== "completed" && (
+            {canEdit && sectionStatus === "ready" && (
+              <>
+                <button
+                  onClick={() => handleStatusChange(item.id, "not_ready")}
+                  className="p-1.5 rounded-lg text-gray-400 hover:bg-amber-50 hover:text-amber-600 transition-colors"
+                  title={t.backlogMoveToNotReady}
+                >
+                  <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M9.707 14.707a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 1.414L7.414 9H15a1 1 0 110 2H7.414l2.293 2.293a1 1 0 010 1.414z" clipRule="evenodd"/>
+                  </svg>
+                </button>
+                <button
+                  onClick={() => handleStatusChange(item.id, "completed")}
+                  className="p-1.5 rounded-lg text-green-500 hover:bg-green-50 hover:text-green-700 transition-colors"
+                  title={t.backlogMoveToCompleted}
+                >
+                  <IconCheckCircle className="w-4 h-4" />
+                </button>
+              </>
+            )}
+            {canEdit && sectionStatus === "completed" && (
+              <button
+                onClick={() => handleStatusChange(item.id, "ready")}
+                className="p-1.5 rounded-lg text-blue-500 hover:bg-blue-50 hover:text-blue-700 transition-colors"
+                title={t.backlogMoveToReady}
+              >
+                <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M9.707 14.707a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 1.414L7.414 9H15a1 1 0 110 2H7.414l2.293 2.293a1 1 0 010 1.414z" clipRule="evenodd"/>
+                </svg>
+              </button>
+            )}
+            {/* Edit/delete: PO only. Non-PO members see a view-only button. */}
+            {canEdit && sectionStatus !== "completed" && (
               <>
                 <button
                   onClick={() => startEdit(item)}
@@ -462,6 +505,18 @@ export default function BacklogPage() {
                   <IconTrash className="w-4 h-4" />
                 </button>
               </>
+            )}
+            {!canEdit && (
+              <button
+                onClick={() => setDetailPbiId(item.id)}
+                className="p-1.5 rounded-lg text-gray-400 hover:bg-blue-50 hover:text-blue-600 transition-colors"
+                title={t.view ?? "詳細"}
+              >
+                <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                  <path d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" />
+                  <path fillRule="evenodd" d="M.664 10.59a1.65 1.65 0 010-1.186A10 10 0 0110 3c4.257 0 7.893 2.66 9.336 6.41.147.381.146.804 0 1.186A10 10 0 0110 17c-4.257 0-7.893-2.66-9.336-6.41zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" />
+                </svg>
+              </button>
             )}
           </div>
         </div>
@@ -489,6 +544,15 @@ export default function BacklogPage() {
               <span className={`text-xs font-medium ${cfg.badgeBg} ${cfg.badgeText} px-2 py-0.5 rounded-full`}>
                 {items.length}{t.items}
               </span>
+              {sectionStatus === "ready" && (
+                <HelpTooltip content={t.backlogReadyHint} ariaLabel="Ready" side="right" />
+              )}
+              {sectionStatus === "not_ready" && (
+                <HelpTooltip content={t.backlogNotReadyHint} ariaLabel="Not Ready" side="right" />
+              )}
+              {sectionStatus === "completed" && (
+                <HelpTooltip content={t.backlogCompletedHint} ariaLabel="Completed" side="right" />
+              )}
             </div>
             {showWorkloadTotal && (
               <span className="inline-flex items-center gap-1 text-xs font-medium bg-blue-50 text-blue-700 px-3 py-1 rounded-full">
@@ -540,13 +604,15 @@ export default function BacklogPage() {
             {t.reportTotalWorkload}: {totalWorkload}
           </span>
         </div>
-        <button
-          onClick={() => { resetForm(); setShowForm(true) }}
-          className="inline-flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 text-sm font-medium shadow-sm transition-all"
-        >
-          <IconPlus className="w-4 h-4" />
-          {t.backlogAddItem}
-        </button>
+        {canEdit && (
+          <button
+            onClick={() => { resetForm(); setShowForm(true) }}
+            className="inline-flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 text-sm font-medium shadow-sm transition-all"
+          >
+            <IconPlus className="w-4 h-4" />
+            {t.backlogAddItem}
+          </button>
+        )}
       </div>
 
       {/* Create/Edit Form */}
@@ -555,9 +621,10 @@ export default function BacklogPage() {
           <div className="h-1 bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500" />
           <div className="p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-5">
-              {editingId ? t.edit : t.backlogAddItem}
+              {canEdit ? (editingId ? t.edit : t.backlogAddItem) : (t.view ?? "詳細")}
             </h2>
             <form onSubmit={handleSubmit} className="space-y-5">
+            <fieldset disabled={!canEdit} className="space-y-5 contents">
               <div className="grid grid-cols-2 gap-4">
                 {/* IceBox selection */}
                 <div>
@@ -602,6 +669,7 @@ export default function BacklogPage() {
                   <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700 mb-1.5">
                     <IconTag className="w-3.5 h-3.5 text-gray-500" />
                     {pt.backlogInitiative}
+                    <HelpTooltip content={pt.backlogInitiativeHelp} ariaLabel={pt.backlogInitiative} side="right" />
                   </label>
                   <input
                     type="text"
@@ -614,6 +682,7 @@ export default function BacklogPage() {
                   <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700 mb-1.5">
                     <IconTag className="w-3.5 h-3.5 text-gray-500" />
                     {pt.backlogEpic}
+                    <HelpTooltip content={pt.backlogEpicHelp} ariaLabel={pt.backlogEpic} side="right" />
                   </label>
                   <input
                     type="text"
@@ -725,20 +794,23 @@ export default function BacklogPage() {
               </div>
 
               <div className="flex gap-2 pt-2">
-                <button
-                  type="submit"
-                  className="inline-flex items-center gap-1.5 px-5 py-2 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 text-sm font-medium shadow-sm transition-all"
-                >
-                  {editingId ? t.update : t.add}
-                </button>
+                {canEdit && (
+                  <button
+                    type="submit"
+                    className="inline-flex items-center gap-1.5 px-5 py-2 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 text-sm font-medium shadow-sm transition-all"
+                  >
+                    {editingId ? t.update : t.add}
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={resetForm}
                   className="px-5 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 text-sm font-medium transition-colors"
                 >
-                  {t.cancel}
+                  {canEdit ? t.cancel : t.close}
                 </button>
               </div>
+            </fieldset>
             </form>
           </div>
         </div>
@@ -780,6 +852,14 @@ export default function BacklogPage() {
           {showCompleted && renderSection(t.backlogStatusCompleted, filteredCompleted, false, "completed")}
         </div>
       </div>
+
+      {detailPbiId && (
+        <PbiDetailModal
+          projectId={projectId}
+          pbiId={detailPbiId}
+          onClose={() => setDetailPbiId(null)}
+        />
+      )}
     </div>
   )
 }

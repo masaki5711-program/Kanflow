@@ -8,6 +8,9 @@ interface Sprint {
   status: string
   reviewComment: string | null
   retrospectiveMemo: string | null
+  retrospectiveKeep?: string | null
+  retrospectiveProblem?: string | null
+  retrospectiveTry?: string | null
 }
 
 interface StatusDialogState {
@@ -16,6 +19,9 @@ interface StatusDialogState {
   nextStatus: string
   reviewComment: string
   retrospectiveMemo: string
+  retrospectiveKeep: string
+  retrospectiveProblem: string
+  retrospectiveTry: string
 }
 
 interface SprintStatusDialogProps {
@@ -44,62 +50,131 @@ export default function SprintStatusDialog({
   }
 
   const isEditOnly = sprint?.status === dialog.nextStatus
-  const showReviewField = dialog.nextStatus === "review" || dialog.nextStatus === "done"
-  const showRetroField = dialog.nextStatus === "done"
+  // KPT + other memo are shown whenever transitioning into review or done.
+  const showRetroFields = dialog.nextStatus === "review" || dialog.nextStatus === "done"
+  const hasLegacyReview = !!(sprint?.reviewComment && sprint.reviewComment.trim().length > 0)
 
   return (
-    <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={onCancel}>
-      <div className="bg-white rounded-lg shadow-lg p-6 w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
-        <h3 className="text-lg font-semibold mb-1">
-          {isEditOnly ? `${t.sprintReviewComment} / ${t.sprintRetrospectiveMemo}` : t.sprintReviewDialogTitle}
-        </h3>
-        {!isEditOnly && (
-          <p className="text-sm text-gray-500 mb-4">
-            {dialog.sprintName}: &rarr; {statusLabels[dialog.nextStatus] ?? dialog.nextStatus}
-          </p>
-        )}
-        {isEditOnly && (
-          <p className="text-sm text-gray-500 mb-4">{dialog.sprintName}</p>
-        )}
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onCancel}>
+      <div
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[92vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="px-6 py-4 border-b border-gray-100 shrink-0">
+          <h3 className="text-xl font-bold text-gray-900">
+            {isEditOnly ? t.sprintRetrospectiveMemo : t.sprintReviewDialogTitle}
+          </h3>
+          {!isEditOnly ? (
+            <p className="text-sm text-gray-500 mt-1">
+              <span className="font-medium text-gray-700">{dialog.sprintName}</span>
+              <span className="mx-2 text-gray-300">→</span>
+              <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 text-xs font-medium">
+                {statusLabels[dialog.nextStatus] ?? dialog.nextStatus}
+              </span>
+            </p>
+          ) : (
+            <p className="text-sm text-gray-500 mt-1 font-medium">{dialog.sprintName}</p>
+          )}
+        </div>
 
-        {/* Review comment */}
-        {showReviewField && (
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-1">{t.sprintReviewComment}</label>
-            <textarea
-              value={dialog.reviewComment}
-              onChange={(e) => onDialogChange({ ...dialog, reviewComment: e.target.value })}
-              placeholder={t.sprintReviewCommentPlaceholder}
-              rows={3}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
-            />
-          </div>
-        )}
+        {/* Body (scrollable) */}
+        <div className="px-6 py-5 overflow-y-auto flex-1 space-y-6">
+          {/* Legacy review comment — read-only banner when pre-existing data */}
+          {hasLegacyReview && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+              <p className="text-xs font-semibold text-amber-700 mb-1">
+                {t.sprintReviewComment}（legacy · read-only）
+              </p>
+              <p className="text-sm text-amber-900 whitespace-pre-wrap">{sprint?.reviewComment}</p>
+            </div>
+          )}
 
-        {/* Retrospective memo */}
-        {showRetroField && (
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-1">{t.sprintRetrospectiveMemo}</label>
-            <textarea
-              value={dialog.retrospectiveMemo}
-              onChange={(e) => onDialogChange({ ...dialog, retrospectiveMemo: e.target.value })}
-              placeholder={t.sprintRetrospectiveMemoPlaceholder}
-              rows={4}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-        )}
+          {/* KPT grid */}
+          {showRetroFields && (
+            <div>
+              <label className="flex items-center gap-2 text-base font-semibold text-gray-800 mb-2">
+                <span className="inline-block w-1.5 h-5 bg-blue-500 rounded-sm" />
+                {t.sprintRetrospectiveMemo} — KPT
+              </label>
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                {/* Keep */}
+                <div className="bg-emerald-50/60 border border-emerald-200 rounded-xl p-4">
+                  <label className="flex items-center gap-2 text-sm font-bold text-emerald-700 mb-2">
+                    <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-emerald-500 text-white text-xs">K</span>
+                    {t.sprintKptKeep}
+                  </label>
+                  <textarea
+                    value={dialog.retrospectiveKeep}
+                    onChange={(e) => onDialogChange({ ...dialog, retrospectiveKeep: e.target.value })}
+                    placeholder={t.sprintKptKeepPlaceholder}
+                    rows={8}
+                    className="w-full px-3 py-2.5 border border-emerald-200 bg-white rounded-lg text-base leading-relaxed focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 resize-y placeholder:text-gray-300"
+                  />
+                </div>
 
-        <div className="flex justify-end gap-3">
+                {/* Problem */}
+                <div className="bg-rose-50/60 border border-rose-200 rounded-xl p-4">
+                  <label className="flex items-center gap-2 text-sm font-bold text-rose-700 mb-2">
+                    <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-rose-500 text-white text-xs">P</span>
+                    {t.sprintKptProblem}
+                  </label>
+                  <textarea
+                    value={dialog.retrospectiveProblem}
+                    onChange={(e) => onDialogChange({ ...dialog, retrospectiveProblem: e.target.value })}
+                    placeholder={t.sprintKptProblemPlaceholder}
+                    rows={8}
+                    className="w-full px-3 py-2.5 border border-rose-200 bg-white rounded-lg text-base leading-relaxed focus:outline-none focus:ring-2 focus:ring-rose-500/30 focus:border-rose-500 resize-y placeholder:text-gray-300"
+                  />
+                </div>
+
+                {/* Try */}
+                <div className="bg-sky-50/60 border border-sky-200 rounded-xl p-4">
+                  <label className="flex items-center gap-2 text-sm font-bold text-sky-700 mb-2">
+                    <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-sky-500 text-white text-xs">T</span>
+                    {t.sprintKptTry}
+                  </label>
+                  <textarea
+                    value={dialog.retrospectiveTry}
+                    onChange={(e) => onDialogChange({ ...dialog, retrospectiveTry: e.target.value })}
+                    placeholder={t.sprintKptTryPlaceholder}
+                    rows={8}
+                    className="w-full px-3 py-2.5 border border-sky-200 bg-white rounded-lg text-base leading-relaxed focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500 resize-y placeholder:text-gray-300"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Other memo */}
+          {showRetroFields && (
+            <div>
+              <label className="flex items-center gap-2 text-sm font-semibold text-gray-600 mb-2">
+                <span className="inline-block w-1 h-4 bg-gray-300 rounded-sm" />
+                {t.sprintRetrospectiveOther}
+              </label>
+              <textarea
+                value={dialog.retrospectiveMemo}
+                onChange={(e) => onDialogChange({ ...dialog, retrospectiveMemo: e.target.value })}
+                placeholder={t.sprintRetrospectiveOtherPlaceholder}
+                rows={4}
+                className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 resize-y placeholder:text-gray-300"
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-3 shrink-0 bg-gray-50/60 rounded-b-2xl">
           <button
             onClick={onCancel}
-            className="px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50"
+            className="px-5 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-100 transition-colors"
           >
             {t.cancel}
           </button>
           <button
             onClick={onSubmit}
-            className="px-4 py-2 text-sm text-white bg-blue-600 rounded-md hover:bg-blue-700"
+            className="px-5 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
           >
             {isEditOnly ? t.save : t.sprintSubmitAndChangeStatus}
           </button>
