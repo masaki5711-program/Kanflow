@@ -71,7 +71,7 @@ echo   Discovery URL:  http://localhost:9980/hosting/discovery
 echo   Admin console:  http://localhost:9980/browser/dist/admin/admin.html
 echo.
 echo   Kanflow app:    http://localhost:3000
-echo                   http://10.107.39.36:3000
+echo                   http://pp-21.ymma.emi.yamaha.co.jp:3000
 echo.
 echo   To stop:    docker compose -f docker-compose-collabora.yml stop
 echo   To restart: docker compose -f docker-compose-collabora.yml restart

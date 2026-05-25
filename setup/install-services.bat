@@ -99,18 +99,16 @@ if %errorlevel% equ 0 (
     schtasks /Delete /TN "%SVC_APP_TASK%" /F >nul 2>&1
 )
 
-REM Create a wrapper script that cd's into app dir and runs next start
+REM Wrapper script is version-controlled at %APP_DIR%\start-service.bat.
+REM Do NOT regenerate here — the on-disk version includes port-conflict
+REM checks and richer logging that a generated stub would lose.
 set "WRAPPER=%APP_DIR%\start-service.bat"
-(
-    echo @echo off
-    echo cd /d "%APP_DIR%"
-    echo set NODE_ENV=production
-    echo :loop
-    echo call npx next start -H 0.0.0.0 -p 3000 ^> "%APP_DIR%\service.log" 2^>^&1
-    echo echo [%%DATE%% %%TIME%%] next exited, restarting in 5s... ^>^> "%APP_DIR%\service.log"
-    echo timeout /t 5 /nobreak ^>nul
-    echo goto loop
-) > "%WRAPPER%"
+if not exist "%WRAPPER%" (
+    echo [ERROR] Wrapper not found at: %WRAPPER%
+    echo         Restore it from git: git checkout -- app/start-service.bat
+    pause
+    exit /b 1
+)
 
 schtasks /Create /TN "%SVC_APP_TASK%" /TR "\"%WRAPPER%\"" /SC ONSTART /RU SYSTEM /RL HIGHEST /F >nul
 if %errorlevel% neq 0 (
@@ -143,7 +141,7 @@ echo   MySQL service:  %SVC_MYSQL%      (sc query %SVC_MYSQL%)
 echo   App task:       %SVC_APP_TASK%   (schtasks /Query /TN %SVC_APP_TASK%)
 echo.
 echo   URL: http://localhost:3000
-echo        http://10.107.39.36:3000 (LAN)
+echo        http://pp-21.ymma.emi.yamaha.co.jp:3000 (LAN)
 echo.
 echo   To uninstall: run uninstall-services.bat as administrator
 echo.

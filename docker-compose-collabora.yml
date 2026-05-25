@@ -12,7 +12,7 @@ services:
       # Rancher Desktop / Docker Desktop expose the host via host.docker.internal
       # and we also add the LAN IP explicitly (see .env APP_EXTERNAL_URL).
       - "aliasgroup1=http://host.docker.internal:3000"
-      - "aliasgroup2=http://10.107.39.36:3000"
+      - "aliasgroup2=http://pp-21.ymma.emi.yamaha.co.jp:3000"
       - "aliasgroup3=http://localhost:3000"
       - "username=${COLLABORA_ADMIN_USER:-admin}"
       - "password=${COLLABORA_ADMIN_PASSWORD:-kanflow_admin}"
