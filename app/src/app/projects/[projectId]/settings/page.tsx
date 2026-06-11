@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
+import { useSession } from "next-auth/react"
 import { useLanguage } from "@/lib/language-context"
 import { useConfirm } from "@/components/confirm-dialog"
 import { MemberPicker } from "@/components/member-picker"
@@ -22,7 +23,7 @@ interface Member {
 
 interface SprintSettings {
   defaultCapacity: number
-  sprintDurationWeeks: number
+  sprintDurationDays: number
   pointUnit: string
   pointDescription: string
 }
@@ -47,13 +48,22 @@ export default function SettingsPage() {
   const { t, pt, language, setLanguage, projectType, setProjectType } = useLanguage()
   const confirm = useConfirm()
 
+  const { data: session } = useSession()
+  const isAdmin = session?.user?.role === "admin"
+
   const [members, setMembers] = useState<Member[]>([])
   const [error, setError] = useState("")
+  const isPO = members.some((m) => m.user.id === session?.user?.id && m.role === "po")
+
+  const [allSections, setAllSections] = useState<{ id: string; name: string }[]>([])
+  const [projectSectionIds, setProjectSectionIds] = useState<string[]>([])
+  const [sectionsSaving, setSectionsSaving] = useState(false)
+  const [sectionsSaved, setSectionsSaved] = useState(false)
 
   const [sprintSettings, setSprintSettings] = useState<SprintSettings>({
     defaultCapacity: 0,
-    sprintDurationWeeks: 1,
-    pointUnit: "人日",
+    sprintDurationDays: 7,
+    pointUnit: "SP",
     pointDescription: "",
   })
   const [sprintHistory, setSprintHistory] = useState<SprintHistory[]>([])
@@ -77,10 +87,27 @@ export default function SettingsPage() {
       .then((project) => {
         setSprintSettings({
           defaultCapacity: project.defaultCapacity ?? 0,
-          sprintDurationWeeks: project.sprintDurationWeeks ?? 1,
-          pointUnit: project.pointUnit ?? "人日",
+          sprintDurationDays: project.sprintDurationDays ?? 7,
+          pointUnit: project.pointUnit ?? "SP",
           pointDescription: project.pointDescription ?? "",
         })
+        if (Array.isArray(project.sections)) {
+          setProjectSectionIds(
+            project.sections.map((s: { id?: string; section?: { id: string } }) =>
+              s.id ?? s.section?.id ?? ""
+            ).filter(Boolean)
+          )
+        }
+      })
+      .catch(() => {})
+
+    // Sections list (available to admin and PO).
+    fetch("/api/sections")
+      .then((r) => r.ok ? r.json() : Promise.reject(r))
+      .then((data) => {
+        if (Array.isArray(data)) {
+          setAllSections(data.map((s: { id: string; name: string }) => ({ id: s.id, name: s.name })))
+        }
       })
       .catch(() => {})
 
@@ -96,6 +123,25 @@ export default function SettingsPage() {
       })
       .catch(() => {})
   }, [projectId])
+
+  async function handleSaveSections() {
+    if ((!isAdmin && !isPO) || sectionsSaving) return
+    setSectionsSaving(true)
+    setSectionsSaved(false)
+    try {
+      const res = await fetch(`/api/projects/${projectId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sectionIds: projectSectionIds }),
+      })
+      if (res.ok) {
+        setSectionsSaved(true)
+        setTimeout(() => setSectionsSaved(false), 2000)
+      }
+    } finally {
+      setSectionsSaving(false)
+    }
+  }
 
   async function handleLanguageChange(newLang: Language) {
     setLangSaving(true)
@@ -240,6 +286,61 @@ export default function SettingsPage() {
         </div>
       </div>
 
+      {/* Section assignment (admin or PO) */}
+      {(isAdmin || isPO) && (
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold">{t.sectionTitle}</h2>
+            {sectionsSaved && (
+              <span className="text-xs text-emerald-600 font-medium">{t.saved}</span>
+            )}
+          </div>
+          <p className="text-sm text-gray-500 mb-3">
+            {t.sectionAssignHint}
+          </p>
+          {allSections.length === 0 ? (
+            <p className="text-sm text-gray-400">{t.sectionEmpty}</p>
+          ) : (
+            <div className="flex flex-wrap gap-2 mb-3">
+              {allSections.map((s) => {
+                const checked = projectSectionIds.includes(s.id)
+                return (
+                  <label
+                    key={s.id}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium cursor-pointer border transition-colors ${
+                      checked
+                        ? "bg-amber-50 border-amber-300 text-amber-700"
+                        : "bg-white border-gray-200 text-gray-600 hover:border-gray-300"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      className="hidden"
+                      checked={checked}
+                      onChange={(e) => {
+                        const next = e.target.checked
+                          ? [...projectSectionIds, s.id]
+                          : projectSectionIds.filter((id) => id !== s.id)
+                        setProjectSectionIds(next)
+                      }}
+                    />
+                    {s.name}
+                  </label>
+                )
+              })}
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={handleSaveSections}
+            disabled={sectionsSaving || allSections.length === 0}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium"
+          >
+            {sectionsSaving ? t.saving : t.save}
+          </button>
+        </div>
+      )}
+
       {/* Sprint Workload Settings */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
         <h2 className="text-lg font-semibold mb-4">{t.settingsSprintWorkload}</h2>
@@ -283,19 +384,26 @@ export default function SettingsPage() {
                 {t.settingsSprintDuration}
               </label>
               <select
-                value={sprintSettings.sprintDurationWeeks}
+                value={sprintSettings.sprintDurationDays}
                 onChange={(e) =>
                   setSprintSettings({
                     ...sprintSettings,
-                    sprintDurationWeeks: parseInt(e.target.value),
+                    sprintDurationDays: parseInt(e.target.value),
                   })
                 }
                 className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
               >
-                {[1, 2, 3, 4].map((w) => (
-                  <option key={w} value={w}>
-                    {w}{t.settingsWeeks}
-                  </option>
+                {[
+                  { v: 1, label: `1${t.settingsDays}` },
+                  { v: 2, label: `2${t.settingsDays}` },
+                  { v: 3, label: `3${t.settingsDays}` },
+                  { v: 4, label: `4${t.settingsDays}` },
+                  { v: 7, label: `1${t.settingsWeeks}` },
+                  { v: 14, label: `2${t.settingsWeeks}` },
+                  { v: 21, label: `3${t.settingsWeeks}` },
+                  { v: 28, label: `4${t.settingsWeeks}` },
+                ].map((o) => (
+                  <option key={o.v} value={o.v}>{o.label}</option>
                 ))}
               </select>
             </div>
@@ -316,10 +424,10 @@ export default function SettingsPage() {
                 }
                 className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
               >
+                <option value="SP">{t.pointUnitSP}</option>
+                <option value="ポイント">{t.pointUnitPoints}</option>
                 <option value="人日">{t.pointUnitManDay}</option>
                 <option value="人時">{t.pointUnitManHour}</option>
-                <option value="ポイント">{t.pointUnitPoints}</option>
-                <option value="SP">{t.pointUnitSP}</option>
               </select>
             </div>
             <div>

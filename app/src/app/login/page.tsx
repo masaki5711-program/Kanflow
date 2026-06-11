@@ -3,16 +3,17 @@
 import { signIn } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import { useState } from "react"
-import { getTranslations } from "@/lib/i18n"
-
-const t = getTranslations("ja")
+import { type Language, getTranslations, languageLabels } from "@/lib/i18n"
 
 export default function LoginPage() {
   const router = useRouter()
+  const [language, setLanguage] = useState<Language>("ja")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
+
+  const t = getTranslations(language)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -31,6 +32,13 @@ export default function LoginPage() {
         setLoading(false)
         return
       }
+
+      // Save the selected language as the user's default.
+      await fetch("/api/user/language", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ language }),
+      }).catch(() => {})
 
       router.push("/")
       router.refresh()
@@ -66,6 +74,24 @@ export default function LoginPage() {
       `}</style>
 
       <div className="w-full max-w-md relative">
+        {/* Language selector */}
+        <div className="flex justify-end gap-1 mb-3">
+          {(Object.keys(languageLabels) as Language[]).map((lang) => (
+            <button
+              key={lang}
+              type="button"
+              onClick={() => setLanguage(lang)}
+              className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
+                language === lang
+                  ? "bg-blue-600 text-white"
+                  : "bg-white/60 text-gray-500 hover:bg-white/80"
+              }`}
+            >
+              {languageLabels[lang]}
+            </button>
+          ))}
+        </div>
+
         <div className="text-center mb-8">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/logo.svg" alt="Kanflow" width={64} height={64} className="mx-auto mb-4 shadow-lg shadow-blue-500/20 rounded-2xl" />

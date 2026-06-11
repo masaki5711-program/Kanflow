@@ -6,6 +6,51 @@ export const languageLabels: Record<Language, string> = {
   id: "Bahasa Indonesia",
 }
 
+/** Canonical point-unit keys stored in the database. */
+export type PointUnitKey = "人日" | "人時" | "ポイント" | "SP"
+
+export const POINT_UNIT_OPTIONS: PointUnitKey[] = ["SP", "ポイント", "人日", "人時"]
+
+/** Default point unit for newly created projects. */
+export const DEFAULT_POINT_UNIT: PointUnitKey = "SP"
+
+/**
+ * Scale of allowed values for a given point unit. Story-point-like scales
+ * use Fibonacci (0, 1, 2, 3, 5, 8, 13, 21); man-days/hours use a regular
+ * scale appropriate for time-boxed estimation. Direct free-form input is
+ * disallowed — estimators pick from the scale.
+ */
+export function getPointScale(unit: string | null | undefined): number[] {
+  switch (unit) {
+    case "SP":
+    case "ポイント":
+      return [0, 1, 2, 3, 5, 8, 13, 21]
+    case "人日":
+      return [0, 1, 2, 3, 5, 8, 13]
+    case "人時":
+      return [0, 1, 2, 4, 8, 16, 24]
+    default:
+      return [0, 1, 2, 3, 5, 8, 13, 21]
+  }
+}
+
+/**
+ * Translate a stored pointUnit value to the current language.
+ * Falls back to the stored string for custom/unknown values.
+ */
+export function formatPointUnit(
+  unit: string | null | undefined,
+  t: { pointUnitManDay: string; pointUnitManHour: string; pointUnitPoints: string; pointUnitSP: string }
+): string {
+  switch (unit) {
+    case "人日": return t.pointUnitManDay
+    case "人時": return t.pointUnitManHour
+    case "ポイント": return t.pointUnitPoints
+    case "SP": return t.pointUnitSP
+    default: return unit ?? ""
+  }
+}
+
 interface Translations {
   // Common
   save: string
@@ -46,6 +91,7 @@ interface Translations {
   settingsSprintDuration: string
   settingsWeek: string
   settingsWeeks: string
+  settingsDays: string
   settingsPointUnit: string
   settingsPointDescription: string
   settingsPointDescriptionPlaceholder: string
@@ -107,10 +153,16 @@ interface Translations {
   iceboxNewRequest: string
   iceboxRequest: string
   iceboxBackground: string
+  bilingualize: string
+  bilingualizing: string
+  bilingualizeFailed: string
+  bilingualizeRevert: string
   iceboxStatusUnreviewed: string
   iceboxStatusReviewed: string
+  iceboxStatusCompleted: string
   iceboxStatusFrozen: string
   iceboxMoveToReviewed: string
+  iceboxMoveToCompleted: string
   iceboxMoveToFrozen: string
   iceboxMoveToUnreviewed: string
   iceboxEditTitle: string
@@ -138,13 +190,28 @@ interface Translations {
   backlogStatusCompleted: string
   backlogMoveToCompleted: string
   backlogMoveToReady: string
+  backlogReturnToReady: string
   backlogMoveToNotReady: string
+  backlogUserStoryPlaceholder: string
+  categoryNamePlaceholder: string
+  taskNamePlaceholder: string
+  taskHoursPlaceholder: string
+  eventTitlePlaceholder: string
+  eventDescriptionPlaceholder: string
   backlogReadyHint: string
   backlogNotReadyHint: string
   backlogCompletedHint: string
   projectProgress: string
   projectProgressHint: string
   view: string
+  projectSortUpdated: string
+  projectSortFavorite: string
+  projectSortNameAsc: string
+  projectSortNameDesc: string
+  projectSortProgress: string
+  projectDensityComfortable: string
+  projectDensityCompact: string
+  projectSearchPlaceholder: string
   backlogCompletedDate: string
   backlogShowCompleted: string
   backlogHideCompleted: string
@@ -171,6 +238,19 @@ interface Translations {
 
   // Burndown
   burndownTitle: string
+  burndownShow: string
+  burndownHide: string
+
+  sprintTaskCompleteTitle: string
+  sprintTaskCompleteHint: string
+  sprintTaskCompleteSkip: string
+  sprintTaskCompletionComment: string
+  sprintTaskCompletionCommentPlaceholder: string
+  completionToIceboxToggle: string
+  completionToIceboxPlaceholder: string
+  completionToIceboxSent: string
+  sprintEditMenu: string
+  sprintEditTitle: string
   burndownPlan: string
   burndownIdeal: string
   burndownActual: string
@@ -203,6 +283,15 @@ interface Translations {
   sprintAddPbiTitle: string
   sprintAddPbiSubmit: string
   sprintAddPbiSearchPlaceholder: string
+  sprintDailyScrum: string
+  sprintDailyScrumAdd: string
+  sprintDailyScrumEmpty: string
+  sprintDailyScrumDatePlaceholder: string
+  sprintDailyScrumContentPlaceholder: string
+  sprintDailyScrumDeleteConfirm: string
+  sprintDailyScrumArchive: string
+  sprintDailyScrumUnarchive: string
+  sprintDailyScrumArchived: string
   sprintNoTasksYet: string
   sprintRemovePbi: string
   sprintRemovePbiConfirm: string
@@ -263,6 +352,52 @@ interface Translations {
   // Guide / Help
   guideTitle: string
 
+  chatTitle: string
+  chatPlaceholder: string
+  chatSend: string
+  chatThinking: string
+  chatClear: string
+  chatCancel: string
+  chatEmpty: string
+  chatError: string
+  chatContextNote: string
+
+  aiThinking: string
+  aiCopy: string
+  aiFailed: string
+  aiResultDisclaimer: string
+  aiInvestReview: string
+  aiInvestRunning: string
+  aiInvestTitle: string
+  aiRetroSynthesis: string
+  aiRetroTitle: string
+  aiAddToTry: string
+  aiAddToTryDone: string
+  aiProgressReport: string
+  aiProgressReportTitle: string
+  aiGeneratePbiDraft: string
+  aiPbiDraftTitle: string
+  aiUseThisDraft: string
+  aiPbiDraftRationale: string
+
+  sectionTitle: string
+  sectionAdminTitle: string
+  sectionAdd: string
+  sectionEdit: string
+  sectionDelete: string
+  sectionDeleteConfirm: string
+  sectionName: string
+  sectionDescription: string
+  sectionSortOrder: string
+  sectionUserCount: string
+  sectionProjectCount: string
+  sectionCategoryCount: string
+  sectionUnassigned: string
+  sectionDuplicateName: string
+  sectionAssignHint: string
+  sectionEmpty: string
+  roleSectionManager: string
+
   ganttTitle: string
   ganttToday: string
   ganttNoData: string
@@ -300,6 +435,18 @@ interface Translations {
 
   // User Management
   userManagementTitle: string
+  myProfileTitle: string
+  myProfileMenu: string
+  myProfileSaved: string
+  myProfileEmployeeNumber: string
+  myProfileDepartment: string
+  myProfilePasswordSection: string
+  myProfileCurrentPassword: string
+  myProfileNewPassword: string
+  myProfileNewPasswordConfirm: string
+  myProfilePasswordMismatch: string
+  myProfilePasswordChanged: string
+  myProfilePasswordWrong: string
   userCount: string
   userAdd: string
   userCreateTitle: string
@@ -437,6 +584,7 @@ const ja: Translations = {
   settingsSprintDuration: "スプリント期間",
   settingsWeek: "週間",
   settingsWeeks: "週間",
+  settingsDays: "日",
   settingsPointUnit: "1点の単位",
   settingsPointDescription: "1点の重みの説明",
   settingsPointDescriptionPlaceholder: "例: 1点 = 開発者1人の1日分の作業量",
@@ -493,10 +641,16 @@ const ja: Translations = {
   iceboxNewRequest: "新規要望",
   iceboxRequest: "要望・要求",
   iceboxBackground: "課題・背景",
+  bilingualize: "JA/ID 併記",
+  bilingualizing: "翻訳中…",
+  bilingualizeFailed: "翻訳に失敗しました",
+  bilingualizeRevert: "元に戻す",
   iceboxStatusUnreviewed: "PO未確認",
   iceboxStatusReviewed: "PO確認済み",
+  iceboxStatusCompleted: "完了",
   iceboxStatusFrozen: "凍結",
   iceboxMoveToReviewed: "確認済みへ",
+  iceboxMoveToCompleted: "完了へ",
   iceboxMoveToFrozen: "凍結へ",
   iceboxMoveToUnreviewed: "未確認へ戻す",
   iceboxEditTitle: "IceBox項目を編集",
@@ -522,14 +676,29 @@ const ja: Translations = {
   backlogStatusNotReady: "未準備",
   backlogStatusCompleted: "完了",
   backlogMoveToCompleted: "完了にする",
-  backlogMoveToReady: "着手可能に戻す",
+  backlogMoveToReady: "着手可能に移動する",
+  backlogReturnToReady: "着手可能に戻す",
   backlogMoveToNotReady: "未準備に戻す",
+  backlogUserStoryPlaceholder: "プロジェクトマネージャーとして、チームの進捗をリアルタイムで確認したい。それは遅延リスクを早期に発見できるからだ。",
+  categoryNamePlaceholder: "例: 開発中、保守、社内",
+  taskNamePlaceholder: "例: API実装、画面デザイン",
+  taskHoursPlaceholder: "例: 4",
+  eventTitlePlaceholder: "例: スプリントレビュー、デモ",
+  eventDescriptionPlaceholder: "イベントの詳細を入力（任意）",
   backlogReadyHint: "次スプリントに取り込む候補。ユーザーストーリー・受入条件・工数が揃った PBI が並びます。",
   backlogNotReadyHint: "まだ詳細が固まっていない・見積り前の PBI。精緻化（リファインメント）を経て Ready に移動します。",
   backlogCompletedHint: "スプリントで完了した PBI。履歴として保持し、統計やレポートに使います。",
   projectProgress: "プロジェクト進捗",
   projectProgressHint: "このプロジェクトの全スプリントタスクのうち、完了済みタスクの割合。",
   view: "詳細",
+  projectSortUpdated: "更新日順",
+  projectSortFavorite: "お気に入り順",
+  projectSortNameAsc: "名前昇順 (A→Z)",
+  projectSortNameDesc: "名前降順 (Z→A)",
+  projectSortProgress: "進捗の高い順",
+  projectDensityComfortable: "標準表示",
+  projectDensityCompact: "コンパクト",
+  projectSearchPlaceholder: "プロジェクト名・説明・メンバー名で検索",
   backlogCompletedDate: "完了日",
   backlogShowCompleted: "完了済みを表示",
   backlogHideCompleted: "完了済みを非表示",
@@ -554,6 +723,19 @@ const ja: Translations = {
   sprintDeleteConfirm: "このスプリントを削除しますか？",
 
   burndownTitle: "バーンダウンチャート",
+  burndownShow: "バーンダウン表示",
+  burndownHide: "バーンダウン非表示",
+
+  sprintTaskCompleteTitle: "タスク完了",
+  sprintTaskCompleteHint: "完了内容や所感を記録（任意）",
+  sprintTaskCompleteSkip: "コメント無しで完了",
+  sprintTaskCompletionComment: "完了コメント",
+  sprintTaskCompletionCommentPlaceholder: "実施内容・気づきなどを記入…",
+  completionToIceboxToggle: "Iceboxにも追加(発見した問題・残課題など)",
+  completionToIceboxPlaceholder: "Iceboxへ送る内容を入力(空欄なら送信しません)",
+  completionToIceboxSent: "Iceboxに追加しました",
+  sprintEditMenu: "スプリント編集",
+  sprintEditTitle: "スプリント編集",
   burndownPlan: "計画（稼働日）",
   burndownIdeal: "理想（全日）",
   burndownActual: "実績",
@@ -583,6 +765,15 @@ const ja: Translations = {
   sprintAddPbiTitle: "このスプリントに PBアイテムを追加",
   sprintAddPbiSubmit: "選択したPBを追加",
   sprintAddPbiSearchPlaceholder: "PB番号・Initiative・Epic・ユーザーストーリーで検索",
+  sprintDailyScrum: "デイリースクラム",
+  sprintDailyScrumAdd: "デイリースクラムを追加",
+  sprintDailyScrumEmpty: "まだ記録がありません。毎日の進捗・困りごと・次の24時間のプランを記入してください。",
+  sprintDailyScrumDatePlaceholder: "実施日",
+  sprintDailyScrumContentPlaceholder: "今日やったこと / 明日やること / 困っていること …",
+  sprintDailyScrumDeleteConfirm: "このデイリースクラム記録を削除しますか？",
+  sprintDailyScrumArchive: "アーカイブ",
+  sprintDailyScrumUnarchive: "復元",
+  sprintDailyScrumArchived: "アーカイブ済み",
   sprintNoTasksYet: "タスクがまだありません",
   sprintRemovePbi: "このPBをスプリントから外す",
   sprintRemovePbiConfirm: "このPBと紐づく全タスクをスプリントから削除します。続行しますか？",
@@ -638,6 +829,51 @@ const ja: Translations = {
   reportItems: "件",
 
   guideTitle: "ガイド & ヘルプ",
+  chatTitle: "AI チャット",
+  chatPlaceholder: "プロジェクトについて質問してください…",
+  chatSend: "送信",
+  chatThinking: "考え中…",
+  chatClear: "履歴をクリア",
+  chatCancel: "停止",
+  chatEmpty: "プロジェクトの進捗・進め方・添付ファイルについて自由に質問できます。",
+  chatError: "応答の取得に失敗しました",
+  chatContextNote: "ローカル LLM で動作。会話履歴はこのページを離れるとリセットされます。",
+
+  aiThinking: "AI が分析中…",
+  aiCopy: "コピー",
+  aiFailed: "AI の応答取得に失敗しました",
+  aiResultDisclaimer: "AI の提案です。最終判断は人間が行ってください。",
+  aiInvestReview: "INVEST 評価",
+  aiInvestRunning: "評価中…",
+  aiInvestTitle: "INVEST 原則による PBI 評価",
+  aiRetroSynthesis: "振り返りサマリ生成",
+  aiRetroTitle: "スプリント振り返りサマリ",
+  aiAddToTry: "Try 欄に追記",
+  aiAddToTryDone: "追記しました",
+  aiProgressReport: "進捗レポート生成",
+  aiProgressReportTitle: "ステークホルダー向け進捗レポート",
+  aiGeneratePbiDraft: "PBI 草案生成",
+  aiPbiDraftTitle: "PBI 草案候補",
+  aiUseThisDraft: "この案で作成",
+  aiPbiDraftRationale: "この案のポイント",
+
+  sectionTitle: "セクション",
+  sectionAdminTitle: "セクション管理",
+  sectionAdd: "セクション追加",
+  sectionEdit: "セクション編集",
+  sectionDelete: "削除",
+  sectionDeleteConfirm: "このセクションを削除しますか？配下のユーザー・プロジェクトは未分類になります。",
+  sectionName: "セクション名",
+  sectionDescription: "説明",
+  sectionSortOrder: "並び順",
+  sectionUserCount: "所属ユーザー",
+  sectionProjectCount: "プロジェクト",
+  sectionCategoryCount: "カテゴリ",
+  sectionUnassigned: "未分類",
+  sectionDuplicateName: "同名のセクションが既に存在します",
+  sectionAssignHint: "プロジェクトが属するセクションを選択してください（複数可）。セクション管理者は所属セクションのプロジェクトすべてを閲覧できます。",
+  sectionEmpty: "セクションがまだ登録されていません。",
+  roleSectionManager: "セクション管理者",
 
   ganttTitle: "ガントチャート",
   ganttToday: "今日",
@@ -674,6 +910,18 @@ const ja: Translations = {
   loginAccountNote: "アカウントは管理者が作成します",
 
   userManagementTitle: "ユーザー管理",
+  myProfileTitle: "個人設定",
+  myProfileMenu: "個人設定",
+  myProfileSaved: "保存しました",
+  myProfileEmployeeNumber: "従業員番号",
+  myProfileDepartment: "所属",
+  myProfilePasswordSection: "パスワード変更",
+  myProfileCurrentPassword: "現在のパスワード",
+  myProfileNewPassword: "新しいパスワード",
+  myProfileNewPasswordConfirm: "新しいパスワード（確認）",
+  myProfilePasswordMismatch: "新しいパスワードが一致しません",
+  myProfilePasswordChanged: "パスワードを変更しました",
+  myProfilePasswordWrong: "現在のパスワードが間違っています",
   userCount: "名のユーザー",
   userAdd: "ユーザー追加",
   userCreateTitle: "新規ユーザー作成",
@@ -804,7 +1052,8 @@ const en: Translations = {
   settingsDefaultCapacityHint: "Initial value when creating new sprints",
   settingsSprintDuration: "Sprint Duration",
   settingsWeek: "week",
-  settingsWeeks: "weeks",
+  settingsWeeks: " weeks",
+  settingsDays: " days",
   settingsPointUnit: "Point Unit",
   settingsPointDescription: "Point Weight Description",
   settingsPointDescriptionPlaceholder: "e.g., 1 point = 1 developer-day of work",
@@ -861,10 +1110,16 @@ const en: Translations = {
   iceboxNewRequest: "New Request",
   iceboxRequest: "Request",
   iceboxBackground: "Background / Context",
+  bilingualize: "JA/ID Bilingual",
+  bilingualizing: "Translating…",
+  bilingualizeFailed: "Translation failed",
+  bilingualizeRevert: "Revert",
   iceboxStatusUnreviewed: "PO Unreviewed",
   iceboxStatusReviewed: "PO Reviewed",
+  iceboxStatusCompleted: "Completed",
   iceboxStatusFrozen: "Frozen",
   iceboxMoveToReviewed: "Mark Reviewed",
+  iceboxMoveToCompleted: "Mark Completed",
   iceboxMoveToFrozen: "Freeze",
   iceboxMoveToUnreviewed: "Back to Unreviewed",
   iceboxEditTitle: "Edit IceBox Item",
@@ -891,13 +1146,28 @@ const en: Translations = {
   backlogStatusCompleted: "Completed",
   backlogMoveToCompleted: "Mark Completed",
   backlogMoveToReady: "Move to Ready",
+  backlogReturnToReady: "Move back to Ready",
   backlogMoveToNotReady: "Move to Not Ready",
+  backlogUserStoryPlaceholder: "As a project manager, I want to track team progress in real time, so that I can detect delay risks early.",
+  categoryNamePlaceholder: "e.g., In Development, Maintenance, Internal",
+  taskNamePlaceholder: "e.g., API implementation, UI design",
+  taskHoursPlaceholder: "e.g., 4",
+  eventTitlePlaceholder: "e.g., Sprint Review, Demo",
+  eventDescriptionPlaceholder: "Optional event details",
   backlogReadyHint: "Candidates to pull into the next sprint. These PBIs have user story, acceptance criteria, and effort estimates.",
   backlogNotReadyHint: "PBIs still being refined or not yet estimated. They move to Ready after refinement.",
   backlogCompletedHint: "PBIs completed in past sprints. Kept for history, metrics, and reports.",
   projectProgress: "Project progress",
   projectProgressHint: "Percentage of completed tasks across all sprints in this project.",
   view: "View",
+  projectSortUpdated: "Updated (newest)",
+  projectSortFavorite: "Favorites first",
+  projectSortNameAsc: "Name A→Z",
+  projectSortNameDesc: "Name Z→A",
+  projectSortProgress: "Progress (high → low)",
+  projectDensityComfortable: "Comfortable",
+  projectDensityCompact: "Compact",
+  projectSearchPlaceholder: "Search project name, description, or member",
   backlogCompletedDate: "Completed",
   backlogShowCompleted: "Show Completed",
   backlogHideCompleted: "Hide Completed",
@@ -922,6 +1192,19 @@ const en: Translations = {
   sprintDeleteConfirm: "Delete this sprint?",
 
   burndownTitle: "Burndown Chart",
+  burndownShow: "Show Burndown",
+  burndownHide: "Hide Burndown",
+
+  sprintTaskCompleteTitle: "Task Completed",
+  sprintTaskCompleteHint: "Optionally note what was done",
+  sprintTaskCompleteSkip: "Done without comment",
+  sprintTaskCompletionComment: "Completion comment",
+  sprintTaskCompletionCommentPlaceholder: "What was done, observations, etc.…",
+  completionToIceboxToggle: "Also add to Icebox (issues found, remaining work, etc.)",
+  completionToIceboxPlaceholder: "Type the item to send to Icebox (leave blank to skip)",
+  completionToIceboxSent: "Added to Icebox",
+  sprintEditMenu: "Edit Sprint",
+  sprintEditTitle: "Edit Sprint",
   burndownPlan: "Plan (Working Days)",
   burndownIdeal: "Ideal (All Days)",
   burndownActual: "Actual",
@@ -951,6 +1234,15 @@ const en: Translations = {
   sprintAddPbiTitle: "Add PB items to this sprint",
   sprintAddPbiSubmit: "Add selected PBs",
   sprintAddPbiSearchPlaceholder: "Search by PB number, initiative, epic, user story",
+  sprintDailyScrum: "Daily Scrum",
+  sprintDailyScrumAdd: "Add Daily Scrum note",
+  sprintDailyScrumEmpty: "No notes yet. Record daily progress, blockers, and the plan for the next 24 hours.",
+  sprintDailyScrumDatePlaceholder: "Date",
+  sprintDailyScrumContentPlaceholder: "What was done / What is next / Impediments …",
+  sprintDailyScrumDeleteConfirm: "Delete this Daily Scrum note?",
+  sprintDailyScrumArchive: "Archive",
+  sprintDailyScrumUnarchive: "Restore",
+  sprintDailyScrumArchived: "Archived",
   sprintNoTasksYet: "No tasks yet",
   sprintRemovePbi: "Remove PB from sprint",
   sprintRemovePbiConfirm: "This removes the PB and all its tasks from the sprint. Continue?",
@@ -1007,6 +1299,51 @@ const en: Translations = {
 
   ganttTitle: "Gantt Chart",
   guideTitle: "Guide & Help",
+  chatTitle: "AI Chat",
+  chatPlaceholder: "Ask anything about this project…",
+  chatSend: "Send",
+  chatThinking: "Thinking…",
+  chatClear: "Clear history",
+  chatCancel: "Stop",
+  chatEmpty: "Ask about progress, planning, or attached files for this project.",
+  chatError: "Failed to get a response",
+  chatContextNote: "Powered by local LLM. Conversation resets when you leave this page.",
+
+  aiThinking: "AI is analyzing…",
+  aiCopy: "Copy",
+  aiFailed: "Failed to get AI response",
+  aiResultDisclaimer: "AI-generated suggestion. Human review recommended.",
+  aiInvestReview: "INVEST Review",
+  aiInvestRunning: "Reviewing…",
+  aiInvestTitle: "PBI INVEST Review",
+  aiRetroSynthesis: "Retrospective Summary",
+  aiRetroTitle: "Sprint Retrospective Summary",
+  aiAddToTry: "Add to Try",
+  aiAddToTryDone: "Added",
+  aiProgressReport: "Progress Report",
+  aiProgressReportTitle: "Stakeholder Progress Report",
+  aiGeneratePbiDraft: "Generate PBI Draft",
+  aiPbiDraftTitle: "PBI Draft Candidates",
+  aiUseThisDraft: "Use this draft",
+  aiPbiDraftRationale: "Why this draft",
+
+  sectionTitle: "Section",
+  sectionAdminTitle: "Section Management",
+  sectionAdd: "Add Section",
+  sectionEdit: "Edit Section",
+  sectionDelete: "Delete",
+  sectionDeleteConfirm: "Delete this section? Its users and projects will be unassigned.",
+  sectionName: "Section Name",
+  sectionDescription: "Description",
+  sectionSortOrder: "Sort Order",
+  sectionUserCount: "Users",
+  sectionProjectCount: "Projects",
+  sectionCategoryCount: "Categories",
+  sectionUnassigned: "Unassigned",
+  sectionDuplicateName: "A section with this name already exists",
+  sectionAssignHint: "Select the sections this project belongs to (multiple allowed). Section managers can view all projects in their sections.",
+  sectionEmpty: "No sections have been registered yet.",
+  roleSectionManager: "Section Manager",
 
   ganttToday: "Today",
   ganttNoData: "No sprints or tasks to display",
@@ -1042,6 +1379,18 @@ const en: Translations = {
   loginAccountNote: "Accounts are created by administrators",
 
   userManagementTitle: "User Management",
+  myProfileTitle: "My Profile",
+  myProfileMenu: "My Profile",
+  myProfileSaved: "Saved",
+  myProfileEmployeeNumber: "Employee Number",
+  myProfileDepartment: "Department",
+  myProfilePasswordSection: "Change Password",
+  myProfileCurrentPassword: "Current Password",
+  myProfileNewPassword: "New Password",
+  myProfileNewPasswordConfirm: "New Password (confirm)",
+  myProfilePasswordMismatch: "New passwords do not match",
+  myProfilePasswordChanged: "Password changed",
+  myProfilePasswordWrong: "Current password is incorrect",
   userCount: "users",
   userAdd: "Add User",
   userCreateTitle: "Create New User",
@@ -1172,7 +1521,8 @@ const id: Translations = {
   settingsDefaultCapacityHint: "Nilai awal saat membuat sprint baru",
   settingsSprintDuration: "Durasi Sprint",
   settingsWeek: "minggu",
-  settingsWeeks: "minggu",
+  settingsWeeks: " minggu",
+  settingsDays: " hari",
   settingsPointUnit: "Satuan Poin",
   settingsPointDescription: "Deskripsi Bobot Poin",
   settingsPointDescriptionPlaceholder: "contoh: 1 poin = 1 hari kerja developer",
@@ -1229,10 +1579,16 @@ const id: Translations = {
   iceboxNewRequest: "Permintaan Baru",
   iceboxRequest: "Permintaan",
   iceboxBackground: "Latar Belakang",
+  bilingualize: "Dwibahasa JA/ID",
+  bilingualizing: "Menerjemahkan…",
+  bilingualizeFailed: "Terjemahan gagal",
+  bilingualizeRevert: "Kembalikan",
   iceboxStatusUnreviewed: "Belum Ditinjau PO",
   iceboxStatusReviewed: "Ditinjau PO",
+  iceboxStatusCompleted: "Selesai",
   iceboxStatusFrozen: "Dibekukan",
   iceboxMoveToReviewed: "Tandai Ditinjau",
+  iceboxMoveToCompleted: "Tandai Selesai",
   iceboxMoveToFrozen: "Bekukan",
   iceboxMoveToUnreviewed: "Kembali Belum Ditinjau",
   iceboxEditTitle: "Edit Item IceBox",
@@ -1258,14 +1614,29 @@ const id: Translations = {
   backlogStatusNotReady: "Belum Siap",
   backlogStatusCompleted: "Selesai",
   backlogMoveToCompleted: "Tandai Selesai",
-  backlogMoveToReady: "Kembali ke Siap",
+  backlogMoveToReady: "Pindahkan ke Siap",
+  backlogReturnToReady: "Kembali ke Siap",
   backlogMoveToNotReady: "Kembali ke Belum Siap",
+  backlogUserStoryPlaceholder: "Sebagai manajer proyek, saya ingin memantau progres tim secara real-time, agar dapat mendeteksi risiko keterlambatan lebih awal.",
+  categoryNamePlaceholder: "misalnya: Dalam Pengembangan, Pemeliharaan, Internal",
+  taskNamePlaceholder: "misalnya: Implementasi API, Desain UI",
+  taskHoursPlaceholder: "misalnya: 4",
+  eventTitlePlaceholder: "misalnya: Sprint Review, Demo",
+  eventDescriptionPlaceholder: "Detail acara (opsional)",
   backlogReadyHint: "Kandidat untuk ditarik ke sprint berikutnya. PBI yang sudah memiliki user story, kriteria penerimaan, dan estimasi upaya.",
   backlogNotReadyHint: "PBI yang masih diperjelas atau belum diestimasi. Akan pindah ke Siap setelah refinement.",
   backlogCompletedHint: "PBI yang diselesaikan di sprint sebelumnya. Disimpan untuk riwayat, metrik, dan laporan.",
   projectProgress: "Progres proyek",
   projectProgressHint: "Persentase tugas yang selesai di seluruh sprint dalam proyek ini.",
   view: "Lihat",
+  projectSortUpdated: "Terbaru diperbarui",
+  projectSortFavorite: "Favorit di atas",
+  projectSortNameAsc: "Nama A→Z",
+  projectSortNameDesc: "Nama Z→A",
+  projectSortProgress: "Progres (tinggi → rendah)",
+  projectDensityComfortable: "Nyaman",
+  projectDensityCompact: "Kompak",
+  projectSearchPlaceholder: "Cari nama proyek, deskripsi, atau anggota",
   backlogCompletedDate: "Tanggal Selesai",
   backlogShowCompleted: "Tampilkan Selesai",
   backlogHideCompleted: "Sembunyikan Selesai",
@@ -1290,6 +1661,19 @@ const id: Translations = {
   sprintDeleteConfirm: "Hapus sprint ini?",
 
   burndownTitle: "Burndown Chart",
+  burndownShow: "Tampilkan Burndown",
+  burndownHide: "Sembunyikan Burndown",
+
+  sprintTaskCompleteTitle: "Tugas Selesai",
+  sprintTaskCompleteHint: "Catat apa yang telah dikerjakan (opsional)",
+  sprintTaskCompleteSkip: "Selesai tanpa komentar",
+  sprintTaskCompletionComment: "Komentar penyelesaian",
+  sprintTaskCompletionCommentPlaceholder: "Apa yang dilakukan, catatan, dsb…",
+  completionToIceboxToggle: "Tambahkan ke Icebox juga (masalah ditemukan, sisa pekerjaan, dll.)",
+  completionToIceboxPlaceholder: "Isi item yang akan dikirim ke Icebox (kosong untuk lewati)",
+  completionToIceboxSent: "Ditambahkan ke Icebox",
+  sprintEditMenu: "Sunting Sprint",
+  sprintEditTitle: "Sunting Sprint",
   burndownPlan: "Rencana (Hari Kerja)",
   burndownIdeal: "Ideal (Semua Hari)",
   burndownActual: "Aktual",
@@ -1319,6 +1703,15 @@ const id: Translations = {
   sprintAddPbiTitle: "Tambahkan item PB ke sprint ini",
   sprintAddPbiSubmit: "Tambahkan PB terpilih",
   sprintAddPbiSearchPlaceholder: "Cari berdasarkan nomor PB, initiative, epic, user story",
+  sprintDailyScrum: "Daily Scrum",
+  sprintDailyScrumAdd: "Tambah catatan Daily Scrum",
+  sprintDailyScrumEmpty: "Belum ada catatan. Catat kemajuan harian, hambatan, dan rencana 24 jam berikutnya.",
+  sprintDailyScrumDatePlaceholder: "Tanggal",
+  sprintDailyScrumContentPlaceholder: "Apa yang sudah dikerjakan / Rencana berikutnya / Hambatan …",
+  sprintDailyScrumDeleteConfirm: "Hapus catatan Daily Scrum ini?",
+  sprintDailyScrumArchive: "Arsipkan",
+  sprintDailyScrumUnarchive: "Pulihkan",
+  sprintDailyScrumArchived: "Diarsipkan",
   sprintNoTasksYet: "Belum ada tugas",
   sprintRemovePbi: "Hapus PB dari sprint",
   sprintRemovePbiConfirm: "Ini akan menghapus PB beserta semua tugasnya dari sprint. Lanjutkan?",
@@ -1376,6 +1769,51 @@ const id: Translations = {
   ganttTitle: "Gantt Chart",
   ganttToday: "Hari Ini",
   guideTitle: "Panduan & Bantuan",
+  chatTitle: "Chat AI",
+  chatPlaceholder: "Tanyakan apa saja tentang proyek ini…",
+  chatSend: "Kirim",
+  chatThinking: "Berpikir…",
+  chatClear: "Hapus riwayat",
+  chatCancel: "Hentikan",
+  chatEmpty: "Tanyakan tentang progres, perencanaan, atau lampiran proyek ini.",
+  chatError: "Gagal mendapatkan respons",
+  chatContextNote: "Didukung oleh LLM lokal. Percakapan akan terhapus saat meninggalkan halaman.",
+
+  aiThinking: "AI sedang menganalisis…",
+  aiCopy: "Salin",
+  aiFailed: "Gagal mendapatkan respons AI",
+  aiResultDisclaimer: "Saran AI. Tinjauan manual disarankan.",
+  aiInvestReview: "Tinjauan INVEST",
+  aiInvestRunning: "Meninjau…",
+  aiInvestTitle: "Tinjauan PBI dengan Prinsip INVEST",
+  aiRetroSynthesis: "Ringkasan Retrospektif",
+  aiRetroTitle: "Ringkasan Retrospektif Sprint",
+  aiAddToTry: "Tambahkan ke Try",
+  aiAddToTryDone: "Ditambahkan",
+  aiProgressReport: "Laporan Progres",
+  aiProgressReportTitle: "Laporan Progres untuk Stakeholder",
+  aiGeneratePbiDraft: "Buat Draf PBI",
+  aiPbiDraftTitle: "Kandidat Draf PBI",
+  aiUseThisDraft: "Gunakan draf ini",
+  aiPbiDraftRationale: "Alasan draf ini",
+
+  sectionTitle: "Seksi",
+  sectionAdminTitle: "Manajemen Seksi",
+  sectionAdd: "Tambah Seksi",
+  sectionEdit: "Sunting Seksi",
+  sectionDelete: "Hapus",
+  sectionDeleteConfirm: "Hapus seksi ini? Pengguna dan proyek di dalamnya akan tidak terkelompokkan.",
+  sectionName: "Nama Seksi",
+  sectionDescription: "Deskripsi",
+  sectionSortOrder: "Urutan",
+  sectionUserCount: "Pengguna",
+  sectionProjectCount: "Proyek",
+  sectionCategoryCount: "Kategori",
+  sectionUnassigned: "Belum Terkelompok",
+  sectionDuplicateName: "Seksi dengan nama ini sudah ada",
+  sectionAssignHint: "Pilih seksi tempat proyek ini berada (bisa lebih dari satu). Manajer seksi dapat melihat semua proyek di seksi mereka.",
+  sectionEmpty: "Belum ada seksi yang terdaftar.",
+  roleSectionManager: "Manajer Seksi",
 
   ganttNoData: "Tidak ada sprint atau tugas untuk ditampilkan",
 
@@ -1410,6 +1848,18 @@ const id: Translations = {
   loginAccountNote: "Akun dibuat oleh administrator",
 
   userManagementTitle: "Manajemen Pengguna",
+  myProfileTitle: "Profil Saya",
+  myProfileMenu: "Profil Saya",
+  myProfileSaved: "Tersimpan",
+  myProfileEmployeeNumber: "Nomor Karyawan",
+  myProfileDepartment: "Departemen",
+  myProfilePasswordSection: "Ubah Kata Sandi",
+  myProfileCurrentPassword: "Kata Sandi Saat Ini",
+  myProfileNewPassword: "Kata Sandi Baru",
+  myProfileNewPasswordConfirm: "Kata Sandi Baru (konfirmasi)",
+  myProfilePasswordMismatch: "Kata sandi baru tidak cocok",
+  myProfilePasswordChanged: "Kata sandi berhasil diubah",
+  myProfilePasswordWrong: "Kata sandi saat ini salah",
   userCount: "pengguna",
   userAdd: "Tambah Pengguna",
   userCreateTitle: "Buat Pengguna Baru",
