@@ -239,6 +239,8 @@ export async function deleteUploadedFile(projectId: string, fileName: string): P
 
 /**
  * Authenticate session and verify project membership.
+ * System admins bypass the membership requirement and receive a synthetic
+ * { role: "po" } membership so downstream PO-gated logic continues to work.
  * Returns { session, member } on success or a NextResponse error.
  */
 export async function requireProjectMember(
@@ -248,6 +250,21 @@ export async function requireProjectMember(
   const session = await auth()
   if (!session?.user?.id) {
     return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) }
+  }
+
+  // System admins always pass — they get a synthetic PO-level membership so
+  // existing PO-gated branches stay valid.
+  if (session.user.role === "admin") {
+    return {
+      session,
+      member: {
+        id: `admin-${session.user.id}`,
+        projectId,
+        userId: session.user.id,
+        role: "po",
+        joinedAt: new Date(),
+      },
+    }
   }
 
   const where: Record<string, unknown> = {
@@ -294,4 +311,95 @@ export async function requireAdmin() {
     return { error: NextResponse.json({ error: "管理者権限が必要です" }, { status: 403 }) }
   }
   return { session }
+}
+
+/**
+ * Access scope: which write actions a request is performing.
+ * - "read":     view-only (any access path allowed)
+ * - "icebox":   write to Icebox (section_manager allowed)
+ * - "po":       PBI / sprint / settings (po-level only; section_manager forbidden)
+ * - "memberWrite": writes that any project member can do (sprint task status, etc.)
+ */
+export type ProjectAccessScope = "read" | "icebox" | "po" | "memberWrite"
+
+interface AuthSession {
+  user: { id: string; name?: string | null; email?: string | null; role?: string }
+}
+
+interface ProjectAccessResult {
+  session: AuthSession
+  /** Project membership row, if the user is an explicit member; null otherwise */
+  member: { role: string } | null
+  /** How the user got access: explicit project member, system admin, or section_manager */
+  via: "member" | "admin" | "section_manager"
+}
+
+/**
+ * Verify that the current user can access the given project under the requested scope.
+ * Resolution order:
+ *   1. system admin    → full access (read/write all)
+ *   2. project member  → access per existing project role rules
+ *   3. section_manager whose sections include the project's section → read + icebox
+ *   4. otherwise → 401/403
+ */
+export async function requireProjectAccess(
+  projectId: string,
+  scope: ProjectAccessScope = "read"
+): Promise<{ error: NextResponse } | ProjectAccessResult> {
+  const session = await auth()
+  if (!session?.user?.id) {
+    return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) }
+  }
+
+  // 1. System admin: full access regardless of project section / membership.
+  if (session.user.role === "admin") {
+    return { session, member: null, via: "admin" }
+  }
+
+  // 2. Explicit project membership.
+  const member = await prisma.projectMember.findFirst({
+    where: { projectId, userId: session.user.id },
+    select: { role: true },
+  })
+  if (member) {
+    if (scope === "po" && member.role !== "po") {
+      return { error: NextResponse.json({ error: "PO 権限が必要です" }, { status: 403 }) }
+    }
+    return { session, member, via: "member" }
+  }
+
+  // 3. Section manager whose sections overlap the project's sections.
+  if (session.user.role === "section_manager") {
+    const project = await prisma.project.findUnique({
+      where: { id: projectId },
+      select: { sections: { select: { sectionId: true } } },
+    })
+    const projectSectionIds = project?.sections.map((s) => s.sectionId) ?? []
+    if (projectSectionIds.length > 0) {
+      const overlap = await prisma.userSection.findFirst({
+        where: { userId: session.user.id, sectionId: { in: projectSectionIds } },
+        select: { sectionId: true },
+      })
+      if (overlap) {
+        // Section managers may read everything and write Icebox only.
+        if (scope === "po" || scope === "memberWrite") {
+          return {
+            error: NextResponse.json(
+              { error: "セクション管理者は Icebox 以外の編集はできません" },
+              { status: 403 }
+            ),
+          }
+        }
+        return { session, member: null, via: "section_manager" }
+      }
+    }
+  }
+
+  // 4. No access path matched.
+  return {
+    error: NextResponse.json(
+      { error: "このプロジェクトへのアクセス権がありません" },
+      { status: 403 }
+    ),
+  }
 }

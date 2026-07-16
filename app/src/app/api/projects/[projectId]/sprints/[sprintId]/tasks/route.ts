@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { requireProjectMember } from "@/lib/api-helpers"
 import { recalcSprintActualScore } from "@/lib/sprint-score"
+import { syncPbiStatusFromTasks } from "@/lib/pbi-status-sync"
 import { z } from "zod"
 
 const createSchema = z.object({
@@ -48,6 +49,7 @@ export async function POST(
     })
 
     await recalcSprintActualScore(sprintId)
+    await syncPbiStatusFromTasks(data.pbItemId)
 
     return NextResponse.json(task, { status: 201 })
   } catch (error) {

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { requireProjectMember } from "@/lib/api-helpers"
+import { requireProjectMember, requireProjectAccess } from "@/lib/api-helpers"
 import { z } from "zod"
 
 export async function GET(
@@ -8,7 +8,7 @@ export async function GET(
   { params }: { params: Promise<{ projectId: string; itemId: string }> }
 ) {
   const { projectId, itemId } = await params
-  const result = await requireProjectMember(projectId)
+  const result = await requireProjectAccess(projectId, "read")
   if ("error" in result) return result.error
 
   const item = await prisma.productBacklogItem.findFirst({
@@ -43,7 +43,10 @@ export async function PATCH(
 ) {
   const { projectId, itemId } = await params
 
-  const result = await requireProjectMember(projectId, { roles: ["po"] })
+  // PO is the natural PBI owner, but SM ends up co-authoring during sprint
+  // planning (clarifying acceptance criteria, splitting stories), so allow
+  // them to edit too. Admin role is honored via requireProjectMember.
+  const result = await requireProjectMember(projectId, { roles: ["po", "sm"] })
   if ("error" in result) return result.error
 
   try {

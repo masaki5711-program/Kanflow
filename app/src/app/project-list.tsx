@@ -21,6 +21,8 @@ interface Project {
     sprints: number
   }
   progressPct: number
+  sections?: { id: string; name: string }[]
+  isFavorite?: boolean
 }
 
 interface Category {
@@ -75,6 +77,12 @@ export function ProjectList({ activeProjects, archivedProjects, categories, isAd
   const editInputRef = useRef<HTMLInputElement>(null)
 
   const [viewMode, setViewMode] = useState<"flat" | "category">("flat")
+  const [density, setDensity] = useState<"comfortable" | "compact">("comfortable")
+  const [typeFilter, setTypeFilter] = useState<"all" | ProjectType>("all")
+  const [sortBy, setSortBy] = useState<"updated" | "name" | "progress" | "name_asc" | "favorite">("updated")
+  // Local optimistic favorite map keyed by project id (overrides incoming prop).
+  const [favOverride, setFavOverride] = useState<Record<string, boolean>>({})
+  const [searchQuery, setSearchQuery] = useState("")
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({})
   const [showArchived, setShowArchived] = useState(false)
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; projectId: string } | null>(null)
@@ -84,12 +92,32 @@ export function ProjectList({ activeProjects, archivedProjects, categories, isAd
   useEffect(() => {
     const savedMode = localStorage.getItem("projectViewMode")
     if (savedMode === "flat" || savedMode === "category") setViewMode(savedMode)
+    const savedDensity = localStorage.getItem("projectDensity")
+    if (savedDensity === "comfortable" || savedDensity === "compact") setDensity(savedDensity)
+    const savedSort = localStorage.getItem("projectSortBy")
+    if (
+      savedSort === "updated" ||
+      savedSort === "name" ||
+      savedSort === "name_asc" ||
+      savedSort === "progress" ||
+      savedSort === "favorite"
+    ) {
+      setSortBy(savedSort)
+    }
     try {
       const savedSections = localStorage.getItem("collapsedSections")
       if (savedSections) setCollapsedSections(JSON.parse(savedSections))
     } catch { /* ignore */ }
     setHydrated(true)
   }, [])
+
+  useEffect(() => {
+    if (hydrated) localStorage.setItem("projectDensity", density)
+  }, [density, hydrated])
+
+  useEffect(() => {
+    if (hydrated) localStorage.setItem("projectSortBy", sortBy)
+  }, [sortBy, hydrated])
 
   useEffect(() => {
     function handleClick() { setContextMenu(null) }
@@ -175,6 +203,57 @@ export function ProjectList({ activeProjects, archivedProjects, categories, isAd
     return localCategories.filter((c) => c.assignments.some((a) => a.projectId === projectId))
   }
 
+  // Apply search, type filter, and sort to a project list.
+  function applyFilters(list: Project[]): Project[] {
+    const q = searchQuery.trim().toLowerCase()
+    let filtered = list
+    if (typeFilter !== "all") {
+      filtered = filtered.filter((p) => p.projectType === typeFilter)
+    }
+    if (q.length > 0) {
+      filtered = filtered.filter((p) => {
+        const hay = [
+          p.name,
+          p.description ?? "",
+          ...p.members.map((m) => m.user.name),
+        ].join(" ").toLowerCase()
+        return hay.includes(q)
+      })
+    }
+    const sorted = [...filtered]
+    if (sortBy === "name") {
+      sorted.sort((a, b) => a.name.localeCompare(b.name, language === "ja" ? "ja" : "en"))
+    } else if (sortBy === "name_asc") {
+      sorted.sort((a, b) => b.name.localeCompare(a.name, language === "ja" ? "ja" : "en"))
+    } else if (sortBy === "progress") {
+      sorted.sort((a, b) => (b.progressPct ?? 0) - (a.progressPct ?? 0))
+    } else if (sortBy === "favorite") {
+      sorted.sort((a, b) => {
+        const fa = isFav(a) ? 1 : 0
+        const fb = isFav(b) ? 1 : 0
+        if (fa !== fb) return fb - fa
+        return 0 // tie-breaker keeps server order
+      })
+    }
+    // "updated" keeps server order (already updatedAt desc)
+    return sorted
+  }
+
+  function isFav(p: Project): boolean {
+    return favOverride[p.id] ?? !!p.isFavorite
+  }
+
+  async function toggleFavorite(e: React.MouseEvent, p: Project) {
+    e.stopPropagation()
+    const next = !isFav(p)
+    setFavOverride((prev) => ({ ...prev, [p.id]: next }))
+    try {
+      await fetch(`/api/projects/${p.id}/favorite`, { method: next ? "POST" : "DELETE" })
+    } catch {
+      setFavOverride((prev) => ({ ...prev, [p.id]: !next }))
+    }
+  }
+
   function handleContextMenu(e: React.MouseEvent, projectId: string) {
     if (localCategories.length === 0) return
     e.preventDefault()
@@ -237,6 +316,16 @@ export function ProjectList({ activeProjects, archivedProjects, categories, isAd
               />
             ) : (
               <div className="flex items-center gap-2 group/name">
+                <button
+                  onClick={(e) => toggleFavorite(e, project)}
+                  className={`p-0.5 rounded transition-colors ${isFav(project) ? "text-amber-400 hover:text-amber-500" : "text-gray-300 hover:text-amber-400"}`}
+                  title={t.projectSortFavorite}
+                  aria-label="favorite"
+                >
+                  <svg className="w-5 h-5" viewBox="0 0 20 20" fill={isFav(project) ? "currentColor" : "none"} stroke="currentColor" strokeWidth={1.6}>
+                    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.286 3.957a1 1 0 00.95.69h4.162c.969 0 1.371 1.24.588 1.81l-3.366 2.446a1 1 0 00-.364 1.118l1.287 3.957c.3.922-.755 1.688-1.54 1.118l-3.366-2.446a1 1 0 00-1.176 0l-3.366 2.446c-.785.57-1.84-.196-1.54-1.118l1.287-3.957a1 1 0 00-.364-1.118L2.07 9.384c-.783-.57-.38-1.81.588-1.81h4.162a1 1 0 00.95-.69l1.286-3.957z"/>
+                  </svg>
+                </button>
                 <span className="text-lg font-semibold text-gray-900 group-hover:text-blue-600 transition-colors">
                   {project.name}
                 </span>
@@ -256,6 +345,16 @@ export function ProjectList({ activeProjects, archivedProjects, categories, isAd
             )}
             {project.description && (
               <p className="text-sm text-gray-500 mt-1 line-clamp-2">{project.description}</p>
+            )}
+            {project.sections && project.sections.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {project.sections.map((s) => (
+                  <span key={s.id} className="inline-flex items-center gap-1 text-[11px] font-medium bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full">
+                    <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd"/></svg>
+                    {s.name}
+                  </span>
+                ))}
+              </div>
             )}
             {badges.length > 0 && (
               <div className="flex flex-wrap gap-1.5 mt-2">
@@ -345,12 +444,13 @@ export function ProjectList({ activeProjects, archivedProjects, categories, isAd
   }
 
   function renderCategoryView() {
+    const filteredActive = applyFilters(activeProjects)
     const categorized = new Set<string>()
     const sections: { key: string; title: string; dotColor?: string; projects: Project[] }[] = []
 
     for (const cat of localCategories) {
       const projectIds = new Set(cat.assignments.map((a) => a.projectId))
-      const catProjects = activeProjects.filter((p) => projectIds.has(p.id))
+      const catProjects = filteredActive.filter((p) => projectIds.has(p.id))
       catProjects.forEach((p) => categorized.add(p.id))
       if (catProjects.length > 0) {
         sections.push({
@@ -362,10 +462,12 @@ export function ProjectList({ activeProjects, archivedProjects, categories, isAd
       }
     }
 
-    const uncategorized = activeProjects.filter((p) => !categorized.has(p.id))
+    const uncategorized = filteredActive.filter((p) => !categorized.has(p.id))
     if (uncategorized.length > 0) {
       sections.push({ key: "uncategorized", title: t.categoryUncategorized, projects: uncategorized })
     }
+
+    const render = density === "compact" ? renderProjectRow : renderProjectCard
 
     return (
       <div className="space-y-4">
@@ -373,8 +475,8 @@ export function ProjectList({ activeProjects, archivedProjects, categories, isAd
           <div key={section.key}>
             {renderSectionHeader(section.title, section.key, section.projects.length, section.dotColor)}
             {!collapsedSections[section.key] && (
-              <div className="grid gap-3 mt-2 ml-6">
-                {section.projects.map(renderProjectCard)}
+              <div className={density === "compact" ? "space-y-1.5 mt-2 ml-6" : "grid gap-3 mt-2 ml-6"}>
+                {section.projects.map(render)}
               </div>
             )}
           </div>
@@ -388,7 +490,58 @@ export function ProjectList({ activeProjects, archivedProjects, categories, isAd
     )
   }
 
+  function renderProjectRow(project: Project) {
+    const badges = getCategoryBadges(project.id)
+    const pct = Math.min(100, Math.max(0, project.progressPct ?? 0))
+    return (
+      <div
+        key={project.id}
+        onClick={() => router.push(`/projects/${project.id}`)}
+        onContextMenu={(e) => handleContextMenu(e, project.id)}
+        className="group flex items-center gap-3 bg-white hover:bg-blue-50/30 border border-gray-100 hover:border-blue-200 rounded-lg px-3 py-2 cursor-pointer transition-colors"
+      >
+        <button
+          onClick={(e) => toggleFavorite(e, project)}
+          className={`shrink-0 transition-colors ${isFav(project) ? "text-amber-400 hover:text-amber-500" : "text-gray-300 hover:text-amber-400"}`}
+          title={t.projectSortFavorite}
+          aria-label="favorite"
+        >
+          <svg className="w-4 h-4" viewBox="0 0 20 20" fill={isFav(project) ? "currentColor" : "none"} stroke="currentColor" strokeWidth={1.6}>
+            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.286 3.957a1 1 0 00.95.69h4.162c.969 0 1.371 1.24.588 1.81l-3.366 2.446a1 1 0 00-.364 1.118l1.287 3.957c.3.922-.755 1.688-1.54 1.118l-3.366-2.446a1 1 0 00-1.176 0l-3.366 2.446c-.785.57-1.84-.196-1.54-1.118l1.287-3.957a1 1 0 00-.364-1.118L2.07 9.384c-.783-.57-.38-1.81.588-1.81h4.162a1 1 0 00.95-.69l1.286-3.957z"/>
+          </svg>
+        </button>
+        <span className="text-sm shrink-0 w-6 text-center">
+          {project.projectType === "software" ? "💻" : project.projectType === "process_improvement" ? "🏭" : "📋"}
+        </span>
+        <span className="text-sm font-semibold text-gray-900 truncate flex-1 min-w-0 group-hover:text-blue-600">
+          {project.name}
+        </span>
+        {badges.slice(0, 3).map((cat) => (
+          <span
+            key={cat.id}
+            className={`hidden md:inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full border ${colorMap[cat.color] ?? colorMap.gray}`}
+          >
+            <span className={`w-1 h-1 rounded-full ${colorDot[cat.color] ?? colorDot.gray}`} />
+            {cat.name}
+          </span>
+        ))}
+        <div className="hidden sm:flex items-center gap-2 shrink-0">
+          <div className="w-20 bg-gray-100 rounded-full h-1 overflow-hidden">
+            <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${pct}%` }} />
+          </div>
+          <span className="text-[10px] font-semibold text-emerald-600 w-8 text-right">{pct}%</span>
+        </div>
+        <div className="hidden md:flex items-center gap-3 text-[11px] text-gray-400 shrink-0">
+          <span>🧊{project._count.iceboxItems}</span>
+          <span>📋{project._count.backlogItems}</span>
+          <span>⚡{project._count.sprints}</span>
+        </div>
+      </div>
+    )
+  }
+
   function renderFlatView() {
+    const filtered = applyFilters(activeProjects)
     if (activeProjects.length === 0) {
       return (
         <div className="text-center py-16">
@@ -402,12 +555,24 @@ export function ProjectList({ activeProjects, archivedProjects, categories, isAd
         </div>
       )
     }
-    return <div className="grid gap-4">{activeProjects.map(renderProjectCard)}</div>
+    if (filtered.length === 0) {
+      return (
+        <div className="text-center py-12 text-sm text-gray-400">
+          {t.userNoResults}
+        </div>
+      )
+    }
+    const render = density === "compact" ? renderProjectRow : renderProjectCard
+    return (
+      <div className={density === "compact" ? "space-y-1.5" : "grid gap-4"}>
+        {filtered.map(render)}
+      </div>
+    )
   }
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight">{t.projectListTitle}</h1>
           <p className="text-sm text-gray-500 mt-1">
@@ -416,12 +581,99 @@ export function ProjectList({ activeProjects, archivedProjects, categories, isAd
               : t.projectListGetStarted}
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <button
+          onClick={() => setShowCreate(true)}
+          className="inline-flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 text-sm font-medium shadow-sm shadow-blue-500/25 hover:shadow-md transition-all"
+        >
+          <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd"/>
+          </svg>
+          {t.projectCreateButton}
+        </button>
+      </div>
+
+      {/* Toolbar: search + type filter + sort + density + view mode */}
+      {activeProjects.length > 0 && (
+        <div className="bg-white border border-gray-100 rounded-xl shadow-sm p-3 mb-6 flex flex-wrap items-center gap-2">
+          <div className="relative flex-1 min-w-[200px]">
+            <svg className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd"/>
+            </svg>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={t.projectSearchPlaceholder}
+              className="w-full pl-9 pr-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 placeholder:text-gray-300"
+            />
+          </div>
+
+          {/* Type filter chips */}
+          <div className="flex bg-gray-100 rounded-lg p-0.5 text-xs">
+            {(["all", "software", "process_improvement", "general"] as const).map((type) => (
+              <button
+                key={type}
+                onClick={() => setTypeFilter(type)}
+                className={`px-2.5 py-1 rounded-md font-medium transition-all ${
+                  typeFilter === type
+                    ? "bg-white text-gray-900 shadow-sm"
+                    : "text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                {type === "all" ? t.userFilterRoleAll : type === "software" ? "💻" : type === "process_improvement" ? "🏭" : "📋"}
+              </button>
+            ))}
+          </div>
+
+          {/* Sort */}
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+            className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+          >
+            <option value="updated">{t.projectSortUpdated}</option>
+            <option value="favorite">{t.projectSortFavorite}</option>
+            <option value="name">{t.projectSortNameAsc}</option>
+            <option value="name_asc">{t.projectSortNameDesc}</option>
+            <option value="progress">{t.projectSortProgress}</option>
+          </select>
+
+          {/* Density toggle */}
+          <div className="flex bg-gray-100 rounded-lg p-0.5 text-xs">
+            <button
+              onClick={() => setDensity("comfortable")}
+              className={`p-1.5 rounded-md transition-all ${
+                density === "comfortable"
+                  ? "bg-white text-gray-900 shadow-sm"
+                  : "text-gray-500 hover:text-gray-700"
+              }`}
+              title={t.projectDensityComfortable}
+            >
+              <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                <path d="M4 3h12a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1V4a1 1 0 011-1zM4 11h12a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1v-4a1 1 0 011-1z"/>
+              </svg>
+            </button>
+            <button
+              onClick={() => setDensity("compact")}
+              className={`p-1.5 rounded-md transition-all ${
+                density === "compact"
+                  ? "bg-white text-gray-900 shadow-sm"
+                  : "text-gray-500 hover:text-gray-700"
+              }`}
+              title={t.projectDensityCompact}
+            >
+              <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                <path d="M3 5h14a1 1 0 010 2H3a1 1 0 010-2zm0 4h14a1 1 0 010 2H3a1 1 0 010-2zm0 4h14a1 1 0 010 2H3a1 1 0 010-2z"/>
+              </svg>
+            </button>
+          </div>
+
+          {/* View mode: flat / category */}
           {localCategories.length > 0 && (
-            <div className="flex bg-gray-100 rounded-lg p-0.5">
+            <div className="flex bg-gray-100 rounded-lg p-0.5 text-xs">
               <button
                 onClick={() => setViewMode("flat")}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
+                className={`px-2.5 py-1 rounded-md font-medium transition-all ${
                   viewMode === "flat"
                     ? "bg-white text-gray-900 shadow-sm"
                     : "text-gray-500 hover:text-gray-700"
@@ -431,7 +683,7 @@ export function ProjectList({ activeProjects, archivedProjects, categories, isAd
               </button>
               <button
                 onClick={() => setViewMode("category")}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
+                className={`px-2.5 py-1 rounded-md font-medium transition-all ${
                   viewMode === "category"
                     ? "bg-white text-gray-900 shadow-sm"
                     : "text-gray-500 hover:text-gray-700"
@@ -441,17 +693,8 @@ export function ProjectList({ activeProjects, archivedProjects, categories, isAd
               </button>
             </div>
           )}
-          <button
-            onClick={() => setShowCreate(true)}
-            className="inline-flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 text-sm font-medium shadow-sm shadow-blue-500/25 hover:shadow-md transition-all"
-          >
-            <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd"/>
-            </svg>
-            {t.projectCreateButton}
-          </button>
         </div>
-      </div>
+      )}
 
       {showCreate && (
         <div className="bg-white rounded-2xl shadow-lg shadow-gray-200/50 border border-gray-100 p-6 mb-8">

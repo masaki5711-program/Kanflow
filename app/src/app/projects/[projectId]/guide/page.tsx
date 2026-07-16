@@ -17,6 +17,7 @@ import {
   FAQ_CATEGORY_COLORS,
   type FaqCategory,
 } from "./faq-data"
+import ScrumOverviewDiagram from "./scrum-overview-diagram"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -207,8 +208,8 @@ function getSteps(projectType: ProjectType, pt: ProjectTypeLabels, language: Lan
 
     return steps[language].map((s, i) => ({
       ...s,
-      icon: STEP_ICONS[i],
-      color: STEP_COLORS[i],
+      icon: STEP_ICONS[i % STEP_ICONS.length],
+      color: STEP_COLORS[i % STEP_COLORS.length],
     }))
   }
 
@@ -347,8 +348,8 @@ function getSteps(projectType: ProjectType, pt: ProjectTypeLabels, language: Lan
 
     return steps[language].map((s, i) => ({
       ...s,
-      icon: STEP_ICONS[i],
-      color: STEP_COLORS[i],
+      icon: STEP_ICONS[i % STEP_ICONS.length],
+      color: STEP_COLORS[i % STEP_COLORS.length],
     }))
   }
 
@@ -379,18 +380,28 @@ function getSteps(projectType: ProjectType, pt: ProjectTypeLabels, language: Lan
         hint: "ユーザーストーリーの書き方：「＜誰が＞として、＜何を＞したい。それは＜なぜ＞だからだ。」",
       },
       {
-        title: "スプリント計画 — 次にやることを決める",
-        description: "1〜4週間のスプリントを作成し、バックログの上位アイテムを取り込みます。キャパシティ（チームの処理能力）を設定し、過負荷にならないよう調整します。",
+        title: "スプリントプランニング — このスプリントの「なぜ・何を・どのように」を決める",
+        description: "スプリント開始時に、スプリントゴールの定義、取り組むPBIの選択、作業計画の作成を行います。1〜4週間の固定タイムボックスを設定し、キャパシティ（チームの処理能力）を踏まえて過負荷を避けます。",
         operation: "スプリント → 新規スプリント → PBから取り込み",
+        hint: "参加者：スクラムチーム全体（PO・SM・開発者）。必要に応じて社内の有識者を外部アドバイザーとして招待可能。タイムボックス：1週スプリント=最大2時間、4週=最大8時間。",
       },
       {
-        title: "スプリント実行 — タスクを進める",
-        description: "PBIをタスクに分解し、担当者をアサイン。ステータスをクリックで Todo → 進行中 → 完了 と更新します。",
-        operation: "各タスクのステータスアイコンをクリック",
+        title: "スプリント実行＆デイリースクラム — 毎日の検査と適応",
+        description: "PBIをタスクに分解し、担当者をアサイン。ステータスをクリックで Todo → 進行中 → 完了 と更新します。毎日同じ時間・場所で最大15分のデイリースクラムを開き、スプリントゴールに対する進捗を検査し、次の24時間のプランを調整します。",
+        operation: "各タスクのステータスアイコンをクリック／スプリントカード内「デイリースクラム」欄に記録",
+        hint: "デイリースクラム参加者：開発者。PO・SMが開発者を兼任している場合は開発者として参加、兼任していない場合は原則必須ではなくオブザーバーとして聞くことが可能。",
       },
       {
-        title: "レビュー＆振り返り — 改善する",
-        description: "スプリント終了時にレビューコメントと振り返りメモ（KPT）を記録。次のスプリントに活かします。",
+        title: "スプリントレビュー — 成果をステークホルダーと検査",
+        description: "スプリント終盤に、作成したインクリメント（成果物）をステークホルダーとともに検査する**ワーキングセッション**。デモを実施しフィードバックを獲得、市場・環境の変化を議論してプロダクトバックログを更新します。",
+        operation: "スプリントを「レビュー」ステータスへ遷移 → レビューコメントを記入",
+        hint: "参加者：スクラムチーム全体 ＋ 主要なステークホルダー（顧客・関係部署・経営層など）。POが適切な参加者を招待。タイムボックス：1週=最大1h、4週=最大4h。",
+      },
+      {
+        title: "スプリントレトロスペクティブ — チームが次のスプリントに向けて改善を計画",
+        description: "スプリントレビューの後に、チーム自身のために行う改善会議。人・関係性・プロセス・ツールの観点で、うまくいったこと／課題だったことを洗い出し、KPT（Keep/Problem/Try）で**具体的な改善アクション**を決めます。",
+        operation: "スプリントを「完了」へ遷移 → KPT ダイアログで K / P / T を記入して保存（自動アーカイブ）",
+        hint: "参加者：スクラムチーム全体（PO・SM・開発者）のみ。ステークホルダーは原則不参加。タイムボックス：1週=最大45分、4週=最大3h。",
       },
       {
         title: "リリース — 成果を届ける",
@@ -423,18 +434,28 @@ function getSteps(projectType: ProjectType, pt: ProjectTypeLabels, language: Lan
         hint: "How to write a user story: 'As a [who], I want [what], so that [why].'",
       },
       {
-        title: "Sprint Planning — Decide What to Do Next",
-        description: "Create a 1-4 week sprint and pull in top items from the backlog. Set the capacity (team throughput) and adjust to avoid overload.",
+        title: "Sprint Planning — Decide the Why / What / How of this Sprint",
+        description: "At the start of the Sprint, define the Sprint Goal, pick the PBIs to tackle, and build the plan for how to complete them. Set a fixed 1-4 week timebox, and size the work against team capacity to avoid overload.",
         operation: "Sprints → New Sprint → Pull from PB",
+        hint: "Attendees: the whole Scrum Team (PO, SM, Developers). Subject-matter advisors can be invited when useful. Timebox: up to 2h for a 1-week Sprint, up to 8h for a 4-week Sprint.",
       },
       {
-        title: "Sprint Execution — Work on Tasks",
-        description: "Break PBIs into tasks and assign owners. Click the status to update: Todo → In Progress → Done.",
-        operation: "Click the status icon on each task",
+        title: "Sprint Execution & Daily Scrum — Inspect & adapt every day",
+        description: "Break PBIs into tasks and assign owners. Click the status to update: Todo → In Progress → Done. Each day hold a 15-minute Daily Scrum at the same time/place to inspect progress toward the Sprint Goal and adjust the plan for the next 24 hours.",
+        operation: "Click the status icon on each task / record notes in each sprint card's Daily Scrum section",
+        hint: "Daily Scrum attendees: the Developers. A PO or SM who is also playing a Developer role attends as a Developer; otherwise they are not required but may listen in as observers.",
       },
       {
-        title: "Review & Reflect — Improve",
-        description: "At the end of the sprint, record review comments and retrospective notes (KPT). Apply learnings to the next sprint.",
+        title: "Sprint Review — Inspect the increment with stakeholders",
+        description: "Near the end of the Sprint, inspect the increment with stakeholders in a working session. Demo the outcome, gather feedback, discuss market/environment changes, and update the Product Backlog for what comes next.",
+        operation: "Move the sprint to Review status → record the review comment",
+        hint: "Attendees: the whole Scrum Team + key stakeholders (customers, partners, leadership). The PO invites the right stakeholders. Timebox: up to 1h for a 1-week Sprint, up to 4h for 4-week.",
+      },
+      {
+        title: "Sprint Retrospective — Plan concrete improvements for next Sprint",
+        description: "The team's improvement meeting held after the Sprint Review. Inspect how the Sprint went across people, relationships, process, and tools. Surface what worked and what didn't, then use KPT (Keep/Problem/Try) to agree on concrete improvement actions.",
+        operation: "Move the sprint to Done → fill in K / P / T in the dialog and save (auto-archives)",
+        hint: "Attendees: the whole Scrum Team only (PO, SM, Developers). Stakeholders are typically not present. Timebox: up to 45min for 1-week, up to 3h for 4-week.",
       },
       {
         title: "Release — Deliver Results",
@@ -467,18 +488,28 @@ function getSteps(projectType: ProjectType, pt: ProjectTypeLabels, language: Lan
         hint: "Cara menulis user story: 'Sebagai [siapa], saya ingin [apa], sehingga [mengapa].'",
       },
       {
-        title: "Perencanaan Sprint — Putuskan Apa yang Dilakukan Selanjutnya",
-        description: "Buat sprint 1-4 minggu dan tarik item teratas dari backlog. Atur kapasitas (throughput tim) dan sesuaikan untuk menghindari kelebihan beban.",
+        title: "Sprint Planning — Tentukan Mengapa/Apa/Bagaimana Sprint ini",
+        description: "Di awal Sprint, tetapkan Sprint Goal, pilih PBI yang akan dikerjakan, dan susun rencana penyelesaiannya. Atur timebox tetap 1-4 minggu dan ukur pekerjaan sesuai kapasitas tim untuk menghindari kelebihan beban.",
         operation: "Sprint → Sprint Baru → Tarik dari PB",
+        hint: "Peserta: seluruh Scrum Team (PO, SM, Developer). Pakar eksternal dapat diundang bila perlu. Timebox: maks 2 jam untuk sprint 1 minggu, maks 8 jam untuk 4 minggu.",
       },
       {
-        title: "Eksekusi Sprint — Kerjakan Tugas",
-        description: "Pecah PBI menjadi tugas dan tetapkan penanggung jawab. Klik status untuk memperbarui: Todo → Sedang Berlangsung → Selesai.",
-        operation: "Klik ikon status pada setiap tugas",
+        title: "Eksekusi Sprint & Daily Scrum — Periksa & sesuaikan setiap hari",
+        description: "Pecah PBI menjadi tugas dan tetapkan penanggung jawab. Klik status: Todo → Sedang Berlangsung → Selesai. Setiap hari adakan Daily Scrum 15 menit pada waktu/tempat yang sama untuk memeriksa kemajuan menuju Sprint Goal dan menyesuaikan rencana 24 jam berikutnya.",
+        operation: "Klik ikon status pada setiap tugas / catat di kolom Daily Scrum pada kartu sprint",
+        hint: "Peserta Daily Scrum: Developer. Jika PO/SM juga berperan sebagai Developer, mereka hadir sebagai Developer; jika tidak, tidak wajib hadir namun boleh menyimak.",
       },
       {
-        title: "Tinjauan & Refleksi — Perbaiki",
-        description: "Di akhir sprint, catat komentar tinjauan dan catatan retrospektif (KPT). Terapkan pembelajaran ke sprint berikutnya.",
+        title: "Sprint Review — Periksa increment bersama pemangku kepentingan",
+        description: "Menjelang akhir Sprint, periksa increment bersama pemangku kepentingan dalam sesi kerja. Demonstrasikan hasil, kumpulkan umpan balik, diskusikan perubahan pasar/lingkungan, dan perbarui Product Backlog untuk langkah berikutnya.",
+        operation: "Pindahkan sprint ke status Review → isi komentar tinjauan",
+        hint: "Peserta: seluruh Scrum Team + pemangku kepentingan utama (pelanggan, mitra, manajemen). PO mengundang yang tepat. Timebox: maks 1 jam untuk 1 minggu, maks 4 jam untuk 4 minggu.",
+      },
+      {
+        title: "Sprint Retrospective — Rencanakan aksi perbaikan konkret",
+        description: "Rapat perbaikan tim setelah Sprint Review. Periksa bagaimana Sprint berjalan dari aspek orang, hubungan, proses, dan alat. Munculkan apa yang berhasil dan yang bermasalah, lalu gunakan KPT (Keep/Problem/Try) untuk menyepakati aksi perbaikan konkret.",
+        operation: "Pindahkan sprint ke Selesai → isi K / P / T di dialog lalu simpan (otomatis di-arsipkan)",
+        hint: "Peserta: hanya seluruh Scrum Team (PO, SM, Developer). Pemangku kepentingan biasanya tidak hadir. Timebox: maks 45 menit untuk 1 minggu, maks 3 jam untuk 4 minggu.",
       },
       {
         title: "Rilis — Serahkan Hasil",
@@ -490,8 +521,8 @@ function getSteps(projectType: ProjectType, pt: ProjectTypeLabels, language: Lan
 
   return steps[language].map((s, i) => ({
     ...s,
-    icon: STEP_ICONS[i],
-    color: STEP_COLORS[i],
+    icon: STEP_ICONS[i % STEP_ICONS.length],
+    color: STEP_COLORS[i % STEP_COLORS.length],
   }))
 }
 
@@ -606,7 +637,7 @@ function StepItem({
 
         <div
           className={`overflow-hidden transition-all duration-300 ease-in-out ${
-            isOpen ? "max-h-96 opacity-100 mt-3" : "max-h-0 opacity-0"
+            isOpen ? "max-h-[800px] opacity-100 mt-3" : "max-h-0 opacity-0"
           }`}
         >
           <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
@@ -645,19 +676,19 @@ function StepItem({
 
 const INTRO_TEXT: Record<ProjectType, Record<Language, string>> = {
   software: {
-    ja: "Kanflowを使ったスクラム開発の流れを、8つのステップで説明します。各ステップをクリックして詳細を確認してください。",
-    en: "Here are 8 steps explaining the Scrum development workflow using Kanflow. Click each step to see the details.",
-    id: "Berikut 8 langkah yang menjelaskan alur kerja pengembangan Scrum menggunakan Kanflow. Klik setiap langkah untuk melihat detailnya.",
+    ja: "Kanflowを使ったスクラム開発の流れを順に説明します。各ステップをクリックして詳細（イベント・参加者・タイムボックス）を確認してください。",
+    en: "Walk through the Scrum development workflow using Kanflow. Click each step to see details (events, attendees, timeboxes).",
+    id: "Pelajari alur kerja pengembangan Scrum dengan Kanflow. Klik setiap langkah untuk melihat detail (acara, peserta, timebox).",
   },
   process_improvement: {
-    ja: "Kanflowを使った工程改善の流れを、8つのステップで説明します。各ステップをクリックして詳細を確認してください。",
-    en: "Here are 8 steps explaining the process improvement workflow using Kanflow. Click each step to see the details.",
-    id: "Berikut 8 langkah yang menjelaskan alur kerja perbaikan proses menggunakan Kanflow. Klik setiap langkah untuk melihat detailnya.",
+    ja: "Kanflowを使った工程改善の流れを順に説明します。各ステップをクリックして詳細を確認してください。",
+    en: "Walk through the process-improvement workflow using Kanflow. Click each step to see the details.",
+    id: "Pelajari alur kerja perbaikan proses dengan Kanflow. Klik setiap langkah untuk melihat detailnya.",
   },
   general: {
-    ja: "Kanflowを使ったプロジェクト運営の流れを、8つのステップで説明します。各ステップをクリックして詳細を確認してください。",
-    en: "Here are 8 steps explaining the project management workflow using Kanflow. Click each step to see the details.",
-    id: "Berikut 8 langkah yang menjelaskan alur kerja manajemen proyek menggunakan Kanflow. Klik setiap langkah untuk melihat detailnya.",
+    ja: "Kanflowを使ったプロジェクト運営の流れを順に説明します。各ステップをクリックして詳細を確認してください。",
+    en: "Walk through the project-management workflow using Kanflow. Click each step to see the details.",
+    id: "Pelajari alur kerja manajemen proyek dengan Kanflow. Klik setiap langkah untuk melihat detailnya.",
   },
 }
 
@@ -678,6 +709,7 @@ function GettingStartedTab() {
           {INTRO_TEXT[projectType][language]}
         </p>
       </div>
+      {projectType === "software" && <ScrumOverviewDiagram />}
       {steps.map((step, i) => (
         <StepItem
           key={i}
@@ -888,11 +920,11 @@ function HelpTab() {
               </button>
               <div
                 className={`overflow-hidden transition-all duration-300 ease-in-out ${
-                  isOpen ? "max-h-48 opacity-100" : "max-h-0 opacity-0"
+                  isOpen ? "max-h-[1000px] opacity-100" : "max-h-0 opacity-0"
                 }`}
               >
                 <div className="px-4 pb-4 pt-0 ml-[72px]">
-                  <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
+                  <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed whitespace-pre-wrap">
                     {item.answer[language]}
                   </p>
                 </div>

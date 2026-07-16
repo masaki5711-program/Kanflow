@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { requireProjectMember } from "@/lib/api-helpers"
+import { requireProjectMember, requireProjectAccess } from "@/lib/api-helpers"
 import { z } from "zod"
 
 const createSchema = z.object({
@@ -18,7 +18,7 @@ export async function GET(
   { params }: { params: Promise<{ projectId: string }> }
 ) {
   const { projectId } = await params
-  const result = await requireProjectMember(projectId)
+  const result = await requireProjectAccess(projectId, "read")
   if ("error" in result) return result.error
 
   const events = await prisma.calendarEvent.findMany({

@@ -1,11 +1,15 @@
 "use client"
 
 import { useEffect, useState, useCallback, useRef } from "react"
-import { useParams } from "next/navigation"
+import { useParams, useRouter } from "next/navigation"
+import { useSession } from "next-auth/react"
 import { useLanguage } from "@/lib/language-context"
 import { useConfirm } from "@/components/confirm-dialog"
 import { compressImageFile } from "@/lib/image-compress"
 import MediaPreviewModal, { type MediaItem } from "@/components/media-preview-modal"
+import { BilingualViewToggle } from "@/components/bilingual-view-toggle"
+import { PbiDraftPickerModal, type PbiDraft } from "@/components/pbi-draft-picker-modal"
+import { streamTranslate } from "@/lib/streaming-translate"
 
 interface IceboxAttachment {
   id: string
@@ -71,20 +75,92 @@ const sectionTheme: Record<string, {
 }> = {
   unreviewed: { border: "border-l-amber-400", iconBg: "bg-amber-50", iconText: "text-amber-600", badgeBg: "bg-amber-100", badgeText: "text-amber-700", accent: "border-l-amber-300" },
   reviewed: { border: "border-l-emerald-400", iconBg: "bg-emerald-50", iconText: "text-emerald-600", badgeBg: "bg-emerald-100", badgeText: "text-emerald-700", accent: "border-l-emerald-300" },
+  completed: { border: "border-l-blue-400", iconBg: "bg-blue-50", iconText: "text-blue-600", badgeBg: "bg-blue-100", badgeText: "text-blue-700", accent: "border-l-blue-300" },
   frozen: { border: "border-l-slate-400", iconBg: "bg-slate-100", iconText: "text-slate-500", badgeBg: "bg-slate-200", badgeText: "text-slate-600", accent: "border-l-slate-300" },
 }
 function I(name: keyof typeof P, cls?: string) {
   return <Ico d={P[name]} className={cls} clip={clipIcons.has(name)} />
 }
 const sectionIcons: Record<string, React.ReactNode> = {
-  unreviewed: I("clock", "w-5 h-5"), reviewed: I("check", "w-5 h-5"), frozen: I("snow", "w-5 h-5"),
+  unreviewed: I("clock", "w-5 h-5"), reviewed: I("check", "w-5 h-5"), completed: I("check", "w-5 h-5"), frozen: I("snow", "w-5 h-5"),
 }
 const statusBadgeIcon: Record<string, React.ReactNode> = {
-  unreviewed: I("clock", "w-3 h-3"), reviewed: I("check", "w-3 h-3"), frozen: I("snow", "w-3 h-3"),
+  unreviewed: I("clock", "w-3 h-3"), reviewed: I("check", "w-3 h-3"), completed: I("check", "w-3 h-3"), frozen: I("snow", "w-3 h-3"),
 }
 
 function isImageType(mimeType: string): boolean {
   return mimeType.startsWith("image/")
+}
+
+/**
+ * View-mode bilingual block for an Icebox item card. State lives here so that
+ * remounting the card (data refresh, page leave) discards the translation.
+ * One toggle controls both request and background fields together.
+ */
+function IceboxItemBilingualBlock({ item }: { item: IceboxItem }) {
+  const [translated, setTranslated] = useState<{ request: string; background: string } | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(false)
+
+  async function toggle() {
+    if (translated) {
+      setTranslated(null)
+      setError(false)
+      return
+    }
+    setLoading(true)
+    setError(false)
+    setTranslated({ request: "", background: "" })
+    try {
+      // Translate request first (with progressive updates), then background.
+      let reqOut = ""
+      if (item.request.trim()) {
+        reqOut = await streamTranslate(item.request.trim(), (acc) => {
+          setTranslated((cur) => ({ request: acc, background: cur?.background ?? "" }))
+        })
+      }
+      let bgOut = ""
+      if (item.background?.trim()) {
+        bgOut = await streamTranslate(item.background.trim(), (acc) => {
+          setTranslated((cur) => ({ request: cur?.request ?? reqOut, background: acc }))
+        })
+      }
+      setTranslated({ request: reqOut, background: bgOut })
+    } catch {
+      setError(true)
+      setTranslated(null)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const requestDisplay = translated?.request ?? item.request
+  const backgroundDisplay = translated?.background ?? item.background ?? ""
+
+  return (
+    <>
+      <div className="flex items-start gap-2">
+        <p className="text-sm text-gray-900 leading-relaxed whitespace-pre-wrap flex-1 min-w-0">
+          {requestDisplay}
+        </p>
+        <BilingualViewToggle
+          isTranslated={translated !== null}
+          loading={loading}
+          error={error}
+          onClick={toggle}
+          className="flex-shrink-0 mt-0.5"
+        />
+      </div>
+      {item.background && (
+        <div className="mt-2 pl-3 border-l-2 border-gray-200">
+          <p className="text-xs text-gray-500 leading-relaxed whitespace-pre-wrap flex items-start gap-1.5">
+            {I("info", "w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-gray-400")}
+            <span>{backgroundDisplay}</span>
+          </p>
+        </div>
+      )}
+    </>
+  )
 }
 
 function formatFileSize(bytes: number): string {
@@ -95,21 +171,50 @@ function formatFileSize(bytes: number): string {
 
 export default function IceboxPage() {
   const params = useParams()
+  const router = useRouter()
   const projectId = params.projectId as string
   const { t, pt } = useLanguage()
   const confirm = useConfirm()
+  const { data: session } = useSession()
+  const [myRole, setMyRole] = useState<string | null>(null)
+  const isPo = myRole === "po"
+  const [draftPickerForId, setDraftPickerForId] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!session?.user?.id) return
+    const uid = session.user.id
+    fetch(`/api/projects/${projectId}/members`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(r)))
+      .then((members: { role: string; user: { id: string } }[]) => {
+        const me = members.find((m) => m.user.id === uid)
+        setMyRole(me?.role ?? null)
+      })
+      .catch(() => setMyRole(null))
+  }, [projectId, session?.user?.id])
+
+  function handlePickPbiDraft(draft: PbiDraft) {
+    if (!draftPickerForId) return
+    sessionStorage.setItem(
+      `kanflow:pbiDraft:${projectId}`,
+      JSON.stringify({ ...draft, iceboxItemId: draftPickerForId })
+    )
+    setDraftPickerForId(null)
+    router.push(`/projects/${projectId}/backlog?fromAiDraft=1`)
+  }
 
   const statusLabels: Record<string, string> = {
     unreviewed: t.iceboxStatusUnreviewed,
     reviewed: t.iceboxStatusReviewed,
+    completed: t.iceboxStatusCompleted,
     frozen: t.iceboxStatusFrozen,
   }
 
   const [items, setItems] = useState<{
     unreviewed: IceboxItem[]
     reviewed: IceboxItem[]
+    completed: IceboxItem[]
     frozen: IceboxItem[]
-  }>({ unreviewed: [], reviewed: [], frozen: [] })
+  }>({ unreviewed: [], reviewed: [], completed: [], frozen: [] })
 
   const [showForm, setShowForm] = useState(false)
   const [author, setAuthor] = useState("")
@@ -118,6 +223,28 @@ export default function IceboxPage() {
   const [loading, setLoading] = useState(false)
   const [initialLoading, setInitialLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
+  const [translating, setTranslating] = useState<{ request: boolean; background: boolean }>({
+    request: false,
+    background: false,
+  })
+
+  async function handleBilingualize(field: "request" | "background") {
+    const current = field === "request" ? request : background
+    if (!current.trim() || translating[field]) return
+    setTranslating((s) => ({ ...s, [field]: true }))
+    try {
+      // Stream the translation directly into the textarea so the user sees
+      // tokens arrive in real time.
+      await streamTranslate(current.trim(), (acc) => {
+        if (field === "request") setRequest(acc)
+        else setBackground(acc)
+      })
+    } catch {
+      alert(t.bilingualizeFailed)
+    } finally {
+      setTranslating((s) => ({ ...s, [field]: false }))
+    }
+  }
 
   const [editingItem, setEditingItem] = useState<IceboxItem | null>(null)
   const [editForm, setEditForm] = useState({
@@ -154,7 +281,7 @@ export default function IceboxPage() {
     setPreviewState({ items, index: idx >= 0 ? idx : 0 })
   }
 
-  const totalCount = items.unreviewed.length + items.reviewed.length + items.frozen.length
+  const totalCount = items.unreviewed.length + items.reviewed.length + items.completed.length + items.frozen.length
 
   const fetchItems = useCallback(async () => {
     try {
@@ -294,6 +421,10 @@ export default function IceboxPage() {
     if (currentStatus !== "reviewed") {
       targets.push({ status: "reviewed", label: t.iceboxMoveToReviewed, color: "text-emerald-700 bg-emerald-50 border-emerald-200 hover:bg-emerald-100" })
     }
+    // Only reviewed items can move to completed (the review gate has passed).
+    if (currentStatus === "reviewed") {
+      targets.push({ status: "completed", label: t.iceboxMoveToCompleted, color: "text-blue-700 bg-blue-50 border-blue-200 hover:bg-blue-100" })
+    }
     if (currentStatus !== "frozen") {
       targets.push({ status: "frozen", label: t.iceboxMoveToFrozen, color: "text-slate-600 bg-slate-50 border-slate-200 hover:bg-slate-100" })
     }
@@ -343,17 +474,7 @@ export default function IceboxPage() {
                         </span>
                       )}
                     </div>
-                    <p className="text-sm text-gray-900 leading-relaxed whitespace-pre-wrap">
-                      {item.request}
-                    </p>
-                    {item.background && (
-                      <div className="mt-2 pl-3 border-l-2 border-gray-200">
-                        <p className="text-xs text-gray-500 leading-relaxed whitespace-pre-wrap flex items-start gap-1.5">
-                          {I("info", "w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-gray-400")}
-                          <span>{item.background}</span>
-                        </p>
-                      </div>
-                    )}
+                    <IceboxItemBilingualBlock item={item} />
                     {imageAttachments.length > 0 && (
                       <div className="flex flex-wrap gap-2 mt-3">
                         {imageAttachments.map((att) => (
@@ -443,7 +564,17 @@ export default function IceboxPage() {
                         {target.label}
                       </button>
                     ))}
-                    <div className="flex gap-1 mt-1 justify-end">
+                    <div className="flex gap-1 mt-1 justify-end flex-wrap">
+                      {item.status !== "frozen" && (
+                        <button
+                          onClick={() => setDraftPickerForId(item.id)}
+                          className="inline-flex items-center gap-1 text-xs text-purple-700 hover:text-purple-900 hover:bg-purple-50 border border-purple-200 px-2 py-1 rounded-md transition-colors"
+                          title={t.aiGeneratePbiDraft}
+                        >
+                          <span aria-hidden>🤖</span>
+                          {t.aiGeneratePbiDraft}
+                        </button>
+                      )}
                       <button
                         onClick={() => openEdit(item)}
                         className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-50 px-2 py-1 rounded-md transition-colors"
@@ -475,7 +606,7 @@ export default function IceboxPage() {
   function renderEditModal() {
     if (!editingItem) return null
     return (
-      <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50" onClick={() => setEditingItem(null)}>
+      <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
         <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
           <div className="flex items-center gap-2 mb-5">
             {I("pencil", "w-5 h-5 text-blue-600")}
@@ -591,6 +722,7 @@ export default function IceboxPage() {
               >
                 <option value="unreviewed">{t.iceboxStatusUnreviewed}</option>
                 <option value="reviewed">{t.iceboxStatusReviewed}</option>
+                <option value="completed">{t.iceboxStatusCompleted}</option>
                 <option value="frozen">{t.iceboxStatusFrozen}</option>
               </select>
             </div>
@@ -724,10 +856,22 @@ export default function IceboxPage() {
                 <p className="text-[10px] text-gray-400 mt-0.5">{t.sprintNotEntered}</p>
               </div>
               <div>
-                <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700 mb-1.5">
-                  {I("doc", "w-4 h-4 text-gray-400")}
-                  {pt.iceboxRequest}
-                </label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700">
+                    {I("doc", "w-4 h-4 text-gray-400")}
+                    {pt.iceboxRequest}
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => handleBilingualize("request")}
+                    disabled={!request.trim() || translating.request}
+                    className="inline-flex items-center gap-1 text-[11px] font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 disabled:text-gray-300 disabled:hover:bg-transparent disabled:cursor-not-allowed px-2 py-0.5 rounded transition-colors"
+                    title={t.bilingualize}
+                  >
+                    <span aria-hidden>🌐</span>
+                    {translating.request ? t.bilingualizing : t.bilingualize}
+                  </button>
+                </div>
                 <textarea
                   value={request}
                   onChange={(e) => setRequest(e.target.value)}
@@ -737,10 +881,22 @@ export default function IceboxPage() {
                 />
               </div>
               <div>
-                <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700 mb-1.5">
-                  {I("info", "w-4 h-4 text-gray-400")}
-                  {pt.iceboxBackground}
-                </label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700">
+                    {I("info", "w-4 h-4 text-gray-400")}
+                    {pt.iceboxBackground}
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => handleBilingualize("background")}
+                    disabled={!background.trim() || translating.background}
+                    className="inline-flex items-center gap-1 text-[11px] font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 disabled:text-gray-300 disabled:hover:bg-transparent disabled:cursor-not-allowed px-2 py-0.5 rounded transition-colors"
+                    title={t.bilingualize}
+                  >
+                    <span aria-hidden>🌐</span>
+                    {translating.background ? t.bilingualizing : t.bilingualize}
+                  </button>
+                </div>
                 <textarea
                   value={background}
                   onChange={(e) => setBackground(e.target.value)}
@@ -789,11 +945,20 @@ export default function IceboxPage() {
             <>
               {renderSection(t.iceboxStatusUnreviewed, "unreviewed", filterItems(items.unreviewed))}
               {renderSection(t.iceboxStatusReviewed, "reviewed", filterItems(items.reviewed))}
+              {renderSection(t.iceboxStatusCompleted, "completed", filterItems(items.completed))}
               {renderSection(t.iceboxStatusFrozen, "frozen", filterItems(items.frozen))}
             </>
           )
         })()}
       </div>
+      {draftPickerForId && (
+        <PbiDraftPickerModal
+          projectId={projectId}
+          iceboxItemId={draftPickerForId}
+          onClose={() => setDraftPickerForId(null)}
+          onPick={handlePickPbiDraft}
+        />
+      )}
     </div>
   )
 }

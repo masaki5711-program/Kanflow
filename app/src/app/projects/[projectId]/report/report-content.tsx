@@ -1,6 +1,8 @@
 "use client"
 
+import { Fragment, useEffect } from "react"
 import { useLanguage } from "@/lib/language-context"
+import { formatPointUnit } from "@/lib/i18n"
 import BurndownChart from "@/components/burndown-chart"
 
 interface Member {
@@ -117,7 +119,7 @@ export function ReportContent({
   projectName,
   projectDescription,
   language,
-  pointUnit,
+  pointUnit: rawPointUnit,
   members,
   productGoals,
   sprints,
@@ -127,6 +129,7 @@ export function ReportContent({
   events,
 }: ReportContentProps) {
   const { t, pt } = useLanguage()
+  const pointUnit = formatPointUnit(rawPointUnit, t)
   const locale = language === "ja" ? "ja-JP" : language === "id" ? "id-ID" : "en-US"
   const today = new Date().toLocaleDateString(locale)
 
@@ -156,6 +159,32 @@ export function ReportContent({
     if (ai !== bi) return ai - bi
     return new Date(b.startDate).getTime() - new Date(a.startDate).getTime()
   })
+
+  // Categorize sprints along a time axis so the report reads as
+  // Now → Upcoming → Past instead of one flat list.
+  const currentSprints = sortedSprints.filter((s) => s.status === "active" || s.status === "review")
+  const upcomingSprints = sortedSprints.filter((s) => s.status === "planning")
+  const pastSprints = sortedSprints.filter((s) => s.status === "done" || s.status === "archived")
+
+  // When printing, force every <details> open so collapsed history still
+  // appears on paper.
+  useEffect(() => {
+    function setAllDetailsOpen(open: boolean) {
+      document.querySelectorAll<HTMLDetailsElement>(".report-container details").forEach((el) => {
+        if (open) el.dataset.userOpen = el.open ? "1" : "0"
+        if (open) el.open = true
+        else if (el.dataset.userOpen === "0") el.open = false
+      })
+    }
+    const onBefore = () => setAllDetailsOpen(true)
+    const onAfter = () => setAllDetailsOpen(false)
+    window.addEventListener("beforeprint", onBefore)
+    window.addEventListener("afterprint", onAfter)
+    return () => {
+      window.removeEventListener("beforeprint", onBefore)
+      window.removeEventListener("afterprint", onAfter)
+    }
+  }, [])
 
   function formatDate(iso: string): string {
     return new Date(iso).toLocaleDateString(locale)
@@ -204,7 +233,7 @@ export function ReportContent({
           <div>{t.dashboardPeriod}: {formatDate(sprint.startDate)} ~ {formatDate(sprint.endDate)}</div>
           <div>{t.sprintCapacity}: {sprint.capacity} {pointUnit} / {t.sprintActualScore}: <span className="font-semibold text-green-600">{sprint.actualScore}</span> ({rate}%)</div>
           {sprint.sprintGoal && (
-            <div className="col-span-2">{pt.sprintGoal}: {sprint.sprintGoal}</div>
+            <div className="col-span-2 whitespace-pre-wrap">{pt.sprintGoal}: {sprint.sprintGoal}</div>
           )}
         </div>
 
@@ -330,6 +359,154 @@ export function ReportContent({
     )
   }
 
+  // Compact sprint card — used for upcoming sprints where task tables would
+  // be overkill. Shows just the essentials so the reader can quickly see
+  // what's planned next without scrolling through empty task lists.
+  function renderSprintCompact(sprint: Sprint) {
+    const totalTasks = sprint.items.length
+    return (
+      <div
+        key={sprint.id}
+        className="border border-gray-200 rounded-lg p-3 flex flex-wrap items-center gap-x-4 gap-y-1"
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          <h4 className="text-sm font-bold text-gray-800 truncate">{sprint.sprintName}</h4>
+          <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+            sprint.status === "planning" ? "bg-yellow-100 text-yellow-700" : "bg-gray-100 text-gray-600"
+          }`}>
+            {statusLabels[sprint.status] ?? sprint.status}
+          </span>
+        </div>
+        <div className="text-xs text-gray-600">
+          {formatDate(sprint.startDate)} ~ {formatDate(sprint.endDate)}
+        </div>
+        <div className="text-xs text-gray-600">
+          {t.sprintCapacity}: {sprint.capacity} {pointUnit}
+        </div>
+        <div className="text-xs text-gray-500">
+          {t.sprintTasks}: {totalTasks}
+        </div>
+        {sprint.sprintGoal && (
+          <div className="basis-full text-xs text-gray-700 whitespace-pre-wrap pt-1 border-t border-gray-100 mt-1">
+            <span className="text-gray-500">{pt.sprintGoal}:</span> {sprint.sprintGoal}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // "Now snapshot" hero card — at-a-glance view of the user's currently
+  // active sprint. Shows days remaining, achievement rate, and per-status
+  // task counts so the reader doesn't have to scan a table to know status.
+  function renderNowSnapshot() {
+    if (currentSprints.length === 0) {
+      return (
+        <div className="rounded-2xl border border-dashed border-gray-200 bg-white px-6 py-6 text-center">
+          <p className="text-sm text-gray-500">{t.reportNoCurrentSprint}</p>
+        </div>
+      )
+    }
+    return (
+      <div className="space-y-3">
+        {currentSprints.map((sprint) => {
+          const start = new Date(sprint.startDate)
+          const end = new Date(sprint.endDate)
+          const now = new Date()
+          const msPerDay = 86400000
+          const totalDays = Math.max(1, Math.round((end.getTime() - start.getTime()) / msPerDay))
+          const remaining = Math.round((end.getTime() - now.getTime()) / msPerDay)
+          const elapsed = Math.max(0, Math.min(totalDays, Math.round((now.getTime() - start.getTime()) / msPerDay)))
+          const elapsedPct = Math.round((elapsed / totalDays) * 100)
+          const totalTasks = sprint.items.length
+          const doneTasks = sprint.items.filter((i) => i.status === "done").length
+          const inProgressTasks = sprint.items.filter((i) => i.status === "in_progress").length
+          const todoTasks = totalTasks - doneTasks - inProgressTasks
+          const taskPct = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0
+          const achievementPct = sprint.capacity > 0 ? Math.round((sprint.actualScore / sprint.capacity) * 100) : 0
+
+          return (
+            <div
+              key={sprint.id}
+              className="rounded-2xl border border-blue-200 bg-gradient-to-br from-blue-50 to-indigo-50 p-5 print:bg-white"
+            >
+              <div className="flex flex-wrap items-start gap-3 mb-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <h4 className="text-base font-bold text-gray-900 truncate">{sprint.sprintName}</h4>
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                      sprint.status === "active" ? "bg-blue-100 text-blue-700" : "bg-purple-100 text-purple-700"
+                    }`}>
+                      {statusLabels[sprint.status] ?? sprint.status}
+                    </span>
+                  </div>
+                  <div className="text-xs text-gray-600 mt-0.5">
+                    {formatDate(sprint.startDate)} ~ {formatDate(sprint.endDate)}
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className={`text-2xl font-bold leading-none ${remaining < 0 ? "text-rose-600" : "text-blue-700"}`}>
+                    {Math.abs(remaining)}
+                  </div>
+                  <div className="text-[10px] text-gray-500">
+                    {remaining < 0 ? t.reportDaysOverdue : t.reportDaysRemaining}
+                  </div>
+                </div>
+              </div>
+
+              {/* Period progress bar */}
+              <div className="mb-3">
+                <div className="flex justify-between text-[10px] text-gray-500 mb-1">
+                  <span>{t.dashboardPeriod}</span>
+                  <span>{elapsedPct}%</span>
+                </div>
+                <div className="h-1.5 bg-white rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-blue-500"
+                    style={{ width: `${Math.min(100, elapsedPct)}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Stats row */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                <div className="bg-white rounded-lg px-3 py-2 text-center">
+                  <div className="text-[10px] text-gray-500">{t.sprintCapacity}</div>
+                  <div className="text-sm font-bold text-gray-900">{sprint.capacity} <span className="text-[10px] font-normal text-gray-500">{pointUnit}</span></div>
+                </div>
+                <div className="bg-white rounded-lg px-3 py-2 text-center">
+                  <div className="text-[10px] text-gray-500">{t.sprintActualScore}</div>
+                  <div className="text-sm font-bold text-green-600">{sprint.actualScore} <span className="text-[10px] font-normal text-gray-500">({achievementPct}%)</span></div>
+                </div>
+                <div className="bg-white rounded-lg px-3 py-2 text-center">
+                  <div className="text-[10px] text-gray-500">{t.reportTaskProgress}</div>
+                  <div className="text-sm font-bold text-indigo-600">{doneTasks}/{totalTasks} <span className="text-[10px] font-normal text-gray-500">({taskPct}%)</span></div>
+                </div>
+                <div className="bg-white rounded-lg px-3 py-2 text-center">
+                  <div className="text-[10px] text-gray-500">{t.sprintTasks}</div>
+                  <div className="text-xs">
+                    <span className="text-blue-600 font-semibold">{inProgressTasks}</span>
+                    <span className="text-gray-300 mx-0.5">/</span>
+                    <span className="text-gray-500 font-semibold">{todoTasks}</span>
+                  </div>
+                  <div className="text-[9px] text-gray-400">
+                    {t.taskInProgress}/{t.taskTodo}
+                  </div>
+                </div>
+              </div>
+
+              {sprint.sprintGoal && (
+                <div className="mt-3 bg-white/60 rounded-lg px-3 py-2">
+                  <div className="text-[10px] font-semibold text-gray-500 mb-0.5">{pt.sprintGoal}</div>
+                  <p className="text-xs text-gray-800 whitespace-pre-wrap">{sprint.sprintGoal}</p>
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    )
+  }
+
   // Render backlog detail table
   function renderBacklogTable(items: BacklogItem[], label: string, color: string) {
     if (items.length === 0) return null
@@ -430,6 +607,12 @@ export function ReportContent({
         </div>
       </section>
 
+      {/* 1.5 Now Snapshot — at-a-glance current sprint dashboard */}
+      <section className="report-section">
+        <h3 className="report-heading">{t.reportSectionNow}</h3>
+        {renderNowSnapshot()}
+      </section>
+
       {/* 2. Sprint Results Summary Table */}
       <section className="report-section">
         <h3 className="report-heading">{t.reportSprintResults}</h3>
@@ -452,35 +635,50 @@ export function ReportContent({
               </tr>
             </thead>
             <tbody>
-              {sortedSprints.map((s) => {
-                const rate = s.capacity > 0 ? Math.round((s.actualScore / s.capacity) * 100) : 0
-                const diff = s.actualScore - s.capacity
-                return (
-                  <tr key={s.id} className="border-b border-gray-200">
-                    <td className="py-1.5 pr-3 font-medium">{s.sprintName}</td>
-                    <td className="py-1.5 pr-3 text-center">
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
-                        s.status === "active" ? "bg-blue-100 text-blue-700" :
-                        s.status === "review" ? "bg-purple-100 text-purple-700" :
-                        s.status === "done" ? "bg-green-100 text-green-700" :
-                        s.status === "archived" ? "bg-gray-100 text-gray-600" :
-                        "bg-yellow-100 text-yellow-700"
-                      }`}>
-                        {statusLabels[s.status] ?? s.status}
-                      </span>
-                    </td>
-                    <td className="py-1.5 pr-3 text-xs text-gray-500">{formatDate(s.startDate)} ~ {formatDate(s.endDate)}</td>
-                    <td className="py-1.5 pr-3 text-right">{s.capacity}</td>
-                    <td className="py-1.5 pr-3 text-right">{s.actualScore}</td>
-                    <td className="py-1.5 pr-3 text-right">{rate}%</td>
-                    <td className={`py-1.5 text-right font-medium ${
-                      diff > 0 ? "text-green-600" : diff < 0 ? "text-red-600" : "text-gray-500"
-                    }`}>
-                      {diff > 0 ? `+${diff}` : diff}
-                    </td>
-                  </tr>
+              {[
+                { label: t.reportSectionNow, items: currentSprints, color: "text-blue-700 bg-blue-50/50" },
+                { label: t.reportSectionUpcoming, items: upcomingSprints, color: "text-yellow-700 bg-yellow-50/50" },
+                { label: t.reportSectionHistory, items: pastSprints, color: "text-gray-600 bg-gray-50/60" },
+              ].map((group) =>
+                group.items.length === 0 ? null : (
+                  <Fragment key={group.label}>
+                    <tr className={group.color}>
+                      <td colSpan={7} className="py-1 px-2 text-[11px] font-semibold uppercase tracking-wide">
+                        {group.label} ({group.items.length})
+                      </td>
+                    </tr>
+                    {group.items.map((s) => {
+                      const rate = s.capacity > 0 ? Math.round((s.actualScore / s.capacity) * 100) : 0
+                      const diff = s.actualScore - s.capacity
+                      return (
+                        <tr key={s.id} className="border-b border-gray-200">
+                          <td className="py-1.5 pr-3 font-medium">{s.sprintName}</td>
+                          <td className="py-1.5 pr-3 text-center">
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                              s.status === "active" ? "bg-blue-100 text-blue-700" :
+                              s.status === "review" ? "bg-purple-100 text-purple-700" :
+                              s.status === "done" ? "bg-green-100 text-green-700" :
+                              s.status === "archived" ? "bg-gray-100 text-gray-600" :
+                              "bg-yellow-100 text-yellow-700"
+                            }`}>
+                              {statusLabels[s.status] ?? s.status}
+                            </span>
+                          </td>
+                          <td className="py-1.5 pr-3 text-xs text-gray-500">{formatDate(s.startDate)} ~ {formatDate(s.endDate)}</td>
+                          <td className="py-1.5 pr-3 text-right">{s.capacity}</td>
+                          <td className="py-1.5 pr-3 text-right">{s.actualScore}</td>
+                          <td className="py-1.5 pr-3 text-right">{rate}%</td>
+                          <td className={`py-1.5 text-right font-medium ${
+                            diff > 0 ? "text-green-600" : diff < 0 ? "text-red-600" : "text-gray-500"
+                          }`}>
+                            {diff > 0 ? `+${diff}` : diff}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </Fragment>
                 )
-              })}
+              )}
             </tbody>
           </table>
         ) : (
@@ -493,11 +691,55 @@ export function ReportContent({
         <BurndownChart projectId={projectId} />
       </section>
 
-      {/* 4. Each Sprint Detail */}
-      {sortedSprints.length > 0 && (
+      {/* 4a. Current Sprint Detail — full task tables */}
+      {currentSprints.length > 0 && (
         <section className="report-section">
-          <h3 className="report-heading">{t.reportActiveSprintDetail}</h3>
-          {sortedSprints.map((sprint) => renderSprintDetail(sprint))}
+          <h3 className="report-heading">{t.reportSectionNow} - {t.reportActiveSprintDetail}</h3>
+          {currentSprints.map((sprint) => renderSprintDetail(sprint))}
+        </section>
+      )}
+
+      {/* 4b. Upcoming Sprints — compact preview */}
+      {upcomingSprints.length > 0 && (
+        <section className="report-section">
+          <h3 className="report-heading">{t.reportSectionUpcoming}</h3>
+          <div className="space-y-2">
+            {upcomingSprints.map((sprint) => renderSprintCompact(sprint))}
+          </div>
+        </section>
+      )}
+
+      {/* 4c. Past Sprints — collapsed by default, click to expand each */}
+      {pastSprints.length > 0 && (
+        <section className="report-section">
+          <h3 className="report-heading">{t.reportSectionHistory}</h3>
+          <div className="space-y-2">
+            {pastSprints.map((sprint) => {
+              const totalTasks = sprint.items.length
+              const doneTasks = sprint.items.filter((i) => i.status === "done").length
+              const rate = sprint.capacity > 0 ? Math.round((sprint.actualScore / sprint.capacity) * 100) : 0
+              return (
+                <details key={sprint.id} className="border border-gray-200 rounded-lg group/details">
+                  <summary className="px-3 py-2 cursor-pointer list-none flex flex-wrap items-center gap-x-4 gap-y-1 hover:bg-gray-50 rounded-lg">
+                    <span className="text-gray-400 text-xs group-open/details:rotate-90 inline-block transition-transform">▶</span>
+                    <span className="text-sm font-semibold text-gray-800">{sprint.sprintName}</span>
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                      sprint.status === "done" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-600"
+                    }`}>
+                      {statusLabels[sprint.status] ?? sprint.status}
+                    </span>
+                    <span className="text-xs text-gray-500">{formatDate(sprint.startDate)} ~ {formatDate(sprint.endDate)}</span>
+                    <span className="text-xs text-gray-500">{t.sprintActualScore}: <strong className="text-green-700">{sprint.actualScore}</strong>/{sprint.capacity} ({rate}%)</span>
+                    <span className="text-xs text-gray-500">{t.sprintTasks}: {doneTasks}/{totalTasks}</span>
+                    <span className="ml-auto text-[10px] text-blue-600 font-medium">{t.reportShowDetails}</span>
+                  </summary>
+                  <div className="px-3 pb-3 pt-2 border-t border-gray-100">
+                    {renderSprintDetail(sprint)}
+                  </div>
+                </details>
+              )
+            })}
+          </div>
         </section>
       )}
 

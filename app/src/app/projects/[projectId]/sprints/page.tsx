@@ -2,10 +2,11 @@
 
 import { useEffect, useState, useCallback, useRef } from "react"
 import { useParams } from "next/navigation"
-import BurndownChart from "@/components/burndown-chart"
+import { useSession } from "next-auth/react"
+import Link from "next/link"
 import { useLanguage } from "@/lib/language-context"
+import { formatPointUnit } from "@/lib/i18n"
 import { useConfirm } from "@/components/confirm-dialog"
-import SprintCalendar from "./components/sprint-calendar"
 import SprintStatusDialog from "./components/sprint-status-dialog"
 import EventFormModal from "./components/event-form-modal"
 import TaskFormModal from "./components/task-form-modal"
@@ -39,6 +40,7 @@ interface SprintItem {
   estimatedHours: number | null
   actualHours: number | null
   status: string
+  completionComment?: string | null
   pbItem: SprintPbItem
 }
 
@@ -72,7 +74,7 @@ interface CalendarEvent {
 
 interface ProjectSettings {
   defaultCapacity: number
-  sprintDurationWeeks: number
+  sprintDurationDays: number
   pointUnit: string
   pointDescription: string | null
 }
@@ -193,14 +195,13 @@ export default function SprintsPage() {
   const [events, setEvents] = useState<CalendarEvent[]>([])
   const [projectSettings, setProjectSettings] = useState<ProjectSettings | null>(null)
   const [members, setMembers] = useState<Member[]>([])
+  const { data: session } = useSession()
+  const [myRole, setMyRole] = useState<string | null>(null)
+  const isAdmin = (session?.user as { role?: string } | undefined)?.role === "admin"
+  const canEditPbi = isAdmin || myRole === "po" || myRole === "sm"
   const [readyPbItems, setReadyPbItems] = useState<PbItemFull[]>([])
   const [selectedPbIds, setSelectedPbIds] = useState<Set<string>>(new Set())
   const [showForm, setShowForm] = useState(false)
-  const [showCalendar, setShowCalendar] = useState(true)
-  const [calendarMonth, setCalendarMonth] = useState(() => {
-    const now = new Date()
-    return new Date(now.getFullYear(), now.getMonth(), 1)
-  })
 
   const [showEventForm, setShowEventForm] = useState(false)
   const [editingEventId, setEditingEventId] = useState<string | null>(null)
@@ -259,8 +260,16 @@ export default function SprintsPage() {
 
   const fetchMembers = useCallback(async () => {
     const res = await fetch(`/api/projects/${projectId}/members`)
-    if (res.ok) setMembers(await res.json())
-  }, [projectId])
+    if (res.ok) {
+      const data: Member[] = await res.json()
+      setMembers(data)
+      const uid = session?.user?.id
+      if (uid) {
+        const me = data.find((m) => m.user.id === uid)
+        setMyRole(me?.role ?? null)
+      }
+    }
+  }, [projectId, session?.user?.id])
 
   useEffect(() => {
     fetchSprints()
@@ -272,8 +281,8 @@ export default function SprintsPage() {
       .then((p) => {
         setProjectSettings({
           defaultCapacity: p.defaultCapacity ?? 0,
-          sprintDurationWeeks: p.sprintDurationWeeks ?? 1,
-          pointUnit: p.pointUnit ?? t.pointUnitManDay,
+          sprintDurationDays: p.sprintDurationDays ?? 7,
+          pointUnit: p.pointUnit ?? "SP",
           pointDescription: p.pointDescription ?? null,
         })
       })
@@ -328,6 +337,8 @@ export default function SprintsPage() {
       fetchSprints()
       fetchReadyPbItems()
       setBurndownKey((k) => k + 1)
+    } else if (res.status === 409) {
+      alert(t.sprintCreateBlocked)
     }
   }
 
@@ -454,6 +465,30 @@ export default function SprintsPage() {
     }
   }
 
+  async function handleBulkAddFromFixedTaskGroup(
+    pbItemId: string,
+    assignee: string | null,
+    taskNames: string[]
+  ) {
+    if (!taskFormSprintId || !pbItemId || taskNames.length === 0) return
+    const results = await Promise.all(
+      taskNames.map((taskName) =>
+        fetch(`/api/projects/${projectId}/sprints/${taskFormSprintId}/tasks`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pbItemId, taskName, assignee, estimatedHours: null }),
+        })
+      )
+    )
+    const failed = results.filter((r) => !r.ok).length
+    if (failed > 0) {
+      alert(`${t.sprintAddFailed}: ${failed}/${taskNames.length}`)
+    }
+    setShowTaskForm(false)
+    fetchSprints()
+    setBurndownKey((k) => k + 1)
+  }
+
   async function handleDeleteTask(sprintId: string, taskId: string) {
     if (!await confirm({ message: t.sprintDeleteTaskConfirm, confirmLabel: t.delete, cancelLabel: t.cancel, variant: "danger" })) return
     const res = await fetch(
@@ -465,10 +500,14 @@ export default function SprintsPage() {
     }
   }
 
-  async function quickUpdateTaskStatus(sprintId: string, taskId: string, status: string) {
+  async function quickUpdateTaskStatus(sprintId: string, taskId: string, status: string, completionComment?: string | null) {
+    const body: Record<string, unknown> = { status }
+    if (status === "done" && completionComment !== undefined) {
+      body.completionComment = completionComment
+    }
     const res = await fetch(
       `/api/projects/${projectId}/sprints/${sprintId}/tasks/${taskId}`,
-      { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }) }
+      { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
     )
     if (res.ok) {
       fetchSprints()
@@ -476,11 +515,41 @@ export default function SprintsPage() {
     }
   }
 
-  function openEventForm(dateStr?: string) {
+  async function editCompletionComment(sprintId: string, taskId: string, completionComment: string) {
+    // The PATCH route accepts null/string. Empty string is collapsed to null so
+    // the comment block disappears once the user clears it out.
+    const body = { completionComment: completionComment.trim() ? completionComment : null }
+    const res = await fetch(
+      `/api/projects/${projectId}/sprints/${sprintId}/tasks/${taskId}`,
+      { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+    )
+    if (res.ok) fetchSprints()
+  }
+
+  async function sendTaskToIcebox(_sprintId: string, _taskId: string, request: string, background?: string) {
+    // Push a follow-up Icebox item discovered while completing a sprint task.
+    // The author defaults to the current logged-in user on the server side.
+    const body: Record<string, unknown> = { request }
+    if (background) body.background = `(${t.sprintTaskCompletionComment}) ${background}`
+    const res = await fetch(
+      `/api/projects/${projectId}/icebox`,
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+    )
+    if (!res.ok) {
+      const msg = await res.text().catch(() => "")
+      throw new Error(`icebox post failed: ${res.status} ${msg.slice(0, 120)}`)
+    }
+  }
+
+  function openEventForm(startDateStr?: string, endDateStr?: string) {
     setEditingEventId(null)
     setEventForm({
-      title: "", description: "", date: dateStr || new Date().toISOString().split("T")[0],
-      endDate: "", color: "blue", sprintId: "",
+      title: "",
+      description: "",
+      date: startDateStr || new Date().toISOString().split("T")[0],
+      endDate: endDateStr && endDateStr !== startDateStr ? endDateStr : "",
+      color: "blue",
+      sprintId: "",
     })
     setShowEventForm(true)
   }
@@ -501,17 +570,33 @@ export default function SprintsPage() {
       ? `/api/projects/${projectId}/events/${editingEventId}`
       : `/api/projects/${projectId}/events`
     const method = editingEventId ? "PATCH" : "POST"
+    // For PATCH, send null (not undefined) when the user has cleared the
+    // field so the server actually clears it. For POST, omit empty values.
+    const payload: Record<string, unknown> = {
+      title: eventForm.title,
+      description: eventForm.description,
+      date: eventForm.date,
+      color: eventForm.color,
+    }
+    if (editingEventId) {
+      payload.endDate = eventForm.endDate ? eventForm.endDate : null
+      payload.sprintId = eventForm.sprintId ? eventForm.sprintId : null
+    } else {
+      if (eventForm.endDate) payload.endDate = eventForm.endDate
+      if (eventForm.sprintId) payload.sprintId = eventForm.sprintId
+    }
     const res = await fetch(url, {
-      method, headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ...eventForm, endDate: eventForm.endDate || undefined,
-        sprintId: eventForm.sprintId || undefined,
-      }),
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
     })
     if (res.ok) {
       setShowEventForm(false)
       setEditingEventId(null)
       fetchEvents()
+    } else {
+      const err = await res.json().catch(() => null)
+      alert(`${t.error}: ${err?.error || res.statusText}`)
     }
   }
 
@@ -569,6 +654,9 @@ export default function SprintsPage() {
 
   const locale = language === "ja" ? "ja-JP" : language === "id" ? "id-ID" : "en-US"
   const archivedSprints = sprints.filter((s) => s.status === "archived")
+  // Block creating a new sprint while one is already in flight to keep the
+  // backlog from being split across multiple parallel sprints.
+  const hasBlockingSprint = sprints.some((s) => s.status === "active" || s.status === "planning")
 
   return (
     <div>
@@ -579,13 +667,18 @@ export default function SprintsPage() {
       {showTaskForm && (
         <TaskFormModal taskForm={taskForm} editingTaskId={editingTaskId}
           sprint={sprints.find((s) => s.id === taskFormSprintId)} members={members}
-          pointUnit={projectSettings?.pointUnit ?? ""}
-          onSubmit={handleTaskSubmit} onCancel={() => setShowTaskForm(false)} onChange={setTaskForm} />
+          pointUnit={formatPointUnit(projectSettings?.pointUnit, t)}
+          projectId={projectId}
+          canEditPbi={canEditPbi}
+          onSubmit={handleTaskSubmit} onCancel={() => setShowTaskForm(false)} onChange={setTaskForm}
+          onPbiSaved={() => { fetchSprints(); fetchReadyPbItems() }}
+          onBulkAdd={handleBulkAddFromFixedTaskGroup} />
       )}
       {statusDialog && (
         <SprintStatusDialog sprint={sprints.find((s) => s.id === statusDialog.sprintId)}
           dialog={statusDialog} onDialogChange={setStatusDialog}
-          onSubmit={handleStatusDialogSubmit} onCancel={() => setStatusDialog(null)} />
+          onSubmit={handleStatusDialogSubmit} onCancel={() => setStatusDialog(null)}
+          projectId={projectId} />
       )}
       {addPbiSprintId && (() => {
         const sprint = sprints.find((s) => s.id === addPbiSprintId)
@@ -596,7 +689,8 @@ export default function SprintsPage() {
             sprintId={sprint.id}
             sprintName={sprint.sprintName}
             existingPbIds={new Set(sprint.items.map((i) => i.pbItem.id))}
-            pointUnit={projectSettings?.pointUnit ?? ""}
+            pointUnit={formatPointUnit(projectSettings?.pointUnit, t)}
+            canCreate={canEditPbi}
             onAdded={() => { fetchSprints(); fetchReadyPbItems(); setBurndownKey((k) => k + 1) }}
             onClose={() => setAddPbiSprintId(null)}
           />
@@ -606,6 +700,8 @@ export default function SprintsPage() {
         <PbiDetailModal
           projectId={projectId}
           pbiId={detailPbiId}
+          editable={canEditPbi}
+          onSaved={() => { fetchSprints(); fetchReadyPbItems() }}
           onClose={() => setDetailPbiId(null)}
         />
       )}
@@ -623,16 +719,18 @@ export default function SprintsPage() {
           )}
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={() => openEventForm()}
-            className="inline-flex items-center gap-1.5 px-3 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-medium transition-colors shadow-sm">
-            <IconEventAdd className="w-4 h-4" />
-            {t.eventAdd}
-          </button>
-          <button onClick={() => setShowCalendar(!showCalendar)}
-            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${showCalendar ? "bg-gray-200 text-gray-700 hover:bg-gray-300" : "bg-gray-100 text-gray-500 hover:bg-gray-200"}`}>
+          <Link href={`/projects/${projectId}/calendar`}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors bg-gray-100 text-gray-600 hover:bg-gray-200">
             <IconCalendar className="w-4 h-4" />
-            {showCalendar ? t.calendarHide : t.calendarShow}
-          </button>
+            {t.calendarTitle}
+          </Link>
+          <Link href={`/projects/${projectId}/burndown`}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors bg-gray-100 text-gray-600 hover:bg-gray-200">
+            <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM5 6a1 1 0 011-1h2a1 1 0 011 1v8a1 1 0 01-1 1H6a1 1 0 01-1-1V6zM11 3a1 1 0 011-1h2a1 1 0 011 1v11a1 1 0 01-1 1h-2a1 1 0 01-1-1V3z"/>
+            </svg>
+            {t.burndownOpenPage}
+          </Link>
           <button onClick={() => setShowArchived(!showArchived)}
             className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${showArchived ? "bg-slate-200 text-slate-700 hover:bg-slate-300" : "bg-gray-100 text-gray-500 hover:bg-gray-200"}`}>
             <IconArchive className="w-4 h-4" />
@@ -640,10 +738,11 @@ export default function SprintsPage() {
             {archivedSprints.length > 0 && <span className="text-xs bg-white/60 px-1.5 rounded-full">{archivedSprints.length}</span>}
           </button>
           <button onClick={() => {
+            if (hasBlockingSprint) return
             if (projectSettings) {
               const start = new Date()
               const end = new Date()
-              end.setDate(end.getDate() + projectSettings.sprintDurationWeeks * 7)
+              end.setDate(end.getDate() + projectSettings.sprintDurationDays)
               setForm({
                 sprintName: "", startDate: start.toISOString().split("T")[0],
                 endDate: end.toISOString().split("T")[0], sprintGoal: "",
@@ -653,19 +752,19 @@ export default function SprintsPage() {
             setSelectedPbIds(new Set())
             setShowForm(true)
           }}
-            className="inline-flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 text-sm font-medium transition-all shadow-sm">
+            disabled={hasBlockingSprint}
+            title={hasBlockingSprint ? t.sprintCreateBlocked : undefined}
+            className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all shadow-sm ${
+              hasBlockingSprint
+                ? "bg-gray-200 text-gray-400 cursor-not-allowed"
+                : "bg-gradient-to-r from-blue-600 to-blue-700 text-white hover:from-blue-700 hover:to-blue-800"
+            }`}>
             <IconPlus className="w-4 h-4" />
             {t.sprintCreate}
           </button>
         </div>
       </div>
 
-      <SprintCalendar events={events} sprints={sprints} onAddEvent={openEventForm}
-        onEditEvent={startEditEvent} onDeleteEvent={handleDeleteEvent} showCalendar={showCalendar}
-        onToggle={() => setShowCalendar(!showCalendar)} currentMonth={calendarMonth}
-        onMonthChange={setCalendarMonth} />
-
-      {sprints.length > 0 && <BurndownChart projectId={projectId} refreshKey={burndownKey} />}
 
       {/* ── Sprint Creation Form ── */}
       {showForm && (
@@ -698,7 +797,7 @@ export default function SprintsPage() {
                   <div className="flex items-center gap-2">
                     <input type="number" min={0} value={form.capacity} onChange={(e) => setForm({ ...form, capacity: parseInt(e.target.value) || 0 })}
                       required className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-shadow" />
-                    {projectSettings && <span className="text-xs text-gray-500 whitespace-nowrap">{projectSettings.pointUnit}</span>}
+                    {projectSettings && <span className="text-xs text-gray-500 whitespace-nowrap">{formatPointUnit(projectSettings.pointUnit, t)}</span>}
                   </div>
                 </div>
               </div>
@@ -790,7 +889,8 @@ export default function SprintsPage() {
       {/* ── Sprint list ── */}
       <div className="space-y-4">
         {sprints.filter((s) => s.status !== "archived").map((sprint) => (
-          <SprintCard key={sprint.id} sprint={sprint} events={events}
+          <div key={sprint.id} id={`sprint-card-${sprint.id}`}>
+          <SprintCard projectId={projectId} sprint={sprint} events={events}
             isExpanded={expandedSprintIds.has(sprint.id)}
             onToggleExpand={() => setExpandedSprintIds((prev) => {
               const next = new Set(prev)
@@ -801,9 +901,12 @@ export default function SprintsPage() {
             onDeleteSprint={handleDeleteSprint} onOpenTaskForm={openTaskForm}
             onStartEditTask={startEditTask} onDeleteTask={handleDeleteTask}
             onQuickUpdateTaskStatus={quickUpdateTaskStatus}
+            onEditCompletionComment={editCompletionComment}
+            onSendToIcebox={sendTaskToIcebox}
             onAddPbi={(sid) => setAddPbiSprintId(sid)}
             onRemovePbi={handleRemovePbi}
             onViewPbiDetail={(pbiId) => setDetailPbiId(pbiId)}
+            canEditPbi={canEditPbi}
             onOpenStatusDialog={(s) => setStatusDialog({
               sprintId: s.id,
               sprintName: s.sprintName,
@@ -814,7 +917,9 @@ export default function SprintsPage() {
               retrospectiveProblem: s.retrospectiveProblem ?? "",
               retrospectiveTry: s.retrospectiveTry ?? "",
             })}
-            pointUnit={projectSettings?.pointUnit ?? ""} />
+            onSprintUpdated={() => { fetchSprints(); setBurndownKey((k) => k + 1) }}
+            pointUnit={formatPointUnit(projectSettings?.pointUnit, t)} />
+          </div>
         ))}
 
         {sprints.filter((s) => s.status !== "archived").length === 0 && archivedSprints.length === 0 && (
@@ -834,59 +939,47 @@ export default function SprintsPage() {
             <span className="font-medium">{t.sprintArchivedSprints} ({archivedSprints.length})</span>
           </button>
           {showArchived && (
-            <div className="space-y-3 opacity-80">
-              {archivedSprints.map((sprint) => {
-                const seenPbIds = new Set<string>()
-                const currentWorkload = sprint.items.reduce((sum, i) => {
-                  const pbId = i.pbItem?.id
-                  if (!pbId || seenPbIds.has(pbId)) return sum
-                  seenPbIds.add(pbId)
-                  return sum + (i.pbItem?.workloadScore ?? 0)
-                }, 0)
-                const totalTasks = sprint.items.length
-                const doneTasks = sprint.items.filter((i) => i.status === "done").length
-
-                return (
-                  <div key={sprint.id} className="bg-gray-50 rounded-xl border border-gray-200 p-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <IconArchive className="w-4 h-4 text-gray-400" />
-                        <h3 className="text-sm font-semibold text-gray-600">{sprint.sprintName}</h3>
-                        <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium ${statusColors[sprint.status]}`}>
-                          {statusLabels[sprint.status]}
-                        </span>
-                        <span className="text-xs text-gray-400">
-                          {t.sprintTasks}: {doneTasks}/{totalTasks} | {t.sprintWorkload}: {currentWorkload}/{sprint.capacity}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="inline-flex items-center gap-1 text-xs text-gray-400">
-                          <IconCalendar className="w-3.5 h-3.5" />
-                          {new Date(sprint.startDate).toLocaleDateString(locale)} - {new Date(sprint.endDate).toLocaleDateString(locale)}
-                        </span>
-                        <button onClick={() => handleDeleteSprint(sprint.id)}
-                          className="p-1 text-gray-300 hover:text-red-500 rounded-lg hover:bg-red-50 transition-colors">
-                          <IconDelete className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                    {(sprint.reviewComment || sprint.retrospectiveMemo) && (
-                      <div className="mt-2 flex gap-2">
-                        {sprint.reviewComment && (
-                          <div className="text-xs text-violet-600 bg-violet-50 border border-violet-200 px-2.5 py-1 rounded-lg">
-                            {t.sprintReviewComment}: {sprint.reviewComment.substring(0, 100)}{sprint.reviewComment.length > 100 ? "..." : ""}
-                          </div>
-                        )}
-                        {sprint.retrospectiveMemo && (
-                          <div className="text-xs text-blue-600 bg-blue-50 border border-blue-200 px-2.5 py-1 rounded-lg">
-                            {t.sprintRetrospectiveMemo}: {sprint.retrospectiveMemo.substring(0, 100)}{sprint.retrospectiveMemo.length > 100 ? "..." : ""}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
+            <div className="space-y-4 opacity-90">
+              {archivedSprints.map((sprint) => (
+                <div key={sprint.id} id={`sprint-card-${sprint.id}`}>
+                <SprintCard
+                  projectId={projectId}
+                  sprint={sprint}
+                  events={events}
+                  isExpanded={expandedSprintIds.has(sprint.id)}
+                  onToggleExpand={() => setExpandedSprintIds((prev) => {
+                    const next = new Set(prev)
+                    if (next.has(sprint.id)) next.delete(sprint.id); else next.add(sprint.id)
+                    return next
+                  })}
+                  onRequestStatusChange={requestStatusChange}
+                  onUpdateSprintStatus={updateSprintStatus}
+                  onDeleteSprint={handleDeleteSprint}
+                  onOpenTaskForm={openTaskForm}
+                  onStartEditTask={startEditTask}
+                  onDeleteTask={handleDeleteTask}
+                  onQuickUpdateTaskStatus={quickUpdateTaskStatus}
+                  onEditCompletionComment={editCompletionComment}
+                  onSendToIcebox={sendTaskToIcebox}
+                  onOpenStatusDialog={(s) => setStatusDialog({
+                    sprintId: s.id,
+                    sprintName: s.sprintName,
+                    nextStatus: s.status,
+                    reviewComment: s.reviewComment ?? "",
+                    retrospectiveMemo: s.retrospectiveMemo ?? "",
+                    retrospectiveKeep: s.retrospectiveKeep ?? "",
+                    retrospectiveProblem: s.retrospectiveProblem ?? "",
+                    retrospectiveTry: s.retrospectiveTry ?? "",
+                  })}
+                  onAddPbi={(sid) => setAddPbiSprintId(sid)}
+                  onRemovePbi={handleRemovePbi}
+                  onViewPbiDetail={(pbiId) => setDetailPbiId(pbiId)}
+                  canEditPbi={canEditPbi}
+                  onSprintUpdated={() => { fetchSprints(); setBurndownKey((k) => k + 1) }}
+                  pointUnit={formatPointUnit(projectSettings?.pointUnit, t)}
+                />
+                </div>
+              ))}
             </div>
           )}
         </div>

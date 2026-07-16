@@ -1,12 +1,16 @@
 "use client"
 
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useMemo, useState, useCallback } from "react"
 import { useParams } from "next/navigation"
 import { useSession } from "next-auth/react"
 import { useLanguage } from "@/lib/language-context"
 import { useConfirm } from "@/components/confirm-dialog"
 import { HelpTooltip } from "@/components/help-tooltip"
 import PbiDetailModal from "@/components/pbi-detail-modal"
+import { BilingualButton } from "@/components/bilingual-button"
+import { AIResultModal } from "@/components/ai-result-modal"
+import { streamTranslate } from "@/lib/streaming-translate"
+import { getPointScale, formatPointUnit } from "@/lib/i18n"
 
 interface ProductGoal {
   id: string
@@ -39,6 +43,8 @@ interface BacklogItem {
   iceboxItem: { id: string; request: string } | null
   productGoalId: string | null
   productGoal: { id: string; title: string } | null
+  /** Planning/active sprints already working on this PBI (one row per sprint task). */
+  sprintItems?: { sprint: { id: string; sprintName: string; status: string } }[]
 }
 
 // --- SVG Icon Components (Heroicons-style, 20x20 viewBox, filled) ---
@@ -102,35 +108,6 @@ function IconCalendar({ className = "w-3.5 h-3.5" }: IP) {
 }
 
 // --- User story format helpers ---
-const US_WHO_PREFIX = "＜誰が＞"
-const US_WHAT_PREFIX = "＜何を＞"
-const US_WHY_PREFIX = "＜なぜ＞"
-
-function buildUserStory(who: string, what: string, why: string): string {
-  const parts: string[] = []
-  if (who) parts.push(`${US_WHO_PREFIX} ${who}として、`)
-  if (what) parts.push(`${US_WHAT_PREFIX} ${what}したい。`)
-  if (why) parts.push(`${US_WHY_PREFIX} それは${why}だからだ。`)
-  return parts.join("\n")
-}
-
-function parseUserStory(story: string | null): { who: string; what: string; why: string } {
-  if (!story) return { who: "", what: "", why: "" }
-  let who = ""
-  let what = ""
-  let why = ""
-  const whoMatch = story.match(/＜誰が＞\s*(.+?)として、/)
-  if (whoMatch) who = whoMatch[1].trim()
-  const whatMatch = story.match(/＜何を＞\s*(.+?)したい。/)
-  if (whatMatch) what = whatMatch[1].trim()
-  const whyMatch = story.match(/＜なぜ＞\s*それは(.+?)だからだ。/)
-  if (whyMatch) why = whyMatch[1].trim()
-  if (!who && !what && !why && story.trim()) {
-    what = story.trim()
-  }
-  return { who, what, why }
-}
-
 // --- Section config ---
 const SECTION_CONFIG = {
   ready: { icon: IconCheckCircle, color: "emerald", border: "border-l-emerald-500", iconColor: "text-emerald-600", badgeBg: "bg-emerald-50", badgeText: "text-emerald-700" },
@@ -141,12 +118,19 @@ const SECTION_CONFIG = {
 export default function BacklogPage() {
   const params = useParams()
   const projectId = params.projectId as string
-  const { t, pt } = useLanguage()
+  const { t, pt, language } = useLanguage()
   const confirm = useConfirm()
   const { data: session } = useSession()
   const [myRole, setMyRole] = useState<string | null>(null)
-  const canEdit = myRole === "po"
+  // System admins bypass project membership and get PO-equivalent edit rights
+  // (matches the requireProjectMember admin synthesis on the server side).
+  const isAdmin = (session?.user as { role?: string } | undefined)?.role === "admin"
+  const canEdit = isAdmin || myRole === "po" || myRole === "sm"
   const [detailPbiId, setDetailPbiId] = useState<string | null>(null)
+  const [investPbiId, setInvestPbiId] = useState<string | null>(null)
+  const [pointUnit, setPointUnit] = useState<string>("SP")
+  const pointScale = getPointScale(pointUnit)
+  const pointUnitLabel = formatPointUnit(pointUnit, t)
 
   const [readyItems, setReadyItems] = useState<BacklogItem[]>([])
   const [notReadyItems, setNotReadyItems] = useState<BacklogItem[]>([])
@@ -156,6 +140,22 @@ export default function BacklogPage() {
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [iceboxItems, setIceboxItems] = useState<IceboxItem[]>([])
+  // "Which Icebox items are already referenced by another PBI?" — surfaced
+  // both as ⚠ tags on the dropdown and as a confirm-before-reuse dialog.
+  // The current PBI (in edit mode) is intentionally excluded from the map
+  // so the user doesn't get warned about self-references.
+  const iceboxUsageMap = useMemo(() => {
+    const map = new Map<string, { displayId: number; label: string }>()
+    for (const list of [readyItems, notReadyItems, completedItems]) {
+      for (const pbi of list) {
+        if (!pbi.iceboxItemId) continue
+        if (editingId === pbi.id) continue
+        const label = pbi.initiative || pbi.userStory || `#${pbi.displayId}`
+        map.set(pbi.iceboxItemId, { displayId: pbi.displayId, label })
+      }
+    }
+    return map
+  }, [readyItems, notReadyItems, completedItems, editingId])
   const [productGoals, setProductGoals] = useState<ProductGoal[]>([])
   const [showCompleted, setShowCompleted] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
@@ -163,15 +163,37 @@ export default function BacklogPage() {
   const [form, setForm] = useState({
     initiative: "",
     epic: "",
-    storyWho: "",
-    storyWhat: "",
-    storyWhy: "",
+    userStory: "",
     acceptanceCriteria: "",
     workloadScore: 0,
     status: "not_ready" as "ready" | "not_ready" | "completed",
     iceboxItemId: "" as string,
     productGoalId: "" as string,
   })
+
+  type BilingualField = "initiative" | "epic" | "userStory" | "acceptanceCriteria"
+  const [translating, setTranslating] = useState<Record<BilingualField, boolean>>({
+    initiative: false,
+    epic: false,
+    userStory: false,
+    acceptanceCriteria: false,
+  })
+
+  async function handleBilingualize(field: BilingualField) {
+    const current = form[field]
+    if (!current.trim() || translating[field]) return
+    setTranslating((s) => ({ ...s, [field]: true }))
+    try {
+      // Stream the result into the field as tokens arrive (typing effect).
+      await streamTranslate(current.trim(), (acc) => {
+        setForm((f) => ({ ...f, [field]: acc }))
+      })
+    } catch {
+      alert(t.bilingualizeFailed)
+    } finally {
+      setTranslating((s) => ({ ...s, [field]: false }))
+    }
+  }
 
   const fetchItems = useCallback(async () => {
     try {
@@ -210,6 +232,40 @@ export default function BacklogPage() {
     fetchProductGoals()
   }, [fetchItems, fetchIceboxItems, fetchProductGoals])
 
+  // Pre-fill form from a generated PBI draft (passed via sessionStorage from Icebox).
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    if (!new URLSearchParams(window.location.search).get("fromAiDraft")) return
+    const key = `kanflow:pbiDraft:${projectId}`
+    const raw = sessionStorage.getItem(key)
+    if (!raw) return
+    try {
+      const draft = JSON.parse(raw) as {
+        initiative?: string
+        epic?: string
+        userStory?: string
+        acceptanceCriteria?: string
+        workloadScore?: number
+        iceboxItemId?: string
+      }
+      setForm((prev) => ({
+        ...prev,
+        initiative: draft.initiative ?? "",
+        epic: draft.epic ?? "",
+        userStory: draft.userStory ?? "",
+        acceptanceCriteria: draft.acceptanceCriteria ?? "",
+        workloadScore: draft.workloadScore ?? 0,
+        iceboxItemId: draft.iceboxItemId ?? "",
+      }))
+      setShowForm(true)
+    } catch { /* ignore */ }
+    sessionStorage.removeItem(key)
+    // Clean the URL
+    const url = new URL(window.location.href)
+    url.searchParams.delete("fromAiDraft")
+    window.history.replaceState({}, "", url.toString())
+  }, [projectId])
+
   // Determine current user's role in this project. Only PO can edit PBIs.
   useEffect(() => {
     if (!session?.user?.id) return
@@ -223,13 +279,20 @@ export default function BacklogPage() {
       .catch(() => setMyRole(null))
   }, [projectId, session?.user?.id])
 
+  // Load project's point unit for the workload score scale.
+  useEffect(() => {
+    fetch(`/api/projects/${projectId}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(r)))
+      .then((p: { pointUnit?: string }) => setPointUnit(p.pointUnit ?? "SP"))
+      .catch(() => {})
+  }, [projectId])
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     const url = editingId
       ? `/api/projects/${projectId}/backlog/${editingId}`
       : `/api/projects/${projectId}/backlog`
     const method = editingId ? "PATCH" : "POST"
-    const userStory = buildUserStory(form.storyWho, form.storyWhat, form.storyWhy)
     try {
       const res = await fetch(url, {
         method,
@@ -237,7 +300,7 @@ export default function BacklogPage() {
         body: JSON.stringify({
           initiative: form.initiative || undefined,
           epic: form.epic || undefined,
-          userStory: userStory || undefined,
+          userStory: form.userStory || undefined,
           acceptanceCriteria: form.acceptanceCriteria || undefined,
           workloadScore: form.workloadScore,
           status: form.status,
@@ -261,18 +324,17 @@ export default function BacklogPage() {
     setShowForm(false)
     setEditingId(null)
     setForm({
-      initiative: "", epic: "", storyWho: "", storyWhat: "", storyWhy: "",
+      initiative: "", epic: "", userStory: "",
       acceptanceCriteria: "", workloadScore: 0, status: "not_ready",
       iceboxItemId: "", productGoalId: "",
     })
   }
 
   function startEdit(item: BacklogItem) {
-    const parsed = parseUserStory(item.userStory)
     setEditingId(item.id)
     setForm({
       initiative: item.initiative ?? "", epic: item.epic ?? "",
-      storyWho: parsed.who, storyWhat: parsed.what, storyWhy: parsed.why,
+      userStory: item.userStory ?? "",
       acceptanceCriteria: item.acceptanceCriteria ?? "",
       workloadScore: item.workloadScore,
       status: item.status as "ready" | "not_ready" | "completed",
@@ -281,13 +343,35 @@ export default function BacklogPage() {
     setShowForm(true)
   }
 
-  function handleSelectIcebox(iceboxId: string) {
-    const icebox = iceboxItems.find((i) => i.id === iceboxId)
-    if (icebox) {
-      setForm((prev) => ({ ...prev, iceboxItemId: iceboxId, storyWhat: prev.storyWhat || icebox.request }))
-    } else {
+  async function handleSelectIcebox(iceboxId: string) {
+    if (!iceboxId) {
       setForm((prev) => ({ ...prev, iceboxItemId: "" }))
+      return
     }
+    const icebox = iceboxItems.find((i) => i.id === iceboxId)
+    if (!icebox) {
+      setForm((prev) => ({ ...prev, iceboxItemId: "" }))
+      return
+    }
+    // Warn when a different PBI already references this Icebox item — the
+    // user may have missed the ⚠ tag in the dropdown, or picked it via
+    // keyboard. Ask before proceeding.
+    const used = iceboxUsageMap.get(iceboxId)
+    if (used) {
+      const ok = await confirm({
+        title: t.backlogIceboxAlreadyUsedTitle,
+        message: `${t.backlogIceboxAlreadyUsedBody}\n\n→ #${used.displayId} ${used.label}`,
+        confirmLabel: t.backlogIceboxReuseAnyway,
+        cancelLabel: t.cancel,
+        variant: "danger",
+      })
+      if (!ok) {
+        // Reset the dropdown to "no selection" so the user can pick a different one.
+        setForm((prev) => ({ ...prev, iceboxItemId: "" }))
+        return
+      }
+    }
+    setForm((prev) => ({ ...prev, iceboxItemId: iceboxId, userStory: prev.userStory || icebox.request }))
   }
 
   async function handleDelete(itemId: string) {
@@ -340,43 +424,28 @@ export default function BacklogPage() {
 
   function renderUserStory(story: string | null) {
     if (!story) return <span className="text-gray-400 text-xs">{t.sprintNotEntered}</span>
-    const parsed = parseUserStory(story)
-    if (!parsed.who && !parsed.what && !parsed.why) return <span className="text-xs text-gray-600">{story}</span>
     return (
-      <div className="text-xs leading-relaxed space-y-0.5">
-        {parsed.who && (
-          <div className="flex items-center gap-1.5">
-            <IconPerson className="w-3 h-3 text-blue-500 flex-shrink-0" />
-            <span className="text-blue-600 font-medium">{pt.backlogWho}:</span>
-            <span className="text-gray-700">{parsed.who}</span>
-          </div>
-        )}
-        {parsed.what && (
-          <div className="flex items-center gap-1.5">
-            <IconTarget className="w-3 h-3 text-green-500 flex-shrink-0" />
-            <span className="text-green-600 font-medium">{pt.backlogWhat}:</span>
-            <span className="text-gray-700">{parsed.what}</span>
-          </div>
-        )}
-        {parsed.why && (
-          <div className="flex items-center gap-1.5">
-            <IconSparkle className="w-3 h-3 text-orange-500 flex-shrink-0" />
-            <span className="text-orange-600 font-medium">{pt.backlogWhy}:</span>
-            <span className="text-gray-700">{parsed.why}</span>
-          </div>
-        )}
-      </div>
+      <p className="text-xs text-gray-700 whitespace-pre-wrap leading-relaxed">{story}</p>
     )
   }
 
   function renderItemCard(item: BacklogItem, index: number, items: BacklogItem[], sectionStatus: "ready" | "not_ready" | "completed") {
     const cfg = SECTION_CONFIG[sectionStatus]
+    // Ready items already picked up by a planning/active sprint get a blue
+    // tint + badge so users can tell adopted vs waiting at a glance.
+    // Dedupe: sprintItems has one row per sprint task, not per sprint.
+    const inSprints = sectionStatus === "ready"
+      ? Array.from(new Map((item.sprintItems ?? []).map((si) => [si.sprint.id, si.sprint])).values())
+      : []
+    const isInSprint = inSprints.length > 0
     return (
       <div
         key={item.id}
-        className={`bg-white rounded-lg border border-gray-100 ${cfg.border} border-l-4 p-4 hover:shadow-md transition-shadow ${
-          sectionStatus === "completed" ? "opacity-60" : ""
-        }`}
+        className={`rounded-lg border border-l-4 p-4 hover:shadow-md transition-shadow ${
+          isInSprint
+            ? "bg-blue-50/60 border-blue-200 border-l-blue-500"
+            : `bg-white border-gray-100 ${cfg.border}`
+        } ${sectionStatus === "completed" ? "opacity-60" : ""}`}
       >
         <div className="flex items-start gap-3">
           {sectionStatus !== "completed" && (
@@ -410,6 +479,14 @@ export default function BacklogPage() {
             </p>
 
             <div className="flex flex-wrap items-center gap-1.5 mb-2">
+              {isInSprint && (
+                <span className="inline-flex items-center gap-1 text-xs font-semibold bg-blue-100 text-blue-800 border border-blue-300 px-2 py-0.5 rounded-full">
+                  ⚡ {t.backlogInSprintBadge}
+                  <span className="font-normal text-blue-700">
+                    ({inSprints.map((s) => s.sprintName).join(", ")})
+                  </span>
+                </span>
+              )}
               {item.epic && (
                 <span className="inline-flex items-center gap-1 text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
                   <IconTag className="w-3 h-3" />
@@ -436,7 +513,7 @@ export default function BacklogPage() {
             {sectionStatus === "completed" && item.completedAt && (
               <div className="flex items-center gap-1 text-xs text-green-600 mt-1.5">
                 <IconCalendar className="w-3 h-3" />
-                {t.backlogCompletedDate}: {new Date(item.completedAt).toLocaleDateString()}
+                {t.backlogCompletedDate}: {item.completedAt.slice(0, 10).replace(/-/g, "/")}
               </div>
             )}
           </div>
@@ -446,6 +523,15 @@ export default function BacklogPage() {
               <IconScale className="w-3 h-3" />
               {item.workloadScore}
             </span>
+
+            <button
+              onClick={() => setInvestPbiId(item.id)}
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-purple-700 border border-purple-300 hover:bg-purple-50 transition-colors text-[11px] font-medium"
+              title={t.aiInvestReview}
+            >
+              <span aria-hidden>🤖</span>
+              {t.aiInvestReview}
+            </button>
 
             {canEdit && sectionStatus === "not_ready" && (
               <button
@@ -480,7 +566,7 @@ export default function BacklogPage() {
               <button
                 onClick={() => handleStatusChange(item.id, "ready")}
                 className="p-1.5 rounded-lg text-blue-500 hover:bg-blue-50 hover:text-blue-700 transition-colors"
-                title={t.backlogMoveToReady}
+                title={t.backlogReturnToReady}
               >
                 <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
                   <path fillRule="evenodd" d="M9.707 14.707a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 1.414L7.414 9H15a1 1 0 110 2H7.414l2.293 2.293a1 1 0 010 1.414z" clipRule="evenodd"/>
@@ -638,12 +724,22 @@ export default function BacklogPage() {
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white"
                   >
                     <option value="">-- {t.cancel} --</option>
-                    {iceboxItems.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        #{item.displayId} - {item.request.slice(0, 60)}{item.request.length > 60 ? "..." : ""} ({item.author})
-                      </option>
-                    ))}
+                    {iceboxItems.map((item) => {
+                      const used = iceboxUsageMap.get(item.id)
+                      const prefix = used ? `⚠ [${t.backlogIceboxAlreadyUsedTag}] ` : ""
+                      const suffix = used ? ` → PBI #${used.displayId}` : ""
+                      return (
+                        <option key={item.id} value={item.id}>
+                          {prefix}#{item.displayId} - {item.request.slice(0, 60)}{item.request.length > 60 ? "..." : ""} ({item.author}){suffix}
+                        </option>
+                      )
+                    })}
                   </select>
+                  {form.iceboxItemId && iceboxUsageMap.has(form.iceboxItemId) && (
+                    <p className="mt-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                      ⚠ {t.backlogIceboxAlreadyUsedTitle}
+                    </p>
+                  )}
                 </div>
                 {/* Product Goal */}
                 <div>
@@ -666,11 +762,18 @@ export default function BacklogPage() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700 mb-1.5">
-                    <IconTag className="w-3.5 h-3.5 text-gray-500" />
-                    {pt.backlogInitiative}
-                    <HelpTooltip content={pt.backlogInitiativeHelp} ariaLabel={pt.backlogInitiative} side="right" />
-                  </label>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700">
+                      <IconTag className="w-3.5 h-3.5 text-gray-500" />
+                      {pt.backlogInitiative}
+                      <HelpTooltip content={pt.backlogInitiativeHelp} ariaLabel={pt.backlogInitiative} side="right" />
+                    </label>
+                    <BilingualButton
+                      onClick={() => handleBilingualize("initiative")}
+                      disabled={!form.initiative.trim()}
+                      translating={translating.initiative}
+                    />
+                  </div>
                   <input
                     type="text"
                     value={form.initiative}
@@ -679,11 +782,18 @@ export default function BacklogPage() {
                   />
                 </div>
                 <div>
-                  <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700 mb-1.5">
-                    <IconTag className="w-3.5 h-3.5 text-gray-500" />
-                    {pt.backlogEpic}
-                    <HelpTooltip content={pt.backlogEpicHelp} ariaLabel={pt.backlogEpic} side="right" />
-                  </label>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700">
+                      <IconTag className="w-3.5 h-3.5 text-gray-500" />
+                      {pt.backlogEpic}
+                      <HelpTooltip content={pt.backlogEpicHelp} ariaLabel={pt.backlogEpic} side="right" />
+                    </label>
+                    <BilingualButton
+                      onClick={() => handleBilingualize("epic")}
+                      disabled={!form.epic.trim()}
+                      translating={translating.epic}
+                    />
+                  </div>
                   <input
                     type="text"
                     value={form.epic}
@@ -693,72 +803,55 @@ export default function BacklogPage() {
                 </div>
               </div>
 
-              {/* User Story */}
+              {/* User Story — single freeform textarea with format guidance */}
               <div className="border-2 border-blue-200 rounded-xl p-5 bg-blue-50/30">
-                <label className="flex items-center gap-2 text-sm font-semibold text-gray-800 mb-4">
-                  <IconPerson className="w-4 h-4 text-blue-600" />
-                  {pt.backlogUserStory}
-                </label>
-                <div className="space-y-3">
-                  <div>
-                    <label className="flex items-center gap-1.5 text-xs font-medium text-blue-700 mb-1">
-                      <IconPerson className="w-3 h-3" />
-                      ＜{pt.backlogWho}＞（ユーザーの役割）： 〜として、
-                    </label>
-                    <input
-                      type="text"
-                      value={form.storyWho}
-                      onChange={(e) => setForm({ ...form, storyWho: e.target.value })}
-                      placeholder="例: プロジェクトマネージャー"
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="flex items-center gap-1.5 text-xs font-medium text-green-700 mb-1">
-                      <IconTarget className="w-3 h-3" />
-                      ＜{pt.backlogWhat}＞（達成したい機能）： 〜したい。
-                    </label>
-                    <textarea
-                      value={form.storyWhat}
-                      onChange={(e) => setForm({ ...form, storyWhat: e.target.value })}
-                      placeholder="例: チームの進捗をリアルタイムで確認"
-                      rows={2}
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="flex items-center gap-1.5 text-xs font-medium text-orange-700 mb-1">
-                      <IconSparkle className="w-3 h-3" />
-                      ＜{pt.backlogWhy}＞（得られる価値）： それは〜だからだ。
-                    </label>
-                    <textarea
-                      value={form.storyWhy}
-                      onChange={(e) => setForm({ ...form, storyWhy: e.target.value })}
-                      placeholder="例: 遅延リスクを早期に発見できる"
-                      rows={2}
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white"
-                    />
-                  </div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="flex items-center gap-2 text-sm font-semibold text-gray-800">
+                    <IconPerson className="w-4 h-4 text-blue-600" />
+                    {pt.backlogUserStory}
+                  </label>
+                  <BilingualButton
+                    onClick={() => handleBilingualize("userStory")}
+                    disabled={!form.userStory.trim()}
+                    translating={translating.userStory}
+                  />
                 </div>
-                {(form.storyWho || form.storyWhat || form.storyWhy) && (
-                  <div className="mt-3 pt-3 border-t border-blue-200 text-xs text-gray-600">
-                    {form.storyWho && <span>{form.storyWho}として、</span>}
-                    {form.storyWhat && <span>{form.storyWhat}したい。</span>}
-                    {form.storyWhy && <span>それは{form.storyWhy}だからだ。</span>}
-                  </div>
-                )}
+                <div className="bg-white border border-blue-100 rounded-lg px-3 py-2 mb-3 text-xs text-gray-600 leading-relaxed">
+                  <p className="font-semibold text-blue-700 mb-1">📝 記入ルール</p>
+                  <p className="font-mono text-[11px] text-gray-700 bg-blue-50/40 px-2 py-1.5 rounded mb-1.5">
+                    ＜{pt.backlogWho}＞として、＜{pt.backlogWhat}＞したい。それは＜{pt.backlogWhy}＞だからだ。
+                  </p>
+                  <p className="text-gray-500 text-[11px]">
+                    例：「<span className="text-blue-600">プロジェクトマネージャー</span>として、<span className="text-green-600">チームの進捗をリアルタイムで確認</span>したい。それは<span className="text-orange-600">遅延リスクを早期に発見できる</span>からだ。」
+                  </p>
+                </div>
+                <textarea
+                  value={form.userStory}
+                  onChange={(e) => setForm({ ...form, userStory: e.target.value })}
+                  placeholder={t.backlogUserStoryPlaceholder}
+                  rows={6}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white leading-relaxed resize-y"
+                />
               </div>
 
               <div>
-                <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700 mb-1.5">
-                  <IconChecklist className="w-3.5 h-3.5 text-gray-500" />
-                  {pt.backlogAcceptanceCriteria}
-                </label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700">
+                    <IconChecklist className="w-3.5 h-3.5 text-gray-500" />
+                    {pt.backlogAcceptanceCriteria}
+                  </label>
+                  <BilingualButton
+                    onClick={() => handleBilingualize("acceptanceCriteria")}
+                    disabled={!form.acceptanceCriteria.trim()}
+                    translating={translating.acceptanceCriteria}
+                  />
+                </div>
                 <textarea
                   value={form.acceptanceCriteria}
                   onChange={(e) => setForm({ ...form, acceptanceCriteria: e.target.value })}
-                  rows={2}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                  rows={8}
+                  placeholder={"・〇〇できること\n・△△の場合は××する"}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-y min-h-[200px]"
                 />
               </div>
 
@@ -767,14 +860,35 @@ export default function BacklogPage() {
                   <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700 mb-1.5">
                     <IconScale className="w-3.5 h-3.5 text-orange-500" />
                     {pt.backlogWorkloadScore}
+                    <span className="text-xs text-gray-400 font-normal">({pointUnitLabel})</span>
                   </label>
-                  <input
-                    type="number"
-                    min={0}
-                    value={form.workloadScore}
-                    onChange={(e) => setForm({ ...form, workloadScore: parseInt(e.target.value) || 0 })}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                  />
+                  <div className="flex flex-wrap gap-1.5" role="radiogroup">
+                    {pointScale.map((v) => {
+                      const isSelected = form.workloadScore === v
+                      return (
+                        <button
+                          key={v}
+                          type="button"
+                          role="radio"
+                          aria-checked={isSelected}
+                          disabled={!canEdit}
+                          onClick={() => setForm({ ...form, workloadScore: v })}
+                          className={`min-w-[44px] px-3 py-2 text-sm font-semibold rounded-lg border-2 transition-all ${
+                            isSelected
+                              ? "bg-orange-500 border-orange-500 text-white shadow-sm"
+                              : "bg-white border-gray-200 text-gray-700 hover:border-orange-300 hover:bg-orange-50"
+                          } disabled:opacity-60 disabled:cursor-not-allowed`}
+                        >
+                          {v}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <p className="text-[10px] text-gray-400 mt-1">
+                    {pointUnit === "SP" || pointUnit === "ポイント"
+                      ? "フィボナッチスケール (Fibonacci)"
+                      : pointUnitLabel}
+                  </p>
                 </div>
                 <div>
                   <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700 mb-1.5">
@@ -858,6 +972,14 @@ export default function BacklogPage() {
           projectId={projectId}
           pbiId={detailPbiId}
           onClose={() => setDetailPbiId(null)}
+        />
+      )}
+      {investPbiId && (
+        <AIResultModal
+          title={t.aiInvestTitle}
+          fetchUrl={`/api/projects/${projectId}/backlog/${investPbiId}/ai/invest-review`}
+          fetchBody={{ lang: language }}
+          onClose={() => setInvestPbiId(null)}
         />
       )}
     </div>

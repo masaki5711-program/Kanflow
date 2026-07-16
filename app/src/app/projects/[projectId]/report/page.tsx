@@ -16,7 +16,29 @@ export default async function ReportPage({
   const membership = await prisma.projectMember.findFirst({
     where: { projectId, userId: session.user.id },
   })
-  if (!membership) notFound()
+  if (!membership) {
+    // Admin: full access. Section manager: read access if project's sections overlap.
+    if (session.user.role === "admin") {
+      // proceed
+    } else if (session.user.role === "section_manager") {
+      const project = await prisma.project.findUnique({
+        where: { id: projectId },
+        select: { sections: { select: { sectionId: true } } },
+      })
+      const projectSectionIds = project?.sections.map((s) => s.sectionId) ?? []
+      if (projectSectionIds.length > 0) {
+        const overlap = await prisma.userSection.findFirst({
+          where: { userId: session.user.id, sectionId: { in: projectSectionIds } },
+          select: { sectionId: true },
+        })
+        if (!overlap) notFound()
+      } else {
+        notFound()
+      }
+    } else {
+      notFound()
+    }
+  }
 
   const project = await prisma.project.findUnique({
     where: { id: projectId },

@@ -26,19 +26,28 @@ export async function GET() {
       employeeNumber: true,
       department: true,
       _count: { select: { memberships: true } },
+      sections: {
+        include: { section: { select: { id: true, name: true } } },
+      },
     },
     orderBy: { createdAt: "desc" },
   })
-  return NextResponse.json(users)
+  return NextResponse.json(
+    users.map((u) => ({
+      ...u,
+      sections: u.sections.map((s) => s.section),
+    }))
+  )
 }
 
 const createSchema = z.object({
   name: z.string().min(1).max(100),
   email: z.string().email().max(200),
   password: z.string().min(6).max(200),
-  role: z.enum(["admin", "member"]),
+  role: z.enum(["admin", "section_manager", "member"]),
   employeeNumber: z.string().max(50).optional().nullable(),
   department: z.string().max(100).optional().nullable(),
+  sectionIds: z.array(z.string()).optional(),
 })
 
 function normalizeOptional(value: string | null | undefined): string | null {
@@ -81,6 +90,9 @@ export async function POST(request: Request) {
       role: parsed.data.role,
       employeeNumber,
       department,
+      sections: parsed.data.sectionIds?.length
+        ? { create: parsed.data.sectionIds.map((id) => ({ sectionId: id })) }
+        : undefined,
     },
     select: {
       id: true,
@@ -91,7 +103,11 @@ export async function POST(request: Request) {
       createdAt: true,
       employeeNumber: true,
       department: true,
+      sections: { include: { section: { select: { id: true, name: true } } } },
     },
   })
-  return NextResponse.json(user, { status: 201 })
+  return NextResponse.json(
+    { ...user, sections: user.sections.map((s) => s.section) },
+    { status: 201 }
+  )
 }

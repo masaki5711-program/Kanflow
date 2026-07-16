@@ -3,6 +3,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useLanguage } from "@/lib/language-context"
 
+type UserRole = "admin" | "section_manager" | "member"
+
+interface SectionRef {
+  id: string
+  name: string
+}
+
 interface User {
   id: string
   name: string
@@ -13,23 +20,26 @@ interface User {
   employeeNumber: string | null
   department: string | null
   _count: { memberships: number }
+  sections: SectionRef[]
 }
 
 interface CreateForm {
   name: string
   email: string
   password: string
-  role: "admin" | "member"
+  role: UserRole
   employeeNumber: string
   department: string
+  sectionIds: string[]
 }
 
 interface EditForm {
   name: string
   email: string
-  role: "admin" | "member"
+  role: UserRole
   employeeNumber: string
   department: string
+  sectionIds: string[]
 }
 
 interface Props {
@@ -50,6 +60,7 @@ export function UserManagementBase({ headerExtra }: Props) {
     role: "member",
     employeeNumber: "",
     department: "",
+    sectionIds: [],
   })
   const [editForm, setEditForm] = useState<EditForm>({
     name: "",
@@ -57,13 +68,15 @@ export function UserManagementBase({ headerExtra }: Props) {
     role: "member",
     employeeNumber: "",
     department: "",
+    sectionIds: [],
   })
+  const [sections, setSections] = useState<SectionRef[]>([])
   const [newPassword, setNewPassword] = useState("")
   const [error, setError] = useState("")
   const [saving, setSaving] = useState(false)
 
   const [searchQuery, setSearchQuery] = useState("")
-  const [roleFilter, setRoleFilter] = useState<"all" | "admin" | "member">("all")
+  const [roleFilter, setRoleFilter] = useState<"all" | UserRole>("all")
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("active")
   const [departmentFilter, setDepartmentFilter] = useState<string>("all")
 
@@ -73,7 +86,15 @@ export function UserManagementBase({ headerExtra }: Props) {
     setLoading(false)
   }, [])
 
-  useEffect(() => { fetchUsers() }, [fetchUsers])
+  const fetchSections = useCallback(async () => {
+    const res = await fetch("/api/admin/sections")
+    if (res.ok) {
+      const data: SectionRef[] = await res.json()
+      setSections(data.map((s) => ({ id: s.id, name: s.name })))
+    }
+  }, [])
+
+  useEffect(() => { fetchUsers(); fetchSections() }, [fetchUsers, fetchSections])
 
   const departments = useMemo(() => {
     const set = new Set<string>()
@@ -113,6 +134,7 @@ export function UserManagementBase({ headerExtra }: Props) {
           role: form.role,
           employeeNumber: form.employeeNumber || null,
           department: form.department || null,
+          sectionIds: form.sectionIds,
         }),
       })
       if (!res.ok) {
@@ -120,7 +142,7 @@ export function UserManagementBase({ headerExtra }: Props) {
         setError(typeof data?.error === "string" ? data.error : t.errorCreationFailed)
         return
       }
-      setForm({ name: "", email: "", password: "", role: "member", employeeNumber: "", department: "" })
+      setForm({ name: "", email: "", password: "", role: "member", employeeNumber: "", department: "", sectionIds: [] })
       setShowCreate(false)
       fetchUsers()
     } finally {
@@ -141,6 +163,7 @@ export function UserManagementBase({ headerExtra }: Props) {
           role: editForm.role,
           employeeNumber: editForm.employeeNumber || null,
           department: editForm.department || null,
+          sectionIds: editForm.sectionIds,
         }),
       })
       if (!res.ok) {
@@ -194,12 +217,17 @@ export function UserManagementBase({ headerExtra }: Props) {
 
   function startEdit(user: User) {
     setEditingId(user.id)
+    const role: UserRole =
+      user.role === "admin" || user.role === "section_manager" || user.role === "member"
+        ? user.role
+        : "member"
     setEditForm({
       name: user.name,
       email: user.email,
-      role: (user.role as "admin" | "member") ?? "member",
+      role,
       employeeNumber: user.employeeNumber ?? "",
       department: user.department ?? "",
+      sectionIds: user.sections.map((s) => s.id),
     })
     setError("")
   }
@@ -245,11 +273,12 @@ export function UserManagementBase({ headerExtra }: Props) {
         </div>
         <select
           value={roleFilter}
-          onChange={(e) => setRoleFilter(e.target.value as "all" | "admin" | "member")}
+          onChange={(e) => setRoleFilter(e.target.value as "all" | UserRole)}
           className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
         >
           <option value="all">{t.userFilterRoleAll}</option>
           <option value="admin">{t.userRoleAdmin}</option>
+          <option value="section_manager">{t.roleSectionManager}</option>
           <option value="member">{t.userRoleMember}</option>
         </select>
         <select
@@ -352,14 +381,48 @@ export function UserManagementBase({ headerExtra }: Props) {
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.userRole}</label>
                 <select
                   value={form.role}
-                  onChange={(e) => setForm({ ...form, role: e.target.value as "admin" | "member" })}
+                  onChange={(e) => setForm({ ...form, role: e.target.value as UserRole })}
                   className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                 >
                   <option value="member">{t.userRoleMember}</option>
+                  <option value="section_manager">{t.roleSectionManager}</option>
                   <option value="admin">{t.userRoleAdmin}</option>
                 </select>
               </div>
             </div>
+            {sections.length > 0 && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.sectionTitle}</label>
+                <div className="flex flex-wrap gap-2">
+                  {sections.map((s) => {
+                    const checked = form.sectionIds.includes(s.id)
+                    return (
+                      <label
+                        key={s.id}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium cursor-pointer border transition-colors ${
+                          checked
+                            ? "bg-blue-50 border-blue-300 text-blue-700"
+                            : "bg-white border-gray-200 text-gray-600 hover:border-gray-300"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          className="hidden"
+                          checked={checked}
+                          onChange={(e) => {
+                            const next = e.target.checked
+                              ? [...form.sectionIds, s.id]
+                              : form.sectionIds.filter((id) => id !== s.id)
+                            setForm({ ...form, sectionIds: next })
+                          }}
+                        />
+                        {s.name}
+                      </label>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
             <div className="flex gap-3 pt-1">
               <button type="submit" disabled={saving} className="px-5 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-50 text-sm font-medium shadow-sm">
                 {t.create}
@@ -439,14 +502,48 @@ export function UserManagementBase({ headerExtra }: Props) {
                       <label className="block text-xs font-medium text-gray-500 mb-1">{t.userRole}</label>
                       <select
                         value={editForm.role}
-                        onChange={(e) => setEditForm({ ...editForm, role: e.target.value as "admin" | "member" })}
+                        onChange={(e) => setEditForm({ ...editForm, role: e.target.value as UserRole })}
                         className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                       >
                         <option value="member">{t.userRoleMember}</option>
+                        <option value="section_manager">{t.roleSectionManager}</option>
                         <option value="admin">{t.userRoleAdmin}</option>
                       </select>
                     </div>
                   </div>
+                  {sections.length > 0 && (
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 mb-1">{t.sectionTitle}</label>
+                      <div className="flex flex-wrap gap-2">
+                        {sections.map((s) => {
+                          const checked = editForm.sectionIds.includes(s.id)
+                          return (
+                            <label
+                              key={s.id}
+                              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium cursor-pointer border transition-colors ${
+                                checked
+                                  ? "bg-blue-50 border-blue-300 text-blue-700"
+                                  : "bg-white border-gray-200 text-gray-600 hover:border-gray-300"
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                className="hidden"
+                                checked={checked}
+                                onChange={(e) => {
+                                  const next = e.target.checked
+                                    ? [...editForm.sectionIds, s.id]
+                                    : editForm.sectionIds.filter((id) => id !== s.id)
+                                  setEditForm({ ...editForm, sectionIds: next })
+                                }}
+                              />
+                              {s.name}
+                            </label>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
                   <div className="flex gap-2">
                     <button onClick={() => handleUpdate(user.id)} disabled={saving} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50">
                       {t.save}
@@ -493,10 +590,21 @@ export function UserManagementBase({ headerExtra }: Props) {
                         <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                           user.role === "admin"
                             ? "bg-purple-50 text-purple-700"
+                            : user.role === "section_manager"
+                            ? "bg-amber-50 text-amber-700"
                             : "bg-gray-50 text-gray-600"
                         }`}>
-                          {user.role === "admin" ? t.userRoleAdmin : t.userRoleMember}
+                          {user.role === "admin"
+                            ? t.userRoleAdmin
+                            : user.role === "section_manager"
+                            ? t.roleSectionManager
+                            : t.userRoleMember}
                         </span>
+                        {user.sections.length > 0 && (
+                          <span className="inline-flex items-center gap-1 text-[10px] text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full">
+                            {user.sections.map((s) => s.name).join(" / ")}
+                          </span>
+                        )}
                         {!user.isActive && (
                           <span className="text-xs px-2 py-0.5 rounded-full bg-red-50 text-red-600 font-medium">
                             {t.userInactive}

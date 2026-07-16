@@ -21,6 +21,9 @@ interface Props {
   sprintName: string
   existingPbIds: Set<string>
   pointUnit: string
+  /** PO/SM/admin can create brand-new PBIs from this modal. Others get the
+   *  "pick from backlog" tab only. */
+  canCreate?: boolean
   onAdded: () => void
   onClose: () => void
 }
@@ -31,16 +34,26 @@ export default function AddPbiModal({
   sprintName,
   existingPbIds,
   pointUnit,
+  canCreate,
   onAdded,
   onClose,
 }: Props) {
-  const { t } = useLanguage()
+  const { t, pt } = useLanguage()
+  const [tab, setTab] = useState<"existing" | "new">("existing")
   const [items, setItems] = useState<BacklogPbi[]>([])
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [query, setQuery] = useState("")
   const [detailPbiId, setDetailPbiId] = useState<string | null>(null)
+  const [newForm, setNewForm] = useState({
+    initiative: "",
+    epic: "",
+    userStory: "",
+    acceptanceCriteria: "",
+    workloadScore: "3",
+    assignedPo: "",
+  })
 
   useEffect(() => {
     fetch(`/api/projects/${projectId}/backlog`)
@@ -98,8 +111,56 @@ export default function AddPbiModal({
     }
   }
 
+  async function handleCreateAndAttach() {
+    const trimmedStory = newForm.userStory.trim()
+    const trimmedInit = newForm.initiative.trim()
+    if (!trimmedStory && !trimmedInit) return
+    setSaving(true)
+    try {
+      // Step 1: create the PBI in backlog with status=ready so it shows up
+      // in the active backlog list and qualifies for sprint attachment.
+      const createRes = await fetch(`/api/projects/${projectId}/backlog`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          initiative: trimmedInit || null,
+          epic: newForm.epic.trim() || null,
+          userStory: trimmedStory || null,
+          acceptanceCriteria: newForm.acceptanceCriteria.trim() || null,
+          workloadScore: parseInt(newForm.workloadScore || "0", 10),
+          assignedPo: newForm.assignedPo.trim() || null,
+          status: "ready",
+        }),
+      })
+      if (!createRes.ok) {
+        const err = await createRes.json().catch(() => null)
+        alert(err?.error ?? t.error)
+        return
+      }
+      const created = await createRes.json()
+      // Step 2: attach it to the sprint.
+      const attachRes = await fetch(
+        `/api/projects/${projectId}/sprints/${sprintId}/pbis`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pbIds: [created.id] }),
+        }
+      )
+      if (attachRes.ok) {
+        onAdded()
+        onClose()
+      } else {
+        const err = await attachRes.json().catch(() => null)
+        alert(err?.error ?? t.error)
+      }
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
       <div
         className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
@@ -110,7 +171,34 @@ export default function AddPbiModal({
           <p className="text-sm text-gray-500 mt-1">{sprintName}</p>
         </div>
 
-        {/* Search */}
+        {/* Tabs */}
+        {canCreate && (
+          <div className="px-6 pt-3 border-b border-gray-100 shrink-0">
+            <div className="inline-flex bg-gray-100 rounded-lg p-0.5 text-xs font-medium">
+              <button
+                type="button"
+                onClick={() => setTab("existing")}
+                className={`px-3 py-1.5 rounded-md transition-colors ${
+                  tab === "existing" ? "bg-white text-blue-700 shadow" : "text-gray-600 hover:text-gray-900"
+                }`}
+              >
+                既存から選ぶ
+              </button>
+              <button
+                type="button"
+                onClick={() => setTab("new")}
+                className={`px-3 py-1.5 rounded-md transition-colors ${
+                  tab === "new" ? "bg-white text-blue-700 shadow" : "text-gray-600 hover:text-gray-900"
+                }`}
+              >
+                + 新規作成
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Search (only for existing tab) */}
+        {tab === "existing" && (
         <div className="px-6 py-3 border-b border-gray-100 shrink-0">
           <div className="relative">
             <svg className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" viewBox="0 0 20 20" fill="currentColor">
@@ -125,8 +213,10 @@ export default function AddPbiModal({
             />
           </div>
         </div>
+        )}
 
-        {/* List */}
+        {/* List (existing tab) */}
+        {tab === "existing" && (
         <div className="flex-1 overflow-y-auto px-6 py-3">
           {loading ? (
             <div className="text-center text-sm text-gray-400 py-8">{t.loading}</div>
@@ -193,11 +283,64 @@ export default function AddPbiModal({
             </ul>
           )}
         </div>
+        )}
+
+        {/* New PBI form (new tab) */}
+        {tab === "new" && (
+          <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">{pt.backlogInitiative}</label>
+                <input type="text" value={newForm.initiative}
+                  onChange={(e) => setNewForm({ ...newForm, initiative: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">{pt.backlogEpic}</label>
+                <input type="text" value={newForm.epic}
+                  onChange={(e) => setNewForm({ ...newForm, epic: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">{pt.backlogUserStory}</label>
+              <textarea value={newForm.userStory}
+                onChange={(e) => setNewForm({ ...newForm, userStory: e.target.value })}
+                rows={4}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-y" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">{pt.backlogAcceptanceCriteria}</label>
+              <textarea value={newForm.acceptanceCriteria}
+                onChange={(e) => setNewForm({ ...newForm, acceptanceCriteria: e.target.value })}
+                rows={6}
+                placeholder={"・〇〇できること\n・△△の場合は××する"}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-y min-h-[160px]" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">{pt.backlogWorkloadScore} ({pointUnit})</label>
+                <input type="number" min={0} step={1} value={newForm.workloadScore}
+                  onChange={(e) => setNewForm({ ...newForm, workloadScore: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">{pt.rolePO}</label>
+                <input type="text" value={newForm.assignedPo}
+                  onChange={(e) => setNewForm({ ...newForm, assignedPo: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+              </div>
+            </div>
+            <p className="text-[11px] text-gray-500">
+              作成された PBI は自動的に「Ready」になり、バックログ一覧にも表示されます。
+            </p>
+          </div>
+        )}
 
         {/* Footer */}
         <div className="px-6 py-3 border-t border-gray-100 flex justify-between items-center gap-3 shrink-0 bg-gray-50/60 rounded-b-2xl">
           <span className="text-sm text-gray-500">
-            <strong className="text-gray-900">{selected.size}</strong>
+            {tab === "existing" && (<><strong className="text-gray-900">{selected.size}</strong></>)}
           </span>
           <div className="flex gap-2">
             <button
@@ -209,8 +352,8 @@ export default function AddPbiModal({
             </button>
             <button
               type="button"
-              disabled={selected.size === 0 || saving}
-              onClick={handleSubmit}
+              disabled={tab === "existing" ? (selected.size === 0 || saving) : (saving || (!newForm.userStory.trim() && !newForm.initiative.trim()))}
+              onClick={tab === "existing" ? handleSubmit : handleCreateAndAttach}
               className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors shadow-sm"
             >
               <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">

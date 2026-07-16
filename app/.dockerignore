@@ -2,8 +2,25 @@ node_modules
 .next
 .env
 .env.local
-prisma/dev.db
-public/uploads/*
-!public/uploads/.gitkeep
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Generated Prisma client is regenerated inside the build stage.
+src/generated
+
+# Local file uploads should never end up in the image — they live in a volume.
+private/uploads/*
+!private/uploads/.gitkeep
+
+# Misc
 *.log
 .git
+.gitignore
+README.md
+README-docker.md
+.vscode
+.idea
+*.local
+.DS_Store
+Thumbs.db

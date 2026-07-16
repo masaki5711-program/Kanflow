@@ -7,6 +7,7 @@ const createSchema = z.object({
   name: z.string().min(1).max(200),
   description: z.string().max(5000).optional(),
   projectType: z.enum(["software", "process_improvement", "general"]).optional(),
+  sectionIds: z.array(z.string()).optional(),
 })
 
 const PRODUCT_GOAL_TEMPLATE = {
@@ -26,9 +27,23 @@ export async function POST(request: Request) {
 
     const user = await prisma.user.findUnique({
       where: { id: gate.session.user.id },
-      select: { language: true },
+      select: {
+        language: true,
+        role: true,
+        sections: { select: { sectionId: true }, orderBy: { assignedAt: "asc" } },
+      },
     })
     const language = user?.language ?? "ja"
+
+    // Section assignment policy:
+    // - Admin: explicit sectionIds from request body (or empty)
+    // - Others: auto-inherit ALL of the user's sections (request body ignored)
+    let sectionIds: string[] = []
+    if (user?.role === "admin") {
+      sectionIds = data.sectionIds ?? []
+    } else if (user?.sections && user.sections.length > 0) {
+      sectionIds = user.sections.map((s) => s.sectionId)
+    }
 
     const project = await prisma.project.create({
       data: {
@@ -39,6 +54,9 @@ export async function POST(request: Request) {
         members: {
           create: { userId: gate.session.user.id, role: "po" },
         },
+        sections: sectionIds.length
+          ? { create: sectionIds.map((sectionId) => ({ sectionId })) }
+          : undefined,
       },
     })
 

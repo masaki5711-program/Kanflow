@@ -1,6 +1,8 @@
 "use client"
 
+import { useState } from "react"
 import { useLanguage } from "@/lib/language-context"
+import { AIResultModal } from "@/components/ai-result-modal"
 
 interface Sprint {
   id: string
@@ -30,6 +32,7 @@ interface SprintStatusDialogProps {
   onDialogChange: (dialog: StatusDialogState) => void
   onSubmit: () => void
   onCancel: () => void
+  projectId: string
 }
 
 export default function SprintStatusDialog({
@@ -38,8 +41,10 @@ export default function SprintStatusDialog({
   onDialogChange,
   onSubmit,
   onCancel,
+  projectId,
 }: SprintStatusDialogProps) {
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
+  const [showRetroAI, setShowRetroAI] = useState(false)
 
   const statusLabels: Record<string, string> = {
     planning: t.sprintStatusPlanning,
@@ -55,7 +60,7 @@ export default function SprintStatusDialog({
   const hasLegacyReview = !!(sprint?.reviewComment && sprint.reviewComment.trim().length > 0)
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onCancel}>
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
       <div
         className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[92vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
@@ -93,10 +98,20 @@ export default function SprintStatusDialog({
           {/* KPT grid */}
           {showRetroFields && (
             <div>
-              <label className="flex items-center gap-2 text-base font-semibold text-gray-800 mb-2">
-                <span className="inline-block w-1.5 h-5 bg-blue-500 rounded-sm" />
-                {t.sprintRetrospectiveMemo} — KPT
-              </label>
+              <div className="flex items-center justify-between mb-2">
+                <label className="flex items-center gap-2 text-base font-semibold text-gray-800">
+                  <span className="inline-block w-1.5 h-5 bg-blue-500 rounded-sm" />
+                  {t.sprintRetrospectiveMemo} — KPT
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setShowRetroAI(true)}
+                  className="inline-flex items-center gap-1.5 text-xs font-medium text-purple-700 border border-purple-300 rounded-lg hover:bg-purple-50 px-3 py-1.5 transition-colors"
+                >
+                  <span aria-hidden>🤖</span>
+                  {t.aiRetroSynthesis}
+                </button>
+              </div>
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 {/* Keep */}
                 <div className="bg-emerald-50/60 border border-emerald-200 rounded-xl p-4">
@@ -180,6 +195,31 @@ export default function SprintStatusDialog({
           </button>
         </div>
       </div>
+      {showRetroAI && sprint && (
+        <AIResultModal
+          title={t.aiRetroTitle}
+          fetchUrl={`/api/projects/${projectId}/sprints/${sprint.id}/ai/retro-synthesis`}
+          fetchBody={{ lang: language }}
+          onClose={() => setShowRetroAI(false)}
+          footer={(text, done) =>
+            done && text.trim() ? (
+              <button
+                type="button"
+                onClick={() => {
+                  const append = dialog.retrospectiveTry
+                    ? `${dialog.retrospectiveTry}\n\n--- AI 提案 ---\n${text}`
+                    : text
+                  onDialogChange({ ...dialog, retrospectiveTry: append })
+                  setShowRetroAI(false)
+                }}
+                className="px-4 py-2 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                {t.aiAddToTry}
+              </button>
+            ) : null
+          }
+        />
+      )}
     </div>
   )
 }

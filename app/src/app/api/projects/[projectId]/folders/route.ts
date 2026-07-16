@@ -5,6 +5,7 @@ import { z } from "zod"
 
 const createSchema = z.object({
   name: z.string().min(1).max(100),
+  parentId: z.string().nullable().optional(),
 })
 
 export async function POST(
@@ -20,7 +21,7 @@ export async function POST(
     const data = createSchema.parse(body)
 
     const maxOrder = await prisma.attachmentFolder.aggregate({
-      where: { projectId },
+      where: { projectId, parentId: data.parentId ?? null },
       _max: { sortOrder: true },
     })
 
@@ -28,6 +29,7 @@ export async function POST(
       data: {
         projectId,
         name: data.name,
+        parentId: data.parentId ?? null,
         sortOrder: (maxOrder._max.sortOrder ?? 0) + 1,
       },
       include: { attachments: true },
@@ -36,6 +38,8 @@ export async function POST(
     return NextResponse.json({
       id: folder.id,
       name: folder.name,
+      parentId: folder.parentId,
+      sortOrder: folder.sortOrder,
       attachments: folder.attachments.map((a) => ({
         id: a.id,
         originalName: a.originalName,

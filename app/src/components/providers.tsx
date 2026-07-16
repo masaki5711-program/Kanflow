@@ -5,6 +5,7 @@ import { ConfirmProvider } from "@/components/confirm-dialog"
 import { LanguageProvider } from "@/lib/language-context"
 import { type Language } from "@/lib/i18n"
 import { type ReactNode } from "react"
+import IdleLogoutWatcher from "@/components/idle-logout-watcher"
 
 export function Providers({
   children,
@@ -15,6 +16,7 @@ export function Providers({
 }) {
   return (
     <SessionProvider>
+      <IdleLogoutWatcher />
       <LanguageProvider initialLanguage={userLanguage} persistToUser>
         <ConfirmProvider>{children}</ConfirmProvider>
       </LanguageProvider>

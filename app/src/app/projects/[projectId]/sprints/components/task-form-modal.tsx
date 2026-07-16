@@ -1,6 +1,18 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import { useLanguage } from "@/lib/language-context"
+
+interface FixedTaskItem {
+  id: string
+  taskName: string
+}
+
+interface FixedTaskGroup {
+  id: string
+  taskName: string
+  items: FixedTaskItem[]
+}
 
 interface SprintPbItem {
   id: string
@@ -49,9 +61,26 @@ interface TaskFormModalProps {
   sprint: Sprint | undefined
   members: Member[]
   pointUnit: string
+  projectId: string
+  canEditPbi?: boolean
   onSubmit: (e: React.FormEvent) => void
   onCancel: () => void
   onChange: (form: TaskFormState) => void
+  onBulkAdd?: (pbItemId: string, assignee: string | null, taskNames: string[]) => Promise<void>
+  onPbiSaved?: () => void
+}
+
+interface PbiFullDetail {
+  id: string
+  initiative: string | null
+  epic: string | null
+  userStory: string | null
+  acceptanceCriteria: string | null
+  referenceDoc: string | null
+  workloadScore: number
+  status: string
+  assignedPo: string | null
+  poNote: string | null
 }
 
 export default function TaskFormModal({
@@ -60,11 +89,102 @@ export default function TaskFormModal({
   sprint,
   members,
   pointUnit,
+  projectId,
+  canEditPbi,
   onSubmit,
   onCancel,
   onChange,
+  onBulkAdd,
+  onPbiSaved,
 }: TaskFormModalProps) {
-  const { t } = useLanguage()
+  const { t, pt } = useLanguage()
+  const [fixedTaskGroups, setFixedTaskGroups] = useState<FixedTaskGroup[]>([])
+  const [selectedGroupId, setSelectedGroupId] = useState<string>("")
+  const [bulkBusy, setBulkBusy] = useState(false)
+  const [pbiDetail, setPbiDetail] = useState<PbiFullDetail | null>(null)
+  const [pbiDirty, setPbiDirty] = useState(false)
+  const [pbiExpanded, setPbiExpanded] = useState(false)
+  const [pbiSaving, setPbiSaving] = useState(false)
+
+  useEffect(() => {
+    fetch("/api/user/fixed-tasks")
+      .then((r) => (r.ok ? r.json() : Promise.reject(r)))
+      .then((data: FixedTaskGroup[]) => setFixedTaskGroups(data))
+      .catch(() => {})
+  }, [])
+
+  // Pull the full PBI record so the task-add modal can show every detail
+  // (acceptance criteria, PO assignment, status, etc.) and not just the
+  // initiative + user story already in sprint.items.
+  useEffect(() => {
+    const id = taskForm.pbItemId
+    if (!id) {
+      setPbiDetail(null)
+      setPbiDirty(false)
+      return
+    }
+    let cancelled = false
+    fetch(`/api/projects/${projectId}/backlog/${id}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(r)))
+      .then((data) => {
+        if (cancelled) return
+        setPbiDetail({
+          id: data.id,
+          initiative: data.initiative,
+          epic: data.epic,
+          userStory: data.userStory,
+          acceptanceCriteria: data.acceptanceCriteria,
+          referenceDoc: data.referenceDoc,
+          workloadScore: data.workloadScore,
+          status: data.status,
+          assignedPo: data.assignedPo,
+          poNote: data.poNote,
+        })
+        setPbiDirty(false)
+      })
+      .catch(() => { if (!cancelled) setPbiDetail(null) })
+    return () => { cancelled = true }
+  }, [projectId, taskForm.pbItemId])
+
+  function patchPbiLocal(patch: Partial<PbiFullDetail>) {
+    setPbiDetail((prev) => (prev ? { ...prev, ...patch } : prev))
+    setPbiDirty(true)
+  }
+
+  async function savePbiIfDirty() {
+    if (!pbiDetail || !pbiDirty || !canEditPbi) return
+    setPbiSaving(true)
+    try {
+      const body: Record<string, unknown> = {
+        initiative: pbiDetail.initiative,
+        epic: pbiDetail.epic,
+        userStory: pbiDetail.userStory,
+        acceptanceCriteria: pbiDetail.acceptanceCriteria,
+        referenceDoc: pbiDetail.referenceDoc,
+        workloadScore: pbiDetail.workloadScore,
+        status: pbiDetail.status,
+        assignedPo: pbiDetail.assignedPo,
+        poNote: pbiDetail.poNote,
+      }
+      await fetch(`/api/projects/${projectId}/backlog/${pbiDetail.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+      setPbiDirty(false)
+      onPbiSaved?.()
+    } finally {
+      setPbiSaving(false)
+    }
+  }
+
+  async function handleSubmitWrapper(e: React.FormEvent) {
+    e.preventDefault()
+    // Save PBI edits in parallel with task submit so the user only sees one
+    // round-trip's worth of latency.
+    await savePbiIfDirty()
+    onSubmit(e)
+  }
 
   if (!sprint) return null
 
@@ -72,10 +192,33 @@ export default function TaskFormModal({
   const sprintPbItems = [...new Map(sprint.items.map((i) => [i.pbItem.id, i.pbItem])).values()]
   const hasPbItems = sprintPbItems.length > 0
   const selectedPb = sprintPbItems.find((p) => p.id === taskForm.pbItemId)
+  const selectedGroup = fixedTaskGroups.find((g) => g.id === selectedGroupId)
+  const canBulkAdd =
+    !editingTaskId &&
+    !!onBulkAdd &&
+    !!selectedGroup &&
+    selectedGroup.items.length > 0 &&
+    !!taskForm.pbItemId &&
+    !bulkBusy
+
+  async function handleBulkAdd() {
+    if (!selectedGroup || !onBulkAdd) return
+    if (!taskForm.pbItemId || selectedGroup.items.length === 0) return
+    setBulkBusy(true)
+    try {
+      await onBulkAdd(
+        taskForm.pbItemId,
+        taskForm.assignee || null,
+        selectedGroup.items.map((it) => it.taskName)
+      )
+    } finally {
+      setBulkBusy(false)
+    }
+  }
 
   return (
-    <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={onCancel}>
-      <div className="bg-white rounded-lg shadow-lg p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg shadow-lg p-6 w-full max-w-2xl max-h-[92vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <h3 className="text-lg font-semibold mb-4">
           {editingTaskId ? t.sprintTaskEdit : t.sprintAddTask}
           <span className="text-sm font-normal text-gray-500 ml-2">{sprint.sprintName}</span>
@@ -87,7 +230,7 @@ export default function TaskFormModal({
           </div>
         )}
 
-        <form onSubmit={onSubmit} className="space-y-3">
+        <form onSubmit={handleSubmitWrapper} className="space-y-3">
           {!editingTaskId && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -114,6 +257,119 @@ export default function TaskFormModal({
               </select>
             </div>
           )}
+
+          {/* PBI detail panel — collapsible, shows full PBI info and lets
+              PO/SM/admin edit acceptance criteria, status, etc. inline */}
+          {pbiDetail && (
+            <div className="rounded-lg border border-blue-200 bg-blue-50/30">
+              <button
+                type="button"
+                onClick={() => setPbiExpanded(!pbiExpanded)}
+                className="w-full px-3 py-2 flex items-center justify-between text-xs font-semibold text-blue-700 hover:bg-blue-50"
+              >
+                <span className="inline-flex items-center gap-1.5">
+                  <svg className={`w-3.5 h-3.5 transition-transform ${pbiExpanded ? "rotate-90" : ""}`} viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd"/>
+                  </svg>
+                  PBI 詳細 {canEditPbi ? "(編集可)" : "(参照)"}
+                </span>
+                {pbiDirty && <span className="text-[10px] text-amber-600">● 未保存</span>}
+              </button>
+              {pbiExpanded && (
+                <div className="px-3 pb-3 space-y-2 bg-white border-t border-blue-100">
+                  <PbiSubField label={pt.backlogInitiative} value={pbiDetail.initiative ?? ""}
+                    readOnly={!canEditPbi}
+                    onChange={(v) => patchPbiLocal({ initiative: v })} />
+                  <PbiSubField label={pt.backlogEpic} value={pbiDetail.epic ?? ""}
+                    readOnly={!canEditPbi}
+                    onChange={(v) => patchPbiLocal({ epic: v })} />
+                  <PbiSubField label={pt.backlogUserStory} value={pbiDetail.userStory ?? ""} multiline rows={4}
+                    readOnly={!canEditPbi}
+                    onChange={(v) => patchPbiLocal({ userStory: v })} />
+                  <PbiSubField label={pt.backlogAcceptanceCriteria} value={pbiDetail.acceptanceCriteria ?? ""} multiline rows={6}
+                    readOnly={!canEditPbi}
+                    onChange={(v) => patchPbiLocal({ acceptanceCriteria: v })} />
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <p className="text-[10px] font-medium text-gray-500 mb-0.5">{pt.backlogWorkloadScore}</p>
+                      <input type="number" min={0} step={1} value={String(pbiDetail.workloadScore)}
+                        readOnly={!canEditPbi}
+                        onChange={(e) => patchPbiLocal({ workloadScore: parseInt(e.target.value || "0", 10) })}
+                        className="w-full px-2 py-1 text-xs border border-gray-200 rounded bg-white read-only:bg-gray-50" />
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-medium text-gray-500 mb-0.5">{pt.rolePO}</p>
+                      <input type="text" value={pbiDetail.assignedPo ?? ""}
+                        readOnly={!canEditPbi}
+                        onChange={(e) => patchPbiLocal({ assignedPo: e.target.value })}
+                        className="w-full px-2 py-1 text-xs border border-gray-200 rounded bg-white read-only:bg-gray-50" />
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-medium text-gray-500 mb-0.5">{t.sprintStatus}</p>
+                      <select value={pbiDetail.status}
+                        disabled={!canEditPbi}
+                        onChange={(e) => patchPbiLocal({ status: e.target.value })}
+                        className="w-full px-2 py-1 text-xs border border-gray-200 rounded bg-white disabled:bg-gray-50">
+                        <option value="not_ready">Not Ready</option>
+                        <option value="ready">Ready</option>
+                        <option value="completed">Completed</option>
+                      </select>
+                    </div>
+                  </div>
+                  {pbiSaving && <p className="text-[10px] text-blue-600">保存中…</p>}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Fixed task group bulk add (only when adding new tasks) */}
+          {!editingTaskId && onBulkAdd && fixedTaskGroups.length > 0 && (
+            <div className="rounded-lg border border-indigo-200 bg-indigo-50/40 p-3 space-y-2">
+              <label className="block text-xs font-semibold text-indigo-700">
+                {t.fixedTasksApplyFromTemplate}
+              </label>
+              <select
+                value={selectedGroupId}
+                onChange={(e) => setSelectedGroupId(e.target.value)}
+                className="w-full px-3 py-2 border border-indigo-200 bg-white rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="">{t.fixedTasksSelectPlaceholder}</option>
+                {fixedTaskGroups.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.taskName} ({g.items.length})
+                  </option>
+                ))}
+              </select>
+              {selectedGroup && (
+                <>
+                  <div className="text-[11px] text-indigo-600 font-medium mt-1">
+                    {t.fixedTasksBulkAddPreview}:
+                  </div>
+                  {selectedGroup.items.length === 0 ? (
+                    <p className="text-xs text-gray-400">{t.fixedTasksItemEmpty}</p>
+                  ) : (
+                    <ul className="text-xs text-gray-700 space-y-0.5 pl-3">
+                      {selectedGroup.items.map((it) => (
+                        <li key={it.id} className="flex items-center gap-1.5">
+                          <span className="text-indigo-300">•</span>
+                          <span className="truncate">{it.taskName}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleBulkAdd}
+                    disabled={!canBulkAdd}
+                    className="w-full mt-1 px-3 py-1.5 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 text-sm font-medium disabled:bg-indigo-300 disabled:cursor-not-allowed"
+                  >
+                    {t.fixedTasksBulkAdd}{selectedGroup.items.length > 0 ? ` (${selectedGroup.items.length})` : ""}
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t.sprintTaskName}</label>
             <input
@@ -121,25 +377,54 @@ export default function TaskFormModal({
               value={taskForm.taskName}
               onChange={(e) => onChange({ ...taskForm, taskName: e.target.value })}
               required
-              placeholder="例: API実装、画面デザイン"
+              placeholder={t.taskNamePlaceholder}
               className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">{t.sprintAssignee}</label>
-              <select
-                value={taskForm.assignee}
-                onChange={(e) => onChange({ ...taskForm, assignee: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
-              >
-                <option value="">-- {t.sprintUnassigned} --</option>
-                {members.map((m) => (
-                  <option key={m.id} value={m.user.name}>
-                    {m.user.name} ({m.role.toUpperCase()})
-                  </option>
-                ))}
-              </select>
+              {(() => {
+                const selected = (taskForm.assignee ?? "")
+                  .split(",")
+                  .map((s) => s.trim())
+                  .filter(Boolean)
+                function toggle(name: string, checked: boolean) {
+                  const next = checked
+                    ? Array.from(new Set([...selected, name]))
+                    : selected.filter((s) => s !== name)
+                  onChange({ ...taskForm, assignee: next.join(", ") })
+                }
+                return (
+                  <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto p-2 border border-gray-300 rounded-md">
+                    {members.length === 0 ? (
+                      <span className="text-xs text-gray-400">—</span>
+                    ) : (
+                      members.map((m) => {
+                        const checked = selected.includes(m.user.name)
+                        return (
+                          <label
+                            key={m.id}
+                            className={`inline-flex items-center gap-1 text-xs cursor-pointer px-2 py-0.5 rounded-full border transition-colors ${
+                              checked
+                                ? "bg-indigo-50 border-indigo-300 text-indigo-700"
+                                : "bg-white border-gray-200 text-gray-600 hover:border-gray-300"
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              className="hidden"
+                              checked={checked}
+                              onChange={(e) => toggle(m.user.name, e.target.checked)}
+                            />
+                            {m.user.name}
+                          </label>
+                        )
+                      })
+                    )}
+                  </div>
+                )
+              })()}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -151,7 +436,7 @@ export default function TaskFormModal({
                 min="0"
                 value={taskForm.estimatedHours}
                 onChange={(e) => onChange({ ...taskForm, estimatedHours: e.target.value })}
-                placeholder="例: 4"
+                placeholder={t.taskHoursPlaceholder}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
@@ -195,6 +480,45 @@ export default function TaskFormModal({
           </div>
         </form>
       </div>
+    </div>
+  )
+}
+
+function PbiSubField({
+  label,
+  value,
+  onChange,
+  multiline,
+  rows,
+  readOnly,
+}: {
+  label: string
+  value: string
+  onChange: (v: string) => void
+  multiline?: boolean
+  rows?: number
+  readOnly?: boolean
+}) {
+  return (
+    <div>
+      <p className="text-[10px] font-medium text-gray-500 mb-0.5">{label}</p>
+      {multiline ? (
+        <textarea
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          rows={rows ?? 2}
+          readOnly={readOnly}
+          className={`w-full px-2 py-1 text-xs border border-gray-200 rounded bg-white read-only:bg-gray-50 resize-y ${rows && rows >= 6 ? "min-h-[120px]" : ""}`}
+        />
+      ) : (
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          readOnly={readOnly}
+          className="w-full px-2 py-1 text-xs border border-gray-200 rounded bg-white read-only:bg-gray-50"
+        />
+      )}
     </div>
   )
 }

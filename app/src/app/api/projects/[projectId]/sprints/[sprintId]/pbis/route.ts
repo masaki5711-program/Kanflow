@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { requireProjectMember } from "@/lib/api-helpers"
 import { recalcSprintActualScore } from "@/lib/sprint-score"
+import { syncPbiStatusFromTasks } from "@/lib/pbi-status-sync"
 import { z } from "zod"
 
 const addSchema = z.object({
@@ -102,6 +103,7 @@ export async function DELETE(
     })
 
     await recalcSprintActualScore(sprintId)
+    await syncPbiStatusFromTasks(data.pbItemId)
 
     return NextResponse.json({ removed: res.count })
   } catch (error) {

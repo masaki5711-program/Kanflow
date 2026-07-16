@@ -4,8 +4,8 @@ import { requireProjectMember } from "@/lib/api-helpers"
 import { z } from "zod"
 
 const updateSchema = z.object({
-  title: z.string().min(1).max(200).optional(),
-  description: z.string().max(5000).nullable().optional(),
+  title: z.string().min(1).optional(),
+  description: z.string().nullable().optional(),
 })
 
 export async function PATCH(

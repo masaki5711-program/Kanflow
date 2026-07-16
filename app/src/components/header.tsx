@@ -57,6 +57,17 @@ export function Header({ projectName, projectId }: HeaderProps = {}) {
             {t.projectListTitle}
           </Link>
 
+          {/* My profile - always visible */}
+          <Link
+            href="/me"
+            className="text-sm text-gray-500 hover:text-blue-600 transition-all duration-200 px-3 py-1.5 rounded-full hover:bg-blue-50/80 font-medium flex items-center gap-1.5"
+          >
+            <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd"/>
+            </svg>
+            {t.myProfileMenu}
+          </Link>
+
           {/* User management - admin only */}
           {isAdmin && (
             <Link
@@ -67,6 +78,32 @@ export function Header({ projectName, projectId }: HeaderProps = {}) {
                 <path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z"/>
               </svg>
               {t.userManagementTitle}
+            </Link>
+          )}
+
+          {/* Section management - admin only */}
+          {isAdmin && (
+            <Link
+              href="/admin/sections"
+              className="text-sm text-gray-500 hover:text-blue-600 transition-all duration-200 px-3 py-1.5 rounded-full hover:bg-blue-50/80 font-medium flex items-center gap-1.5"
+            >
+              <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd"/>
+              </svg>
+              {t.sectionAdminTitle}
+            </Link>
+          )}
+
+          {/* Admin category management */}
+          {isAdmin && (
+            <Link
+              href="/admin/categories"
+              className="text-sm text-gray-500 hover:text-blue-600 transition-all duration-200 px-3 py-1.5 rounded-full hover:bg-blue-50/80 font-medium flex items-center gap-1.5"
+            >
+              <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M17.707 9.293a1 1 0 010 1.414l-7 7a1 1 0 01-1.414 0l-7-7A.997.997 0 012 10V5a3 3 0 013-3h5c.256 0 .512.098.707.293l7 7zM5 6a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd"/>
+              </svg>
+              カテゴリ管理
             </Link>
           )}
 

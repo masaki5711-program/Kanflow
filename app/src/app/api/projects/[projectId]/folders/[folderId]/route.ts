@@ -6,6 +6,8 @@ import { z } from "zod"
 const updateSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   sortOrder: z.number().int().optional(),
+  /** Reparent. null = move to root. */
+  parentId: z.string().nullable().optional(),
 })
 
 export async function PATCH(
@@ -19,6 +21,28 @@ export async function PATCH(
   try {
     const body = await request.json()
     const data = updateSchema.parse(body)
+
+    // Guard: parentId must not equal self and must not create a cycle.
+    if (data.parentId === folderId) {
+      return NextResponse.json({ error: "自分自身を親にはできません" }, { status: 400 })
+    }
+    if (data.parentId) {
+      // Walk up to ensure folderId is not in the new parent's ancestry.
+      let cursor: string | null = data.parentId
+      const seen = new Set<string>()
+      while (cursor) {
+        if (cursor === folderId) {
+          return NextResponse.json({ error: "循環参照になります" }, { status: 400 })
+        }
+        if (seen.has(cursor)) break
+        seen.add(cursor)
+        const parent: { parentId: string | null } | null = await prisma.attachmentFolder.findUnique({
+          where: { id: cursor },
+          select: { parentId: true },
+        })
+        cursor = parent?.parentId ?? null
+      }
+    }
 
     const folder = await prisma.attachmentFolder.update({
       where: { id: folderId, projectId },

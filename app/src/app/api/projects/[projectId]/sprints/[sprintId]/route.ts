@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { requireProjectMember } from "@/lib/api-helpers"
+import { requireProjectMember, requireProjectAccess } from "@/lib/api-helpers"
 import { z } from "zod"
 
 const updateSchema = z.object({
@@ -22,7 +22,7 @@ export async function GET(
   { params }: { params: Promise<{ projectId: string; sprintId: string }> }
 ) {
   const { projectId, sprintId } = await params
-  const result = await requireProjectMember(projectId)
+  const result = await requireProjectAccess(projectId, "read")
   if ("error" in result) return result.error
 
   const sprint = await prisma.sprint.findFirst({

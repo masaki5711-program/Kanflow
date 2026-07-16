@@ -6,6 +6,7 @@ import { z } from "zod"
 
 const patchSchema = z.object({
   folderId: z.string().nullable().optional(),
+  sortOrder: z.number().int().optional(),
 })
 
 /**
@@ -123,9 +124,13 @@ export async function PATCH(
       if (!folder) return NextResponse.json({ error: "フォルダがありません" }, { status: 404 })
     }
 
+    const updateData: Record<string, unknown> = {}
+    if (data.folderId !== undefined) updateData.folderId = data.folderId
+    if (data.sortOrder !== undefined) updateData.sortOrder = data.sortOrder
+
     const attachment = await prisma.projectAttachment.update({
       where: { id: attachmentId, projectId },
-      data: { folderId: data.folderId ?? null },
+      data: updateData,
     })
 
     return NextResponse.json(attachment)

@@ -13,7 +13,7 @@ const updateSchema = z.object({
   assignedPo: z.string().max(200).nullable().optional(),
   initiative: z.string().max(500).nullable().optional(),
   epic: z.string().max(500).nullable().optional(),
-  userStory: z.string().max(5000).nullable().optional(),
+  userStory: z.string().nullable().optional(),
   status: z.enum(["staged", "ready", "released", "deferred"]).optional(),
 })
 

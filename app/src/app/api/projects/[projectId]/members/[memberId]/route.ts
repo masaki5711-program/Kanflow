@@ -19,6 +19,25 @@ export async function PATCH(
     const body = await request.json()
     const data = updateSchema.parse(body)
 
+    // Prevent demoting the last PO — the project must always have at least one.
+    if (data.role !== "po") {
+      const target = await prisma.projectMember.findFirst({
+        where: { id: memberId, projectId },
+        select: { role: true },
+      })
+      if (target?.role === "po") {
+        const poCount = await prisma.projectMember.count({
+          where: { projectId, role: "po" },
+        })
+        if (poCount <= 1) {
+          return NextResponse.json(
+            { error: "最後のPOを降格することはできません。先に別のメンバーをPOに昇格してください。" },
+            { status: 400 }
+          )
+        }
+      }
+    }
+
     const member = await prisma.projectMember.update({
       where: { id: memberId, projectId },
       data: { role: data.role },
@@ -42,6 +61,23 @@ export async function DELETE(
   const { projectId, memberId } = await params
   const result = await requireProjectMember(projectId, { roles: ["po", "sm"] })
   if ("error" in result) return result.error
+
+  // Prevent removing the last PO.
+  const target = await prisma.projectMember.findFirst({
+    where: { id: memberId, projectId },
+    select: { role: true },
+  })
+  if (target?.role === "po") {
+    const poCount = await prisma.projectMember.count({
+      where: { projectId, role: "po" },
+    })
+    if (poCount <= 1) {
+      return NextResponse.json(
+        { error: "最後のPOを削除することはできません。先に別のメンバーをPOに昇格してください。" },
+        { status: 400 }
+      )
+    }
+  }
 
   try {
     await prisma.projectMember.delete({ where: { id: memberId, projectId } })

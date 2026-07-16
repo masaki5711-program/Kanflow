@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { requireProjectMember } from "@/lib/api-helpers"
 import { recalcSprintActualScore } from "@/lib/sprint-score"
+import { syncPbiStatusFromTasks } from "@/lib/pbi-status-sync"
 import { z } from "zod"
 
 const updateSchema = z.object({
@@ -10,6 +11,7 @@ const updateSchema = z.object({
   estimatedHours: z.number().nullable().optional(),
   actualHours: z.number().nullable().optional(),
   status: z.enum(["todo", "in_progress", "review", "done"]).optional(),
+  completionComment: z.string().max(5000).nullable().optional(),
 })
 
 export async function PATCH(
@@ -32,7 +34,11 @@ export async function PATCH(
 
     const updateData: Record<string, unknown> = { ...data }
     if (data.status === "done") updateData.completedAt = new Date()
-    else if (data.status) updateData.completedAt = null
+    else if (data.status) {
+      updateData.completedAt = null
+      // Reverting from done back to another status — drop the completion note.
+      if (data.completionComment === undefined) updateData.completionComment = null
+    }
 
     const task = await prisma.sprintBacklogItem.update({
       where: { id: taskId },
@@ -41,6 +47,7 @@ export async function PATCH(
     })
 
     await recalcSprintActualScore(sprintId)
+    if (task.pbItemId) await syncPbiStatusFromTasks(task.pbItemId)
 
     return NextResponse.json(task)
   } catch (error) {
@@ -62,12 +69,13 @@ export async function DELETE(
 
   const existing = await prisma.sprintBacklogItem.findFirst({
     where: { id: taskId, sprintId, sprint: { projectId } },
-    select: { id: true },
+    select: { id: true, pbItemId: true },
   })
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
   await prisma.sprintBacklogItem.delete({ where: { id: taskId } })
   await recalcSprintActualScore(sprintId)
+  if (existing.pbItemId) await syncPbiStatusFromTasks(existing.pbItemId)
 
   return NextResponse.json({ success: true })
 }

@@ -16,7 +16,28 @@ export default async function ProjectDashboard({
   const membership = await prisma.projectMember.findFirst({
     where: { projectId, userId: session.user.id },
   })
-  if (!membership) notFound()
+  let effectiveRole = membership?.role ?? null
+  if (!membership) {
+    // Admin: full PO-level access. Section manager: read access if project's
+    // section overlaps with one of the user's sections.
+    if (session.user.role === "admin") {
+      effectiveRole = "po"
+    } else if (session.user.role === "section_manager") {
+      const project = await prisma.project.findUnique({
+        where: { id: projectId },
+        select: { sections: { select: { sectionId: true } } },
+      })
+      const projectSectionIds = project?.sections.map((s) => s.sectionId) ?? []
+      if (projectSectionIds.length > 0) {
+        const overlap = await prisma.userSection.findFirst({
+          where: { userId: session.user.id, sectionId: { in: projectSectionIds } },
+          select: { sectionId: true },
+        })
+        if (overlap) effectiveRole = "section_manager"
+      }
+    }
+    if (!effectiveRole) notFound()
+  }
 
   const project = await prisma.project.findUnique({
     where: { id: projectId },
@@ -24,9 +45,9 @@ export default async function ProjectDashboard({
       productGoals: { orderBy: { createdAt: "asc" } },
       attachmentFolders: {
         orderBy: { sortOrder: "asc" },
-        include: { attachments: { orderBy: { createdAt: "desc" } } },
+        include: { attachments: { orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }] } },
       },
-      attachments: { orderBy: { createdAt: "desc" } },
+      attachments: { orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }] },
       _count: {
         select: {
           iceboxItems: true,
@@ -71,6 +92,8 @@ export default async function ProjectDashboard({
       folders={project.attachmentFolders.map((f) => ({
         id: f.id,
         name: f.name,
+        parentId: f.parentId,
+        sortOrder: f.sortOrder,
         attachments: f.attachments.map((a) => ({
           id: a.id,
           originalName: a.originalName,
@@ -96,7 +119,7 @@ export default async function ProjectDashboard({
       backlogCount={project._count.backlogItems}
       sprintCount={project._count.sprints}
       projectProgressPct={projectProgressPct}
-      currentUserRole={membership.role}
+      currentUserRole={effectiveRole ?? "member"}
       activeSprint={
         activeSprint
           ? {

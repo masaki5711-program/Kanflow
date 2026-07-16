@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { requireProjectMember } from "@/lib/api-helpers"
+import { requireProjectAccess } from "@/lib/api-helpers"
 import { z } from "zod"
 
 const updateSchema = z.object({
   author: z.string().max(200).optional(),
   request: z.string().min(1).max(5000).optional(),
   background: z.string().max(5000).nullable().optional(),
-  status: z.enum(["unreviewed", "reviewed", "frozen"]).optional(),
+  status: z.enum(["unreviewed", "reviewed", "completed", "frozen"]).optional(),
   assignedPo: z.string().max(200).nullable().optional(),
   poHearingMemo: z.string().max(5000).nullable().optional(),
   poReviewMemo: z.string().max(5000).nullable().optional(),
@@ -25,7 +25,7 @@ export async function PATCH(
   { params }: { params: Promise<{ projectId: string; itemId: string }> }
 ) {
   const { projectId, itemId } = await params
-  const result = await requireProjectMember(projectId)
+  const result = await requireProjectAccess(projectId, "icebox")
   if ("error" in result) return result.error
 
   try {
@@ -53,7 +53,7 @@ export async function DELETE(
   { params }: { params: Promise<{ projectId: string; itemId: string }> }
 ) {
   const { projectId, itemId } = await params
-  const result = await requireProjectMember(projectId, { roles: ["po"] })
+  const result = await requireProjectAccess(projectId, "icebox")
   if ("error" in result) return result.error
 
   try {

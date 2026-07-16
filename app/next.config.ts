@@ -4,6 +4,20 @@ const collaboraUrl = process.env.NEXT_PUBLIC_COLLABORA_URL ?? "http://localhost:
 const collaboraWs = collaboraUrl.replace(/^http/, "ws");
 
 const nextConfig: NextConfig = {
+  // Standalone build disabled on this native Windows host.
+  // Turbopack production + Prisma WASM compiler leaves `[externals]_node:*`
+  // chunks unresolved in standalone mode (see 2026-05-25 incident). We use
+  // `npx next start` against the regular `.next/` output instead, built with
+  // `next build --webpack` to keep externals handled correctly.
+  // output: "standalone",
+  outputFileTracingIncludes: {
+    "/api/projects/**": [
+      "node_modules/pdf-parse/**",
+      "node_modules/mammoth/**",
+      "node_modules/xlsx/**",
+      "node_modules/pptx-text-parser/**",
+    ],
+  },
   async headers() {
     return [
       {

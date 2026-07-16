@@ -5,7 +5,17 @@ import bcrypt from "bcryptjs"
 import "@/lib/auth-types"
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
-  session: { strategy: "jwt" },
+  // 2-hour idle timeout (security): server side absolute upper bound for the
+  // JWT cookie. Rolling refresh every 10 min on user navigation so an
+  // actively used session stays alive without the user re-authenticating.
+  session: {
+    strategy: "jwt",
+    maxAge: 2 * 60 * 60,
+    updateAge: 10 * 60,
+  },
+  jwt: {
+    maxAge: 2 * 60 * 60,
+  },
   providers: [
     Credentials({
       name: "credentials",

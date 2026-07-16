@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useOverlayClose } from "@/lib/use-overlay-close"
 
 export interface MediaItem {
   id: string
@@ -79,13 +80,13 @@ export default function MediaPreviewModal({ projectId, items, startIndex, onClos
   const sep = baseUrl.includes("?") ? "&" : "?"
   const downloadUrl = `${baseUrl}${sep}download=1`
 
+  const overlay = useOverlayClose(onClose)
+
   return (
     <div
       ref={containerRef}
       className="fixed inset-0 z-50 bg-black/90 flex flex-col"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose()
-      }}
+      {...overlay}
     >
       {/* Top bar */}
       <div className="flex items-center justify-between px-4 py-3 bg-black/50 text-white shrink-0">

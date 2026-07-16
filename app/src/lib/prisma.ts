@@ -20,6 +20,12 @@ function createPrismaClient() {
     password: getRequiredEnv("DATABASE_PASSWORD"),
     database: getRequiredEnv("DATABASE_NAME", "scrum_tool"),
     connectionLimit: 5,
+    // MySQL 8.4 uses caching_sha2_password. Over a non-TLS loopback
+    // connection the mariadb driver must fetch the server's RSA public key
+    // to encrypt the password; without this it fails with
+    // ER_CANNOT_RETRIEVE_RSA_KEY and the pool times out. Safe here because
+    // the connection is local (127.0.0.1).
+    allowPublicKeyRetrieval: true,
   })
   return new PrismaClient({ adapter })
 }

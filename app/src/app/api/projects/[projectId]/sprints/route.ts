@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { requireProjectMember } from "@/lib/api-helpers"
+import { requireProjectMember, requireProjectAccess } from "@/lib/api-helpers"
 import { z } from "zod"
 
 const createSchema = z.object({
@@ -17,7 +17,7 @@ export async function GET(
   { params }: { params: Promise<{ projectId: string }> }
 ) {
   const { projectId } = await params
-  const result = await requireProjectMember(projectId)
+  const result = await requireProjectAccess(projectId, "read")
   if ("error" in result) return result.error
 
   const sprints = await prisma.sprint.findMany({
@@ -62,6 +62,23 @@ export async function POST(
     const end = new Date(data.endDate)
     if (isNaN(start.getTime()) || isNaN(end.getTime())) {
       return NextResponse.json({ error: "日付が不正です" }, { status: 400 })
+    }
+
+    // Guard against sprint sprawl: don't allow creating a new sprint while a
+    // planning or active one already exists in this project. The PO/SM must
+    // finish or archive existing work first.
+    const blocker = await prisma.sprint.findFirst({
+      where: { projectId, status: { in: ["planning", "active"] } },
+      select: { id: true, sprintName: true, status: true },
+    })
+    if (blocker) {
+      return NextResponse.json(
+        {
+          error: "進行中または計画中のスプリントが既にあります",
+          blocker,
+        },
+        { status: 409 }
+      )
     }
 
     const sprint = await prisma.sprint.create({

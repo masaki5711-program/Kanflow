@@ -6,6 +6,7 @@ import {
   EVENT_COLORS,
   eventColorDot,
 } from "./calendar-types"
+import { useOverlayClose } from "@/lib/use-overlay-close"
 
 interface EventModalProps {
   show: boolean
@@ -34,11 +35,12 @@ export default function EventModal({
   if (!show) return null
 
   const hasError = !eventForm.title.trim() && eventForm.title !== ""
+  const overlay = useOverlayClose(onClose)
 
   return (
     <div
       className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4"
-      onClick={onClose}
+      {...overlay}
     >
       <div
         className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden"
@@ -76,7 +78,7 @@ export default function EventModal({
                 value={eventForm.title}
                 onChange={(e) => onFormChange({ ...eventForm, title: e.target.value })}
                 required
-                placeholder="Enter event title..."
+                placeholder={t.eventTitlePlaceholder}
                 className={`w-full px-3.5 py-2.5 border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow ${
                   hasError ? "border-red-400 ring-1 ring-red-300" : "border-gray-200"
                 }`}
@@ -92,7 +94,7 @@ export default function EventModal({
                 value={eventForm.description}
                 onChange={(e) => onFormChange({ ...eventForm, description: e.target.value })}
                 rows={2}
-                placeholder="Optional description..."
+                placeholder={t.eventDescriptionPlaceholder}
                 className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow resize-none"
               />
             </div>

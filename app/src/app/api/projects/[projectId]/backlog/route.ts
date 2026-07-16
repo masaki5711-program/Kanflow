@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { requireProjectMember } from "@/lib/api-helpers"
+import { auth } from "@/lib/auth"
+import { requireProjectMember, requireProjectAccess } from "@/lib/api-helpers"
 import { z } from "zod"
 
 const createSchema = z.object({
   initiative: z.string().max(500).optional(),
   epic: z.string().max(500).optional(),
-  userStory: z.string().max(5000).optional(),
+  userStory: z.string().optional(),
   acceptanceCriteria: z.string().max(5000).optional(),
   referenceDoc: z.string().max(10000).optional(),
   workloadScore: z.number().int().min(0).optional(),
@@ -23,7 +24,7 @@ export async function GET(
   { params }: { params: Promise<{ projectId: string }> }
 ) {
   const { projectId } = await params
-  const result = await requireProjectMember(projectId)
+  const result = await requireProjectAccess(projectId, "read")
   if ("error" in result) return result.error
 
   const items = await prisma.productBacklogItem.findMany({
@@ -31,6 +32,14 @@ export async function GET(
     include: {
       iceboxItem: { select: { id: true, displayId: true, request: true } },
       productGoal: { select: { id: true, title: true } },
+      // Sprints currently working on this PBI (planning/active only) so the
+      // backlog list can mark Ready items that are already picked up.
+      sprintItems: {
+        where: { sprint: { status: { in: ["planning", "active"] } } },
+        select: {
+          sprint: { select: { id: true, sprintName: true, status: true } },
+        },
+      },
     },
     orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
   })
@@ -49,8 +58,17 @@ export async function POST(
   { params }: { params: Promise<{ projectId: string }> }
 ) {
   const { projectId } = await params
-  const result = await requireProjectMember(projectId, { roles: ["po"] })
-  if ("error" in result) return result.error
+  const session = await auth()
+  const isAdmin = session?.user?.role === "admin"
+  if (!isAdmin) {
+    // PO can author from scratch; SM can also create PBIs when adding from
+    // a sprint (sprint planning often surfaces missing PBIs that SM has to
+    // turn into real items mid-flight).
+    const result = await requireProjectMember(projectId, { roles: ["po", "sm"] })
+    if ("error" in result) return result.error
+  } else if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
 
   try {
     const body = await request.json()

@@ -17,10 +17,13 @@ const navItems: { labelKey: keyof ProjectTypeLabels; href: string; icon: string 
 ]
 
 // i18n key nav items (not project-type dependent)
-type I18nNavItem = { labelKey: "ganttTitle" | "calendarTitle" | "guideTitle"; href: string; icon: string }
+type I18nNavItem = { labelKey: "ganttTitle" | "calendarTitle" | "guideTitle" | "chatTitle" | "burndownPageTitle" | "planTitle"; href: string; icon: string }
 const i18nNavItems: I18nNavItem[] = [
+  { labelKey: "planTitle", href: "/plan", icon: "plan" },
   { labelKey: "ganttTitle", href: "/gantt", icon: "gantt" },
   { labelKey: "calendarTitle", href: "/calendar", icon: "calendar" },
+  { labelKey: "burndownPageTitle", href: "/burndown", icon: "burndown" },
+  { labelKey: "chatTitle", href: "/chat", icon: "chat" },
   { labelKey: "guideTitle", href: "/guide", icon: "guide" },
 ]
 
@@ -76,6 +79,24 @@ function NavIcon({ type, active }: { type: string; active: boolean }) {
       return (
         <svg className={cls} viewBox="0 0 20 20" fill="currentColor">
           <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a.75.75 0 000 1.5h.253a.25.25 0 01.244.304l-.459 2.066A1.75 1.75 0 0010.747 15H11a.75.75 0 000-1.5h-.253a.25.25 0 01-.244-.304l.459-2.066A1.75 1.75 0 009.253 9H9z" clipRule="evenodd"/>
+        </svg>
+      )
+    case "chat":
+      return (
+        <svg className={cls} viewBox="0 0 20 20" fill="currentColor">
+          <path fillRule="evenodd" d="M18 5v8a2 2 0 01-2 2h-5l-5 4v-4H4a2 2 0 01-2-2V5a2 2 0 012-2h12a2 2 0 012 2zM7 8H5v2h2V8zm2 0h2v2H9V8zm6 0h-2v2h2V8z" clipRule="evenodd"/>
+        </svg>
+      )
+    case "burndown":
+      return (
+        <svg className={cls} viewBox="0 0 20 20" fill="currentColor">
+          <path d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM5 6a1 1 0 011-1h2a1 1 0 011 1v8a1 1 0 01-1 1H6a1 1 0 01-1-1V6zM11 3a1 1 0 011-1h2a1 1 0 011 1v11a1 1 0 01-1 1h-2a1 1 0 01-1-1V3z"/>
+        </svg>
+      )
+    case "plan":
+      return (
+        <svg className={cls} viewBox="0 0 20 20" fill="currentColor">
+          <path d="M2 5a2 2 0 012-2h2a2 2 0 012 2v1h2a2 2 0 012 2v1h2a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V5zm2 0v1h2V5H4zm4 3v1h2V8H8zm4 3v6h2v-6h-2z"/>
         </svg>
       )
     case "settings":

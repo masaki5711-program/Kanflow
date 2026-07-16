@@ -24,8 +24,73 @@ model User {
   memberships       ProjectMember[]
   sessions          Session[]
   projectCategories UserProjectCategory[]
+  sections          UserSection[]
+  favoriteProjects  UserProjectFavorite[]
+  fixedTasks        UserFixedTask[]
 
   @@index([department])
+}
+
+/// A user-defined group of related sprint sub-tasks. `taskName` is the group's
+/// display name (e.g. "設備購入"); children in `items` are the concrete sub-tasks
+/// that get bulk-inserted under a single PBI when the group is picked from
+/// the dropdown in the sprint task form.
+/// A row in the project's master plan ("全体計画") — independent of sprints
+/// and PBIs. Supports unlimited nesting via parentId. Progress on non-leaf
+/// items is auto-aggregated from children; leaf items take manual progress.
+/// `status="delayed"` is set manually by the user to surface a red bar
+/// regardless of actual dates.
+model PlanItem {
+  id            String     @id @default(cuid())
+  projectId     String
+  parentId      String?
+  name          String     @db.VarChar(255)
+  description   String?    @db.Text
+  plannedStart  DateTime
+  plannedEnd    DateTime
+  actualStart   DateTime?
+  actualEnd     DateTime?
+  progressPct   Int        @default(0)
+  color         String?    @db.VarChar(32)
+  status        String     @default("not_started")
+  sortOrder     Int        @default(0)
+  isMilestone   Boolean    @default(false)
+  notes         String?    @db.Text
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  project       Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parent        PlanItem?  @relation("PlanItemTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children      PlanItem[] @relation("PlanItemTree")
+
+  @@index([projectId])
+  @@index([parentId])
+  @@index([projectId, sortOrder])
+}
+
+model UserFixedTask {
+  id        String              @id @default(cuid())
+  userId    String
+  taskName  String
+  sortOrder Int                 @default(0)
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+  user      User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items     UserFixedTaskItem[]
+
+  @@index([userId])
+}
+
+model UserFixedTaskItem {
+  id        String        @id @default(cuid())
+  groupId   String
+  taskName  String
+  sortOrder Int           @default(0)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  group     UserFixedTask @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([groupId])
 }
 
 model Account {
@@ -63,8 +128,8 @@ model Project {
   description         String?                         @db.Text
   status              String                          @default("active")
   defaultCapacity     Int                             @default(0)
-  sprintDurationWeeks Int                             @default(1)
-  pointUnit           String                          @default("人日")
+  sprintDurationDays  Int                             @default(7)
+  pointUnit           String                          @default("SP")
   pointDescription    String?                         @db.Text
   language            String                          @default("ja")
   createdAt           DateTime                        @default(now())
@@ -80,7 +145,86 @@ model Project {
   members             ProjectMember[]
   releaseItems        ReleaseBacklogItem[]
   sprints             Sprint[]
+  sections            ProjectSection[]
   categoryAssignments UserProjectCategoryAssignment[]
+  adminCategoryAssignments AdminCategoryAssignment[]
+  favoritedBy         UserProjectFavorite[]
+  planItems           PlanItem[]
+}
+
+model Section {
+  id          String                    @id @default(cuid())
+  name        String                    @unique
+  description String?                   @db.Text
+  sortOrder   Int                       @default(0)
+  createdAt   DateTime                  @default(now())
+  updatedAt   DateTime                  @updatedAt
+  users       UserSection[]
+  projects    ProjectSection[]
+  categories  AdminCategory[]
+}
+
+model ProjectSection {
+  projectId  String
+  sectionId  String
+  assignedAt DateTime @default(now())
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  section    Section  @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, sectionId])
+  @@index([projectId])
+  @@index([sectionId])
+}
+
+model UserSection {
+  userId     String
+  sectionId  String
+  assignedAt DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  section    Section  @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+
+  @@id([userId, sectionId])
+  @@index([userId])
+  @@index([sectionId])
+}
+
+model UserProjectFavorite {
+  userId    String
+  projectId String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@id([userId, projectId])
+  @@index([userId])
+  @@index([projectId])
+}
+
+model AdminCategory {
+  id          String                    @id @default(cuid())
+  name        String
+  color       String                    @default("gray")
+  sortOrder   Int                       @default(0)
+  sectionId   String?
+  createdAt   DateTime                  @default(now())
+  updatedAt   DateTime                  @updatedAt
+  section     Section?                  @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  assignments AdminCategoryAssignment[]
+
+  @@unique([sectionId, name])
+  @@index([sectionId])
+}
+
+model AdminCategoryAssignment {
+  id         String        @id @default(cuid())
+  categoryId String
+  projectId  String
+  category   AdminCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  project    Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([categoryId, projectId])
+  @@index([categoryId])
+  @@index([projectId])
 }
 
 model ProjectMember {
@@ -100,7 +244,7 @@ model ProjectMember {
 model ProductGoal {
   id           String               @id @default(cuid())
   projectId    String
-  title        String
+  title        String               @db.Text
   description  String?              @db.Text
   createdAt    DateTime             @default(now())
   updatedAt    DateTime             @updatedAt
@@ -199,24 +343,41 @@ model Sprint {
   retrospectiveTry  String?             @db.Text
   reviewComment     String?             @db.Text
   calendarEvents    CalendarEvent[]
+  dailyScrumNotes   DailyScrumNote[]
   project           Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
   items             SprintBacklogItem[]
 
   @@index([projectId])
 }
 
+model DailyScrumNote {
+  id         String    @id @default(cuid())
+  sprintId   String
+  date       DateTime
+  content    String    @db.Text
+  author     String?
+  archivedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  sprint     Sprint    @relation(fields: [sprintId], references: [id], onDelete: Cascade)
+
+  @@index([sprintId])
+  @@index([sprintId, date])
+}
+
 model SprintBacklogItem {
-  id             String             @id @default(cuid())
-  sprintId       String
-  pbItemId       String
-  taskName       String?
-  assignee       String?
-  estimatedHours Float?
-  actualHours    Float?
-  status         String             @default("todo")
-  completedAt    DateTime?
-  createdAt      DateTime           @default(now())
-  updatedAt      DateTime           @updatedAt
+  id                 String             @id @default(cuid())
+  sprintId           String
+  pbItemId           String
+  taskName           String?
+  assignee           String?
+  estimatedHours     Float?
+  actualHours        Float?
+  status             String             @default("todo")
+  completedAt        DateTime?
+  completionComment  String?            @db.Text
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
   pbItem         ProductBacklogItem @relation(fields: [pbItemId], references: [id], onDelete: Cascade)
   sprint         Sprint             @relation(fields: [sprintId], references: [id], onDelete: Cascade)
 
@@ -272,14 +433,18 @@ model CalendarEvent {
 model AttachmentFolder {
   id          String              @id @default(cuid())
   projectId   String
+  parentId    String?
   name        String
   sortOrder   Int                 @default(0)
   createdAt   DateTime            @default(now())
   updatedAt   DateTime            @updatedAt
   project     Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parent      AttachmentFolder?   @relation("FolderTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children    AttachmentFolder[]  @relation("FolderTree")
   attachments ProjectAttachment[]
 
   @@index([projectId])
+  @@index([parentId])
 }
 
 model ProjectAttachment {
@@ -291,6 +456,7 @@ model ProjectAttachment {
   fileSize     Int
   mimeType     String
   uploadedBy   String?
+  sortOrder    Int               @default(0)
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
   folder       AttachmentFolder? @relation(fields: [folderId], references: [id])

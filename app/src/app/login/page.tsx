@@ -1,12 +1,13 @@
 "use client"
 
 import { signIn } from "next-auth/react"
-import { useRouter } from "next/navigation"
-import { useState } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
+import { useEffect, useState } from "react"
 import { type Language, getTranslations, languageLabels } from "@/lib/i18n"
 
 export default function LoginPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [language, setLanguage] = useState<Language>("ja")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
@@ -14,6 +15,15 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
 
   const t = getTranslations(language)
+
+  // Surface a friendly reason when the user was bounced here by the
+  // idle-logout watcher (?reason=idle). Falls back silently if not set.
+  useEffect(() => {
+    if (searchParams.get("reason") === "idle") {
+      setError(t.sessionTimedOut)
+    }
+    // Re-evaluate on language change so the message follows the language toggle.
+  }, [searchParams, t.sessionTimedOut])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -73,25 +83,32 @@ export default function LoginPage() {
         }
       `}</style>
 
-      <div className="w-full max-w-md relative">
-        {/* Language selector */}
-        <div className="flex justify-end gap-1 mb-3">
+      {/* Language selector — floating top-right */}
+      <div className="absolute top-6 right-6 z-10">
+        <div className="flex items-center gap-1 px-1.5 py-1.5 bg-white/70 backdrop-blur-xl rounded-full border border-white/60 shadow-sm shadow-gray-900/5">
+          <svg className="w-4 h-4 text-gray-400 ml-1.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm.5-1.526A6.5 6.5 0 0010 3.526V16.474zM3.526 9.5h2.99c.09-1.926.61-3.668 1.443-4.967A6.51 6.51 0 003.526 9.5zM7.957 5.61C7.193 6.78 6.692 8.323 6.6 10h2.9V5.526a6.49 6.49 0 00-1.543.083zm5.487 9.357c.832-1.299 1.353-3.04 1.443-4.967h2.99a6.51 6.51 0 01-4.433 4.967zM10.5 11.474V16a6.5 6.5 0 01-1.543-.083C8.193 14.78 7.692 13.237 7.6 11.5h2.9zm0-1.474h2.9c-.092-1.677-.593-3.22-1.357-4.39a6.49 6.49 0 00-1.543-.083V10zm-7-.5a6.5 6.5 0 016.5-6.5V10H3.5z" clipRule="evenodd"/>
+          </svg>
           {(Object.keys(languageLabels) as Language[]).map((lang) => (
             <button
               key={lang}
               type="button"
               onClick={() => setLanguage(lang)}
-              className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
+              aria-label={languageLabels[lang]}
+              aria-pressed={language === lang}
+              className={`px-2.5 py-1 rounded-full text-[11px] font-semibold tracking-wide transition-all ${
                 language === lang
-                  ? "bg-blue-600 text-white"
-                  : "bg-white/60 text-gray-500 hover:bg-white/80"
+                  ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-sm shadow-blue-500/30"
+                  : "text-gray-500 hover:text-gray-800 hover:bg-white/80"
               }`}
             >
-              {languageLabels[lang]}
+              {lang.toUpperCase()}
             </button>
           ))}
         </div>
+      </div>
 
+      <div className="w-full max-w-md relative">
         <div className="text-center mb-8">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/logo.svg" alt="Kanflow" width={64} height={64} className="mx-auto mb-4 shadow-lg shadow-blue-500/20 rounded-2xl" />

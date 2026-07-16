@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { requireProjectMember } from "@/lib/api-helpers"
+import { requireProjectAccess } from "@/lib/api-helpers"
 import { z } from "zod"
 
 const createSchema = z.object({
@@ -15,7 +15,7 @@ export async function GET(
   { params }: { params: Promise<{ projectId: string }> }
 ) {
   const { projectId } = await params
-  const result = await requireProjectMember(projectId)
+  const result = await requireProjectAccess(projectId, "read")
   if ("error" in result) return result.error
 
   const items = await prisma.iceboxItem.findMany({
@@ -27,6 +27,7 @@ export async function GET(
   return NextResponse.json({
     unreviewed: items.filter((i) => i.status === "unreviewed"),
     reviewed: items.filter((i) => i.status === "reviewed"),
+    completed: items.filter((i) => i.status === "completed"),
     frozen: items.filter((i) => i.status === "frozen"),
   })
 }
@@ -36,7 +37,7 @@ export async function POST(
   { params }: { params: Promise<{ projectId: string }> }
 ) {
   const { projectId } = await params
-  const result = await requireProjectMember(projectId)
+  const result = await requireProjectAccess(projectId, "icebox")
   if ("error" in result) return result.error
 
   try {

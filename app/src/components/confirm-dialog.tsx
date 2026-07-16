@@ -1,6 +1,7 @@
 "use client"
 
 import { createContext, useContext, useState, useCallback } from "react"
+import { useOverlayClose } from "@/lib/use-overlay-close"
 
 interface ConfirmOptions {
   title?: string
@@ -79,14 +80,7 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
     <ConfirmContext.Provider value={{ confirm }}>
       {children}
       {dialog && (
-        <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-[2px]"
-          onClick={handleCancel}
-          onKeyDown={(e) => {
-            if (e.key === "Escape") handleCancel()
-            if (e.key === "Enter") handleConfirm()
-          }}
-        >
+        <ConfirmOverlay onCancel={handleCancel} onConfirm={handleConfirm}>
           <div
             className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden animate-in"
             onClick={(e) => e.stopPropagation()}
@@ -124,8 +118,32 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
               </button>
             </div>
           </div>
-        </div>
+        </ConfirmOverlay>
       )}
     </ConfirmContext.Provider>
+  )
+}
+
+function ConfirmOverlay({
+  onCancel,
+  onConfirm,
+  children,
+}: {
+  onCancel: () => void
+  onConfirm: () => void
+  children: React.ReactNode
+}) {
+  const overlay = useOverlayClose(onCancel)
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-[2px]"
+      {...overlay}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") onCancel()
+        if (e.key === "Enter") onConfirm()
+      }}
+    >
+      {children}
+    </div>
   )
 }

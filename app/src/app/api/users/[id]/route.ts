@@ -6,10 +6,11 @@ import { z } from "zod/v4"
 const patchSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   email: z.string().email().max(200).optional(),
-  role: z.enum(["admin", "member"]).optional(),
+  role: z.enum(["admin", "section_manager", "member"]).optional(),
   isActive: z.boolean().optional(),
   employeeNumber: z.string().max(50).nullable().optional(),
   department: z.string().max(100).nullable().optional(),
+  sectionIds: z.array(z.string()).optional(),
 })
 
 function normalizeOptional(value: string | null | undefined): string | null | undefined {
@@ -59,14 +60,25 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
   const department = normalizeOptional(parsed.data.department)
 
-  const { employeeNumber: _en, department: _dept, ...rest } = parsed.data
+  const { employeeNumber: _en, department: _dept, sectionIds, ...rest } = parsed.data
   const updateData: Record<string, unknown> = { ...rest }
   if (employeeNumber !== undefined) updateData.employeeNumber = employeeNumber
   if (department !== undefined) updateData.department = department
 
-  const user = await prisma.user.update({
+  await prisma.$transaction(async (tx) => {
+    await tx.user.update({ where: { id }, data: updateData })
+    if (sectionIds !== undefined) {
+      await tx.userSection.deleteMany({ where: { userId: id } })
+      if (sectionIds.length > 0) {
+        await tx.userSection.createMany({
+          data: sectionIds.map((sectionId) => ({ userId: id, sectionId })),
+        })
+      }
+    }
+  })
+
+  const user = await prisma.user.findUnique({
     where: { id },
-    data: updateData,
     select: {
       id: true,
       name: true,
@@ -75,7 +87,11 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       isActive: true,
       employeeNumber: true,
       department: true,
+      sections: { include: { section: { select: { id: true, name: true } } } },
     },
   })
-  return NextResponse.json(user)
+  return NextResponse.json({
+    ...user,
+    sections: user?.sections.map((s) => s.section) ?? [],
+  })
 }

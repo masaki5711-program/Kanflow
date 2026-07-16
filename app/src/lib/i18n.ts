@@ -299,6 +299,8 @@ interface Translations {
   sprintUnassigned: string
   sprintEstimatedHoursShort: string
   sprintActualHoursShort: string
+  sprintTaskEstimateTotal: string
+  backlogInSprintBadge: string
   sprintNoTaskName: string
   sprintAddTaskShort: string
   sprintNoTasks: string
@@ -486,6 +488,83 @@ interface Translations {
   errorUpdateFailed: string
   errorChangeFailed: string
   errorResetPasswordFailed: string
+
+  // Top Page (Home)
+  topGreeting: string
+  topMyTasksDesc: string
+  topMyTasksEmpty: string
+  topStatTasks: string
+  topStatActiveProjects: string
+
+  // Fixed Tasks (personal task templates)
+  fixedTasksTitle: string
+  fixedTasksDesc: string
+  fixedTasksManage: string
+  fixedTasksAdd: string
+  fixedTasksEmpty: string
+  fixedTasksNamePlaceholder: string
+  fixedTasksSelectPlaceholder: string
+  fixedTasksApplyFromTemplate: string
+  fixedTasksGroupNamePlaceholder: string
+  fixedTasksItemNamePlaceholder: string
+  fixedTasksItemEmpty: string
+  fixedTasksBulkAdd: string
+  fixedTasksBulkAddPreview: string
+
+  // Report categorization
+  reportSectionNow: string
+  reportSectionUpcoming: string
+  reportSectionHistory: string
+  reportNoCurrentSprint: string
+  reportDaysRemaining: string
+  reportDaysOverdue: string
+  reportShowDetails: string
+  reportTaskProgress: string
+
+  // Sprint creation guard + Burndown page navigation
+  sprintCreateBlocked: string
+  burndownOpenPage: string
+  burndownPageTitle: string
+
+  // Auth — idle/auto-logout
+  sessionTimedOut: string
+
+  // Backlog — icebox reuse warning
+  backlogIceboxAlreadyUsedTitle: string
+  backlogIceboxAlreadyUsedBody: string
+  backlogIceboxAlreadyUsedTag: string
+  backlogIceboxReuseAnyway: string
+
+  // Master Plan (全体計画)
+  planTitle: string
+  planDesc: string
+  planAddItem: string
+  planAddChild: string
+  planAddMilestone: string
+  planEmpty: string
+  planNamePlaceholder: string
+  planPlannedStart: string
+  planPlannedEnd: string
+  planActualStart: string
+  planActualEnd: string
+  planStatus: string
+  planStatusNotStarted: string
+  planStatusInProgress: string
+  planStatusDone: string
+  planStatusOnHold: string
+  planStatusDelayed: string
+  planIsMilestone: string
+  planNotes: string
+  planZoomDay: string
+  planZoomWeek: string
+  planZoomMonth: string
+  planTodayJump: string
+  planProgressLegend: string
+  planDelayLegend: string
+  planSavedJustNow: string
+  planConfirmDelete: string
+  planIndent: string
+  planOutdent: string
 
   // Project List
   projectListTitle: string
@@ -781,6 +860,8 @@ const ja: Translations = {
   sprintUnassigned: "未割当",
   sprintEstimatedHoursShort: "見積工数",
   sprintActualHoursShort: "実績工数",
+  sprintTaskEstimateTotal: "タスク見積合計",
+  backlogInSprintBadge: "スプリント着手中",
   sprintNoTaskName: "(タスク名なし)",
   sprintAddTaskShort: "+ タスク",
   sprintNoTasks: "タスクがありません",
@@ -961,6 +1042,76 @@ const ja: Translations = {
   errorUpdateFailed: "更新に失敗しました",
   errorChangeFailed: "変更に失敗しました",
   errorResetPasswordFailed: "パスワードリセットに失敗しました",
+
+  topGreeting: "おかえりなさい",
+  topMyTasksDesc: "進行中スプリントで自分に割り当てられたタスク",
+  topMyTasksEmpty: "現在割り当てられているスプリントタスクはありません",
+  topStatTasks: "進行中タスク",
+  topStatActiveProjects: "アクティブなプロジェクト",
+
+  fixedTasksTitle: "固定タスク郡",
+  fixedTasksDesc: "親タスク(例: 設備購入)に子タスク(仕様作成・ベンダー選定など)を登録しておくと、スプリントタスク登録時に一括追加できます",
+  fixedTasksManage: "固定タスク管理",
+  fixedTasksAdd: "追加",
+  fixedTasksEmpty: "まだ固定タスク郡が登録されていません",
+  fixedTasksNamePlaceholder: "親タスク名(例: 設備購入)",
+  fixedTasksSelectPlaceholder: "-- 固定タスク郡から選択 --",
+  fixedTasksApplyFromTemplate: "テンプレートから一括追加",
+  fixedTasksGroupNamePlaceholder: "親タスク名(例: 設備購入)",
+  fixedTasksItemNamePlaceholder: "子タスク名(例: 仕様作成)",
+  fixedTasksItemEmpty: "子タスクがありません",
+  fixedTasksBulkAdd: "全て追加",
+  fixedTasksBulkAddPreview: "選択した郡から追加されるタスク",
+
+  reportSectionNow: "現在のスプリント",
+  reportSectionUpcoming: "今後のスプリント",
+  reportSectionHistory: "過去のスプリント",
+  reportNoCurrentSprint: "現在進行中のスプリントはありません",
+  reportDaysRemaining: "残り",
+  reportDaysOverdue: "超過",
+  reportShowDetails: "詳細を表示",
+  reportTaskProgress: "タスク進捗",
+
+  sprintCreateBlocked: "進行中または計画中のスプリントがあるため作成できません",
+  burndownOpenPage: "バーンダウンを開く",
+  burndownPageTitle: "バーンダウンチャート",
+
+  sessionTimedOut: "セッションがタイムアウトしました。再度ログインしてください。",
+
+  backlogIceboxAlreadyUsedTitle: "この Icebox は既に使用されています",
+  backlogIceboxAlreadyUsedBody: "既存の PBI で参照されています。同じ Icebox を別の PBI でも使用しますか?",
+  backlogIceboxAlreadyUsedTag: "使用中",
+  backlogIceboxReuseAnyway: "それでも使用する",
+
+  planTitle: "全体計画",
+  planDesc: "スプリント・PBI とは独立した長期計画。ステータスから進捗が自動集計されます。",
+  planAddItem: "項目を追加",
+  planAddChild: "子項目を追加",
+  planAddMilestone: "マイルストーン追加",
+  planEmpty: "まだ計画項目がありません",
+  planNamePlaceholder: "項目名 (例: 設計フェーズ)",
+  planPlannedStart: "計画開始",
+  planPlannedEnd: "計画終了",
+  planActualStart: "実績開始",
+  planActualEnd: "実績終了",
+  planStatus: "ステータス",
+  planStatusNotStarted: "未着手",
+  planStatusInProgress: "進行中",
+  planStatusDone: "完了",
+  planStatusOnHold: "保留",
+  planStatusDelayed: "遅延",
+  planIsMilestone: "マイルストーン",
+  planNotes: "メモ",
+  planZoomDay: "日",
+  planZoomWeek: "週",
+  planZoomMonth: "月",
+  planTodayJump: "今日へ",
+  planProgressLegend: "進捗",
+  planDelayLegend: "遅延",
+  planSavedJustNow: "保存しました",
+  planConfirmDelete: "この項目(と子)を削除しますか?",
+  planIndent: "子に降格",
+  planOutdent: "親へ昇格",
 
   projectListTitle: "プロジェクト一覧",
   projectListCount: "件のアクティブなプロジェクト",
@@ -1250,6 +1401,8 @@ const en: Translations = {
   sprintUnassigned: "Unassigned",
   sprintEstimatedHoursShort: "Estimated",
   sprintActualHoursShort: "Actual",
+  sprintTaskEstimateTotal: "Task est. total",
+  backlogInSprintBadge: "In active sprint",
   sprintNoTaskName: "(No task name)",
   sprintAddTaskShort: "+ Task",
   sprintNoTasks: "No tasks",
@@ -1430,6 +1583,76 @@ const en: Translations = {
   errorUpdateFailed: "Update failed",
   errorChangeFailed: "Change failed",
   errorResetPasswordFailed: "Password reset failed",
+
+  topGreeting: "Welcome back",
+  topMyTasksDesc: "Your tasks across active sprints",
+  topMyTasksEmpty: "No sprint tasks assigned to you right now",
+  topStatTasks: "Tasks in progress",
+  topStatActiveProjects: "Active projects",
+
+  fixedTasksTitle: "Fixed Task Groups",
+  fixedTasksDesc: "Register a parent group (e.g. Equipment Purchase) with child sub-tasks (Spec / Vendor pick / RFQ / PO) — bulk-insert them into a sprint with one click",
+  fixedTasksManage: "Manage Fixed Tasks",
+  fixedTasksAdd: "Add",
+  fixedTasksEmpty: "No fixed task groups yet",
+  fixedTasksNamePlaceholder: "Parent group name (e.g. Equipment Purchase)",
+  fixedTasksSelectPlaceholder: "-- Pick a fixed task group --",
+  fixedTasksApplyFromTemplate: "Bulk-insert from template",
+  fixedTasksGroupNamePlaceholder: "Parent group name (e.g. Equipment Purchase)",
+  fixedTasksItemNamePlaceholder: "Child sub-task name (e.g. Write spec)",
+  fixedTasksItemEmpty: "No child sub-tasks",
+  fixedTasksBulkAdd: "Add all",
+  fixedTasksBulkAddPreview: "Tasks to be added from the selected group",
+
+  reportSectionNow: "Current Sprint",
+  reportSectionUpcoming: "Upcoming Sprints",
+  reportSectionHistory: "Past Sprints",
+  reportNoCurrentSprint: "No sprint is currently in progress",
+  reportDaysRemaining: "days left",
+  reportDaysOverdue: "days overdue",
+  reportShowDetails: "Show details",
+  reportTaskProgress: "Task progress",
+
+  sprintCreateBlocked: "Cannot create — an active or planning sprint already exists",
+  burndownOpenPage: "Open burndown",
+  burndownPageTitle: "Burndown Chart",
+
+  sessionTimedOut: "Your session has timed out. Please log in again.",
+
+  backlogIceboxAlreadyUsedTitle: "This Icebox item is already in use",
+  backlogIceboxAlreadyUsedBody: "Another PBI already references this Icebox item. Use it for this PBI as well?",
+  backlogIceboxAlreadyUsedTag: "in use",
+  backlogIceboxReuseAnyway: "Use anyway",
+
+  planTitle: "Master Plan",
+  planDesc: "Long-term plan independent of sprints and PBIs. Progress is auto-aggregated from item status.",
+  planAddItem: "Add item",
+  planAddChild: "Add child",
+  planAddMilestone: "Add milestone",
+  planEmpty: "No plan items yet",
+  planNamePlaceholder: "Item name (e.g. Design phase)",
+  planPlannedStart: "Planned start",
+  planPlannedEnd: "Planned end",
+  planActualStart: "Actual start",
+  planActualEnd: "Actual end",
+  planStatus: "Status",
+  planStatusNotStarted: "Not started",
+  planStatusInProgress: "In progress",
+  planStatusDone: "Done",
+  planStatusOnHold: "On hold",
+  planStatusDelayed: "Delayed",
+  planIsMilestone: "Milestone",
+  planNotes: "Notes",
+  planZoomDay: "Day",
+  planZoomWeek: "Week",
+  planZoomMonth: "Month",
+  planTodayJump: "Today",
+  planProgressLegend: "Progress",
+  planDelayLegend: "Delayed",
+  planSavedJustNow: "Saved",
+  planConfirmDelete: "Delete this item (and its children)?",
+  planIndent: "Demote",
+  planOutdent: "Promote",
 
   projectListTitle: "Projects",
   projectListCount: "active projects",
@@ -1719,6 +1942,8 @@ const id: Translations = {
   sprintUnassigned: "Belum ditugaskan",
   sprintEstimatedHoursShort: "Estimasi",
   sprintActualHoursShort: "Aktual",
+  sprintTaskEstimateTotal: "Total estimasi tugas",
+  backlogInSprintBadge: "Sedang dikerjakan di sprint",
   sprintNoTaskName: "(Tanpa nama tugas)",
   sprintAddTaskShort: "+ Tugas",
   sprintNoTasks: "Tidak ada tugas",
@@ -1899,6 +2124,76 @@ const id: Translations = {
   errorUpdateFailed: "Gagal memperbarui",
   errorChangeFailed: "Gagal mengubah",
   errorResetPasswordFailed: "Gagal mereset kata sandi",
+
+  topGreeting: "Selamat datang kembali",
+  topMyTasksDesc: "Tugas Anda di sprint yang sedang berjalan",
+  topMyTasksEmpty: "Belum ada tugas sprint yang ditugaskan untuk Anda",
+  topStatTasks: "Tugas sedang dikerjakan",
+  topStatActiveProjects: "Proyek aktif",
+
+  fixedTasksTitle: "Grup Tugas Tetap",
+  fixedTasksDesc: "Daftarkan grup induk (mis. Pembelian Peralatan) dengan sub-tugas anak (Spesifikasi / Pemilihan Vendor / RFQ / PO) untuk dimasukkan ke sprint sekaligus",
+  fixedTasksManage: "Kelola Tugas Tetap",
+  fixedTasksAdd: "Tambah",
+  fixedTasksEmpty: "Belum ada grup tugas tetap",
+  fixedTasksNamePlaceholder: "Nama grup induk (mis. Pembelian Peralatan)",
+  fixedTasksSelectPlaceholder: "-- Pilih grup tugas tetap --",
+  fixedTasksApplyFromTemplate: "Sisipkan dari template",
+  fixedTasksGroupNamePlaceholder: "Nama grup induk (mis. Pembelian Peralatan)",
+  fixedTasksItemNamePlaceholder: "Nama sub-tugas anak (mis. Tulis spesifikasi)",
+  fixedTasksItemEmpty: "Belum ada sub-tugas",
+  fixedTasksBulkAdd: "Tambah semua",
+  fixedTasksBulkAddPreview: "Tugas yang akan ditambahkan dari grup terpilih",
+
+  reportSectionNow: "Sprint Saat Ini",
+  reportSectionUpcoming: "Sprint Mendatang",
+  reportSectionHistory: "Sprint Lampau",
+  reportNoCurrentSprint: "Tidak ada sprint yang sedang berjalan",
+  reportDaysRemaining: "hari tersisa",
+  reportDaysOverdue: "hari lewat batas",
+  reportShowDetails: "Tampilkan detail",
+  reportTaskProgress: "Progres tugas",
+
+  sprintCreateBlocked: "Tidak bisa membuat — sprint aktif atau perencanaan sudah ada",
+  burndownOpenPage: "Buka burndown",
+  burndownPageTitle: "Grafik Burndown",
+
+  sessionTimedOut: "Sesi Anda telah berakhir. Silakan masuk kembali.",
+
+  backlogIceboxAlreadyUsedTitle: "Item Icebox ini sudah digunakan",
+  backlogIceboxAlreadyUsedBody: "PBI lain sudah merujuk item Icebox ini. Gunakan juga untuk PBI ini?",
+  backlogIceboxAlreadyUsedTag: "digunakan",
+  backlogIceboxReuseAnyway: "Tetap gunakan",
+
+  planTitle: "Rencana Induk",
+  planDesc: "Rencana jangka panjang independen dari sprint dan PBI. Progres otomatis dihitung dari status item.",
+  planAddItem: "Tambah item",
+  planAddChild: "Tambah anak",
+  planAddMilestone: "Tambah tonggak",
+  planEmpty: "Belum ada item rencana",
+  planNamePlaceholder: "Nama item (mis. Fase desain)",
+  planPlannedStart: "Mulai rencana",
+  planPlannedEnd: "Akhir rencana",
+  planActualStart: "Mulai aktual",
+  planActualEnd: "Akhir aktual",
+  planStatus: "Status",
+  planStatusNotStarted: "Belum mulai",
+  planStatusInProgress: "Sedang berjalan",
+  planStatusDone: "Selesai",
+  planStatusOnHold: "Ditunda",
+  planStatusDelayed: "Terlambat",
+  planIsMilestone: "Tonggak",
+  planNotes: "Catatan",
+  planZoomDay: "Hari",
+  planZoomWeek: "Minggu",
+  planZoomMonth: "Bulan",
+  planTodayJump: "Hari ini",
+  planProgressLegend: "Progres",
+  planDelayLegend: "Terlambat",
+  planSavedJustNow: "Tersimpan",
+  planConfirmDelete: "Hapus item ini (dan anaknya)?",
+  planIndent: "Turunkan",
+  planOutdent: "Naikkan",
 
   projectListTitle: "Daftar Proyek",
   projectListCount: "proyek aktif",

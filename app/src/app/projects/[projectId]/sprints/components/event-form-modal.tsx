@@ -45,7 +45,7 @@ export default function EventFormModal({
   const { t } = useLanguage()
 
   return (
-    <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={onCancel}>
+    <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
       <div className="bg-white rounded-lg shadow-lg p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
         <h3 className="text-lg font-semibold mb-4">
           {editingEventId ? t.eventEdit : t.eventAdd}
@@ -58,7 +58,7 @@ export default function EventFormModal({
               value={eventForm.title}
               onChange={(e) => onChange({ ...eventForm, title: e.target.value })}
               required
-              placeholder="例: スプリントレビュー、デモ"
+              placeholder={t.eventTitlePlaceholder}
               className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>

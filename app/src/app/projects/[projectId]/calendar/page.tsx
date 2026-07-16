@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react"
-import { useParams } from "next/navigation"
+import { useParams, useRouter } from "next/navigation"
 import { useLanguage } from "@/lib/language-context"
 import { useConfirm } from "@/components/confirm-dialog"
 import WeekView from "./week-view"
@@ -29,6 +29,7 @@ import {
 export default function CalendarPage() {
   const params = useParams()
   const projectId = params.projectId as string
+  const router = useRouter()
   const { t } = useLanguage()
   const confirm = useConfirm()
 
@@ -484,6 +485,7 @@ export default function CalendarPage() {
                 onDayMouseEnter={handleDayMouseEnter}
                 onDayClick={openCreateForm}
                 onEventClick={openEditForm}
+                onSprintBarClick={(sprintId) => router.push(`/projects/${projectId}/sprints?sprintId=${sprintId}`)}
                 onDeadlineBadgeClick={handleDeadlineBadgeClick}
                 onExpandDay={setExpandedDay}
               />
@@ -589,6 +591,7 @@ function MonthGrid({
   onDayMouseEnter,
   onDayClick,
   onEventClick,
+  onSprintBarClick,
   onDeadlineBadgeClick,
   onExpandDay,
 }: {
@@ -608,6 +611,7 @@ function MonthGrid({
   onDayMouseEnter: (dayStr: string) => void
   onDayClick: (dateStr: string) => void
   onEventClick: (ev: CalendarEvent) => void
+  onSprintBarClick: (sprintId: string) => void
   onDeadlineBadgeClick: (
     e: React.MouseEvent,
     dateStr: string,
@@ -680,7 +684,7 @@ function MonthGrid({
                 }
               }}
             >
-              {/* Sprint Phase Bars */}
+              {/* Sprint Phase Bars — clickable to jump to the sprints page */}
               {sprintPhasesForDay.length > 0 && (
                 <div className="space-y-0.5 px-0.5 pt-0.5">
                   {sprintPhasesForDay.map((sp) => {
@@ -688,16 +692,21 @@ function MonthGrid({
                     const isSprintStart = sp.startDate.split("T")[0] === dayStr
                     const isSprintEnd = sp.endDate.split("T")[0] === dayStr
                     return (
-                      <div
+                      <button
                         key={sp.id}
-                        className={`h-[6px] bg-gradient-to-r ${gradient} relative ${
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onSprintBarClick(sp.id)
+                        }}
+                        className={`w-full h-[6px] bg-gradient-to-r ${gradient} relative cursor-pointer hover:brightness-110 transition ${
                           isSprintStart ? "rounded-l-full ml-0.5" : ""
                         } ${isSprintEnd ? "rounded-r-full mr-0.5" : ""}`}
-                        title={`${sp.sprintName} (${sp.progress}%)`}
+                        title={`${sp.sprintName} (${sp.progress}%) — クリックでスプリント画面へ`}
                       >
                         {isSprintStart && (
                           <span
-                            className={`absolute left-1 -top-[2px] text-[7px] font-bold whitespace-nowrap z-10 ${
+                            className={`absolute left-1 -top-[2px] text-[7px] font-bold whitespace-nowrap z-10 pointer-events-none ${
                               sprintTextColor[sp.status] ?? "text-gray-600"
                             }`}
                           >
@@ -707,12 +716,12 @@ function MonthGrid({
                         <div
                           className={`absolute left-0 top-0 h-full ${
                             sprintStatusColor[sp.status] ?? "bg-gray-400"
-                          } opacity-40 ${isSprintStart ? "rounded-l-full" : ""} ${
+                          } opacity-40 pointer-events-none ${isSprintStart ? "rounded-l-full" : ""} ${
                             isSprintEnd ? "rounded-r-full" : ""
                           }`}
                           style={{ width: `${sp.progress}%` }}
                         />
-                      </div>
+                      </button>
                     )
                   })}
                 </div>

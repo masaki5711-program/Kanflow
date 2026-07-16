@@ -180,7 +180,7 @@ export function CategorySettings() {
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 required
                 maxLength={50}
-                placeholder="例: 開発中、保守、社内"
+                placeholder={t.categoryNamePlaceholder}
                 className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 placeholder:text-gray-300"
               />
             </div>

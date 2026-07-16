@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint"
   },
@@ -18,13 +18,19 @@
     "bcryptjs": "^3.0.3",
     "jsonwebtoken": "^9.0.3",
     "lucide-react": "^0.577.0",
+    "mammoth": "^1.12.0",
     "mysql2": "^3.19.0",
     "next": "16.1.6",
     "next-auth": "^5.0.0-beta.30",
+    "pdf-parse": "^2.4.5",
+    "pptx-text-parser": "^1.1.1",
     "prisma": "^7.4.2",
     "react": "19.2.3",
     "react-dom": "19.2.3",
+    "react-markdown": "^10.1.0",
     "recharts": "^3.7.0",
+    "remark-gfm": "^4.0.1",
+    "xlsx": "^0.18.5",
     "zod": "^4.3.6"
   },
   "devDependencies": {
@@ -36,6 +42,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
+    "node-windows": "^1.0.0-beta.8",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

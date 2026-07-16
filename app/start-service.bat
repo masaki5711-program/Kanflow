@@ -13,8 +13,10 @@ echo ============================================================ >> "%LOG%"
 :loop
 
 REM --- Port conflict pre-flight check (port %PORT%) ---
+REM Filter to LISTENING lines first, then look for :PORT followed by a space.
+REM Using /C: keeps the pattern literal so findstr does not split on the space.
 set "HOLDER_PID="
-for /f "tokens=5" %%P in ('netstat -ano ^| findstr ":%PORT% .*LISTENING" 2^>nul') do (
+for /f "tokens=5" %%P in ('netstat -ano ^| findstr LISTENING ^| findstr /C:":%PORT% " 2^>nul') do (
     set "HOLDER_PID=%%P"
     goto :portheld
 )

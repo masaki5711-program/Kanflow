@@ -59,8 +59,10 @@ COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
 # Entrypoint script
 COPY docker-entrypoint.sh ./docker-entrypoint.sh
 
-# Uploads directory (persisted via volume)
-RUN mkdir -p /app/public/uploads && chown -R nextjs:nodejs /app/public/uploads
+# Uploaded files live under /app/private/uploads (server-only path used by the
+# attachments API). Persisted via a Docker volume in docker-compose.
+RUN mkdir -p /app/private/uploads /app/private/templates \
+    && chown -R nextjs:nodejs /app/private
 RUN chmod +x /app/docker-entrypoint.sh
 
 USER nextjs

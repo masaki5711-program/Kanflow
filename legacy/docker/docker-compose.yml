@@ -1,65 +1,104 @@
+# Kanflow — production-ready compose for Rancher Desktop / Docker Engine.
+#
+# Services:
+#   db        : MySQL 8.4
+#   app       : Next.js (Kanflow) — connects to db + (host) Ollama
+#   collabora : LibreOffice Online for in-browser document editing
+#
+# Ollama (the LLM backend) runs on the host so it can use the GPU directly.
+# The app container reaches it via host.docker.internal:11434.
+
 services:
-  mysql:
-    image: mysql:8.0
-    container_name: scrum-mysql
+  db:
+    image: mysql:8.4
+    container_name: kanflow-db
     restart: unless-stopped
     ports:
+      # Expose MySQL only to localhost on the host so backups / migrations
+      # from the host work, while LAN clients cannot reach the DB directly.
       - "127.0.0.1:3306:3306"
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-scrum_tool}
       MYSQL_USER: ${MYSQL_APP_USER:-scrum_app}
       MYSQL_PASSWORD: ${MYSQL_APP_PASSWORD}
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=+09:00
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD}"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 30s
 
   app:
     build:
       context: ./app
       dockerfile: Dockerfile
-    container_name: scrum-app
+    image: kanflow-app:latest
+    container_name: kanflow-app
     restart: unless-stopped
     ports:
       - "3000:3000"
     environment:
-      DATABASE_URL: "mysql://${MYSQL_APP_USER:-scrum_app}:${MYSQL_APP_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-scrum_tool}"
-      DATABASE_HOST: mysql
+      DATABASE_URL: "mysql://${MYSQL_APP_USER:-scrum_app}:${MYSQL_APP_PASSWORD}@db:3306/${MYSQL_DATABASE:-scrum_tool}"
+      DATABASE_HOST: db
       DATABASE_PORT: "3306"
       DATABASE_USER: ${MYSQL_APP_USER:-scrum_app}
       DATABASE_PASSWORD: ${MYSQL_APP_PASSWORD}
       DATABASE_NAME: ${MYSQL_DATABASE:-scrum_tool}
+
+      # Auth
       NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
       AUTH_TRUST_HOST: "true"
+
+      # Collabora (in-cluster service name)
       NEXT_PUBLIC_COLLABORA_URL: ${NEXT_PUBLIC_COLLABORA_URL:-http://localhost:9980}
-      COLLABORA_INTERNAL_URL: http://scrum-collabora:9980
-      APP_EXTERNAL_URL: ${APP_EXTERNAL_URL:-http://scrum-app:3000}
+      COLLABORA_INTERNAL_URL: http://collabora:9980
+      APP_EXTERNAL_URL: ${APP_EXTERNAL_URL:-http://app:3000}
+
+      # Ollama runs on the host (uses the GPU directly).
+      # `host.docker.internal` resolves to the host on Docker Desktop / Rancher
+      # Desktop. On plain Linux Docker Engine, declare it via extra_hosts below.
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL_TRANSLATE: ${OLLAMA_MODEL_TRANSLATE:-qwen3.6:27b-q4_K_M}
+      OLLAMA_MODEL_VISION: ${OLLAMA_MODEL_VISION:-qwen2.5vl:7b}
+      OLLAMA_MODEL_ANALYSIS: ${OLLAMA_MODEL_ANALYSIS:-qwen3.6:27b-q4_K_M}
     volumes:
-      - app_uploads:/app/public/uploads
+      - app_uploads:/app/private/uploads
       - ./app/private/templates:/app/private/templates:ro
+    extra_hosts:
+      # Linux fallback so OLLAMA_BASE_URL works without Docker Desktop.
+      - "host.docker.internal:host-gateway"
     depends_on:
-      mysql:
+      db:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/login >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
   collabora:
     image: collabora/code:latest
-    container_name: scrum-collabora
+    container_name: kanflow-collabora
     restart: unless-stopped
     ports:
       - "127.0.0.1:9980:9980"
     environment:
       - "extra_params=--o:ssl.enable=false --o:ssl.termination=false"
-      - "aliasgroup1=http://scrum-app:3000"
+      - "aliasgroup1=http://app:3000"
       - "username=${COLLABORA_ADMIN_USER:-admin}"
       - "password=${COLLABORA_ADMIN_PASSWORD}"
-      - "dictionaries=ja_JP"
+      - "dictionaries=ja_JP en_US"
     volumes:
-      - ./collabora-coolwsd.xml:/etc/coolwsd/coolwsd.xml
+      - ./collabora-coolwsd.xml:/etc/coolwsd/coolwsd.xml:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     cap_add:
@@ -67,4 +106,6 @@ services:
 
 volumes:
   mysql_data:
+    name: kanflow_mysql_data
   app_uploads:
+    name: kanflow_app_uploads
