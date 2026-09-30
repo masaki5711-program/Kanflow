@@ -151,7 +151,7 @@ describe("get_sprint_metrics", () => {
       { taskName: "t4", status: "in_progress", assignee: "", estimatedHours: 0, actualHours: 0, updatedAt: old, pbItem: pb("C", 3, 0) },
     ])
     const out = await run("get_sprint_metrics", "p1")
-    expect(m.sbiFindMany.mock.calls[0][0].where).toEqual({ sprintId: "s-active" })
+    expect(m.sbiFindMany.mock.calls[0][0].where).toEqual({ sprintId: "s-active", pbItem: { deletedAt: null } })
     expect(out.as_of).toBe("2026-03-10")
     expect(out.sprint).toEqual({
       name: "Sprint 3",
@@ -198,6 +198,7 @@ describe("get_velocity_history", () => {
     expect(m.sprintFindMany.mock.calls[0][0]).toMatchObject({
       where: { projectId: "p1", status: { in: ["done", "archived"] } },
       take: 12,
+      include: { items: { where: { pbItem: { deletedAt: null } } } },
     })
     expect(out.sprints).toEqual([
       {
@@ -236,7 +237,7 @@ describe("get_backlog_summary", () => {
       { displayId: 4, initiative: "d", epic: null, userStory: "us", acceptanceCriteria: "ac", workloadScore: 2, status: "not_ready", sprintItems: [] },
     ])
     const out = await run("get_backlog_summary", "p1")
-    expect(m.pbiFindMany.mock.calls[0][0].where).toEqual({ projectId: "p1" })
+    expect(m.pbiFindMany.mock.calls[0][0].where).toEqual({ projectId: "p1", deletedAt: null })
     expect(out.total_items).toBe(4)
     expect(out.by_status).toEqual({
       ready: { count: 2, sp: 3 },
@@ -298,8 +299,14 @@ describe("search_work_items", () => {
     ])
     const out = await run("search_work_items", "p1", { keyword: " Login " })
     expect(m.pbiFindMany.mock.calls[0][0].where.projectId).toBe("p1")
+    expect(m.pbiFindMany.mock.calls[0][0].where.deletedAt).toBeNull()
     expect(m.iceFindMany.mock.calls[0][0].where.projectId).toBe("p1")
-    expect(m.sbiFindMany.mock.calls[0][0].where).toEqual({ sprint: { projectId: "p1" }, taskName: { contains: "Login" } })
+    expect(m.iceFindMany.mock.calls[0][0].where.deletedAt).toBeNull()
+    expect(m.sbiFindMany.mock.calls[0][0].where).toEqual({
+      sprint: { projectId: "p1" },
+      pbItem: { deletedAt: null },
+      taskName: { contains: "Login" },
+    })
     expect(out.keyword).toBe("Login")
     expect(out.hit_count).toBe(4)
     expect(out.results[0]).toEqual({ type: "pbi", id: "#1", status: "ready", sp: 3, title: "Login story" })
@@ -324,13 +331,13 @@ describe("list_backlog_items", () => {
   it("filters by a known status and ignores unknown ones", async () => {
     m.pbiFindMany.mockResolvedValue([{ displayId: 1, status: "ready", workloadScore: 2, epic: " E ", initiative: null, userStory: null }])
     const out = await run("list_backlog_items", "p1", { status: "ready" })
-    expect(m.pbiFindMany.mock.calls[0][0].where).toEqual({ projectId: "p1", status: "ready" })
+    expect(m.pbiFindMany.mock.calls[0][0].where).toEqual({ projectId: "p1", deletedAt: null, status: "ready" })
     expect(out.items).toEqual([{ id: "#1", status: "ready", sp: 2, epic: "E", title: "(untitled)" }])
     expect(out.note).toBeUndefined()
 
     m.pbiFindMany.mockResolvedValue(Array.from({ length: 40 }, (_, i) => ({ displayId: i, status: "ready", workloadScore: 1, epic: null, initiative: "i", userStory: null })))
     const capped = await run("list_backlog_items", "p1", { status: "bogus" })
-    expect(m.pbiFindMany.mock.calls[1][0].where).toEqual({ projectId: "p1" })
+    expect(m.pbiFindMany.mock.calls[1][0].where).toEqual({ projectId: "p1", deletedAt: null })
     expect(capped.items[0].epic).toBeNull()
     expect(capped.note).toBe("capped at 40 items")
   })
@@ -348,7 +355,7 @@ describe("get_estimation_reference", () => {
     ])
     const out = await run("get_estimation_reference", "p1")
     expect(m.sprintFindMany.mock.calls[0][0].where.projectId).toBe("p1")
-    expect(m.pbiFindMany.mock.calls[0][0].where).toEqual({ projectId: "p1", status: "completed" })
+    expect(m.pbiFindMany.mock.calls[0][0].where).toEqual({ projectId: "p1", status: "completed", deletedAt: null })
     expect(out.velocity).toEqual({ completed_sprints: 2, average_actual_score_per_sprint: 8 })
     expect(out.completed_pbi_sp_distribution).toEqual([
       { sp: 1, completed_count: 1, examples: ["#9 small"] },

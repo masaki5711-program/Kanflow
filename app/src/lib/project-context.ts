@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma"
+import { LIVE_PBI, NOT_DELETED, notDeleted } from "@/services/_shared/soft-delete"
 
 const MAX_PBI = 30
 const MAX_ICEBOX = 20
@@ -22,12 +23,12 @@ function fmtDate(d: Date | null | undefined): string {
  */
 export async function buildProjectContext(projectId: string): Promise<string> {
   const project = await prisma.project.findUnique({
-    where: { id: projectId },
+    where: notDeleted({ id: projectId }),
     include: {
       members: { include: { user: { select: { name: true, email: true } } } },
       productGoals: { orderBy: { createdAt: "asc" } },
       attachments: { orderBy: { createdAt: "desc" }, take: 30 },
-      _count: { select: { iceboxItems: true, backlogItems: true, sprints: true } },
+      _count: { select: { iceboxItems: { where: NOT_DELETED }, backlogItems: { where: NOT_DELETED }, sprints: true } },
     },
   })
   if (!project) return ""
@@ -38,6 +39,7 @@ export async function buildProjectContext(projectId: string): Promise<string> {
     take: MAX_SPRINTS,
     include: {
       items: {
+        where: LIVE_PBI,
         select: {
           status: true,
           taskName: true,
@@ -50,7 +52,7 @@ export async function buildProjectContext(projectId: string): Promise<string> {
   })
 
   const backlogItems = await prisma.productBacklogItem.findMany({
-    where: { projectId },
+    where: notDeleted({ projectId }),
     orderBy: [{ status: "asc" }, { sortOrder: "asc" }, { createdAt: "desc" }],
     take: MAX_PBI,
     select: {
@@ -65,7 +67,7 @@ export async function buildProjectContext(projectId: string): Promise<string> {
   })
 
   const iceboxItems = await prisma.iceboxItem.findMany({
-    where: { projectId },
+    where: notDeleted({ projectId }),
     orderBy: [{ status: "asc" }, { createdAt: "desc" }],
     take: MAX_ICEBOX,
     select: {

@@ -13,6 +13,7 @@ vi.mock("@/lib/prisma", () => ({
   prisma: {
     projectMember: { findFirst: (...a: unknown[]) => m.memberFindFirst(...a) },
     projectSection: { findFirst: (...a: unknown[]) => m.sectionFindFirst(...a) },
+    project: { findFirst: vi.fn().mockResolvedValue({ id: "live" }) },
     aiReport: { findMany: (...a: unknown[]) => m.aiReportFindMany(...a) },
   },
 }))

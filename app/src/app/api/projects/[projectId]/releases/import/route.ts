@@ -1,5 +1,5 @@
 import { requireProject } from "@/lib/authz"
-import { jsonResponse, toHttpResponse } from "@/services/_shared"
+import { actorFromSession, jsonResponse, toHttpResponse } from "@/services/_shared"
 import { importReleaseItemsSchema } from "@/services/releases/releases.schemas"
 import { importReleaseItems } from "@/services/releases/releases.service"
 
@@ -13,7 +13,7 @@ export async function POST(
 
   try {
     const input = importReleaseItemsSchema.parse(await request.json())
-    return jsonResponse(await importReleaseItems(projectId, input), 201)
+    return jsonResponse(await importReleaseItems(projectId, input, actorFromSession(gate.session)), 201)
   } catch (error) {
     return toHttpResponse(error, { fallback: "取り込みに失敗しました", context: "Release import" })
   }

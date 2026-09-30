@@ -1,4 +1,5 @@
 import type { Actor } from "@/services/_shared/actor"
+import { loadSnapshot, logCreate, logDelete, logUpdate } from "@/services/_shared/activity"
 import { optionalDate } from "@/services/_shared/dates"
 import { defaultDb, withTransaction } from "@/services/_shared/db"
 import { NotFoundError } from "@/services/_shared/errors"
@@ -14,7 +15,8 @@ export async function listReleases(projectId: string) {
   ])
   return withI18n.map((i) => ({
     ...i,
-    pbItem: i.pbItem ? { ...i.pbItem, i18n: pbI18n.get(i.pbItem.id) ?? {} } : i.pbItem,
+    // A release item is a copy: it stays when its source PBI is trashed, but the link is hidden.
+    pbItem: i.pbItem && !i.pbItem.deletedAt ? { ...i.pbItem, i18n: pbI18n.get(i.pbItem.id) ?? {} } : null,
   }))
 }
 
@@ -22,25 +24,33 @@ export async function updateReleaseItem(projectId: string, id: string, input: Up
   const data = await prepareText(input, actor.userId)
   const { releaseDate, ...rest } = data
   const item = await withTransaction(async (tx) => {
+    const before = await loadSnapshot(tx, "release", id)
     const updated = await repo.updateReleaseItem(tx, projectId, id, {
       ...rest,
       ...(releaseDate !== undefined ? { releaseDate: optionalDate(releaseDate) } : {}),
     })
     await enqueueIn(tx, "release_item", updated.id, data)
+    await logUpdate(tx, { projectId, entityType: "release", entityId: id, actor, before, after: updated })
     return updated
   })
   return attachI18nOne("release_item", item)
 }
 
-export async function deleteReleaseItem(projectId: string, id: string): Promise<void> {
+export async function deleteReleaseItem(projectId: string, id: string, actor: Actor | null = null): Promise<void> {
   await withTransaction(async (tx) => {
+    const row = await loadSnapshot(tx, "release", id)
     await repo.deleteReleaseItem(tx, projectId, id)
+    await logDelete(tx, { projectId, entityType: "release", entityId: id, actor, row })
     await purgeIn(tx, { release_item: [id] })
   })
 }
 
 /** Copy PBIs of the project into staged release items; returns the number created. */
-export async function importReleaseItems(projectId: string, input: ImportReleaseItemsInput): Promise<{ created: number }> {
+export async function importReleaseItems(
+  projectId: string,
+  input: ImportReleaseItemsInput,
+  actor: Actor | null = null
+): Promise<{ created: number }> {
   return withTransaction(async (tx) => {
     const pbItems = await repo.findPbisForRelease(tx, projectId, input.pbItemIds)
     if (pbItems.length === 0) throw new NotFoundError("該当するPBIがありません", {}, "RELEASE_NO_PBI")
@@ -57,6 +67,7 @@ export async function importReleaseItems(projectId: string, input: ImportRelease
         status: "staged",
       })
       await enqueueIn(tx, "release_item", item.id, item)
+      await logCreate(tx, { projectId, entityType: "release", entityId: item.id, actor, row: item, meta: { pbItemId: pb.id } })
     }
     return { created: pbItems.length }
   })

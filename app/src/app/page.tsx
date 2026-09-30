@@ -33,18 +33,20 @@ export default async function HomePage() {
     : []
   const sectionIds = userSections.map((s) => s.sectionId)
 
+  // Trashed projects (deletedAt set) never appear in the list.
   function buildWhere(status: string) {
-    if (isAdmin) return { status }
+    if (isAdmin) return { status, deletedAt: null }
     if (isSectionManager && sectionIds.length > 0) {
       return {
         status,
+        deletedAt: null,
         OR: [
           { members: { some: { userId } } },
           { sections: { some: { sectionId: { in: sectionIds } } } },
         ],
       }
     }
-    return { members: { some: { userId } }, status }
+    return { members: { some: { userId } }, status, deletedAt: null }
   }
 
   const [activeProjects, archivedProjects, categories, myTasks] = await Promise.all([
@@ -64,8 +66,8 @@ export default async function HomePage() {
         },
         _count: {
           select: {
-            iceboxItems: true,
-            backlogItems: true,
+            iceboxItems: { where: { deletedAt: null } },
+            backlogItems: { where: { deletedAt: null } },
             sprints: true,
             aiReports: true,
           },
@@ -89,8 +91,8 @@ export default async function HomePage() {
         },
         _count: {
           select: {
-            iceboxItems: true,
-            backlogItems: true,
+            iceboxItems: { where: { deletedAt: null } },
+            backlogItems: { where: { deletedAt: null } },
             sprints: true,
             aiReports: true,
           },
@@ -116,8 +118,11 @@ export default async function HomePage() {
           project: {
             members: { some: { userId: session.user.id } },
             status: "active",
+            deletedAt: null,
           },
         },
+        // Tasks of trashed PBIs are hidden like in every sprint view.
+        pbItem: { deletedAt: null },
       },
       include: {
         sprint: {

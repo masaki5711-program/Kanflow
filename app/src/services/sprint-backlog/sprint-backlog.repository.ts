@@ -1,5 +1,6 @@
 import type { Prisma } from "@/generated/prisma/client"
 import type { Db } from "@/services/_shared/db"
+import { LIVE_PBI, notDeleted } from "@/services/_shared/soft-delete"
 
 export function findSprintPbiIds(db: Db, projectId: string, sprintId: string) {
   return db.sprint.findFirst({
@@ -13,11 +14,11 @@ export function findSprintId(db: Db, projectId: string, sprintId: string) {
 }
 
 export function findProjectPbiIds(db: Db, projectId: string, pbIds: readonly string[]) {
-  return db.productBacklogItem.findMany({ where: { id: { in: [...pbIds] }, projectId }, select: { id: true } })
+  return db.productBacklogItem.findMany({ where: notDeleted({ id: { in: [...pbIds] }, projectId }), select: { id: true } })
 }
 
 export function findProjectPbiId(db: Db, projectId: string, pbItemId: string) {
-  return db.productBacklogItem.findFirst({ where: { id: pbItemId, projectId }, select: { id: true } })
+  return db.productBacklogItem.findFirst({ where: notDeleted({ id: pbItemId, projectId }), select: { id: true } })
 }
 
 /** One placeholder row (taskName NULL) per PBI = "this PBI is in the sprint". */
@@ -49,7 +50,8 @@ export function insertTask(db: Db, data: Prisma.SprintBacklogItemUncheckedCreate
 
 export function findTask(db: Db, projectId: string, sprintId: string, taskId: string) {
   return db.sprintBacklogItem.findFirst({
-    where: { id: taskId, sprintId, sprint: { projectId } },
+    // A task of a trashed PBI is hidden, so it cannot be edited or deleted either.
+    where: { id: taskId, sprintId, sprint: { projectId }, ...LIVE_PBI },
     select: { id: true, pbItemId: true },
   })
 }

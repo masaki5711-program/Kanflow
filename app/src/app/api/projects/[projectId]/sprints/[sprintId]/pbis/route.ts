@@ -1,5 +1,5 @@
 import { requireProject } from "@/lib/authz"
-import { jsonResponse, toHttpResponse } from "@/services/_shared"
+import { actorFromSession, jsonResponse, toHttpResponse } from "@/services/_shared"
 import { addSprintPbisSchema, removeSprintPbiSchema } from "@/services/sprint-backlog/sprint-backlog.schemas"
 import { addPbisToSprint, removePbiFromSprint } from "@/services/sprint-backlog/sprint-backlog.service"
 
@@ -17,7 +17,7 @@ export async function POST(request: Request, { params }: Params) {
 
   try {
     const { pbIds } = addSprintPbisSchema.parse(await request.json())
-    const result = await addPbisToSprint(projectId, sprintId, pbIds)
+    const result = await addPbisToSprint(projectId, sprintId, pbIds, actorFromSession(gate.session))
     return jsonResponse(result, result.added === 0 ? 200 : 201)
   } catch (error) {
     return toHttpResponse(error, { fallback: "追加に失敗しました", context: "Sprint PBI add" })
@@ -35,7 +35,7 @@ export async function DELETE(request: Request, { params }: Params) {
 
   try {
     const { pbItemId } = removeSprintPbiSchema.parse(await request.json())
-    return jsonResponse(await removePbiFromSprint(projectId, sprintId, pbItemId))
+    return jsonResponse(await removePbiFromSprint(projectId, sprintId, pbItemId, actorFromSession(gate.session)))
   } catch (error) {
     return toHttpResponse(error, { fallback: "削除に失敗しました", context: "Sprint PBI remove" })
   }

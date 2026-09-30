@@ -37,7 +37,8 @@ export async function DELETE(_request: Request, { params }: Params) {
   if ("error" in gate) return gate.error
 
   try {
-    await deleteBacklogItem(projectId, itemId)
+    // Moves the PBI to the project trash (restore / purge: /trash).
+    await deleteBacklogItem(projectId, itemId, actorFromSession(gate.session))
     return successResponse()
   } catch (error) {
     return toHttpResponse(error, { fallback: "Failed to delete item", context: "Backlog DELETE" })

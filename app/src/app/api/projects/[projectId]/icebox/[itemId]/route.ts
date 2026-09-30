@@ -24,7 +24,8 @@ export async function DELETE(_request: Request, { params }: Params) {
   if ("error" in gate) return gate.error
 
   try {
-    await deleteIceboxItem(projectId, itemId)
+    // Moves the item to the project trash (restore / purge: /trash).
+    await deleteIceboxItem(projectId, itemId, actorFromSession(gate.session))
     return successResponse()
   } catch (error) {
     return toHttpResponse(error, { fallback: "削除に失敗しました", context: "Icebox DELETE" })

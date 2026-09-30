@@ -8,6 +8,8 @@ import { hasJapanese } from "@/lib/bilingual-detect"
 import type { StructuredReport } from "@/lib/report-tool"
 import { aiLog } from "@/lib/ai-monitor"
 import { acquireNamedLock, type TxRunner } from "@/worker/named-lock"
+import type { Db } from "@/services/_shared/db"
+import { notify, projectMemberIds } from "@/services/_shared/notifications"
 
 /**
  * Daily AI surveillance run (moved out of the HTTP route).
@@ -125,6 +127,38 @@ function reportTitle(anomalies: Anomaly[]): string {
   return `${icon} 定期監視: 異常${anomalies.length}件の自動調査 / Pemantauan rutin: investigasi otomatis ${anomalies.length} anomali`
 }
 
+/** Critical anomalies listed in a notification payload (the report has the rest). */
+const NOTIFY_ANOMALY_LIMIT = 5
+
+/**
+ * A report with critical anomalies notifies the project's PO / SM once per
+ * report (dedupeKey). Never throws (notify() absorbs failures).
+ */
+export async function notifySurveillanceCritical(
+  project: { id: string; name: string },
+  report: { id: string; title: string },
+  anomalies: readonly Anomaly[],
+  db: Db = prisma
+): Promise<number> {
+  const critical = anomalies.filter((a) => a.severity === "critical")
+  if (critical.length === 0) return 0
+  return notify(db, {
+    recipientIds: await projectMemberIds(db, project.id, ["po", "sm"]),
+    type: "surveillance_critical",
+    projectId: project.id,
+    entityType: "ai_report",
+    entityId: report.id,
+    payload: {
+      reportId: report.id,
+      title: report.title,
+      projectName: project.name,
+      criticalCount: critical.length,
+      anomalies: critical.slice(0, NOTIFY_ANOMALY_LIMIT).map((a) => a.description),
+    },
+    dedupeKey: `surveillance_critical:${report.id}`,
+  })
+}
+
 interface Investigation {
   project: { id: string; name: string }
   anomalies: Anomaly[]
@@ -166,6 +200,7 @@ async function investigate(inv: Investigation): Promise<string> {
     },
   })
   aiLog("REPORT_SAVED", `${p.name}: AiReport ${report.id} saved (${result.report.length} chars)`)
+  await notifySurveillanceCritical(p, report, anomalies)
   return report.id
 }
 
@@ -211,7 +246,7 @@ async function runLocked(opts: RunSurveillanceOptions, retentionDays: number): P
   const deleted = await pruneOldReports(retentionDays, now())
   const conversion = { converted: await convertLegacy(opts) }
   const projects = await prisma.project.findMany({
-    where: { status: "active" },
+    where: { status: "active", deletedAt: null },
     select: { id: true, name: true },
     orderBy: { updatedAt: "desc" },
   })

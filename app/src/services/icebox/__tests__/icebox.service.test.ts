@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
+vi.mock("@/services/_shared/activity", async () => (await import("@/services/__tests__/support")).activityMock())
+vi.mock("@/services/_shared/notifications", async () => (await import("@/services/__tests__/support")).notificationsMock())
 vi.mock("@/services/_shared/db", async () => (await import("@/services/__tests__/support")).dbMock())
 vi.mock("@/services/_shared/translations", async () => (await import("@/services/__tests__/support")).translationMock())
 vi.mock("@/lib/api-helpers", () => ({ saveUploadedFile: vi.fn(), deleteUploadedFile: vi.fn(async () => undefined) }))
@@ -69,20 +71,7 @@ describe("icebox.service", () => {
     expect(out).toEqual({ id: "i", i18n: {} })
   })
 
-  it("delete purges translations in the tx and removes files after commit", async () => {
-    vi.mocked(repo.findAttachmentFileNames).mockResolvedValue([{ fileName: "f1" }, { fileName: "f2" }])
-    await svc.deleteIceboxItem("p1", "i")
-    expect(tr.purgeIn).toHaveBeenCalledWith(TX, { icebox_item: ["i"] })
-    expect(files.deleteUploadedFile).toHaveBeenCalledWith("p1", "f1")
-    expect(files.deleteUploadedFile).toHaveBeenCalledWith("p1", "f2")
-  })
-
-  it("does not touch files when the delete fails", async () => {
-    vi.mocked(repo.findAttachmentFileNames).mockResolvedValue([{ fileName: "f1" }])
-    vi.mocked(repo.deleteIceboxItem).mockRejectedValueOnce(new Error("x"))
-    await expect(svc.deleteIceboxItem("p1", "i")).rejects.toThrow("x")
-    expect(files.deleteUploadedFile).not.toHaveBeenCalled()
-  })
+  // delete (trash) / restore / purge: see icebox.trash.test.ts
 
   it("upload validates item, file and storage result", async () => {
     vi.mocked(repo.findIceboxItemId).mockResolvedValueOnce(null)

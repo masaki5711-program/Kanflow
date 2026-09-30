@@ -1,9 +1,11 @@
 import type { Prisma } from "@/generated/prisma/client"
 import { syncPbiStatusFromTasks } from "@/lib/pbi-status-sync"
 import type { Actor } from "@/services/_shared/actor"
+import { loadSnapshot, logCreate, logDelete, logUpdate, type ActivityChanges } from "@/services/_shared/activity"
 import { parseDateOrThrow } from "@/services/_shared/dates"
-import { defaultDb, withTransaction } from "@/services/_shared/db"
+import { defaultDb, withTransaction, type Db } from "@/services/_shared/db"
 import { ConflictError, NotFoundError } from "@/services/_shared/errors"
+import { notify, projectMemberIds, type NotificationType } from "@/services/_shared/notifications"
 import { attachI18n, attachI18nOne, enqueueIn, getI18nFor, prepareText, purgeIn } from "@/services/_shared/translations"
 import { computeBurndown, type BurndownData } from "./burndown"
 import { launchSprintCompletionReview } from "./sprint-completion-review"
@@ -61,6 +63,7 @@ export async function createSprint(projectId: string, input: CreateSprintInput, 
       status: "planning",
     }, pbIds)
     await enqueueIn(tx, "sprint", sprint.id, sprint)
+    await logCreate(tx, { projectId, entityType: "sprint", entityId: sprint.id, actor, row: sprint, meta: { pbCount: pbIds.length } })
     return sprint
   })
 }
@@ -75,11 +78,52 @@ export function buildSprintUpdate(data: UpdateSprintInput): Prisma.SprintUncheck
   }
 }
 
+const ENDED_STATUSES: ReadonlySet<string> = new Set(["done", "archived"])
+
+/** Pure: sprint_start when a sprint becomes active, sprint_end when it ends; else null. */
+export function sprintLifecycleNotification(changes: ActivityChanges): NotificationType | null {
+  const change = changes.status
+  if (!change || !("to" in change)) return null
+  if (change.to === "active") return "sprint_start"
+  if (typeof change.to === "string" && ENDED_STATUSES.has(change.to) && !ENDED_STATUSES.has(String(change.from))) return "sprint_end"
+  return null
+}
+
+interface LifecycleSprint {
+  id: string
+  sprintName: string
+  startDate: Date
+  endDate: Date
+}
+
+/** Notify every project member once per sprint and type (dedupeKey). */
+async function notifySprintLifecycle(tx: Db, projectId: string, sprint: LifecycleSprint, type: NotificationType, actor: Actor) {
+  await notify(tx, {
+    recipientIds: await projectMemberIds(tx, projectId),
+    actorId: actor.userId,
+    type,
+    projectId,
+    entityType: "sprint",
+    entityId: sprint.id,
+    payload: {
+      sprintName: sprint.sprintName,
+      startDate: sprint.startDate.toISOString(),
+      endDate: sprint.endDate.toISOString(),
+      actorName: actor.userName,
+    },
+    dedupeKey: `${type}:${sprint.id}`,
+  })
+}
+
 export async function updateSprint(projectId: string, sprintId: string, input: UpdateSprintInput, actor: Actor) {
   const data = await prepareText(input, actor.userId)
   const sprint = await withTransaction(async (tx) => {
+    const before = await loadSnapshot(tx, "sprint", sprintId)
     const updated = await repo.updateSprint(tx, projectId, sprintId, buildSprintUpdate(data))
     await enqueueIn(tx, "sprint", updated.id, data)
+    const changes = await logUpdate(tx, { projectId, entityType: "sprint", entityId: sprintId, actor, before, after: updated })
+    const lifecycle = sprintLifecycleNotification(changes)
+    if (lifecycle) await notifySprintLifecycle(tx, projectId, updated, lifecycle, actor)
     return updated
   })
   // Completing a sprint (done → auto-archived) launches the AI completion review after commit.
@@ -93,10 +137,12 @@ export async function updateSprint(projectId: string, sprintId: string, input: U
  * re-sync the status of the PBIs that lost tasks. Calendar events keep
  * existing (sprintId → NULL).
  */
-export async function deleteSprint(projectId: string, sprintId: string): Promise<void> {
+export async function deleteSprint(projectId: string, sprintId: string, actor: Actor | null = null): Promise<void> {
   await withTransaction(async (tx) => {
     const { tasks, notes } = await repo.findSprintChildren(tx, sprintId)
+    const row = await loadSnapshot(tx, "sprint", sprintId)
     await repo.deleteSprint(tx, projectId, sprintId)
+    await logDelete(tx, { projectId, entityType: "sprint", entityId: sprintId, actor, row, meta: { taskCount: tasks.length } })
     await purgeIn(tx, {
       sprint: [sprintId],
       sprint_task: tasks.map((t) => t.id),

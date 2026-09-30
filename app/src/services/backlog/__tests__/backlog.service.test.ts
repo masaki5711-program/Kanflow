@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
+vi.mock("@/services/_shared/activity", async () => (await import("@/services/__tests__/support")).activityMock())
+vi.mock("@/services/_shared/notifications", async () => (await import("@/services/__tests__/support")).notificationsMock())
 vi.mock("@/services/_shared/db", async () => (await import("@/services/__tests__/support")).dbMock())
 vi.mock("@/services/_shared/translations", async () => (await import("@/services/__tests__/support")).translationMock())
 vi.mock("@/lib/sprint-score", () => ({ recalcSprintActualScore: vi.fn(async () => 0) }))
@@ -7,7 +9,6 @@ vi.mock("../backlog.repository")
 
 const repo = await import("../backlog.repository")
 const tr = await import("@/services/_shared/translations")
-const { recalcSprintActualScore } = await import("@/lib/sprint-score")
 const { ACTOR, TX, prismaError } = await import("@/services/__tests__/support")
 const { withTransaction } = await import("@/services/_shared/db")
 const svc = await import("../backlog.service")
@@ -112,18 +113,7 @@ describe("backlog.service", () => {
     expect(tr.enqueueIn).toHaveBeenCalledWith(TX, "backlog_item", "a", { status: "ready", productGoalId: null })
   })
 
-  it("delete purges PBI + cascaded task translations and re-scores affected sprints", async () => {
-    vi.mocked(repo.findTasksOfBacklogItem).mockResolvedValue([
-      { id: "t1", sprintId: "s1" },
-      { id: "t2", sprintId: "s1" },
-      { id: "t3", sprintId: "s2" },
-    ])
-    await svc.deleteBacklogItem("p1", "a")
-    expect(repo.deleteBacklogItem).toHaveBeenCalledWith(TX, "p1", "a")
-    expect(tr.purgeIn).toHaveBeenCalledWith(TX, { backlog_item: ["a"], sprint_task: ["t1", "t2", "t3"] })
-    expect(recalcSprintActualScore).toHaveBeenCalledTimes(2)
-    expect(recalcSprintActualScore).toHaveBeenCalledWith("s2", TX)
-  })
+  // delete (trash) / restore / purge: see backlog.trash.test.ts
 
   it("create rejects an icebox item of another project before inserting", async () => {
     vi.mocked(repo.findProjectIceboxItemId).mockResolvedValueOnce(null)

@@ -32,6 +32,8 @@ const m = vi.hoisted(() => {
     acquireSingleInstance: vi.fn(),
     lock: { release: vi.fn(), verify: vi.fn().mockResolvedValue(true) },
     runSurveillance: vi.fn(),
+    startCollabScheduler: vi.fn(() => null),
+    startPurgeTrashScheduler: vi.fn(() => null),
     writeHeartbeatFile: vi.fn(),
     removeHeartbeatFile: vi.fn(),
     acquireDedicatedLock: vi.fn(),
@@ -61,6 +63,8 @@ vi.mock("@/worker/dedicated-lock", () => ({
   createLockConnect: m.createLockConnect,
 }))
 vi.mock("@/worker/jobs/surveillance", () => ({ runSurveillance: m.runSurveillance }))
+vi.mock("@/worker/collab-daily", () => ({ startCollabScheduler: m.startCollabScheduler }))
+vi.mock("@/worker/trash-daily", () => ({ startPurgeTrashScheduler: m.startPurgeTrashScheduler }))
 vi.mock("@/worker/scheduler", () => ({
   DailyScheduler: class {
     start = vi.fn()
@@ -93,6 +97,12 @@ function cfg(over: Record<string, unknown> = {}) {
     shutdownTimeoutMs: 5000,
     lockName: "kanflow_worker",
     gate: { peers: [], token: null, pollMs: 1, timeoutMs: 1, maxBackoffMs: 1, quietMs: 1, degradedIntervalMs: 1 },
+    notifyDueTimes: [{ hour: 7, minute: 45 }],
+    notifyDueSoonDays: 2,
+    activityRetentionDays: 730,
+    notificationRetentionDays: 90,
+    purgeTrashTimes: [{ hour: 3, minute: 15 }],
+    purgeTrashAfterDays: 30,
     ...over,
   } as never
 }
@@ -131,6 +141,20 @@ describe("runWorker", () => {
     await runWorker(cfg(), { surveillanceNow: false, envFiles: [] })
     expect(m.createRemoteGate).not.toHaveBeenCalled()
     expect(m.startTranslationWorker).not.toHaveBeenCalled()
+  })
+
+  it("starts the collab daily scheduler with the startup signal", async () => {
+    await runWorker(cfg(), { surveillanceNow: false, envFiles: [] })
+    expect(m.startCollabScheduler).toHaveBeenCalledWith(expect.objectContaining({ lockName: "kanflow_worker" }), m.log, expect.any(AbortSignal))
+  })
+
+  it("starts the trash purge scheduler with the startup signal", async () => {
+    await runWorker(cfg(), { surveillanceNow: false, envFiles: [] })
+    expect(m.startPurgeTrashScheduler).toHaveBeenCalledWith(
+      expect.objectContaining({ purgeTrashAfterDays: 30 }),
+      m.log,
+      expect.any(AbortSignal)
+    )
   })
 
   it("starts gate, translation, scheduler and cli surveillance", async () => {

@@ -36,6 +36,34 @@ export function translationMock() {
   }
 }
 
+/**
+ * Inert activity seam: `logUpdate` reports the changed fields computed from
+ * the given before/after (so notification triggers can be tested), without a DB.
+ */
+export async function activityMock() {
+  const real = await vi.importActual<typeof import("@/services/_shared/activity")>("@/services/_shared/activity")
+  return {
+    ...real,
+    logActivity: vi.fn(async () => undefined),
+    logCreate: vi.fn(async () => undefined),
+    logDelete: vi.fn(async () => undefined),
+    logUpdate: vi.fn(async (_tx: unknown, ref: { entityType: string; before: Row | null; after: Row }) =>
+      ref.before ? real.diffFields(ref.before, ref.after, real.TRACKED_FIELDS[ref.entityType as keyof typeof real.TRACKED_FIELDS]) : {}
+    ),
+    loadSnapshot: vi.fn(async () => null),
+  }
+}
+
+/** Inert notification seam. */
+export function notificationsMock() {
+  return {
+    notify: vi.fn(async () => 0),
+    projectMemberIds: vi.fn(async () => [] as string[]),
+    resolveAssigneeUserIds: vi.fn(async () => [] as string[]),
+    newlyAssignedUserIds: vi.fn(async () => [] as string[]),
+  }
+}
+
 /** A Prisma-like known request error. */
 export function prismaError(code: string): Error & { code: string } {
   return Object.assign(new Error(`prisma ${code}`), { code })

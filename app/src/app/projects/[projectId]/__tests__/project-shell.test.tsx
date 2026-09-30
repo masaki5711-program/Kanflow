@@ -9,6 +9,7 @@ const m = vi.hoisted(() => ({
   auth: vi.fn(),
   getI18nFor: vi.fn(),
   findUnique: vi.fn(),
+  loadProjectActor: vi.fn(),
   push: vi.fn(),
   params: { projectId: "p1", attachmentId: "a1" } as Record<string, string>,
 }))
@@ -16,8 +17,13 @@ const m = vi.hoisted(() => ({
 vi.mock("@/lib/auth", () => ({ auth: m.auth }))
 vi.mock("@/lib/prisma", () => ({ prisma: { project: { findUnique: m.findUnique } } }))
 vi.mock("@/lib/translation/hooks", () => ({ getI18nFor: m.getI18nFor }))
+vi.mock("@/lib/authz", async () => ({
+  ...(await vi.importActual<typeof import("@/lib/authz/policy")>("@/lib/authz/policy")),
+  loadProjectActor: m.loadProjectActor,
+}))
 vi.mock("next/navigation", () => ({
   redirect: (url: string) => { throw new Error(`REDIRECT:${url}`) },
+  notFound: () => { throw new Error("NOT_FOUND") },
   useRouter: () => ({ push: m.push }),
   useParams: () => m.params,
 }))
@@ -27,7 +33,9 @@ vi.mock("next/link", () => ({
 vi.mock("@/components/header", () => ({
   Header: ({ projectName, projectI18n }: { projectName?: string; projectI18n: unknown }) => <header>{`H:${projectName}:${JSON.stringify(projectI18n)}`}</header>,
 }))
-vi.mock("@/components/sidebar", () => ({ Sidebar: ({ projectId }: { projectId: string }) => <nav>{`S:${projectId}`}</nav> }))
+vi.mock("@/components/sidebar", () => ({
+  Sidebar: ({ projectId, showTrash }: { projectId: string; showTrash?: boolean }) => <nav>{`S:${projectId}:trash=${String(showTrash)}`}</nav>,
+}))
 vi.mock("@/components/app-shell/sidebar-drawer", () => ({ SidebarDrawerProvider: ({ children }: { children: React.ReactNode }) => <>{children}</> }))
 vi.mock("@/components/collabora-editor", () => ({
   CollaboraEditor: ({ projectId, attachmentId, onClose }: { projectId: string; attachmentId: string; onClose: () => void }) => (
@@ -50,8 +58,13 @@ function ProjectTypeProbe() {
   return <span data-testid="ptype">{projectType}</span>
 }
 
+const actorOf = (projectRole: string | null) => ({ userId: "u1", systemRole: "member", projectRole, isSectionManagerOfProject: false })
+
 describe("ProjectLayout (server)", () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    m.loadProjectActor.mockResolvedValue(actorOf("dev"))
+  })
 
   it("redirects to /login without a session", async () => {
     m.auth.mockResolvedValue({ user: {} })
@@ -60,24 +73,34 @@ describe("ProjectLayout (server)", () => {
 
   it("renders header, sidebar and children and syncs the project type", async () => {
     m.auth.mockResolvedValue({ user: { id: "u1" } })
-    m.findUnique.mockResolvedValue({ name: "Proj", projectType: "general" })
+    m.findUnique.mockResolvedValue({ name: "Proj", projectType: "general", deletedAt: null })
     m.getI18nFor.mockResolvedValue(new Map([["p1", { name: { en: "Proj EN" } }]]))
     const el = (await ProjectLayout({ children: <ProjectTypeProbe />, params: Promise.resolve({ projectId: "p1" }) })) as ReactElement
     render(<LanguageProvider>{el}</LanguageProvider>)
     expect(screen.getByRole("banner")).toHaveTextContent('H:Proj:{"name":{"en":"Proj EN"}}')
-    expect(screen.getByRole("navigation")).toHaveTextContent("S:p1")
+    expect(screen.getByRole("navigation")).toHaveTextContent("S:p1:trash=false")
     expect(screen.getByRole("main")).toContainElement(screen.getByTestId("ptype"))
     expect(screen.getByTestId("ptype")).toHaveTextContent("general")
   })
 
-  it("defaults to software when the project is missing", async () => {
-    m.auth.mockResolvedValue({ user: { id: "u1" } })
-    m.findUnique.mockResolvedValue(null)
+  it("shows the trash entry to users who may manage the trash", async () => {
+    m.auth.mockResolvedValue({ user: { id: "u1", role: "member" } })
+    m.findUnique.mockResolvedValue({ name: "Proj", projectType: "software", deletedAt: null })
     m.getI18nFor.mockResolvedValue(new Map())
-    const el = (await ProjectLayout({ children: <ProjectTypeProbe />, params: Promise.resolve({ projectId: "p1" }) })) as ReactElement
-    render(<LanguageProvider initialProjectType="general">{el}</LanguageProvider>)
-    expect(screen.getByTestId("ptype")).toHaveTextContent("software")
-    expect(screen.getByRole("banner")).toHaveTextContent("H:undefined:{}")
+    m.loadProjectActor.mockResolvedValue(actorOf("sm"))
+    const el = (await ProjectLayout({ children: null, params: Promise.resolve({ projectId: "p1" }) })) as ReactElement
+    render(<LanguageProvider>{el}</LanguageProvider>)
+    expect(screen.getByRole("navigation")).toHaveTextContent("S:p1:trash=true")
+    expect(m.loadProjectActor).toHaveBeenCalledWith("u1", "member", "p1")
+  })
+
+  it("404s a missing project and a project in the trash", async () => {
+    m.auth.mockResolvedValue({ user: { id: "u1" } })
+    m.getI18nFor.mockResolvedValue(new Map())
+    m.findUnique.mockResolvedValue(null)
+    await expect(ProjectLayout({ children: null, params: Promise.resolve({ projectId: "p1" }) })).rejects.toThrow("NOT_FOUND")
+    m.findUnique.mockResolvedValue({ name: "Old", projectType: "software", deletedAt: new Date() })
+    await expect(ProjectLayout({ children: null, params: Promise.resolve({ projectId: "p1" }) })).rejects.toThrow("NOT_FOUND")
   })
 })
 

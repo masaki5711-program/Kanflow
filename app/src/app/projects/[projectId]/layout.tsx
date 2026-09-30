@@ -1,5 +1,6 @@
 import { auth } from "@/lib/auth"
-import { redirect } from "next/navigation"
+import { notFound, redirect } from "next/navigation"
+import { can, loadProjectActor } from "@/lib/authz"
 import { prisma } from "@/lib/prisma"
 import { type ProjectType } from "@/lib/project-type-labels"
 import { getI18nFor } from "@/lib/translation/hooks"
@@ -26,22 +27,28 @@ export default async function ProjectLayout({
   const [project, i18nMap] = await Promise.all([
     prisma.project.findUnique({
       where: { id: projectId },
-      select: { name: true, projectType: true },
+      select: { name: true, projectType: true, deletedAt: true },
     }),
     getI18nFor("project", [projectId]),
   ])
+  // A trashed project is "not found" for everyone (admins restore it from /admin/trash).
+  if (!project || project.deletedAt) notFound()
 
-  const projectType = (project?.projectType as ProjectType) ?? "software"
+  // The trash entry is shown only to users who may manage the project trash.
+  const actor = await loadProjectActor(session.user.id, session.user.role ?? "member", projectId)
+  const showTrash = can(actor, "trash.manage")
+
+  const projectType = (project.projectType as ProjectType) ?? "software"
   const projectI18n = i18nMap.get(projectId) ?? {}
 
   return (
     <ProjectLanguageSync projectType={projectType}>
-      <ProjectTitleProvider projectName={project?.name} projectI18n={projectI18n}>
+      <ProjectTitleProvider projectName={project.name} projectI18n={projectI18n}>
       <SidebarDrawerProvider>
         <div className="min-h-screen bg-surface-muted">
-          <Header projectName={project?.name} projectI18n={projectI18n} projectId={projectId} />
+          <Header projectName={project.name} projectI18n={projectI18n} projectId={projectId} />
           <div className="flex">
-            <Sidebar projectId={projectId} projectName={project?.name} projectI18n={projectI18n} />
+            <Sidebar projectId={projectId} projectName={project.name} projectI18n={projectI18n} showTrash={showTrash} />
             <main id="main-content" tabIndex={-1} className="min-w-0 flex-1 overflow-x-auto px-4 py-6 sm:px-6 lg:px-8">{children}</main>
           </div>
         </div>

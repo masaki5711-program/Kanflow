@@ -8,7 +8,7 @@ describe("backlog.repository", () => {
     const db = fakeDb({ "productBacklogItem.findMany": [] })
     await repo.findBacklogItems(db.client, "p1")
     const arg = db.fn("productBacklogItem.findMany").mock.calls[0][0]
-    expect(arg.where).toEqual({ projectId: "p1" })
+    expect(arg.where).toEqual({ projectId: "p1", deletedAt: null })
     expect(arg.take).toBe(LIST_LIMITS.backlogItems)
     expect(arg.orderBy).toEqual([{ sortOrder: "asc" }, { createdAt: "asc" }])
     expect(arg.include.sprintItems.where).toEqual({ sprint: { status: { in: ["planning", "active"] } } })
@@ -19,13 +19,82 @@ describe("backlog.repository", () => {
   it("findBacklogItems narrows by status when given", async () => {
     const db = fakeDb({ "productBacklogItem.findMany": [] })
     await repo.findBacklogItems(db.client, "p1", "ready")
-    expect(db.fn("productBacklogItem.findMany").mock.calls[0][0].where).toEqual({ projectId: "p1", status: "ready" })
+    expect(db.fn("productBacklogItem.findMany").mock.calls[0][0].where).toEqual({ projectId: "p1", status: "ready", deletedAt: null })
   })
 
-  it("findBacklogItem requires both id and projectId", async () => {
+  it("findBacklogItem requires both id and projectId and skips the trash", async () => {
     const db = fakeDb()
     await repo.findBacklogItem(db.client, "p1", "b1")
-    expect(db.fn("productBacklogItem.findFirst").mock.calls[0][0].where).toEqual({ id: "b1", projectId: "p1" })
+    expect(db.fn("productBacklogItem.findFirst").mock.calls[0][0].where).toEqual({ id: "b1", projectId: "p1", deletedAt: null })
+  })
+
+  it("linked icebox request selects deletedAt so a trashed request can be hidden", async () => {
+    const db = fakeDb({ "productBacklogItem.findMany": [] })
+    await repo.findBacklogItems(db.client, "p1")
+    expect(db.fn("productBacklogItem.findMany").mock.calls[0][0].include.iceboxItem.select.deletedAt).toBe(true)
+  })
+
+  it("nextBacklogNumbers counts trashed PBIs too (displayId is never reused)", async () => {
+    const db = fakeDb({ "productBacklogItem.aggregate": { _max: { displayId: 1, sortOrder: 1 } } })
+    await repo.nextBacklogNumbers(db.client, "p1")
+    expect(db.fn("productBacklogItem.aggregate").mock.calls[0][0].where).toEqual({ projectId: "p1" })
+  })
+
+  it("softDeleteBacklogItem stamps only a live row of the project", async () => {
+    const db = fakeDb({ "productBacklogItem.updateMany": { count: 1 } })
+    const now = new Date("2026-10-01T00:00:00Z")
+    await expect(repo.softDeleteBacklogItem(db.client, "p1", "b1", "u1", now)).resolves.toBe(true)
+    expect(db.fn("productBacklogItem.updateMany")).toHaveBeenCalledWith({
+      where: { id: "b1", projectId: "p1", deletedAt: null },
+      data: { deletedAt: now, deletedById: "u1" },
+    })
+  })
+
+  it("softDeleteBacklogItem reports false when nothing matched", async () => {
+    const db = fakeDb({ "productBacklogItem.updateMany": { count: 0 } })
+    await expect(repo.softDeleteBacklogItem(db.client, "p1", "b1", "u1")).resolves.toBe(false)
+  })
+
+  it("restoreBacklogItemRow clears the trash columns of a trashed row only", async () => {
+    const db = fakeDb({ "productBacklogItem.updateMany": { count: 1 } })
+    await expect(repo.restoreBacklogItemRow(db.client, "p1", "b1")).resolves.toBe(true)
+    expect(db.fn("productBacklogItem.updateMany")).toHaveBeenCalledWith({
+      where: { id: "b1", projectId: "p1", deletedAt: { not: null } },
+      data: { deletedAt: null, deletedById: null },
+    })
+  })
+
+  it("findTrashedBacklogItem / findTrashedBacklogItems only see the trash, newest first", async () => {
+    const db = fakeDb({ "productBacklogItem.findMany": [] })
+    await repo.findTrashedBacklogItem(db.client, "p1", "b1")
+    await repo.findTrashedBacklogItems(db.client, "p1")
+    expect(db.fn("productBacklogItem.findFirst").mock.calls[0][0].where).toEqual({
+      id: "b1",
+      projectId: "p1",
+      deletedAt: { not: null },
+    })
+    const list = db.fn("productBacklogItem.findMany").mock.calls[0][0]
+    expect(list.where).toEqual({ projectId: "p1", deletedAt: { not: null } })
+    expect(list.orderBy).toEqual({ deletedAt: "desc" })
+    expect(list.take).toBe(LIST_LIMITS.backlogItems)
+  })
+
+  it("findExpiredTrashedBacklogItems selects rows trashed before the cutoff", async () => {
+    const db = fakeDb({ "productBacklogItem.findMany": [] })
+    const cutoff = new Date("2026-09-01T00:00:00Z")
+    await repo.findExpiredTrashedBacklogItems(db.client, cutoff, 50)
+    expect(db.fn("productBacklogItem.findMany")).toHaveBeenCalledWith({
+      where: { deletedAt: { lt: cutoff } },
+      select: { id: true, projectId: true },
+      orderBy: { deletedAt: "asc" },
+      take: 50,
+    })
+  })
+
+  it("findProjectIceboxItemId does not link to a trashed request", async () => {
+    const db = fakeDb()
+    await repo.findProjectIceboxItemId(db.client, "p1", "i1")
+    expect(db.fn("iceboxItem.findFirst").mock.calls[0][0].where).toEqual({ id: "i1", projectId: "p1", deletedAt: null })
   })
 
   it("nextBacklogNumbers returns max + 1 scoped to the project", async () => {
@@ -49,15 +118,18 @@ describe("backlog.repository", () => {
     expect(db.fn("productBacklogItem.create")).toHaveBeenCalledWith({ data })
   })
 
-  it("update / delete / setSortOrder are all project-scoped", async () => {
+  it("update / delete / setSortOrder are all project-scoped (update and reorder skip the trash)", async () => {
     const db = fakeDb()
     await repo.updateBacklogItem(db.client, "p1", "b1", { epic: "e" })
     await repo.deleteBacklogItem(db.client, "p1", "b1")
     await repo.setBacklogSortOrder(db.client, "p1", "b1", 5)
-    expect(db.fn("productBacklogItem.update")).toHaveBeenCalledWith({ where: { id: "b1", projectId: "p1" }, data: { epic: "e" } })
+    expect(db.fn("productBacklogItem.update")).toHaveBeenCalledWith({
+      where: { id: "b1", projectId: "p1", deletedAt: null },
+      data: { epic: "e" },
+    })
     expect(db.fn("productBacklogItem.delete")).toHaveBeenCalledWith({ where: { id: "b1", projectId: "p1" } })
     expect(db.fn("productBacklogItem.updateMany")).toHaveBeenCalledWith({
-      where: { id: "b1", projectId: "p1" },
+      where: { id: "b1", projectId: "p1", deletedAt: null },
       data: { sortOrder: 5 },
     })
   })

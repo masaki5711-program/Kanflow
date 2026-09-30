@@ -11,6 +11,7 @@ import {
   MessageSquare,
   Rocket,
   Settings,
+  Trash2,
   TrendingDown,
   Zap,
 } from "lucide-react"
@@ -32,12 +33,25 @@ export interface SidebarNavGroup {
   items: SidebarNavItem[]
 }
 
+export interface SidebarNavOptions {
+  /** Add the project trash entry (only for users with the "trash.manage" permission). */
+  showTrash?: boolean
+}
+
 /**
  * Sidebar information architecture. Groups follow the work flow:
  * idea → backlog → sprint, then planning views, analysis, and the rest.
  */
-export function buildSidebarGroups(projectId: string, t: Translations, pt: ProjectTypeLabels): SidebarNavGroup[] {
+export function buildSidebarGroups(
+  projectId: string,
+  t: Translations,
+  pt: ProjectTypeLabels,
+  options: SidebarNavOptions = {},
+): SidebarNavGroup[] {
   const base = `/projects/${projectId}`
+  const trash: SidebarNavItem[] = options.showTrash
+    ? [{ href: `${base}/trash`, label: t.trashTitle, description: t.trashNavDescription, Icon: Trash2 }]
+    : []
   return [
     {
       id: "home",
@@ -80,6 +94,7 @@ export function buildSidebarGroups(projectId: string, t: Translations, pt: Proje
       items: [
         { href: `${base}/guide`, label: t.guideTitle, description: t.navDescGuide, Icon: BookOpen },
         { href: `${base}/settings`, label: t.navSettings, description: t.navDescSettings, Icon: Settings },
+        ...trash,
       ],
     },
   ]

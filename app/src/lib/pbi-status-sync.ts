@@ -39,12 +39,13 @@ export function derivePbiStatusChange(currentStatus: string, tasks: readonly Tas
  * Reconcile a PBI's `status` with the state of its sprint tasks (scanned
  * ACROSS sprints — a carried-over PBI isn't complete until every real task is
  * done). Runs after any sprint task create/update/delete and after a PBI is
- * removed from a sprint. Safe to call when the PBI no longer exists. Pass a
+ * removed from a sprint. Safe to call when the PBI no longer exists or is in
+ * the trash (then nothing is written). Pass a
  * transaction client to run inside the caller's transaction.
  */
 export async function syncPbiStatusFromTasks(pbItemId: string, db: Db = prisma): Promise<void> {
   const pbi = await db.productBacklogItem.findUnique({
-    where: { id: pbItemId },
+    where: { id: pbItemId, deletedAt: null },
     select: { id: true, status: true },
   })
   if (!pbi) return

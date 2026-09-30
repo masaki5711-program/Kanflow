@@ -1,5 +1,5 @@
 import { requireProject } from "@/lib/authz"
-import { successResponse, toHttpResponse } from "@/services/_shared"
+import { actorFromSession, successResponse, toHttpResponse } from "@/services/_shared"
 import { reorderPlanSchema } from "@/services/plan/plan.schemas"
 import { reorderPlan } from "@/services/plan/plan.service"
 
@@ -13,7 +13,7 @@ export async function POST(
 
   try {
     const { updates } = reorderPlanSchema.parse(await request.json())
-    await reorderPlan(projectId, updates)
+    await reorderPlan(projectId, updates, actorFromSession(gate.session))
     return successResponse()
   } catch (error) {
     return toHttpResponse(error, { fallback: "並び替えに失敗しました", context: "PlanItem reorder" })

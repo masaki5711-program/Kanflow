@@ -27,6 +27,7 @@ vi.mock("@/lib/report-bilingual", () => ({
   convertLegacyAiReports: mocks.convertLegacyAiReports,
 }))
 vi.mock("@/lib/ai-monitor", () => ({ aiLog: vi.fn() }))
+vi.mock("@/services/_shared/notifications", () => ({ notify: vi.fn(async () => 0), projectMemberIds: vi.fn(async () => []) }))
 
 import { buildGoal, extractPreviousFindings, pruneOldReports, retentionCutoff, runSurveillance } from "../jobs/surveillance"
 
@@ -76,6 +77,8 @@ describe("runSurveillance", () => {
 
     expect(r.status).toBe("done")
     expect(r.projects).toEqual([{ project: "Line A", anomalies: 1, investigated: true, reportId: "new" }])
+    // trashed projects are never surveyed
+    expect(mocks.findMany.mock.calls[0][0].where).toEqual({ status: "active", deletedAt: null })
     // exactly one deleteMany: the retention sweep (no per-project supersede)
     expect(mocks.deleteMany).toHaveBeenCalledTimes(1)
     expect(mocks.deleteMany).toHaveBeenCalledWith({ where: { createdAt: { lt: new Date("2026-06-25T06:30:00Z") } } })

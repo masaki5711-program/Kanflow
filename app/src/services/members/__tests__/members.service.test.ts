@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
+vi.mock("@/services/_shared/activity", async () => (await import("@/services/__tests__/support")).activityMock())
+vi.mock("@/services/_shared/notifications", async () => (await import("@/services/__tests__/support")).notificationsMock())
 vi.mock("@/services/_shared/db", async () => (await import("@/services/__tests__/support")).dbMock())
 vi.mock("../members.repository")
 
@@ -60,6 +62,7 @@ describe("members.service", () => {
   it("allows role changes when another PO remains", async () => {
     vi.mocked(repo.findMemberRole).mockResolvedValue({ role: "po" })
     vi.mocked(repo.countPos).mockResolvedValue(2)
+    vi.mocked(repo.updateMemberRole).mockResolvedValue({ id: "m1", role: "dev", user: null } as never)
     await svc.changeMemberRole("p1", "m1", "dev")
     await svc.removeMember("p1", "m1")
     expect(repo.updateMemberRole).toHaveBeenCalledWith(TX, "p1", "m1", "dev")
@@ -70,6 +73,7 @@ describe("members.service", () => {
     vi.mocked(repo.findMemberRole).mockResolvedValue({ role: "dev" })
     await svc.removeMember("p1", "m2")
     vi.mocked(repo.findMemberRole).mockResolvedValue({ role: "po" })
+    vi.mocked(repo.updateMemberRole).mockResolvedValue({ id: "m1", role: "po", user: null } as never)
     await svc.changeMemberRole("p1", "m1", "po")
     expect(repo.countPos).not.toHaveBeenCalled()
   })

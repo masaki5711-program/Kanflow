@@ -42,10 +42,11 @@ describe("syncPbiStatusFromTasks", () => {
   }
   beforeEach(() => vi.clearAllMocks())
 
-  it("does nothing for a missing PBI", async () => {
+  it("does nothing for a missing or trashed PBI", async () => {
     db.productBacklogItem.findUnique.mockResolvedValue(null)
     await syncPbiStatusFromTasks("pb1", db as never)
     expect(db.sprintBacklogItem.findMany).not.toHaveBeenCalled()
+    expect(db.productBacklogItem.findUnique.mock.calls[0][0].where).toEqual({ id: "pb1", deletedAt: null })
   })
 
   it("writes the derived change on the given client", async () => {
@@ -93,6 +94,15 @@ describe("sprint score", () => {
     }
     await expect(recalcSprintActualScore("s1", db as never)).resolves.toBe(2)
     expect(db.sprint.update).toHaveBeenCalledWith({ where: { id: "s1" }, data: { actualScore: 2 } })
+  })
+
+  it("ignores tasks of PBIs in the trash", async () => {
+    const db = {
+      sprintBacklogItem: { findMany: vi.fn().mockResolvedValue([]) },
+      sprint: { update: vi.fn() },
+    }
+    await recalcSprintActualScore("s1", db as never)
+    expect(db.sprintBacklogItem.findMany.mock.calls[0][0].where).toEqual({ sprintId: "s1", pbItem: { deletedAt: null } })
   })
 })
 

@@ -44,7 +44,7 @@ describe("POST /members", () => {
     vi.mocked(svc.addMember).mockResolvedValue({ id: "m-2" } as never)
     const res = await read(await list.POST(req("POST", { email: "a@example.com", role: "dev" }), ctx()))
     expect(res).toEqual({ status: 201, body: { id: "m-2" } })
-    expect(svc.addMember).toHaveBeenCalledWith(PROJECT_ID, { userId: undefined, email: "a@example.com" }, "dev")
+    expect(svc.addMember).toHaveBeenCalledWith(PROJECT_ID, { userId: undefined, email: "a@example.com" }, "dev", expect.objectContaining({ userId: expect.any(String) }))
     expect(svc.addMembersBulk).not.toHaveBeenCalled()
   })
 
@@ -53,7 +53,7 @@ describe("POST /members", () => {
     vi.mocked(svc.addMembersBulk).mockResolvedValue({ added: 2, skipped: 0 } as never)
     const res = await list.POST(req("POST", { userIds: ["u2", "u3"], role: "dev" }), ctx())
     expect(res.status).toBe(201)
-    expect(svc.addMembersBulk).toHaveBeenCalledWith(PROJECT_ID, ["u2", "u3"], "dev")
+    expect(svc.addMembersBulk).toHaveBeenCalledWith(PROJECT_ID, ["u2", "u3"], "dev", expect.objectContaining({ userId: expect.any(String) }))
   })
 
   it("adds in bulk: 200 when nothing new was added", async () => {
@@ -107,7 +107,7 @@ describe("PATCH/DELETE /members/[memberId]", () => {
       status: 200,
       body: { id: "m-1", role: "sm" },
     })
-    expect(svc.changeMemberRole).toHaveBeenCalledWith(PROJECT_ID, "m-1", "sm")
+    expect(svc.changeMemberRole).toHaveBeenCalledWith(PROJECT_ID, "m-1", "sm", expect.objectContaining({ userId: expect.any(String) }))
   })
 
   it("rejects an invalid role", async () => {
@@ -134,7 +134,7 @@ describe("PATCH/DELETE /members/[memberId]", () => {
     asRole("sm")
     vi.mocked(svc.removeMember).mockResolvedValue(undefined)
     expect(await read(await one.DELETE(req("DELETE"), mCtx()))).toEqual({ status: 200, body: { success: true } })
-    expect(svc.removeMember).toHaveBeenCalledWith(PROJECT_ID, "m-1")
+    expect(svc.removeMember).toHaveBeenCalledWith(PROJECT_ID, "m-1", expect.objectContaining({ userId: expect.any(String) }))
   })
 
   it("refuses removal by a dev; maps failure to 500", async () => {

@@ -16,6 +16,7 @@ vi.mock("../glossary/glossary-management", () => ({ GlossaryManagement: () => <d
 vi.mock("../sections/section-management", () => ({ SectionManagement: () => <div>SECTIONS</div> }))
 vi.mock("../translations/translation-queue-panel", () => ({ TranslationQueuePanel: () => <div>TRANSLATIONS</div> }))
 vi.mock("../users/user-management", () => ({ UserManagement: () => <div>USERS</div> }))
+vi.mock("../trash/project-trash-management", () => ({ ProjectTrashManagement: () => <div>TRASH</div> }))
 
 /** Tables use the wide page width, small list/queue screens the narrow one. */
 const WIDTH: Record<string, string> = {
@@ -24,6 +25,7 @@ const WIDTH: Record<string, string> = {
   SECTIONS: "page-wide",
   TRANSLATIONS: "page-narrow",
   USERS: "page-wide",
+  TRASH: "page-narrow",
 }
 
 const pages = {
@@ -32,6 +34,7 @@ const pages = {
   SECTIONS: (await import("../sections/page")).default,
   TRANSLATIONS: (await import("../translations/page")).default,
   USERS: (await import("../users/page")).default,
+  TRASH: (await import("../trash/page")).default,
 }
 
 describe.each(Object.entries(pages))("admin %s page", (marker, Page) => {

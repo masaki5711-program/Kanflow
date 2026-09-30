@@ -48,7 +48,7 @@ export default async function ReportPage({
   }
 
   const project = await prisma.project.findUnique({
-    where: { id: projectId },
+    where: { id: projectId, deletedAt: null },
     include: {
       members: {
         include: { user: { select: { id: true, name: true, email: true } } },
@@ -65,6 +65,8 @@ export default async function ReportPage({
     where: { projectId },
     include: {
       items: {
+        // Tasks of trashed PBIs are hidden like in every sprint view.
+        where: { pbItem: { deletedAt: null } },
         include: {
           pbItem: {
             select: {
@@ -84,7 +86,7 @@ export default async function ReportPage({
 
   // Backlog full details
   const backlogItems = await prisma.productBacklogItem.findMany({
-    where: { projectId },
+    where: { projectId, deletedAt: null },
     include: {
       productGoal: { select: { id: true, title: true } },
     },
@@ -97,7 +99,7 @@ export default async function ReportPage({
 
   // Icebox counts
   const iceboxItems = await prisma.iceboxItem.findMany({
-    where: { projectId },
+    where: { projectId, deletedAt: null },
     select: { status: true },
   })
   const iceboxUnreviewed = iceboxItems.filter((i) => i.status === "unreviewed").length

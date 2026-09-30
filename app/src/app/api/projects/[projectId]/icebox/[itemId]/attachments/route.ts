@@ -1,5 +1,5 @@
 import { requireProject } from "@/lib/authz"
-import { jsonResponse, toHttpResponse } from "@/services/_shared"
+import { actorFromSession, jsonResponse, toHttpResponse } from "@/services/_shared"
 import { uploadIceboxAttachment } from "@/services/icebox/icebox.service"
 
 export async function POST(
@@ -13,7 +13,7 @@ export async function POST(
   try {
     const formData = await request.formData()
     const file = formData.get("file") as File | null
-    return jsonResponse(await uploadIceboxAttachment(projectId, itemId, file), 201)
+    return jsonResponse(await uploadIceboxAttachment(projectId, itemId, file, actorFromSession(gate.session)), 201)
   } catch (error) {
     return toHttpResponse(error, { fallback: "アップロードに失敗しました", context: "Icebox attachment upload" })
   }

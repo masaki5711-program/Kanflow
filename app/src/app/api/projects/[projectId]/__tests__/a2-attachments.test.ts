@@ -25,6 +25,7 @@ vi.mock("@/lib/prisma", () => ({
   prisma: {
     projectMember: { findFirst: (...a: unknown[]) => m.memberFindFirst(...a) },
     projectSection: { findFirst: vi.fn().mockResolvedValue(null) },
+    project: { findFirst: vi.fn().mockResolvedValue({ id: "live" }) },
     attachmentFolder: { findFirst: (...a: unknown[]) => m.folderFindFirst(...a) },
     $queryRaw: (...a: unknown[]) => m.queryRaw(...a),
     projectAttachment: {

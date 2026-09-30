@@ -112,7 +112,7 @@ describe("detectAnomalies", () => {
     ])
     const out = await detectAnomalies("p1")
     expect(sbiFindMany).toHaveBeenCalledWith({
-      where: { sprintId: "s1" },
+      where: { sprintId: "s1", pbItem: { deletedAt: null } },
       select: { pbItem: { select: { id: true, workloadScore: true } } },
     })
     expect(out).toEqual([expect.objectContaining({ code: "over_capacity" })])

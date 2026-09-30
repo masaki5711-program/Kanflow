@@ -15,6 +15,7 @@ vi.mock("@/lib/prisma", () => ({
   prisma: {
     projectMember: { findFirst: (...a: unknown[]) => m.memberFindFirst(...a) },
     projectSection: { findFirst: vi.fn().mockResolvedValue(null) },
+    project: { findFirst: vi.fn().mockResolvedValue({ id: "live" }) },
   },
 }))
 vi.mock("@/services/releases/releases.service", () => ({
@@ -105,7 +106,7 @@ describe("release routes", () => {
       m.deleteReleaseItem.mockResolvedValue(undefined)
       const res = await one.DELETE(getReq(), PR)
       expect(res.status).toBe(200)
-      expect(m.deleteReleaseItem).toHaveBeenCalledWith("p1", "r1")
+      expect(m.deleteReleaseItem).toHaveBeenCalledWith("p1", "r1", expect.objectContaining({ userId: expect.any(String) }))
       expect(m.memberFindFirst).not.toHaveBeenCalled()
     })
 
@@ -130,7 +131,7 @@ describe("release routes", () => {
       const res = await imp.POST(jsonReq("POST", { pbItemIds: ["a", "b"], planVersion: "1.0" }), P)
       expect(res.status).toBe(201)
       expect(await res.json()).toEqual({ created: 2 })
-      expect(m.importReleaseItems).toHaveBeenCalledWith("p1", { pbItemIds: ["a", "b"], planVersion: "1.0" })
+      expect(m.importReleaseItems).toHaveBeenCalledWith("p1", { pbItemIds: ["a", "b"], planVersion: "1.0" }, expect.objectContaining({ userId: expect.any(String) }))
     })
 
     it("400 on empty pbItemIds", async () => {

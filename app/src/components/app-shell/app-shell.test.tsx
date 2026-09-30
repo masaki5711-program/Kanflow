@@ -91,6 +91,15 @@ describe("sidebar-nav", () => {
     expect(isNavItemActive("/projects/p9/backlog/123", backlog)).toBe(true)
     expect(isNavItemActive("/projects/p9/backlogx", backlog)).toBe(false)
   })
+
+  it("adds the trash entry to the last group only when allowed", () => {
+    const pt = { navIcebox: "I", navBacklog: "B", navSprints: "S", navReleases: "R" } as never
+    const hrefs = (groups: ReturnType<typeof buildSidebarGroups>) => groups.flatMap((g) => g.items.map((i) => i.href))
+    expect(hrefs(buildSidebarGroups("p9", t, pt))).not.toContain("/projects/p9/trash")
+    const withTrash = buildSidebarGroups("p9", t, pt, { showTrash: true })
+    const other = withTrash[withTrash.length - 1]
+    expect(other.items[other.items.length - 1]).toMatchObject({ href: "/projects/p9/trash", label: t.trashTitle })
+  })
 })
 
 describe("Sidebar", () => {
@@ -303,7 +312,7 @@ describe("AdminMenu", () => {
     const menu = screen.getByRole("menu", { name: t.navAdminMenu })
     expect(button).toHaveAttribute("aria-controls", menu.id)
     const items = screen.getAllByRole("menuitem")
-    expect(items).toHaveLength(5)
+    expect(items).toHaveLength(6)
     expect(items[0]).toHaveFocus()
     expect(items[0]).toHaveAttribute("tabindex", "0")
     expect(items[1]).toHaveAttribute("tabindex", "-1")
@@ -320,15 +329,15 @@ describe("AdminMenu", () => {
     await userEvent.keyboard("{ArrowDown}")
     expect(items[1]).toHaveFocus()
     await userEvent.keyboard("{End}")
-    expect(items[4]).toHaveFocus()
+    expect(items[items.length - 1]).toHaveFocus()
     await userEvent.keyboard("{ArrowDown}")
     expect(items[0]).toHaveFocus()
     await userEvent.keyboard("{ArrowUp}")
-    expect(items[4]).toHaveFocus()
+    expect(items[items.length - 1]).toHaveFocus()
     await userEvent.keyboard("{Home}")
     expect(items[0]).toHaveFocus()
     await userEvent.keyboard("{ArrowUp}")
-    expect(items[4]).toHaveFocus()
+    expect(items[items.length - 1]).toHaveFocus()
   })
 
   it("ArrowUp on the button opens on the last item", async () => {

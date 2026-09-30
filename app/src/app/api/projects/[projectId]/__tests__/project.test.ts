@@ -113,7 +113,7 @@ describe("/api/projects/[projectId]", () => {
       asRole("po")
       vi.mocked(svc.deleteProject).mockResolvedValue(undefined)
       expect(await read(await DELETE(req("DELETE"), ctx()))).toEqual({ status: 200, body: { success: true } })
-      expect(svc.deleteProject).toHaveBeenCalledWith(PROJECT_ID)
+      expect(svc.deleteProject).toHaveBeenCalledWith(PROJECT_ID, ACTOR)
     })
 
     it("lets a system admin delete without membership", async () => {

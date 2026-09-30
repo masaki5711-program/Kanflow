@@ -12,6 +12,7 @@ describe("releases.repository", () => {
     expect(arg.take).toBe(LIST_LIMITS.releaseItems)
     expect(arg.orderBy).toEqual([{ planVersion: "asc" }, { createdAt: "asc" }])
     expect(arg.include.pbItem.select.id).toBe(true)
+    expect(arg.include.pbItem.select.deletedAt).toBe(true)
   })
 
   it("update / delete require the projectId", async () => {
@@ -26,7 +27,7 @@ describe("releases.repository", () => {
     const db = fakeDb()
     await repo.findPbisForRelease(db.client, "p1", ["b1", "b2"])
     expect(db.fn("productBacklogItem.findMany")).toHaveBeenCalledWith({
-      where: { id: { in: ["b1", "b2"] }, projectId: "p1" },
+      where: { id: { in: ["b1", "b2"] }, projectId: "p1", deletedAt: null },
       select: { id: true, initiative: true, epic: true, userStory: true, assignedPo: true, poNote: true },
     })
   })

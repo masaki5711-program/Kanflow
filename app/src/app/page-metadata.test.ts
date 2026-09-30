@@ -39,6 +39,8 @@ describe("buildPageMetadata", () => {
     )
     const meta = await buildPageMetadata(({ pt }) => pt.backlogTitle, "p1")
     expect(meta.title).toMatch(/ · Alfa · Kanflow$/)
+    // A trashed project is treated like a missing one (no name in the title).
+    expect(projectFind).toHaveBeenCalledWith({ where: { id: "p1", deletedAt: null }, select: { name: true, projectType: true } })
   })
 
   it("falls back to Japanese without a session and omits a missing project", async () => {

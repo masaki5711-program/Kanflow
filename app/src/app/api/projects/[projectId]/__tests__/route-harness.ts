@@ -11,12 +11,15 @@ import { vi } from "vitest"
 export const authMock = vi.fn()
 export const memberFindFirst = vi.fn()
 export const sectionFindFirst = vi.fn()
+/** requireProject's liveness lookup; null = project missing or in the trash. */
+export const projectFindFirst = vi.fn()
 
 export const authModule = { auth: () => authMock() }
 export const prismaModule = {
   prisma: {
     projectMember: { findFirst: (...a: unknown[]) => memberFindFirst(...a) },
     projectSection: { findFirst: (...a: unknown[]) => sectionFindFirst(...a) },
+    project: { findFirst: (...a: unknown[]) => projectFindFirst(...a) },
   },
 }
 const noopLog = { debug() {}, info() {}, warn() {}, error() {}, child: () => noopLog }
@@ -31,6 +34,7 @@ export function asRole(projectRole: "po" | "sm" | "dev" | null, systemRole = "me
   authMock.mockReset().mockResolvedValue({ user: { ...USER, role: systemRole } })
   memberFindFirst.mockReset().mockResolvedValue(projectRole ? { role: projectRole } : null)
   sectionFindFirst.mockReset().mockResolvedValue(null)
+  projectFindFirst.mockReset().mockResolvedValue({ id: PROJECT_ID })
 }
 
 export function signedOut(): void {

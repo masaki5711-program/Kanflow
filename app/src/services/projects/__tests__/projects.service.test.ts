@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
+vi.mock("@/services/_shared/activity", async () => (await import("@/services/__tests__/support")).activityMock())
+vi.mock("@/services/_shared/notifications", async () => (await import("@/services/__tests__/support")).notificationsMock())
 vi.mock("@/services/_shared/db", async () => (await import("@/services/__tests__/support")).dbMock())
 vi.mock("@/services/_shared/translations", async () => (await import("@/services/__tests__/support")).translationMock())
 vi.mock("@/services/attachments/attachments.service", () => ({ attachTemplate: vi.fn(async () => true) }))
@@ -98,39 +100,7 @@ describe("projects.service", () => {
     expect(repo.findExistingSectionIds).not.toHaveBeenCalled()
   })
 
-  it("deleteProject purges the translations of every cascaded child in the same tx", async () => {
-    const tree = { project: ["p1"], sprint: ["s1"], sprint_task: ["t1"] }
-    vi.mocked(repo.collectProjectTranslationTree).mockResolvedValue(tree)
-    await svc.deleteProject("p1")
-    expect(repo.collectProjectTranslationTree).toHaveBeenCalledWith(TX, "p1")
-    expect(tr.purgeIn).toHaveBeenCalledWith(TX, tree)
-    expect(repo.deleteProject).toHaveBeenCalledWith(TX, "p1")
-  })
-
-  it("deleteProject removes the upload dir only after the DB delete committed", async () => {
-    vi.mocked(repo.collectProjectTranslationTree).mockResolvedValue({ project: ["p1"] })
-    const order: string[] = []
-    vi.mocked(repo.deleteProject).mockImplementation((() => { order.push("db"); return Promise.resolve({}) }) as never)
-    vi.mocked(removeProjectUploadDir).mockImplementation(async () => { order.push("fs"); return true })
-    await svc.deleteProject("p1")
-    expect(removeProjectUploadDir).toHaveBeenCalledWith("p1")
-    expect(order).toEqual(["db", "fs"])
-  })
-
-  it("deleteProject leaves files alone when the DB delete fails", async () => {
-    vi.mocked(repo.collectProjectTranslationTree).mockResolvedValue({ project: ["p1"] })
-    vi.mocked(repo.deleteProject).mockRejectedValue(new Error("db down"))
-    await expect(svc.deleteProject("p1")).rejects.toThrow("db down")
-    expect(removeProjectUploadDir).not.toHaveBeenCalled()
-  })
-
-  it("deleteProject still succeeds when removing the upload dir fails (logged)", async () => {
-    vi.mocked(repo.collectProjectTranslationTree).mockResolvedValue({ project: ["p1"] })
-    vi.mocked(repo.deleteProject).mockResolvedValue({} as never)
-    vi.mocked(removeProjectUploadDir).mockRejectedValue(new Error("EBUSY"))
-    await expect(svc.deleteProject("p1")).resolves.toBeUndefined()
-    expect(logSpies.error).toHaveBeenCalledWith("project upload dir removal failed", { projectId: "p1", error: "EBUSY" })
-  })
+  // deleteProject (trash) / restoreProject / purgeProject: see projects.trash.test.ts
 
   it("cleanupProjectUploads logs an unsafe id instead of removing anything", async () => {
     vi.mocked(removeProjectUploadDir).mockResolvedValue(false)

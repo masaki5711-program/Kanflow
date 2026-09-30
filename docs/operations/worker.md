@@ -101,6 +101,12 @@ first one exits. A standby worker writes no heartbeat file.
 | `KANFLOW_WORKER_BUNDLE` | `.next\worker\main.cjs` | Bundle loaded by `service-entry.mjs` (relative to `app\`). Used for testing a side build, e.g. `.next-new\worker\main.cjs`. |
 | `WORKER_SHUTDOWN_TIMEOUT_MS` | `25000` | Graceful-stop budget. Must be below the service's `stoptimeout` of 35 s. |
 | `SURVEILLANCE_TOKEN` | unset | Unchanged: protects the manual `POST /api/surveillance` trigger. |
+| `NOTIFY_DUE_SCHEDULE` | `07:45` | Local `HH:MM` time(s) of the daily collab job (retention sweep + due-date notifications). `off` disables both. |
+| `NOTIFY_DUE_SOON_DAYS` | `2` | `due_soon` = due within today .. today + N days (local calendar days). |
+| `ACTIVITY_RETENTION_DAYS` | `730` | `ActivityLog` rows older than this are deleted by the collab job. |
+| `NOTIFICATION_RETENTION_DAYS` | `90` | **Read** notifications older than this are deleted. Unread ones are kept. |
+| `PURGE_TRASH_AFTER_DAYS` | `30` | Trashed projects / PBIs / IceBox items older than this are deleted permanently by the purge job. Set it in the web env too: the trash UI shows the purge date from it. |
+| `PURGE_TRASH_SCHEDULE` | `03:15` | Local `HH:MM` time(s) of the daily trash purge. `off` disables it (nothing is purged automatically). |
 
 ## How it works
 
@@ -204,6 +210,48 @@ The logic moved from `app/api/surveillance/route.ts` to `src/worker/jobs/surveil
 - **Legacy JA/ID conversion runs again:** after the retention sweep, each run converts up to 50
   single-language reports to JA/ID bilingual (`convertLegacyAiReports`, best effort; it waits
   for busy web users first and never deletes anything).
+
+### Collab daily job (activity retention + due-date notifications)
+
+`src/worker/collab-daily.ts`, scheduled by `NOTIFY_DUE_SCHEDULE` (default 07:45, before
+business hours so notifications are waiting at the start of the day). Each step fails
+independently (logged under `component: collab-daily`).
+
+1. **Retention** (`jobs/activity-retention.ts`): deletes `ActivityLog` rows older than
+   `ACTIVITY_RETENTION_DAYS` and read `Notification` rows older than
+   `NOTIFICATION_RETENTION_DAYS`, in batches of 1000 ids (max 200 batches per table per run;
+   the rest goes the next day).
+2. **Due-date notifications** (`jobs/notify-due.ts`), live projects only (status `active`,
+   not in the trash):
+   - sprint tasks of **active** sprints that are not done — due date = the sprint's end date
+     (tasks have no own due date) — go to the task's assignees (`TaskAssignee` rows, else the
+     legacy assignee name resolved against the project's members);
+   - plan items that are not done — due date = `plannedEnd` — go to the project's PO / SM.
+
+   `due_soon` when the due day is today .. today + `NOTIFY_DUE_SOON_DAYS`; `overdue` when it
+   is in the past, at most 14 days back (a first run does not flood users with old items).
+   Idempotent: `dedupeKey = <type>:<entityId>:<yyyy-mm-dd of due date>` with the unique
+   `(recipientId, dedupeKey)` index, so each item is notified once per type and due date.
+   Users who disabled the type (`NotificationPreference`) or are inactive are skipped.
+
+The surveillance run additionally notifies the project's PO / SM
+(`surveillance_critical`, once per report) when a saved report has critical anomalies.
+
+### Trash purge job
+
+`src/worker/trash-daily.ts` → `jobs/purge-trash.ts`, scheduled by `PURGE_TRASH_SCHEDULE`
+(default 03:15, outside business hours). Deleting a project, PBI or IceBox item in the UI only
+moves it to the trash (`deletedAt` / `deletedById`); PO / SM restore items from
+`/projects/<id>/trash`, a system admin restores projects from `/admin/trash`.
+
+Each run deletes, permanently, every row with `deletedAt` older than `PURGE_TRASH_AFTER_DAYS`:
+projects first (their children, trashed or not, cascade with them), then PBIs, then IceBox
+items. Every row goes through the same code as "delete permanently" in the UI
+(`purgeProject` / `purgeBacklogItem` / `purgeIceboxItem`), so uploaded files
+(`private/uploads/<projectId>/...`) and `field_translation` rows are removed as well. Each row
+is its own transaction; a failing row is logged (`purge-trash: row failed`) and retried the
+next day. At most 500 rows per type are purged per run (`per-run cap reached` in the log; the
+rest goes the next day). The run stops between rows on worker shutdown.
 
 ## Troubleshooting
 

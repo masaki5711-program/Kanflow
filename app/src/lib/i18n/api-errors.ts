@@ -43,6 +43,7 @@ export interface ApiErrorsTranslations {
   apiErrIceboxItemNotFound: string
   apiErrProductGoalNotFound: string
   apiErrReleaseNoPbi: string
+  apiErrProjectInTrash: string
   apiErrSprintNotFound: string
   apiErrSprintActiveExists: string
   apiErrPlanItemNotFound: string
@@ -105,6 +106,7 @@ export const API_ERROR_MESSAGE_KEYS: Readonly<Record<ApiErrorCode, ApiErrorMessa
   ICEBOX_ITEM_NOT_FOUND: "apiErrIceboxItemNotFound",
   PRODUCT_GOAL_NOT_FOUND: "apiErrProductGoalNotFound",
   RELEASE_NO_PBI: "apiErrReleaseNoPbi",
+  PROJECT_IN_TRASH: "apiErrProjectInTrash",
   SPRINT_NOT_FOUND: "apiErrSprintNotFound",
   SPRINT_ACTIVE_EXISTS: "apiErrSprintActiveExists",
   PLAN_ITEM_NOT_FOUND: "apiErrPlanItemNotFound",
@@ -170,6 +172,7 @@ export const ja: ApiErrorsTranslations = {
   apiErrIceboxItemNotFound: "IceBox の要望が見つかりません",
   apiErrProductGoalNotFound: "プロダクトゴールが見つかりません",
   apiErrReleaseNoPbi: "該当するPBIがありません",
+  apiErrProjectInTrash: "プロジェクトがゴミ箱にあります。先にプロジェクトを復元してください",
   apiErrSprintNotFound: "スプリントが見つかりません",
   apiErrSprintActiveExists: "進行中または計画中のスプリントが既にあります",
   apiErrPlanItemNotFound: "対象の項目が見つかりません",
@@ -229,6 +232,7 @@ export const en: ApiErrorsTranslations = {
   apiErrIceboxItemNotFound: "IceBox request not found",
   apiErrProductGoalNotFound: "Product goal not found",
   apiErrReleaseNoPbi: "No matching PBIs",
+  apiErrProjectInTrash: "The project is in the trash. Restore the project first",
   apiErrSprintNotFound: "Sprint not found",
   apiErrSprintActiveExists: "An active or planned sprint already exists",
   apiErrPlanItemNotFound: "Some items were not found",
@@ -288,6 +292,7 @@ export const id: ApiErrorsTranslations = {
   apiErrIceboxItemNotFound: "Permintaan IceBox tidak ditemukan",
   apiErrProductGoalNotFound: "Tujuan produk tidak ditemukan",
   apiErrReleaseNoPbi: "Tidak ada PBI yang sesuai",
+  apiErrProjectInTrash: "Proyek ada di tempat sampah. Pulihkan proyek terlebih dahulu",
   apiErrSprintNotFound: "Sprint tidak ditemukan",
   apiErrSprintActiveExists: "Sudah ada Sprint yang sedang berjalan atau direncanakan",
   apiErrPlanItemNotFound: "Beberapa item tidak ditemukan",

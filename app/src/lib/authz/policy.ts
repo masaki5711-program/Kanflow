@@ -56,6 +56,10 @@ export const PROJECT_ACTIONS = [
   "ai.use",
   /** AI features that author backlog content (PBI field / draft generation). */
   "ai.draftPbi",
+  /** See the project trash (trashed PBIs / Icebox items) and restore from it. */
+  "trash.manage",
+  /** Permanently delete (purge) a trashed PBI / Icebox item before the retention period ends. */
+  "trash.purge",
 ] as const
 export type ProjectAction = (typeof PROJECT_ACTIONS)[number]
 
@@ -91,6 +95,8 @@ const POLICY: Readonly<Record<ProjectAction, readonly Grantee[]>> = {
   "icebox.write": ["member", "section_manager"],
   "ai.use": MEMBER,
   "ai.draftPbi": PO_SM,
+  "trash.manage": PO_SM,
+  "trash.purge": PO,
 }
 
 export function isSystemAdmin(actor: Pick<ProjectActor, "systemRole">): boolean {

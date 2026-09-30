@@ -16,6 +16,7 @@ vi.mock("@/lib/prisma", () => ({
   prisma: {
     projectMember: { findFirst: (...a: unknown[]) => m.memberFindFirst(...a) },
     projectSection: { findFirst: vi.fn().mockResolvedValue(null) },
+    project: { findFirst: vi.fn().mockResolvedValue({ id: "live" }) },
   },
 }))
 vi.mock("@/services/plan/plan.service", () => ({
@@ -155,7 +156,7 @@ describe("plan routes", () => {
       const res = await item.DELETE(getReq(), PI)
       expect(res.status).toBe(200)
       expect(await res.json()).toEqual({ success: true })
-      expect(m.deletePlanItem).toHaveBeenCalledWith("p1", "i1")
+      expect(m.deletePlanItem).toHaveBeenCalledWith("p1", "i1", expect.objectContaining({ userId: expect.any(String) }))
     })
 
     it("DELETE maps Prisma P2025 to 404", async () => {
@@ -184,7 +185,7 @@ describe("plan routes", () => {
       m.reorderPlan.mockResolvedValue(undefined)
       const res = await reorder.POST(jsonReq("POST", { updates }), P)
       expect(res.status).toBe(200)
-      expect(m.reorderPlan).toHaveBeenCalledWith("p1", updates)
+      expect(m.reorderPlan).toHaveBeenCalledWith("p1", updates, expect.objectContaining({ userId: expect.any(String) }))
     })
 
     it("400 on empty updates array", async () => {

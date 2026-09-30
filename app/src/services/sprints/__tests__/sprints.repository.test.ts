@@ -3,7 +3,7 @@ import { fakeDb } from "@/services/__tests__/fake-db"
 import { LIST_LIMITS } from "@/services/_shared/limits"
 import * as repo from "../sprints.repository"
 
-const WITH_ITEMS = { items: { include: { pbItem: true } } }
+const WITH_ITEMS = { items: { where: { pbItem: { deletedAt: null } }, include: { pbItem: true } } }
 
 describe("sprints.repository", () => {
   it("findSprints is project-scoped, newest first, bounded", async () => {
@@ -14,6 +14,7 @@ describe("sprints.repository", () => {
     expect(arg.orderBy).toEqual([{ startDate: "desc" }, { createdAt: "desc" }])
     expect(arg.take).toBe(LIST_LIMITS.sprints)
     expect(arg.include.items.orderBy).toEqual({ createdAt: "asc" })
+    expect(arg.include.items.where).toEqual({ pbItem: { deletedAt: null } })
   })
 
   it("single-sprint lookups require the projectId", async () => {
@@ -36,7 +37,10 @@ describe("sprints.repository", () => {
   it("findProjectPbiIds is project-scoped", async () => {
     const db = fakeDb()
     await repo.findProjectPbiIds(db.client, "p1", ["b1"])
-    expect(db.fn("productBacklogItem.findMany")).toHaveBeenCalledWith({ where: { id: { in: ["b1"] }, projectId: "p1" }, select: { id: true } })
+    expect(db.fn("productBacklogItem.findMany")).toHaveBeenCalledWith({
+      where: { id: { in: ["b1"] }, projectId: "p1", deletedAt: null },
+      select: { id: true },
+    })
   })
 
   it("insertSprint creates placeholder rows only when PBIs are given", async () => {
@@ -86,5 +90,6 @@ describe("sprints.repository", () => {
     expect(arg.where).toEqual({ projectId: "p1", status: { in: ["planning", "active", "review", "done"] } })
     expect(arg.take).toBe(LIST_LIMITS.burndownSprints)
     expect(arg.orderBy).toEqual({ startDate: "desc" })
+    expect(arg.select.items.where).toEqual({ pbItem: { deletedAt: null } })
   })
 })

@@ -178,7 +178,7 @@ export default function BacklogPage() {
   }
 
   async function handleDelete(item: BacklogItem) {
-    const ok = await confirm({ message: t.backlogDeleteConfirm, confirmLabel: t.delete, cancelLabel: t.cancel, variant: "danger" })
+    const ok = await confirm({ message: t.backlogDeleteConfirm, confirmLabel: t.trashMoveToTrash, cancelLabel: t.cancel, variant: "danger" })
     if (ok) void data.remove.mutate(item.id)
   }
 

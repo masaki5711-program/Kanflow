@@ -168,6 +168,6 @@ describe("runTool dispatches analysis tools with the caller's projectId", () => 
     m.pbiFindMany.mockResolvedValue([])
     const out = JSON.parse(await runTool("get_backlog_summary", { projectId: "p9", args: {} }))
     expect(out.total_items).toBe(0)
-    expect(m.pbiFindMany.mock.calls[0][0].where).toEqual({ projectId: "p9" })
+    expect(m.pbiFindMany.mock.calls[0][0].where).toEqual({ projectId: "p9", deletedAt: null })
   })
 })

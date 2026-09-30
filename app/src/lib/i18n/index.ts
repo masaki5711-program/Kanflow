@@ -22,6 +22,7 @@ import * as ai from "./ai"
 import * as guide from "./guide"
 import * as settings from "./settings"
 import * as apiErrors from "./api-errors"
+import * as trash from "./trash"
 
 export * from "./languages"
 export * from "./point-units"
@@ -53,7 +54,8 @@ export interface Translations
     ai.AiTranslations,
     guide.GuideTranslations,
     settings.SettingsTranslations,
-    apiErrors.ApiErrorsTranslations {}
+    apiErrors.ApiErrorsTranslations,
+    trash.TrashTranslations {}
 
 /** All domain modules, exported for tests (key-set / completeness checks). */
 export const domains = {
@@ -80,6 +82,7 @@ export const domains = {
   "guide": guide,
   "settings": settings,
   "api-errors": apiErrors,
+  "trash": trash,
 } as const
 
 const ja: Translations = {
@@ -106,6 +109,7 @@ const ja: Translations = {
   ...guide.ja,
   ...settings.ja,
   ...apiErrors.ja,
+  ...trash.ja,
 }
 
 const en: Translations = {
@@ -132,6 +136,7 @@ const en: Translations = {
   ...guide.en,
   ...settings.en,
   ...apiErrors.en,
+  ...trash.en,
 }
 
 const id: Translations = {
@@ -158,6 +163,7 @@ const id: Translations = {
   ...guide.id,
   ...settings.id,
   ...apiErrors.id,
+  ...trash.id,
 }
 
 const translations: Record<Language, Translations> = { ja, en, id }

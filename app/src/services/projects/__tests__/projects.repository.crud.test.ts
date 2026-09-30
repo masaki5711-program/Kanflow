@@ -35,8 +35,10 @@ describe("projects.repository CRUD", () => {
     await repo.updateProject(db.client, "p1", { name: "x" })
     await repo.deleteProject(db.client, "p1")
     const detail = db.fn("project.findUnique").mock.calls[0][0]
-    expect(detail.where).toEqual({ id: "p1" })
+    expect(detail.where).toEqual({ id: "p1", deletedAt: null })
     expect(detail.include.members.include.user.select).toEqual({ id: true, name: true, email: true })
+    expect(detail.include._count.select.backlogItems).toEqual({ where: { deletedAt: null } })
+    expect(detail.include._count.select.iceboxItems).toEqual({ where: { deletedAt: null } })
     expect(db.fn("project.update")).toHaveBeenCalledWith({ where: { id: "p1" }, data: { name: "x" } })
     expect(db.fn("project.delete")).toHaveBeenCalledWith({ where: { id: "p1" } })
   })
@@ -63,5 +65,51 @@ describe("projects.repository CRUD", () => {
       update: {},
     })
     expect(db.fn("userProjectFavorite.deleteMany")).toHaveBeenCalledWith({ where: { userId: "u1", projectId: "p1" } })
+  })
+})
+
+describe("projects.repository trash", () => {
+  it("softDeleteProject stamps a live project only", async () => {
+    const db = fakeDb({ "project.updateMany": { count: 1 } })
+    const now = new Date("2026-10-01T00:00:00Z")
+    await expect(repo.softDeleteProject(db.client, "p1", "u1", now)).resolves.toBe(true)
+    expect(db.fn("project.updateMany")).toHaveBeenCalledWith({
+      where: { id: "p1", deletedAt: null },
+      data: { deletedAt: now, deletedById: "u1" },
+    })
+    const none = fakeDb({ "project.updateMany": { count: 0 } })
+    await expect(repo.softDeleteProject(none.client, "p1", "u1")).resolves.toBe(false)
+  })
+
+  it("restoreProjectRow clears the columns of a trashed project only", async () => {
+    const db = fakeDb({ "project.updateMany": { count: 1 } })
+    await expect(repo.restoreProjectRow(db.client, "p1")).resolves.toBe(true)
+    expect(db.fn("project.updateMany")).toHaveBeenCalledWith({
+      where: { id: "p1", deletedAt: { not: null } },
+      data: { deletedAt: null, deletedById: null },
+    })
+  })
+
+  it("findTrashedProject / findTrashedProjects see the trash only, newest first", async () => {
+    const db = fakeDb({ "project.findMany": [] })
+    await repo.findTrashedProject(db.client, "p1")
+    await repo.findTrashedProjects(db.client)
+    expect(db.fn("project.findFirst").mock.calls[0][0].where).toEqual({ id: "p1", deletedAt: { not: null } })
+    const list = db.fn("project.findMany").mock.calls[0][0]
+    expect(list.where).toEqual({ deletedAt: { not: null } })
+    expect(list.orderBy).toEqual({ deletedAt: "desc" })
+    expect(list.select._count.select.backlogItems).toEqual({ where: { deletedAt: null } })
+  })
+
+  it("findExpiredTrashedProjects selects projects trashed before the cutoff", async () => {
+    const db = fakeDb({ "project.findMany": [] })
+    const cutoff = new Date("2026-09-01T00:00:00Z")
+    await repo.findExpiredTrashedProjects(db.client, cutoff, 5)
+    expect(db.fn("project.findMany")).toHaveBeenCalledWith({
+      where: { deletedAt: { lt: cutoff } },
+      select: { id: true },
+      orderBy: { deletedAt: "asc" },
+      take: 5,
+    })
   })
 })

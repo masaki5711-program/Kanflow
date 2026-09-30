@@ -27,7 +27,8 @@ export const PROFILE_SELECT = {
 
 export function findUsersForAdmin(db: Db) {
   return db.user.findMany({
-    select: { ...ADMIN_USER_SELECT, createdAt: true, _count: { select: { memberships: true } } },
+    // Memberships of trashed projects are not counted.
+    select: { ...ADMIN_USER_SELECT, createdAt: true, _count: { select: { memberships: { where: { project: { deletedAt: null } } } } } },
     orderBy: { createdAt: "desc" },
     take: LIST_LIMITS.users,
   })

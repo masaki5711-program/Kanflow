@@ -1,5 +1,5 @@
 import { requireProject } from "@/lib/authz"
-import { successResponse, toHttpResponse } from "@/services/_shared"
+import { actorFromSession, successResponse, toHttpResponse } from "@/services/_shared"
 import { reorderBacklogSchema } from "@/services/backlog/backlog.schemas"
 import { reorderBacklog } from "@/services/backlog/backlog.service"
 
@@ -13,7 +13,7 @@ export async function PUT(
 
   try {
     const { orderedIds } = reorderBacklogSchema.parse(await request.json())
-    await reorderBacklog(projectId, orderedIds)
+    await reorderBacklog(projectId, orderedIds, actorFromSession(gate.session))
     return successResponse()
   } catch (error) {
     return toHttpResponse(error, { fallback: "並び替えに失敗しました", context: "Backlog reorder" })

@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
+vi.mock("@/services/_shared/activity", async () => (await import("@/services/__tests__/support")).activityMock())
+vi.mock("@/services/_shared/notifications", async () => (await import("@/services/__tests__/support")).notificationsMock())
 vi.mock("@/services/_shared/db", async () => (await import("@/services/__tests__/support")).dbMock())
 vi.mock("@/services/_shared/translations", async () => (await import("@/services/__tests__/support")).translationMock())
 vi.mock("@/lib/plan-progress", () => ({

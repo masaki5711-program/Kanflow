@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
+vi.mock("@/services/_shared/activity", async () => (await import("@/services/__tests__/support")).activityMock())
+vi.mock("@/services/_shared/notifications", async () => (await import("@/services/__tests__/support")).notificationsMock())
 vi.mock("@/services/_shared/db", async () => (await import("@/services/__tests__/support")).dbMock())
 vi.mock("@/services/_shared/translations", async () => (await import("@/services/__tests__/support")).translationMock())
 vi.mock("../releases.repository")
@@ -17,6 +19,13 @@ describe("releases.service", () => {
     const out = await svc.listReleases("p1")
     expect(out[0].pbItem).toEqual({ id: "b1", i18n: {} })
     expect(out[1].pbItem).toBeNull()
+  })
+
+  it("hides the link to a trashed source PBI but keeps the release item", async () => {
+    vi.mocked(repo.findReleaseItems).mockResolvedValue([{ id: "r1", pbItem: { id: "b1", deletedAt: new Date() } }] as never)
+    const out = await svc.listReleases("p1")
+    expect(out).toHaveLength(1)
+    expect(out[0].pbItem).toBeNull()
   })
 
   it("update converts the release date and enqueues the input", async () => {

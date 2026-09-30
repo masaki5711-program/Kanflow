@@ -1,6 +1,7 @@
 import type { Prisma } from "@/generated/prisma/client"
 import { prisma } from "@/lib/prisma"
 import { isRealTask } from "@/lib/pbi-status-sync"
+import { LIVE_PBI } from "@/services/_shared/soft-delete"
 
 type Db = Prisma.TransactionClient
 
@@ -32,12 +33,13 @@ export function computeSprintActualScore(items: readonly ScoredTask[]): number {
 }
 
 /**
- * Recalculate and store a sprint's actualScore from its tasks. Pass a
- * transaction client to run inside the caller's transaction.
+ * Recalculate and store a sprint's actualScore from its tasks. Tasks of PBIs
+ * in the trash do not count. Pass a transaction client to run inside the
+ * caller's transaction.
  */
 export async function recalcSprintActualScore(sprintId: string, db: Db = prisma): Promise<number> {
   const items = await db.sprintBacklogItem.findMany({
-    where: { sprintId },
+    where: { sprintId, ...LIVE_PBI },
     select: {
       status: true,
       taskName: true,

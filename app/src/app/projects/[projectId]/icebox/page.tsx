@@ -87,7 +87,7 @@ export default function IceboxPage() {
   })
 
   async function handleDelete(item: IceboxItem) {
-    const ok = await confirm({ message: t.iceboxDeleteConfirm, confirmLabel: t.delete, cancelLabel: t.cancel, variant: "danger" })
+    const ok = await confirm({ message: t.iceboxDeleteConfirm, confirmLabel: t.trashMoveToTrash, cancelLabel: t.cancel, variant: "danger" })
     if (ok) void remove.mutate(item)
   }
 

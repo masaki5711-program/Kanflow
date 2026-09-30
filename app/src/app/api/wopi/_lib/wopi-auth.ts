@@ -35,7 +35,8 @@ export interface WopiUserAccess {
 /**
  * Re-check the token user in the DB so revoked members / disabled users lose
  * access before the token expires. Mirrors requireProjectMember (active system
- * admin, or explicit project member — both may edit attachments).
+ * admin, or explicit project member — both may edit attachments). A project
+ * in the trash is closed to everyone, admins included.
  * Returns null when the user may no longer access the project at all.
  */
 export async function loadWopiUserAccess(claims: WopiTokenClaims): Promise<WopiUserAccess | null> {
@@ -44,6 +45,9 @@ export async function loadWopiUserAccess(claims: WopiTokenClaims): Promise<WopiU
     select: { name: true, isActive: true, role: true },
   })
   if (!user || !user.isActive) return null
+
+  const live = await prisma.project.findFirst({ where: { id: claims.projectId, deletedAt: null }, select: { id: true } })
+  if (!live) return null
 
   const hasAccess =
     user.role === "admin" ||

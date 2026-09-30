@@ -13,7 +13,8 @@ export function findAdminCategories(db: Db, filter: SectionFilter) {
     orderBy: [{ sectionId: "asc" }, { sortOrder: "asc" }, { name: "asc" }],
     include: {
       section: { select: { id: true, name: true } },
-      _count: { select: { assignments: true } },
+      // Trashed projects are not counted.
+      _count: { select: { assignments: { where: { project: { deletedAt: null } } } } },
     },
     take: LIST_LIMITS.adminCategories,
   })

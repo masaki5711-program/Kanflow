@@ -1,6 +1,7 @@
 import type { Prisma } from "@/generated/prisma/client"
 import { recalcPlanProgress, statusToProgress } from "@/lib/plan-progress"
 import type { Actor } from "@/services/_shared/actor"
+import { loadSnapshot, logActivity, logCreate, logDelete, logUpdate } from "@/services/_shared/activity"
 import { optionalDate, parseDateOrThrow } from "@/services/_shared/dates"
 import { defaultDb, withTransaction, type Db } from "@/services/_shared/db"
 import { NotFoundError, ValidationError } from "@/services/_shared/errors"
@@ -40,6 +41,7 @@ export async function createPlanItem(projectId: string, input: CreatePlanItemInp
     })
     if (item.parentId) await recalcPlanProgress(projectId, [item.parentId], tx)
     await enqueueIn(tx, "plan_item", item.id, item)
+    await logCreate(tx, { projectId, entityType: "plan_item", entityId: item.id, actor, row: item })
     return item
   })
 }
@@ -76,6 +78,7 @@ export async function updatePlanItem(projectId: string, itemId: string, input: U
     const existing = await repo.findPlanItem(tx, projectId, itemId)
     if (!existing) throw new NotFoundError()
     if (data.parentId) await assertValidParent(tx, projectId, itemId, data.parentId)
+    const before = await loadSnapshot(tx, "plan_item", itemId)
     const row = await repo.updatePlanItem(tx, itemId, buildPlanUpdate(data))
     // A leaf's progress is derived from its status; parents are recomputed below.
     if (data.status !== undefined && (await repo.countPlanChildren(tx, itemId)) === 0) {
@@ -85,18 +88,21 @@ export async function updatePlanItem(projectId: string, itemId: string, input: U
     const starts = [itemId, existing.parentId, data.parentId].filter((id): id is string => !!id)
     await recalcPlanProgress(projectId, starts, tx)
     await enqueueIn(tx, "plan_item", row.id, data)
+    await logUpdate(tx, { projectId, entityType: "plan_item", entityId: itemId, actor, before, after: row })
     return row
   })
   return attachI18nOne("plan_item", updated)
 }
 
 /** Deletes the row and (FK cascade) its whole subtree, with every translation of that subtree. */
-export async function deletePlanItem(projectId: string, itemId: string): Promise<void> {
+export async function deletePlanItem(projectId: string, itemId: string, actor: Actor | null = null): Promise<void> {
   await withTransaction(async (tx) => {
     const existing = await repo.findPlanItem(tx, projectId, itemId)
     if (!existing) throw new NotFoundError()
     const subtree = collectSubtreeIds(await repo.findPlanTree(tx, projectId), itemId)
+    const row = await loadSnapshot(tx, "plan_item", itemId)
     await repo.deletePlanItem(tx, itemId)
+    await logDelete(tx, { projectId, entityType: "plan_item", entityId: itemId, actor, row, meta: { subtreeCount: subtree.length } })
     await purgeIn(tx, { plan_item: subtree })
     if (existing.parentId) await recalcPlanProgress(projectId, [existing.parentId], tx)
   })
@@ -124,8 +130,42 @@ export function assertValidReorder(tree: readonly TreeNode[], updates: readonly 
   }
 }
 
+/**
+ * Activity of a reorder: one "move" per reparented item; a pure sort-order
+ * change is one project-level row (per-item rows would flood the feed).
+ */
+async function logPlanMoves(
+  tx: Db,
+  projectId: string,
+  existing: ReadonlyArray<{ id: string; parentId: string | null }>,
+  updates: readonly PlanReorderUpdate[],
+  actor: Actor | null
+): Promise<void> {
+  const parentOf = new Map(existing.map((e) => [e.id, e.parentId]))
+  const moved = updates.filter((u) => (parentOf.get(u.id) ?? null) !== u.parentId)
+  for (const u of moved) {
+    await logActivity(tx, {
+      projectId,
+      entityType: "plan_item",
+      entityId: u.id,
+      action: "move",
+      actor,
+      diff: { changes: { parentId: { from: parentOf.get(u.id) ?? null, to: u.parentId } } },
+    })
+  }
+  if (moved.length > 0) return
+  await logActivity(tx, {
+    projectId,
+    entityType: "project",
+    entityId: projectId,
+    action: "move",
+    actor,
+    diff: { changes: { planOrder: { changed: true } }, meta: { count: updates.length } },
+  })
+}
+
 /** Bulk reparent / reorder (drag & drop). Every id and parent must belong to the project. */
-export async function reorderPlan(projectId: string, updates: readonly PlanReorderUpdate[]): Promise<void> {
+export async function reorderPlan(projectId: string, updates: readonly PlanReorderUpdate[], actor: Actor | null = null): Promise<void> {
   await withTransaction(async (tx) => {
     const existing = await repo.findPlanItemsByIds(tx, projectId, updates.map((u) => u.id))
     if (existing.length !== updates.length) throw new ValidationError("対象の項目が見つかりません", {}, "PLAN_ITEM_NOT_FOUND")
@@ -137,5 +177,6 @@ export async function reorderPlan(projectId: string, updates: readonly PlanReord
     for (const e of existing) if (e.parentId) affected.add(e.parentId)
     for (const u of updates) if (u.parentId) affected.add(u.parentId)
     if (affected.size > 0) await recalcPlanProgress(projectId, Array.from(affected), tx)
+    await logPlanMoves(tx, projectId, existing, updates, actor)
   })
 }

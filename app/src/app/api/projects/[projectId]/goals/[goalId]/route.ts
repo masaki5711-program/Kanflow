@@ -24,7 +24,7 @@ export async function DELETE(_request: Request, { params }: Params) {
   if ("error" in gate) return gate.error
 
   try {
-    await deleteGoal(projectId, goalId)
+    await deleteGoal(projectId, goalId, actorFromSession(gate.session))
     return successResponse()
   } catch (error) {
     return toHttpResponse(error, { fallback: "削除に失敗しました", context: "Goal DELETE" })

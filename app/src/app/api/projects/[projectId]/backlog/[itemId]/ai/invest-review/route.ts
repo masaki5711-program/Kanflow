@@ -78,7 +78,7 @@ export async function POST(
   } catch { /* default ja */ }
 
   const item = await prisma.productBacklogItem.findFirst({
-    where: { id: itemId, projectId },
+    where: { id: itemId, projectId, deletedAt: null },
     select: {
       displayId: true,
       initiative: true,

@@ -1,13 +1,15 @@
 import type { Prisma } from "@/generated/prisma/client"
 import type { Db } from "@/services/_shared/db"
 import { LIST_LIMITS } from "@/services/_shared/limits"
+import { notDeleted } from "@/services/_shared/soft-delete"
 
 export function findReleaseItems(db: Db, projectId: string) {
   return db.releaseBacklogItem.findMany({
     where: { projectId },
     include: {
       pbItem: {
-        select: { id: true, displayId: true, userStory: true, epic: true, initiative: true, workloadScore: true },
+        // deletedAt: a to-one include cannot be filtered; the service hides a trashed source PBI.
+        select: { id: true, displayId: true, userStory: true, epic: true, initiative: true, workloadScore: true, deletedAt: true },
       },
     },
     orderBy: [{ planVersion: "asc" }, { createdAt: "asc" }],
@@ -26,7 +28,7 @@ export function deleteReleaseItem(db: Db, projectId: string, id: string) {
 /** The PBI fields copied into a release item. */
 export function findPbisForRelease(db: Db, projectId: string, pbItemIds: readonly string[]) {
   return db.productBacklogItem.findMany({
-    where: { id: { in: [...pbItemIds] }, projectId },
+    where: notDeleted({ id: { in: [...pbItemIds] }, projectId }),
     select: { id: true, initiative: true, epic: true, userStory: true, assignedPo: true, poNote: true },
   })
 }

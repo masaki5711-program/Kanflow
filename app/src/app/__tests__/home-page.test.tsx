@@ -84,7 +84,10 @@ describe("HomePage (server)", () => {
     expect(screen.getByTestId("top-page")).toBeInTheDocument()
     expect(m.prisma.userSection.findMany).not.toHaveBeenCalled()
     const where = m.prisma.project.findMany.mock.calls[0][0].where
-    expect(where).toEqual({ members: { some: { userId: "u1" } }, status: "active" })
+    expect(where).toEqual({ members: { some: { userId: "u1" } }, status: "active", deletedAt: null })
+    const countSelect = m.prisma.project.findMany.mock.calls[0][0].include._count.select
+    expect(countSelect.backlogItems).toEqual({ where: { deletedAt: null } })
+    expect(countSelect.iceboxItems).toEqual({ where: { deletedAt: null } })
 
     const props = m.topPageProps as Record<string, never>
     const active = props.activeProjects as unknown as Array<Record<string, unknown>>
@@ -101,12 +104,14 @@ describe("HomePage (server)", () => {
     })
     const taskWhere = m.prisma.sprintBacklogItem.findMany.mock.calls[0][0].where
     expect(taskWhere.assignee).toEqual({ contains: "Taro" })
+    expect(taskWhere.pbItem).toEqual({ deletedAt: null })
+    expect(taskWhere.sprint.project.deletedAt).toBeNull()
   })
 
   it("admins see all projects", async () => {
     m.auth.mockResolvedValue({ user: { id: "u1", name: null, role: "admin" } })
     render(await HomePage())
-    expect(m.prisma.project.findMany.mock.calls[0][0].where).toEqual({ status: "active" })
+    expect(m.prisma.project.findMany.mock.calls[0][0].where).toEqual({ status: "active", deletedAt: null })
     expect(m.prisma.sprintBacklogItem.findMany.mock.calls[0][0].where.assignee).toBeUndefined()
     expect((m.topPageProps as Record<string, unknown>).isAdmin).toBe(true)
   })
@@ -116,6 +121,7 @@ describe("HomePage (server)", () => {
     await HomePage()
     expect(m.prisma.project.findMany.mock.calls[0][0].where).toEqual({
       status: "active",
+      deletedAt: null,
       OR: [{ members: { some: { userId: "u1" } } }, { sections: { some: { sectionId: { in: ["sec1"] } } } }],
     })
   })
@@ -124,6 +130,6 @@ describe("HomePage (server)", () => {
     m.prisma.userSection.findMany.mockResolvedValue([])
     m.auth.mockResolvedValue({ user: { id: "u1", name: "S", role: "section_manager" } })
     await HomePage()
-    expect(m.prisma.project.findMany.mock.calls[0][0].where).toEqual({ members: { some: { userId: "u1" } }, status: "active" })
+    expect(m.prisma.project.findMany.mock.calls[0][0].where).toEqual({ members: { some: { userId: "u1" } }, status: "active", deletedAt: null })
   })
 })

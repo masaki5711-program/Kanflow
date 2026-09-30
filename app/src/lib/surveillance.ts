@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma"
+import { LIVE_PBI } from "@/services/_shared/soft-delete"
 
 /**
  * Deterministic anomaly detection for the AI surveillance job.
@@ -29,6 +30,7 @@ export async function detectAnomalies(projectId: string): Promise<Anomaly[]> {
     where: { projectId, status: { in: ["planning", "active"] } },
     include: {
       items: {
+        where: LIVE_PBI,
         select: { taskName: true, status: true, updatedAt: true },
       },
       dailyScrumNotes: {
@@ -89,7 +91,7 @@ export async function detectAnomalies(projectId: string): Promise<Anomaly[]> {
   for (const s of openSprints) {
     if (s.capacity <= 0) continue
     const uniquePb = await prisma.sprintBacklogItem.findMany({
-      where: { sprintId: s.id },
+      where: { sprintId: s.id, ...LIVE_PBI },
       select: { pbItem: { select: { id: true, workloadScore: true } } },
     })
     const seen = new Set<string>()

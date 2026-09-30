@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const userFindUnique = vi.fn()
 const memberFindFirst = vi.fn()
+const projectFindFirst = vi.fn()
 const attachmentFindFirst = vi.fn()
 const attachmentUpdate = vi.fn()
 
@@ -9,6 +10,7 @@ vi.mock("@/lib/prisma", () => ({
   prisma: {
     user: { findUnique: (...a: unknown[]) => userFindUnique(...a) },
     projectMember: { findFirst: (...a: unknown[]) => memberFindFirst(...a) },
+    project: { findFirst: (...a: unknown[]) => projectFindFirst(...a) },
     projectAttachment: {
       findFirst: (...a: unknown[]) => attachmentFindFirst(...a),
       update: (...a: unknown[]) => attachmentUpdate(...a),
@@ -99,6 +101,7 @@ beforeEach(() => {
   process.env.WOPI_ACCESS_TOKEN = "test-wopi-secret"
   userFindUnique.mockReset().mockResolvedValue({ name: "Alice", isActive: true, role: "member" })
   memberFindFirst.mockReset().mockResolvedValue({ id: "m1" })
+  projectFindFirst.mockReset().mockResolvedValue({ id: PROJECT })
   attachmentFindFirst.mockReset().mockResolvedValue(attachment)
   attachmentUpdate.mockReset().mockResolvedValue({})
   fsStat.mockReset().mockResolvedValue({ size: 42 })
@@ -180,6 +183,15 @@ describe("WOPI token scope enforcement (all endpoints)", () => {
       memberFindFirst.mockResolvedValue(null)
       const res = await h()(req(FILE_ID, token(), { method }), ctx(FILE_ID))
       expect(res.status).toBe(403)
+      expect(attachmentFindFirst).not.toHaveBeenCalled()
+    })
+
+    it(`${name}: project in the trash -> 403 (admins too)`, async () => {
+      userFindUnique.mockResolvedValue({ name: "Root", isActive: true, role: "admin" })
+      projectFindFirst.mockResolvedValue(null)
+      const res = await h()(req(FILE_ID, token(), { method }), ctx(FILE_ID))
+      expect(res.status).toBe(403)
+      expect(projectFindFirst).toHaveBeenCalledWith({ where: { id: PROJECT, deletedAt: null }, select: { id: true } })
       expect(attachmentFindFirst).not.toHaveBeenCalled()
     })
 

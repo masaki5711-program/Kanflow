@@ -36,12 +36,13 @@ export async function PATCH(request: Request, { params }: Params) {
 
 export async function DELETE(_request: Request, { params }: Params) {
   const { projectId } = await params
-  // PO of the project OR platform admin can delete.
+  // PO of the project OR platform admin can delete. The project goes to the
+  // trash; a system admin restores / purges it via /api/admin/trash/projects.
   const gate = await requireProject(projectId, "project.delete")
   if ("error" in gate) return gate.error
 
   try {
-    await deleteProject(projectId)
+    await deleteProject(projectId, actorFromSession(gate.session))
     return successResponse()
   } catch (error) {
     return toHttpResponse(error, { fallback: "Failed to delete project", context: "Project DELETE" })

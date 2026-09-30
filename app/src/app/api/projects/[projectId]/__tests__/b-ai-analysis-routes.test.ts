@@ -20,7 +20,10 @@ vi.mock("@/lib/prisma", () => ({
     projectSection: { findFirst: vi.fn().mockResolvedValue(null) },
     iceboxItem: { findFirst: (...a: unknown[]) => iceboxFindFirst(...a) },
     productGoal: { findMany: (...a: unknown[]) => goalFindMany(...a) },
-    project: { findUnique: (...a: unknown[]) => projectFindUnique(...a) },
+    project: {
+      findUnique: (...a: unknown[]) => projectFindUnique(...a),
+      findFirst: vi.fn().mockResolvedValue({ id: "live" }),
+    },
     productBacklogItem: { findFirst: (...a: unknown[]) => pbiFindFirst(...a) },
     sprint: { findFirst: (...a: unknown[]) => sprintFindFirst(...a) },
   },
@@ -132,7 +135,7 @@ describe("generate-pbi-draft", () => {
     iceboxFindFirst.mockResolvedValue(null)
     const res = await draftRoute.POST(post({}), ctx({ itemId: "i1" }))
     expect(res.status).toBe(404)
-    expect(iceboxFindFirst.mock.calls[0][0].where).toEqual({ id: "i1", projectId: "p1" })
+    expect(iceboxFindFirst.mock.calls[0][0].where).toEqual({ id: "i1", projectId: "p1", deletedAt: null })
   })
 
   it("builds a grounded prompt with context, attachments (max 2) and streams JSON", async () => {
@@ -265,7 +268,7 @@ describe("invest-review", () => {
   it("404 when PBI not in project", async () => {
     pbiFindFirst.mockResolvedValue(null)
     expect((await investRoute.POST(post({}), ctx({ itemId: "b1" }))).status).toBe(404)
-    expect(pbiFindFirst.mock.calls[0][0].where).toEqual({ id: "b1", projectId: "p1" })
+    expect(pbiFindFirst.mock.calls[0][0].where).toEqual({ id: "b1", projectId: "p1", deletedAt: null })
   })
 
   it.each([
@@ -348,6 +351,7 @@ describe("retro-synthesis", () => {
     sprintFindFirst.mockResolvedValue(null)
     expect((await retroRoute.POST(post({}), ctx({ sprintId: "s1" }))).status).toBe(404)
     expect(sprintFindFirst.mock.calls[0][0].where).toEqual({ id: "s1", projectId: "p1" })
+    expect(sprintFindFirst.mock.calls[0][0].include.items.where).toEqual({ pbItem: { deletedAt: null } })
   })
 
   it("serializes sprint, tasks, scrum notes and KPT", async () => {

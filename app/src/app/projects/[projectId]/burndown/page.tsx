@@ -44,7 +44,7 @@ export default async function BurndownPage({
   }
 
   const project = await prisma.project.findUnique({
-    where: { id: projectId },
+    where: { id: projectId, deletedAt: null },
     select: { name: true },
   })
   if (!project) notFound()

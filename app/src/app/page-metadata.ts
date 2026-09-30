@@ -39,7 +39,7 @@ export async function buildPageMetadata(pick: PageTitlePicker, projectId?: strin
     }
     const [{ prisma }, { getI18nFor }] = await Promise.all([import("@/lib/prisma"), import("@/lib/translation/hooks")])
     const [project, i18nMap] = await Promise.all([
-      prisma.project.findUnique({ where: { id: projectId }, select: { name: true, projectType: true } }),
+      prisma.project.findUnique({ where: { id: projectId, deletedAt: null }, select: { name: true, projectType: true } }),
       getI18nFor("project", [projectId]),
     ])
     const pt = getProjectTypeLabels((project?.projectType as ProjectType) ?? "software", language)

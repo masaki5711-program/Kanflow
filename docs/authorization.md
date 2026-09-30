@@ -33,9 +33,10 @@ Rights are the **union** of every path the actor has: a section manager who is a
 |---|---|
 | No session | 401 |
 | Not admin, not a member, not a section manager of the project's section | **404** (the project's existence is not revealed) |
+| The project does not exist or is in the trash (`deletedAt` set) — admins included | **404** |
 | Has access to the project but the action is not allowed | 403 |
 
-System admins skip the DB lookup entirely. If the project does not exist, the route returns 404 itself.
+System admins skip the membership lookup; every request (admins included) does one project liveness lookup (`isProjectLive`: exists and `deletedAt IS NULL`). A trashed project is restored or purged only through `/api/admin/trash/projects` (`requireAdmin()`).
 
 ## Matrix
 
@@ -64,6 +65,8 @@ System admins skip the DB lookup entirely. If the project does not exist, the ro
 | `icebox.write` | Y | Y | Y | Y | Y |
 | `ai.use` | Y | Y | Y | Y | - |
 | `ai.draftPbi` | Y | Y | Y | - | - |
+| `trash.manage` | Y | Y | Y | - | - |
+| `trash.purge` | Y | Y | - | - | - |
 
 ## Route → action
 
@@ -112,6 +115,9 @@ Paths are relative to `/api/projects/[projectId]`.
 | `/ai-reports` | project.view | | | |
 | `/burndown` | project.view | | | |
 | `/chat` | | ai.use | | |
+| `/trash` | trash.manage | | | |
+| `/trash/[entityType]/[id]/restore` | | trash.manage | | |
+| `/trash/[entityType]/[id]` | | | | trash.purge |
 
 Outside project scope: `/api/admin/**` uses `requireAdmin()`, and user-scoped routes use `requireAuth()`. `/api/wopi/**` uses its own signed-token auth (`src/app/api/wopi/_lib/wopi-auth.ts`, which re-checks admin or explicit membership, the same as `attachment.write` without the section-manager path).
 

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma"
+import { LIVE_PBI, NOT_DELETED, notDeleted } from "@/services/_shared/soft-delete"
 import type { ToolDefinition, ToolHandler, ToolHandlerArgs } from "@/lib/chat-tools-types"
 
 /**
@@ -190,7 +191,7 @@ export const analysisHandlers: Record<string, ToolHandler> = {
     if (!sprint) return JSON.stringify({ error: "no sprint found in this project" })
 
     const items = await prisma.sprintBacklogItem.findMany({
-      where: { sprintId: sprint.id },
+      where: { sprintId: sprint.id, ...LIVE_PBI },
       include: {
         pbItem: { select: { id: true, displayId: true, initiative: true, userStory: true, workloadScore: true } },
       },
@@ -278,7 +279,7 @@ export const analysisHandlers: Record<string, ToolHandler> = {
       where: { projectId, status: { in: ["done", "archived"] } },
       orderBy: { startDate: "desc" },
       take: limit,
-      include: { items: { select: { taskName: true, status: true } } },
+      include: { items: { where: LIVE_PBI, select: { taskName: true, status: true } } },
     })
     if (sprints.length === 0) {
       return JSON.stringify({ as_of: iso(now()), sprints: [], note: "no completed sprints yet" })
@@ -307,7 +308,7 @@ export const analysisHandlers: Record<string, ToolHandler> = {
 
   async get_backlog_summary({ projectId }: ToolHandlerArgs) {
     const items = await prisma.productBacklogItem.findMany({
-      where: { projectId },
+      where: notDeleted({ projectId }),
       select: {
         displayId: true, initiative: true, epic: true, userStory: true,
         acceptanceCriteria: true, workloadScore: true, status: true,
@@ -363,7 +364,7 @@ export const analysisHandlers: Record<string, ToolHandler> = {
     )
     if (!sprint) return JSON.stringify({ error: "no sprint found in this project" })
     const items = await prisma.sprintBacklogItem.findMany({
-      where: { sprintId: sprint.id },
+      where: { sprintId: sprint.id, ...LIVE_PBI },
       select: { taskName: true, assignee: true, status: true, estimatedHours: true, actualHours: true },
     })
     const per = new Map<string, { todo: number; in_progress: number; done: number; est: number; act: number }>()
@@ -407,6 +408,7 @@ export const analysisHandlers: Record<string, ToolHandler> = {
       prisma.productBacklogItem.findMany({
         where: {
           projectId,
+          ...NOT_DELETED,
           OR: [
             { initiative: { contains: keyword } },
             { epic: { contains: keyword } },
@@ -419,6 +421,7 @@ export const analysisHandlers: Record<string, ToolHandler> = {
       prisma.iceboxItem.findMany({
         where: {
           projectId,
+          ...NOT_DELETED,
           OR: [{ request: { contains: keyword } }, { background: { contains: keyword } }],
         },
         select: { displayId: true, request: true, status: true, author: true },
@@ -427,6 +430,7 @@ export const analysisHandlers: Record<string, ToolHandler> = {
       prisma.sprintBacklogItem.findMany({
         where: {
           sprint: { projectId },
+          ...LIVE_PBI,
           taskName: { contains: keyword },
         },
         select: {
@@ -466,7 +470,7 @@ export const analysisHandlers: Record<string, ToolHandler> = {
 
   async list_backlog_items({ projectId, args }: ToolHandlerArgs) {
     const statusArg = typeof args.status === "string" ? args.status : "all"
-    const where: Record<string, unknown> = { projectId }
+    const where: Record<string, unknown> = { projectId, ...NOT_DELETED }
     if (statusArg === "ready" || statusArg === "not_ready" || statusArg === "completed") {
       where.status = statusArg
     }
@@ -508,7 +512,7 @@ export const analysisHandlers: Record<string, ToolHandler> = {
     // SP distribution + examples from PBIs that actually reached completion —
     // the team's own sense of "what an SP=N item looks like".
     const completedPbis = await prisma.productBacklogItem.findMany({
-      where: { projectId, status: "completed" },
+      where: { projectId, status: "completed", ...NOT_DELETED },
       orderBy: { completedAt: "desc" },
       take: 60,
       select: { displayId: true, workloadScore: true, initiative: true, userStory: true },

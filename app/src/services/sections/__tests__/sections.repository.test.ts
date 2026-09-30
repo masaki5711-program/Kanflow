@@ -12,7 +12,7 @@ describe("sections.repository", () => {
     await repo.findSectionOptions(db.client)
     expect(db.fn("section.findMany")).toHaveBeenNthCalledWith(1, {
       orderBy: ORDER,
-      include: { _count: { select: { users: true, projects: true, categories: true } } },
+      include: { _count: { select: { users: true, projects: { where: { project: { deletedAt: null } } }, categories: true } } },
       take: LIST_LIMITS.sections,
     })
     expect(db.fn("section.findMany")).toHaveBeenNthCalledWith(2, {

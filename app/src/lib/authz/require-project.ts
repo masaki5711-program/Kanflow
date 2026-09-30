@@ -70,8 +70,18 @@ export async function loadProjectActor(
 }
 
 /**
+ * True when the project exists and is not in the trash. A trashed project is
+ * "not found" for every project route, admins included; admins restore or
+ * purge it through /api/admin/trash/projects (requireAdmin, not this gate).
+ */
+export async function isProjectLive(projectId: string): Promise<boolean> {
+  const row = await prisma.project.findFirst({ where: { id: projectId, deletedAt: null }, select: { id: true } })
+  return row !== null
+}
+
+/**
  * Authenticate and authorize against an arbitrary predicate.
- * 401 no session / 404 no path into the project / 403 predicate refused.
+ * 401 no session / 404 project missing or trashed, or no path into it / 403 predicate refused.
  */
 export async function authorizeProject(
   projectId: string,
@@ -80,9 +90,12 @@ export async function authorizeProject(
   const session = await auth()
   if (!session?.user?.id) return { error: unauthorizedResponse() }
 
-  const actor = await loadProjectActor(session.user.id, session.user.role ?? "member", projectId)
+  const [live, actor] = await Promise.all([
+    isProjectLive(projectId),
+    loadProjectActor(session.user.id, session.user.role ?? "member", projectId),
+  ])
   const via = accessVia(actor)
-  if (!via) return { error: notFoundResponse() }
+  if (!live || !via) return { error: notFoundResponse() }
   if (!allow(actor)) return { error: forbiddenResponse() }
 
   return { session, actor, via }

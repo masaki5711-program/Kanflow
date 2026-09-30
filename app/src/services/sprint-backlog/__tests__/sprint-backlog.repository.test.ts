@@ -19,10 +19,13 @@ describe("sprint-backlog.repository", () => {
     await repo.findProjectPbiIds(db.client, "p1", ["b1"])
     await repo.findProjectPbiId(db.client, "p1", "b1")
     expect(db.fn("productBacklogItem.findMany")).toHaveBeenCalledWith({
-      where: { id: { in: ["b1"] }, projectId: "p1" },
+      where: { id: { in: ["b1"] }, projectId: "p1", deletedAt: null },
       select: { id: true },
     })
-    expect(db.fn("productBacklogItem.findFirst")).toHaveBeenCalledWith({ where: { id: "b1", projectId: "p1" }, select: { id: true } })
+    expect(db.fn("productBacklogItem.findFirst")).toHaveBeenCalledWith({
+      where: { id: "b1", projectId: "p1", deletedAt: null },
+      select: { id: true },
+    })
   })
 
   it("placeholders are one todo row per PBI with a NULL taskName", async () => {
@@ -53,7 +56,7 @@ describe("sprint-backlog.repository", () => {
     const db = fakeDb()
     await repo.findTask(db.client, "p1", "s1", "t1")
     expect(db.fn("sprintBacklogItem.findFirst")).toHaveBeenCalledWith({
-      where: { id: "t1", sprintId: "s1", sprint: { projectId: "p1" } },
+      where: { id: "t1", sprintId: "s1", sprint: { projectId: "p1" }, pbItem: { deletedAt: null } },
       select: { id: true, pbItemId: true },
     })
   })

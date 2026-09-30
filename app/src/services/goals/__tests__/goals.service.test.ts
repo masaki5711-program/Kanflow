@@ -17,6 +17,8 @@ const m = vi.hoisted(() => ({
   },
 }))
 
+vi.mock("@/services/_shared/activity", async () => (await import("@/services/__tests__/support")).activityMock())
+vi.mock("@/services/_shared/notifications", async () => (await import("@/services/__tests__/support")).notificationsMock())
 vi.mock("@/services/_shared/db", () => ({
   defaultDb: { __default: true },
   withTransaction: (fn: (tx: unknown) => unknown) => fn(m.tx),

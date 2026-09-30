@@ -5,6 +5,8 @@ import { DEFAULT_AI_REPORT_RETENTION_DAYS, resolveAiReportRetentionDays } from "
 import { parseWorkerMode, type TranslationWorkerMode } from "@/lib/translation/worker-mode"
 import { resolveHeartbeatFile } from "@/lib/ai-gate/worker-heartbeat"
 import { describeBusinessHours, parseBusinessHours, type BusinessHours } from "./business-hours"
+import { DEFAULT_ACTIVITY_RETENTION_DAYS, DEFAULT_NOTIFICATION_RETENTION_DAYS } from "./jobs/retention-defaults"
+import { resolvePurgeTrashAfterDays } from "@/services/_shared/soft-delete"
 
 /**
  * Standalone worker configuration. Pure except `loadEnvFiles`; importing
@@ -33,9 +35,24 @@ export interface WorkerConfig {
   shutdownTimeoutMs: number
   lockName: string
   gate: AiGateConfig
+  /** Daily due-date notifications + activity / notification retention sweep (local times); empty = disabled. */
+  notifyDueTimes: DailyTime[]
+  /** NOTIFY_DUE_SOON_DAYS: "due soon" = due within today .. today + N days. */
+  notifyDueSoonDays: number
+  activityRetentionDays: number
+  notificationRetentionDays: number
+  /** Daily trash purge start times (local time); empty = disabled. */
+  purgeTrashTimes: DailyTime[]
+  /** PURGE_TRASH_AFTER_DAYS: trashed rows older than this are deleted permanently. */
+  purgeTrashAfterDays: number
 }
 
 export const DEFAULT_SURVEILLANCE_SCHEDULE = "06:30"
+/** Outside business hours: the purge deletes files and many rows. */
+export const DEFAULT_PURGE_TRASH_SCHEDULE = "03:15"
+/** Before business hours so due-date notifications are waiting at the start of the day. */
+export const DEFAULT_NOTIFY_DUE_SCHEDULE = "07:45"
+export const DEFAULT_NOTIFY_DUE_SOON_DAYS = 2
 export const DEFAULT_SURVEILLANCE_RETENTION_DAYS = DEFAULT_AI_REPORT_RETENTION_DAYS
 export const WORKER_LOCK_NAME = "kanflow_worker"
 
@@ -44,10 +61,10 @@ export const WORKER_LOCK_NAME = "kanflow_worker"
  * "06:30,18:00"); "off" / "none" / "false" disables. Unset → 06:30.
  * Invalid entries are dropped; if every entry is invalid the default is used.
  */
-export function parseSchedule(raw: string | undefined): DailyTime[] {
+export function parseSchedule(raw: string | undefined, fallback: string = DEFAULT_SURVEILLANCE_SCHEDULE): DailyTime[] {
   const v = raw?.trim().toLowerCase()
   if (v === "off" || v === "none" || v === "false" || v === "0") return []
-  const source = v ? v : DEFAULT_SURVEILLANCE_SCHEDULE
+  const source = v ? v : fallback
   const times: DailyTime[] = []
   for (const part of source.split(",")) {
     const m = /^(\d{1,2}):(\d{2})$/.exec(part.trim())
@@ -57,7 +74,7 @@ export function parseSchedule(raw: string | undefined): DailyTime[] {
     if (hour > 23 || minute > 59) continue
     if (!times.some((t) => t.hour === hour && t.minute === minute)) times.push({ hour, minute })
   }
-  if (times.length === 0 && source !== DEFAULT_SURVEILLANCE_SCHEDULE) return parseSchedule(DEFAULT_SURVEILLANCE_SCHEDULE)
+  if (times.length === 0 && source !== fallback) return parseSchedule(fallback, fallback)
   return times.sort((a, b) => a.hour * 60 + a.minute - (b.hour * 60 + b.minute))
 }
 
@@ -96,6 +113,12 @@ export function loadWorkerConfig(env: NodeJS.ProcessEnv): WorkerConfig {
     shutdownTimeoutMs: envPositiveInt(env.WORKER_SHUTDOWN_TIMEOUT_MS, 25_000),
     lockName: WORKER_LOCK_NAME,
     gate: loadAiGateConfig(env),
+    notifyDueTimes: parseSchedule(env.NOTIFY_DUE_SCHEDULE, DEFAULT_NOTIFY_DUE_SCHEDULE),
+    notifyDueSoonDays: envPositiveInt(env.NOTIFY_DUE_SOON_DAYS, DEFAULT_NOTIFY_DUE_SOON_DAYS),
+    activityRetentionDays: envPositiveInt(env.ACTIVITY_RETENTION_DAYS, DEFAULT_ACTIVITY_RETENTION_DAYS),
+    notificationRetentionDays: envPositiveInt(env.NOTIFICATION_RETENTION_DAYS, DEFAULT_NOTIFICATION_RETENTION_DAYS),
+    purgeTrashTimes: parseSchedule(env.PURGE_TRASH_SCHEDULE, DEFAULT_PURGE_TRASH_SCHEDULE),
+    purgeTrashAfterDays: resolvePurgeTrashAfterDays(env.PURGE_TRASH_AFTER_DAYS),
   }
 }
 
@@ -121,6 +144,12 @@ export function describeConfig(cfg: WorkerConfig): Record<string, unknown> {
       quietMs: cfg.gate.quietMs,
       degradedIntervalMs: cfg.gate.degradedIntervalMs,
     },
+    notifyDueSchedule: formatDailyTimes(cfg.notifyDueTimes),
+    notifyDueSoonDays: cfg.notifyDueSoonDays,
+    activityRetentionDays: cfg.activityRetentionDays,
+    notificationRetentionDays: cfg.notificationRetentionDays,
+    purgeTrashSchedule: formatDailyTimes(cfg.purgeTrashTimes),
+    purgeTrashAfterDays: cfg.purgeTrashAfterDays,
   }
 }
 

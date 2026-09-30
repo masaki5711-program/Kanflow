@@ -47,7 +47,7 @@ export function DangerZoneSection({ projectId }: { projectId: string }) {
     const ok = await confirm({
       title: t.settingsDeleteProject,
       message: t.settingsDeleteProjectConfirm,
-      confirmLabel: t.delete,
+      confirmLabel: t.trashMoveToTrash,
       cancelLabel: t.cancel,
       variant: "danger",
     })

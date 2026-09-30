@@ -78,6 +78,8 @@ export async function POST(
     where: { id: sprintId, projectId },
     include: {
       items: {
+        // Tasks of trashed PBIs are hidden like in every sprint view.
+        where: { pbItem: { deletedAt: null } },
         include: { pbItem: { select: { displayId: true, initiative: true, userStory: true } } },
       },
       dailyScrumNotes: { orderBy: { date: "asc" } },

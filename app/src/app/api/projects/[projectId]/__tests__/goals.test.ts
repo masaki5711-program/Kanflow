@@ -91,7 +91,7 @@ describe("PATCH/DELETE /goals/[goalId]", () => {
     asRole("po")
     vi.mocked(svc.deleteGoal).mockResolvedValue(undefined as never)
     expect(await read(await one.DELETE(req("DELETE"), gCtx()))).toEqual({ status: 200, body: { success: true } })
-    expect(svc.deleteGoal).toHaveBeenCalledWith(PROJECT_ID, "g-1")
+    expect(svc.deleteGoal).toHaveBeenCalledWith(PROJECT_ID, "g-1", expect.objectContaining({ userId: expect.any(String) }))
   })
 
   it("refuses delete by a dev and maps delete failure to 500", async () => {

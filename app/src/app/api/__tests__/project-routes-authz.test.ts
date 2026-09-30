@@ -9,6 +9,7 @@
  *   no session         → 401
  *   non-member         → 404 (project existence is not leaked)
  *   unrelated sec. mgr → 404
+ *   trashed project    → 404 (even for a PO member)
  *
  * A filesystem sweep asserts the table lists every `route.ts` under
  * `projects/[projectId]`, so a new route cannot silently skip this test.
@@ -18,7 +19,7 @@ import path from "node:path"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const h = vi.hoisted(() => {
-  const AUTHZ_LOOKUPS = new Set(["projectMember.findFirst", "projectSection.findFirst"])
+  const AUTHZ_LOOKUPS = new Set(["projectMember.findFirst", "projectSection.findFirst", "project.findFirst"])
   const auth = vi.fn()
   /** Every fake function created for mocked modules, keyed "module:export". */
   const spies = new Map<string, ReturnType<typeof vi.fn>>()
@@ -89,6 +90,8 @@ vi.mock("@/services/goals/goals.service", () => h.inertModule("goals.service"))
 vi.mock("@/services/events/events.service", () => h.inertModule("events.service"))
 vi.mock("@/services/daily-scrums/daily-scrums.service", () => h.inertModule("daily-scrums.service"))
 vi.mock("@/services/ai-reports/ai-reports.service", () => h.inertModule("ai-reports.service"))
+vi.mock("@/services/activity/activity.service", () => h.inertModule("activity.service"))
+vi.mock("@/services/trash/trash.service", () => h.inertModule("trash.service"))
 
 // AI / file / network modules
 vi.mock("@/lib/ollama", () => h.inertModule("ollama"))
@@ -115,6 +118,8 @@ interface RouteCase {
 const P = "proj-1"
 const ROUTES: RouteCase[] = [
   { file: "route.ts", load: () => import("@/app/api/projects/[projectId]/route"), params: {} },
+  { file: "activity/route.ts", load: () => import("@/app/api/projects/[projectId]/activity/route"), params: {} },
+  { file: "activity/[entityType]/[entityId]/route.ts", load: () => import("@/app/api/projects/[projectId]/activity/[entityType]/[entityId]/route"), params: { entityType: "pbi", entityId: "pbi-1" } },
   { file: "ai-reports/route.ts", load: () => import("@/app/api/projects/[projectId]/ai-reports/route"), params: {} },
   { file: "ai/generate-pbi-field/route.ts", load: () => import("@/app/api/projects/[projectId]/ai/generate-pbi-field/route"), params: {} },
   { file: "ai/progress-report/route.ts", load: () => import("@/app/api/projects/[projectId]/ai/progress-report/route"), params: {} },
@@ -155,6 +160,9 @@ const ROUTES: RouteCase[] = [
   { file: "sprints/[sprintId]/pbis/route.ts", load: () => import("@/app/api/projects/[projectId]/sprints/[sprintId]/pbis/route"), params: { sprintId: "s-1" } },
   { file: "sprints/[sprintId]/tasks/route.ts", load: () => import("@/app/api/projects/[projectId]/sprints/[sprintId]/tasks/route"), params: { sprintId: "s-1" } },
   { file: "sprints/[sprintId]/tasks/[taskId]/route.ts", load: () => import("@/app/api/projects/[projectId]/sprints/[sprintId]/tasks/[taskId]/route"), params: { sprintId: "s-1", taskId: "t-1" } },
+  { file: "trash/route.ts", load: () => import("@/app/api/projects/[projectId]/trash/route"), params: {} },
+  { file: "trash/[entityType]/[id]/route.ts", load: () => import("@/app/api/projects/[projectId]/trash/[entityType]/[id]/route"), params: { entityType: "backlog_item", id: "pbi-1" } },
+  { file: "trash/[entityType]/[id]/restore/route.ts", load: () => import("@/app/api/projects/[projectId]/trash/[entityType]/[id]/restore/route"), params: { entityType: "backlog_item", id: "pbi-1" } },
 ]
 
 const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const
@@ -205,6 +213,7 @@ function dataCalls(): string[] {
 
 const memberFindFirst = h.spyFor("prisma:projectMember.findFirst")
 const sectionFindFirst = h.spyFor("prisma:projectSection.findFirst")
+const projectFindFirst = h.spyFor("prisma:project.findFirst")
 
 describe("project-scoped routes: authz table", () => {
   beforeEach(() => {
@@ -212,6 +221,7 @@ describe("project-scoped routes: authz table", () => {
     h.auth.mockReset()
     memberFindFirst.mockReset().mockResolvedValue(null)
     sectionFindFirst.mockReset().mockResolvedValue(null)
+    projectFindFirst.mockReset().mockResolvedValue({ id: P })
   })
 
   it("covers every route.ts under projects/[projectId]", () => {
@@ -277,4 +287,29 @@ describe("project-scoped routes: authz table", () => {
       expect(dataCalls()).toEqual([])
     }
   )
+})
+
+describe("project-scoped routes: trashed project", () => {
+  beforeEach(() => {
+    for (const fn of h.spies.values()) fn.mockClear()
+    h.auth.mockReset()
+    memberFindFirst.mockReset().mockResolvedValue({ role: "po" })
+    sectionFindFirst.mockReset().mockResolvedValue(null)
+    projectFindFirst.mockReset().mockResolvedValue(null)
+  })
+
+  it.each(HANDLERS.map((c) => [c.name, c] as const))("%s → 404 for a PO member when the project is in the trash", async (_n, c) => {
+    h.auth.mockResolvedValue({ user: { id: "po-1", name: "P", role: "member" } })
+    const res = await call(c)
+    expect(res.status).toBe(404)
+    expect(projectFindFirst).toHaveBeenCalledWith({ where: { id: P, deletedAt: null }, select: { id: true } })
+    expect(dataCalls()).toEqual([])
+  })
+
+  it.each(HANDLERS.map((c) => [c.name, c] as const))("%s → 404 for an admin when the project is in the trash", async (_n, c) => {
+    h.auth.mockResolvedValue({ user: { id: "adm", name: "A", role: "admin" } })
+    const res = await call(c)
+    expect(res.status).toBe(404)
+    expect(dataCalls()).toEqual([])
+  })
 })

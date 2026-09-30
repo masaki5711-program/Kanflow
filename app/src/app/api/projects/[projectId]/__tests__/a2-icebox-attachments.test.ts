@@ -21,6 +21,7 @@ vi.mock("@/lib/prisma", () => ({
     $queryRaw: vi.fn(async () => [{ total: "0" }]),
     projectMember: { findFirst: (...a: unknown[]) => m.memberFindFirst(...a) },
     projectSection: { findFirst: (...a: unknown[]) => m.sectionFindFirst(...a) },
+    project: { findFirst: vi.fn().mockResolvedValue({ id: "live" }) },
     iceboxItem: { findFirst: (...a: unknown[]) => m.itemFindFirst(...a) },
     iceboxAttachment: {
       create: (...a: unknown[]) => m.attCreate(...a),
@@ -102,7 +103,7 @@ describe("icebox attachment routes", () => {
       expect(res.status).toBe(201)
       const body = await res.json()
       expect(body).toMatchObject({ iceboxItemId: "i1", originalName: "memo.txt", mimeType: "text/plain", fileSize: 5 })
-      expect(m.itemFindFirst).toHaveBeenCalledWith({ where: { id: "i1", projectId: "p1" }, select: { id: true } })
+      expect(m.itemFindFirst).toHaveBeenCalledWith({ where: { id: "i1", projectId: "p1", deletedAt: null }, select: { id: true } })
     })
 
     it("404 when the icebox item is not in this project", async () => {
@@ -147,7 +148,7 @@ describe("icebox attachment routes", () => {
       m.attFindFirst.mockResolvedValue(null)
       expect((await one.GET(getReq(URL_ONE), PIA)).status).toBe(404)
       expect(m.attFindFirst).toHaveBeenCalledWith({
-        where: { id: "a1", iceboxItemId: "i1", iceboxItem: { projectId: "p1" } },
+        where: { id: "a1", iceboxItemId: "i1", iceboxItem: { projectId: "p1", deletedAt: null } },
       })
     })
 

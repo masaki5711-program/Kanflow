@@ -64,6 +64,8 @@ const EXPECTED: Record<ProjectAction, Persona[]> = {
   "icebox.write": VIEWERS,
   "ai.use": MEMBERS,
   "ai.draftPbi": PO_SM,
+  "trash.manage": PO_SM,
+  "trash.purge": PO,
 }
 
 const cases = PROJECT_ACTIONS.flatMap((action) =>

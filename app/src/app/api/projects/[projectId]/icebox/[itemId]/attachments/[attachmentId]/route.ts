@@ -1,6 +1,6 @@
 import { serveStoredFile } from "@/lib/api-helpers"
 import { requireProject } from "@/lib/authz"
-import { successResponse, toHttpResponse } from "@/services/_shared"
+import { actorFromSession, successResponse, toHttpResponse } from "@/services/_shared"
 import { deleteIceboxAttachment, getIceboxAttachment } from "@/services/icebox/icebox.service"
 
 type Params = { params: Promise<{ projectId: string; itemId: string; attachmentId: string }> }
@@ -32,7 +32,7 @@ export async function DELETE(_request: Request, { params }: Params) {
   if ("error" in gate) return gate.error
 
   try {
-    await deleteIceboxAttachment(projectId, itemId, attachmentId)
+    await deleteIceboxAttachment(projectId, itemId, attachmentId, actorFromSession(gate.session))
     return successResponse()
   } catch (error) {
     return toHttpResponse(error, { fallback: "削除に失敗しました", context: "Icebox attachment DELETE" })

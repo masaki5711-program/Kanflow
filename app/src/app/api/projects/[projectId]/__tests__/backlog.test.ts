@@ -127,6 +127,7 @@ describe("GET/PATCH/DELETE /backlog/[itemId]", () => {
     asRole("po")
     vi.mocked(svc.deleteBacklogItem).mockResolvedValue(undefined as never)
     expect(await read(await item.DELETE(req("DELETE"), itemCtx()))).toEqual({ status: 200, body: { success: true } })
+    expect(svc.deleteBacklogItem).toHaveBeenCalledWith(PROJECT_ID, "pbi-1", ACTOR)
 
     asRole("sm")
     expect((await item.DELETE(req("DELETE"), itemCtx())).status).toBe(403)
@@ -155,7 +156,7 @@ describe("PUT /backlog/reorder", () => {
     vi.mocked(svc.reorderBacklog).mockResolvedValue(undefined as never)
     const res = await read(await reorder.PUT(req("PUT", { orderedIds: ["b", "a"] }), ctx()))
     expect(res).toEqual({ status: 200, body: { success: true } })
-    expect(svc.reorderBacklog).toHaveBeenCalledWith(PROJECT_ID, ["b", "a"])
+    expect(svc.reorderBacklog).toHaveBeenCalledWith(PROJECT_ID, ["b", "a"], expect.objectContaining({ userId: expect.any(String) }))
   })
 
   it("rejects an empty list", async () => {

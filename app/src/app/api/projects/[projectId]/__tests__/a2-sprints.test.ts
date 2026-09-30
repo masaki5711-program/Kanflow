@@ -25,6 +25,7 @@ vi.mock("@/lib/prisma", () => ({
   prisma: {
     projectMember: { findFirst: (...a: unknown[]) => m.memberFindFirst(...a) },
     projectSection: { findFirst: vi.fn().mockResolvedValue(null) },
+    project: { findFirst: vi.fn().mockResolvedValue({ id: "live" }) },
   },
 }))
 vi.mock("@/services/sprints/sprints.service", () => ({
@@ -179,7 +180,7 @@ describe("sprint routes", () => {
       asRole(m, "sm")
       const res = await sprint.DELETE(getReq(), PS)
       expect(res.status).toBe(200)
-      expect(m.deleteSprint).toHaveBeenCalledWith("p1", "s1")
+      expect(m.deleteSprint).toHaveBeenCalledWith("p1", "s1", expect.objectContaining({ userId: expect.any(String) }))
     })
 
     it("DELETE 500 on failure", async () => {
@@ -271,7 +272,7 @@ describe("sprint routes", () => {
       m.addPbisToSprint.mockResolvedValue({ added: 2 })
       const res = await pbis.POST(jsonReq("POST", { pbIds: ["a", "b"] }), PS)
       expect(res.status).toBe(201)
-      expect(m.addPbisToSprint).toHaveBeenCalledWith("p1", "s1", ["a", "b"])
+      expect(m.addPbisToSprint).toHaveBeenCalledWith("p1", "s1", ["a", "b"], expect.objectContaining({ userId: expect.any(String) }))
     })
 
     it("POST 200 when nothing was added", async () => {
@@ -298,7 +299,7 @@ describe("sprint routes", () => {
       const res = await pbis.DELETE(jsonReq("DELETE", { pbItemId: "a" }), PS)
       expect(res.status).toBe(200)
       expect(await res.json()).toEqual({ removed: 3 })
-      expect(m.removePbiFromSprint).toHaveBeenCalledWith("p1", "s1", "a")
+      expect(m.removePbiFromSprint).toHaveBeenCalledWith("p1", "s1", "a", expect.objectContaining({ userId: expect.any(String) }))
     })
 
     it("DELETE 400 without pbItemId", async () => {
@@ -367,7 +368,7 @@ describe("sprint routes", () => {
       asRole(m, "dev")
       const res = await task.DELETE(getReq(), PST)
       expect(res.status).toBe(200)
-      expect(m.deleteTask).toHaveBeenCalledWith("p1", "s1", "t1")
+      expect(m.deleteTask).toHaveBeenCalledWith("p1", "s1", "t1", expect.objectContaining({ userId: expect.any(String) }))
     })
 
     it("DELETE 500 on failure", async () => {

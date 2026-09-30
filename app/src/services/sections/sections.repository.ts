@@ -7,7 +7,8 @@ const ORDER = [{ sortOrder: "asc" as const }, { name: "asc" as const }]
 export function findSectionsWithCounts(db: Db) {
   return db.section.findMany({
     orderBy: ORDER,
-    include: { _count: { select: { users: true, projects: true, categories: true } } },
+    // Trashed projects are not counted (they are listed in the admin trash instead).
+    include: { _count: { select: { users: true, projects: { where: { project: { deletedAt: null } } }, categories: true } } },
     take: LIST_LIMITS.sections,
   })
 }

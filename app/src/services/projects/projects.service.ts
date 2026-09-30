@@ -2,6 +2,7 @@ import { removeProjectUploadDir } from "@/lib/api-helpers"
 import type { AccessVia } from "@/lib/authz/policy"
 import { logger } from "@/lib/logger"
 import type { Actor } from "@/services/_shared/actor"
+import { loadSnapshot, logActivity, logCreate, logUpdate } from "@/services/_shared/activity"
 import { defaultDb, withTransaction, type Db } from "@/services/_shared/db"
 import { NotFoundError, ValidationError } from "@/services/_shared/errors"
 import { attachI18n, enqueueIn, getI18nFor, prepareText, purgeIn } from "@/services/_shared/translations"
@@ -59,6 +60,7 @@ export async function createProject(input: CreateProjectInput, actor: Actor) {
       sectionIds,
     })
     await enqueueIn(tx, "project", created.id, created)
+    await logCreate(tx, { projectId: created.id, entityType: "project", entityId: created.id, actor, row: created })
     return created
   })
   await attachTemplate(project.id, PRODUCT_GOAL_TEMPLATE, actor.userName)
@@ -86,27 +88,29 @@ export async function updateProject(projectId: string, input: UpdateProjectInput
   const data = await prepareText(input, actor.userId)
   const { sectionIds, ...rest } = data
   return withTransaction(async (tx) => {
+    const before = await loadSnapshot(tx, "project", projectId)
     const updated = await repo.updateProject(tx, projectId, rest)
     if (sectionIds !== undefined) {
       await repo.replaceProjectSections(tx, projectId, await assertSectionsExist(tx, sectionIds))
     }
     await enqueueIn(tx, "project", projectId, rest)
+    const meta = sectionIds !== undefined ? { sectionIds } : undefined
+    await logUpdate(tx, { projectId, entityType: "project", entityId: projectId, actor, before, after: updated, meta })
     return updated
   })
 }
 
 /**
- * Deletes the project (children cascade in the DB) and, in the same
- * transaction, the translation rows of the project AND every cascaded child
- * (goals, icebox, PBIs, sprints, tasks, daily scrums, releases, events, plan).
+ * Moves the project to the trash: it disappears from every list and all its
+ * routes answer 404 (requireProject), but nothing is removed. A system admin
+ * restores or purges it from the admin trash (restoreProject / purgeProject);
+ * the purge-trash worker job purges it after PURGE_TRASH_AFTER_DAYS.
  */
-export async function deleteProject(projectId: string): Promise<void> {
+export async function deleteProject(projectId: string, actor: Actor): Promise<void> {
   await withTransaction(async (tx) => {
-    const tree = await repo.collectProjectTranslationTree(tx, projectId)
-    await purgeIn(tx, tree)
-    await repo.deleteProject(tx, projectId)
+    if (!(await repo.softDeleteProject(tx, projectId, actor.userId))) throw new NotFoundError()
+    await logActivity(tx, { projectId, entityType: "project", entityId: projectId, action: "delete", actor, diff: { meta: { trashed: true } } })
   })
-  await cleanupProjectUploads(projectId)
 }
 
 /**
@@ -133,4 +137,33 @@ export async function favoriteProject(userId: string, projectId: string): Promis
 /** Idempotent (no error when not favorited). */
 export async function unfavoriteProject(userId: string, projectId: string): Promise<void> {
   await repo.deleteFavorites(defaultDb, userId, projectId)
+}
+
+// === trash: restore / purge (system admin, /api/admin/trash/projects) ===
+
+/** Takes a trashed project out of the trash (everything in it comes back as it was). 404 when not trashed. */
+export async function restoreProject(projectId: string, actor: Actor): Promise<void> {
+  await withTransaction(async (tx) => {
+    if (!(await repo.findTrashedProject(tx, projectId))) throw new NotFoundError()
+    await repo.restoreProjectRow(tx, projectId)
+    await logActivity(tx, { projectId, entityType: "project", entityId: projectId, action: "restore", actor })
+  })
+}
+
+/**
+ * Permanently deletes a trashed project (children cascade in the DB) and, in
+ * the same transaction, the translation rows of the project AND every
+ * cascaded child (goals, icebox, PBIs, sprints, tasks, daily scrums,
+ * releases, events, plan). Its upload directory is removed after commit.
+ * 404 for a live project: only trashed projects can be purged.
+ */
+export async function purgeProject(projectId: string): Promise<void> {
+  await withTransaction(async (tx) => {
+    if (!(await repo.findTrashedProject(tx, projectId))) throw new NotFoundError()
+    const tree = await repo.collectProjectTranslationTree(tx, projectId)
+    await purgeIn(tx, tree)
+    await repo.deleteProject(tx, projectId)
+  })
+  log.info("project purged from trash", { projectId })
+  await cleanupProjectUploads(projectId)
 }

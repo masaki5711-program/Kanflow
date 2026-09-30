@@ -47,7 +47,7 @@ export default async function ProjectDashboard({
   }
 
   const project = await prisma.project.findUnique({
-    where: { id: projectId },
+    where: { id: projectId, deletedAt: null },
     include: {
       productGoals: { orderBy: { createdAt: "asc" } },
       attachmentFolders: {
@@ -57,15 +57,16 @@ export default async function ProjectDashboard({
       attachments: { orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }] },
       _count: {
         select: {
-          iceboxItems: true,
-          backlogItems: true,
+          iceboxItems: { where: { deletedAt: null } },
+          backlogItems: { where: { deletedAt: null } },
           sprints: true,
         },
       },
       sprints: {
         where: { status: "active" },
         take: 1,
-        include: { items: true },
+        // Tasks of trashed PBIs are hidden like in every sprint view.
+        include: { items: { where: { pbItem: { deletedAt: null } } } },
       },
     },
   })

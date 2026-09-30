@@ -12,6 +12,7 @@ vi.mock("@/lib/prisma", () => ({
   prisma: {
     projectMember: { findFirst: (...a: unknown[]) => memberFindFirst(...a) },
     projectSection: { findFirst: vi.fn().mockResolvedValue(null) },
+    project: { findFirst: vi.fn().mockResolvedValue({ id: "live" }) },
   },
 }))
 vi.mock("@/lib/ollama", async (importOriginal) => {

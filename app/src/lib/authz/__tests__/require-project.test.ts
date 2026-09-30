@@ -3,12 +3,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const authMock = vi.fn()
 const memberFindFirst = vi.fn()
 const projectSectionFindFirst = vi.fn()
+const projectFindFirst = vi.fn()
 
 vi.mock("@/lib/auth", () => ({ auth: () => authMock() }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     projectMember: { findFirst: (...a: unknown[]) => memberFindFirst(...a) },
     projectSection: { findFirst: (...a: unknown[]) => projectSectionFindFirst(...a) },
+    project: { findFirst: (...a: unknown[]) => projectFindFirst(...a) },
   },
 }))
 
@@ -32,6 +34,7 @@ describe("requireProject", () => {
     authMock.mockReset()
     memberFindFirst.mockReset().mockResolvedValue(null)
     projectSectionFindFirst.mockReset().mockResolvedValue(null)
+    projectFindFirst.mockReset().mockResolvedValue({ id: "p1" })
   })
 
   it("returns 401 without a session", async () => {
@@ -83,11 +86,36 @@ describe("requireProject", () => {
     expect(projectSectionFindFirst).not.toHaveBeenCalled()
   })
 
-  it("lets admins through without any DB lookup", async () => {
+  it("lets admins through with only the project liveness lookup", async () => {
     authMock.mockResolvedValue(session("admin"))
     const res = await requireProject("p1", "project.delete")
     expect(await statusOf(res)).toBe("ok")
     expect(memberFindFirst).not.toHaveBeenCalled()
+    expect(projectFindFirst).toHaveBeenCalledWith({ where: { id: "p1", deletedAt: null }, select: { id: true } })
+  })
+
+  it("returns 404 for a member when the project is in the trash (or missing)", async () => {
+    authMock.mockResolvedValue(session("member"))
+    memberFindFirst.mockResolvedValue({ role: "po" })
+    projectFindFirst.mockResolvedValue(null)
+    const res = await requireProject("p1", "project.view")
+    expect(await statusOf(res)).toBe(404)
+    expect(await bodyOf(res)).toEqual({ error: "Not found", code: "NOT_FOUND" })
+  })
+
+  it("returns 404 for an admin too when the project is in the trash", async () => {
+    authMock.mockResolvedValue(session("admin"))
+    projectFindFirst.mockResolvedValue(null)
+    expect(await statusOf(await requireProject("p1", "project.view"))).toBe(404)
+  })
+
+  it("allows trash.manage for PO / SM and trash.purge for PO only", async () => {
+    authMock.mockResolvedValue(session("member"))
+    memberFindFirst.mockResolvedValue({ role: "sm" })
+    expect(await statusOf(await requireProject("p1", "trash.manage"))).toBe("ok")
+    expect(await statusOf(await requireProject("p1", "trash.purge"))).toBe(403)
+    memberFindFirst.mockResolvedValue({ role: "po" })
+    expect(await statusOf(await requireProject("p1", "trash.purge"))).toBe("ok")
   })
 
   it("lets a section manager read and write Icebox but not the backlog", async () => {
@@ -106,6 +134,7 @@ describe("legacy wrappers", () => {
     authMock.mockReset()
     memberFindFirst.mockReset().mockResolvedValue(null)
     projectSectionFindFirst.mockReset().mockResolvedValue(null)
+    projectFindFirst.mockReset().mockResolvedValue({ id: "p1" })
   })
 
   it("requireProjectMember gives admins a synthetic PO membership", async () => {

@@ -31,7 +31,7 @@ describe("buildProjectContext", () => {
   it("returns an empty string for an unknown project and runs no further queries", async () => {
     m.projectFindUnique.mockResolvedValue(null)
     await expect(buildProjectContext("nope")).resolves.toBe("")
-    expect(m.projectFindUnique.mock.calls[0][0].where).toEqual({ id: "nope" })
+    expect(m.projectFindUnique.mock.calls[0][0].where).toEqual({ id: "nope", deletedAt: null })
     expect(m.sprintFindMany).not.toHaveBeenCalled()
   })
 
@@ -43,8 +43,10 @@ describe("buildProjectContext", () => {
     })
     const out = await buildProjectContext("p1")
     expect(m.sprintFindMany.mock.calls[0][0].where).toEqual({ projectId: "p1" })
-    expect(m.pbiFindMany.mock.calls[0][0].where).toEqual({ projectId: "p1" })
-    expect(m.iceFindMany.mock.calls[0][0].where).toEqual({ projectId: "p1" })
+    expect(m.pbiFindMany.mock.calls[0][0].where).toEqual({ projectId: "p1", deletedAt: null })
+    expect(m.iceFindMany.mock.calls[0][0].where).toEqual({ projectId: "p1", deletedAt: null })
+    expect(m.sprintFindMany.mock.calls[0][0].include.items.where).toEqual({ pbItem: { deletedAt: null } })
+    expect(m.projectFindUnique.mock.calls[0][0].include._count.select.backlogItems).toEqual({ where: { deletedAt: null } })
     expect(m.sprintFindMany.mock.calls[0][0].take).toBe(5)
     expect(m.pbiFindMany.mock.calls[0][0].take).toBe(30)
     expect(m.iceFindMany.mock.calls[0][0].take).toBe(20)

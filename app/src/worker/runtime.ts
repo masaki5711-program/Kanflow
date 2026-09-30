@@ -13,6 +13,8 @@ import { DailyScheduler } from "./scheduler"
 import { createShutdown, type ShutdownCoordinator, type ShutdownStep } from "./shutdown"
 import { SingleFlightJobRunner } from "./jobs/job-runner"
 import { runSurveillance, type SurveillanceResult } from "./jobs/surveillance"
+import { startCollabScheduler } from "./collab-daily"
+import { startPurgeTrashScheduler } from "./trash-daily"
 
 /**
  * Standalone worker runtime: single-instance lock (own DB connection) →
@@ -37,6 +39,10 @@ interface Runtime {
   lock: NamedLockHandle | null
   remote: RemoteGate | null
   scheduler: DailyScheduler | null
+  /** Retention sweep + due-date notifications (collab-daily.ts). */
+  collabScheduler: DailyScheduler | null
+  /** Daily purge of rows past the trash retention (trash-daily.ts). */
+  trashScheduler: DailyScheduler | null
   heartbeat: ReturnType<typeof setInterval> | null
   limiter: BusinessHoursLimiter
   startedAt: string
@@ -94,6 +100,8 @@ function shutdownSteps(rt: Runtime): ShutdownStep[] {
       },
     },
     { name: "stop-scheduler", run: () => rt.scheduler?.stop() },
+    { name: "stop-collab-scheduler", run: () => rt.collabScheduler?.stop() },
+    { name: "stop-trash-scheduler", run: () => rt.trashScheduler?.stop() },
     { name: "await-jobs", run: () => rt.jobs.settled() },
     {
       name: "stop-ai-gate",
@@ -192,6 +200,8 @@ function startServices(rt: Runtime, opts: RunWorkerOptions): void {
     rt.log.info("surveillance scheduled", { next: rt.scheduler.nextAt()?.toISOString() })
   }
   if (opts.surveillanceNow) triggerSurveillance(rt, "cli")
+  rt.collabScheduler = startCollabScheduler(rt.cfg, rt.log.child({ component: "collab-daily" }), rt.startup.signal)
+  rt.trashScheduler = startPurgeTrashScheduler(rt.cfg, rt.log.child({ component: "purge-trash" }), rt.startup.signal)
 }
 
 export async function runWorker(cfg: WorkerConfig, opts: RunWorkerOptions): Promise<void> {
@@ -204,6 +214,8 @@ export async function runWorker(cfg: WorkerConfig, opts: RunWorkerOptions): Prom
     lock: null,
     remote: null,
     scheduler: null,
+    collabScheduler: null,
+    trashScheduler: null,
     heartbeat: null,
     limiter: new BusinessHoursLimiter(cfg.businessHours),
     startedAt: new Date().toISOString(),
