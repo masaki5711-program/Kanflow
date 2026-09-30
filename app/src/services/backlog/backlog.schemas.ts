@@ -38,3 +38,11 @@ export const reorderBacklogSchema = z.object({
 
 export type CreateBacklogItemInput = z.infer<typeof createBacklogItemSchema>
 export type UpdateBacklogItemInput = z.infer<typeof updateBacklogItemSchema>
+
+export type PbiStatus = (typeof PBI_STATUSES)[number]
+
+/** GET /backlog query: optional `?status=` filter (unknown values are rejected with 400). */
+export const listBacklogQuerySchema = z.object({
+  status: z.enum(PBI_STATUSES).optional(),
+})
+export type ListBacklogQuery = z.infer<typeof listBacklogQuerySchema>

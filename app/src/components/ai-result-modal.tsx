@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { Button, Modal, VisuallyHidden, useModalClose, useToast } from "@/components/ui"
 import { useLanguage } from "@/lib/language-context"
 import { emitActivity } from "@/hooks/activity"
@@ -57,15 +57,46 @@ interface StreamState {
   generatedAt: Date | null
   done: boolean
   failed: boolean
+  /** Stopped by the user (Cancel). */
+  cancelled: boolean
+  /** No token yet after MODEL_LOAD_HINT_MS — the model is most likely still loading. */
+  slowStart: boolean
 }
 
-const INITIAL: StreamState = { text: "", report: null, generatedAt: null, done: false, failed: false }
+const INITIAL: StreamState = {
+  text: "",
+  report: null,
+  generatedAt: null,
+  done: false,
+  failed: false,
+  cancelled: false,
+  slowStart: false,
+}
 
-function useAiStream(fetchUrl: string, bodyJson: string, structured: boolean): StreamState {
+/**
+ * After this long without a first token, tell the user the model is loading.
+ * Ollama needs ~8-10s to swap models when another app used a different one.
+ */
+export const MODEL_LOAD_HINT_MS = 3000
+
+interface AiStream extends StreamState {
+  cancel: () => void
+  retry: () => void
+}
+
+function useAiStream(fetchUrl: string, bodyJson: string, structured: boolean): AiStream {
   const [state, setState] = useState<StreamState>(INITIAL)
+  // Bumped by retry(): re-runs the effect, which starts a fresh request.
+  const [attempt, setAttempt] = useState(0)
+  const abortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
     const ac = new AbortController()
+    abortRef.current = ac
+    let gotToken = false
+    const slowTimer = setTimeout(() => {
+      if (!gotToken) setState((s) => ({ ...s, slowStart: true }))
+    }, MODEL_LOAD_HINT_MS)
     // Streaming responses can't go through apiFetch; signal activity so the
     // idle-logout watcher counts the request (and its completion) as use.
     emitActivity()
@@ -85,12 +116,16 @@ function useAiStream(fetchUrl: string, bodyJson: string, structured: boolean): S
           const { done, value } = await reader.read()
           if (done) break
           acc += decoder.decode(value, { stream: true })
+          if (!gotToken && acc) {
+            gotToken = true
+            clearTimeout(slowTimer)
+          }
           // Live-render the report document as the JSON streams in:
           // sections appear one by one while the model is still writing.
           const partial = structured ? extractPartialObject(acc) : null
           const rep = partial ? normalizeStructured(partial.fields) : null
           const text = acc
-          setState((s) => ({ ...s, text, report: rep ?? s.report }))
+          setState((s) => ({ ...s, text, report: rep ?? s.report, slowStart: false }))
         }
         let finalReport: StructuredReport | null = null
         if (structured) {
@@ -107,16 +142,32 @@ function useAiStream(fetchUrl: string, bodyJson: string, structured: boolean): S
           report: finalReport ?? s.report,
           generatedAt: structured ? new Date() : s.generatedAt,
           done: true,
+          slowStart: false,
         }))
       } catch (err) {
-        if (err instanceof DOMException && err.name === "AbortError") return
-        setState((s) => ({ ...s, failed: true }))
+        if (ac.signal.aborted || (err instanceof DOMException && err.name === "AbortError")) return
+        setState((s) => ({ ...s, failed: true, slowStart: false }))
+      } finally {
+        clearTimeout(slowTimer)
       }
     })()
-    return () => ac.abort()
-  }, [fetchUrl, bodyJson, structured])
+    return () => {
+      clearTimeout(slowTimer)
+      ac.abort()
+    }
+  }, [fetchUrl, bodyJson, structured, attempt])
 
-  return state
+  const cancel = useCallback(() => {
+    abortRef.current?.abort()
+    setState((s) => (s.done || s.failed ? s : { ...s, cancelled: true, slowStart: false }))
+  }, [])
+
+  const retry = useCallback(() => {
+    setState(INITIAL)
+    setAttempt((n) => n + 1)
+  }, [])
+
+  return { ...state, cancel, retry }
 }
 
 function ThinkingIndicator({ label }: { label: string }) {
@@ -141,7 +192,13 @@ function CloseButton() {
 function AIResultStream({ title, fetchUrl, bodyJson, onClose, structured, triggerLabel, footer }: Omit<Props, "fetchBody"> & { bodyJson: string; structured: boolean }) {
   const { t, language } = useLanguage()
   const toast = useToast()
-  const { text, report, generatedAt, done, failed } = useAiStream(fetchUrl, bodyJson, structured)
+  const { text, report, generatedAt, done, failed, cancelled, slowStart, cancel, retry } = useAiStream(
+    fetchUrl,
+    bodyJson,
+    structured,
+  )
+  const stopped = failed || cancelled
+  const isRunning = !done && !stopped
   const endRef = useRef<HTMLDivElement>(null)
 
   // Keep the newest streamed content in view.
@@ -162,11 +219,28 @@ function AIResultStream({ title, fetchUrl, bodyJson, onClose, structured, trigge
   }
 
   const locale = language === "ja" ? "ja-JP" : language === "id" ? "id-ID" : "en-US"
-  const status = failed ? t.aiFailed : done ? t.aiReportGenerationDone : t.aiThinking
+  const waitingLabel = slowStart ? t.aiLoadingModel : t.aiThinking
+  const status = failed
+    ? t.aiFailed
+    : cancelled
+      ? t.aiCancelled
+      : done
+        ? t.aiReportGenerationDone
+        : waitingLabel
 
   let body: ReactNode
-  if (failed) {
-    body = <p role="alert" className="text-body text-danger">{t.aiFailed}</p>
+  if (stopped) {
+    body = (
+      <div className="space-y-3">
+        {failed ? (
+          <p role="alert" className="text-body text-danger">{t.aiFailed}</p>
+        ) : (
+          <p className="text-body text-fg-muted">{t.aiCancelled}</p>
+        )}
+        {text && !report && <div className="text-body text-fg whitespace-pre-wrap leading-relaxed">{text}</div>}
+        <Button variant="primary" size="sm" onClick={retry}>{t.errorRetry}</Button>
+      </div>
+    )
   } else if (report) {
     body = (
       <>
@@ -179,13 +253,13 @@ function AIResultStream({ title, fetchUrl, bodyJson, onClose, structured, trigge
           })}
           t={t}
         />
-        {!done && <div className="mt-3"><ThinkingIndicator label={t.aiThinking} /></div>}
+        {!done && <div className="mt-3"><ThinkingIndicator label={waitingLabel} /></div>}
       </>
     )
   } else if (!text || (structured && !done)) {
     // Raw JSON is accumulating but no renderable fields yet — keep the
     // indicator instead of dumping JSON tokens on the user.
-    body = <ThinkingIndicator label={t.aiThinking} />
+    body = <ThinkingIndicator label={waitingLabel} />
   } else {
     body = <div className="text-body text-fg whitespace-pre-wrap leading-relaxed">{text}</div>
   }
@@ -198,10 +272,15 @@ function AIResultStream({ title, fetchUrl, bodyJson, onClose, structured, trigge
       size={structured ? "xl" : "lg"}
       // Read-only viewer: backdrop click closes it — but only once generation finished,
       // so a stray click never throws away a running AI stream.
-      closeOnOverlayClick={done || failed}
+      closeOnOverlayClick={!isRunning}
       footer={
         <>
           {footer?.(text, done)}
+          {isRunning && (
+            <Button variant="secondary" size="sm" onClick={cancel}>
+              {t.aiCancel}
+            </Button>
+          )}
           <Button variant="secondary" size="sm" onClick={copyToClipboard} disabled={!text}>
             {t.aiCopy}
           </Button>
@@ -212,7 +291,7 @@ function AIResultStream({ title, fetchUrl, bodyJson, onClose, structured, trigge
       <VisuallyHidden>
         <span role="status" aria-live="polite">{status}</span>
       </VisuallyHidden>
-      <div aria-busy={!done && !failed}>{body}</div>
+      <div aria-busy={isRunning}>{body}</div>
       {done && <p className="mt-4 text-caption text-fg-muted">{t.aiResultDisclaimer}</p>}
       <div ref={endRef} />
     </Modal>

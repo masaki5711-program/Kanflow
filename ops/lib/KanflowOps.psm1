@@ -15,6 +15,14 @@ Import-Module (Join-Path $PSScriptRoot "..\logs\LogRotation.psm1") -Force -Globa
 
 $script:KanflowRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 
+# Split into files, same module scope (they call the helpers below):
+#   KanflowAlert.ps1     Send-KanflowAlert / Clear-KanflowAlert / Get-KanflowSetting
+#   KanflowCollabora.ps1 Collabora discovery probe + container state
+#   KanflowBackup.ps1    backup generation lookup / verification, drill DB guards
+. (Join-Path $PSScriptRoot "KanflowAlert.ps1")
+. (Join-Path $PSScriptRoot "KanflowCollabora.ps1")
+. (Join-Path $PSScriptRoot "KanflowBackup.ps1")
+
 function Get-KanflowRoot { return $script:KanflowRoot }
 
 function Get-KanflowPaths {
@@ -369,12 +377,13 @@ function Test-KanflowHealth {
     )
     # Worker / Pending / OldestPendingAgeSec / BuildId are informational
     # (present from the build that added them; $null on older builds).
-    $res = [ordered]@{ Ok = $false; StatusCode = 0; Db = $null; Ollama = $null; Worker = $null; WorkerAgeSec = $null; WorkerExpected = $null; Pending = $null; OldestPendingAgeSec = $null; BuildId = $null; Error = $null }
+    $res = [ordered]@{ Ok = $false; StatusCode = 0; Db = $null; Ollama = $null; Collabora = $null; Worker = $null; WorkerAgeSec = $null; WorkerExpected = $null; Pending = $null; OldestPendingAgeSec = $null; BuildId = $null; Error = $null }
     $apply = {
         param($j)
         $res.Db = $j.db; $res.Ollama = $j.ollama
         $names = @($j.PSObject.Properties.Name)
         if ($names -contains "buildId") { $res.BuildId = $j.buildId }
+        if ($names -contains "collabora") { $res.Collabora = $j.collabora }
         if ($names -contains "worker" -and $j.worker) {
             $res.Worker = $j.worker.status; $res.WorkerAgeSec = $j.worker.heartbeatAgeSec; $res.WorkerExpected = $j.worker.expected
         }
@@ -710,4 +719,9 @@ Export-ModuleMember -Function Get-KanflowRoot, Get-KanflowPaths, Get-KanflowDaem
     Compress-GzipFile, Expand-GzipFile, Get-FileSha256, Invoke-Robocopy, `
     Get-PortListenerPids, Get-ServicePid, Test-KanflowHealth, Wait-Condition, `
     Stop-KanflowService, Start-KanflowService, Restart-KanflowService, `
-    Export-KanflowDatabase, Get-KanflowTableCounts, Test-IsAdministrator
+    Export-KanflowDatabase, Get-KanflowTableCounts, Test-IsAdministrator, `
+    Get-KanflowSetting, Test-KanflowSettingOff, Get-KanflowAlertConfig, Send-KanflowAlert, Clear-KanflowAlert, Test-AlertThrottled, `
+    Get-KanflowCollaboraUrl, Test-KanflowCollabora, Get-KanflowCollaboraContainer, Start-KanflowCollaboraContainer, `
+    Get-DockerExe, Invoke-ProcessWithTimeout, `
+    Get-KanflowBackupGenerations, Test-KanflowBackupGeneration, Get-KanflowDirStats, Assert-KanflowDrillDatabaseName, 
+    Expand-KanflowDump, Import-KanflowDump

@@ -35,6 +35,7 @@ export function useGanttData(projectId: string) {
     rows,
     isLoading: sprintsQuery.isLoading,
     error: sprintsQuery.error,
+    refetch: sprintsQuery.refetch,
     isExpanded,
     toggle,
     ...timeline,

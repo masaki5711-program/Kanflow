@@ -72,6 +72,11 @@ export interface CommonTranslations {
   errorPageMessage: string
   errorRetry: string
   errorGoHome: string
+  notFoundTitle: string
+  notFoundMessage: string
+  notFoundProjectTitle: string
+  notFoundProjectMessage: string
+  notFoundBackToProjects: string
 }
 
 export const ja: CommonTranslations = {
@@ -135,6 +140,11 @@ export const ja: CommonTranslations = {
   errorPageMessage: "このページの読み込み中にエラーが発生しました。",
   errorRetry: "再試行",
   errorGoHome: "ホームに戻る",
+  notFoundTitle: "ページが見つかりません",
+  notFoundMessage: "お探しのページは存在しないか、移動または削除された可能性があります。",
+  notFoundProjectTitle: "プロジェクトが見つかりません",
+  notFoundProjectMessage: "このプロジェクトは存在しないか、閲覧する権限がありません。",
+  notFoundBackToProjects: "プロジェクト一覧へ戻る",
 }
 
 export const en: CommonTranslations = {
@@ -198,6 +208,11 @@ export const en: CommonTranslations = {
   errorPageMessage: "An error occurred while loading this page.",
   errorRetry: "Retry",
   errorGoHome: "Go Home",
+  notFoundTitle: "Page not found",
+  notFoundMessage: "The page you are looking for does not exist or may have been moved or deleted.",
+  notFoundProjectTitle: "Project not found",
+  notFoundProjectMessage: "This project does not exist or you do not have access to it.",
+  notFoundBackToProjects: "Back to projects",
 }
 
 export const id: CommonTranslations = {
@@ -261,4 +276,9 @@ export const id: CommonTranslations = {
   errorPageMessage: "Terjadi kesalahan saat memuat halaman ini.",
   errorRetry: "Coba Lagi",
   errorGoHome: "Ke Beranda",
+  notFoundTitle: "Halaman tidak ditemukan",
+  notFoundMessage: "Halaman yang Anda cari tidak ada atau mungkin telah dipindahkan atau dihapus.",
+  notFoundProjectTitle: "Proyek tidak ditemukan",
+  notFoundProjectMessage: "Proyek ini tidak ada atau Anda tidak memiliki akses ke proyek ini.",
+  notFoundBackToProjects: "Kembali ke daftar proyek",
 }

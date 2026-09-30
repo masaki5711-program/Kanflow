@@ -38,6 +38,7 @@ export interface NavTranslations {
   skipToMain: string
   navProjectType: string
   navAdminMenu: string
+  navLanguageMenu: string
   navCategoryAdmin: string
   navUserMenu: string
   navBreadcrumb: string
@@ -74,6 +75,7 @@ export const ja: NavTranslations = {
   skipToMain: "メインコンテンツへ移動",
   navProjectType: "プロジェクトタイプ",
   navAdminMenu: "管理",
+  navLanguageMenu: "表示言語",
   navCategoryAdmin: "カテゴリ管理",
   navUserMenu: "ユーザーメニュー",
   navBreadcrumb: "パンくずリスト",
@@ -110,6 +112,7 @@ export const en: NavTranslations = {
   skipToMain: "Skip to main content",
   navProjectType: "Project type",
   navAdminMenu: "Admin",
+  navLanguageMenu: "Display language",
   navCategoryAdmin: "Category management",
   navUserMenu: "User menu",
   navBreadcrumb: "Breadcrumb",
@@ -146,6 +149,7 @@ export const id: NavTranslations = {
   skipToMain: "Lompat ke konten utama",
   navProjectType: "Tipe proyek",
   navAdminMenu: "Admin",
+  navLanguageMenu: "Bahasa tampilan",
   navCategoryAdmin: "Kelola kategori",
   navUserMenu: "Menu pengguna",
   navBreadcrumb: "Navigasi jejak",

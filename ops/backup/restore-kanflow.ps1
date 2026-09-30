@@ -61,36 +61,25 @@ function Log([string]$msg, [string]$level = "INFO") { Write-RotatingLog -Path $L
 
 function Resolve-Generation {
     if ($Latest) {
-        $daily = Join-Path $BackupRoot "daily"
-        $g = Get-ChildItem -LiteralPath $daily -Directory -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -match '^kanflow-\d{8}-\d{6}$' } | Sort-Object Name -Descending | Select-Object -First 1
-        if (-not $g) { throw "no generation found under $daily" }
-        return $g.FullName
+        $g = @(Get-KanflowBackupGenerations -Root $BackupRoot -Kind daily)
+        if ($g.Count -eq 0) { throw "no generation found under $(Join-Path $BackupRoot 'daily')" }
+        return $g[0].FullName
     }
     if (-not (Test-Path -LiteralPath $BackupPath -PathType Container)) { throw "backup path not found: $BackupPath" }
     return (Resolve-Path -LiteralPath $BackupPath).Path
 }
 
 function Test-Generation([string]$gen) {
-    $manifestPath = Join-Path $gen "manifest.json"
-    if (-not (Test-Path -LiteralPath $manifestPath)) { throw "manifest.json missing - not a complete generation: $gen" }
-    $m = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    $dumpPath = Join-Path $gen $m.dump.File
-    if (-not (Test-Path -LiteralPath $dumpPath)) { throw "dump file missing: $dumpPath" }
-    $sha = Get-FileSha256 -Path $dumpPath
-    if ($sha -ne $m.dump.Sha256) { throw "SHA-256 mismatch for $($m.dump.File) (backup corrupted)" }
+    $checked = Test-KanflowBackupGeneration -Path $gen
+    $m = $checked.Manifest
     Log ("generation OK: created {0}, db={1}, dump {2:N1} MB, private {3} files, commit {4}" -f $m.createdAt, $m.database, ($m.dump.RawBytes / 1MB), $m.privateFiles, $m.gitCommit)
-    return [pscustomobject]@{ Manifest = $m; DumpPath = $dumpPath }
+    return $checked
 }
 
 function Expand-AndCheckDump([string]$dumpPath) {
-    $sql = Join-Path ([System.IO.Path]::GetTempPath()) ("kanflow-restore-{0}.sql" -f $stamp)
-    Expand-GzipFile -Source $dumpPath -Destination $sql
-    $tail = @(Get-Content -LiteralPath $sql -Tail 3 -Encoding UTF8)
-    if (@($tail -match "^-- Dump completed").Count -eq 0) { throw "dump has no 'Dump completed' trailer" }
-    $tables = @(Select-String -LiteralPath $sql -Pattern '^CREATE TABLE' -Encoding UTF8).Count
-    Log "dump expanded and verified: $tables CREATE TABLE statements"
-    return $sql
+    $x = Expand-KanflowDump -DumpPath $dumpPath
+    Log "dump expanded and verified: $($x.CreateTables) CREATE TABLE statements"
+    return $x.SqlFile
 }
 
 function Confirm-Restore([string]$targetDb) {
@@ -112,25 +101,9 @@ function Test-DatabaseExists($db, [string]$binDir) {
 }
 
 function Restore-Database($db, [string]$binDir, [string]$sqlFile) {
-    $opt = New-MySqlOptionFile -DbConfig $db
-    $err = Join-Path ([System.IO.Path]::GetTempPath()) ("kanflow-restore-{0}.err" -f $stamp)
-    try {
-        $bt = [char]96
-        $name = $db.Database
-        $recreate = "DROP DATABASE IF EXISTS {1}{0}{1}; CREATE DATABASE {1}{0}{1} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" -f $name, $bt
-        [void](Invoke-MySqlQuery -MySqlBinDir $binDir -OptionFile $opt -Sql $recreate)
-        Log "database $name dropped and re-created; importing..."
-        $code = Invoke-NativeProcess -FilePath (Join-Path $binDir "mysql.exe") `
-            -Arguments ("--defaults-extra-file=`"{0}`" --default-character-set=utf8mb4 {1}" -f $opt, $name) `
-            -StdinFile $sqlFile -StderrFile $err
-        if ($code -ne 0) {
-            $msg = if (Test-Path -LiteralPath $err) { ([System.IO.File]::ReadAllText($err)).Trim() } else { "" }
-            throw "mysql import exited with $code : $msg"
-        }
-        Log "database import finished"
-    } finally {
-        Remove-Item -LiteralPath $opt, $err -Force -ErrorAction SilentlyContinue
-    }
+    Log "database $($db.Database): drop, re-create and import..."
+    Import-KanflowDump -DbConfig $db -MySqlBinDir $binDir -SqlFile $sqlFile
+    Log "database import finished"
 }
 
 function Restore-Private([string]$gen, [string]$target) {

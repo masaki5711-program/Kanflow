@@ -17,6 +17,7 @@ const m = vi.hoisted(() => ({
   attFindFirst: vi.fn(),
   attUpdate: vi.fn(),
   attDelete: vi.fn(),
+  queryRaw: vi.fn(),
 }))
 
 vi.mock("@/lib/auth", () => ({ auth: () => m.authMock() }))
@@ -25,6 +26,7 @@ vi.mock("@/lib/prisma", () => ({
     projectMember: { findFirst: (...a: unknown[]) => m.memberFindFirst(...a) },
     projectSection: { findFirst: vi.fn().mockResolvedValue(null) },
     attachmentFolder: { findFirst: (...a: unknown[]) => m.folderFindFirst(...a) },
+    $queryRaw: (...a: unknown[]) => m.queryRaw(...a),
     projectAttachment: {
       create: (...a: unknown[]) => m.attCreate(...a),
       findFirst: (...a: unknown[]) => m.attFindFirst(...a),
@@ -51,7 +53,10 @@ afterAll(async () => {
   await fs.rm(tmpRoot, { recursive: true, force: true })
 })
 
-function fileForm(content: string, name: string, type: string, extra: Record<string, string> = {}) {
+/** PNG signature + 4 bytes: 12 bytes that pass the magic-byte check for .png. */
+const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13])
+
+function fileForm(content: string | Uint8Array<ArrayBuffer>, name: string, type: string, extra: Record<string, string> = {}) {
   const fd = new FormData()
   fd.set("file", new File([content], name, { type }))
   for (const [k, v] of Object.entries(extra)) fd.set(k, v)
@@ -82,6 +87,7 @@ describe("attachment routes", () => {
   beforeEach(() => {
     Object.values(m).forEach((f) => f.mockReset())
     vi.spyOn(process, "cwd").mockReturnValue(tmpRoot)
+    m.queryRaw.mockResolvedValue([{ total: "0" }])
     m.attCreate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
       id: "new",
       createdAt: new Date("2026-01-01T00:00:00Z"),
@@ -110,13 +116,13 @@ describe("attachment routes", () => {
 
     it("stores an allowed file and returns the DTO (201)", async () => {
       asRole(m, "dev")
-      const res = await upload.POST(formReq(fileForm("hello", "pic.png", "image/png")), P)
+      const res = await upload.POST(formReq(fileForm(PNG, "pic.png", "image/png")), P)
       expect(res.status).toBe(201)
       const body = await res.json()
-      expect(body).toMatchObject({ originalName: "pic.png", mimeType: "image/png", fileSize: 5, folderId: null })
+      expect(body).toMatchObject({ originalName: "pic.png", mimeType: "image/png", fileSize: 12, folderId: null })
       expect(body.fileName).toMatch(/^\d+_[0-9a-f]{32}\.png$/)
-      const onDisk = await fs.readFile(path.join(tmpRoot, "private", "uploads", "p1", body.fileName), "utf8")
-      expect(onDisk).toBe("hello")
+      const onDisk = await fs.readFile(path.join(tmpRoot, "private", "uploads", "p1", body.fileName))
+      expect(new Uint8Array(onDisk)).toEqual(PNG)
       expect(m.attCreate).toHaveBeenCalledWith({
         data: expect.objectContaining({ projectId: "p1", uploadedBy: "Taro", folderId: null }),
       })
@@ -134,6 +140,23 @@ describe("attachment routes", () => {
       asRole(m, "dev")
       const res = await upload.POST(formReq(fileForm("alert(1)", "x.js", "application/javascript")), P)
       expect(res.status).toBe(415)
+    })
+
+    it("415 FILE_TYPE_MISMATCH when the content does not match the extension", async () => {
+      asRole(m, "dev")
+      const res = await upload.POST(formReq(fileForm("<svg onload=alert(1)>", "pic.png", "image/png")), P)
+      expect(res.status).toBe(415)
+      expect(await res.json()).toMatchObject({ code: "FILE_TYPE_MISMATCH" })
+      expect(m.attCreate).not.toHaveBeenCalled()
+    })
+
+    it("413 STORAGE_QUOTA_EXCEEDED when the project is full, nothing written", async () => {
+      asRole(m, "dev")
+      m.queryRaw.mockResolvedValueOnce([{ total: String(1024 ** 4) }])
+      const res = await upload.POST(formReq(fileForm(PNG, "pic.png", "image/png")), P)
+      expect(res.status).toBe(413)
+      expect(await res.json()).toMatchObject({ code: "STORAGE_QUOTA_EXCEEDED" })
+      expect(m.attCreate).not.toHaveBeenCalled()
     })
 
     it("400 for an empty file", async () => {
@@ -168,7 +191,7 @@ describe("attachment routes", () => {
     it("uploads into an existing folder", async () => {
       asRole(m, "dev")
       m.folderFindFirst.mockResolvedValue({ id: "f1" })
-      const res = await upload.POST(formReq(fileForm("x", "a.png", "image/png", { folderId: "f1" })), P)
+      const res = await upload.POST(formReq(fileForm(PNG, "a.png", "image/png", { folderId: "f1" })), P)
       expect(res.status).toBe(201)
       expect((await res.json()).folderId).toBe("f1")
     })

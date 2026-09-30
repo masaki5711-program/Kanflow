@@ -1,7 +1,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
-import { render, screen, waitFor, within } from "@testing-library/react"
+import { act, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { AIResultModal } from "./ai-result-modal"
+import { AIResultModal, MODEL_LOAD_HINT_MS } from "./ai-result-modal"
 import { ReportDocument, normalizeStructured, parseStructured } from "./structured-report-document"
 import { AppProviders, stubLayout } from "./__tests__/helpers"
 import { getTranslations } from "@/lib/i18n"
@@ -112,6 +112,61 @@ describe("AIResultModal", () => {
     renderModal({ structured: true })
     await screen.findByText(t.aiResultDisclaimer)
     expect(screen.getByText("not json")).toBeInTheDocument()
+  })
+
+  it("offers Retry after a failure and streams on the second attempt", async () => {
+    fetchMock
+      .mockResolvedValueOnce(new Response("nope", { status: 500 }))
+      .mockResolvedValueOnce(streamResponse(["second try"]))
+    renderModal()
+    const dialog = screen.getByRole("dialog")
+    await within(dialog).findByRole("alert")
+    await userEvent.click(within(dialog).getByRole("button", { name: t.errorRetry }))
+    expect(await screen.findByText("second try", { selector: "div" })).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText(t.aiResultDisclaimer)).toBeInTheDocument())
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it("cancels a running request (aborts the fetch) and can retry", async () => {
+    let signal: AbortSignal | undefined
+    fetchMock.mockImplementationOnce((_url: string, init: RequestInit) => {
+      signal = init.signal ?? undefined
+      return new Promise((_resolve, reject) => {
+        signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")))
+      })
+    })
+    fetchMock.mockResolvedValueOnce(streamResponse(["again"]))
+    renderModal()
+    const dialog = screen.getByRole("dialog")
+    await userEvent.click(within(dialog).getByRole("button", { name: t.aiCancel }))
+    expect(signal?.aborted).toBe(true)
+    expect(within(dialog).getByRole("status")).toHaveTextContent(t.aiCancelled)
+    expect(within(dialog).queryByRole("button", { name: t.aiCancel })).not.toBeInTheDocument()
+    expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument()
+
+    await userEvent.click(within(dialog).getByRole("button", { name: t.errorRetry }))
+    expect(await screen.findByText("again", { selector: "div" })).toBeInTheDocument()
+  })
+
+  it("says the model is loading when no token arrives for a few seconds", () => {
+    vi.useFakeTimers()
+    try {
+      fetchMock.mockReturnValue(new Promise(() => {}))
+      renderModal()
+      const status = within(screen.getByRole("dialog")).getByRole("status")
+      expect(status).toHaveTextContent(t.aiThinking)
+      act(() => {
+        vi.advanceTimersByTime(MODEL_LOAD_HINT_MS - 1)
+      })
+      expect(status).toHaveTextContent(t.aiThinking)
+      act(() => {
+        vi.advanceTimersByTime(1)
+      })
+      expect(status).toHaveTextContent(t.aiLoadingModel)
+      expect(screen.getAllByText(t.aiLoadingModel).length).toBeGreaterThan(1)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it("closes via the footer Close button", async () => {

@@ -43,6 +43,9 @@ describe("GET /api/health", () => {
     process.env.WORKER_HEARTBEAT_FILE = path.join(tmp, "worker-heartbeat.json")
     delete process.env.AI_TRANSLATION_WORKER
     delete process.env.NEXT_DIST_DIR
+    delete process.env.COLLABORA_INTERNAL_URL
+    delete process.env.NEXT_PUBLIC_COLLABORA_URL
+    delete process.env.COLLABORA_MONITOR
     resetBuildIdCache()
   })
 
@@ -196,6 +199,83 @@ describe("GET /api/health", () => {
       answer()
       fetchMock.mockResolvedValue(new Response("{}", { status: 200 }))
       expect((await (await GET()).json()).worker).toMatchObject({ expected: false, mode: "inprocess" })
+    })
+  })
+
+  describe("collabora", () => {
+    const collaboraCalls = () =>
+      fetchMock.mock.calls.map((c) => String(c[0])).filter((u) => u.includes("/hosting/discovery"))
+
+    function routeFetch(collabora: "ok" | "500" | "down") {
+      fetchMock.mockImplementation((url: unknown) => {
+        if (String(url).includes("/hosting/discovery")) {
+          if (collabora === "down") return Promise.reject(new Error("ECONNREFUSED"))
+          return Promise.resolve(new Response("<wopi-discovery/>", { status: collabora === "ok" ? 200 : 500 }))
+        }
+        return Promise.resolve(new Response("{}", { status: 200 }))
+      })
+    }
+
+    it("is disabled (and not probed) when no Collabora URL is configured", async () => {
+      answer()
+      routeFetch("ok")
+      const body = await (await GET()).json()
+      expect(body.collabora).toBe("disabled")
+      expect(collaboraCalls()).toHaveLength(0)
+    })
+
+    it("probes COLLABORA_INTERNAL_URL/hosting/discovery and reports ok", async () => {
+      process.env.COLLABORA_INTERNAL_URL = "http://127.0.0.1:9980/"
+      process.env.NEXT_PUBLIC_COLLABORA_URL = "http://public.example:9980"
+      answer()
+      routeFetch("ok")
+      const body = await (await GET()).json()
+      expect(body.collabora).toBe("ok")
+      expect(collaboraCalls()).toEqual(["http://127.0.0.1:9980/hosting/discovery"])
+    })
+
+    it("falls back to NEXT_PUBLIC_COLLABORA_URL like src/lib/collabora.ts", async () => {
+      process.env.NEXT_PUBLIC_COLLABORA_URL = "http://public.example:9980"
+      answer()
+      routeFetch("ok")
+      await GET()
+      expect(collaboraCalls()).toEqual(["http://public.example:9980/hosting/discovery"])
+    })
+
+    it("unreachable on connection error - still 200 with status ok", async () => {
+      process.env.COLLABORA_INTERNAL_URL = "http://127.0.0.1:9980"
+      answer()
+      routeFetch("down")
+      const res = await GET()
+      const body = await res.json()
+      expect(res.status).toBe(200)
+      expect(body.status).toBe("ok")
+      expect(body.collabora).toBe("unreachable")
+    })
+
+    it("unreachable on a non-2xx discovery response", async () => {
+      process.env.COLLABORA_INTERNAL_URL = "http://127.0.0.1:9980"
+      answer()
+      routeFetch("500")
+      expect((await (await GET()).json()).collabora).toBe("unreachable")
+    })
+
+    it("disabled by COLLABORA_MONITOR=off even when a URL is set", async () => {
+      process.env.COLLABORA_INTERNAL_URL = "http://127.0.0.1:9980"
+      process.env.COLLABORA_MONITOR = "off"
+      answer()
+      routeFetch("ok")
+      expect((await (await GET()).json()).collabora).toBe("disabled")
+      expect(collaboraCalls()).toHaveLength(0)
+    })
+
+    it("is reported independently of the database status", async () => {
+      process.env.COLLABORA_INTERNAL_URL = "http://127.0.0.1:9980"
+      answer({ db: "fail", backlog: "fail" })
+      routeFetch("ok")
+      const res = await GET()
+      expect(res.status).toBe(503)
+      expect((await res.json()).collabora).toBe("ok")
     })
   })
 

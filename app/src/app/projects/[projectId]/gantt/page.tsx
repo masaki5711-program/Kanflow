@@ -5,6 +5,7 @@ import Link from "next/link"
 import { useParams } from "next/navigation"
 import { FileBarChart } from "lucide-react"
 import { EmptyState, SkeletonTable, PageHeader, buttonClasses } from "@/components/ui"
+import { ErrorView } from "@/components/error-view"
 import { useLanguage } from "@/lib/language-context"
 import { DAY_WIDTH_MAP, type ZoomLevel } from "./gantt-types"
 import { buildDateColumns, daysBetween, isRealTask, localeOf, startOfDay } from "./gantt-utils"
@@ -20,10 +21,12 @@ export default function GanttPage() {
   const { t, language } = useLanguage()
   useProjectDocumentTitle(t.ganttTitle)
   const text = useGanttText()
-  const { sprints, events, rows, isLoading, isExpanded, toggle, timelineStart, totalDays } = useGanttData(projectId)
+  const { sprints, events, rows, isLoading, error, refetch, isExpanded, toggle, timelineStart, totalDays } =
+    useGanttData(projectId)
 
   const [zoom, setZoom] = useState<ZoomLevel>("2weeks")
   const [hoveredRow, setHoveredRow] = useState<string | null>(null)
+  const [isListOpen, setIsListOpen] = useState(true)
   const dayWidth = DAY_WIDTH_MAP[zoom]
 
   const leftRef = useRef<HTMLDivElement>(null)
@@ -76,6 +79,17 @@ export default function GanttPage() {
     )
   }
 
+  // Load failure with nothing to show: say so (not "no data") and offer a retry.
+  // A failed refetch keeps the last good chart instead.
+  if (error && sprints.length === 0) {
+    return (
+      <div>
+        {header}
+        <ErrorView error={new Error(t.ganttLoadFailed)} reset={refetch} className="py-16" />
+      </div>
+    )
+  }
+
   if (sprints.length === 0) {
     return (
       <div>
@@ -107,10 +121,15 @@ export default function GanttPage() {
           sprintCount={sprints.length}
           taskCount={totalTasks}
           completionPct={completionPct}
+          isListOpen={isListOpen}
+          onToggleList={() => setIsListOpen((v) => !v)}
+          listId="gantt-left-panel"
         />
 
         <div className="flex flex-1 overflow-hidden">
           <GanttLeftPanel
+            id="gantt-left-panel"
+            isOpen={isListOpen}
             rows={rows}
             text={text}
             isExpanded={isExpanded}

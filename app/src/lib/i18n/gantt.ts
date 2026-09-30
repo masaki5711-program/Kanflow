@@ -28,6 +28,9 @@ export interface GanttTranslations {
   ganttPeriod: string
   ganttEvents: string
   ganttTimelineLabel: string
+  ganttLoadFailed: string
+  ganttShowList: string
+  ganttHideList: string
 }
 
 export const ja: GanttTranslations = {
@@ -51,6 +54,9 @@ export const ja: GanttTranslations = {
   ganttPeriod: "期間",
   ganttEvents: "イベント",
   ganttTimelineLabel: "タイムライン",
+  ganttLoadFailed: "ガントチャートのデータを読み込めませんでした",
+  ganttShowList: "タスク一覧を表示",
+  ganttHideList: "タスク一覧を隠す",
 }
 
 export const en: GanttTranslations = {
@@ -74,6 +80,9 @@ export const en: GanttTranslations = {
   ganttPeriod: "Period",
   ganttEvents: "Events",
   ganttTimelineLabel: "Timeline",
+  ganttLoadFailed: "Could not load the Gantt chart data",
+  ganttShowList: "Show task list",
+  ganttHideList: "Hide task list",
 }
 
 export const id: GanttTranslations = {
@@ -97,4 +106,7 @@ export const id: GanttTranslations = {
   ganttPeriod: "Periode",
   ganttEvents: "Acara",
   ganttTimelineLabel: "Linimasa",
+  ganttLoadFailed: "Gagal memuat data diagram Gantt",
+  ganttShowList: "Tampilkan daftar tugas",
+  ganttHideList: "Sembunyikan daftar tugas",
 }

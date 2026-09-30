@@ -80,6 +80,7 @@ describe("HomePage (server)", () => {
     m.auth.mockResolvedValue({ user: { id: "u1", name: "Taro", role: "member" } })
     render(await HomePage())
     expect(screen.getByText("HEADER")).toBeInTheDocument()
+    expect(screen.getByRole("main")).toHaveClass("page-wide")
     expect(screen.getByTestId("top-page")).toBeInTheDocument()
     expect(m.prisma.userSection.findMany).not.toHaveBeenCalled()
     const where = m.prisma.project.findMany.mock.calls[0][0].where

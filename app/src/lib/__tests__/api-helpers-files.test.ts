@@ -112,6 +112,50 @@ describe("saveUploadedFile", () => {
     const res = await saveUploadedFile("../..", f)
     expect(res).toMatchObject({ ok: false, status: 400, code: "INVALID_PATH" })
   })
+
+  it("stores the MIME type derived from the extension, not the client's", async () => {
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13])
+    const f = new File([png], "shot.png", { type: "application/octet-stream" })
+    const res = await saveUploadedFile(PROJECT, f)
+    expect(res).toMatchObject({ ok: true, mimeType: "image/png", fileSize: png.byteLength })
+  })
+
+  it("rejects content that does not match the extension with FILE_TYPE_MISMATCH and writes nothing", async () => {
+    const before = fsSync.existsSync(uploadDir()) ? fsSync.readdirSync(uploadDir()).length : 0
+    const f = new File(["<html><script>alert(1)</script>"], "photo.png", { type: "image/png" })
+    const res = await saveUploadedFile(PROJECT, f)
+    expect(res).toMatchObject({ ok: false, status: 415, code: "FILE_TYPE_MISMATCH" })
+    const after = fsSync.existsSync(uploadDir()) ? fsSync.readdirSync(uploadDir()).length : 0
+    expect(after).toBe(before)
+  })
+
+  it("rejects executables even when the client claims an allowed type", async () => {
+    const exe = new Uint8Array([0x4d, 0x5a, 0x90, 0, 3, 0, 0, 0])
+    const blocked = await saveUploadedFile(PROJECT, new File([exe], "setup.exe", { type: "application/octet-stream" }))
+    expect(blocked).toMatchObject({ ok: false, status: 415, code: "UNSUPPORTED_MEDIA" })
+    const renamed = await saveUploadedFile(PROJECT, new File([exe], "tool.bin", { type: "application/octet-stream" }))
+    expect(renamed).toMatchObject({ ok: false, status: 415, code: "UNSUPPORTED_MEDIA" })
+  })
+
+  it("counts the bytes actually streamed instead of trusting the declared size", async () => {
+    const chunks = ["hello ", "world"]
+    const liar = {
+      name: "note.txt",
+      type: "text/plain",
+      size: 1,
+      stream: () =>
+        new ReadableStream<Uint8Array>({
+          start(c) {
+            for (const x of chunks) c.enqueue(new TextEncoder().encode(x))
+            c.close()
+          },
+        }),
+    } as unknown as File
+    const res = await saveUploadedFile(PROJECT, liar)
+    if (!res.ok) throw new Error("expected ok")
+    expect(res.fileSize).toBe(11)
+    expect(fsSync.readFileSync(path.join(uploadDir(), res.fileName), "utf8")).toBe("hello world")
+  })
 })
 
 describe("copyTemplateFile", () => {

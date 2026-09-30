@@ -33,6 +33,21 @@ describe("GET/POST /backlog", () => {
     expect(svc.listBacklog).toHaveBeenCalledWith(PROJECT_ID)
   })
 
+  it("passes a valid ?status= filter to the service", async () => {
+    asRole("dev")
+    vi.mocked(svc.listBacklog).mockResolvedValue({ readyItems: [] } as never)
+    const res = await list.GET(new Request(`http://localhost/api/projects/${PROJECT_ID}/backlog?status=ready`), ctx())
+    expect(res.status).toBe(200)
+    expect(svc.listBacklog).toHaveBeenCalledWith(PROJECT_ID, { status: "ready" })
+  })
+
+  it("rejects an unknown ?status= with 400 without querying", async () => {
+    asRole("dev")
+    const res = await list.GET(new Request(`http://localhost/api/projects/${PROJECT_ID}/backlog?status=bogus`), ctx())
+    expect(res.status).toBe(400)
+    expect(svc.listBacklog).not.toHaveBeenCalled()
+  })
+
   it("returns 500 when listing fails", async () => {
     asRole("dev")
     vi.mocked(svc.listBacklog).mockRejectedValue(new Error("x"))

@@ -21,6 +21,22 @@ describe("users.repository", () => {
     expect(repo.PROFILE_SELECT).not.toHaveProperty("password")
   })
 
+  it("findAuthFields reads only role / isActive", async () => {
+    const db = fakeDb()
+    await repo.findAuthFields(db.client, "u1")
+    expect(db.fn("user.findUnique")).toHaveBeenCalledWith({ where: { id: "u1" }, select: { role: true, isActive: true } })
+  })
+
+  it("setPasswordAndRevokeSessions stores the hash and bumps tokenVersion", async () => {
+    const db = fakeDb()
+    await repo.setPasswordAndRevokeSessions(db.client, "u1", "h")
+    expect(db.fn("user.update")).toHaveBeenCalledWith({
+      where: { id: "u1" },
+      data: { password: "h", tokenVersion: { increment: 1 } },
+      select: { id: true },
+    })
+  })
+
   it("findUserWith excludes the given id only when provided", async () => {
     const db = fakeDb()
     await repo.findUserWith(db.client, { email: "a@b.c" }, "u1")

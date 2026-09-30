@@ -16,6 +16,12 @@ describe("backlog.repository", () => {
     expect(arg.include.productGoal).toBeDefined()
   })
 
+  it("findBacklogItems narrows by status when given", async () => {
+    const db = fakeDb({ "productBacklogItem.findMany": [] })
+    await repo.findBacklogItems(db.client, "p1", "ready")
+    expect(db.fn("productBacklogItem.findMany").mock.calls[0][0].where).toEqual({ projectId: "p1", status: "ready" })
+  })
+
   it("findBacklogItem requires both id and projectId", async () => {
     const db = fakeDb()
     await repo.findBacklogItem(db.client, "p1", "b1")

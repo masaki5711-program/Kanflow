@@ -12,7 +12,8 @@ app/README.md のデプロイ記述はすべてここを参照します。
 
 | 道具 | 役割 |
 |------|------|
-| `ops\deploy\deploy.ps1 -Phase A\|B` | 事前チェック → バックアップ → **読み取り専用**ドリフト確認 → `.next-new` へ Web + ワーカーをビルド → (マイグレーション) → 入れ替え → ヘルス検証 → 失敗時は自動ロールバック |
+| `ops\deploy\deploy.ps1 -Phase A\|B` | 事前チェック（**品質ゲート**含む）→ バックアップ → **読み取り専用**ドリフト確認 → `.next-new` へ Web + ワーカーをビルド → (マイグレーション) → 入れ替え → ヘルス検証 → 失敗時は自動ロールバック |
+| `ops\quality\quality-gate.ps1` | `app\` で lint（`eslint src --quiet`）→ typecheck（`tsc --noEmit`）→ テスト + カバレッジ（`npm run test:coverage`、閾値 80%）。1 つでも失敗で exit 1 |
 | `ops\deploy\swap-build.ps1` | `.next-new` → `.next` 入れ替え（ワーカー停止/再起動込み、自動ロールバック）。`-Rollback` で直前のビルド（`.next-prev`）へ戻す |
 | `ops\deploy\node-modules-snapshot.ps1` | `node_modules` の退避 / 復元（Next.js アップグレード時） |
 | `ops\web\migrate-service-wrapper.ps1` | Web サービスのラッパーを `node_modules` の外（`ops\web\daemon`）へ移設（検証 + 自動ロールバック） |
@@ -24,8 +25,30 @@ app/README.md のデプロイ記述はすべてここを参照します。
 本番のワーカーは TypeScript ソースも tsx も読みません（編集途中の `src\` や `npm install` の影響を受けない）。
 
 `deploy.ps1` の事前チェック: git 作業ツリーがクリーン、HEAD にタグ、`app\.env` がフェーズと整合、
-`node_modules` が揃っている、MAINTENANCE フラグが無い。`-PreflightOnly` なら何も変更せずに終了します
-（管理者権限不要）。
+`node_modules` が揃っている、MAINTENANCE フラグが無い、**品質ゲートが通る**。`-PreflightOnly` なら何も変更せずに終了します
+（管理者権限不要。品質ゲートは `app\coverage\` とログを書くだけ）。
+
+### 品質ゲート（`ops\quality\quality-gate.ps1`）
+
+| 手順 | コマンド（`app\` で実行） | 失敗条件 |
+|------|--------------------------|----------|
+| lint | `npx eslint src --quiet` | エラー（警告は対象外） |
+| typecheck | `npm run typecheck`（`tsc --noEmit`） | 型エラー |
+| テスト + カバレッジ | `npm run test:coverage`（`vitest run --coverage`） | テスト失敗、またはカバレッジが `app\vitest.config.ts` の閾値（lines / functions / branches / statements 各 80%）未満 |
+
+- 2026-09-30 時点: statements/lines 99.0%、branches 93.9%、functions 96.1%。所要 1 分弱。
+- ログ: `ops\logs\quality-gate.log`（手順ごとの結果とカバレッジ）、`ops\logs\quality-gate-output.log`（直近の全出力）。
+- 単独実行: `powershell -NoProfile -ExecutionPolicy Bypass -File D:\APP\Kanflow\ops\quality\quality-gate.ps1`
+- **緊急時のみ** `deploy.ps1 ... -SkipQualityGate` で省略できます。省略は実行者・リビジョン付きで `deploy.log` に WARN として残ります。
+- 同じ閾値は開発時の `npm run test:coverage` にも適用されます（`npm test` はカバレッジを取らないので影響なし）。
+
+### アラート
+
+`deploy.ps1` は事前チェック後の失敗（バックアップ、ビルド、マイグレーション、入れ替え）で `deploy.failed`、
+入れ替え後の検証失敗による自動ロールバックで `deploy.rollback`、ワーカーが戻らない場合に `deploy.worker` を
+`Send-KanflowAlert` で通知します（[runbook.md §8](./runbook.md)）。事前チェックでの中止は操作者が画面で見ているため通知しません。
+バックアップが exit 3（ローカル成功・二次保存先コピー失敗、別途 `backup.secondary-failed` を通知）の場合は、
+ローカル世代をロールバック基点として続行します。
 
 ## 1. 現状（2026-09-23 読み取り専用で確認）
 

@@ -8,11 +8,14 @@ vi.mock("@/lib/api-helpers", () => ({
   deleteUploadedFile: vi.fn(async () => undefined),
 }))
 vi.mock("../attachments.repository")
+vi.mock("../storage-quota", () => ({ assertStorageQuota: vi.fn(async () => undefined) }))
 
 const repo = await import("../attachments.repository")
 const files = await import("@/lib/api-helpers")
 const { ACTOR, TX, DEFAULT_DB } = await import("@/services/__tests__/support")
 const svc = await import("../attachments.service")
+const { assertStorageQuota } = await import("../storage-quota")
+const { StatusError } = await import("@/services/_shared/errors")
 
 const row = { id: "a1", originalName: "o", fileName: "f", fileSize: 1, mimeType: "m", folderId: null, createdAt: new Date(0) }
 const saved = { ok: true as const, fileName: "f", originalName: "o", fileSize: 1, mimeType: "m" }
@@ -31,6 +34,13 @@ describe("attachments.service", () => {
     vi.mocked(repo.insertAttachment).mockResolvedValueOnce(row as never)
     await expect(svc.uploadAttachment("p1", file, null, ACTOR)).resolves.toEqual({ ...row, createdAt: "1970-01-01T00:00:00.000Z" })
     expect(repo.insertAttachment).toHaveBeenCalledWith(DEFAULT_DB, expect.objectContaining({ uploadedBy: "Alice" }))
+  })
+
+  it("upload enforces the project storage quota before writing the file", async () => {
+    vi.mocked(assertStorageQuota).mockRejectedValueOnce(new StatusError(413, "quota", {}, "STORAGE_QUOTA_EXCEEDED"))
+    await expect(svc.uploadAttachment("p1", file, null, ACTOR)).rejects.toMatchObject({ code: "STORAGE_QUOTA_EXCEEDED" })
+    expect(assertStorageQuota).toHaveBeenCalledWith("p1", file.size)
+    expect(files.saveUploadedFile).not.toHaveBeenCalled()
   })
 
   it("attachTemplate is best effort", async () => {

@@ -24,6 +24,7 @@ describe("CategoriesPage (server)", () => {
   it("renders category settings for signed-in users", async () => {
     m.auth.mockResolvedValue({ user: { id: "u1" } })
     render(await CategoriesPage())
+    expect(screen.getByRole("main")).toHaveClass("page-narrow")
     expect(screen.getByText("SETTINGS")).toBeInTheDocument()
   })
 })

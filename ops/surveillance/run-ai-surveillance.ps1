@@ -9,6 +9,8 @@ The run loads the local LLM (Ollama) for several minutes. Schedule it
 OFF-HOURS (default task time 06:30, before the 08:00 start) so it does not
 compete with users' interactive AI requests. Log: ops\logs\surveillance.log
 
+Failures raise the alert "surveillance.failed" (Send-KanflowAlert, throttled).
+
 Exit codes: 0 = HTTP 2xx, 1 = request failed / non-2xx, 2 = configuration error.
 #>
 [CmdletBinding()]
@@ -23,17 +25,23 @@ Import-Module (Join-Path $PSScriptRoot "..\lib\KanflowOps.psm1") -Force
 $paths = Get-KanflowPaths
 $LogFile = Join-Path $paths.LogDir "surveillance.log"
 function Log([string]$msg, [string]$level = "INFO") { Write-RotatingLog -Path $LogFile -Message $msg -Level $level }
+function Alert([string]$msg) {
+    Send-KanflowAlert -Key "surveillance.failed" -Severity Error -Source surveillance -Title "AI surveillance run failed" `
+        -Message ("{0}`r`nLog: {1}" -f $msg, $LogFile)
+}
 
 try {
     $envMap = Read-DotEnv -Path $paths.EnvFile
 } catch {
     Log "cannot read $($paths.EnvFile): $($_.Exception.Message)" "ERROR"
+    Alert "cannot read app\.env"
     exit 2
 }
 $token = $null
 if ($envMap.ContainsKey("SURVEILLANCE_TOKEN")) { $token = $envMap["SURVEILLANCE_TOKEN"] }
 if (-not $token) {
     Log "SURVEILLANCE_TOKEN is not set in app\.env" "ERROR"
+    Alert "SURVEILLANCE_TOKEN is not set in app\.env"
     exit 2
 }
 
@@ -50,9 +58,13 @@ try {
 } catch [System.Net.WebException] {
     $code = 0
     if ($_.Exception.Response) { $code = [int]$_.Exception.Response.StatusCode }
-    Log ("request failed after {0}s: HTTP {1} {2}" -f [int]((Get-Date) - $started).TotalSeconds, $code, $_.Exception.Message) "ERROR"
+    $msg = "request failed after {0}s: HTTP {1} {2}" -f [int]((Get-Date) - $started).TotalSeconds, $code, $_.Exception.Message
+    Log $msg "ERROR"
+    Alert $msg
     exit 1
 } catch {
-    Log ("request failed: {0}" -f $_.Exception.Message) "ERROR"
+    $msg = "request failed: {0}" -f $_.Exception.Message
+    Log $msg "ERROR"
+    Alert $msg
     exit 1
 }

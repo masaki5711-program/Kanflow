@@ -1,10 +1,10 @@
 "use client"
 
 import { useState } from "react"
-import { Button, EmptyState, SkeletonLines, cn } from "@/components/ui"
-import { apiFetch, useApiMutation, useApiQuery } from "@/hooks"
+import { EmptyState, SkeletonLines, cn } from "@/components/ui"
+import { apiFetch, useApiMutation, useApiQuery, useUnsavedChangesGuard } from "@/hooks"
 import { useLanguage } from "@/lib/language-context"
-import { SettingsCard } from "./settings-card"
+import { SettingsCard, SettingsSaveRow } from "./settings-card"
 import type { SectionOption } from "./settings-types"
 
 interface SectionAssignProps {
@@ -13,10 +13,19 @@ interface SectionAssignProps {
   initialSectionIds: string[]
 }
 
+function sameIds(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false
+  const set = new Set(a)
+  return b.every((id) => set.has(id))
+}
+
 /** Section assignment (admin or PO only — the caller decides visibility). */
 export function SectionAssignSection({ projectId, initialSectionIds }: SectionAssignProps) {
   const { t } = useLanguage()
+  const [savedIds, setSavedIds] = useState<readonly string[]>(initialSectionIds)
   const [selectedIds, setSelectedIds] = useState<readonly string[]>(initialSectionIds)
+  const isDirty = !sameIds(savedIds, selectedIds)
+  useUnsavedChangesGuard(isDirty)
 
   const { data: allSections = [], isLoading } = useApiQuery<SectionOption[]>("/api/sections", {
     parse: (raw) =>
@@ -27,7 +36,7 @@ export function SectionAssignSection({ projectId, initialSectionIds }: SectionAs
   const save = useApiMutation(
     (sectionIds: readonly string[]) =>
       apiFetch(`/api/projects/${projectId}`, { method: "PATCH", json: { sectionIds } }),
-    { toastOnSuccess: t.saved, toastOnError: () => t.settingsSaveFailed },
+    { onSuccess: (_r, ids) => setSavedIds(ids), toastOnSuccess: t.saved, toastOnError: () => t.settingsSaveFailed },
   )
 
   function toggle(id: string, checked: boolean) {
@@ -69,13 +78,14 @@ export function SectionAssignSection({ projectId, initialSectionIds }: SectionAs
           })}
         </fieldset>
       )}
-      <Button
-        onClick={() => save.mutate(selectedIds)}
-        loading={save.isPending}
+      <SettingsSaveRow
+        isDirty={isDirty}
+        saving={save.isPending}
+        label={t.save}
+        unsavedLabel={t.settingsUnsavedChanges}
+        onSave={() => void save.mutate(selectedIds)}
         disabled={allSections.length === 0}
-      >
-        {t.save}
-      </Button>
+      />
     </SettingsCard>
   )
 }

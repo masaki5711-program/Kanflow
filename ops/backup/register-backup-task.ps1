@@ -14,11 +14,15 @@ its password; it is stored by Task Scheduler, not by this script).
 powershell -NoProfile -ExecutionPolicy Bypass -File D:\APP\Kanflow\ops\backup\register-backup-task.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File D:\APP\Kanflow\ops\backup\register-backup-task.ps1 -Destination F:\KanflowBackup -Time 03:00
 powershell -NoProfile -ExecutionPolicy Bypass -File D:\APP\Kanflow\ops\backup\register-backup-task.ps1 -Destination \\nas01\backup\kanflow -RunAsUser YMMA\svc-kanflow
+powershell -NoProfile -ExecutionPolicy Bypass -File D:\APP\Kanflow\ops\backup\register-backup-task.ps1 -Destination E:\KanflowBackup -SecondaryDestination \\nas01\backup\kanflow -RunAsUser YMMA\svc-kanflow
 #>
 [CmdletBinding()]
 param(
     [string]$Destination = $(if ($env:KANFLOW_BACKUP_DIR) { $env:KANFLOW_BACKUP_DIR } else { "E:\KanflowBackup" }),
     [ValidatePattern('^\d{2}:\d{2}$')][string]$Time = "02:30",
+    # Off-machine copy (NAS/UNC). Omit to use KANFLOW_BACKUP_SECONDARY_DIR from app\.env
+    # at run time; with neither, every run raises the "secondary backup not configured" alert.
+    [string]$SecondaryDestination,
     [string]$TaskName = "KanflowBackup",
     [string]$RunAsUser,
     [switch]$RunNow
@@ -34,9 +38,16 @@ if (-not (Test-IsAdministrator)) {
 
 $script = Join-Path $PSScriptRoot "backup-kanflow.ps1"
 if (-not (Test-Path -LiteralPath $script)) { Write-Host "[ERROR] not found: $script" -ForegroundColor Red; exit 1 }
-if ($Destination -match '"') { Write-Host "[ERROR] invalid destination" -ForegroundColor Red; exit 1 }
+if ($Destination -match '"' -or $SecondaryDestination -match '"') { Write-Host "[ERROR] invalid destination" -ForegroundColor Red; exit 1 }
 
 $arguments = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$script`" -Destination `"$Destination`""
+if ($SecondaryDestination) { $arguments += " -SecondaryDestination `"$SecondaryDestination`"" }
+$secondaryText = $(if ($SecondaryDestination) { $SecondaryDestination } else { Get-KanflowSetting -Name "KANFLOW_BACKUP_SECONDARY_DIR" })
+if (-not $secondaryText) {
+    Write-Host "[WARN] no secondary (off-machine) destination: pass -SecondaryDestination \\nas\share\kanflow or set KANFLOW_BACKUP_SECONDARY_DIR in app\.env - until then every run raises an alert" -ForegroundColor Yellow
+} elseif ($secondaryText.StartsWith("\\") -and -not $RunAsUser) {
+    Write-Host "[WARN] secondary $secondaryText is a network share but the task runs as SYSTEM (computer account) - it usually cannot write there; use -RunAsUser" -ForegroundColor Yellow
+}
 $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $arguments -WorkingDirectory (Get-KanflowRoot)
 $trigger = New-ScheduledTaskTrigger -Daily -At $Time
 $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -DontStopOnIdleEnd -AllowStartIfOnBatteries `
@@ -48,7 +59,7 @@ if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
     Write-Host "[INFO] existing task '$TaskName' removed"
 }
 
-$description = "Kanflow daily backup (MySQL dump + app\private + app\.env) to $Destination. Log: ops\logs\backup.log"
+$description = "Kanflow daily backup (MySQL dump + app\private + app\.env) to $Destination, secondary $secondaryText. Log: ops\logs\backup.log"
 if ($RunAsUser) {
     $cred = Get-Credential -UserName $RunAsUser -Message "Password for the backup task account (needs write access to $Destination)"
     Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $settings `
@@ -59,7 +70,7 @@ if ($RunAsUser) {
         -Principal $principal -Description $description | Out-Null
 }
 
-Write-Host "[OK] '$TaskName' registered: daily at $Time -> $Destination"
+Write-Host "[OK] '$TaskName' registered: daily at $Time -> $Destination (secondary: $(if ($secondaryText) { $secondaryText } else { 'NOT CONFIGURED' }))"
 Write-Host "     Run now : Start-ScheduledTask -TaskName $TaskName"
 Write-Host "     Status  : Get-ScheduledTaskInfo -TaskName $TaskName   (LastTaskResult 0 = OK)"
 Write-Host "     Log     : $(Join-Path (Get-KanflowRoot) 'ops\logs\backup.log')"

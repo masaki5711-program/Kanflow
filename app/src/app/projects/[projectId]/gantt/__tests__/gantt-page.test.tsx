@@ -186,4 +186,46 @@ describe("GanttPage", () => {
     fireEvent.mouseLeave(li)
     expect(li.className).not.toContain("bg-primary-soft/40")
   })
+
+  it("shows an error view (not the empty state) when sprints fail to load, and retries", async () => {
+    let fail = true
+    const fetchMock = stubFetch((url) => {
+      if (url.endsWith("/sprints")) return fail ? jsonResponse({ error: "boom" }, 500) : jsonResponse(sprints)
+      if (url.endsWith("/events")) return jsonResponse(events)
+      return jsonResponse({ error: "nope" }, 404)
+    })
+    const user = userEvent.setup()
+    renderWithProviders(<GanttPage />)
+
+    expect(await screen.findByText(t.ganttLoadFailed)).toBeInTheDocument()
+    expect(screen.queryByText(t.ganttNoData)).not.toBeInTheDocument()
+
+    fail = false
+    await user.click(screen.getByRole("button", { name: t.errorRetry }))
+    expect(await screen.findByRole("button", { name: /Sprint One/ })).toBeInTheDocument()
+    expect(fetchMock.mock.calls.filter(([u]) => String(u).endsWith("/sprints"))).toHaveLength(2)
+  })
+
+  it("hides and shows the left task list from the toolbar", async () => {
+    routes()
+    const user = userEvent.setup()
+    renderWithProviders(<GanttPage />)
+    await screen.findByRole("button", { name: /Sprint One/ })
+
+    const hide = screen.getByRole("button", { name: t.ganttHideList })
+    expect(hide).toHaveAttribute("aria-expanded", "true")
+    const panel = document.getElementById(hide.getAttribute("aria-controls") as string) as HTMLElement
+    expect(panel).toBeVisible()
+    expect(panel.className).toContain("w-44")
+
+    await user.click(hide)
+    expect(panel).not.toBeVisible()
+    const show = screen.getByRole("button", { name: t.ganttShowList })
+    expect(show).toHaveAttribute("aria-expanded", "false")
+    // Timeline stays usable while the list is hidden.
+    expect(screen.getByRole("region", { name: t.ganttTimelineLabel })).toBeInTheDocument()
+
+    await user.click(show)
+    expect(panel).toBeVisible()
+  })
 })

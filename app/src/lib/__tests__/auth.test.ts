@@ -35,13 +35,17 @@ vi.mock("@/lib/prisma", () => ({
 const compare = vi.fn()
 vi.mock("bcryptjs", () => ({ default: { compare: (...a: unknown[]) => compare(...a) } }))
 
+const { clearUserAuthStateCache } = await import("@/lib/authz/session-validity")
 const authModule = await import("@/lib/auth")
 const nextAuthRoute = await import("@/app/api/auth/[...nextauth]/route")
 const config = captured.config as CapturedConfig
 
 type Authorize = (creds: Record<string, unknown> | undefined, req?: { headers: Headers }) => Promise<unknown>
 const authorize = config.providers[0].authorize as unknown as Authorize
-const jwtCb = config.callbacks.jwt as unknown as (a: { token: Record<string, unknown>; user?: Record<string, unknown> }) => Promise<Record<string, unknown>>
+const jwtCb = config.callbacks.jwt as unknown as (a: {
+  token: Record<string, unknown>
+  user?: Record<string, unknown>
+}) => Promise<Record<string, unknown> | null>
 const sessionCb = config.callbacks.session as unknown as (a: {
   session: { user?: Record<string, unknown> }
   token: Record<string, unknown>
@@ -53,6 +57,7 @@ const ACTIVE_USER = {
   email: "taro@example.com",
   role: "member",
   isActive: true,
+  tokenVersion: 3,
   password: "$2a$hash",
 }
 
@@ -68,6 +73,7 @@ beforeEach(() => {
   delete (globalThis as { __kanflowRateLimiters?: unknown }).__kanflowRateLimiters
   findUnique.mockReset()
   compare.mockReset()
+  clearUserAuthStateCache()
   warnSpy?.mockRestore()
   warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined)
 })
@@ -91,7 +97,7 @@ describe("credentials authorize", () => {
     findUnique.mockResolvedValue(ACTIVE_USER)
     compare.mockResolvedValue(true)
     const user = await authorize({ email: "taro@example.com", password: "pw" }, reqFrom("10.0.0.1"))
-    expect(user).toEqual({ id: "u1", name: "Taro", email: "taro@example.com", role: "member" })
+    expect(user).toEqual({ id: "u1", name: "Taro", email: "taro@example.com", role: "member", tokenVersion: 3 })
     expect(findUnique).toHaveBeenCalledWith({ where: { email: "taro@example.com" } })
     expect(compare).toHaveBeenCalledWith("pw", "$2a$hash")
   })
@@ -188,34 +194,67 @@ describe("login rate limiting", () => {
 })
 
 describe("jwt callback", () => {
-  it("copies id and role from the signed-in user", async () => {
-    const token = await jwtCb({ token: {}, user: { id: "u1", role: "admin" } })
-    expect(token).toMatchObject({ id: "u1", role: "admin" })
-    expect(findUnique).not.toHaveBeenCalled()
+  const STATE_QUERY = { where: { id: "u1" }, select: { isActive: true, role: true, tokenVersion: true } }
+
+  it("copies id, role and tokenVersion from the signed-in user", async () => {
+    findUnique.mockResolvedValue({ isActive: true, role: "admin", tokenVersion: 4 })
+    const token = await jwtCb({ token: {}, user: { id: "u1", role: "admin", tokenVersion: 4 } })
+    expect(token).toMatchObject({ id: "u1", role: "admin", tokenVersion: 4 })
   })
 
-  it("keeps an existing token untouched", async () => {
-    const token = await jwtCb({ token: { id: "u1", role: "member" } })
-    expect(token).toEqual({ id: "u1", role: "member" })
-    expect(findUnique).not.toHaveBeenCalled()
+  it("defaults tokenVersion to 0 when the signed-in user has none", async () => {
+    findUnique.mockResolvedValue({ isActive: true, role: "member", tokenVersion: 0 })
+    const token = await jwtCb({ token: {}, user: { id: "u1", role: "member" } })
+    expect(token).toMatchObject({ tokenVersion: 0 })
   })
 
-  it("refreshes a missing role from the DB", async () => {
-    findUnique.mockResolvedValue({ role: "section_manager" })
-    const token = await jwtCb({ token: { id: "u1" } })
-    expect(token.role).toBe("section_manager")
-    expect(findUnique).toHaveBeenCalledWith({ where: { id: "u1" }, select: { role: true } })
+  it("re-validates an existing token against the DB and takes the DB role", async () => {
+    findUnique.mockResolvedValue({ isActive: true, role: "section_manager", tokenVersion: 1 })
+    const token = await jwtCb({ token: { id: "u1", role: "admin", tokenVersion: 1 } })
+    expect(token).toEqual({ id: "u1", role: "section_manager", tokenVersion: 1 })
+    expect(findUnique).toHaveBeenCalledWith(STATE_QUERY)
   })
 
-  it("defaults to member when the user is gone or the DB fails", async () => {
-    findUnique.mockResolvedValueOnce(null)
-    expect((await jwtCb({ token: { id: "u1" } })).role).toBe("member")
-    findUnique.mockRejectedValueOnce(new Error("db down"))
-    expect((await jwtCb({ token: { id: "u1" } })).role).toBe("member")
+  it("fills a missing role from the DB", async () => {
+    findUnique.mockResolvedValue({ isActive: true, role: "section_manager", tokenVersion: 0 })
+    expect((await jwtCb({ token: { id: "u1" } }))?.role).toBe("section_manager")
+  })
+
+  it("keeps pre-tokenVersion sessions valid while the DB version is 0", async () => {
+    findUnique.mockResolvedValue({ isActive: true, role: "member", tokenVersion: 0 })
+    expect(await jwtCb({ token: { id: "u1", role: "member" } })).toEqual({ id: "u1", role: "member" })
+  })
+
+  it.each([
+    ["the user was deleted", null],
+    ["the user was deactivated", { isActive: false, role: "member", tokenVersion: 0 }],
+    ["the tokenVersion was bumped", { isActive: true, role: "member", tokenVersion: 1 }],
+  ])("returns null (ends the session) when %s", async (_l, row) => {
+    findUnique.mockResolvedValue(row)
+    expect(await jwtCb({ token: { id: "u1", role: "member", tokenVersion: 0 } })).toBeNull()
+  })
+
+  it("caches the DB state so repeated calls do not query again", async () => {
+    findUnique.mockResolvedValue({ isActive: true, role: "member", tokenVersion: 0 })
+    await jwtCb({ token: { id: "u1", role: "member" } })
+    await jwtCb({ token: { id: "u1", role: "member" } })
+    expect(findUnique).toHaveBeenCalledTimes(1)
+  })
+
+  it("keeps the token (fail open) and warns when the DB is unreachable", async () => {
+    findUnique.mockRejectedValue(new Error("db down"))
+    expect(await jwtCb({ token: { id: "u1", role: "admin" } })).toEqual({ id: "u1", role: "admin" })
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("session re-validation skipped"))
+  })
+
+  it("defaults a missing role to member when the DB is unreachable", async () => {
+    findUnique.mockRejectedValue(new Error("db down"))
+    expect((await jwtCb({ token: { id: "u1" } }))?.role).toBe("member")
   })
 
   it("does nothing for an anonymous token", async () => {
     expect(await jwtCb({ token: {} })).toEqual({})
+    expect(findUnique).not.toHaveBeenCalled()
   })
 })
 

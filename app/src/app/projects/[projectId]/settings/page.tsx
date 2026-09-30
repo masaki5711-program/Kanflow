@@ -6,7 +6,7 @@ import { Button, EmptyState, SkeletonCard, PageHeader } from "@/components/ui"
 import { useApiQuery } from "@/hooks"
 import { useLanguage } from "@/lib/language-context"
 import { DangerZoneSection } from "./danger-zone-section"
-import { LanguageSection, ProjectTypeSection, TranslationInfoSection } from "./general-sections"
+import { ProjectTypeSection, TranslationInfoSection } from "./general-sections"
 import { MembersSection } from "./members-section"
 import { SectionAssignSection } from "./section-assign-section"
 import { SprintWorkloadSection } from "./sprint-workload-section"
@@ -62,7 +62,6 @@ export default function SettingsPage() {
     <div>
       <PageHeader title={t.settingsTitle} />
 
-      <LanguageSection />
       <TranslationInfoSection />
       <ProjectTypeSection projectId={projectId} />
 

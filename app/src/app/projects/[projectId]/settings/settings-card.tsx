@@ -1,5 +1,5 @@
 import { useId, type ReactNode } from "react"
-import { cn } from "@/components/ui"
+import { Button, cn } from "@/components/ui"
 
 interface SettingsCardProps {
   title: ReactNode
@@ -31,5 +31,37 @@ export function SettingsCard({ title, aside, tone = "default", children }: Setti
       </div>
       {children}
     </section>
+  )
+}
+
+interface SettingsSaveRowProps {
+  isDirty: boolean
+  saving: boolean
+  label: string
+  unsavedLabel: string
+  /** Omit to render a submit button for the enclosing form. */
+  onSave?: () => void
+  disabled?: boolean
+}
+
+/**
+ * Shared explicit-save footer: the button is enabled only while there are
+ * unsaved edits, which are also announced next to it.
+ */
+export function SettingsSaveRow({ isDirty, saving, label, unsavedLabel, onSave, disabled }: SettingsSaveRowProps) {
+  return (
+    <div className="flex flex-wrap items-center gap-3">
+      <Button
+        type={onSave ? "button" : "submit"}
+        onClick={onSave}
+        loading={saving}
+        disabled={disabled || !isDirty}
+      >
+        {label}
+      </Button>
+      <span role="status" className="text-caption text-warning">
+        {isDirty ? unsavedLabel : ""}
+      </span>
+    </div>
   )
 }

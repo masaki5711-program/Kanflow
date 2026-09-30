@@ -109,7 +109,11 @@ if ($health.StatusCode -eq 404) {
 $hb = Get-WorkerHeartbeat
 $mode = Get-TranslationWorkerMode
 $builds = @(".next", ".next-new", ".next-prev") | ForEach-Object { Get-BuildInfo $_ } | Where-Object { $_ }
-$tasks = @((Get-TaskInfo "KanflowWatchdog"), (Get-TaskInfo "KanflowBackup"), (Get-TaskInfo "KanflowAiSurveillance"))
+$tasks = @((Get-TaskInfo "KanflowWatchdog"), (Get-TaskInfo "KanflowBackup"), (Get-TaskInfo "KanflowRestoreDrill"), (Get-TaskInfo "KanflowAiSurveillance"))
+$secondaryDir = Get-KanflowSetting -Name "KANFLOW_BACKUP_SECONDARY_DIR"
+$drill = $null
+$drillFile = Join-Path $paths.LogDir "restore-drill-last.json"
+if (Test-Path -LiteralPath $drillFile) { try { $drill = Get-Content -LiteralPath $drillFile -Raw | ConvertFrom-Json } catch { $drill = $null } }
 $backup = Get-LastBackup ($tasks | Where-Object { $_.Name -eq "KanflowBackup" })
 $maintenance = Test-Path -LiteralPath (Join-Path $paths.Root "ops\watchdog\MAINTENANCE")
 $wrapper = $(if ($paths.DaemonDir -eq $paths.WebDaemonDir) { "ops\web\daemon" } else { "LEGACY node_modules\next\dist\bin\daemon (run ops\web\migrate-service-wrapper.ps1)" })
@@ -129,6 +133,9 @@ if (-not $backup.Latest) { $warnings.Add("no backup found under $($backup.Destin
 elseif ($backup.AgeHours -gt $BackupMaxAgeHours) { $warnings.Add("last backup is $($backup.AgeHours) h old") }
 elseif (-not $backup.HasManifest) { $warnings.Add("last backup has no manifest.json (incomplete?)") }
 if ($maintenance) { $warnings.Add("MAINTENANCE flag present - watchdog paused") }
+if (-not $secondaryDir) { $warnings.Add("secondary (off-machine) backup not configured (KANFLOW_BACKUP_SECONDARY_DIR)") }
+if ($health.Collabora -eq "unreachable") { $warnings.Add("Collabora unreachable - document editing unavailable") }
+if ($drill -and -not $drill.passed) { $warnings.Add("last restore drill FAILED ($($drill.startedAt))") }
 if ($paths.DaemonDir -ne $paths.WebDaemonDir) { $warnings.Add("web service wrapper still inside node_modules") }
 
 $result = [ordered]@{
@@ -141,6 +148,8 @@ $result = [ordered]@{
     wrapper     = $wrapper
     tasks       = @($tasks | Select-Object Name, State, LastRun, LastResult)
     backup      = $backup
+    secondary   = $secondaryDir
+    restoreDrill = $drill
     maintenance = $maintenance
     warnings    = @($warnings)
 }
@@ -152,7 +161,7 @@ if ($Json) {
     Write-Host "=== Kanflow status $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') ===" -ForegroundColor Cyan
     foreach ($s in $services) { Write-Host ("  service {0,-18}: {1}{2}" -f $s.Name, $s.Status, $(if ($s.Pid) { " (pid $($s.Pid))" } else { "" })) }
     Write-Host ("  port {0}             : {1}" -f $Port, $(if ($listeners.Count) { "LISTENING pid " + ($listeners -join ",") } else { "nothing listening" }))
-    Write-Host ("  /api/health           : http={0} db={1} ollama={2} build={3}" -f $health.StatusCode, $health.Db, $health.Ollama, $health.BuildId)
+    Write-Host ("  /api/health           : http={0} db={1} ollama={2} collabora={3} build={4}" -f $health.StatusCode, $health.Db, $health.Ollama, $health.Collabora, $health.BuildId)
     Write-Host ("  translation mode      : {0}" -f $mode)
     Write-Host ("  worker heartbeat      : {0} (age {1}s, pid {2}, business hours {3})" -f $hb.Status, $hb.AgeSec, $hb.Pid, $hb.BusinessHours)
     if ($null -ne $health.Pending) { Write-Host ("  translation backlog   : pending={0}, oldest={1}s" -f $health.Pending, $health.OldestPendingAgeSec) }
@@ -160,6 +169,8 @@ if ($Json) {
     foreach ($b in $builds) { Write-Host ("  build {0,-16}: {1}  worker bundle={2} (for {3})  {4}" -f $b.Dir, $b.BuildId, $b.WorkerBundle, $b.WorkerFor, $b.Modified) }
     foreach ($t in $tasks) { Write-Host ("  task {0,-17}: {1}, last run {2}, result {3}" -f $t.Name, $t.State, $t.LastRun, $t.LastResult) }
     Write-Host ("  last backup           : {0} ({1} h old, manifest={2})" -f $backup.Latest, $backup.AgeHours, $backup.HasManifest)
+    Write-Host ("  secondary backup      : {0}" -f $(if ($secondaryDir) { $secondaryDir } else { "NOT CONFIGURED" }))
+    Write-Host ("  last restore drill    : {0}" -f $(if ($drill) { "{0} passed={1} ({2}s)" -f $drill.startedAt, $drill.passed, $drill.durationSec } else { "none recorded" }))
     Write-Host ""
     if ($warnings.Count -eq 0) { Write-Host "  [OK] no warnings" -ForegroundColor Green }
     foreach ($w in $warnings) { Write-Host "  [WARN] $w" -ForegroundColor Yellow }

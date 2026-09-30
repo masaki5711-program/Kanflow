@@ -1,10 +1,10 @@
 "use client"
 
 import { useState, type FormEvent } from "react"
-import { Button, Field, Input, Select, cn } from "@/components/ui"
+import { Field, Input, Select, cn } from "@/components/ui"
 import { apiFetch, useApiMutation, useUnsavedChangesGuard } from "@/hooks"
 import { useLanguage } from "@/lib/language-context"
-import { SettingsCard } from "./settings-card"
+import { SettingsCard, SettingsSaveRow } from "./settings-card"
 import type { SprintHistory, SprintSettings } from "./settings-types"
 
 interface SprintWorkloadProps {
@@ -42,7 +42,8 @@ export function SprintWorkloadSection({ projectId, initialSettings, history }: S
 
   function submit(e: FormEvent) {
     e.preventDefault()
-    save.mutate(settings)
+    if (!isDirty || save.isPending) return
+    void save.mutate(settings)
   }
 
   const avgActual =
@@ -103,9 +104,12 @@ export function SprintWorkloadSection({ projectId, initialSettings, history }: S
             />
           </Field>
         </div>
-        <Button type="submit" loading={save.isPending}>
-          {t.settingsSaveButton}
-        </Button>
+        <SettingsSaveRow
+          isDirty={isDirty}
+          saving={save.isPending}
+          label={t.settingsSaveButton}
+          unsavedLabel={t.settingsUnsavedChanges}
+        />
       </form>
 
       {history.length > 0 && <SprintHistoryTable history={history} />}

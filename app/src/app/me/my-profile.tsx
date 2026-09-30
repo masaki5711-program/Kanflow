@@ -6,6 +6,7 @@ import { useApiQuery } from "@/hooks"
 import { SkeletonCard, PageHeader } from "@/components/ui"
 import { ProfileForm, type ProfileData } from "./profile-form"
 import { PasswordForm } from "./password-form"
+import { LanguageButtons } from "@/components/language-switcher"
 import { useDocumentTitle } from "@/hooks/use-document-title"
 
 export function MyProfile() {
@@ -54,6 +55,14 @@ export function MyProfile() {
             <dd className="text-body font-medium text-fg">{roleLabel}</dd>
           </div>
         </dl>
+      </section>
+
+      <section aria-labelledby="profile-language" className="bg-surface rounded-ui-lg border border-border shadow-ui-sm p-6">
+        <h2 id="profile-language" className="text-body font-semibold text-fg-muted uppercase tracking-wider mb-2">
+          {t.myProfileLanguageSection}
+        </h2>
+        <p className="text-caption text-fg-muted mb-4">{t.myProfileLanguageHint}</p>
+        <LanguageButtons label={t.myProfileLanguageSection} />
       </section>
 
       <ProfileForm key={profile.id} profile={profile} onSaved={(p) => mutate(p)} />

@@ -48,6 +48,15 @@ export default defineConfig({
       ],
       reporter: ["text-summary", "html"],
       reportsDirectory: "./coverage",
+      // Enforced by `npm run test:coverage` and ops/quality/quality-gate.ps1
+      // (deploy.ps1 preflight). Plain `npm test` does not collect coverage.
+      // 2026-09-30 baseline: statements/lines 99.0%, branches 93.8%, functions 96.2%.
+      thresholds: {
+        lines: 80,
+        functions: 80,
+        branches: 80,
+        statements: 80,
+      },
     },
   },
 })

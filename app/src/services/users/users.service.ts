@@ -1,4 +1,5 @@
 import bcrypt from "bcryptjs"
+import { invalidateUserAuthState } from "@/lib/authz/session-validity"
 import { defaultDb, withTransaction } from "@/services/_shared/db"
 import { ConflictError, ValidationError } from "@/services/_shared/errors"
 import * as repo from "./users.repository"
@@ -56,6 +57,16 @@ async function assertUniqueFields(id: string, email: string | undefined, employe
   }
 }
 
+/**
+ * Pure: does this admin edit end the user's existing sessions? Only when
+ * isActive or the system role actually changes (the edit form resends both).
+ */
+export function revokesSessions(current: { role: string; isActive: boolean }, input: UpdateUserInput): boolean {
+  const activeChanged = input.isActive !== undefined && input.isActive !== current.isActive
+  const roleChanged = input.role !== undefined && input.role !== current.role
+  return activeChanged || roleChanged
+}
+
 export async function updateUser(actorId: string, id: string, input: UpdateUserInput) {
   const lockout = selfLockoutError(actorId, id, input)
   if (lockout) throw lockout
@@ -65,6 +76,8 @@ export async function updateUser(actorId: string, id: string, input: UpdateUserI
 
   const { sectionIds, name, email, role, isActive } = input
   await withTransaction(async (tx) => {
+    const current = await repo.findAuthFields(tx, id)
+    const revoke = current !== null && revokesSessions(current, input)
     await repo.updateUser(tx, id, {
       ...(name !== undefined ? { name } : {}),
       ...(email !== undefined ? { email } : {}),
@@ -72,13 +85,18 @@ export async function updateUser(actorId: string, id: string, input: UpdateUserI
       ...(isActive !== undefined ? { isActive } : {}),
       ...(employeeNumber !== undefined ? { employeeNumber } : {}),
       ...(department !== undefined ? { department } : {}),
+      ...(revoke ? { tokenVersion: { increment: 1 } } : {}),
     })
     if (sectionIds !== undefined) await repo.replaceUserSections(tx, id, sectionIds)
   })
+  // Role / active changes apply on the user's next request, not after the cache TTL.
+  invalidateUserAuthState(id)
   const user = await repo.findUserForAdmin(defaultDb, id)
   return { ...user, sections: user?.sections.map((s) => s.section) ?? [] }
 }
 
+/** Admin reset: also logs the user out everywhere (tokenVersion bump). */
 export async function resetPassword(id: string, password: string): Promise<void> {
-  await repo.setPassword(defaultDb, id, await bcrypt.hash(password, PASSWORD_HASH_ROUNDS))
+  await repo.setPasswordAndRevokeSessions(defaultDb, id, await bcrypt.hash(password, PASSWORD_HASH_ROUNDS))
+  invalidateUserAuthState(id)
 }

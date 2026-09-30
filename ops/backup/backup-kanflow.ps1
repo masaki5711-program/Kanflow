@@ -20,7 +20,20 @@ Credentials are read from app\.env at runtime (or root + .db-pw with
 -UseRootCredential) and handed to mysqldump through a temporary ACL-locked
 option file. Nothing secret is printed or logged.
 
-Exit codes: 0 = success, 1 = backup failed, 2 = configuration error.
+Secondary (off-machine) copy - REQUIRED for the scheduled backup:
+  -SecondaryDestination, else KANFLOW_BACKUP_SECONDARY_DIR (environment or
+  app\.env), typically a NAS UNC path. The finished generation is copied to
+  <Secondary>\daily\<name>.partial, verified (file count + bytes, dump
+  SHA-256) and renamed; weekly copies go to <Secondary>\weekly. The same
+  retention (DailyKeep / WeeklyKeep) is applied there. When no secondary is
+  configured the local backup still runs, but every run raises the alert
+  "backup.secondary-missing".
+
+Alerts (Send-KanflowAlert): backup.failed, backup.config, backup.secondary-missing,
+backup.secondary-failed, backup.warnings.
+
+Exit codes: 0 = success, 1 = backup failed, 2 = configuration error,
+3 = local backup OK but the secondary copy failed.
 
 .PARAMETER Destination
 Backup root. Default: $env:KANFLOW_BACKUP_DIR, else E:\KanflowBackup.
@@ -35,6 +48,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File D:\APP\Kanflow\ops\backup\ba
 [CmdletBinding()]
 param(
     [string]$Destination = $(if ($env:KANFLOW_BACKUP_DIR) { $env:KANFLOW_BACKUP_DIR } else { "E:\KanflowBackup" }),
+    # Default: KANFLOW_BACKUP_SECONDARY_DIR (environment, then app\.env).
+    [string]$SecondaryDestination,
     [ValidateRange(1, 365)][int]$DailyKeep = 14,
     [ValidateRange(0, 520)][int]$WeeklyKeep = 8,
     [System.DayOfWeek]$WeeklyDay = [System.DayOfWeek]::Sunday,
@@ -49,19 +64,16 @@ Import-Module (Join-Path $PSScriptRoot "..\lib\KanflowOps.psm1") -Force
 
 $paths = Get-KanflowPaths
 if (-not $LogFile) { $LogFile = Join-Path $paths.LogDir "backup.log" }
-$script:HadWarning = $false
+if (-not $SecondaryDestination) { $SecondaryDestination = Get-KanflowSetting -Name "KANFLOW_BACKUP_SECONDARY_DIR" }
+$script:Warnings = New-Object System.Collections.Generic.List[string]
+$RoboLog = Join-Path $paths.LogDir "backup-robocopy.log"
 
 function Log([string]$msg, [string]$level = "INFO") {
-    if ($level -eq "WARN") { $script:HadWarning = $true }
+    if ($level -eq "WARN") { $script:Warnings.Add($msg) }
     Write-RotatingLog -Path $LogFile -Message $msg -Level $level
 }
 
-function Get-DirStats([string]$dir) {
-    if (-not (Test-Path -LiteralPath $dir)) { return [pscustomobject]@{ Files = 0; Bytes = [long]0 } }
-    $m = Get-ChildItem -LiteralPath $dir -Recurse -File -Force -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum
-    $bytes = if ($m.Sum) { [long]$m.Sum } else { [long]0 }
-    return [pscustomobject]@{ Files = [int]$m.Count; Bytes = $bytes }
-}
+function Get-DirStats([string]$dir) { return (Get-KanflowDirStats -Path $dir) }
 
 function Test-DestinationDrive([string]$dest) {
     $kanflowQualifier = (Split-Path -Qualifier $paths.Root).ToUpperInvariant()
@@ -133,6 +145,74 @@ function Remove-OldGenerations([string]$dir, [int]$keep) {
     }
 }
 
+function Test-SecondaryDestination([string]$secondary) {
+    # Throws when unusable; WARNs when it is not really off-machine.
+    $a = [System.IO.Path]::GetFullPath($secondary).TrimEnd('\')
+    $b = [System.IO.Path]::GetFullPath($Destination).TrimEnd('\')
+    if ($a -ieq $b -or $a.StartsWith($b + '\', [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "secondary destination $secondary is the primary destination (or inside it)"
+    }
+    if (-not $secondary.StartsWith("\\")) {
+        Log ("secondary destination {0} is a local drive, not off-machine - use a NAS/UNC path (\\server\share\kanflow)" -f $secondary) "WARN"
+        $q = (Split-Path -Qualifier $secondary).ToUpperInvariant()
+        if (-not (Test-Path -LiteralPath ($q + "\"))) { throw "secondary drive $q does not exist" }
+    }
+    New-Item -ItemType Directory -Path (Join-Path $secondary "daily"), (Join-Path $secondary "weekly") -Force | Out-Null
+}
+
+function Copy-GenerationToSecondary([string]$genDir, [string]$targetParent) {
+    # <targetParent>\<name>.partial -> verify -> rename. Returns the final path.
+    $name = Split-Path -Leaf $genDir
+    $final = Join-Path $targetParent $name
+    $partial = "$final.partial"
+    if (Test-Path -LiteralPath $partial) { Remove-Item -LiteralPath $partial -Recurse -Force }
+    # /COPY:DATS keeps the restricted ACL of env\. Some NAS shares refuse ACLs:
+    # retry without S and warn (then the share permissions protect .env).
+    $rc = Invoke-Robocopy -Source $genDir -Destination $partial -Options @("/E", "/COPY:DATS", "/DCOPY:DAT", "/R:2", "/W:5", "/NP", "/NFL", "/NDL") -LogFile $RoboLog
+    if (-not $rc.Success) {
+        Log ("secondary copy with ACLs failed (robocopy exit {0}); retrying without ACLs" -f $rc.ExitCode) "WARN"
+        if (Test-Path -LiteralPath $partial) { Remove-Item -LiteralPath $partial -Recurse -Force }
+        $rc = Invoke-Robocopy -Source $genDir -Destination $partial -LogFile $RoboLog
+        if (-not $rc.Success) { throw "robocopy to $targetParent failed with exit $($rc.ExitCode)" }
+        Log "secondary copy has NO file ACLs: env\.env there is protected only by the share/folder permissions - restrict them to administrators" "WARN"
+    }
+    $src = Get-DirStats $genDir
+    $dst = Get-DirStats $partial
+    if ($dst.Files -ne $src.Files -or $dst.Bytes -ne $src.Bytes) {
+        throw ("secondary copy verification failed: {0} files / {1} bytes, expected {2} / {3}" -f $dst.Files, $dst.Bytes, $src.Files, $src.Bytes)
+    }
+    [void](Test-KanflowBackupGeneration -Path $partial)   # manifest + dump SHA-256 on the copy
+    Rename-Item -LiteralPath $partial -NewName $name
+    Log ("secondary copy verified: {0} ({1} files, {2:N1} MB, dump SHA-256 ok)" -f $final, $dst.Files, ($dst.Bytes / 1MB))
+    return $final
+}
+
+function Invoke-SecondaryCopy([string]$finalDir, [bool]$weeklyMade) {
+    # Returns $true on success (or when nothing is configured), $false on failure.
+    if (-not $SecondaryDestination) {
+        Log "SECONDARY BACKUP NOT CONFIGURED - set KANFLOW_BACKUP_SECONDARY_DIR (NAS/UNC path) or -SecondaryDestination; a single-disk copy is not a backup" "WARN"
+        Send-KanflowAlert -Key "backup.secondary-missing" -Severity Warning -Source backup -ThrottleMinutes 0 `
+            -Title "Secondary (off-machine) backup not configured" `
+            -Message ("Backup {0} exists only on {1}. Set KANFLOW_BACKUP_SECONDARY_DIR in app\.env to a NAS path (docs\operations\backup-restore.md)." -f (Split-Path -Leaf $finalDir), $Destination)
+        return $true
+    }
+    try {
+        Log "secondary copy -> $SecondaryDestination"
+        Test-SecondaryDestination $SecondaryDestination
+        [void](Copy-GenerationToSecondary $finalDir (Join-Path $SecondaryDestination "daily"))
+        if ($weeklyMade) { [void](Copy-GenerationToSecondary $finalDir (Join-Path $SecondaryDestination "weekly")) }
+        Remove-OldGenerations (Join-Path $SecondaryDestination "daily") $DailyKeep
+        Remove-OldGenerations (Join-Path $SecondaryDestination "weekly") $WeeklyKeep
+        return $true
+    } catch {
+        Log ("SECONDARY COPY FAILED: {0}" -f $_.Exception.Message) "ERROR"
+        Send-KanflowAlert -Key "backup.secondary-failed" -Severity Error -Source backup `
+            -Title "Secondary (off-machine) backup copy failed" `
+            -Message ("Local backup {0} is OK, but copying it to {1} failed: {2}. Check share access of the task account (backup-restore.md)." -f $finalDir, $SecondaryDestination, $_.Exception.Message)
+        return $false
+    }
+}
+
 function Get-GitCommit {
     try {
         $head = Join-Path $paths.Root ".git\HEAD"
@@ -154,13 +234,15 @@ $genName = "kanflow-$stamp"
 $partialDir = $null
 
 try {
-    Log "==== backup start (destination: $Destination) ===="
+    Log ("==== backup start (destination: {0}, secondary: {1}) ====" -f $Destination, $(if ($SecondaryDestination) { $SecondaryDestination } else { "NOT CONFIGURED" }))
     try {
         Test-DestinationDrive $Destination
         $db = Get-KanflowDbConfig -UseRootCredential:$UseRootCredential
         $binDir = Get-MySqlBinDir
     } catch {
         Log "configuration error: $($_.Exception.Message)" "ERROR"
+        Send-KanflowAlert -Key "backup.config" -Severity Error -Source backup -Title "Backup did not run (configuration error)" `
+            -Message ("{0} - no backup was taken. Log: {1}" -f $_.Exception.Message, $LogFile)
         exit 2
     }
 
@@ -211,20 +293,34 @@ try {
     $partialDir = $null
     Log "generation complete: $finalDir"
 
+    $weeklyMade = $false
     if ($WeeklyKeep -gt 0 -and $started.DayOfWeek -eq $WeeklyDay) {
         # /COPY:DATS keeps the restricted ACL of env\ in the weekly copy.
         $rc = Invoke-Robocopy -Source $finalDir -Destination (Join-Path $weeklyDir $genName) `
-            -Options @("/E", "/COPY:DATS", "/DCOPY:DAT", "/R:2", "/W:5", "/NP", "/NFL", "/NDL") -LogFile (Join-Path $paths.LogDir "backup-robocopy.log")
+            -Options @("/E", "/COPY:DATS", "/DCOPY:DAT", "/R:2", "/W:5", "/NP", "/NFL", "/NDL") -LogFile $RoboLog
         if (-not $rc.Success) { throw "weekly copy failed with robocopy exit $($rc.ExitCode)" }
         Log "weekly copy created: $(Join-Path $weeklyDir $genName)"
+        $weeklyMade = $true
     }
 
     Remove-OldGenerations $dailyDir $DailyKeep
     Remove-OldGenerations $weeklyDir $WeeklyKeep
 
+    $secondaryOk = Invoke-SecondaryCopy $finalDir $weeklyMade
+
     $sec = [int]((Get-Date) - $started).TotalSeconds
-    if ($script:HadWarning) {
+    if (-not $secondaryOk) {
+        Log "==== backup finished: LOCAL OK, SECONDARY COPY FAILED in ${sec}s ====" "ERROR"
+        exit 3
+    }
+    # secondary-missing has its own alert; everything else is summarised once.
+    $other = @($script:Warnings | Where-Object { $_ -notlike "SECONDARY BACKUP NOT CONFIGURED*" })
+    if ($script:Warnings.Count -gt 0) {
         Log "==== backup finished WITH WARNINGS in ${sec}s ====" "WARN"
+        if ($other.Count -gt 0) {
+            Send-KanflowAlert -Key "backup.warnings" -Severity Warning -Source backup -Title "Backup finished with warnings" `
+                -Message (($other | Select-Object -First 10) -join "`r`n")
+        }
     } else {
         Log "==== backup finished OK in ${sec}s ===="
     }
@@ -234,5 +330,7 @@ try {
     if ($partialDir -and (Test-Path -LiteralPath $partialDir)) {
         Log "leaving partial generation for inspection: $partialDir (auto-removed after 1 day)" "WARN"
     }
+    Send-KanflowAlert -Key "backup.failed" -Severity Error -Source backup -Title "Backup FAILED" `
+        -Message ("{0}`r`nDestination: {1}. No new generation was completed. Log: {2}" -f $_.Exception.Message, $Destination, $LogFile)
     exit 1
 }

@@ -42,6 +42,19 @@ describe("MyProfile", () => {
     expect(await screen.findByText(tr("en")[key])).toBeInTheDocument()
   })
 
+  it("switches the display language from the language section", async () => {
+    stubFetch([{ match: "/api/user/profile", respond: () => jsonResponse(profile) }])
+    const user = userEvent.setup()
+    renderWithProviders(<MyProfile />)
+    const group = await screen.findByRole("group", { name: tr("ja").myProfileLanguageSection })
+    const [ja, en] = within(group).getAllByRole("button")
+    expect(ja).toHaveAttribute("aria-pressed", "true")
+    await user.click(en)
+    expect(await screen.findByRole("heading", { name: tr("en").myProfileLanguageSection })).toBeInTheDocument()
+    expect(within(screen.getByRole("group", { name: tr("en").myProfileLanguageSection })).getAllByRole("button")[1])
+      .toHaveAttribute("aria-pressed", "true")
+  })
+
   it("keeps the skeleton and toasts when loading fails", async () => {
     stubFetch([{ match: "/api/user/profile", respond: () => jsonResponse({ error: "down" }, 500) }])
     renderWithProviders(<MyProfile />)

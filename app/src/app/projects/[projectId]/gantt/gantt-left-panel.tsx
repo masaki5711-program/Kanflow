@@ -4,10 +4,13 @@ import { memo, type ReactNode, type RefObject } from "react"
 import { ChevronDown, ChevronRight } from "lucide-react"
 import { Badge, Truncate, cn } from "@/components/ui"
 import { useLanguage } from "@/lib/language-context"
-import { HEADER_HEIGHT, LEFT_PANEL_WIDTH, ROW_HEIGHT, type GanttRow, type GanttText } from "./gantt-types"
+import { HEADER_HEIGHT, LEFT_PANEL_WIDTH_CLASS, ROW_HEIGHT, type GanttRow, type GanttText } from "./gantt-types"
 import { getInitials, pbiDonePercent, sprintDonePercent, sprintTone, taskTone } from "./gantt-utils"
 
 interface GanttLeftPanelProps {
+  id?: string
+  /** Collapsed panels stay mounted (scroll position) but are hidden. */
+  isOpen?: boolean
   rows: GanttRow[]
   text: GanttText
   isExpanded: (key: string) => boolean
@@ -19,6 +22,8 @@ interface GanttLeftPanelProps {
 }
 
 export function GanttLeftPanel({
+  id,
+  isOpen = true,
   rows,
   text,
   isExpanded,
@@ -31,7 +36,7 @@ export function GanttLeftPanel({
   const { t } = useLanguage()
 
   return (
-    <div className="flex flex-col shrink-0 bg-surface" style={{ width: LEFT_PANEL_WIDTH }}>
+    <div id={id} hidden={!isOpen} className={cn("flex-col shrink-0 bg-surface", isOpen ? "flex" : "hidden", LEFT_PANEL_WIDTH_CLASS)}>
       <div
         className="border-b border-r border-border bg-surface-muted flex items-end px-3 pb-1 text-caption font-medium text-fg-muted uppercase tracking-wider"
         style={{ height: HEADER_HEIGHT }}

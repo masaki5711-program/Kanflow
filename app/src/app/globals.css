@@ -139,6 +139,33 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+/*
+ * Page width tokens — the two content widths of top-level pages:
+ *   page-narrow  forms / settings / profile   (48rem, Tailwind 3xl)
+ *   page-wide    boards / lists / tables       (80rem, Tailwind 7xl)
+ * Both include the standard page gutters (16px, 24px from `sm`) and
+ * vertical padding, so a page's <main> needs only one class.
+ */
+@utility page-narrow {
+  width: 100%;
+  max-width: 48rem; /* = max-w-3xl */
+  margin-inline: auto;
+  padding: 2rem 1rem;
+  @media (width >= 40rem) {
+    padding-inline: 1.5rem;
+  }
+}
+
+@utility page-wide {
+  width: 100%;
+  max-width: 80rem; /* = max-w-7xl */
+  margin-inline: auto;
+  padding: 2rem 1rem;
+  @media (width >= 40rem) {
+    padding-inline: 1.5rem;
+  }
+}
+
 /* Selection highlight */
 ::selection {
   background-color: #dbeafe;

@@ -6,9 +6,12 @@
 |------|------|
 | バックアップ スクリプト | `ops\backup\backup-kanflow.ps1` |
 | リストア スクリプト | `ops\backup\restore-kanflow.ps1`（`-DryRun` あり） |
+| リストア訓練 | `ops\backup\restore-drill.ps1`（使い捨て DB へ復元 → 検査 → 削除）、タスク登録 `ops\backup\register-restore-drill-task.ps1`（毎月） |
 | タスク登録 | `ops\backup\register-backup-task.ps1`（管理者で実行、毎日 02:30） |
-| ログ | `ops\logs\backup.log` / `ops\logs\restore.log`（5 MB でローテーション、5 世代） |
+| ログ | `ops\logs\backup.log` / `ops\logs\restore.log` / `ops\logs\restore-drill.log`（5 MB でローテーション、5 世代） |
 | 保存先 | `-Destination` → 環境変数 `KANFLOW_BACKUP_DIR` → 既定 `E:\KanflowBackup` |
+| 二次保存先（**必須**） | `-SecondaryDestination` → `KANFLOW_BACKUP_SECONDARY_DIR`（環境変数 → `app\.env`）。NAS の UNC パス推奨（§1.1） |
+| アラート | 失敗・警告は `Send-KanflowAlert`（[runbook.md §8](./runbook.md)） |
 
 ## 1. 何がバックアップされるか
 
@@ -29,6 +32,36 @@
 - 資格情報は実行時に `app\.env`（`DATABASE_*`、無ければ `DATABASE_URL`）から読み、ACL を絞った一時ファイル経由で mysqldump に渡します。ログや画面には出しません。
 - `mysqldump.exe` は `KanflowMySQL` サービスの ImagePath から探します（見つからない場合は `KANFLOW_MYSQL_BIN` に bin フォルダを指定）。
 
+### 1.1 二次保存先（オフマシン、必須）
+
+ローカル世代が完成した後、同じ世代を二次保存先へコピーします。
+
+```
+<二次保存先>\daily\kanflow-YYYYMMDD-HHmmss\     （weekly の世代は <二次保存先>\weekly\ にも）
+```
+
+1. `<名前>.partial` として robocopy（`/COPY:DATS` で `env\` の ACL を保持。NAS が ACL を受け付けない場合は ACL なしで再試行し WARN
+   「env\.env there is protected only by the share/folder permissions」→ 共有のアクセス権を管理者に限定すること）
+2. **検証**: ファイル数と合計バイト数がローカルと一致、コピー先のダンプの SHA-256 が manifest と一致
+3. 検証に通ったものだけ正式名にリネーム
+4. 二次保存先にも同じ保持数（daily `-DailyKeep` / weekly `-WeeklyKeep`）を適用。1 日以上前の `.partial` は削除
+
+| 状態 | 動作 |
+|------|------|
+| 二次保存先が**未設定** | ローカルのバックアップは通常どおり実行（exit 0）。ただし**毎回** WARN とアラート `backup.secondary-missing` |
+| コピー / 検証に失敗 | ローカル世代は有効のまま。ERROR、アラート `backup.secondary-failed`、**exit 3** |
+| ローカル（非 UNC）ドライブを指定 | 動作するが「not off-machine」WARN（別ディスクでも同じ筐体なので火災・盗難・ランサムウェアに弱い） |
+| 一次保存先と同じ / その配下 | 設定エラーとして失敗（exit 3） |
+
+設定例（`app\.env`）:
+
+```
+KANFLOW_BACKUP_SECONDARY_DIR=\\NAS01\backup\kanflow
+```
+
+**SYSTEM は NAS に書けない**のが普通です（ネットワーク上はコンピューター アカウント）。二次保存先を NAS にするときは
+`register-backup-task.ps1 -RunAsUser <書き込み権限のあるドメイン/サービス アカウント>` でタスクを登録してください（§2）。
+
 ### 保存先の注意（重要）
 
 - **D: ドライブ以外**に置いてください。同じドライブの場合は `backup.log` に WARN が出ます（ディスク故障でデータとバックアップを同時に失うため）。
@@ -40,9 +73,10 @@
 
 | code | 意味 |
 |------|------|
-| 0 | 成功（WARN 付き成功もあり。ログ末尾が `finished WITH WARNINGS`） |
-| 1 | バックアップ失敗（`BACKUP FAILED: ...` をログ参照） |
-| 2 | 設定エラー（.env が読めない、mysqldump が無い、保存先ドライブが無い 等） |
+| 0 | 成功（WARN 付き成功もあり。ログ末尾が `finished WITH WARNINGS`。二次保存先未設定もここ） |
+| 1 | バックアップ失敗（`BACKUP FAILED: ...` をログ参照、アラート `backup.failed`） |
+| 2 | 設定エラー（.env が読めない、mysqldump が無い、保存先ドライブが無い 等、アラート `backup.config`） |
+| 3 | ローカルは成功、**二次保存先へのコピー / 検証に失敗**（アラート `backup.secondary-failed`）。`deploy.ps1` はローカル世代で続行 |
 
 タスク スケジューラの「前回の実行結果」が 0 以外なら失敗です。
 
@@ -56,8 +90,11 @@ Get-Content D:\APP\Kanflow\ops\logs\backup.log -Tail 20
 # 2. 毎日 02:30 のタスクを登録（管理者 PowerShell）
 powershell -NoProfile -ExecutionPolicy Bypass -File D:\APP\Kanflow\ops\backup\register-backup-task.ps1 -Destination E:\KanflowBackup
 
-# NAS に置く場合
-powershell -NoProfile -ExecutionPolicy Bypass -File D:\APP\Kanflow\ops\backup\register-backup-task.ps1 -Destination \\NAS01\backup\kanflow -RunAsUser YMMA\svc-kanflow
+# 二次保存先（NAS）付き（推奨。app\.env の KANFLOW_BACKUP_SECONDARY_DIR でも可）
+powershell -NoProfile -ExecutionPolicy Bypass -File D:\APP\Kanflow\ops\backup\register-backup-task.ps1 -Destination E:\KanflowBackup -SecondaryDestination \\NAS01\backup\kanflow -RunAsUser YMMA\svc-kanflow
+
+# 4. 毎月のリストア訓練タスク（§4.1）
+powershell -NoProfile -ExecutionPolicy Bypass -File D:\APP\Kanflow\ops\backup\register-restore-drill-task.ps1
 
 # 3. 確認
 Get-ScheduledTaskInfo -TaskName KanflowBackup      # LastTaskResult 0 = OK
@@ -128,9 +165,41 @@ Start-Service kanflow.exe
 Invoke-RestMethod http://127.0.0.1:3000/api/health
 ```
 
-## 4. リストア訓練（四半期に 1 回・本番影響なし）
+## 4. リストア訓練
 
-本番 DB / ファイルには一切触れず、別 DB 名・別フォルダに復元して検証します。所要 10 分程度。
+### 4.1 自動（毎月、`restore-drill.ps1`）
+
+タスク `KanflowRestoreDrill`（既定: 毎月第 1 日曜 04:00、SYSTEM）が最新の daily 世代で次を行います。本番 DB・`app\private`・`app\.env` には触れません。
+
+1. 世代の検証（manifest、ダンプ SHA-256、`private\` のファイル数 = manifest の `privateFiles`）
+2. ダンプを展開し、`USE` / `CREATE DATABASE` を含むものは拒否（別 DB へ取り込まれる事故の防止）
+3. 使い捨て DB **`<本番 DB 名>_drill`**（例 `scrum_tool_drill`）を DROP → CREATE → 取り込み（root + `.db-pw`）
+4. 検査: manifest の全テーブルが存在、行数の差が `max(10 行, 1%)` 以内、manifest で行があるテーブルが空でない、
+   `User` / `Project` / `_prisma_migrations` が空でない、テーブル数 = ダンプの `CREATE TABLE` 数
+5. **drill DB を必ず DROP**（失敗時も。調査用に残すなら `-KeepDatabase`）
+6. 結果: `ops\logs\restore-drill.log`、`ops\logs\restore-drill-last.json`（`ops\status.ps1` に表示）、
+   アラート `restore-drill.failed`（Error）/ `restore-drill.ok`（Info、所要時間 = DB 部分の RTO 目安）
+
+**本番保護**: drill DB 名は英数字と `_` のみ、`drill` を含む、`app\.env` の `DATABASE_NAME` と異なる、システムスキーマでない —
+を破壊的な SQL の直前ごとに検査します（`Assert-KanflowDrillDatabaseName`）。
+
+```powershell
+# タスク登録（管理者。訓練自体は実行しない）
+powershell -NoProfile -ExecutionPolicy Bypass -File D:\APP\Kanflow\ops\backup\register-restore-drill-task.ps1
+# NAS の二次保存先で訓練する場合（SYSTEM は共有を読めないため -RunAsUser）
+powershell -NoProfile -ExecutionPolicy Bypass -File D:\APP\Kanflow\ops\backup\register-restore-drill-task.ps1 -FromSecondary -RunAsUser YMMA\svc-kanflow
+
+# 手動実行（管理者でなくても可、.db-pw を読める必要あり）
+powershell -NoProfile -ExecutionPolicy Bypass -File D:\APP\Kanflow\ops\backup\restore-drill.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File D:\APP\Kanflow\ops\backup\restore-drill.ps1 -FromSecondary
+```
+
+終了コード: 0 = 合格、1 = 不合格（アラート済み）、2 = 設定エラー（`.db-pw` が無い、世代が無い 等）。
+MySQL の空き容量は本番 DB と同程度を一時的に使います（datadir `D:\APP\Kanflow\mysql-data`）。
+
+### 4.2 手動フルリストア訓練（四半期に 1 回・本番影響なし）
+
+ファイル（`app\private`）も含めて確認する訓練です。本番 DB / ファイルには一切触れず、別 DB 名・別フォルダに復元して検証します。所要 10 分程度。
 
 ```powershell
 # 管理者でなくても可。root 資格情報（.db-pw）で訓練用 DB を作成するため -UseRootCredential を付ける
@@ -170,4 +239,8 @@ Remove-Item D:\KanflowDrill -Recurse -Force
 | `not enough free space` | 保存先の容量確保、または `-DailyKeep` を減らす |
 | `DESTINATION ... IS ON THE SAME DRIVE` WARN | 保存先を E: や NAS に変更 |
 | NAS で `Access is denied` | `-RunAsUser` 付きでタスクを再登録 |
+| 毎回 `backup.secondary-missing` アラート | `app\.env` に `KANFLOW_BACKUP_SECONDARY_DIR=\\NAS\share\kanflow` を設定（または `-SecondaryDestination` でタスク再登録） |
+| exit 3 / `SECONDARY COPY FAILED` | タスク アカウントの共有への書き込み権限、NAS の空き容量、`ops\logs\backup-robocopy.log` を確認。ローカル世代は有効 |
+| `restore-drill.failed` | `ops\logs\restore-drill.log` の `problem:` 行を確認。SHA-256 不一致 = 世代破損、行数差 = バックアップ中の書き込み（再実行で解消するか確認）、`.db-pw` 不在 = exit 2 |
+| `drill database ... KEPT` / `scrum_tool_drill` が残っている | `-KeepDatabase` 実行後、または DROP 失敗。root で `DROP DATABASE scrum_tool_drill;` |
 | リストア後 `/api/health` が 503 | `KanflowMySQL` の状態、`app\.env` の DB 設定、デーモンログ（`ops\web\daemon\kanflow.err.log`、ラッパー移設前は `app\node_modules\next\dist\bin\daemon\kanflow.err.log`）を確認 |

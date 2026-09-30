@@ -60,6 +60,8 @@ export const API_ERROR_CODES = [
   "FOLDER_NOT_FOUND",
   "FOLDER_SELF_PARENT",
   "FOLDER_CYCLE",
+  "FILE_TYPE_MISMATCH",
+  "STORAGE_QUOTA_EXCEEDED",
   // Dates / glossary / translation
   "INVALID_DATE",
   "GLOSSARY_SAME_LOCALE",

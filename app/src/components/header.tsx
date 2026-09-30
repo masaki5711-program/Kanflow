@@ -10,6 +10,7 @@ import { useI18nText, type EntityI18n } from "@/components/i18n-text"
 import { Truncate, cn } from "@/components/ui"
 import { useSidebarDrawer } from "@/components/app-shell/sidebar-drawer"
 import { AdminMenu } from "@/components/app-shell/admin-menu"
+import { LanguageMenu } from "@/components/language-switcher"
 
 interface HeaderProps {
   projectName?: string
@@ -86,6 +87,8 @@ export function Header({ projectName, projectI18n, projectId }: HeaderProps = {}
           </Link>
 
           {isAdmin && <AdminMenu />}
+
+          <LanguageMenu />
 
           <div aria-hidden="true" className="mx-1.5 hidden h-5 w-px bg-border sm:block" />
 

@@ -20,6 +20,9 @@ export interface AiTranslations {
   aiThinking: string
   aiCopy: string
   aiFailed: string
+  aiLoadingModel: string
+  aiCancel: string
+  aiCancelled: string
   aiResultDisclaimer: string
   aiInvestReview: string
   aiInvestRunning: string
@@ -59,6 +62,9 @@ export const ja: AiTranslations = {
   aiThinking: "AI が分析中…",
   aiCopy: "コピー",
   aiFailed: "AI の応答取得に失敗しました",
+  aiLoadingModel: "モデル読み込み中…（切り替え時は 10 秒ほどかかります）",
+  aiCancel: "中止",
+  aiCancelled: "生成を中止しました",
   aiResultDisclaimer: "AI の提案です。最終判断は人間が行ってください。",
   aiInvestReview: "INVEST 評価",
   aiInvestRunning: "評価中…",
@@ -98,6 +104,9 @@ export const en: AiTranslations = {
   aiThinking: "AI is analyzing…",
   aiCopy: "Copy",
   aiFailed: "Failed to get AI response",
+  aiLoadingModel: "Loading the model… (switching models takes about 10 seconds)",
+  aiCancel: "Cancel",
+  aiCancelled: "Generation cancelled",
   aiResultDisclaimer: "AI-generated suggestion. Human review recommended.",
   aiInvestReview: "INVEST Review",
   aiInvestRunning: "Reviewing…",
@@ -137,6 +146,9 @@ export const id: AiTranslations = {
   aiThinking: "AI sedang menganalisis…",
   aiCopy: "Salin",
   aiFailed: "Gagal mendapatkan respons AI",
+  aiLoadingModel: "Memuat model… (pergantian model memerlukan sekitar 10 detik)",
+  aiCancel: "Batalkan",
+  aiCancelled: "Pembuatan dibatalkan",
   aiResultDisclaimer: "Saran AI. Tinjauan manual disarankan.",
   aiInvestReview: "Tinjauan INVEST",
   aiInvestRunning: "Meninjau…",

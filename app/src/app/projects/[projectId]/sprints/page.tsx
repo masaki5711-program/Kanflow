@@ -22,6 +22,13 @@ import { needsRetroDialog, statusDialogFor } from "./lib/task-payload"
 import { useProjectDocumentTitle } from "@/components/app-shell/project-title-context"
 import { Archive, Plus, Zap } from "lucide-react"
 
+const IN_FLIGHT_STATUSES: ReadonlySet<string> = new Set(["planning", "active", "review"])
+
+/** Sprints still being worked on start expanded; done / archived start collapsed. */
+function isInFlightSprint(s: Pick<Sprint, "status">): boolean {
+  return IN_FLIGHT_STATUSES.has(s.status)
+}
+
 interface TaskModalState {
   sprintId: string
   task: SprintItem | null
@@ -45,8 +52,9 @@ export default function SprintsPage() {
   const [detailPbiId, setDetailPbiId] = useState<string | null>(null)
   const [statusDialog, setStatusDialog] = useState<StatusDialogState | null>(null)
   const [taskModal, setTaskModal] = useState<TaskModalState | null>(null)
-  // Expansion overrides; by default every non-archived sprint is expanded so
-  // imported PBs + tasks are visible right after sprint creation.
+  // Expansion overrides; by default only in-flight sprints (planning / active /
+  // review) are expanded — imported PBs + tasks are visible right after
+  // creation, while finished sprints stay compact.
   const [expandOverrides, setExpandOverrides] = useState<ReadonlyMap<string, boolean>>(() => new Map())
 
   const pointUnit = formatPointUnit(settings?.pointUnit, t)
@@ -59,7 +67,7 @@ export default function SprintsPage() {
   // One sprint in flight at a time keeps the backlog from being split.
   const isCreateBlocked = sprints.some((s) => s.status === "active" || s.status === "planning")
 
-  const isExpanded = (s: Sprint) => expandOverrides.get(s.id) ?? s.status !== "archived"
+  const isExpanded = (s: Sprint) => expandOverrides.get(s.id) ?? isInFlightSprint(s)
   function toggleExpanded(s: Sprint) {
     setExpandOverrides((prev) => new Map(prev).set(s.id, !isExpanded(s)))
   }

@@ -2,14 +2,13 @@
 
 import Link from "next/link"
 import { useState, type ReactNode } from "react"
-import { CalendarDays, CheckCheck, FolderOpen, Languages, ListChecks, Tag, UserRound } from "lucide-react"
+import { CalendarDays, CheckCheck, FolderOpen, ListChecks, Tag, UserRound } from "lucide-react"
 import { Badge, EmptyState } from "@/components/ui"
 import { ProjectList } from "./project-list"
 import { MySprintTasks, type MyTask } from "./my-sprint-tasks"
 import FixedTasksModal from "@/components/fixed-tasks-modal"
 import { useLanguage } from "@/lib/language-context"
 import { useDocumentTitle } from "@/hooks/use-document-title"
-import { type Language, languageLabels } from "@/lib/i18n"
 import type { Category, Project } from "./_project-list/types"
 
 interface Props {
@@ -25,7 +24,7 @@ const HERO_CHIP =
   "inline-flex min-h-8 items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 text-caption text-white backdrop-blur transition-colors hover:bg-white/25"
 
 export function TopPage({ activeProjects, archivedProjects, categories, isAdmin, myTasks, userName }: Props) {
-  const { t, language, setLanguage } = useLanguage()
+  const { t } = useLanguage()
   useDocumentTitle([t.projectListTitle])
   const [fixedTasksOpen, setFixedTasksOpen] = useState(false)
 
@@ -55,21 +54,6 @@ export function TopPage({ activeProjects, archivedProjects, categories, isAdmin,
 
         {/* Toolbar inside hero */}
         <div className="mt-6 flex flex-wrap items-center gap-2">
-          <label className={HERO_CHIP}>
-            <Languages aria-hidden="true" className="h-3.5 w-3.5" />
-            <span className="sr-only">{t.topLanguageLabel}</span>
-            <select
-              value={language}
-              onChange={(e) => setLanguage(e.target.value as Language)}
-              className="cursor-pointer bg-transparent text-caption text-white [&>option]:text-fg"
-            >
-              {(Object.entries(languageLabels) as [Language, string][]).map(([code, label]) => (
-                <option key={code} value={code}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </label>
           <Link href="/settings/categories" className={HERO_CHIP}>
             <Tag aria-hidden="true" className="h-3.5 w-3.5" />
             {t.categorySettingsTitle}

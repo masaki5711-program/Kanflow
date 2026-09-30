@@ -16,7 +16,9 @@ ops\web\migrate-service-wrapper.ps1.
 
 Steps
   1. preflight   admin, git work tree clean + HEAD tagged, app\.env matches the
-                 phase, node_modules present, no MAINTENANCE flag, app reachable
+                 phase, node_modules present, no MAINTENANCE flag, app reachable,
+                 quality gate ops\quality\quality-gate.ps1 (lint, typecheck,
+                 tests + coverage thresholds; -SkipQualityGate skips it, logged)
   2. backup      ops\backup\backup-kanflow.ps1 (must exit 0)
   3. drift       READ-ONLY: prisma migrate status + migrate diff (DB -> schema.prisma)
                  - pending migrations need -ApplyMigrations (applied after the build)
@@ -28,6 +30,9 @@ Steps
   7. verify      /api/health 200, buildId = new build; Phase B: worker heartbeat ok
                  -> on failure: swap-build.ps1 -Rollback
 Log: ops\logs\deploy.log (build output: ops\logs\deploy-build-<ts>.log)
+Alerts (Send-KanflowAlert): deploy.failed for failures after the preflight
+(backup, build, migrations, swap), deploy.rollback when the post-deploy
+verification rolled back. Preflight refusals are not alerted (operator present).
 
 .EXAMPLE
 powershell -NoProfile -ExecutionPolicy Bypass -File D:\APP\Kanflow\ops\deploy\deploy.ps1 -Phase A -PreflightOnly
@@ -45,6 +50,7 @@ param(
     [switch]$AllowDirty,
     [switch]$AllowUntagged,
     [switch]$PreflightOnly,
+    [switch]$SkipQualityGate,
     [string]$NewDir = ".next-new"
 )
 
@@ -60,7 +66,14 @@ $BuildLog = Join-Path $paths.LogDir "deploy-build-$stamp.log"
 $swap = Join-Path $PSScriptRoot "swap-build.ps1"
 
 function Log([string]$msg, [string]$level = "INFO") { Write-RotatingLog -Path $LogFile -Message ("[deploy {0}] {1}" -f $Phase, $msg) -Level $level }
-function Fail([string]$msg, [int]$code = 2) { Log $msg "ERROR"; exit $code }
+function Fail([string]$msg, [int]$code = 2, [switch]$Alert) {
+    Log $msg "ERROR"
+    if ($Alert) {
+        Send-KanflowAlert -Key "deploy.failed" -Severity Error -Source deploy -ThrottleMinutes 0 `
+            -Title "Deploy FAILED (phase $Phase)" -Message ("{0}`r`nLog: {1}; build output: {2}" -f $msg, $LogFile, $BuildLog)
+    }
+    exit $code
+}
 
 function Invoke-AppCommand([string]$exe, [string[]]$argv, [switch]$Quiet, [hashtable]$EnvVars = @{}) {
     # Runs in app\, output appended to the build log; returns @{ Code; Output }.
@@ -137,6 +150,16 @@ $liveFile = Join-Path $paths.App ".next\BUILD_ID"
 if (Test-Path -LiteralPath $liveFile) { $liveId = ([System.IO.File]::ReadAllText($liveFile)).Trim() }
 Log ("preflight OK: mode={0}, live build {1}, health http={2}" -f $mode, $liveId, $before.StatusCode)
 
+# ================================================================ 1b. quality gate (lint, typecheck, tests + coverage)
+if ($SkipQualityGate) {
+    Log ("quality gate SKIPPED (-SkipQualityGate) by {0}\{1} at revision {2}" -f $env:USERDOMAIN, $env:USERNAME, $head) "WARN"
+} else {
+    Log "quality gate (ops\quality\quality-gate.ps1)"
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $paths.Root "ops\quality\quality-gate.ps1")
+    if ($LASTEXITCODE -ne 0) { Fail "quality gate failed (exit $LASTEXITCODE) - see ops\logs\quality-gate.log / quality-gate-output.log. Fix it, or re-run with -SkipQualityGate (logged) in an emergency" }
+    Log "quality gate OK"
+}
+
 # ================================================================ 3. drift (read-only; before backup so a bad state aborts early)
 Log "read-only drift check (prisma migrate status / migrate diff)"
 $st = Invoke-AppCommand "npx.cmd" @("prisma", "migrate", "status") -Quiet
@@ -181,38 +204,45 @@ if ($SkipBackup) { Log "backup SKIPPED (-SkipBackup)" "WARN" } else {
     $bArgs = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", (Join-Path $paths.Root "ops\backup\backup-kanflow.ps1"))
     if ($BackupDestination) { $bArgs += @("-Destination", $BackupDestination) }
     & powershell.exe @bArgs
-    if ($LASTEXITCODE -ne 0) { Fail "backup failed (exit $LASTEXITCODE) - nothing deployed" }
-    Log "backup OK"
+    $backupCode = $LASTEXITCODE
+    # 3 = local generation OK, only the off-machine copy failed (backup alerted it): the local copy is the rollback point.
+    if ($backupCode -eq 3) { Log "backup OK locally but the secondary copy failed (alerted) - continuing with the local generation" "WARN" }
+    elseif ($backupCode -ne 0) { Fail "backup failed (exit $backupCode) - nothing deployed" -Alert }
+    else { Log "backup OK" }
 }
 
 # ================================================================ 4. build
 $newPath = Join-Path $paths.App $NewDir
 if (Test-Path -LiteralPath $newPath) { Remove-Item -LiteralPath $newPath -Recurse -Force }
 Log "build -> $NewDir (log $BuildLog)"
-if ((Invoke-AppCommand "npx.cmd" @("prisma", "generate")).Code -ne 0) { Fail "prisma generate failed" }
-if ((Invoke-AppCommand "npm.cmd" @("run", "build") -EnvVars @{ NEXT_DIST_DIR = $NewDir }).Code -ne 0) { Fail "next build failed - nothing swapped" }
-if ((Invoke-AppCommand "npm.cmd" @("run", "build:worker") -EnvVars @{ NEXT_DIST_DIR = $NewDir }).Code -ne 0) { Fail "worker bundle build failed - nothing swapped" }
+if ((Invoke-AppCommand "npx.cmd" @("prisma", "generate")).Code -ne 0) { Fail "prisma generate failed" -Alert }
+if ((Invoke-AppCommand "npm.cmd" @("run", "build") -EnvVars @{ NEXT_DIST_DIR = $NewDir }).Code -ne 0) { Fail "next build failed - nothing swapped" -Alert }
+if ((Invoke-AppCommand "npm.cmd" @("run", "build:worker") -EnvVars @{ NEXT_DIST_DIR = $NewDir }).Code -ne 0) { Fail "worker bundle build failed - nothing swapped" -Alert }
 $newId = ([System.IO.File]::ReadAllText((Join-Path $newPath "BUILD_ID"))).Trim()
 $dry = Invoke-AppCommand "node.exe" @("src/worker/service-entry.mjs", "--dry-run") -Quiet -EnvVars @{ KANFLOW_WORKER_BUNDLE = "$NewDir/worker/main.cjs" }
-if ($dry.Code -ne 0) { Fail "worker bundle --dry-run failed - see $BuildLog" }
+if ($dry.Code -ne 0) { Fail "worker bundle --dry-run failed - see $BuildLog" -Alert }
 Log "build OK: BUILD_ID $newId (worker bundle dry-run OK)"
 
 # ================================================================ 5. migrations
 if ($resolveBaselineNow) {
     Log "marking $BaselineMigration as applied (no SQL executed)"
-    if ((Invoke-AppCommand "npx.cmd" @("prisma", "migrate", "resolve", "--applied", $BaselineMigration)).Code -ne 0) { Fail "migrate resolve failed" }
+    if ((Invoke-AppCommand "npx.cmd" @("prisma", "migrate", "resolve", "--applied", $BaselineMigration)).Code -ne 0) { Fail "migrate resolve failed" -Alert }
 }
 if ($otherPending.Count -gt 0) {
     Log ("applying migrations: {0}" -f ($otherPending -join ", "))
-    if ((Invoke-AppCommand "npx.cmd" @("prisma", "migrate", "deploy")).Code -ne 0) { Fail "prisma migrate deploy FAILED - the old build is still serving; restore the DB from the backup if the migration half-applied (backup-restore.md)" 1 }
+    if ((Invoke-AppCommand "npx.cmd" @("prisma", "migrate", "deploy")).Code -ne 0) { Fail "prisma migrate deploy FAILED - the old build is still serving; restore the DB from the backup if the migration half-applied (backup-restore.md)" 1 -Alert }
 }
 
 # ================================================================ 6. swap
 Log "swap $NewDir -> .next"
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $swap -NewDir $NewDir
 $swapCode = $LASTEXITCODE
-if ($swapCode -eq 1 -or $swapCode -eq 2) { Fail "swap failed (exit $swapCode; swap-build rolled the web build back if it could). See ops\logs\deploy.log" 1 }
-if ($swapCode -eq 3) { Log "web swapped but the worker did not come back (exit 3)" "WARN" }
+if ($swapCode -eq 1 -or $swapCode -eq 2) { Fail "swap failed (exit $swapCode; swap-build rolled the web build back if it could). See ops\logs\deploy.log" 1 -Alert }
+if ($swapCode -eq 3) {
+    Log "web swapped but the worker did not come back (exit 3)" "WARN"
+    Send-KanflowAlert -Key "deploy.worker" -Severity Warning -Source deploy -ThrottleMinutes 0 -Title "Deploy: web OK but the worker did not come back" `
+        -Message "swap-build exit 3 - translations queue up. See ops\logs\deploy.log and app\logs\worker-*.log."
+}
 
 if ($InstallWorker -and -not (Get-Service -Name "kanflowworker.exe" -ErrorAction SilentlyContinue)) {
     Log "installing the worker service"
@@ -233,7 +263,11 @@ if ($Phase -eq "B") {
 if ($problems.Count -gt 0) {
     Log ("post-deploy verification FAILED: {0} - rolling back to {1}" -f ($problems -join "; "), $liveId) "ERROR"
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $swap -Rollback
-    Log ("rollback exit {0}. Migrations/baseline resolution are NOT reverted - see deploy.md 'Rollback'." -f $LASTEXITCODE) "ERROR"
+    $rbCode = $LASTEXITCODE
+    Log ("rollback exit {0}. Migrations/baseline resolution are NOT reverted - see deploy.md 'Rollback'." -f $rbCode) "ERROR"
+    Send-KanflowAlert -Key "deploy.rollback" -Severity Error -Source deploy -ThrottleMinutes 0 `
+        -Title ("Deploy ROLLED BACK (phase {0}){1}" -f $Phase, $(if ($rbCode -ne 0) { " - ROLLBACK ALSO FAILED" } else { "" })) `
+        -Message ("Post-deploy verification failed: {0}. Rolled back to {1} (swap-build exit {2}). Migrations are NOT reverted (deploy.md section 6). Log: {3}" -f ($problems -join "; "), $liveId, $rbCode, $LogFile)
     exit 1
 }
 Log ("deploy OK: BUILD_ID {0} ({1} {2}), worker={3}, pending translations={4}" -f $newId, $head, $tag, $h.Worker, $h.Pending)

@@ -13,9 +13,9 @@ export default async function MyProfilePage() {
   if (!session?.user?.id) redirect("/login")
 
   return (
-    <div className="min-h-screen bg-gray-50/50">
+    <div className="min-h-screen bg-surface-muted">
       <Header />
-      <main className="max-w-3xl mx-auto px-4 sm:px-6 py-8">
+      <main id="main-content" className="page-narrow">
         <MyProfile />
       </main>
     </div>

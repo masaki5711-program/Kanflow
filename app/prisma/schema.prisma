@@ -17,6 +17,8 @@ model User {
   updatedAt         DateTime              @updatedAt
   isActive          Boolean               @default(true)
   role              String                @default("member")
+  /// Bumped to revoke every JWT issued for this user (deactivate / role change / password reset).
+  tokenVersion      Int                   @default(0)
   language          String                @default("ja")
   employeeNumber    String?               @unique
   department        String?
@@ -27,6 +29,12 @@ model User {
   sections          UserSection[]
   favoriteProjects  UserProjectFavorite[]
   fixedTasks        UserFixedTask[]
+  activityLogs      ActivityLog[]
+  notifications     Notification[]
+  notificationPrefs NotificationPreference[]
+  comments          Comment[]
+  commentMentions   CommentMention[]
+  taskAssignments   TaskAssignee[]
 
   @@index([department])
 }
@@ -141,6 +149,10 @@ model Project {
   progressPct         Int                             @default(0)
   // Card tint on the project list: gray|red|orange|yellow|green|blue|indigo|purple|pink; null = default white
   cardColor           String?
+  // Soft delete (trash). Null = live. deletedById is a plain User id (no FK,
+  // like CalendarEvent.createdBy); ActivityLog holds the full audit trail.
+  deletedAt           DateTime?
+  deletedById         String?
   attachmentFolders   AttachmentFolder[]
   calendarEvents      CalendarEvent[]
   iceboxItems         IceboxItem[]
@@ -156,6 +168,11 @@ model Project {
   favoritedBy         UserProjectFavorite[]
   planItems           PlanItem[]
   aiReports           AiReport[]
+  activityLogs        ActivityLog[]
+  notifications       Notification[]
+  comments            Comment[]
+
+  @@index([deletedAt])
 }
 
 model AiReport {
@@ -302,11 +319,17 @@ model IceboxItem {
   poReviewMemo    String?              @db.Text
   poFlag          String?
   sortOrder       Int                  @default(0)
+  /// Optimistic-lock counter: bumped on every update; stale writes get 409.
+  version         Int                  @default(0)
+  deletedAt       DateTime?
+  deletedById     String?
   attachments     IceboxAttachment[]
   project         Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
   backlogItems    ProductBacklogItem[]
 
+  @@unique([projectId, displayId])
   @@index([projectId])
+  @@index([projectId, deletedAt])
 }
 
 model IceboxAttachment {
@@ -342,13 +365,19 @@ model ProductBacklogItem {
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
   productGoalId      String?
-  iceboxItem         IceboxItem?          @relation(fields: [iceboxItemId], references: [id])
+  /// Optimistic-lock counter: bumped on every update; stale writes get 409.
+  version            Int                  @default(0)
+  deletedAt          DateTime?
+  deletedById        String?
+  iceboxItem        IceboxItem?          @relation(fields: [iceboxItemId], references: [id])
   productGoal        ProductGoal?         @relation(fields: [productGoalId], references: [id])
   project            Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
   releaseItems       ReleaseBacklogItem[]
   sprintItems        SprintBacklogItem[]
 
+  @@unique([projectId, displayId])
   @@index([projectId])
+  @@index([projectId, deletedAt])
   @@index([iceboxItemId])
   @@index([productGoalId])
 }
@@ -370,6 +399,8 @@ model Sprint {
   retrospectiveProblem String?          @db.Text
   retrospectiveTry  String?             @db.Text
   reviewComment     String?             @db.Text
+  /// Optimistic-lock counter: bumped on every update; stale writes get 409.
+  version           Int                 @default(0)
   calendarEvents    CalendarEvent[]
   dailyScrumNotes   DailyScrumNote[]
   project           Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
@@ -405,10 +436,15 @@ model SprintBacklogItem {
   status             String             @default("todo")
   completedAt        DateTime?
   completionComment  String?            @db.Text
+  /// Optimistic-lock counter: bumped on every update; stale writes get 409.
+  version            Int                @default(0)
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
   pbItem         ProductBacklogItem @relation(fields: [pbItemId], references: [id], onDelete: Cascade)
   sprint         Sprint             @relation(fields: [sprintId], references: [id], onDelete: Cascade)
+  /// Normalized assignees (P2). The legacy `assignee` string (comma-separated
+  /// names) stays during the transition; backfilled by scripts/migrate-assignees.ts.
+  assignees      TaskAssignee[]
 
   @@index([sprintId])
   @@index([pbItemId])
@@ -573,4 +609,118 @@ model Glossary {
   @@unique([sourceLocale, targetLocale, termNorm])
   @@index([sourceLocale, targetLocale])
   @@map("glossary")
+}
+
+// ---------------------------------------------------------------------------
+// P2 collaboration foundation (migration 20261002000000_p2_collab_foundation)
+// Table/column naming follows the core models (PascalCase table = model name,
+// camelCase columns, cuid ids), not the snake_case translation tables.
+// ---------------------------------------------------------------------------
+
+/// Audit / change history. One row per mutation of a tracked entity.
+/// entityType: project | pbi | sprint | sprint_task | icebox | comment | ...
+/// action: create | update | delete | restore | status_change | ...
+/// actorName is denormalized so history stays readable if the actor is gone.
+/// diff is a JSON string ({ field: [before, after] }) — Text, like the other
+/// JSON-in-Text columns (AiReport.structured / meta).
+model ActivityLog {
+  id         String   @id @default(cuid())
+  projectId  String
+  entityType String   @db.VarChar(32)
+  entityId   String   @db.VarChar(191)
+  action     String   @db.VarChar(32)
+  actorId    String?
+  actorName  String?
+  diff       String?  @db.Text
+  createdAt  DateTime @default(now())
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  actor      User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([projectId, createdAt])
+  @@index([entityType, entityId, createdAt])
+  @@index([actorId, createdAt])
+}
+
+/// In-app notification (bell). payload is a JSON string rendered client-side.
+/// dedupeKey (e.g. "due_soon:<taskId>:2026-10-02") makes scheduled jobs
+/// idempotent: a repeat insert with the same (recipientId, dedupeKey) fails
+/// with P2002 and is skipped. NULL keys never collide (MySQL unique semantics),
+/// so ad-hoc notifications simply leave it null.
+model Notification {
+  id          String    @id @default(cuid())
+  recipientId String
+  type        String    @db.VarChar(32)
+  entityType  String?   @db.VarChar(32)
+  entityId    String?   @db.VarChar(191)
+  projectId   String?
+  payload     String?   @db.Text
+  dedupeKey   String?   @db.VarChar(191)
+  readAt      DateTime?
+  createdAt   DateTime  @default(now())
+  recipient   User      @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+  project     Project?  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([recipientId, dedupeKey])
+  @@index([recipientId, readAt, createdAt])
+  @@index([recipientId, createdAt])
+  @@index([projectId])
+}
+
+/// Per-user opt-out per notification type. Missing row = enabled.
+model NotificationPreference {
+  userId  String
+  type    String  @db.VarChar(32)
+  enabled Boolean @default(true)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, type])
+}
+
+/// Comment thread on a PBI / sprint task / icebox request (polymorphic:
+/// entityType = pbi | sprint_task | icebox, entityId = that row's id).
+/// Soft-deleted comments keep their row (deletedAt) so thread order and
+/// mentions stay intact. author is Restrict: users are deactivated, never
+/// deleted, and a comment must not silently vanish with its author.
+model Comment {
+  id         String           @id @default(cuid())
+  projectId  String
+  entityType String           @db.VarChar(32)
+  entityId   String           @db.VarChar(191)
+  authorId   String
+  body       String           @db.Text
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+  editedAt   DateTime?
+  deletedAt  DateTime?
+  project    Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  author     User             @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  mentions   CommentMention[]
+
+  @@index([entityType, entityId, createdAt])
+  @@index([projectId, createdAt])
+  @@index([authorId])
+}
+
+/// @mentions parsed from Comment.body (drives mention notifications).
+model CommentMention {
+  commentId String
+  userId    String
+  comment   Comment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([commentId, userId])
+  @@index([userId])
+}
+
+/// Normalized sprint-task assignee (replaces the comma-separated
+/// SprintBacklogItem.assignee string; backfill: scripts/migrate-assignees.ts).
+model TaskAssignee {
+  taskId    String
+  userId    String
+  createdAt DateTime          @default(now())
+  task      SprintBacklogItem @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, userId])
+  @@index([userId])
 }

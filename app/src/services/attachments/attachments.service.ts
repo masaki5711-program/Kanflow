@@ -5,6 +5,7 @@ import { defaultDb, withTransaction } from "@/services/_shared/db"
 import { NotFoundError, StatusError, ValidationError } from "@/services/_shared/errors"
 import { wouldCreateCycle } from "@/services/_shared/tree"
 import * as repo from "./attachments.repository"
+import { assertStorageQuota } from "./storage-quota"
 import type { CreateFolderInput, MoveAttachmentInput, UpdateFolderInput } from "./attachments.schemas"
 
 const log = logger.child({ module: "attachments-service" })
@@ -42,6 +43,7 @@ async function assertFolderInProject(projectId: string, folderId: string): Promi
 export async function uploadAttachment(projectId: string, file: File | null, folderId: string | null, actor: Actor) {
   if (!file) throw new ValidationError("ファイルがありません", {}, "FILE_REQUIRED")
   if (folderId) await assertFolderInProject(projectId, folderId)
+  await assertStorageQuota(projectId, file.size)
   const saved = await saveUploadedFile(projectId, file)
   if (!saved.ok) throw new StatusError(saved.status, saved.error, {}, saved.code)
   const attachment = await repo.insertAttachment(defaultDb, {

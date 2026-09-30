@@ -20,6 +20,16 @@ Decision flow per run:
      -> Restart-KanflowWorker, at most once per -WorkerCooldownMin.
      "absent" heartbeat while Running = standby or still starting: warn only.
      Not installed while external: warn (every 6 h), no action.
+  C. Collabora check (unless -SkipCollaboraCheck / COLLABORA_MONITOR=off / no
+     Collabora URL in app\.env): GET <COLLABORA_INTERNAL_URL>/hosting/discovery.
+     After -CollaboraFailRuns consecutive failed runs: if the kanflow-collabora
+     container exists but is stopped (exited/created) and docker is usable by
+     this account -> "docker start" (never recreate; at most once per
+     -CollaboraCooldownMin), else alert only. Collabora is optional: its state
+     never triggers a web restart.
+Alerts (Send-KanflowAlert, throttled per key): watchdog.app-down, watchdog.app-restarted,
+watchdog.mysql-started, watchdog.worker-restarted, watchdog.worker-down, watchdog.error,
+collabora.down, collabora.started, and *.recovered notices when things come back.
 Healthy runs write nothing to the log (no log bloat).
 
 Until a build that contains /api/health is deployed, a 404 from /api/health
@@ -35,6 +45,9 @@ param(
     [string]$WorkerServiceName = "kanflowworker.exe",
     [ValidateRange(0, 1440)][int]$WorkerCooldownMin = 15,
     [switch]$SkipWorkerCheck,
+    [switch]$SkipCollaboraCheck,
+    [ValidateRange(1, 12)][int]$CollaboraFailRuns = 2,
+    [ValidateRange(0, 1440)][int]$CollaboraCooldownMin = 30,
     [int]$Port = 3000,
     [string]$HealthUrl = "http://127.0.0.1:3000/api/health",
     [string]$FallbackUrl = "http://127.0.0.1:3000/api/auth/csrf",
@@ -55,12 +68,20 @@ $MaintenanceFlag = Join-Path $PSScriptRoot "MAINTENANCE"
 
 function Log([string]$msg, [string]$level = "INFO") { Write-RotatingLog -Path $LogFile -Message $msg -Level $level -Quiet }
 
+function Alert([string]$key, [string]$severity, [string]$title, [string]$message) {
+    Send-KanflowAlert -Key $key -Severity $severity -Source watchdog -Title $title `
+        -Message ("{0}`r`nLog: {1}" -f $message, $LogFile)
+}
+
 function Read-State {
-    $s = [ordered]@{ lastRestart = $null; failedRuns = 0; lastMaintenanceLog = $null; lastWorkerRestart = $null; lastWorkerWarn = $null }
+    $s = [ordered]@{
+        lastRestart = $null; failedRuns = 0; lastMaintenanceLog = $null; lastWorkerRestart = $null; lastWorkerWarn = $null
+        appAlerted = $false; workerAlerted = $false; collaboraFailures = 0; collaboraAlerted = $false; lastCollaboraStart = $null
+    }
     if (Test-Path -LiteralPath $StateFile) {
         try {
             $j = Get-Content -LiteralPath $StateFile -Raw | ConvertFrom-Json
-            foreach ($k in @("lastRestart", "failedRuns", "lastMaintenanceLog", "lastWorkerRestart", "lastWorkerWarn")) {
+            foreach ($k in @($s.Keys)) {
                 if ($j.PSObject.Properties.Name -contains $k) { $s[$k] = $j.$k }
             }
         } catch { Log "state file unreadable; starting fresh" "WARN" }
@@ -122,15 +143,70 @@ function Invoke-WorkerCheck($state) {
         }
         return
     }
-    if (-not $reason) { return }
+    if (-not $reason) {
+        if ($state.workerAlerted) {
+            Log "worker healthy again (heartbeat $($hb.AgeSec)s)"
+            [void](Clear-KanflowAlert -Prefix "watchdog.worker")
+            Alert "watchdog.worker-recovered" Info "Kanflow worker healthy again" "Heartbeat is fresh ($($hb.AgeSec)s)."
+            $state.workerAlerted = $false; Save-State $state
+        }
+        return
+    }
     if (-not (Test-MinutesSince $state.lastWorkerRestart $WorkerCooldownMin)) {
         Log "worker unhealthy ($reason) but restarted less than $WorkerCooldownMin min ago - not restarting again" "ERROR"
+        $state.workerAlerted = $true; Save-State $state
+        Alert "watchdog.worker-down" Error "Kanflow worker still unhealthy after restart" "$reason. Restart was attempted less than $WorkerCooldownMin min ago; translations queue up. Check app\logs\worker-*.log and $($paths.WorkerDaemonDir)."
         return
     }
     Log "worker unhealthy ($reason) - restarting $WorkerServiceName" "WARN"
     $state.lastWorkerRestart = (Get-Date).ToString("o"); Save-State $state
-    if (Restart-KanflowWorker -ServiceName $WorkerServiceName -LogFile $LogFile) { Log "worker recovered" }
-    else { Log "worker restart did not produce a fresh heartbeat" "ERROR" }
+    if (Restart-KanflowWorker -ServiceName $WorkerServiceName -LogFile $LogFile) {
+        Log "worker recovered"
+        Alert "watchdog.worker-restarted" Warning "Kanflow worker was restarted by the watchdog" "$reason. The restart succeeded (fresh heartbeat)."
+    } else {
+        Log "worker restart did not produce a fresh heartbeat" "ERROR"
+        $state.workerAlerted = $true; Save-State $state
+        Alert "watchdog.worker-down" Error "Kanflow worker restart FAILED" "$reason. After restarting $WorkerServiceName there is no fresh heartbeat. Check app\logs\worker-*.log and $($paths.WorkerDaemonDir)."
+    }
+}
+
+function Invoke-CollaboraCheck($state) {
+    if ($SkipCollaboraCheck) { return }
+    $base = Get-KanflowCollaboraUrl
+    if (-not $base) { return }
+    $probe = Test-KanflowCollabora -BaseUrl $base -TimeoutSec $ProbeTimeoutSec
+    if ($probe.Ok) {
+        if ([int]$state.collaboraFailures -gt 0 -or $state.collaboraAlerted) {
+            Log "collabora reachable again after $($state.collaboraFailures) failed run(s)"
+            if ($state.collaboraAlerted) {
+                [void](Clear-KanflowAlert -Prefix "collabora.")
+                Alert "collabora.recovered" Info "Collabora is reachable again" "$($probe.Url) answers."
+            }
+            $state.collaboraFailures = 0; $state.collaboraAlerted = $false; Save-State $state
+        }
+        return
+    }
+    $state.collaboraFailures = [int]$state.collaboraFailures + 1
+    $ct = Get-KanflowCollaboraContainer
+    $desc = "discovery http={0} err={1}; container={2}{3}{4}" -f $probe.StatusCode, $probe.Error, $ct.State,
+        $(if ($ct.Health) { "/$($ct.Health)" } else { "" }), $(if ($ct.Detail) { " ($($ct.Detail))" } else { "" })
+    Log ("collabora check failed ({0}/{1}): {2}" -f $state.collaboraFailures, $CollaboraFailRuns, $desc) "WARN"
+    if ($state.collaboraFailures -lt $CollaboraFailRuns) { Save-State $state; return }
+
+    $state.collaboraAlerted = $true
+    $stopped = @("exited", "created") -contains $ct.State
+    if ($stopped -and (Test-MinutesSince $state.lastCollaboraStart $CollaboraCooldownMin)) {
+        $state.lastCollaboraStart = (Get-Date).ToString("o"); Save-State $state
+        Log "collabora container is $($ct.State) - docker start kanflow-collabora (existing container, not recreated)" "WARN"
+        $started = Start-KanflowCollaboraContainer
+        Log ("docker start: {0}" -f $(if ($started) { "accepted" } else { "FAILED" })) $(if ($started) { "INFO" } else { "ERROR" })
+        Alert "collabora.started" Warning "Collabora container was stopped - watchdog started it" `
+            ("{0}. docker start {1}. Document editing should be back within ~1 min; if not: start-collabora.bat (runbook.md section 5)." -f $desc, $(if ($started) { "accepted" } else { "FAILED" }))
+        return
+    }
+    Save-State $state
+    Alert "collabora.down" Error "Collabora (document editing) is unreachable" `
+        ("{0}. Kanflow itself keeps working; Word/Excel editing does not. Fix: start Rancher Desktop / start-collabora.bat; after host-name changes 'docker compose -f docker-compose-collabora.yml up -d --force-recreate' (runbook.md section 5)." -f $desc)
 }
 
 # ======================================================================
@@ -154,10 +230,16 @@ try {
     }
 
     try { Invoke-WorkerCheck $state } catch { Log ("worker check failed: {0}" -f $_.Exception.Message) "ERROR" }
+    try { Invoke-CollaboraCheck $state } catch { Log ("collabora check failed: {0}" -f $_.Exception.Message) "ERROR" }
 
     $p1 = Invoke-Probe
     if ($p1.Ok) {
         if ($state.failedRuns -gt 0) { Log "healthy again after $($state.failedRuns) failed run(s)"; $state.failedRuns = 0; Save-State $state }
+        if ($state.appAlerted) {
+            [void](Clear-KanflowAlert -Key @("watchdog.app-down", "watchdog.error"))
+            Alert "watchdog.app-recovered" Info "Kanflow is healthy again" (Format-Probe $p1)
+            $state.appAlerted = $false; Save-State $state
+        }
         exit 0
     }
     Log ("probe 1 failed: {0}; re-probing in {1}s" -f (Format-Probe $p1), $RetryDelaySec) "WARN"
@@ -175,6 +257,7 @@ try {
             if (Wait-Condition -TimeoutSec 60 -IntervalSec 5 -Condition { (Invoke-Probe).Ok }) {
                 Log "recovered after starting $MySqlServiceName"
                 $state.failedRuns = 0; Save-State $state
+                Alert "watchdog.mysql-started" Warning "MySQL ($MySqlServiceName) was stopped - watchdog started it" ("Kanflow reported db=error; after starting {0} it is healthy again. Check D:\APP\Kanflow\mysql-logs\error.log for the cause." -f $MySqlServiceName)
                 exit 0
             }
             Log "app still unhealthy after starting $MySqlServiceName" "ERROR"
@@ -187,6 +270,8 @@ try {
             $state.failedRuns = [int]$state.failedRuns + 1
             Save-State $state
             Log ("last restart was {0:N0} min ago (< {1} min cooldown) - not restarting again; failed runs: {2}. Manual check needed: recover.bat, daemon logs in {3}" -f $since.TotalMinutes, $CooldownMin, $state.failedRuns, $paths.DaemonDir) "ERROR"
+            $state.appAlerted = $true; Save-State $state
+            Alert "watchdog.app-down" Error "Kanflow is DOWN (restart did not help)" ("{0}. Last restart {1:N0} min ago; {2} failed run(s). Manual action: recover.bat (admin), daemon logs in {3}." -f (Format-Probe $p2), $since.TotalMinutes, $state.failedRuns, $paths.DaemonDir)
             exit 1
         }
     }
@@ -199,10 +284,16 @@ try {
         $ok = (Invoke-Probe).Ok
         if ($ok) { Log "service answers the fallback probe - treating restart as successful" }
     }
-    if ($ok) { $state.failedRuns = 0 } else { $state.failedRuns = [int]$state.failedRuns + 1 }
+    if ($ok) { $state.failedRuns = 0 } else { $state.failedRuns = [int]$state.failedRuns + 1; $state.appAlerted = $true }
     Save-State $state
-    if ($ok) { exit 0 } else { exit 1 }
+    if ($ok) {
+        Alert "watchdog.app-restarted" Warning "Kanflow was restarted by the watchdog" ("Health failed twice ({0}); the restart succeeded. Check the daemon logs in {1} for the cause." -f (Format-Probe $p2), $paths.DaemonDir)
+        exit 0
+    }
+    Alert "watchdog.app-down" Error "Kanflow is DOWN - watchdog restart FAILED" ("{0}. Manual action: recover.bat (admin), daemon logs in {1}." -f (Format-Probe $p2), $paths.DaemonDir)
+    exit 1
 } catch {
     Log ("watchdog error: {0}" -f $_.Exception.Message) "ERROR"
+    Alert "watchdog.error" Error "Kanflow watchdog script error" $_.Exception.Message
     exit 1
 }

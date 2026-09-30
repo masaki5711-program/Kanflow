@@ -40,7 +40,8 @@ export interface GanttText {
 }
 
 export const ROW_HEIGHT = 40
-export const LEFT_PANEL_WIDTH = 320
+/** Left task list: narrow on phones, 320px from `md` up (toggleable in the toolbar). */
+export const LEFT_PANEL_WIDTH_CLASS = "w-44 sm:w-64 md:w-80"
 export const HEADER_HEIGHT = 64
 export const DAY_WIDTH_MAP: Record<ZoomLevel, number> = { week: 50, "2weeks": 36, month: 20 }
 export const ZOOM_LEVELS: readonly ZoomLevel[] = ["week", "2weeks", "month"]

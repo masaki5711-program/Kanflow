@@ -17,6 +17,15 @@ vi.mock("../sections/section-management", () => ({ SectionManagement: () => <div
 vi.mock("../translations/translation-queue-panel", () => ({ TranslationQueuePanel: () => <div>TRANSLATIONS</div> }))
 vi.mock("../users/user-management", () => ({ UserManagement: () => <div>USERS</div> }))
 
+/** Tables use the wide page width, small list/queue screens the narrow one. */
+const WIDTH: Record<string, string> = {
+  CATEGORIES: "page-narrow",
+  GLOSSARY: "page-wide",
+  SECTIONS: "page-wide",
+  TRANSLATIONS: "page-narrow",
+  USERS: "page-wide",
+}
+
 const pages = {
   CATEGORIES: (await import("../categories/page")).default,
   GLOSSARY: (await import("../glossary/page")).default,
@@ -43,6 +52,7 @@ describe.each(Object.entries(pages))("admin %s page", (marker, Page) => {
     render(await Page())
     expect(screen.getByText("HEADER")).toBeInTheDocument()
     expect(screen.getByText(marker)).toBeInTheDocument()
+    expect(screen.getByRole("main")).toHaveClass(WIDTH[marker])
     expect(m.redirect).not.toHaveBeenCalled()
   })
 })

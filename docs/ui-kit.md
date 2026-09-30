@@ -30,6 +30,7 @@ They do **not** override stock Tailwind scales (`rounded-lg`, `shadow-md`, `text
 | `--shadow-ui-sm/md/lg/overlay` | `shadow-ui-md` | elevation levels |
 | `--text-caption/body/body-lg/title/heading` | `text-caption text-body …` | 12 / 14 / 16 / 18 / 22px — **nothing smaller than 12px** |
 | `--ease-ui` | `ease-ui` | standard easing |
+| page widths (`@utility`) | `<main id="main-content" className="page-narrow">` / `page-wide` | top-level page `<main>`: narrow = 48rem (forms, settings, profile, small admin lists), wide = 80rem (project list, admin tables). Includes gutters (16px / 24px from `sm`) and 2rem vertical padding |
 
 Global rules:
 - **Focus**: every interactive element gets `outline: 2px solid var(--color-focus); outline-offset: 2px` on `:focus-visible`. It is unlayered, so it wins over legacy `focus:outline-none`. Do not try to remove it.

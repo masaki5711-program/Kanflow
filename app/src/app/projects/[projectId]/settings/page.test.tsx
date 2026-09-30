@@ -208,10 +208,15 @@ describe("SectionAssignSection", () => {
     await user.click(one)
     await user.click(three)
     const card = screen.getByRole("heading", { name: t.sectionTitle }).closest("section") as HTMLElement
-    await user.click(within(card).getByRole("button", { name: t.save }))
+    const saveBtn = within(card).getByRole("button", { name: t.save })
+    expect(within(card).getByText(t.settingsUnsavedChanges)).toBeInTheDocument()
+    await user.click(saveBtn)
     await waitFor(() => expect(calls("PATCH", "/api/projects/p1")).toHaveLength(1))
     expect(bodyOf(calls("PATCH", "/api/projects/p1")[0])).toEqual({ sectionIds: ["s2", "s3"] })
     expect(await screen.findByText(t.saved)).toBeInTheDocument()
+    // Clean again → save disabled, no unsaved hint.
+    await waitFor(() => expect(saveBtn).toBeDisabled())
+    expect(within(card).queryByText(t.settingsUnsavedChanges)).not.toBeInTheDocument()
   })
 
   it("shows an empty state and disables save when no sections exist (admin)", async () => {
@@ -227,10 +232,12 @@ describe("SectionAssignSection", () => {
     overrides["PATCH /api/projects/p1"] = () => jsonResponse({ error: "x" }, 500)
     const user = userEvent.setup()
     await renderLoaded()
-    await screen.findByRole("checkbox", { name: "Sec One" })
+    await user.click(await screen.findByRole("checkbox", { name: "Sec Three" }))
     const card = screen.getByRole("heading", { name: t.sectionTitle }).closest("section") as HTMLElement
     await user.click(within(card).getByRole("button", { name: t.save }))
     expect(await screen.findByText(t.settingsSaveFailed)).toBeInTheDocument()
+    // Still dirty after a failed save.
+    expect(within(card).getByText(t.settingsUnsavedChanges)).toBeInTheDocument()
   })
 })
 
@@ -294,7 +301,11 @@ describe("SprintWorkloadSection", () => {
     overrides["PATCH /api/projects/p1"] = () => jsonResponse({ error: "x" }, 500)
     const user = userEvent.setup()
     await renderLoaded()
-    await user.click(await screen.findByRole("button", { name: t.settingsSaveButton }))
+    const saveBtn = await screen.findByRole("button", { name: t.settingsSaveButton })
+    expect(saveBtn).toBeDisabled()
+    await user.type(screen.getByRole("spinbutton", { name: new RegExp(t.settingsDefaultCapacity) }), "5")
+    expect(saveBtn).toBeEnabled()
+    await user.click(saveBtn)
     expect(await screen.findByText(t.settingsSaveFailed)).toBeInTheDocument()
   })
 
@@ -310,29 +321,45 @@ describe("SprintWorkloadSection", () => {
 })
 
 describe("General sections", () => {
-  it("switches language via the language buttons", async () => {
-    const user = userEvent.setup()
+  it("no longer offers a language switch (it is a personal setting on /me and in the header)", async () => {
     await renderLoaded()
-    const group = screen.getByRole("group", { name: t.settingsLanguageLabel })
-    const buttons = within(group).getAllByRole("button")
-    expect(buttons[0]).toHaveAttribute("aria-pressed", "true")
-    await user.click(buttons[1])
-    const en = getTranslations("en")
-    expect(await screen.findByRole("heading", { level: 1, name: en.settingsTitle })).toBeInTheDocument()
+    expect(screen.queryByRole("group", { name: t.settingsLanguageLabel })).not.toBeInTheDocument()
+    expect(screen.queryByRole("heading", { name: t.settingsLanguage })).not.toBeInTheDocument()
   })
 
-  it("changes the project type on success and toasts on failure", async () => {
+  it("asks for confirmation before changing the project type", async () => {
+    const user = userEvent.setup()
+    await renderLoaded()
+    const group = screen.getByRole("group", { name: t.projectType })
+    const [software, process] = within(group).getAllByRole("button")
+
+    await user.click(process)
+    const dialog = await screen.findByRole("alertdialog")
+    expect(within(dialog).getByText(t.settingsProjectTypeConfirmTitle)).toBeInTheDocument()
+    await user.click(within(dialog).getByRole("button", { name: t.cancel }))
+    expect(calls("PATCH", "/api/projects/p1")).toHaveLength(0)
+    expect(software).toHaveAttribute("aria-pressed", "true")
+
+    // Clicking the already-selected type does nothing.
+    await user.click(software)
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+  })
+
+  it("changes the project type after confirmation and toasts on failure", async () => {
     const user = userEvent.setup()
     await renderLoaded()
     const group = screen.getByRole("group", { name: t.projectType })
     const [software, process] = within(group).getAllByRole("button")
     expect(software).toHaveAttribute("aria-pressed", "true")
     await user.click(process)
+    await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: t.settingsProjectTypeConfirmButton }))
     await waitFor(() => expect(process).toHaveAttribute("aria-pressed", "true"))
     expect(bodyOf(calls("PATCH", "/api/projects/p1")[0])).toEqual({ projectType: "process_improvement" })
+    expect(await screen.findByText(t.settingsProjectTypeChanged)).toBeInTheDocument()
 
     overrides["PATCH /api/projects/p1"] = () => jsonResponse({ error: "x" }, 500)
     await user.click(software)
+    await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: t.settingsProjectTypeConfirmButton }))
     expect(await screen.findByText(t.settingsProjectTypeChangeFailed)).toBeInTheDocument()
     expect(process).toHaveAttribute("aria-pressed", "true")
   })

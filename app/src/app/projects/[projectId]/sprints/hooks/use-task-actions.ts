@@ -11,6 +11,10 @@ import type { SprintsData } from "./use-sprints-data"
 
 type Deps = Pick<SprintsData, "sprints" | "refetchSprints" | "mutateSprints">
 
+function isFinishedSprint(sprint: { status: string } | undefined): boolean {
+  return sprint?.status === "done" || sprint?.status === "archived"
+}
+
 /** Task-level writes. Status toggles and deletes are optimistic with rollback. */
 export function useTaskActions(projectId: string, { sprints, refetchSprints, mutateSprints }: Deps) {
   const { t } = useLanguage()
@@ -73,7 +77,11 @@ export function useTaskActions(projectId: string, { sprints, refetchSprints, mut
     mutateSprints(patchTask(sprints, sprintId, taskId, body))
     try {
       await apiFetch(`${tasksUrl(sprintId)}/${taskId}`, { method: "PATCH", json: body })
-      refetchSprints()
+      // The optimistic patch already shows the new status and every in-card
+      // metric is derived client-side, so no full reload of all sprints.
+      // Only a finished sprint's stored actualScore (average shown in the
+      // header) needs the server's recalculation.
+      if (isFinishedSprint(sprints.find((s) => s.id === sprintId))) refetchSprints()
     } catch (err) {
       mutateSprints(snapshot)
       toast.error(messageOf(err, t.error), { title: t.sprintTaskStatusFailed })

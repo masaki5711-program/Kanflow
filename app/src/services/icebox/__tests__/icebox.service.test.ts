@@ -4,12 +4,16 @@ vi.mock("@/services/_shared/db", async () => (await import("@/services/__tests__
 vi.mock("@/services/_shared/translations", async () => (await import("@/services/__tests__/support")).translationMock())
 vi.mock("@/lib/api-helpers", () => ({ saveUploadedFile: vi.fn(), deleteUploadedFile: vi.fn(async () => undefined) }))
 vi.mock("../icebox.repository")
+vi.mock("@/services/attachments/storage-quota", () => ({ assertStorageQuota: vi.fn(async () => undefined) }))
 
 const repo = await import("../icebox.repository")
 const tr = await import("@/services/_shared/translations")
 const files = await import("@/lib/api-helpers")
-const { ACTOR, TX, DEFAULT_DB } = await import("@/services/__tests__/support")
+const { ACTOR, TX, DEFAULT_DB, prismaError } = await import("@/services/__tests__/support")
+const { withTransaction } = await import("@/services/_shared/db")
 const svc = await import("../icebox.service")
+const { assertStorageQuota } = await import("@/services/attachments/storage-quota")
+const { StatusError } = await import("@/services/_shared/errors")
 
 const fakeFile = new File(["x"], "a.txt", { type: "text/plain" })
 
@@ -39,6 +43,23 @@ describe("icebox.service", () => {
       status: "unreviewed",
     }))
     expect(tr.enqueueIn).toHaveBeenCalledWith(TX, "icebox_item", "n", { id: "n" })
+  })
+
+  it("retries the create transaction when the displayId collides (P2002)", async () => {
+    vi.mocked(repo.nextIceboxDisplayId).mockResolvedValueOnce(12).mockResolvedValueOnce(13)
+    vi.mocked(repo.insertIceboxItem).mockRejectedValueOnce(prismaError("P2002")).mockResolvedValueOnce({ id: "n" } as never)
+    await expect(svc.createIceboxItem("p1", { request: "R" }, ACTOR)).resolves.toEqual({ id: "n" })
+    expect(withTransaction).toHaveBeenCalledTimes(2)
+    expect(repo.insertIceboxItem).toHaveBeenLastCalledWith(TX, expect.objectContaining({ displayId: 13 }))
+  })
+
+  it("surfaces a 409 when the displayId keeps colliding", async () => {
+    vi.mocked(repo.nextIceboxDisplayId).mockResolvedValue(12)
+    vi.mocked(repo.insertIceboxItem)
+      .mockRejectedValueOnce(prismaError("P2002"))
+      .mockRejectedValueOnce(prismaError("P2002"))
+      .mockRejectedValueOnce(prismaError("P2002"))
+    await expect(svc.createIceboxItem("p1", { request: "R" }, ACTOR)).rejects.toMatchObject({ status: 409 })
   })
 
   it("updates and enqueues the changed fields", async () => {
@@ -75,6 +96,14 @@ describe("icebox.service", () => {
     })
     vi.mocked(repo.insertIceboxAttachment).mockResolvedValueOnce({ id: "att" } as never)
     await expect(svc.uploadIceboxAttachment("p1", "i", fakeFile)).resolves.toEqual({ id: "att" })
+  })
+
+  it("upload enforces the project storage quota before writing the file", async () => {
+    vi.mocked(repo.findIceboxItemId).mockResolvedValue({ id: "i" })
+    vi.mocked(assertStorageQuota).mockRejectedValueOnce(new StatusError(413, "quota", {}, "STORAGE_QUOTA_EXCEEDED"))
+    await expect(svc.uploadIceboxAttachment("p1", "i", fakeFile)).rejects.toMatchObject({ code: "STORAGE_QUOTA_EXCEEDED" })
+    expect(assertStorageQuota).toHaveBeenCalledWith("p1", fakeFile.size)
+    expect(files.saveUploadedFile).not.toHaveBeenCalled()
   })
 
   it("attachment get / delete", async () => {

@@ -15,9 +15,9 @@ export default async function AdminGlossaryPage() {
   if (session.user.role !== "admin") redirect("/")
 
   return (
-    <div className="min-h-screen bg-gray-50/50">
+    <div className="min-h-screen bg-surface-muted">
       <Header />
-      <main className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
+      <main id="main-content" className="page-wide">
         <GlossaryManagement />
       </main>
     </div>

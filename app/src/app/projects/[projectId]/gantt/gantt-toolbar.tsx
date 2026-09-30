@@ -1,6 +1,7 @@
 "use client"
 
-import { Button, cn } from "@/components/ui"
+import { PanelLeftClose, PanelLeftOpen } from "lucide-react"
+import { Button, IconButton, cn } from "@/components/ui"
 import { useLanguage } from "@/lib/language-context"
 import { ZOOM_LEVELS, type ZoomLevel } from "./gantt-types"
 
@@ -11,6 +12,10 @@ interface GanttToolbarProps {
   sprintCount: number
   taskCount: number
   completionPct: number
+  isListOpen: boolean
+  onToggleList: () => void
+  /** id of the left panel (aria-controls). */
+  listId: string
 }
 
 export function GanttToolbar({
@@ -20,6 +25,9 @@ export function GanttToolbar({
   sprintCount,
   taskCount,
   completionPct,
+  isListOpen,
+  onToggleList,
+  listId,
 }: GanttToolbarProps) {
   const { t } = useLanguage()
   const zoomLabel: Record<ZoomLevel, string> = {
@@ -30,6 +38,15 @@ export function GanttToolbar({
 
   return (
     <div className="px-4 py-2.5 border-b border-border bg-surface flex flex-wrap items-center gap-4 shrink-0 shadow-ui-sm">
+      <IconButton
+        label={isListOpen ? t.ganttHideList : t.ganttShowList}
+        icon={isListOpen ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeftOpen className="h-4 w-4" />}
+        variant="secondary"
+        size="sm"
+        aria-expanded={isListOpen}
+        aria-controls={listId}
+        onClick={onToggleList}
+      />
       <div
         role="group"
         aria-label={t.ganttZoomLabel}

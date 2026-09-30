@@ -76,10 +76,13 @@ describe("TopPage", () => {
     expect(screen.getByText(t.topMyTasksEmpty)).toBeInTheDocument()
   })
 
-  it("switches language from the hero selector and opens the fixed tasks modal", async () => {
+  it("has no duplicate language selector (it lives in the header) and opens the fixed tasks modal", async () => {
     const user = userEvent.setup()
-    renderWithProviders(<TopPage activeProjects={[]} archivedProjects={[]} categories={[]} isAdmin={false} myTasks={[]} userName="A" />)
-    await user.selectOptions(screen.getByRole("combobox", { name: tr("ja").topLanguageLabel }), "id")
+    renderWithProviders(
+      <TopPage activeProjects={[]} archivedProjects={[]} categories={[]} isAdmin={false} myTasks={[]} userName="A" />,
+      { language: "id" },
+    )
+    expect(screen.queryByRole("combobox", { name: tr("id").topLanguageLabel })).not.toBeInTheDocument()
     const tid = tr("id")
     expect(screen.getByRole("heading", { name: tid.topMyTasksHeading })).toBeInTheDocument()
 

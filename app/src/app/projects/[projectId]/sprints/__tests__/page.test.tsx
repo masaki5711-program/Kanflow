@@ -32,7 +32,7 @@ const pb1 = pb("pb1", { workloadScore: 8, epic: "Epic 1" })
 function baseRoutes(sprints: unknown, extra: Routes = {}): Routes {
   return {
     [`${BASE}/sprints`]: sprints,
-    [`${BASE}/backlog`]: { readyItems: [{ ...pb("pb9"), status: "ready" }] },
+    [`${BASE}/backlog?status=ready`]: { readyItems: [{ ...pb("pb9"), status: "ready" }] },
     [`${BASE}/events`]: [
       { id: "e1", title: "Review meeting", description: null, date: "2026-09-10T00:00:00.000Z", endDate: null, color: "green", sprintId: "s1", sprint: null },
     ],
@@ -123,18 +123,60 @@ describe("SprintsPage", () => {
     expect(screen.getByText(t.sprintTaskStatusFailed)).toBeInTheDocument()
   })
 
-  it("keeps the new status and refetches when the toggle succeeds", async () => {
-    let sprints = [sprint("s1", { items: [task("t1", pb1, { status: "done" })] })]
+  it("keeps the new status without reloading every sprint when the toggle succeeds", async () => {
+    const patch = deferred<Response>()
+    const { calls } = stubFetch(baseRoutes([sprint("s1", { items: [task("t1", pb1, { status: "done" })] })], {
+      [`PATCH ${BASE}/sprints/s1/tasks/t1`]: () => patch.promise,
+    }))
+    renderWithProviders(<SprintsPage />)
+    await userEvent.click(await screen.findByRole("button", { name: toggleLabel("Task t1", t.taskDone) }))
+    patch.resolve(json({ id: "t1", status: "todo" }))
+    await waitFor(() => expect(calls.some((c) => c.method === "PATCH")).toBe(true))
+    expect(await screen.findByRole("button", { name: toggleLabel("Task t1", t.taskTodo) })).toBeInTheDocument()
+    // Let the resolved PATCH settle, then make sure the list was fetched only once.
+    await new Promise((r) => setTimeout(r, 20))
+    expect(calls.filter((c) => c.url === `${BASE}/sprints` && c.method === "GET")).toHaveLength(1)
+    expect(screen.getByRole("button", { name: toggleLabel("Task t1", t.taskTodo) })).toBeInTheDocument()
+  })
+
+  it("refetches after a status toggle inside a finished sprint (stored score changes)", async () => {
+    let sprints = [sprint("s1", { status: "done", items: [task("t1", pb1, { status: "done" })] })]
     const { calls } = stubFetch(baseRoutes(() => json(sprints), {
       [`PATCH ${BASE}/sprints/s1/tasks/t1`]: (body: unknown) => {
-        sprints = [sprint("s1", { items: [task("t1", pb1, { status: (body as { status: string }).status })] })]
+        sprints = [sprint("s1", { status: "done", items: [task("t1", pb1, { status: (body as { status: string }).status })] })]
         return json({})
       },
     }))
     renderWithProviders(<SprintsPage />)
+    // Finished sprints start collapsed.
+    const details = await screen.findByRole("button", { name: t.sprintToggleDetails.replace("{name}", "Sprint s1") })
+    expect(details).toHaveAttribute("aria-expanded", "false")
+    await userEvent.click(details)
     await userEvent.click(await screen.findByRole("button", { name: toggleLabel("Task t1", t.taskDone) }))
     expect(await screen.findByRole("button", { name: toggleLabel("Task t1", t.taskTodo) })).toBeInTheDocument()
     await waitFor(() => expect(calls.filter((c) => c.url === `${BASE}/sprints` && c.method === "GET").length).toBeGreaterThan(1))
+  })
+
+  it("expands only in-flight sprints by default", async () => {
+    stubFetch(baseRoutes([
+      sprint("s1", { status: "planning" }),
+      sprint("s2", { status: "active" }),
+      sprint("s3", { status: "review" }),
+      sprint("s4", { status: "done" }),
+    ]))
+    renderWithProviders(<SprintsPage />)
+    const expanded = (id: string) =>
+      screen.getByRole("button", { name: t.sprintToggleDetails.replace("{name}", `Sprint ${id}`) }).getAttribute("aria-expanded")
+    await screen.findByText("Sprint s4")
+    expect(["s1", "s2", "s3", "s4"].map(expanded)).toEqual(["true", "true", "true", "false"])
+  })
+
+  it("requests only READY backlog items for sprint planning", async () => {
+    const { calls } = stubFetch(baseRoutes([]))
+    renderWithProviders(<SprintsPage />)
+    await screen.findByText(t.sprintNoSprints)
+    expect(calls.some((c) => c.url === `${BASE}/backlog?status=ready`)).toBe(true)
+    expect(calls.some((c) => c.url === `${BASE}/backlog`)).toBe(false)
   })
 
   it("asks for a completion comment before marking a task done", async () => {

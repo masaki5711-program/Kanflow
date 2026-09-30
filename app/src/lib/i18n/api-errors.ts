@@ -56,6 +56,8 @@ export interface ApiErrorsTranslations {
   apiErrFolderNotFound: string
   apiErrFolderSelfParent: string
   apiErrFolderCycle: string
+  apiErrFileTypeMismatch: string
+  apiErrStorageQuotaExceeded: string
   apiErrInvalidDate: string
   apiErrGlossarySameLocale: string
   apiErrTranslationFailed: string
@@ -116,6 +118,8 @@ export const API_ERROR_MESSAGE_KEYS: Readonly<Record<ApiErrorCode, ApiErrorMessa
   FOLDER_NOT_FOUND: "apiErrFolderNotFound",
   FOLDER_SELF_PARENT: "apiErrFolderSelfParent",
   FOLDER_CYCLE: "apiErrFolderCycle",
+  FILE_TYPE_MISMATCH: "apiErrFileTypeMismatch",
+  STORAGE_QUOTA_EXCEEDED: "apiErrStorageQuotaExceeded",
   INVALID_DATE: "apiErrInvalidDate",
   GLOSSARY_SAME_LOCALE: "apiErrGlossarySameLocale",
   TRANSLATION_FAILED: "apiErrTranslationFailed",
@@ -179,6 +183,8 @@ export const ja: ApiErrorsTranslations = {
   apiErrFolderNotFound: "フォルダがありません",
   apiErrFolderSelfParent: "自分自身を親にはできません",
   apiErrFolderCycle: "循環参照になります",
+  apiErrFileTypeMismatch: "ファイルの内容が拡張子と一致しません",
+  apiErrStorageQuotaExceeded: "プロジェクトの添付ファイル容量の上限に達しました。不要なファイルを削除してください",
   apiErrInvalidDate: "日付が不正です",
   apiErrGlossarySameLocale: "翻訳元と翻訳先の言語は別にしてください",
   apiErrTranslationFailed: "翻訳に失敗しました",
@@ -236,6 +242,8 @@ export const en: ApiErrorsTranslations = {
   apiErrFolderNotFound: "Folder not found",
   apiErrFolderSelfParent: "A folder cannot be its own parent",
   apiErrFolderCycle: "This would create a circular folder structure",
+  apiErrFileTypeMismatch: "The file contents do not match its extension",
+  apiErrStorageQuotaExceeded: "This project has reached its attachment storage limit. Delete files you no longer need",
   apiErrInvalidDate: "Invalid date",
   apiErrGlossarySameLocale: "Source and target languages must differ",
   apiErrTranslationFailed: "Translation failed",
@@ -293,6 +301,8 @@ export const id: ApiErrorsTranslations = {
   apiErrFolderNotFound: "Folder tidak ditemukan",
   apiErrFolderSelfParent: "Folder tidak dapat menjadi induk bagi dirinya sendiri",
   apiErrFolderCycle: "Tindakan ini akan membuat struktur folder melingkar",
+  apiErrFileTypeMismatch: "Isi file tidak sesuai dengan ekstensinya",
+  apiErrStorageQuotaExceeded: "Proyek ini telah mencapai batas penyimpanan lampiran. Hapus file yang tidak diperlukan",
   apiErrInvalidDate: "Tanggal tidak valid",
   apiErrGlossarySameLocale: "Bahasa sumber dan bahasa tujuan harus berbeda",
   apiErrTranslationFailed: "Terjemahan gagal",

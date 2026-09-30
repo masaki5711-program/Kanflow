@@ -25,5 +25,6 @@ describe("MyProfilePage (server)", () => {
     m.auth.mockResolvedValue({ user: { id: "u1", role: "member" } })
     render(await MyProfilePage())
     expect(screen.getByText("PROFILE")).toBeInTheDocument()
+    expect(screen.getByRole("main")).toHaveClass("page-narrow")
   })
 })

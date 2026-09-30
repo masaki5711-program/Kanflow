@@ -55,6 +55,11 @@ export interface SettingsTranslations {
   settingsLoadFailed: string
   settingsMembersEmpty: string
   settingsProjectTypeChangeFailed: string
+  settingsProjectTypeConfirmTitle: string
+  settingsProjectTypeConfirmMessage: string
+  settingsProjectTypeConfirmButton: string
+  settingsProjectTypeChanged: string
+  settingsUnsavedChanges: string
   settingsRoleOf: string
   settingsRemoveMemberOf: string
 }
@@ -106,6 +111,11 @@ export const ja: SettingsTranslations = {
   settingsLoadFailed: "設定の読み込みに失敗しました",
   settingsMembersEmpty: "メンバーがいません",
   settingsProjectTypeChangeFailed: "プロジェクト種別の変更に失敗しました",
+  settingsProjectTypeConfirmTitle: "プロジェクト種別を変更しますか？",
+  settingsProjectTypeConfirmMessage: "「{type}」に切り替えると、このプロジェクトの画面上の用語（スプリント・バックログなど）がメンバー全員について切り替わります。データは変更されません。",
+  settingsProjectTypeConfirmButton: "変更する",
+  settingsProjectTypeChanged: "プロジェクト種別を変更しました",
+  settingsUnsavedChanges: "未保存の変更があります",
   settingsRoleOf: "{name} の役割",
   settingsRemoveMemberOf: "{name} を削除",
 }
@@ -157,6 +167,11 @@ export const en: SettingsTranslations = {
   settingsLoadFailed: "Failed to load settings",
   settingsMembersEmpty: "No members yet",
   settingsProjectTypeChangeFailed: "Failed to change the project type",
+  settingsProjectTypeConfirmTitle: "Change the project type?",
+  settingsProjectTypeConfirmMessage: "Switching to \"{type}\" changes the terminology (sprint, backlog, …) of this project for every member. No data is changed.",
+  settingsProjectTypeConfirmButton: "Change",
+  settingsProjectTypeChanged: "Project type changed",
+  settingsUnsavedChanges: "You have unsaved changes",
   settingsRoleOf: "Role of {name}",
   settingsRemoveMemberOf: "Remove {name}",
 }
@@ -208,6 +223,11 @@ export const id: SettingsTranslations = {
   settingsLoadFailed: "Gagal memuat pengaturan",
   settingsMembersEmpty: "Belum ada anggota",
   settingsProjectTypeChangeFailed: "Gagal mengubah jenis proyek",
+  settingsProjectTypeConfirmTitle: "Ubah jenis proyek?",
+  settingsProjectTypeConfirmMessage: "Beralih ke \"{type}\" akan mengubah istilah (sprint, backlog, …) proyek ini untuk semua anggota. Data tidak diubah.",
+  settingsProjectTypeConfirmButton: "Ubah",
+  settingsProjectTypeChanged: "Jenis proyek diubah",
+  settingsUnsavedChanges: "Ada perubahan yang belum disimpan",
   settingsRoleOf: "Peran {name}",
   settingsRemoveMemberOf: "Hapus {name}",
 }

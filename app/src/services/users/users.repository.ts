@@ -64,6 +64,20 @@ export function setPassword(db: Db, id: string, hash: string) {
   return db.user.update({ where: { id }, data: { password: hash }, select: { id: true } })
 }
 
+/** Admin reset: new hash + tokenVersion bump so every existing session ends. */
+export function setPasswordAndRevokeSessions(db: Db, id: string, hash: string) {
+  return db.user.update({
+    where: { id },
+    data: { password: hash, tokenVersion: { increment: 1 } },
+    select: { id: true },
+  })
+}
+
+/** The fields whose change revokes sessions (null when the user does not exist). */
+export function findAuthFields(db: Db, id: string) {
+  return db.user.findUnique({ where: { id }, select: { role: true, isActive: true } })
+}
+
 export function findPasswordHash(db: Db, id: string) {
   return db.user.findUnique({ where: { id }, select: { password: true } })
 }

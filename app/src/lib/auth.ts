@@ -3,6 +3,8 @@ import Credentials from "next-auth/providers/credentials"
 import { prisma } from "@/lib/prisma"
 import bcrypt from "bcryptjs"
 import "@/lib/auth-types"
+import type { JWT } from "next-auth/jwt"
+import { checkTokenAgainstUser, loadUserAuthState } from "@/lib/authz/session-validity"
 import {
   clientIpFromHeaders,
   getLoginLimiters,
@@ -18,7 +20,26 @@ async function verifyCredentials(email: string, password: string) {
   const isValid = await bcrypt.compare(password, user.password)
   if (!isValid) return null
 
-  return { id: user.id, name: user.name, email: user.email, role: user.role }
+  return { id: user.id, name: user.name, email: user.email, role: user.role, tokenVersion: user.tokenVersion }
+}
+
+/**
+ * Re-check a token against the user row (cached, see session-validity.ts):
+ * null ends the session (deleted / deactivated / tokenVersion bumped), else
+ * the token with the CURRENT DB role. When the DB is unreachable the token
+ * is kept as-is (fail open) rather than logging everyone out on a blip; any
+ * data access in that request fails anyway.
+ */
+async function revalidateToken(token: JWT): Promise<JWT | null> {
+  const userId = token.id as string
+  try {
+    const check = checkTokenAgainstUser(token.tokenVersion as number | undefined, await loadUserAuthState(userId))
+    if (!check.valid) return null
+    return { ...token, role: check.role }
+  } catch (error) {
+    console.warn(`[auth] session re-validation skipped (user=${userId}): ${error instanceof Error ? error.message : String(error)}`)
+    return token.role ? token : { ...token, role: "member" }
+  }
 }
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
@@ -65,24 +86,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   ],
   callbacks: {
     async jwt({ token, user }) {
-      if (user) {
-        token.id = user.id
-        token.role = user.role
-      }
-      // Refresh role from DB if missing (e.g., token created before role was added)
-      if (token.id && !token.role) {
-        try {
-          const dbUser = await prisma.user.findUnique({
-            where: { id: token.id as string },
-            select: { role: true },
-          })
-          token.role = dbUser?.role ?? "member"
-        } catch {
-          // DB error - use default
-          token.role = "member"
-        }
-      }
-      return token
+      const withUser: JWT = user
+        ? { ...token, id: user.id, role: user.role, tokenVersion: user.tokenVersion ?? 0 }
+        : token
+      if (!withUser.id) return withUser
+      return revalidateToken(withUser)
     },
     async session({ session, token }) {
       if (session.user && token.id) {

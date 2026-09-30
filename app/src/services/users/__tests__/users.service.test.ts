@@ -8,12 +8,14 @@ vi.mock("bcryptjs", () => ({
   },
 }))
 vi.mock("../users.repository")
+vi.mock("@/lib/authz/session-validity", () => ({ invalidateUserAuthState: vi.fn() }))
 
 const repo = await import("../users.repository")
 const { TX, DEFAULT_DB } = await import("@/services/__tests__/support")
 const users = await import("../users.service")
 const account = await import("../account.service")
 const { normalizeOptional } = await import("../users.schemas")
+const { invalidateUserAuthState } = await import("@/lib/authz/session-validity")
 
 const section = { section: { id: "s1", name: "S" } }
 
@@ -60,8 +62,45 @@ describe("users.service (admin)", () => {
     expect(users.selfLockoutError("a", "b", { isActive: false })).toBeNull()
   })
 
+  it("revokesSessions only on deactivate / reactivate / system role change", () => {
+    const current = { role: "member", isActive: true }
+    expect(users.revokesSessions(current, { isActive: false })).toBe(true)
+    expect(users.revokesSessions({ ...current, isActive: false }, { isActive: true })).toBe(true)
+    expect(users.revokesSessions(current, { role: "admin" })).toBe(true)
+    expect(users.revokesSessions(current, { role: "member", isActive: true, name: "N" })).toBe(false)
+    expect(users.revokesSessions(current, { email: "x@y.z" })).toBe(false)
+  })
+
+  it("bumps tokenVersion and drops the auth cache when deactivating", async () => {
+    vi.mocked(repo.findUserWith).mockResolvedValue(null)
+    vi.mocked(repo.findAuthFields).mockResolvedValue({ role: "member", isActive: true })
+    vi.mocked(repo.findUserForAdmin).mockResolvedValue({ id: "u2", sections: [] } as never)
+    await users.updateUser("a", "u2", { isActive: false })
+    expect(repo.findAuthFields).toHaveBeenCalledWith(TX, "u2")
+    expect(repo.updateUser).toHaveBeenCalledWith(TX, "u2", { isActive: false, tokenVersion: { increment: 1 } })
+    expect(invalidateUserAuthState).toHaveBeenCalledWith("u2")
+  })
+
+  it("bumps tokenVersion on a system role change", async () => {
+    vi.mocked(repo.findUserWith).mockResolvedValue(null)
+    vi.mocked(repo.findAuthFields).mockResolvedValue({ role: "member", isActive: true })
+    vi.mocked(repo.findUserForAdmin).mockResolvedValue({ id: "u2", sections: [] } as never)
+    await users.updateUser("a", "u2", { role: "section_manager" })
+    expect(repo.updateUser).toHaveBeenCalledWith(TX, "u2", { role: "section_manager", tokenVersion: { increment: 1 } })
+  })
+
+  it("does not bump tokenVersion when role / isActive are resent unchanged, but still drops the cache", async () => {
+    vi.mocked(repo.findUserWith).mockResolvedValue(null)
+    vi.mocked(repo.findAuthFields).mockResolvedValue({ role: "member", isActive: true })
+    vi.mocked(repo.findUserForAdmin).mockResolvedValue({ id: "u2", sections: [] } as never)
+    await users.updateUser("a", "u2", { name: "N", role: "member", isActive: true })
+    expect(repo.updateUser).toHaveBeenCalledWith(TX, "u2", { name: "N", role: "member", isActive: true })
+    expect(invalidateUserAuthState).toHaveBeenCalledWith("u2")
+  })
+
   it("updates fields and sections in one tx, then returns the fresh row", async () => {
     vi.mocked(repo.findUserWith).mockResolvedValue(null)
+    vi.mocked(repo.findAuthFields).mockResolvedValue({ role: "member", isActive: true })
     vi.mocked(repo.findUserForAdmin).mockResolvedValue({ id: "u2", sections: [section] } as never)
     const out = await users.updateUser("a", "u2", { name: "N", department: " ", sectionIds: [] })
     expect(repo.updateUser).toHaveBeenCalledWith(TX, "u2", { name: "N", department: null })
@@ -77,9 +116,11 @@ describe("users.service (admin)", () => {
     await expect(users.updateUser("a", "u2", { employeeNumber: "E" })).rejects.toMatchObject({ status: 409 })
   })
 
-  it("resets passwords with a hash", async () => {
+  it("resets passwords with a hash and revokes the user's sessions", async () => {
     await users.resetPassword("u2", "newpass")
-    expect(repo.setPassword).toHaveBeenCalledWith(DEFAULT_DB, "u2", "hash(newpass)")
+    expect(repo.setPasswordAndRevokeSessions).toHaveBeenCalledWith(DEFAULT_DB, "u2", "hash(newpass)")
+    expect(repo.setPassword).not.toHaveBeenCalled()
+    expect(invalidateUserAuthState).toHaveBeenCalledWith("u2")
   })
 })
 

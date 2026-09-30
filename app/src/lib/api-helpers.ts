@@ -10,6 +10,8 @@ import {
   type ProjectActor,
 } from "@/lib/authz"
 import type { ApiErrorCode } from "@/services/_shared/error-codes"
+import { HEAD_BYTES, verifyFileType, type FileTypeVerdict } from "@/lib/upload/file-type"
+import { readHead, writeStreamToFile } from "@/lib/upload/stream-write"
 
 /**
  * Verify that a resolved file path stays within the uploads directory.
@@ -157,49 +159,58 @@ export function safeEqual(a: string | null | undefined, b: string | null | undef
   return crypto.timingSafeEqual(ha, hb) && a.length === b.length
 }
 
+type SavedUpload = { ok: true; fileName: string; originalName: string; fileSize: number; mimeType: string }
+type UploadFailure = { ok: false; error: string; status: number; code: ApiErrorCode }
+
+function uploadFailure(status: number, code: ApiErrorCode, error: string): UploadFailure {
+  return { ok: false, error, status, code }
+}
+
+/** Cheap checks on the declared metadata before any byte is read. */
+function checkUploadMeta(file: File | undefined | null): UploadFailure | null {
+  if (!file) return uploadFailure(400, "FILE_REQUIRED", "ファイルがありません")
+  if (file.size <= 0) return uploadFailure(400, "FILE_EMPTY", "ファイルが空です")
+  if (file.size > MAX_UPLOAD_SIZE) return uploadFailure(413, "PAYLOAD_TOO_LARGE", "ファイルサイズが上限を超えています")
+  if (!isAllowedMime(file.type || "application/octet-stream")) {
+    return uploadFailure(415, "UNSUPPORTED_MEDIA", "許可されていないファイル形式です")
+  }
+  return null
+}
+
+function typeFailure(verdict: Exclude<FileTypeVerdict, { ok: true }>): UploadFailure {
+  return verdict.reason === "mismatch"
+    ? uploadFailure(415, "FILE_TYPE_MISMATCH", "ファイルの内容が拡張子と一致しません")
+    : uploadFailure(415, "UNSUPPORTED_MEDIA", "許可されていないファイル形式です")
+}
+
 /**
  * Save an uploaded file to private/uploads/<projectId>/ with a random filename.
- * Returns stored metadata (fileName, originalName, fileSize, mimeType).
+ * The client MIME type is only a pre-filter: the first bytes must match the
+ * file extension (magic bytes), and the stored type comes from the extension.
+ * The body is streamed to disk and its real length is capped at MAX_UPLOAD_SIZE.
  */
-export async function saveUploadedFile(
-  projectId: string,
-  file: File
-): Promise<
-  | { ok: true; fileName: string; originalName: string; fileSize: number; mimeType: string }
-  | { ok: false; error: string; status: number; code: ApiErrorCode }
-> {
-  if (!file) return { ok: false, error: "ファイルがありません", status: 400, code: "FILE_REQUIRED" }
-  if (file.size <= 0) return { ok: false, error: "ファイルが空です", status: 400, code: "FILE_EMPTY" }
-  if (file.size > MAX_UPLOAD_SIZE) {
-    return { ok: false, error: "ファイルサイズが上限を超えています", status: 413, code: "PAYLOAD_TOO_LARGE" }
-  }
-  const mime = file.type || "application/octet-stream"
-  if (!isAllowedMime(mime)) {
-    return { ok: false, error: "許可されていないファイル形式です", status: 415, code: "UNSUPPORTED_MEDIA" }
-  }
+export async function saveUploadedFile(projectId: string, file: File): Promise<SavedUpload | UploadFailure> {
+  const invalid = checkUploadMeta(file)
+  if (invalid) return invalid
 
   const originalName = file.name || "upload"
-  const rawExt = path.extname(originalName)
-  const ext = safeExtension(rawExt)
-  const token = crypto.randomBytes(16).toString("hex")
-  const fileName = `${Date.now()}_${token}${ext}`
-
-  const projectDir = path.join(process.cwd(), "private", "uploads", projectId)
-  await fs.mkdir(projectDir, { recursive: true })
-
+  const fileName = `${Date.now()}_${crypto.randomBytes(16).toString("hex")}${safeExtension(path.extname(originalName))}`
   const full = safeFilePath(projectId, fileName)
-  if (!full) return { ok: false, error: "パスが不正です", status: 400, code: "INVALID_PATH" }
+  if (!full) return uploadFailure(400, "INVALID_PATH", "パスが不正です")
 
-  const buf = Buffer.from(await file.arrayBuffer())
-  await fs.writeFile(full, buf)
-
-  return {
-    ok: true,
-    fileName,
-    originalName,
-    fileSize: file.size,
-    mimeType: mime,
+  const reader = file.stream().getReader()
+  const head = await readHead(reader, HEAD_BYTES)
+  const verdict = verifyFileType(originalName, head.head)
+  if (!verdict.ok) {
+    await reader.cancel().catch(() => undefined)
+    return typeFailure(verdict)
   }
+
+  await fs.mkdir(path.dirname(full), { recursive: true })
+  const written = await writeStreamToFile(full, head, reader, MAX_UPLOAD_SIZE)
+  if (!written.ok) return uploadFailure(413, "PAYLOAD_TOO_LARGE", "ファイルサイズが上限を超えています")
+
+  return { ok: true, fileName, originalName, fileSize: written.bytes, mimeType: verdict.mimeType }
 }
 
 /**

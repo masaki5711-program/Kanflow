@@ -1,17 +1,21 @@
 import { requireProject } from "@/lib/authz"
 import { actorFromSession, jsonResponse, toHttpResponse } from "@/services/_shared"
-import { createBacklogItemSchema } from "@/services/backlog/backlog.schemas"
+import { createBacklogItemSchema, listBacklogQuerySchema } from "@/services/backlog/backlog.schemas"
 import { createBacklogItem, listBacklog } from "@/services/backlog/backlog.service"
 
 type Params = { params: Promise<{ projectId: string }> }
 
-export async function GET(_request: Request, { params }: Params) {
+/** `?status=ready|not_ready|completed` narrows the list (sprint planning only needs READY). */
+export async function GET(request: Request, { params }: Params) {
   const { projectId } = await params
   const gate = await requireProject(projectId, "project.view")
   if ("error" in gate) return gate.error
 
   try {
-    return jsonResponse(await listBacklog(projectId))
+    const status = new URL(request.url).searchParams.get("status")
+    if (status === null) return jsonResponse(await listBacklog(projectId))
+    const query = listBacklogQuerySchema.parse({ status })
+    return jsonResponse(await listBacklog(projectId, query))
   } catch (error) {
     return toHttpResponse(error, { fallback: "取得に失敗しました", context: "Backlog LIST" })
   }

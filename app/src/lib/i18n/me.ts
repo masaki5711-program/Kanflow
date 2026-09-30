@@ -31,6 +31,8 @@ export interface MeTranslations {
   fixedTasksBulkAddPreview: string
   myProfileEmailChangeHint: string
   myProfileBasicInfo: string
+  myProfileLanguageSection: string
+  myProfileLanguageHint: string
   fixedTasksGroupNameLabel: string
   fixedTasksItemNameLabel: string
   fixedTasksExpand: string
@@ -69,6 +71,8 @@ export const ja: MeTranslations = {
   fixedTasksBulkAddPreview: "選択した郡から追加されるタスク",
   myProfileEmailChangeHint: "メールアドレスの変更は管理者に依頼してください",
   myProfileBasicInfo: "アカウント情報",
+  myProfileLanguageSection: "表示言語",
+  myProfileLanguageHint: "選択した言語はすべてのプロジェクトで使われ、次回ログイン時にも引き継がれます。",
   fixedTasksGroupNameLabel: "親タスク名",
   fixedTasksItemNameLabel: "子タスク名",
   fixedTasksExpand: "子タスクを表示",
@@ -107,6 +111,8 @@ export const en: MeTranslations = {
   fixedTasksBulkAddPreview: "Tasks to be added from the selected group",
   myProfileEmailChangeHint: "Ask an administrator to change your email address",
   myProfileBasicInfo: "Account information",
+  myProfileLanguageSection: "Display language",
+  myProfileLanguageHint: "Used across all projects and kept for your next sign-in.",
   fixedTasksGroupNameLabel: "Parent group name",
   fixedTasksItemNameLabel: "Child sub-task name",
   fixedTasksExpand: "Show sub-tasks",
@@ -145,6 +151,8 @@ export const id: MeTranslations = {
   fixedTasksBulkAddPreview: "Tugas yang akan ditambahkan dari grup terpilih",
   myProfileEmailChangeHint: "Hubungi administrator untuk mengubah alamat email",
   myProfileBasicInfo: "Informasi akun",
+  myProfileLanguageSection: "Bahasa tampilan",
+  myProfileLanguageHint: "Digunakan di semua proyek dan tetap dipakai saat login berikutnya.",
   fixedTasksGroupNameLabel: "Nama grup induk",
   fixedTasksItemNameLabel: "Nama sub-tugas anak",
   fixedTasksExpand: "Tampilkan sub-tugas",

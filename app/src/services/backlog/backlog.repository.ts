@@ -1,15 +1,17 @@
 import type { Prisma } from "@/generated/prisma/client"
 import type { Db } from "@/services/_shared/db"
 import { LIST_LIMITS } from "@/services/_shared/limits"
+import type { PbiStatus } from "./backlog.schemas"
 
 const LINKED_SELECT = {
   iceboxItem: { select: { id: true, displayId: true, request: true } },
   productGoal: { select: { id: true, title: true } },
 } as const
 
-export function findBacklogItems(db: Db, projectId: string) {
+/** `status` narrows the list server-side (e.g. sprint planning only needs "ready"). */
+export function findBacklogItems(db: Db, projectId: string, status?: PbiStatus) {
   return db.productBacklogItem.findMany({
-    where: { projectId },
+    where: status ? { projectId, status } : { projectId },
     include: {
       ...LINKED_SELECT,
       // Sprints currently working on this PBI (planning/active only) so the

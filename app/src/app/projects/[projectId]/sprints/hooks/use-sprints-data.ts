@@ -21,7 +21,8 @@ const EMPTY_MEMBERS: Member[] = []
 export function useSprintsData(projectId: string) {
   const base = `/api/projects/${projectId}`
   const sprintsQuery = useApiQuery<Sprint[]>(`${base}/sprints`, { toastOnError: true })
-  const backlogQuery = useApiQuery<BacklogResponse>(`${base}/backlog`, { toastOnError: true })
+  // Only READY items are needed here (sprint creation / add-PBI lists).
+  const backlogQuery = useApiQuery<BacklogResponse>(`${base}/backlog?status=ready`, { toastOnError: true })
   const eventsQuery = useApiQuery<CalendarEvent[]>(`${base}/events`, { toastOnError: true })
   const membersQuery = useApiQuery<Member[]>(`${base}/members`, { toastOnError: true })
   const projectQuery = useApiQuery<ProjectResponse>(base, { toastOnError: true })

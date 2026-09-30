@@ -1,7 +1,9 @@
 import { deleteUploadedFile, saveUploadedFile } from "@/lib/api-helpers"
+import { assertStorageQuota } from "@/services/attachments/storage-quota"
 import type { Actor } from "@/services/_shared/actor"
 import { defaultDb, withTransaction } from "@/services/_shared/db"
-import { NotFoundError, StatusError, ValidationError } from "@/services/_shared/errors"
+import { NotFoundError, StatusError, ValidationError, rethrowPrisma } from "@/services/_shared/errors"
+import { DISPLAY_ID_CONFLICT, retryOnUniqueViolation } from "@/services/_shared/unique-retry"
 import { attachI18n, attachI18nOne, enqueueIn, prepareText, purgeIn } from "@/services/_shared/translations"
 import * as repo from "./icebox.repository"
 import type { CreateIceboxItemInput, UpdateIceboxItemInput } from "./icebox.schemas"
@@ -16,8 +18,15 @@ export async function listIcebox(projectId: string) {
   }
 }
 
+/** displayId is max + 1 under a unique (projectId, displayId) index; P2002 = lost race, retried. */
 export async function createIceboxItem(projectId: string, input: CreateIceboxItemInput, actor: Actor) {
   const data = await prepareText(input, actor.userId)
+  return retryOnUniqueViolation(() => insertIceboxItemTx(projectId, data, actor)).catch((err: unknown) =>
+    rethrowPrisma(err, { conflict: DISPLAY_ID_CONFLICT })
+  )
+}
+
+function insertIceboxItemTx(projectId: string, data: CreateIceboxItemInput, actor: Actor) {
   return withTransaction(async (tx) => {
     const item = await repo.insertIceboxItem(tx, {
       projectId,
@@ -62,6 +71,7 @@ export async function uploadIceboxAttachment(projectId: string, itemId: string, 
   const item = await repo.findIceboxItemId(defaultDb, projectId, itemId)
   if (!item) throw new NotFoundError()
   if (!file) throw new ValidationError("ファイルがありません", {}, "FILE_REQUIRED")
+  await assertStorageQuota(projectId, file.size)
   const saved = await saveUploadedFile(projectId, file)
   if (!saved.ok) throw new StatusError(saved.status, saved.error, {}, saved.code)
   return repo.insertIceboxAttachment(defaultDb, {

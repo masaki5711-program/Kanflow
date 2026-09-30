@@ -13,6 +13,8 @@ import { readBuildId } from "./build-id"
  * - 200 when the database answers `SELECT 1` within DB_TIMEOUT_MS, else 503.
  *   Everything else is informational and never changes the status code:
  *   - ollama: reachability of /api/tags
+ *   - collabora: reachability of <COLLABORA_INTERNAL_URL>/hosting/discovery
+ *     (ok | unreachable | disabled; disabled when COLLABORA_MONITOR=off or unset URL)
  *   - worker: standalone worker liveness from its heartbeat file
  *     (ok | stale | absent; `expected` = AI_TRANSLATION_WORKER=external)
  *   - translation: queue backlog (pending count, age of the oldest pending
@@ -26,10 +28,13 @@ export const runtime = "nodejs"
 const DB_TIMEOUT_MS = 3000
 const BACKLOG_TIMEOUT_MS = 3000
 const OLLAMA_TIMEOUT_MS = 2000
+const COLLABORA_TIMEOUT_MS = 2000
 const DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434"
+const DISABLED_VALUES = new Set(["off", "false", "0", "no", "disabled", "none"])
 
 type DbStatus = "ok" | "error"
 type OllamaStatus = "ok" | "unreachable"
+type CollaboraStatus = "ok" | "unreachable" | "disabled"
 
 interface WorkerHealth {
   status: WorkerLiveness
@@ -81,6 +86,31 @@ async function checkOllama(): Promise<OllamaStatus> {
   }
 }
 
+/**
+ * Collabora Online (document editing) — GET <COLLABORA_INTERNAL_URL>/hosting/discovery.
+ * Optional component: "disabled" when COLLABORA_MONITOR is off or no Collabora
+ * URL is configured. Never changes the HTTP status of /api/health.
+ */
+async function checkCollabora(): Promise<CollaboraStatus> {
+  const monitor = (process.env.COLLABORA_MONITOR ?? "").trim().toLowerCase()
+  if (DISABLED_VALUES.has(monitor)) return "disabled"
+  const configured = process.env.COLLABORA_INTERNAL_URL || process.env.NEXT_PUBLIC_COLLABORA_URL
+  if (!configured) return "disabled"
+  const base = configured.replace(/\/+$/, "")
+  try {
+    const res = await fetch(`${base}/hosting/discovery`, {
+      method: "GET",
+      signal: AbortSignal.timeout(COLLABORA_TIMEOUT_MS),
+      cache: "no-store",
+    })
+    // The discovery XML is not needed; release the socket.
+    await res.body?.cancel().catch(() => undefined)
+    return res.ok ? "ok" : "unreachable"
+  } catch {
+    return "unreachable"
+  }
+}
+
 interface BacklogRow {
   status: string
   n: number | bigint
@@ -126,7 +156,12 @@ function checkWorker(nowMs: number): WorkerHealth {
 
 export async function GET(): Promise<NextResponse> {
   const nowMs = Date.now()
-  const [db, ollama, translation] = await Promise.all([checkDb(), checkOllama(), checkBacklog(nowMs)])
+  const [db, ollama, collabora, translation] = await Promise.all([
+    checkDb(),
+    checkOllama(),
+    checkCollabora(),
+    checkBacklog(nowMs),
+  ])
   const healthy = db === "ok"
 
   return NextResponse.json(
@@ -134,6 +169,7 @@ export async function GET(): Promise<NextResponse> {
       status: healthy ? "ok" : "error",
       db,
       ollama,
+      collabora,
       worker: checkWorker(nowMs),
       translation,
       uptime: Math.round(process.uptime()),

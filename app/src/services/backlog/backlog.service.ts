@@ -1,10 +1,11 @@
 import { recalcSprintActualScore } from "@/lib/sprint-score"
 import type { Actor } from "@/services/_shared/actor"
 import { defaultDb, withTransaction, type Db } from "@/services/_shared/db"
-import { NotFoundError } from "@/services/_shared/errors"
+import { NotFoundError, rethrowPrisma } from "@/services/_shared/errors"
+import { DISPLAY_ID_CONFLICT, retryOnUniqueViolation } from "@/services/_shared/unique-retry"
 import { attachI18n, attachI18nOne, enqueueIn, getI18nFor, prepareText, purgeIn } from "@/services/_shared/translations"
 import * as repo from "./backlog.repository"
-import type { CreateBacklogItemInput, UpdateBacklogItemInput } from "./backlog.schemas"
+import type { CreateBacklogItemInput, ListBacklogQuery, UpdateBacklogItemInput } from "./backlog.schemas"
 
 type Linked = { id: string } | null
 interface LinkedRow {
@@ -49,8 +50,12 @@ export function completionPatch(status: string | undefined): { completedAt?: Dat
   return status ? { completedAt: null } : {}
 }
 
-export async function listBacklog(projectId: string) {
-  const raw = await repo.findBacklogItems(defaultDb, projectId)
+/**
+ * Backlog grouped by status. With `query.status` only that status is loaded
+ * (the other groups come back empty) — same response shape either way.
+ */
+export async function listBacklog(projectId: string, query: ListBacklogQuery = {}) {
+  const raw = await repo.findBacklogItems(defaultDb, projectId, query.status)
   const items = await withLinkedI18n(await attachI18n("backlog_item", raw))
   const readyItems = items.filter((i) => i.status === "ready")
   return {
@@ -68,8 +73,19 @@ export async function getBacklogItem(projectId: string, itemId: string) {
   return out
 }
 
+/**
+ * displayId / sortOrder are max + 1 under a unique (projectId, displayId)
+ * index: a concurrent create makes the insert fail with P2002, and the whole
+ * transaction is retried with fresh numbers.
+ */
 export async function createBacklogItem(projectId: string, input: CreateBacklogItemInput, actor: Actor) {
   const data = await prepareText(input, actor.userId)
+  return retryOnUniqueViolation(() => insertBacklogItemTx(projectId, data)).catch((err: unknown) =>
+    rethrowPrisma(err, { conflict: DISPLAY_ID_CONFLICT })
+  )
+}
+
+function insertBacklogItemTx(projectId: string, data: CreateBacklogItemInput) {
   return withTransaction(async (tx) => {
     await assertLinksInProject(tx, projectId, data)
     const next = await repo.nextBacklogNumbers(tx, projectId)

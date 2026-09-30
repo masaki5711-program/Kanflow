@@ -18,6 +18,7 @@ const m = vi.hoisted(() => ({
 vi.mock("@/lib/auth", () => ({ auth: () => m.authMock() }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
+    $queryRaw: vi.fn(async () => [{ total: "0" }]),
     projectMember: { findFirst: (...a: unknown[]) => m.memberFindFirst(...a) },
     projectSection: { findFirst: (...a: unknown[]) => m.sectionFindFirst(...a) },
     iceboxItem: { findFirst: (...a: unknown[]) => m.itemFindFirst(...a) },
@@ -91,7 +92,7 @@ describe("icebox attachment routes", () => {
       m.memberFindFirst.mockResolvedValue(null)
       m.sectionFindFirst.mockResolvedValue({ sectionId: "s" })
       m.itemFindFirst.mockResolvedValue({ id: "i1" })
-      expect((await upload.POST(formReq(fileForm("x", "a.png", "image/png")), PI)).status).toBe(201)
+      expect((await upload.POST(formReq(fileForm("x", "a.txt", "text/plain")), PI)).status).toBe(201)
     })
 
     it("stores the file and links it to the item (201)", async () => {
@@ -116,6 +117,15 @@ describe("icebox attachment routes", () => {
       m.itemFindFirst.mockResolvedValue({ id: "i1" })
       const res = await upload.POST(formReq(fileForm("x", "a.sh", "application/x-sh")), PI)
       expect(res.status).toBe(415)
+      expect(m.attCreate).not.toHaveBeenCalled()
+    })
+
+    it("415 FILE_TYPE_MISMATCH when a .png is not a PNG", async () => {
+      asRole(m, "dev")
+      m.itemFindFirst.mockResolvedValue({ id: "i1" })
+      const res = await upload.POST(formReq(fileForm("x", "a.png", "image/png")), PI)
+      expect(res.status).toBe(415)
+      expect(await res.json()).toMatchObject({ code: "FILE_TYPE_MISMATCH" })
       expect(m.attCreate).not.toHaveBeenCalled()
     })
 
