@@ -4,10 +4,11 @@ import {
   Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart,
   Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts"
+import { CHART_GRID_COLOR, CHART_SERIES_COLORS } from "@/lib/design-tokens"
 import type { ChartSpec } from "./chart-spec"
 
-// Palette aligned with the app's status colors (blue/emerald first).
-const COLORS = ["#1e5ae6", "#0b8f6a", "#f59e0b", "#8b5cf6", "#e11d48", "#0a8f9e", "#64748b"]
+// Shared chart palette (CSS variables from globals.css, primary first).
+const COLORS = CHART_SERIES_COLORS
 
 /**
  * Renders an AI-emitted chart spec with Recharts. Loaded lazily from the chat
@@ -17,11 +18,11 @@ export default function ChatChart({ spec }: { spec: ChartSpec }) {
   const height = 240
 
   return (
-    <div className="my-2 border border-gray-200 rounded-lg bg-white p-3">
+    <div className="my-2 border border-border rounded-lg bg-surface p-3">
       {spec.title && (
-        <p className="text-xs font-semibold text-gray-700 mb-2">{spec.title}</p>
+        <p className="text-caption font-semibold text-fg mb-2">{spec.title}</p>
       )}
-      <div style={{ width: "100%", height }}>
+      <div style={{ width: "100%", height }} role="img" aria-label={spec.title ?? spec.type}>
         <ResponsiveContainer width="100%" height="100%">
           {spec.type === "pie" ? (
             <PieChart>
@@ -34,19 +35,19 @@ export default function ChatChart({ spec }: { spec: ChartSpec }) {
                 outerRadius={80}
                 label={({ name, value }) => `${name}: ${value}`}
               >
-                {spec.data.map((_, i) => (
-                  <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                {spec.data.map((row, i) => (
+                  <Cell key={`${String(row[spec.x])}-${i}`} fill={COLORS[i % COLORS.length]} />
                 ))}
               </Pie>
               <Tooltip />
             </PieChart>
           ) : spec.type === "line" ? (
             <LineChart data={spec.data} margin={{ top: 4, right: 12, left: -8, bottom: 4 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-              <XAxis dataKey={spec.x} tick={{ fontSize: 11 }} />
-              <YAxis tick={{ fontSize: 11 }} />
+              <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} />
+              <XAxis dataKey={spec.x} tick={{ fontSize: 12 }} />
+              <YAxis tick={{ fontSize: 12 }} />
               <Tooltip />
-              {spec.series.length > 1 && <Legend wrapperStyle={{ fontSize: 11 }} />}
+              {spec.series.length > 1 && <Legend wrapperStyle={{ fontSize: 12 }} />}
               {spec.series.map((s, i) => (
                 <Line
                   key={s.key}
@@ -61,11 +62,11 @@ export default function ChatChart({ spec }: { spec: ChartSpec }) {
             </LineChart>
           ) : (
             <BarChart data={spec.data} margin={{ top: 4, right: 12, left: -8, bottom: 4 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-              <XAxis dataKey={spec.x} tick={{ fontSize: 11 }} />
-              <YAxis tick={{ fontSize: 11 }} />
+              <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} />
+              <XAxis dataKey={spec.x} tick={{ fontSize: 12 }} />
+              <YAxis tick={{ fontSize: 12 }} />
               <Tooltip />
-              {spec.series.length > 1 && <Legend wrapperStyle={{ fontSize: 11 }} />}
+              {spec.series.length > 1 && <Legend wrapperStyle={{ fontSize: 12 }} />}
               {spec.series.map((s, i) => (
                 <Bar
                   key={s.key}

@@ -1,48 +1,40 @@
-import { NextResponse } from "next/server"
-import { prisma } from "@/lib/prisma"
-import { requireProjectMember, deleteUploadedFile, serveStoredFile } from "@/lib/api-helpers"
+import { serveStoredFile } from "@/lib/api-helpers"
+import { requireProject } from "@/lib/authz"
+import { successResponse, toHttpResponse } from "@/services/_shared"
+import { deleteIceboxAttachment, getIceboxAttachment } from "@/services/icebox/icebox.service"
 
-export async function GET(
-  request: Request,
-  { params }: { params: Promise<{ projectId: string; itemId: string; attachmentId: string }> }
-) {
+type Params = { params: Promise<{ projectId: string; itemId: string; attachmentId: string }> }
+
+export async function GET(request: Request, { params }: Params) {
   const { projectId, itemId, attachmentId } = await params
-  const result = await requireProjectMember(projectId)
-  if ("error" in result) return result.error
+  const gate = await requireProject(projectId, "project.view")
+  if ("error" in gate) return gate.error
 
-  const attachment = await prisma.iceboxAttachment.findFirst({
-    where: { id: attachmentId, iceboxItemId: itemId, iceboxItem: { projectId } },
-  })
-  if (!attachment) return NextResponse.json({ error: "Not found" }, { status: 404 })
-
-  const { searchParams } = new URL(request.url)
-  const forceDownload = searchParams.get("download") !== null
-
-  return serveStoredFile(
-    projectId,
-    attachment.fileName,
-    attachment.mimeType,
-    attachment.originalName,
-    request,
-    forceDownload,
-  )
+  try {
+    const attachment = await getIceboxAttachment(projectId, itemId, attachmentId)
+    const forceDownload = new URL(request.url).searchParams.get("download") !== null
+    return await serveStoredFile(
+      projectId,
+      attachment.fileName,
+      attachment.mimeType,
+      attachment.originalName,
+      request,
+      forceDownload
+    )
+  } catch (error) {
+    return toHttpResponse(error, { fallback: "取得に失敗しました", context: "Icebox attachment GET" })
+  }
 }
 
-export async function DELETE(
-  _request: Request,
-  { params }: { params: Promise<{ projectId: string; itemId: string; attachmentId: string }> }
-) {
+export async function DELETE(_request: Request, { params }: Params) {
   const { projectId, itemId, attachmentId } = await params
-  const result = await requireProjectMember(projectId)
-  if ("error" in result) return result.error
+  const gate = await requireProject(projectId, "icebox.write")
+  if ("error" in gate) return gate.error
 
-  const attachment = await prisma.iceboxAttachment.findFirst({
-    where: { id: attachmentId, iceboxItemId: itemId, iceboxItem: { projectId } },
-  })
-  if (!attachment) return NextResponse.json({ error: "Not found" }, { status: 404 })
-
-  await prisma.iceboxAttachment.delete({ where: { id: attachmentId } })
-  await deleteUploadedFile(projectId, attachment.fileName)
-
-  return NextResponse.json({ success: true })
+  try {
+    await deleteIceboxAttachment(projectId, itemId, attachmentId)
+    return successResponse()
+  } catch (error) {
+    return toHttpResponse(error, { fallback: "削除に失敗しました", context: "Icebox attachment DELETE" })
+  }
 }

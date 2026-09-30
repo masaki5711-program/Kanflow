@@ -1,5 +1,9 @@
 import { z } from "zod"
 import { ollamaChat, ollamaChatStream, detectLang, type ChatMessage } from "@/lib/ollama"
+import { OLLAMA_TIMEOUTS } from "@/lib/ollama/config"
+import { OllamaAbortedError, OllamaError, ollamaErrorMessage, ollamaErrorResponse } from "@/lib/ollama/errors"
+import { primeStream } from "@/lib/ollama/prime"
+import { anySignal } from "@/lib/ollama/signals"
 import { aiLog } from "@/lib/ai-monitor"
 
 export type AILang = "ja" | "en" | "id"
@@ -51,50 +55,127 @@ export function buildAnalysisSystem(extra?: string, lang: AILang = "ja"): string
     .join("\n\n")
 }
 
+export interface AnalysisStreamOptions {
+  temperature?: number
+  numCtx?: number
+  format?: "json"
+  numPredict?: number
+  label?: string
+  /** Pass `request.signal` so a client disconnect stops generation. */
+  signal?: AbortSignal
+  /** Whole-call timeout; defaults to OLLAMA_TIMEOUTS.report. */
+  timeoutMs?: number
+}
+
+function analysisChunks(
+  messages: ChatMessage[],
+  options: AnalysisStreamOptions,
+  signal: AbortSignal
+): AsyncGenerator<string, void, unknown> {
+  return ollamaChatStream(messages, {
+    role: "analysis",
+    temperature: options.temperature ?? 0.3,
+    // numCtx deliberately not defaulted here — ollama.ts applies the
+    // shared OLLAMA_NUM_CTX so every feature keeps the model warm.
+    numCtx: options.numCtx,
+    signal,
+    timeoutMs: options.timeoutMs ?? OLLAMA_TIMEOUTS.report,
+    label: options.label ?? "analysis",
+    format: options.format,
+    numPredict: options.numPredict,
+    // qwen3.8 has hybrid thinking mode ON by default — its reasoning
+    // chain is emitted in a separate `thinking` field that our streamer
+    // does not surface, so the user sees no output for tens of seconds.
+    // Disabling it makes responses appear immediately.
+    think: false,
+  })
+}
+
 /**
- * Stream an analysis response. Returns a ReadableStream of utf-8 text chunks
- * suitable for returning from a Next.js Route Handler.
+ * Pull-based byte stream over text chunks. Cancelling the stream (client
+ * disconnect) aborts `local`, which stops the upstream Ollama request.
+ * Mid-stream failures are appended as a trailing `[error] <message>` line.
+ */
+function textChunksToStream(
+  chunks: AsyncIterator<string>,
+  local: AbortController,
+  label: string
+): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder()
+  const t0 = Date.now()
+  let chars = 0
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const { value, done } = await chunks.next()
+        if (done) {
+          aiLog("ANALYSIS_DONE", `${label} ${chars} chars in ${Date.now() - t0}ms`)
+          controller.close()
+          return
+        }
+        chars += value.length
+        controller.enqueue(encoder.encode(value))
+      } catch (err) {
+        if (err instanceof OllamaAbortedError) {
+          aiLog("CHAT_ABORT", `${label}: client disconnected after ${chars} chars`)
+        } else {
+          aiLog("CHAT_ERROR", `${label}: ${ollamaErrorMessage(err)}`)
+        }
+        try {
+          controller.enqueue(encoder.encode(`\n\n[error] ${ollamaErrorMessage(err)}`))
+          controller.close()
+        } catch {
+          // stream already cancelled by the client
+        }
+      }
+    },
+    cancel() {
+      local.abort(new OllamaAbortedError())
+      chunks.return?.().catch(() => undefined)
+    },
+  })
+}
+
+/**
+ * Stream an analysis response as a Route Handler `Response`.
+ *
+ * The first chunk is awaited before responding, so failures before any
+ * output (Ollama down, timeout, client gone) return a JSON error with
+ * 499/408/503/502 instead of a 200 stream. Later failures are appended to
+ * the text as `[error] <message>`.
+ */
+export async function analysisStreamResponse(
+  messages: ChatMessage[],
+  options: AnalysisStreamOptions = {}
+): Promise<Response> {
+  const label = options.label ?? "analysis"
+  const local = new AbortController()
+  const signal = anySignal([options.signal, local.signal])
+  aiLog("ANALYSIS", `${label} started (temp=${options.temperature ?? 0.3})`)
+  let chunks: AsyncIterator<string>
+  try {
+    chunks = await primeStream(analysisChunks(messages, options, signal))
+  } catch (err) {
+    aiLog(err instanceof OllamaAbortedError ? "CHAT_ABORT" : "CHAT_ERROR", `${label}: ${ollamaErrorMessage(err)}`)
+    return ollamaErrorResponse(err)
+  }
+  return streamingResponse(textChunksToStream(chunks, local, label))
+}
+
+/**
+ * Stream an analysis response as a ReadableStream of utf-8 text chunks.
+ * @deprecated Use `analysisStreamResponse`, which also reports pre-stream
+ * failures with a proper HTTP status.
  */
 export function streamAnalysis(
   messages: ChatMessage[],
-  options: { temperature?: number; numCtx?: number; format?: "json"; numPredict?: number; label?: string } = {}
+  options: AnalysisStreamOptions = {}
 ): ReadableStream<Uint8Array> {
-  return new ReadableStream({
-    async start(controller) {
-      const encoder = new TextEncoder()
-      const ac = new AbortController()
-      const timeout = setTimeout(() => ac.abort(), 600_000)
-      const t0 = Date.now()
-      let chars = 0
-      aiLog("ANALYSIS", `${options.label ?? "analysis"} started (temp=${options.temperature ?? 0.3})`)
-      try {
-        for await (const chunk of ollamaChatStream(messages, {
-          role: "analysis",
-          temperature: options.temperature ?? 0.3,
-          numCtx: options.numCtx ?? 8192,
-          signal: ac.signal,
-          format: options.format,
-          numPredict: options.numPredict,
-          // qwen3.6 has hybrid thinking mode ON by default — its reasoning
-          // chain is emitted in a separate `thinking` field that our streamer
-          // does not surface, so the user sees no output for tens of seconds.
-          // Disabling it makes responses appear immediately.
-          think: false,
-        })) {
-          chars += chunk.length
-          controller.enqueue(encoder.encode(chunk))
-        }
-        aiLog("ANALYSIS_DONE", `${options.label ?? "analysis"} ${chars} chars in ${Date.now() - t0}ms`)
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "stream_error"
-        aiLog("CHAT_ERROR", `${options.label ?? "analysis"}: ${message}`)
-        controller.enqueue(encoder.encode(`\n\n[error] ${message}`))
-      } finally {
-        clearTimeout(timeout)
-        controller.close()
-      }
-    },
-  })
+  const label = options.label ?? "analysis"
+  const local = new AbortController()
+  const signal = anySignal([options.signal, local.signal])
+  aiLog("ANALYSIS", `${label} started (temp=${options.temperature ?? 0.3})`)
+  return textChunksToStream(analysisChunks(messages, options, signal), local, label)
 }
 
 export function streamingResponse(stream: ReadableStream<Uint8Array>): Response {
@@ -114,7 +195,14 @@ export function streamingResponse(stream: ReadableStream<Uint8Array>): Response 
 export async function analysisJSON<T>(
   messages: ChatMessage[],
   schema: z.ZodSchema<T>,
-  options: { maxRetries?: number; temperature?: number; numCtx?: number } = {}
+  options: {
+    maxRetries?: number
+    temperature?: number
+    numCtx?: number
+    signal?: AbortSignal
+    timeoutMs?: number
+    label?: string
+  } = {}
 ): Promise<T> {
   const maxRetries = options.maxRetries ?? 2
   let lastError: unknown
@@ -124,12 +212,18 @@ export async function analysisJSON<T>(
         role: "analysis",
         format: "json",
         temperature: options.temperature ?? 0.3,
-        numCtx: options.numCtx ?? 8192,
+        numCtx: options.numCtx,
+        signal: options.signal,
+        timeoutMs: options.timeoutMs ?? OLLAMA_TIMEOUTS.report,
+        label: options.label ?? "analysis-json",
         think: false,
       })
       const parsed = JSON.parse(text) as unknown
       return schema.parse(parsed)
     } catch (err) {
+      // Transport failures (timeout / abort / unreachable) are not fixed by
+      // re-prompting; only retry malformed or invalid JSON.
+      if (err instanceof OllamaError) throw err
       lastError = err
       if (attempt < maxRetries) {
         messages = [

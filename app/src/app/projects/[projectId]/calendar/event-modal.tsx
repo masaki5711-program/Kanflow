@@ -1,209 +1,190 @@
 "use client"
 
-import {
-  Sprint,
-  EventFormState,
-  EVENT_COLORS,
-  eventColorDot,
-} from "./calendar-types"
-import { useOverlayClose } from "@/lib/use-overlay-close"
+import { useState } from "react"
+import { Button, Field, Input, Modal, Select, Textarea, cn, useModalClose } from "@/components/ui"
+import { GlossaryHint } from "@/components/i18n-text"
+import { useLanguage } from "@/lib/language-context"
+import { pickText } from "@/lib/translation/pick-text"
+import { type EventFormState, type Sprint, EVENT_COLORS, eventColorDot, i18nOf } from "./calendar-types"
 
-interface EventModalProps {
-  show: boolean
+const FORM_ID = "calendar-event-form"
+
+export interface EventModalProps {
+  open: boolean
   editingEventId: string | null
-  eventForm: EventFormState
+  /** Initial values; remount (change `key`) to reset. */
+  initialForm: EventFormState
   sprints: Sprint[]
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  t: any
-  onFormChange: (form: EventFormState) => void
-  onSave: (e: React.FormEvent) => void
+  saving: boolean
+  deleting: boolean
+  onSave: (form: EventFormState) => void
   onDelete: () => void
   onClose: () => void
 }
 
+function isSameForm(a: EventFormState, b: EventFormState): boolean {
+  return (Object.keys(a) as (keyof EventFormState)[]).every((k) => a[k] === b[k])
+}
+
 export default function EventModal({
-  show,
+  open,
   editingEventId,
-  eventForm,
+  initialForm,
   sprints,
-  t,
-  onFormChange,
+  saving,
+  deleting,
   onSave,
   onDelete,
   onClose,
 }: EventModalProps) {
-  if (!show) return null
+  const { t, language } = useLanguage()
+  const [form, setForm] = useState<EventFormState>(initialForm)
+  const [submitted, setSubmitted] = useState(false)
+  const update = (patch: Partial<EventFormState>) => setForm((f) => ({ ...f, ...patch }))
 
-  const hasError = !eventForm.title.trim() && eventForm.title !== ""
-  const overlay = useOverlayClose(onClose)
+  const titleError = submitted && !form.title.trim() ? t.calendarTitleRequired : undefined
+  const endError = form.endDate && form.date && form.endDate < form.date ? t.calendarEndBeforeStart : undefined
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setSubmitted(true)
+    if (!form.title.trim() || !form.date || endError) return
+    onSave(form)
+  }
 
   return (
-    <div
-      className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4"
-      {...overlay}
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={editingEventId ? t.eventEdit : t.eventAdd}
+      isDirty={!isSameForm(form, initialForm)}
+      footer={
+        <EventModalFooter
+          isEditing={!!editingEventId}
+          saving={saving}
+          deleting={deleting}
+          onDelete={onDelete}
+        />
+      }
     >
-      <div
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Modal header */}
-        <div className="px-6 pt-6 pb-4 border-b border-gray-100">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-bold text-gray-900">
-              {editingEventId ? t.eventEdit : t.eventAdd}
-            </h3>
-            <button
-              type="button"
-              onClick={onClose}
-              className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
+      <form id={FORM_ID} onSubmit={handleSubmit} noValidate className="space-y-4">
+        <Field label={t.eventTitle} required error={titleError}>
+          <Input
+            data-autofocus
+            value={form.title}
+            onChange={(e) => update({ title: e.target.value })}
+            placeholder={t.eventTitlePlaceholder}
+          />
+        </Field>
+
+        <div>
+          <Field label={t.eventDescription}>
+            <Textarea
+              value={form.description}
+              onChange={(e) => update({ description: e.target.value })}
+              rows={2}
+              placeholder={t.eventDescriptionPlaceholder}
+              className="resize-none"
+            />
+          </Field>
+          <GlossaryHint className="mt-1" />
         </div>
 
-        {/* Form */}
-        <form onSubmit={onSave} className="px-6 py-5 space-y-5">
-          {/* Event Details Section */}
-          <div className="space-y-4">
-            {/* Title */}
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                {t.eventTitle}
-              </label>
-              <input
-                type="text"
-                value={eventForm.title}
-                onChange={(e) => onFormChange({ ...eventForm, title: e.target.value })}
-                required
-                placeholder={t.eventTitlePlaceholder}
-                className={`w-full px-3.5 py-2.5 border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow ${
-                  hasError ? "border-red-400 ring-1 ring-red-300" : "border-gray-200"
-                }`}
-              />
-            </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field label={t.eventStartDate} required>
+            <Input type="date" value={form.date} onChange={(e) => update({ date: e.target.value })} />
+          </Field>
+          <Field label={t.eventEndDate} error={endError}>
+            <Input
+              type="date"
+              value={form.endDate}
+              min={form.date || undefined}
+              onChange={(e) => update({ endDate: e.target.value })}
+            />
+          </Field>
+        </div>
 
-            {/* Description */}
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                {t.eventDescription}
-              </label>
-              <textarea
-                value={eventForm.description}
-                onChange={(e) => onFormChange({ ...eventForm, description: e.target.value })}
-                rows={2}
-                placeholder={t.eventDescriptionPlaceholder}
-                className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow resize-none"
-              />
-            </div>
-          </div>
-
-          {/* Date Range Section */}
-          <div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                  {t.eventStartDate}
-                </label>
-                <input
-                  type="date"
-                  value={eventForm.date}
-                  onChange={(e) => onFormChange({ ...eventForm, date: e.target.value })}
-                  required
-                  className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                  {t.eventEndDate}
-                </label>
-                <input
-                  type="date"
-                  value={eventForm.endDate}
-                  onChange={(e) => onFormChange({ ...eventForm, endDate: e.target.value })}
-                  className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Appearance Section */}
-          <div className="grid grid-cols-2 gap-4">
-            {/* Color picker */}
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                {t.eventColor}
-              </label>
-              <div className="flex gap-2.5">
-                {EVENT_COLORS.map((c) => (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <fieldset>
+            <legend className="mb-2 text-body font-medium text-fg">{t.eventColor}</legend>
+            <div className="flex flex-wrap gap-2.5" role="radiogroup" aria-label={t.eventColor}>
+              {EVENT_COLORS.map((c) => {
+                const selected = form.color === c
+                return (
                   <button
                     key={c}
                     type="button"
-                    onClick={() => onFormChange({ ...eventForm, color: c })}
-                    className={`w-7 h-7 rounded-full ${eventColorDot[c]} transition-all relative ${
-                      eventForm.color === c
-                        ? "ring-2 ring-offset-2 ring-gray-400 scale-110"
-                        : "hover:scale-105"
-                    }`}
+                    role="radio"
+                    aria-checked={selected}
+                    aria-label={t.calendarColorNames[c]}
+                    title={t.calendarColorNames[c]}
+                    onClick={() => update({ color: c })}
+                    className={cn(
+                      "w-7 h-7 rounded-full relative",
+                      eventColorDot[c],
+                      selected ? "ring-2 ring-offset-2 ring-fg-muted" : "hover:opacity-90",
+                    )}
                   >
-                    {eventForm.color === c && (
-                      <svg className="w-3.5 h-3.5 text-white absolute inset-0 m-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    {selected && (
+                      <svg
+                        className="w-3.5 h-3.5 text-white absolute inset-0 m-auto"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                        aria-hidden
+                      >
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
                       </svg>
                     )}
                   </button>
-                ))}
-              </div>
+                )
+              })}
             </div>
+          </fieldset>
 
-            {/* Sprint link */}
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                {t.eventSprintLink}
-              </label>
-              <select
-                value={eventForm.sprintId}
-                onChange={(e) => onFormChange({ ...eventForm, sprintId: e.target.value })}
-                className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
-              >
-                <option value="">-- {t.eventNone} --</option>
-                {sprints.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.sprintName}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
+          <Field label={t.eventSprintLink}>
+            <Select value={form.sprintId} onChange={(e) => update({ sprintId: e.target.value })}>
+              <option value="">-- {t.eventNone} --</option>
+              {sprints.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {pickText(i18nOf(s), "sprintName", s.sprintName, language).text}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </div>
+      </form>
+    </Modal>
+  )
+}
 
-          {/* Action buttons */}
-          <div className="flex items-center gap-3 pt-3 border-t border-gray-100">
-            <button
-              type="submit"
-              className="px-5 py-2.5 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-xl hover:from-blue-700 hover:to-blue-800 text-sm font-semibold shadow-sm shadow-blue-200 transition-all"
-            >
-              {editingEventId ? t.update : t.add}
-            </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-5 py-2.5 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-xl text-sm font-medium transition-colors"
-            >
-              {t.cancel}
-            </button>
-            {editingEventId && (
-              <button
-                type="button"
-                onClick={onDelete}
-                className="ml-auto px-5 py-2.5 border border-red-300 text-red-600 rounded-xl hover:bg-red-50 text-sm font-medium transition-colors"
-              >
-                {t.delete}
-              </button>
-            )}
-          </div>
-        </form>
+function EventModalFooter({
+  isEditing,
+  saving,
+  deleting,
+  onDelete,
+}: {
+  isEditing: boolean
+  saving: boolean
+  deleting: boolean
+  onDelete: () => void
+}) {
+  const { t } = useLanguage()
+  const close = useModalClose()
+  return (
+    <div className="flex w-full items-center gap-3">
+      {isEditing && (
+        <Button variant="danger" onClick={onDelete} loading={deleting} disabled={saving}>
+          {t.delete}
+        </Button>
+      )}
+      <div className="ml-auto flex gap-2">
+        <Button variant="secondary" onClick={close}>
+          {t.cancel}
+        </Button>
+        <Button type="submit" form={FORM_ID} loading={saving} disabled={deleting}>
+          {isEditing ? t.update : t.add}
+        </Button>
       </div>
     </div>
   )

@@ -1,7 +1,13 @@
 "use client"
 
-import { useRouter } from "next/navigation"
+import Link from "next/link"
+import { Folder, Zap } from "lucide-react"
+import { Badge, type BadgeTone } from "@/components/ui"
 import { useLanguage } from "@/lib/language-context"
+import { sprintStatusTone } from "@/lib/design-tokens"
+import { I18nText } from "@/components/i18n-text"
+import { pickText } from "@/lib/translation/pick-text"
+import type { EntityI18n } from "@/lib/translation/types"
 
 export interface MyTask {
   id: string
@@ -9,6 +15,7 @@ export interface MyTask {
   status: string
   estimatedHours: number | null
   actualHours: number | null
+  pbId: string
   pbDisplayId: number
   pbUserStory: string | null
   sprintId: string
@@ -18,136 +25,150 @@ export interface MyTask {
   sprintEndDate: string
   projectId: string
   projectName: string
+  /** Both-language text: task (taskName), PBI (userStory), sprint (sprintName), project (name). */
+  i18n?: EntityI18n
+  pbI18n?: EntityI18n
+  sprintI18n?: EntityI18n
+  projectI18n?: EntityI18n
 }
 
-interface Props {
+interface SprintGroup {
+  sprintId: string
+  sprintName: string
+  sprintI18n?: EntityI18n
+  sprintStatus: string
+  startDate: string
+  endDate: string
   tasks: MyTask[]
 }
 
-const statusColors: Record<string, string> = {
-  todo: "bg-gray-100 text-gray-700",
-  in_progress: "bg-blue-100 text-blue-700",
-  done: "bg-green-100 text-green-700",
+interface ProjectGroup {
+  projectId: string
+  projectName: string
+  projectI18n?: EntityI18n
+  sprints: SprintGroup[]
 }
 
-const sprintStatusColors: Record<string, string> = {
-  planning: "bg-yellow-100 text-yellow-700",
-  active: "bg-blue-100 text-blue-700",
+const STATUS_TONE: Record<string, BadgeTone> = {
+  todo: "neutral",
+  in_progress: "primary",
+  done: "success",
 }
 
-export function MySprintTasks({ tasks }: Props) {
-  const router = useRouter()
-  const { t } = useLanguage()
+/** Group tasks by project, then by sprint, preserving first-seen order. */
+function groupTasks(tasks: MyTask[]): ProjectGroup[] {
+  return tasks.reduce<ProjectGroup[]>((groups, task) => {
+    const project = groups.find((g) => g.projectId === task.projectId)
+    const sprintOf = (existing: SprintGroup[]): SprintGroup[] => {
+      const sprint = existing.find((s) => s.sprintId === task.sprintId)
+      if (sprint) return existing.map((s) => (s === sprint ? { ...s, tasks: [...s.tasks, task] } : s))
+      return [
+        ...existing,
+        {
+          sprintId: task.sprintId,
+          sprintName: task.sprintName,
+          sprintI18n: task.sprintI18n,
+          sprintStatus: task.sprintStatus,
+          startDate: task.sprintStartDate,
+          endDate: task.sprintEndDate,
+          tasks: [task],
+        },
+      ]
+    }
+    if (project) return groups.map((g) => (g === project ? { ...g, sprints: sprintOf(g.sprints) } : g))
+    return [
+      ...groups,
+      { projectId: task.projectId, projectName: task.projectName, projectI18n: task.projectI18n, sprints: sprintOf([]) },
+    ]
+  }, [])
+}
+
+function formatDate(iso: string) {
+  const d = new Date(iso)
+  return `${d.getMonth() + 1}/${d.getDate()}`
+}
+
+export function MySprintTasks({ tasks }: { tasks: MyTask[] }) {
+  const { t, language } = useLanguage()
 
   const statusLabels: Record<string, string> = {
     todo: t.taskTodo,
     in_progress: t.taskInProgress,
     done: t.taskDone,
   }
-
   const sprintStatusLabels: Record<string, string> = {
     planning: t.sprintStatusPlanning,
     active: t.sprintStatusActive,
   }
 
-  // Group tasks by project, then by sprint
-  const grouped = new Map<string, { projectName: string; projectId: string; sprints: Map<string, { sprintName: string; sprintId: string; sprintStatus: string; startDate: string; endDate: string; tasks: MyTask[] }> }>()
-
-  for (const task of tasks) {
-    if (!grouped.has(task.projectId)) {
-      grouped.set(task.projectId, {
-        projectName: task.projectName,
-        projectId: task.projectId,
-        sprints: new Map(),
-      })
-    }
-    const project = grouped.get(task.projectId)!
-    if (!project.sprints.has(task.sprintId)) {
-      project.sprints.set(task.sprintId, {
-        sprintName: task.sprintName,
-        sprintId: task.sprintId,
-        sprintStatus: task.sprintStatus,
-        startDate: task.sprintStartDate,
-        endDate: task.sprintEndDate,
-        tasks: [],
-      })
-    }
-    project.sprints.get(task.sprintId)!.tasks.push(task)
-  }
-
-  function formatDate(iso: string) {
-    const d = new Date(iso)
-    return `${d.getMonth() + 1}/${d.getDate()}`
-  }
-
   return (
     <div className="grid gap-3 md:grid-cols-2">
-      {Array.from(grouped.values()).map((project) => (
-        <div
-          key={project.projectId}
-          className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden"
-        >
-          {/* Project header */}
-          <div
-            onClick={() => router.push(`/projects/${project.projectId}`)}
-            className="flex items-center gap-2 px-5 py-3 bg-gray-50/80 border-b border-gray-100 cursor-pointer hover:bg-gray-100/80 transition-colors"
-          >
-            <svg className="w-4 h-4 text-gray-400" viewBox="0 0 20 20" fill="currentColor">
-              <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"/>
-            </svg>
-            <span className="text-sm font-semibold text-gray-700 truncate">{project.projectName}</span>
-          </div>
+      {groupTasks(tasks).map((project) => (
+        <article key={project.projectId} className="overflow-hidden rounded-2xl border border-border bg-surface shadow-ui-sm">
+          <h3>
+            <Link
+              href={`/projects/${project.projectId}`}
+              className="flex items-center gap-2 border-b border-border bg-surface-muted px-5 py-3 transition-colors hover:bg-surface-sunken"
+            >
+              <Folder aria-hidden="true" className="h-4 w-4 shrink-0 text-fg-muted" />
+              <span className="truncate text-body font-semibold text-fg">
+                <I18nText i18n={project.projectI18n} field="name" original={project.projectName} noBadge />
+              </span>
+            </Link>
+          </h3>
 
-          {/* Sprints */}
-          {Array.from(project.sprints.values()).map((sprint) => (
-            <div key={sprint.sprintId} className="px-5 py-3">
-              {/* Sprint info */}
-              <div
-                onClick={() => router.push(`/projects/${project.projectId}/sprints`)}
-                className="flex flex-wrap items-center gap-2 mb-2 cursor-pointer group/sprint"
-              >
-                <svg className="w-3.5 h-3.5 text-gray-400 shrink-0" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd"/>
-                </svg>
-                <span className="text-sm font-medium text-gray-600 group-hover/sprint:text-blue-600 transition-colors truncate">
-                  {sprint.sprintName}
-                </span>
-                <span className={`text-xs px-1.5 py-0.5 rounded-md font-medium ${sprintStatusColors[sprint.sprintStatus] ?? "bg-gray-100 text-gray-600"}`}>
-                  {sprintStatusLabels[sprint.sprintStatus] ?? sprint.sprintStatus}
-                </span>
-                <span className="text-xs text-gray-400">
-                  {formatDate(sprint.startDate)} - {formatDate(sprint.endDate)}
-                </span>
-              </div>
+          {project.sprints.map((sprint) => {
+            const sprintsHref = `/projects/${project.projectId}/sprints`
+            return (
+              <div key={sprint.sprintId} className="px-5 py-3">
+                <Link href={sprintsHref} className="group/sprint mb-2 flex flex-wrap items-center gap-2 rounded-md">
+                  <Zap aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-fg-muted" />
+                  <span className="truncate text-body font-medium text-fg-muted transition-colors group-hover/sprint:text-primary">
+                    <I18nText i18n={sprint.sprintI18n} field="sprintName" original={sprint.sprintName} noBadge />
+                  </span>
+                  <Badge tone={sprintStatusTone(sprint.sprintStatus)}>
+                    {sprintStatusLabels[sprint.sprintStatus] ?? sprint.sprintStatus}
+                  </Badge>
+                  <span className="text-caption text-fg-muted">
+                    {formatDate(sprint.startDate)} - {formatDate(sprint.endDate)}
+                  </span>
+                </Link>
 
-              {/* Task list */}
-              <div className="space-y-1.5 ml-5">
-                {sprint.tasks.map((task) => (
-                  <div
-                    key={task.id}
-                    onClick={() => router.push(`/projects/${project.projectId}/sprints`)}
-                    className="flex items-center gap-3 py-1.5 px-3 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors"
-                  >
-                    <span className={`text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap ${statusColors[task.status] ?? "bg-gray-100 text-gray-600"}`}>
-                      {statusLabels[task.status] ?? task.status}
-                    </span>
-                    <span className="text-xs text-gray-400 font-mono shrink-0">
-                      #{task.pbDisplayId}
-                    </span>
-                    <span className="text-sm text-gray-800 truncate flex-1">
-                      {task.taskName ?? task.pbUserStory ?? t.sprintNoTaskName}
-                    </span>
-                    {task.estimatedHours != null && (
-                      <span className="text-xs text-gray-400 shrink-0">
-                        {task.actualHours != null ? `${task.actualHours}/` : ""}{task.estimatedHours}h
-                      </span>
-                    )}
-                  </div>
-                ))}
+                <ul className="ml-5 space-y-1.5">
+                  {sprint.tasks.map((task) => {
+                    const taskText = pickText(task.i18n, "taskName", task.taskName, language)
+                    return (
+                      <li key={task.id}>
+                        <Link
+                          href={sprintsHref}
+                          className="flex items-center gap-3 rounded-lg px-3 py-1.5 transition-colors hover:bg-surface-muted"
+                        >
+                          <Badge tone={STATUS_TONE[task.status] ?? "neutral"}>{statusLabels[task.status] ?? task.status}</Badge>
+                          <span className="shrink-0 font-mono text-caption text-fg-muted">#{task.pbDisplayId}</span>
+                          <span className="line-clamp-2 min-w-0 flex-1 break-words text-body text-fg">
+                            {taskText.text ? (
+                              <I18nText i18n={task.i18n} field="taskName" original={task.taskName} entity={{ type: "sprint_task", id: task.id }} />
+                            ) : task.pbUserStory ? (
+                              <I18nText i18n={task.pbI18n} field="userStory" original={task.pbUserStory} entity={{ type: "backlog_item", id: task.pbId }} />
+                            ) : (
+                              t.sprintNoTaskName
+                            )}
+                          </span>
+                          {task.estimatedHours != null && (
+                            <span className="shrink-0 text-caption text-fg-muted">
+                              {task.actualHours != null ? `${task.actualHours}/` : ""}
+                              {task.estimatedHours}h
+                            </span>
+                          )}
+                        </Link>
+                      </li>
+                    )
+                  })}
+                </ul>
               </div>
-            </div>
-          ))}
-        </div>
+            )
+          })}
+        </article>
       ))}
     </div>
   )

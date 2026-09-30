@@ -1,285 +1,197 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState } from "react"
 import Link from "next/link"
+import { Pencil, Plus, Tag, Trash2 } from "lucide-react"
 import { useLanguage } from "@/lib/language-context"
-import { useConfirm } from "@/components/confirm-dialog"
+import { useConfirm, PageHeader } from "@/components/ui"
+import { apiFetch, useApiQuery } from "@/hooks"
+import {
+  Button,
+  EmptyState,
+  Field,
+  IconButton,
+  Input,
+  Modal,
+  SkeletonLines,
+  useModalClose,
+  useToast,
+} from "@/components/ui"
+import type { Translations } from "@/lib/i18n"
+import { useDocumentTitle } from "@/hooks/use-document-title"
+import type { CategoryDto } from "@/types/api"
 
-interface Category {
-  id: string
+type Category = CategoryDto
+
+interface CategoryForm {
   name: string
   color: string
-  sortOrder: number
-  assignments: { projectId: string }[]
 }
 
-const availableColors = [
-  { value: "gray", label: "グレー" },
-  { value: "red", label: "レッド" },
-  { value: "orange", label: "オレンジ" },
-  { value: "yellow", label: "イエロー" },
-  { value: "green", label: "グリーン" },
-  { value: "blue", label: "ブルー" },
-  { value: "indigo", label: "インディゴ" },
-  { value: "purple", label: "パープル" },
-  { value: "pink", label: "ピンク" },
+const COLORS: { value: string; dot: string; label: keyof Translations }[] = [
+  { value: "gray", dot: "bg-gray-400", label: "categoryColorGray" },
+  { value: "red", dot: "bg-red-500", label: "categoryColorRed" },
+  { value: "orange", dot: "bg-orange-500", label: "categoryColorOrange" },
+  { value: "yellow", dot: "bg-yellow-500", label: "categoryColorYellow" },
+  { value: "green", dot: "bg-green-500", label: "categoryColorGreen" },
+  { value: "blue", dot: "bg-blue-500", label: "categoryColorBlue" },
+  { value: "indigo", dot: "bg-indigo-500", label: "categoryColorIndigo" },
+  { value: "purple", dot: "bg-purple-500", label: "categoryColorPurple" },
+  { value: "pink", dot: "bg-pink-500", label: "categoryColorPink" },
 ]
 
-const colorDot: Record<string, string> = {
-  gray: "bg-gray-400",
-  red: "bg-red-500",
-  orange: "bg-orange-500",
-  yellow: "bg-yellow-500",
-  green: "bg-green-500",
-  blue: "bg-blue-500",
-  indigo: "bg-indigo-500",
-  purple: "bg-purple-500",
-  pink: "bg-pink-500",
-}
+const dotOf = (color: string) => COLORS.find((c) => c.value === color)?.dot ?? "bg-gray-400"
+const EMPTY_FORM: CategoryForm = { name: "", color: "blue" }
+const CATEGORIES_URL = "/api/user/categories"
 
 export function CategorySettings() {
   const { t } = useLanguage()
+  useDocumentTitle([t.categorySettingsTitle])
   const confirm = useConfirm()
-  const [categories, setCategories] = useState<Category[]>([])
-  const [loading, setLoading] = useState(true)
-  const [showCreate, setShowCreate] = useState(false)
+  const toast = useToast()
+  const { data: categories = [], isLoading, refetch } = useApiQuery<Category[]>(CATEGORIES_URL, { toastOnError: true })
+
+  const [open, setOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [form, setForm] = useState({ name: "", color: "blue" })
-  const [editForm, setEditForm] = useState({ name: "", color: "blue" })
-  const [error, setError] = useState("")
+  const [initial, setInitial] = useState<CategoryForm>(EMPTY_FORM)
+  const [form, setForm] = useState<CategoryForm>(EMPTY_FORM)
+  const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
-  const fetchCategories = useCallback(async () => {
-    const res = await fetch("/api/user/categories")
-    if (res.ok) setCategories(await res.json())
-    setLoading(false)
-  }, [])
+  function openForm(cat: Category | null) {
+    const next = cat ? { name: cat.name, color: cat.color } : EMPTY_FORM
+    setEditingId(cat?.id ?? null)
+    setInitial(next)
+    setForm(next)
+    setError(null)
+    setOpen(true)
+  }
 
-  useEffect(() => { fetchCategories() }, [fetchCategories])
-
-  async function handleCreate(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!form.name.trim()) return
-    setError("")
+    if (!form.name.trim() || saving) return
+    setError(null)
     setSaving(true)
     try {
-      const res = await fetch("/api/user/categories", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
-      })
-      if (!res.ok) {
-        const data = await res.json()
-        setError(typeof data.error === "string" ? data.error : t.errorCreationFailed)
-        return
-      }
-      setForm({ name: "", color: "blue" })
-      setShowCreate(false)
-      fetchCategories()
+      await apiFetch(editingId ? `${CATEGORIES_URL}/${editingId}` : CATEGORIES_URL, { method: editingId ? "PATCH" : "POST", json: form })
+      setOpen(false)
+      toast.success(t.saved)
+      refetch()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : editingId ? t.errorUpdateFailed : t.errorCreationFailed)
     } finally {
       setSaving(false)
     }
   }
 
-  async function handleUpdate(categoryId: string) {
-    setError("")
-    setSaving(true)
+  async function handleDelete(cat: Category) {
+    const ok = await confirm({ title: cat.name, message: t.categoryDeleteConfirm, confirmLabel: t.delete, cancelLabel: t.cancel, variant: "danger" })
+    if (!ok) return
     try {
-      const res = await fetch(`/api/user/categories/${categoryId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(editForm),
-      })
-      if (!res.ok) {
-        const data = await res.json()
-        setError(typeof data.error === "string" ? data.error : t.errorUpdateFailed)
-        return
-      }
-      setEditingId(null)
-      fetchCategories()
-    } finally {
-      setSaving(false)
+      await apiFetch(`${CATEGORIES_URL}/${cat.id}`, { method: "DELETE" })
+      toast.success(t.categoryDeleted)
+      refetch()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t.error)
     }
-  }
-
-  async function handleDelete(categoryId: string) {
-    if (!await confirm({ message: t.categoryDeleteConfirm, confirmLabel: t.delete, cancelLabel: t.cancel, variant: "danger" })) return
-    const res = await fetch(`/api/user/categories/${categoryId}`, { method: "DELETE" })
-    if (res.ok) fetchCategories()
-  }
-
-  function startEdit(cat: Category) {
-    setEditingId(cat.id)
-    setEditForm({ name: cat.name, color: cat.color })
-    setError("")
-  }
-
-  function renderColorPicker(value: string, onChange: (color: string) => void) {
-    return (
-      <div className="flex gap-2">
-        {availableColors.map((c) => (
-          <button
-            key={c.value}
-            type="button"
-            onClick={() => onChange(c.value)}
-            className={`w-6 h-6 rounded-full ${colorDot[c.value]} transition-all ${
-              value === c.value ? "ring-2 ring-offset-2 ring-blue-500 scale-110" : "hover:scale-110"
-            }`}
-            title={c.label}
-          />
-        ))}
-      </div>
-    )
-  }
-
-  if (loading) {
-    return <div className="text-center py-16 text-gray-500">{t.loading}</div>
   }
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <div className="flex items-center gap-3 mb-1">
-            <Link href="/" className="text-sm text-gray-400 hover:text-blue-600 transition-colors">
-              {t.projectBackToList}
-            </Link>
-          </div>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">{t.categorySettingsTitle}</h1>
-          <p className="text-sm text-gray-500 mt-1">{t.categorySettingsDesc}</p>
-        </div>
-        <button
-          onClick={() => { setShowCreate(true); setError("") }}
-          className="inline-flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 text-sm font-medium shadow-sm shadow-blue-500/25 hover:shadow-md transition-all"
-        >
-          <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd"/>
-          </svg>
-          {t.categoryNew}
-        </button>
-      </div>
+      <PageHeader
+        className="mb-8"
+        eyebrow={
+          <Link href="/" className="text-body font-normal text-fg-muted hover:text-primary">
+            {t.projectBackToList}
+          </Link>
+        }
+        title={t.categorySettingsTitle}
+        description={t.categorySettingsDesc}
+        actions={
+          <Button leftIcon={<Plus className="h-4 w-4" />} onClick={() => openForm(null)}>
+            {t.categoryNew}
+          </Button>
+        }
+      />
 
-      {error && (
-        <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 rounded-xl px-4 py-3 mb-6">
-          <svg className="w-4 h-4 shrink-0" viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd"/>
-          </svg>
-          {error}
-        </div>
-      )}
-
-      {showCreate && (
-        <div className="bg-white rounded-2xl shadow-lg shadow-gray-200/50 border border-gray-100 p-6 mb-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-5">{t.categoryNew}</h2>
-          <form onSubmit={handleCreate} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.categoryCategory}</label>
-              <input
-                type="text"
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-                required
-                maxLength={50}
-                placeholder={t.categoryNamePlaceholder}
-                className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 placeholder:text-gray-300"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">{t.eventColor}</label>
-              {renderColorPicker(form.color, (color) => setForm({ ...form, color }))}
-            </div>
-            <div className="flex gap-3 pt-1">
-              <button type="submit" disabled={saving} className="px-5 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-50 text-sm font-medium shadow-sm">
-                {t.create}
-              </button>
-              <button type="button" onClick={() => setShowCreate(false)} className="px-5 py-2.5 bg-gray-100 text-gray-600 rounded-xl hover:bg-gray-200 text-sm font-medium">
-                {t.cancel}
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {categories.length === 0 && !showCreate ? (
-        <div className="text-center py-16">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gray-100 mb-4">
-            <svg className="w-8 h-8 text-gray-400" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M17.707 9.293a1 1 0 010 1.414l-7 7a1 1 0 01-1.414 0l-7-7A.997.997 0 012 10V5a3 3 0 013-3h5c.256 0 .512.098.707.293l7 7zM5 6a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd"/>
-            </svg>
-          </div>
-          <p className="text-lg font-medium text-gray-700 mb-1">{t.categoryEmpty}</p>
-          <p className="text-sm text-gray-500">{t.categoryEmptyDesc}</p>
-        </div>
+      {isLoading ? (
+        <SkeletonLines lines={4} label={t.loading} />
+      ) : categories.length === 0 ? (
+        <EmptyState
+          icon={<Tag className="h-6 w-6" />}
+          title={t.categoryEmpty}
+          description={t.categoryEmptyDesc}
+          action={<Button onClick={() => openForm(null)}>{t.categoryNew}</Button>}
+        />
       ) : (
-        <div className="space-y-3">
+        <ul className="space-y-3">
           {categories.map((cat) => (
-            <div key={cat.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-              {editingId === cat.id ? (
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-500 mb-1">{t.categoryCategory}</label>
-                    <input
-                      type="text"
-                      value={editForm.name}
-                      onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-                      maxLength={50}
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-500 mb-2">{t.eventColor}</label>
-                    {renderColorPicker(editForm.color, (color) => setEditForm({ ...editForm, color }))}
-                  </div>
-                  <div className="flex gap-2">
-                    <button onClick={() => handleUpdate(cat.id)} disabled={saving} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50">
-                      {t.save}
-                    </button>
-                    <button onClick={() => setEditingId(null)} className="px-4 py-2 bg-gray-100 text-gray-600 rounded-lg text-sm hover:bg-gray-200">
-                      {t.cancel}
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <span className={`w-3 h-3 rounded-full ${colorDot[cat.color] ?? colorDot.gray}`} />
-                    <span className="text-sm font-semibold text-gray-900">{cat.name}</span>
-                    <span className="text-xs text-gray-400">
-                      {`${cat.assignments.length} ${t.categoryProjects}`}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => startEdit(cat)}
-                      className="p-2 text-gray-400 hover:text-blue-600 rounded-lg hover:bg-blue-50 transition-all"
-                      title={t.edit}
-                    >
-                      <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-                        <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"/>
-                      </svg>
-                    </button>
-                    <button
-                      onClick={() => handleDelete(cat.id)}
-                      className="p-2 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-50 transition-all"
-                      title={t.delete}
-                    >
-                      <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd"/>
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
+            <li key={cat.id} className="flex items-center justify-between gap-3 bg-surface rounded-ui-lg border border-border shadow-ui-sm px-5 py-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <span aria-hidden className={`w-3 h-3 shrink-0 rounded-full ${dotOf(cat.color)}`} />
+                <span className="text-body font-semibold text-fg truncate">{cat.name}</span>
+                <span className="text-caption text-fg-muted shrink-0">{`${cat.assignments.length} ${t.categoryProjects}`}</span>
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <IconButton label={`${t.edit}: ${cat.name}`} icon={<Pencil className="h-4 w-4" />} size="sm" onClick={() => openForm(cat)} />
+                <IconButton label={`${t.delete}: ${cat.name}`} icon={<Trash2 className="h-4 w-4" />} size="sm" variant="danger" onClick={() => handleDelete(cat)} />
+              </div>
+            </li>
           ))}
-        </div>
+        </ul>
       )}
 
-      <div className="mt-8 p-4 bg-blue-50 rounded-xl">
-        <p className="text-sm text-blue-700">
-          {t.categoryHelpText}
-        </p>
+      <div className="mt-8 p-4 bg-info-soft rounded-ui-md">
+        <p className="text-body text-info">{t.categoryHelpText}</p>
       </div>
+
+      <Modal
+        open={open}
+        onClose={() => setOpen(false)}
+        title={editingId ? t.categoryEdit : t.categoryNew}
+        isDirty={JSON.stringify(form) !== JSON.stringify(initial)}
+        footer={<FormFooter saving={saving} disabled={!form.name.trim()} submitLabel={editingId ? t.save : t.create} />}
+      >
+        <form id="category-form" onSubmit={handleSubmit} className="space-y-4">
+          <Field label={t.categoryCategory} required error={error ?? undefined}>
+            <Input
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              required
+              maxLength={50}
+              placeholder={t.categoryNamePlaceholder}
+              data-autofocus
+            />
+          </Field>
+          <fieldset>
+            <legend className="text-body font-medium text-fg mb-2">{t.categoryColor}</legend>
+            <div className="flex flex-wrap gap-2">
+              {COLORS.map((c) => (
+                <button
+                  key={c.value}
+                  type="button"
+                  onClick={() => setForm({ ...form, color: c.value })}
+                  aria-label={t[c.label] as string}
+                  title={t[c.label] as string}
+                  aria-pressed={form.color === c.value}
+                  className={`w-8 h-8 rounded-full ${c.dot} ${form.color === c.value ? "ring-2 ring-offset-2 ring-primary" : ""}`}
+                />
+              ))}
+            </div>
+          </fieldset>
+        </form>
+      </Modal>
     </div>
+  )
+}
+
+function FormFooter({ saving, disabled, submitLabel }: { saving: boolean; disabled: boolean; submitLabel: string }) {
+  const { t } = useLanguage()
+  const close = useModalClose()
+  return (
+    <>
+      <Button variant="secondary" onClick={close}>{t.cancel}</Button>
+      <Button type="submit" form="category-form" loading={saving} disabled={disabled}>{submitLabel}</Button>
+    </>
   )
 }

@@ -66,9 +66,9 @@ services:
       # `host.docker.internal` resolves to the host on Docker Desktop / Rancher
       # Desktop. On plain Linux Docker Engine, declare it via extra_hosts below.
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
-      OLLAMA_MODEL_TRANSLATE: ${OLLAMA_MODEL_TRANSLATE:-qwen3.6:27b-q4_K_M}
+      OLLAMA_MODEL_TRANSLATE: ${OLLAMA_MODEL_TRANSLATE:-qwen3.8:27b-q4_K_M}
       OLLAMA_MODEL_VISION: ${OLLAMA_MODEL_VISION:-qwen2.5vl:7b}
-      OLLAMA_MODEL_ANALYSIS: ${OLLAMA_MODEL_ANALYSIS:-qwen3.6:27b-q4_K_M}
+      OLLAMA_MODEL_ANALYSIS: ${OLLAMA_MODEL_ANALYSIS:-qwen3.8:27b-q4_K_M}
     volumes:
       - app_uploads:/app/private/uploads
       - ./app/private/templates:/app/private/templates:ro

@@ -1,14 +1,18 @@
 "use client"
 
 import { useMemo } from "react"
+import { cn } from "@/components/ui"
 import {
   CalendarEvent,
   toDateStr,
   isSameDay,
   parseLocalDate,
   buildCalendarDays,
+  datePart,
   eventColorDot,
 } from "./calendar-types"
+
+const MAX_DOTS_PER_DAY = 3
 
 interface MiniCalendarProps {
   currentYear: number
@@ -16,7 +20,13 @@ interface MiniCalendarProps {
   today: Date
   events: CalendarEvent[]
   weekdays: string[]
+  locale: string
   onDateClick: (d: Date) => void
+}
+
+interface DayDot {
+  id: string
+  color: string
 }
 
 export default function MiniCalendar({
@@ -25,49 +35,31 @@ export default function MiniCalendar({
   today,
   events,
   weekdays,
+  locale,
   onDateClick,
 }: MiniCalendarProps) {
-  const month1Days = useMemo(
-    () => buildCalendarDays(currentYear, currentMonth),
-    [currentYear, currentMonth]
-  )
+  const month1Days = useMemo(() => buildCalendarDays(currentYear, currentMonth), [currentYear, currentMonth])
 
   const nextMonth = currentMonth === 11 ? 0 : currentMonth + 1
   const nextYear = currentMonth === 11 ? currentYear + 1 : currentYear
 
-  const month2Days = useMemo(
-    () => buildCalendarDays(nextYear, nextMonth),
-    [nextYear, nextMonth]
-  )
+  const month2Days = useMemo(() => buildCalendarDays(nextYear, nextMonth), [nextYear, nextMonth])
 
-  const month1Label = useMemo(() => {
-    return new Date(currentYear, currentMonth, 1).toLocaleDateString("default", {
-      year: "numeric",
-      month: "short",
-    })
-  }, [currentYear, currentMonth])
+  const monthLabel = (y: number, m: number) =>
+    new Date(y, m, 1).toLocaleDateString(locale, { year: "numeric", month: "short" })
 
-  const month2Label = useMemo(() => {
-    return new Date(nextYear, nextMonth, 1).toLocaleDateString("default", {
-      year: "numeric",
-      month: "short",
-    })
-  }, [nextYear, nextMonth])
-
-  // Build event dots map with colors
+  // Event dots per day (max 3), keyed by event id for stable rendering.
   const eventDotsMap = useMemo(() => {
-    const map: Record<string, string[]> = {}
+    const map: Record<string, DayDot[]> = {}
     for (const ev of events) {
-      const start = ev.date.split("T")[0]
-      const end = ev.endDate ? ev.endDate.split("T")[0] : start
+      const start = datePart(ev.date)
+      const end = ev.endDate ? datePart(ev.endDate) : start
       let d = parseLocalDate(start)
       const endD = parseLocalDate(end)
       while (d <= endD) {
         const key = toDateStr(d)
-        if (!map[key]) map[key] = []
-        if (map[key].length < 3) {
-          map[key].push(ev.color)
-        }
+        const dots = map[key] ?? []
+        if (dots.length < MAX_DOTS_PER_DAY) map[key] = [...dots, { id: ev.id, color: ev.color }]
         d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1)
       }
     }
@@ -75,21 +67,23 @@ export default function MiniCalendar({
   }, [events])
 
   return (
-    <div className="w-56 border-l bg-gray-50/30 p-4 shrink-0 overflow-auto hidden lg:block space-y-5">
+    <div className="w-56 border-l border-border bg-surface-muted/40 p-4 shrink-0 overflow-auto hidden lg:block space-y-5">
       <MiniMonthGrid
-        label={month1Label}
+        label={monthLabel(currentYear, currentMonth)}
         days={month1Days}
         month={currentMonth}
         today={today}
+        locale={locale}
         eventDotsMap={eventDotsMap}
         weekdays={weekdays}
         onDateClick={onDateClick}
       />
       <MiniMonthGrid
-        label={month2Label}
+        label={monthLabel(nextYear, nextMonth)}
         days={month2Days}
         month={nextMonth}
         today={today}
+        locale={locale}
         eventDotsMap={eventDotsMap}
         weekdays={weekdays}
         onDateClick={onDateClick}
@@ -103,6 +97,7 @@ function MiniMonthGrid({
   days,
   month,
   today,
+  locale,
   eventDotsMap,
   weekdays,
   onDateClick,
@@ -111,51 +106,47 @@ function MiniMonthGrid({
   days: Date[]
   month: number
   today: Date
-  eventDotsMap: Record<string, string[]>
+  locale: string
+  eventDotsMap: Record<string, DayDot[]>
   weekdays: string[]
   onDateClick: (d: Date) => void
 }) {
   return (
     <div>
-      <div className="text-xs font-bold text-gray-700 mb-2 text-center tracking-wide">
-        {label}
-      </div>
+      <h2 className="text-caption font-bold text-fg mb-2 text-center tracking-wide">{label}</h2>
       <div className="grid grid-cols-7 gap-0">
-        {weekdays.map((wd, i) => (
-          <div
-            key={i}
-            className="text-[9px] text-center text-gray-400 font-semibold pb-1 uppercase"
-          >
+        {weekdays.map((wd) => (
+          <div key={wd} className="text-caption text-center text-fg-subtle font-semibold pb-1 uppercase" aria-hidden>
             {wd.slice(0, 2)}
           </div>
         ))}
-        {days.map((day, i) => {
+        {days.map((day) => {
           const isCurrentMonth = day.getMonth() === month
           const isToday = isSameDay(day, today)
           const dayStr = toDateStr(day)
-          const dotColors = eventDotsMap[dayStr] ?? []
+          const dots = eventDotsMap[dayStr] ?? []
 
           return (
             <button
-              key={i}
+              key={dayStr}
               type="button"
               onClick={() => onDateClick(day)}
-              className={`text-[10px] w-7 h-7 flex flex-col items-center justify-center rounded-lg transition-all ${
+              aria-label={day.toLocaleDateString(locale, { year: "numeric", month: "long", day: "numeric" })}
+              aria-current={isToday ? "date" : undefined}
+              className={cn(
+                "text-caption w-7 h-7 flex flex-col items-center justify-center rounded-ui-sm",
                 isToday
-                  ? "bg-blue-600 text-white font-bold shadow-sm shadow-blue-300"
+                  ? "bg-primary text-primary-fg font-bold shadow-ui-sm"
                   : isCurrentMonth
-                  ? "text-gray-700 hover:bg-blue-50"
-                  : "text-gray-300"
-              }`}
+                    ? "text-fg hover:bg-primary-soft"
+                    : "text-fg-subtle",
+              )}
             >
               <span>{day.getDate()}</span>
-              {dotColors.length > 0 && !isToday && (
-                <span className="flex gap-px -mt-0.5">
-                  {dotColors.map((color, ci) => (
-                    <span
-                      key={ci}
-                      className={`block w-1 h-1 rounded-full ${eventColorDot[color] ?? "bg-gray-400"}`}
-                    />
+              {dots.length > 0 && !isToday && (
+                <span className="flex gap-px -mt-0.5" aria-hidden>
+                  {dots.map((dot) => (
+                    <span key={dot.id} className={cn("block w-1 h-1 rounded-full", eventColorDot[dot.color] ?? "bg-fg-subtle")} />
                   ))}
                 </span>
               )}

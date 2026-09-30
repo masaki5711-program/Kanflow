@@ -1,51 +1,81 @@
 // Shared types for the sprint tab components (sprint-card, pbi-group,
 // sprint-task-row). Mirrors the API response shapes from
-// /api/projects/[projectId]/sprints.
+// /api/projects/[projectId]/sprints. `i18n` carries the both-language text
+// of the translatable fields (see lib/translation).
 
-export interface SprintPbItem {
-  id: string
-  displayId: number
-  initiative: string | null
-  epic: string | null
-  userStory: string | null
-  workloadScore: number
+import type {
+  CalendarEventDto,
+  PbiWithStatusDto,
+  ProjectMemberDto,
+  SprintDto,
+  SprintPbItemDto,
+  SprintTaskDto,
+} from "@/types/api"
+
+export type SprintPbItem = SprintPbItemDto
+export type SprintItem = SprintTaskDto
+export type Sprint = SprintDto
+export type CalendarEvent = CalendarEventDto
+
+/** Ready PB item listed in the sprint-creation form (from /backlog). */
+export type ReadyPbItem = PbiWithStatusDto
+
+export interface ProjectSettings {
+  defaultCapacity: number
+  sprintDurationDays: number
+  pointUnit: string
+  pointDescription: string | null
 }
 
-export interface SprintItem {
-  id: string
-  taskName: string | null
-  assignee: string | null
-  estimatedHours: number | null
-  actualHours: number | null
-  status: string
-  completionComment?: string | null
-  pbItem: SprintPbItem
+export type Member = Pick<ProjectMemberDto, "id" | "userId" | "role"> & {
+  user: Pick<ProjectMemberDto["user"], "id" | "name" | "email">
 }
 
-export interface Sprint {
-  id: string
+/** Retrospective / review fields editable in the status dialog. */
+export interface RetroFields {
+  reviewComment: string
+  retrospectiveMemo: string
+  retrospectiveKeep: string
+  retrospectiveProblem: string
+  retrospectiveTry: string
+}
+
+export interface StatusDialogState extends RetroFields {
+  sprintId: string
   sprintName: string
-  startDate: string
-  endDate: string
-  sprintGoal: string | null
-  capacity: number
-  actualScore: number
-  status: string
-  reviewComment: string | null
-  retrospectiveMemo: string | null
-  retrospectiveKeep: string | null
-  retrospectiveProblem: string | null
-  retrospectiveTry: string | null
-  items: SprintItem[]
+  nextStatus: string
 }
 
-export interface CalendarEvent {
-  id: string
-  title: string
-  description: string | null
-  date: string
-  endDate: string | null
-  color: string
-  sprintId: string | null
-  sprint: { id: string; sprintName: string } | null
+/** String-typed form state of the task add/edit modal. */
+export interface TaskFormState {
+  pbItemId: string
+  taskName: string
+  assignee: string
+  estimatedHours: string
+  actualHours: string
+  status: string
+}
+
+/** Callbacks shared by SprintCard → PbiGroup → SprintTaskRow. */
+export interface SprintTaskActions {
+  onRequestComplete: (task: SprintItem) => void
+  onQuickUpdateTaskStatus: (sprintId: string, taskId: string, status: string, completionComment?: string | null) => void
+  onStartEditTask: (sprintId: string, task: SprintItem) => void
+  onDeleteTask: (sprintId: string, taskId: string) => void
+  /** Resolves true when saved (errors are toasted by the caller). */
+  onEditCompletionComment: (sprintId: string, taskId: string, completionComment: string) => Promise<boolean>
+  /** Push a follow-up item to the project Icebox. Resolves true when created. */
+  onSendToIcebox: (request: string, background?: string) => Promise<boolean>
+  onOpenTaskForm: (sprintId: string, pbItemId?: string) => void
+  onRemovePbi: (sprintId: string, pbItemId: string) => void
+  onViewPbiDetail: (pbiId: string) => void
+}
+
+/** Sprint-level callbacks used by SprintCard (in addition to the task actions). */
+export interface SprintCardActions extends Omit<SprintTaskActions, "onRequestComplete"> {
+  onRequestStatusChange: (sprintId: string, nextStatus: string) => void
+  onDeleteSprint: (sprint: Sprint) => void
+  onOpenStatusDialog: (sprint: Sprint) => void
+  onAddPbi: (sprintId: string) => void
+  onSprintUpdated: () => void
 }

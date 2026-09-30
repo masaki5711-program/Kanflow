@@ -1,58 +1,32 @@
-import { NextResponse } from "next/server"
-import { prisma } from "@/lib/prisma"
 import { requireAuth } from "@/lib/api-helpers"
-import { z } from "zod"
+import { jsonResponse, successResponse, toHttpResponse } from "@/services/_shared"
+import { updateFixedTaskSchema } from "@/services/fixed-tasks/fixed-tasks.schemas"
+import { deleteGroup, updateGroup } from "@/services/fixed-tasks/fixed-tasks.service"
 
-const updateSchema = z.object({
-  taskName: z.string().min(1).max(200).optional(),
-  sortOrder: z.number().int().optional(),
-})
+type Params = { params: Promise<{ taskId: string }> }
 
-export async function PATCH(
-  request: Request,
-  { params }: { params: Promise<{ taskId: string }> }
-) {
+export async function PATCH(request: Request, { params }: Params) {
   const gate = await requireAuth()
   if ("error" in gate) return gate.error
   const { taskId } = await params
 
   try {
-    const body = await request.json()
-    const data = updateSchema.parse(body)
-
-    const existing = await prisma.userFixedTask.findFirst({
-      where: { id: taskId, userId: gate.session.user.id },
-    })
-    if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 })
-
-    const task = await prisma.userFixedTask.update({
-      where: { id: taskId },
-      data,
-    })
-
-    return NextResponse.json(task)
+    const input = updateFixedTaskSchema.parse(await request.json())
+    return jsonResponse(await updateGroup(gate.session.user.id, taskId, input))
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      return NextResponse.json({ error: error.issues }, { status: 400 })
-    }
-    console.error("FixedTask PATCH error:", error)
-    return NextResponse.json({ error: "更新に失敗しました" }, { status: 500 })
+    return toHttpResponse(error, { fallback: "更新に失敗しました", context: "FixedTask PATCH" })
   }
 }
 
-export async function DELETE(
-  _request: Request,
-  { params }: { params: Promise<{ taskId: string }> }
-) {
+export async function DELETE(_request: Request, { params }: Params) {
   const gate = await requireAuth()
   if ("error" in gate) return gate.error
   const { taskId } = await params
 
-  const existing = await prisma.userFixedTask.findFirst({
-    where: { id: taskId, userId: gate.session.user.id },
-  })
-  if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 })
-
-  await prisma.userFixedTask.delete({ where: { id: taskId } })
-  return NextResponse.json({ success: true })
+  try {
+    await deleteGroup(gate.session.user.id, taskId)
+    return successResponse()
+  } catch (error) {
+    return toHttpResponse(error, { fallback: "削除に失敗しました", context: "FixedTask DELETE" })
+  }
 }

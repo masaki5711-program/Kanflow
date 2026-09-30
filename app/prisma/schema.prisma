@@ -132,10 +132,15 @@ model Project {
   pointUnit           String                          @default("SP")
   pointDescription    String?                         @db.Text
   language            String                          @default("ja")
+  // Team option: when true, saved free-text fields are auto-annotated with a
+  // Japanese/Indonesian bilingual rendering (lib/ensure-bilingual.ts)
+  bilingualMode       Boolean                         @default(false)
   createdAt           DateTime                        @default(now())
   updatedAt           DateTime                        @updatedAt
   projectType         String                          @default("software")
   progressPct         Int                             @default(0)
+  // Card tint on the project list: gray|red|orange|yellow|green|blue|indigo|purple|pink; null = default white
+  cardColor           String?
   attachmentFolders   AttachmentFolder[]
   calendarEvents      CalendarEvent[]
   iceboxItems         IceboxItem[]
@@ -150,6 +155,29 @@ model Project {
   adminCategoryAssignments AdminCategoryAssignment[]
   favoritedBy         UserProjectFavorite[]
   planItems           PlanItem[]
+  aiReports           AiReport[]
+}
+
+model AiReport {
+  id        String   @id @default(cuid())
+  projectId String
+  // What fired the investigation: surveillance | sprint_completed | manual
+  trigger   String
+  status    String   @default("done")
+  title     String
+  // One-line summary for list views
+  summary   String?  @db.Text
+  // Full markdown report produced by the agent (fallback rendering)
+  body      String?  @db.Text
+  // JSON: StructuredReport submitted via the submit_report tool (report-tool.ts).
+  // Null for legacy reports / plain-text endings — the UI then renders body.
+  structured String? @db.Text
+  // JSON: detected anomalies, tool call stats, duration ms
+  meta      String?  @db.Text
+  createdAt DateTime @default(now())
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt])
 }
 
 model Section {
@@ -363,6 +391,7 @@ model DailyScrumNote {
 
   @@index([sprintId])
   @@index([sprintId, date])
+  @@index([archivedAt])
 }
 
 model SprintBacklogItem {
@@ -464,6 +493,7 @@ model ProjectAttachment {
 
   @@index([projectId])
   @@index([folderId])
+  @@index([folderId, sortOrder])
 }
 
 model UserProjectCategory {
@@ -491,4 +521,56 @@ model UserProjectCategoryAssignment {
   @@unique([categoryId, projectId])
   @@index([categoryId])
   @@index([projectId])
+}
+
+/// Both-language storage for user-entered free text (src/lib/translation).
+/// One row per (entity, field). The row doubles as the background-translation
+/// queue: status / priority / attempts live here, there is no separate queue.
+/// The source-locale column holds the original text verbatim; the other side
+/// is filled by the background worker (or by the legacy bilingual-pair split).
+model FieldTranslation {
+  entityType   String    @map("entity_type") @db.VarChar(64)
+  entityId     String    @map("entity_id") @db.VarChar(191)
+  field        String    @db.VarChar(64)
+  sourceLocale String    @map("source_locale") @db.Char(2)
+  sourceHash   String    @map("source_hash") @db.VarChar(64)
+  textJa       String?   @map("text_ja") @db.Text
+  textId       String?   @map("text_id") @db.Text
+  status       String    @default("pending") @db.VarChar(16)
+  priority     Int       @default(0)
+  attempts     Int       @default(0)
+  lastError    String?   @map("last_error") @db.Text
+  model        String?   @db.VarChar(128)
+  requestedAt  DateTime  @default(now()) @map("requested_at")
+  startedAt    DateTime? @map("started_at")
+  translatedAt DateTime? @map("translated_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  @@id([entityType, entityId, field])
+  @@index([status, priority(sort: Desc), requestedAt])
+  @@map("field_translation")
+}
+
+/// Shared translation glossary: a correction by one user is applied to every
+/// later translation. Registered from `用語<<訳語>>` markup in any text input
+/// or from /admin/glossary. (source, target, term_norm) is unique; the reverse
+/// direction is auto-registered (auto_reverse=true) until edited by hand.
+model Glossary {
+  id           String   @id @default(cuid())
+  sourceLocale String   @map("source_locale") @db.Char(2)
+  targetLocale String   @map("target_locale") @db.Char(2)
+  term         String   @db.VarChar(255)
+  termNorm     String   @map("term_norm") @db.VarChar(255)
+  translation  String   @db.VarChar(500)
+  note         String?  @db.Text
+  autoReverse  Boolean  @default(false) @map("auto_reverse")
+  usageCount   Int      @default(0) @map("usage_count")
+  createdBy    String?  @map("created_by")
+  updatedBy    String?  @map("updated_by")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@unique([sourceLocale, targetLocale, termNorm])
+  @@index([sourceLocale, targetLocale])
+  @@map("glossary")
 }

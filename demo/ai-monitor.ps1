@@ -66,6 +66,10 @@ $EventMap = @{
     "VIZ_TABLE"     = @{ Tag = "[図表]"; Color = "DarkYellow" }
     "TRANSLATE"     = @{ Tag = "[翻訳]"; Color = "DarkCyan" }
     "TRANSLATE_DONE"= @{ Tag = "[完了]"; Color = "White" }
+    "SURVEIL"       = @{ Tag = "[監視]"; Color = "DarkGreen" }
+    "AGENT_START"   = @{ Tag = "[自律]"; Color = "Magenta" }
+    "AGENT_DONE"    = @{ Tag = "[完了]"; Color = "White" }
+    "REPORT_SAVED"  = @{ Tag = "[保存]"; Color = "Green" }
 }
 
 if (-not (Test-Path $LogPath)) {

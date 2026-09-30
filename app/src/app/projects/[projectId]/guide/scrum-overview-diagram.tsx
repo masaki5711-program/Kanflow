@@ -111,19 +111,19 @@ export default function ScrumOverviewDiagram() {
   const { language } = useLanguage()
 
   return (
-    <div className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-gradient-to-br from-slate-50 to-white dark:from-gray-900 dark:to-gray-800 p-5 md:p-6 mb-6 shadow-sm">
+    <div className="rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white p-5 md:p-6 mb-6 shadow-sm">
       <div className="flex items-center gap-2 mb-4">
-        <svg className="w-5 h-5 text-blue-600" viewBox="0 0 20 20" fill="currentColor">
+        <svg className="w-5 h-5 text-blue-600" aria-hidden="true" viewBox="0 0 20 20" fill="currentColor">
           <path d="M4 4a2 2 0 012-2h8a2 2 0 012 2v2H4V4zm0 4h12v8a2 2 0 01-2 2H6a2 2 0 01-2-2V8z"/>
         </svg>
-        <h3 className="text-base font-bold text-slate-800 dark:text-slate-100">
+        <h3 className="text-base font-bold text-slate-800">
           {T("title", language)}
         </h3>
       </div>
 
       {/* Legend: roles */}
       <div className="mb-5">
-        <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2">
+        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
           {T("legendRoles", language)}
         </p>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
@@ -168,36 +168,36 @@ export default function ScrumOverviewDiagram() {
         <Arrow />
 
         {/* Sprint container */}
-        <div className="relative rounded-2xl border-2 border-dashed border-blue-400 dark:border-blue-500 bg-blue-50/40 dark:bg-blue-900/20 px-4 py-4">
-          <div className="absolute -top-3 left-4 bg-white dark:bg-gray-800 px-2 text-xs font-bold text-blue-700 dark:text-blue-300 rounded">
+        <div className="relative rounded-2xl border-2 border-dashed border-blue-400 bg-blue-50/40 px-4 py-4">
+          <div className="absolute -top-3 left-4 bg-white px-2 text-xs font-bold text-blue-700 rounded">
             {T("sprintContainer", language)}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
             {/* Daily scrum (loops) */}
-            <div className="bg-white dark:bg-gray-800 rounded-xl border border-teal-300 dark:border-teal-700 p-3 relative">
+            <div className="bg-white rounded-xl border border-teal-300 p-3 relative">
               <div className="flex items-center gap-2 mb-1">
-                <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-teal-500 text-white text-[10px] font-bold">
+                <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-teal-500 text-white text-caption font-bold">
                   ↻
                 </span>
-                <span className="text-sm font-bold text-teal-800 dark:text-teal-300">
+                <span className="text-sm font-bold text-teal-800">
                   {T("dailyScrum", language)}
                 </span>
               </div>
-              <p className="text-xs text-teal-700 dark:text-teal-300">{T("dailyScrumAttendees", language)}</p>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 italic mt-0.5">
+              <p className="text-xs text-teal-700">{T("dailyScrumAttendees", language)}</p>
+              <p className="text-caption text-slate-500 italic mt-0.5">
                 {T("dailyScrumNote", language)}
               </p>
             </div>
 
             {/* Development → Increment */}
-            <div className="bg-white dark:bg-gray-800 rounded-xl border border-sky-300 dark:border-sky-700 p-3">
+            <div className="bg-white rounded-xl border border-sky-300 p-3">
               <div className="flex items-center gap-2 mb-1">
-                <span className="text-sm font-bold text-sky-800 dark:text-sky-300">
+                <span className="text-sm font-bold text-sky-800">
                   {T("development", language)}
                 </span>
-                <span className="text-slate-400">→</span>
-                <span className="text-sm font-bold text-emerald-700 dark:text-emerald-300">
+                <span className="text-fg-subtle" aria-hidden="true">→</span>
+                <span className="text-sm font-bold text-emerald-700">
                   {T("increment", language)}
                 </span>
               </div>
@@ -229,7 +229,7 @@ export default function ScrumOverviewDiagram() {
       </div>
 
       {/* Legend (color coding) */}
-      <div className="mt-5 flex flex-wrap gap-3 text-[11px] text-slate-500 dark:text-slate-400">
+      <div className="mt-5 flex flex-wrap gap-3 text-caption text-slate-500">
         <span className="inline-flex items-center gap-1.5">
           <span className="inline-block w-3 h-3 rounded-sm bg-indigo-400" />
           {T("legendArtifact", language)}
@@ -251,22 +251,22 @@ export default function ScrumOverviewDiagram() {
 
 const roleColors: Record<string, { bg: string; border: string; title: string; text: string }> = {
   amber: {
-    bg: "bg-amber-50 dark:bg-amber-900/20",
-    border: "border-amber-300 dark:border-amber-700",
-    title: "text-amber-800 dark:text-amber-200",
-    text: "text-amber-700 dark:text-amber-300",
+    bg: "bg-amber-50",
+    border: "border-amber-300",
+    title: "text-amber-800",
+    text: "text-amber-700",
   },
   emerald: {
-    bg: "bg-emerald-50 dark:bg-emerald-900/20",
-    border: "border-emerald-300 dark:border-emerald-700",
-    title: "text-emerald-800 dark:text-emerald-200",
-    text: "text-emerald-700 dark:text-emerald-300",
+    bg: "bg-emerald-50",
+    border: "border-emerald-300",
+    title: "text-emerald-800",
+    text: "text-emerald-700",
   },
   sky: {
-    bg: "bg-sky-50 dark:bg-sky-900/20",
-    border: "border-sky-300 dark:border-sky-700",
-    title: "text-sky-800 dark:text-sky-200",
-    text: "text-sky-700 dark:text-sky-300",
+    bg: "bg-sky-50",
+    border: "border-sky-300",
+    title: "text-sky-800",
+    text: "text-sky-700",
   },
 }
 
@@ -283,7 +283,7 @@ function RoleCard({
   return (
     <div className={`${c.bg} ${c.border} border rounded-lg p-2.5`}>
       <p className={`${c.title} text-xs font-bold`}>{title}</p>
-      <p className={`${c.text} text-[11px] mt-0.5`}>{desc}</p>
+      <p className={`${c.text} text-caption mt-0.5`}>{desc}</p>
     </div>
   )
 }
@@ -293,28 +293,28 @@ const boxColors: Record<
   { border: string; bg: string; label: string; sub: string }
 > = {
   indigo: {
-    border: "border-indigo-300 dark:border-indigo-700",
-    bg: "bg-indigo-50 dark:bg-indigo-900/20",
-    label: "text-indigo-800 dark:text-indigo-200",
-    sub: "text-indigo-600 dark:text-indigo-400",
+    border: "border-indigo-300",
+    bg: "bg-indigo-50",
+    label: "text-indigo-800",
+    sub: "text-indigo-600",
   },
   blue: {
-    border: "border-blue-300 dark:border-blue-700",
-    bg: "bg-blue-50 dark:bg-blue-900/20",
-    label: "text-blue-800 dark:text-blue-200",
-    sub: "text-blue-600 dark:text-blue-400",
+    border: "border-blue-300",
+    bg: "bg-blue-50",
+    label: "text-blue-800",
+    sub: "text-blue-600",
   },
   violet: {
-    border: "border-violet-300 dark:border-violet-700",
-    bg: "bg-violet-50 dark:bg-violet-900/20",
-    label: "text-violet-800 dark:text-violet-200",
-    sub: "text-violet-600 dark:text-violet-400",
+    border: "border-violet-300",
+    bg: "bg-violet-50",
+    label: "text-violet-800",
+    sub: "text-violet-600",
   },
   rose: {
-    border: "border-rose-300 dark:border-rose-700",
-    bg: "bg-rose-50 dark:bg-rose-900/20",
-    label: "text-rose-800 dark:text-rose-200",
-    sub: "text-rose-600 dark:text-rose-400",
+    border: "border-rose-300",
+    bg: "bg-rose-50",
+    label: "text-rose-800",
+    sub: "text-rose-600",
   },
 }
 
@@ -343,14 +343,14 @@ function DiagramBox({
       className={`${c.bg} ${c.border} border-2 rounded-xl px-4 py-3 ${narrow ? "max-w-sm mx-auto" : ""}`}
     >
       <div className="flex items-center gap-2 mb-0.5">
-        <span className={`${tag.cls} text-white text-[9px] font-bold tracking-wide px-1.5 py-0.5 rounded`}>
+        <span className={`${tag.cls} text-white text-caption font-bold tracking-wide px-1.5 py-0.5 rounded`}>
           {tag.txt}
         </span>
         <span className={`${c.label} text-sm font-bold`}>{label}</span>
       </div>
       {sub && <p className={`${c.sub} text-xs`}>{sub}</p>}
       {hint && (
-        <p className="text-[11px] text-slate-500 dark:text-slate-400 italic mt-0.5">{hint}</p>
+        <p className="text-caption text-slate-500 italic mt-0.5">{hint}</p>
       )}
     </div>
   )
@@ -360,11 +360,11 @@ function Arrow({ loop, label }: { loop?: boolean; label?: string } = {}) {
   return (
     <div className="flex justify-center items-center my-0">
       <div className="flex flex-col items-center">
-        <svg className="w-5 h-5 text-slate-400" viewBox="0 0 20 20" fill="currentColor">
+        <svg className="w-5 h-5 text-fg-subtle" aria-hidden="true" viewBox="0 0 20 20" fill="currentColor">
           <path fillRule="evenodd" d="M10 3a1 1 0 011 1v9.586l3.293-3.293a1 1 0 111.414 1.414l-5 5a1 1 0 01-1.414 0l-5-5a1 1 0 111.414-1.414L9 13.586V4a1 1 0 011-1z" clipRule="evenodd" />
         </svg>
         {loop && label && (
-          <span className="text-xs text-slate-500 dark:text-slate-400 italic mt-1">↻ {label}</span>
+          <span className="text-xs text-slate-500 italic mt-1">↻ {label}</span>
         )}
       </div>
     </div>

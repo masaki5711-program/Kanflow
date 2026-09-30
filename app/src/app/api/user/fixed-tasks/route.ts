@@ -1,27 +1,17 @@
-import { NextResponse } from "next/server"
-import { prisma } from "@/lib/prisma"
 import { requireAuth } from "@/lib/api-helpers"
-import { z } from "zod"
-
-const createSchema = z.object({
-  taskName: z.string().min(1).max(200),
-})
+import { jsonResponse, toHttpResponse } from "@/services/_shared"
+import { createFixedTaskSchema } from "@/services/fixed-tasks/fixed-tasks.schemas"
+import { createGroup, listGroups } from "@/services/fixed-tasks/fixed-tasks.service"
 
 export async function GET() {
   const gate = await requireAuth()
   if ("error" in gate) return gate.error
 
-  const tasks = await prisma.userFixedTask.findMany({
-    where: { userId: gate.session.user.id },
-    orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
-    include: {
-      items: {
-        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
-      },
-    },
-  })
-
-  return NextResponse.json(tasks)
+  try {
+    return jsonResponse(await listGroups(gate.session.user.id))
+  } catch (error) {
+    return toHttpResponse(error, { fallback: "取得に失敗しました", context: "FixedTask LIST" })
+  }
 }
 
 export async function POST(request: Request) {
@@ -29,29 +19,9 @@ export async function POST(request: Request) {
   if ("error" in gate) return gate.error
 
   try {
-    const body = await request.json()
-    const data = createSchema.parse(body)
-
-    const maxOrder = await prisma.userFixedTask.aggregate({
-      where: { userId: gate.session.user.id },
-      _max: { sortOrder: true },
-    })
-
-    const task = await prisma.userFixedTask.create({
-      data: {
-        userId: gate.session.user.id,
-        taskName: data.taskName,
-        sortOrder: (maxOrder._max.sortOrder ?? 0) + 1,
-      },
-      include: { items: true },
-    })
-
-    return NextResponse.json(task, { status: 201 })
+    const input = createFixedTaskSchema.parse(await request.json())
+    return jsonResponse(await createGroup(gate.session.user.id, input), 201)
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      return NextResponse.json({ error: error.issues }, { status: 400 })
-    }
-    console.error("FixedTask CREATE error:", error)
-    return NextResponse.json({ error: "作成に失敗しました" }, { status: 500 })
+    return toHttpResponse(error, { fallback: "作成に失敗しました", context: "FixedTask CREATE" })
   }
 }

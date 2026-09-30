@@ -1,16 +1,56 @@
 import path from "path"
 import fs from "fs/promises"
 import crypto from "crypto"
-import { prisma } from "@/lib/prisma"
 import { auth } from "@/lib/auth"
 import { NextResponse } from "next/server"
+import {
+  authorizeProject,
+  can,
+  isSystemAdmin,
+  type ProjectActor,
+} from "@/lib/authz"
+import type { ApiErrorCode } from "@/services/_shared/error-codes"
 
 /**
  * Verify that a resolved file path stays within the uploads directory.
  * Prevents path traversal attacks.
  */
+/** Absolute root of all project uploads: `<cwd>/private/uploads`. */
+export function uploadsRoot(): string {
+  return path.join(process.cwd(), "private", "uploads")
+}
+
+/** Project ids are cuid-like; anything else never names an upload dir. */
+const SAFE_PROJECT_ID = /^[A-Za-z0-9_-]{1,64}$/
+
+/**
+ * Absolute path of a project's upload directory, or null when `projectId`
+ * is not a plain id or would resolve anywhere other than a DIRECT child of
+ * the uploads root (empty, ".", "..", separators, absolute paths, ...).
+ */
+export function projectUploadDir(projectId: string): string | null {
+  if (!SAFE_PROJECT_ID.test(projectId)) return null
+  const root = uploadsRoot()
+  const resolved = path.resolve(root, projectId)
+  if (!resolved.startsWith(root + path.sep)) return null
+  if (path.dirname(resolved) !== root) return null
+  return resolved
+}
+
+/**
+ * Recursively remove `private/uploads/<projectId>` (missing dir is fine).
+ * Returns false (and touches nothing) when the id does not map to a safe
+ * directory inside the uploads root. fs errors propagate to the caller.
+ */
+export async function removeProjectUploadDir(projectId: string): Promise<boolean> {
+  const dir = projectUploadDir(projectId)
+  if (!dir) return false
+  await fs.rm(dir, { recursive: true, force: true })
+  return true
+}
+
 export function safeFilePath(projectId: string, fileName: string): string | null {
-  const uploadDir = path.join(process.cwd(), "private", "uploads")
+  const uploadDir = uploadsRoot()
   const resolved = path.resolve(uploadDir, projectId, fileName)
   if (!resolved.startsWith(uploadDir + path.sep)) {
     return null
@@ -46,7 +86,75 @@ const ALLOWED_MIME_PREFIXES = [
 
 export function isAllowedMime(mime: string): boolean {
   if (!mime) return false
-  return ALLOWED_MIME_PREFIXES.some((p) => mime === p || mime.startsWith(p))
+  const normalized = normalizeMime(mime)
+  return ALLOWED_MIME_PREFIXES.some((p) => normalized === p || normalized.startsWith(p))
+}
+
+/** Lower-case and strip parameters (`text/plain; charset=utf-8` -> `text/plain`). */
+export function normalizeMime(mime: string): string {
+  return (mime.split(";")[0] ?? "").trim().toLowerCase()
+}
+
+/**
+ * Real XML documents (which a browser may render, incl. XHTML / XSLT / SVG):
+ * `application/xml`, `text/xml` and any structured-syntax `+xml` suffix
+ * (`image/svg+xml`, `application/xhtml+xml`, ...). Office Open XML packages
+ * (`application/vnd.openxmlformats-officedocument.*`) merely contain
+ * "openxml" in the name — they are ZIP containers, not XML documents.
+ */
+function isXmlDocumentMime(mime: string): boolean {
+  return mime === "application/xml" || mime === "text/xml" || mime.endsWith("+xml")
+}
+
+/**
+ * Types a browser could execute or render as an active document when served
+ * from our origin (stored XSS). Always served as an opaque download.
+ */
+function isActiveContentMime(mime: string): boolean {
+  return (
+    mime === "" ||
+    mime.includes("html") ||
+    isXmlDocumentMime(mime) ||
+    mime.includes("svg") ||
+    mime.includes("javascript") ||
+    mime.includes("ecmascript")
+  )
+}
+
+/** Only these types may be rendered inline in the browser. */
+export function isInlineSafeMime(mime: string): boolean {
+  const m = normalizeMime(mime)
+  if (isActiveContentMime(m)) return false
+  if (m === "application/pdf" || m === "text/plain") return true
+  return m.startsWith("image/") || m.startsWith("video/") || m.startsWith("audio/")
+}
+
+export interface ServeHeaders {
+  contentType: string
+  disposition: "inline" | "attachment"
+}
+
+/**
+ * Decide Content-Type / Content-Disposition for a stored upload.
+ * - inline only for the safe whitelist (and only when not forced to download)
+ * - active content (html / xml / svg / js) is downgraded to octet-stream
+ * - everything else keeps its type but is forced to download
+ */
+export function resolveServeHeaders(mime: string, forceDownload: boolean): ServeHeaders {
+  const m = normalizeMime(mime)
+  if (isActiveContentMime(m)) {
+    return { contentType: "application/octet-stream", disposition: "attachment" }
+  }
+  const disposition = !forceDownload && isInlineSafeMime(m) ? "inline" : "attachment"
+  return { contentType: mime, disposition }
+}
+
+/** Constant-time string comparison for secrets (length-independent timing). */
+export function safeEqual(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (typeof a !== "string" || typeof b !== "string" || b.length === 0) return false
+  const ha = crypto.createHash("sha256").update(a, "utf8").digest()
+  const hb = crypto.createHash("sha256").update(b, "utf8").digest()
+  return crypto.timingSafeEqual(ha, hb) && a.length === b.length
 }
 
 /**
@@ -58,16 +166,16 @@ export async function saveUploadedFile(
   file: File
 ): Promise<
   | { ok: true; fileName: string; originalName: string; fileSize: number; mimeType: string }
-  | { ok: false; error: string; status: number }
+  | { ok: false; error: string; status: number; code: ApiErrorCode }
 > {
-  if (!file) return { ok: false, error: "ファイルがありません", status: 400 }
-  if (file.size <= 0) return { ok: false, error: "ファイルが空です", status: 400 }
+  if (!file) return { ok: false, error: "ファイルがありません", status: 400, code: "FILE_REQUIRED" }
+  if (file.size <= 0) return { ok: false, error: "ファイルが空です", status: 400, code: "FILE_EMPTY" }
   if (file.size > MAX_UPLOAD_SIZE) {
-    return { ok: false, error: "ファイルサイズが上限を超えています", status: 413 }
+    return { ok: false, error: "ファイルサイズが上限を超えています", status: 413, code: "PAYLOAD_TOO_LARGE" }
   }
   const mime = file.type || "application/octet-stream"
   if (!isAllowedMime(mime)) {
-    return { ok: false, error: "許可されていないファイル形式です", status: 415 }
+    return { ok: false, error: "許可されていないファイル形式です", status: 415, code: "UNSUPPORTED_MEDIA" }
   }
 
   const originalName = file.name || "upload"
@@ -80,7 +188,7 @@ export async function saveUploadedFile(
   await fs.mkdir(projectDir, { recursive: true })
 
   const full = safeFilePath(projectId, fileName)
-  if (!full) return { ok: false, error: "パスが不正です", status: 400 }
+  if (!full) return { ok: false, error: "パスが不正です", status: 400, code: "INVALID_PATH" }
 
   const buf = Buffer.from(await file.arrayBuffer())
   await fs.writeFile(full, buf)
@@ -158,17 +266,17 @@ export async function serveStoredFile(
 ): Promise<import("next/server").NextResponse> {
   const { NextResponse } = await import("next/server")
   const full = safeFilePath(projectId, fileName)
-  if (!full) return NextResponse.json({ error: "パスが不正です" }, { status: 400 })
+  if (!full) return NextResponse.json({ error: "パスが不正です", code: "INVALID_PATH" }, { status: 400 })
 
   let stat: import("fs").Stats
   try {
     stat = await (await import("fs/promises")).stat(full)
   } catch {
-    return NextResponse.json({ error: "File missing" }, { status: 404 })
+    return NextResponse.json({ error: "File missing", code: "FILE_MISSING" }, { status: 404 })
   }
 
   const encoded = encodeURIComponent(originalName)
-  const disposition = forceDownload ? "attachment" : "inline"
+  const { contentType, disposition } = resolveServeHeaders(mimeType, forceDownload)
   const contentDisposition = `${disposition}; filename="${encoded}"; filename*=UTF-8''${encoded}`
   const totalSize = stat.size
   const rangeHeader = request.headers.get("range")
@@ -194,8 +302,9 @@ export async function serveStoredFile(
       return new NextResponse(ab, {
         status: 206,
         headers: {
-          "Content-Type": mimeType,
+          "Content-Type": contentType,
           "Content-Disposition": contentDisposition,
+          "X-Content-Type-Options": "nosniff",
           "Content-Range": `bytes ${start}-${end}/${totalSize}`,
           "Accept-Ranges": "bytes",
           "Content-Length": String(chunkSize),
@@ -215,15 +324,16 @@ export async function serveStoredFile(
     ) as ArrayBuffer
     return new NextResponse(arrayBuffer, {
       headers: {
-        "Content-Type": mimeType,
+        "Content-Type": contentType,
         "Content-Disposition": contentDisposition,
+        "X-Content-Type-Options": "nosniff",
         "Content-Length": String(totalSize),
         "Accept-Ranges": "bytes",
         "Cache-Control": "private, max-age=3600",
       },
     })
   } catch {
-    return NextResponse.json({ error: "File missing" }, { status: 404 })
+    return NextResponse.json({ error: "File missing", code: "FILE_MISSING" }, { status: 404 })
   }
 }
 
@@ -238,54 +348,30 @@ export async function deleteUploadedFile(projectId: string, fileName: string): P
 }
 
 /**
- * Authenticate session and verify project membership.
- * System admins bypass the membership requirement and receive a synthetic
- * { role: "po" } membership so downstream PO-gated logic continues to work.
- * Returns { session, member } on success or a NextResponse error.
+ * @deprecated Use `requireProject(projectId, action)` from "@/lib/authz".
+ * Legacy shape kept for callers outside src/app/api: explicit members (optionally
+ * restricted to `roles`) or system admins (synthetic PO membership). Section
+ * managers are not admitted (403). 401 / 404 non-member / 403 role mismatch.
  */
 export async function requireProjectMember(
   projectId: string,
   options?: { roles?: string[] }
 ) {
-  const session = await auth()
-  if (!session?.user?.id) {
-    return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) }
+  const gate = await authorizeProject(projectId, (actor) => {
+    if (isSystemAdmin(actor)) return true
+    if (actor.projectRole === null) return false
+    return !options?.roles || options.roles.includes(actor.projectRole)
+  })
+  if ("error" in gate) return gate
+  const { session, actor } = gate
+  return {
+    session,
+    member: {
+      projectId,
+      userId: actor.userId,
+      role: isSystemAdmin(actor) ? "po" : (actor.projectRole as string),
+    },
   }
-
-  // System admins always pass — they get a synthetic PO-level membership so
-  // existing PO-gated branches stay valid.
-  if (session.user.role === "admin") {
-    return {
-      session,
-      member: {
-        id: `admin-${session.user.id}`,
-        projectId,
-        userId: session.user.id,
-        role: "po",
-        joinedAt: new Date(),
-      },
-    }
-  }
-
-  const where: Record<string, unknown> = {
-    projectId,
-    userId: session.user.id,
-  }
-  if (options?.roles) {
-    where.role = { in: options.roles }
-  }
-
-  const member = await prisma.projectMember.findFirst({ where })
-  if (!member) {
-    return {
-      error: NextResponse.json(
-        { error: options?.roles ? "権限がありません" : "メンバーではありません" },
-        { status: 403 }
-      ),
-    }
-  }
-
-  return { session, member }
 }
 
 /**
@@ -294,7 +380,7 @@ export async function requireProjectMember(
 export async function requireAuth() {
   const session = await auth()
   if (!session?.user?.id) {
-    return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) }
+    return { error: NextResponse.json({ error: "Unauthorized", code: "UNAUTHORIZED" }, { status: 401 }) }
   }
   return { session }
 }
@@ -305,101 +391,32 @@ export async function requireAuth() {
 export async function requireAdmin() {
   const session = await auth()
   if (!session?.user?.id) {
-    return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) }
+    return { error: NextResponse.json({ error: "Unauthorized", code: "UNAUTHORIZED" }, { status: 401 }) }
   }
   if (session.user.role !== "admin") {
-    return { error: NextResponse.json({ error: "管理者権限が必要です" }, { status: 403 }) }
+    return { error: NextResponse.json({ error: "管理者権限が必要です", code: "ADMIN_REQUIRED" }, { status: 403 }) }
   }
   return { session }
 }
 
 /**
- * Access scope: which write actions a request is performing.
- * - "read":     view-only (any access path allowed)
- * - "icebox":   write to Icebox (section_manager allowed)
- * - "po":       PBI / sprint / settings (po-level only; section_manager forbidden)
- * - "memberWrite": writes that any project member can do (sprint task status, etc.)
+ * @deprecated Use `requireProject(projectId, action)` from "@/lib/authz".
+ * Legacy scopes: "read" → project.view, "icebox" → icebox.write,
+ * "memberWrite" → any explicit member, "po" → PO only.
  */
 export type ProjectAccessScope = "read" | "icebox" | "po" | "memberWrite"
 
-interface AuthSession {
-  user: { id: string; name?: string | null; email?: string | null; role?: string }
+const LEGACY_SCOPE_CHECK: Record<ProjectAccessScope, (actor: ProjectActor) => boolean> = {
+  read: (actor) => can(actor, "project.view"),
+  icebox: (actor) => can(actor, "icebox.write"),
+  memberWrite: (actor) => isSystemAdmin(actor) || actor.projectRole !== null,
+  po: (actor) => isSystemAdmin(actor) || actor.projectRole === "po",
 }
 
-interface ProjectAccessResult {
-  session: AuthSession
-  /** Project membership row, if the user is an explicit member; null otherwise */
-  member: { role: string } | null
-  /** How the user got access: explicit project member, system admin, or section_manager */
-  via: "member" | "admin" | "section_manager"
-}
-
-/**
- * Verify that the current user can access the given project under the requested scope.
- * Resolution order:
- *   1. system admin    → full access (read/write all)
- *   2. project member  → access per existing project role rules
- *   3. section_manager whose sections include the project's section → read + icebox
- *   4. otherwise → 401/403
- */
-export async function requireProjectAccess(
-  projectId: string,
-  scope: ProjectAccessScope = "read"
-): Promise<{ error: NextResponse } | ProjectAccessResult> {
-  const session = await auth()
-  if (!session?.user?.id) {
-    return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) }
-  }
-
-  // 1. System admin: full access regardless of project section / membership.
-  if (session.user.role === "admin") {
-    return { session, member: null, via: "admin" }
-  }
-
-  // 2. Explicit project membership.
-  const member = await prisma.projectMember.findFirst({
-    where: { projectId, userId: session.user.id },
-    select: { role: true },
-  })
-  if (member) {
-    if (scope === "po" && member.role !== "po") {
-      return { error: NextResponse.json({ error: "PO 権限が必要です" }, { status: 403 }) }
-    }
-    return { session, member, via: "member" }
-  }
-
-  // 3. Section manager whose sections overlap the project's sections.
-  if (session.user.role === "section_manager") {
-    const project = await prisma.project.findUnique({
-      where: { id: projectId },
-      select: { sections: { select: { sectionId: true } } },
-    })
-    const projectSectionIds = project?.sections.map((s) => s.sectionId) ?? []
-    if (projectSectionIds.length > 0) {
-      const overlap = await prisma.userSection.findFirst({
-        where: { userId: session.user.id, sectionId: { in: projectSectionIds } },
-        select: { sectionId: true },
-      })
-      if (overlap) {
-        // Section managers may read everything and write Icebox only.
-        if (scope === "po" || scope === "memberWrite") {
-          return {
-            error: NextResponse.json(
-              { error: "セクション管理者は Icebox 以外の編集はできません" },
-              { status: 403 }
-            ),
-          }
-        }
-        return { session, member: null, via: "section_manager" }
-      }
-    }
-  }
-
-  // 4. No access path matched.
-  return {
-    error: NextResponse.json(
-      { error: "このプロジェクトへのアクセス権がありません" },
-      { status: 403 }
-    ),
-  }
+/** @deprecated Use `requireProject(projectId, action)` from "@/lib/authz". */
+export async function requireProjectAccess(projectId: string, scope: ProjectAccessScope = "read") {
+  const gate = await authorizeProject(projectId, LEGACY_SCOPE_CHECK[scope])
+  if ("error" in gate) return gate
+  const member = gate.actor.projectRole !== null ? { role: gate.actor.projectRole } : null
+  return { session: gate.session, member, via: gate.via }
 }

@@ -1,59 +1,59 @@
+import type { Prisma } from "@/generated/prisma/client"
 import { prisma } from "@/lib/prisma"
 
+type Db = Prisma.TransactionClient
+
+export interface TaskState {
+  taskName: string | null
+  status: string
+}
+
+export type PbiStatusChange =
+  | { status: "completed"; completedAt: Date }
+  | { status: "ready"; completedAt: null }
+  | null
+
+/** Placeholder rows (no taskName) only mark PBI membership in a sprint. */
+export function isRealTask(t: Pick<TaskState, "taskName">): boolean {
+  return !!(t.taskName && t.taskName.trim().length > 0)
+}
+
 /**
- * Reconcile a PBI's `status` with the state of its sprint tasks.
- *
- * Rule (Scrum-aligned: "PBI = a chunk of customer value, considered Done when
- * every task that delivers it is Done"):
- *  - If the PBI has ≥1 real task (taskName non-empty) AND every real task is
- *    in status="done"            → set PBI.status = "completed", completedAt = now
- *  - If the PBI is currently "completed" but at least one real task is back
- *    to "todo" / "in_progress"   → set PBI.status = "ready", completedAt = null
- *  - Otherwise (e.g. no real tasks yet, or mixed states on a non-completed
- *    PBI)                        → leave PBI status as-is
- *
- * This runs after any sprint task create/update/delete and after a PBI is
- * removed from a sprint. It is safe to call when the PBI no longer exists.
+ * Pure rule (Scrum-aligned: "PBI = a chunk of customer value, considered Done
+ * when every task that delivers it is Done"):
+ *  - ≥1 real task AND every real task done       → "completed", completedAt = now
+ *  - PBI "completed" but a real task is not done  → "ready", completedAt = null
+ *  - otherwise (no real tasks yet, mixed states)  → no change (null)
  */
-export async function syncPbiStatusFromTasks(pbItemId: string): Promise<void> {
-  const pbi = await prisma.productBacklogItem.findUnique({
+export function derivePbiStatusChange(currentStatus: string, tasks: readonly TaskState[], now: Date = new Date()): PbiStatusChange {
+  const realTasks = tasks.filter(isRealTask)
+  if (realTasks.length === 0) return null
+  const allDone = realTasks.every((r) => r.status === "done")
+  if (allDone && currentStatus !== "completed") return { status: "completed", completedAt: now }
+  // Auto-revert: a sprint-tracked PBI was sprint-ready by definition.
+  if (!allDone && currentStatus === "completed") return { status: "ready", completedAt: null }
+  return null
+}
+
+/**
+ * Reconcile a PBI's `status` with the state of its sprint tasks (scanned
+ * ACROSS sprints — a carried-over PBI isn't complete until every real task is
+ * done). Runs after any sprint task create/update/delete and after a PBI is
+ * removed from a sprint. Safe to call when the PBI no longer exists. Pass a
+ * transaction client to run inside the caller's transaction.
+ */
+export async function syncPbiStatusFromTasks(pbItemId: string, db: Db = prisma): Promise<void> {
+  const pbi = await db.productBacklogItem.findUnique({
     where: { id: pbItemId },
     select: { id: true, status: true },
   })
   if (!pbi) return
 
-  // Pull all sprint-backlog rows tied to this PBI. We deliberately scan
-  // ACROSS sprints — a PBI shouldn't normally span sprints, but if it does
-  // (e.g. carried over), it isn't "complete" until every real task is done.
-  const rows = await prisma.sprintBacklogItem.findMany({
+  const rows = await db.sprintBacklogItem.findMany({
     where: { pbItemId },
     select: { taskName: true, status: true },
   })
-  const realTasks = rows.filter((r) => !!(r.taskName && r.taskName.trim().length > 0))
-
-  if (realTasks.length === 0) {
-    // No actionable tasks have been carved out yet — don't touch the PBI.
-    return
-  }
-
-  const allDone = realTasks.every((r) => r.status === "done")
-
-  if (allDone && pbi.status !== "completed") {
-    await prisma.productBacklogItem.update({
-      where: { id: pbItemId },
-      data: { status: "completed", completedAt: new Date() },
-    })
-    return
-  }
-
-  // Auto-revert: if we previously auto-completed but now a task is back to a
-  // non-done state, return the PBI to `ready` so the user sees it in the
-  // active list again. We don't try to remember a "previous" status; a
-  // sprint-tracked PBI was sprint-ready by definition.
-  if (!allDone && pbi.status === "completed") {
-    await prisma.productBacklogItem.update({
-      where: { id: pbItemId },
-      data: { status: "ready", completedAt: null },
-    })
-  }
+  const change = derivePbiStatusChange(pbi.status, rows)
+  if (!change) return
+  await db.productBacklogItem.update({ where: { id: pbItemId }, data: change })
 }

@@ -1,31 +1,40 @@
 @echo off
-REM Kanflow recovery script — end + restart KanflowApp + show status
+REM ---------------------------------------------------------------------
+REM Kanflow manual recovery (double-click, then approve the UAC prompt).
+REM Robust restart of the node-windows service "kanflow.exe":
+REM   stop -> kill orphan node.exe still LISTENING on :3000 -> start
+REM   -> verify a NEW listener PID and a healthy /api/health
+REM Then shows service / port / health status and the daemon log tails.
+REM
+REM   recover.bat            restart + status (asks for elevation)
+REM   recover.bat /status    status only, no restart
+REM   recover.bat /nopause   do not wait for a key at the end
+REM Logic: ops\watchdog\recover-kanflow.ps1
+REM ---------------------------------------------------------------------
+setlocal
 chcp 65001 >nul 2>&1
+set "PS1=%~dp0ops\watchdog\recover-kanflow.ps1"
+set "EXTRA="
+set "NOPAUSE="
+for %%A in (%*) do (
+    if /i "%%~A"=="/status" set "EXTRA=-StatusOnly"
+    if /i "%%~A"=="/nopause" set "NOPAUSE=1"
+)
 
-echo === [1/5] End KanflowApp ===
-schtasks /End /TN "KanflowApp"
-echo.
+if not defined EXTRA (
+    net session >nul 2>&1
+    if errorlevel 1 (
+        echo Requesting administrator rights...
+        if "%~1"=="" (
+            powershell.exe -NoProfile -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
+        ) else (
+            powershell.exe -NoProfile -Command "Start-Process -FilePath '%~f0' -ArgumentList '%*' -Verb RunAs"
+        )
+        exit /b 0
+    )
+)
 
-echo === [2/5] Wait 3s ===
-timeout /t 3 /nobreak
-
-echo === [3/5] Run KanflowApp ===
-schtasks /Run /TN "KanflowApp"
-echo.
-
-echo === [4/5] Wait 8s for Next.js to start ===
-timeout /t 8 /nobreak
-
-echo === [5/5] Status ===
-echo.
-echo --- Port 3000 ---
-netstat -ano | findstr ":3000"
-echo.
-echo --- service.log ---
-type "D:\APP\Kanflow\app\service.log"
-echo.
-
-echo ============================================
-echo Done. Look for "LISTENING" above.
-echo ============================================
-pause
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%PS1%" %EXTRA%
+set "RC=%errorlevel%"
+if not defined NOPAUSE pause
+exit /b %RC%

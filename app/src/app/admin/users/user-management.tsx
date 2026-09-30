@@ -10,7 +10,7 @@ export function UserManagement() {
     <UserManagementBase
       headerExtra={
         <div className="flex items-center gap-3 mb-1">
-          <Link href="/" className="text-sm text-gray-400 hover:text-blue-600 transition-colors">
+          <Link href="/" className="text-body text-fg-muted hover:text-primary">
             {t.projectBackToList}
           </Link>
         </div>

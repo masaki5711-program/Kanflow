@@ -1,17 +1,42 @@
+import type { Prisma } from "@/generated/prisma/client"
 import { prisma } from "@/lib/prisma"
+import { isRealTask } from "@/lib/pbi-status-sync"
+
+type Db = Prisma.TransactionClient
+
+export interface ScoredTask {
+  status: string
+  taskName: string | null
+  pbItem: { id: string; workloadScore: number | null }
+}
 
 /**
- * Recalculate a sprint's actualScore based on completed PBI work.
- *
- * Logic: For each unique PBI in the sprint that has at least one real task,
- * if ALL real tasks for that PBI are "done", then that PBI's workloadScore
- * is added to the total. Partially completed PBIs are not counted.
- *
- * Placeholder items (those with no taskName) are PBI-membership markers
- * created at sprint creation time and must be excluded from this calculation.
+ * Pure rule: sum the workloadScore of every PBI whose real tasks (taskName
+ * non-empty) are ALL "done". Partially completed PBIs and placeholder rows
+ * (PBI-membership markers without a taskName) do not count.
  */
-export async function recalcSprintActualScore(sprintId: string): Promise<number> {
-  const rawItems = await prisma.sprintBacklogItem.findMany({
+export function computeSprintActualScore(items: readonly ScoredTask[]): number {
+  const byPbi = new Map<string, { workloadScore: number; allDone: boolean }>()
+  for (const item of items) {
+    if (!isRealTask(item)) continue
+    const prev = byPbi.get(item.pbItem.id)
+    const done = item.status === "done"
+    byPbi.set(item.pbItem.id, {
+      workloadScore: prev?.workloadScore ?? item.pbItem.workloadScore ?? 0,
+      allDone: (prev?.allDone ?? true) && done,
+    })
+  }
+  let total = 0
+  for (const pbi of byPbi.values()) if (pbi.allDone) total += pbi.workloadScore
+  return total
+}
+
+/**
+ * Recalculate and store a sprint's actualScore from its tasks. Pass a
+ * transaction client to run inside the caller's transaction.
+ */
+export async function recalcSprintActualScore(sprintId: string, db: Db = prisma): Promise<number> {
+  const items = await db.sprintBacklogItem.findMany({
     where: { sprintId },
     select: {
       status: true,
@@ -19,39 +44,7 @@ export async function recalcSprintActualScore(sprintId: string): Promise<number>
       pbItem: { select: { id: true, workloadScore: true } },
     },
   })
-
-  const sprintItems = rawItems.filter((i) => !!(i.taskName && i.taskName.trim().length > 0))
-
-  // Group tasks by PBI
-  const pbiMap = new Map<string, { workloadScore: number; allDone: boolean }>()
-
-  for (const item of sprintItems) {
-    const pbiId = item.pbItem.id
-    const existing = pbiMap.get(pbiId)
-    if (existing) {
-      if (item.status !== "done") {
-        existing.allDone = false
-      }
-    } else {
-      pbiMap.set(pbiId, {
-        workloadScore: item.pbItem.workloadScore ?? 0,
-        allDone: item.status === "done",
-      })
-    }
-  }
-
-  // Sum workloadScore for PBIs where all real tasks are done
-  let totalScore = 0
-  for (const pbi of pbiMap.values()) {
-    if (pbi.allDone) {
-      totalScore += pbi.workloadScore
-    }
-  }
-
-  await prisma.sprint.update({
-    where: { id: sprintId },
-    data: { actualScore: totalScore },
-  })
-
+  const totalScore = computeSprintActualScore(items)
+  await db.sprint.update({ where: { id: sprintId }, data: { actualScore: totalScore } })
   return totalScore
 }

@@ -1,988 +1,175 @@
 "use client"
 
-import { useEffect, useState, useCallback, useRef } from "react"
+import { useState } from "react"
+import { useStableHandlers } from "@/hooks"
 import { useParams } from "next/navigation"
-import { useSession } from "next-auth/react"
-import Link from "next/link"
 import { useLanguage } from "@/lib/language-context"
 import { formatPointUnit } from "@/lib/i18n"
-import { useConfirm } from "@/components/confirm-dialog"
+import { pickText } from "@/lib/translation/pick-text"
+import PbiDetailModal from "@/components/pbi-detail-modal"
+import { Button, DisclosureChevron, EmptyState, SkeletonCard } from "@/components/ui"
 import SprintStatusDialog from "./components/sprint-status-dialog"
-import EventFormModal from "./components/event-form-modal"
 import TaskFormModal from "./components/task-form-modal"
 import SprintCard from "./components/sprint-card"
 import AddPbiModal from "./components/add-pbi-modal"
-import PbiDetailModal from "@/components/pbi-detail-modal"
+import SprintsHeader from "./components/sprints-header"
+import SprintCreateForm from "./components/sprint-create-form"
+import type { Sprint, SprintCardActions, SprintItem, StatusDialogState } from "./components/types"
+import { useSprintsData } from "./hooks/use-sprints-data"
+import { useSprintActions } from "./hooks/use-sprint-actions"
+import { useTaskActions } from "./hooks/use-task-actions"
+import { needsRetroDialog, statusDialogFor } from "./lib/task-payload"
+import { useProjectDocumentTitle } from "@/components/app-shell/project-title-context"
+import { Archive, Plus, Zap } from "lucide-react"
 
-interface PbItemFull {
-  id: string
-  displayId: number
-  initiative: string | null
-  epic: string | null
-  userStory: string | null
-  workloadScore: number
-  status: string
-}
-
-interface SprintPbItem {
-  id: string
-  displayId: number
-  initiative: string | null
-  epic: string | null
-  userStory: string | null
-  workloadScore: number
-}
-
-interface SprintItem {
-  id: string
-  taskName: string | null
-  assignee: string | null
-  estimatedHours: number | null
-  actualHours: number | null
-  status: string
-  completionComment?: string | null
-  pbItem: SprintPbItem
-}
-
-interface Sprint {
-  id: string
-  sprintName: string
-  startDate: string
-  endDate: string
-  sprintGoal: string | null
-  capacity: number
-  actualScore: number
-  status: string
-  reviewComment: string | null
-  retrospectiveMemo: string | null
-  retrospectiveKeep: string | null
-  retrospectiveProblem: string | null
-  retrospectiveTry: string | null
-  items: SprintItem[]
-}
-
-interface CalendarEvent {
-  id: string
-  title: string
-  description: string | null
-  date: string
-  endDate: string | null
-  color: string
-  sprintId: string | null
-  sprint: { id: string; sprintName: string } | null
-}
-
-interface ProjectSettings {
-  defaultCapacity: number
-  sprintDurationDays: number
-  pointUnit: string
-  pointDescription: string | null
-}
-
-interface Member {
-  id: string
-  userId: string
-  role: string
-  user: { id: string; name: string; email: string }
-}
-
-/* ── SVG Icon helpers ── */
-function IconBolt({ className = "w-5 h-5" }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 20 20" fill="currentColor">
-      <path d="M11.983 1.907a.75.75 0 00-1.292-.657l-8.5 9.5A.75.75 0 002.75 12h6.572l-1.305 6.093a.75.75 0 001.292.657l8.5-9.5A.75.75 0 0017.25 8h-6.572l1.305-6.093z" />
-    </svg>
-  )
-}
-function IconPlus({ className = "w-4 h-4" }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 20 20" fill="currentColor">
-      <path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" />
-    </svg>
-  )
-}
-function IconChartBar({ className = "w-4 h-4" }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 20 20" fill="currentColor">
-      <path d="M15.5 2A1.5 1.5 0 0014 3.5v13a1.5 1.5 0 001.5 1.5h1a1.5 1.5 0 001.5-1.5v-13A1.5 1.5 0 0016.5 2h-1zM9.5 6A1.5 1.5 0 008 7.5v9A1.5 1.5 0 009.5 18h1a1.5 1.5 0 001.5-1.5v-9A1.5 1.5 0 0010.5 6h-1zM3.5 10A1.5 1.5 0 002 11.5v5A1.5 1.5 0 003.5 18h1A1.5 1.5 0 006 16.5v-5A1.5 1.5 0 004.5 10h-1z" />
-    </svg>
-  )
-}
-function IconCalendar({ className = "w-4 h-4" }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 20 20" fill="currentColor">
-      <path fillRule="evenodd" d="M5.75 2a.75.75 0 01.75.75V4h7V2.75a.75.75 0 011.5 0V4h.25A2.75 2.75 0 0118 6.75v8.5A2.75 2.75 0 0115.25 18H4.75A2.75 2.75 0 012 15.25v-8.5A2.75 2.75 0 014.75 4H5V2.75A.75.75 0 015.75 2zm-1 5.5c-.69 0-1.25.56-1.25 1.25v6.5c0 .69.56 1.25 1.25 1.25h10.5c.69 0 1.25-.56 1.25-1.25v-6.5c0-.69-.56-1.25-1.25-1.25H4.75z" clipRule="evenodd" />
-    </svg>
-  )
-}
-function IconArchive({ className = "w-4 h-4" }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 20 20" fill="currentColor">
-      <path d="M2 3a1 1 0 00-1 1v1a1 1 0 001 1h16a1 1 0 001-1V4a1 1 0 00-1-1H2z" />
-      <path fillRule="evenodd" d="M2 7.5h16l-.811 7.71a2 2 0 01-1.99 1.79H4.802a2 2 0 01-1.99-1.79L2 7.5zM7 11a1 1 0 011-1h4a1 1 0 110 2H8a1 1 0 01-1-1z" clipRule="evenodd" />
-    </svg>
-  )
-}
-function IconTag({ className = "w-4 h-4" }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 20 20" fill="currentColor">
-      <path fillRule="evenodd" d="M5.5 3A2.5 2.5 0 003 5.5v2.879a2.5 2.5 0 00.732 1.767l6.5 6.5a2.5 2.5 0 003.536 0l2.878-2.878a2.5 2.5 0 000-3.536l-6.5-6.5A2.5 2.5 0 008.38 3H5.5zM6 7a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
-    </svg>
-  )
-}
-function IconTarget({ className = "w-4 h-4" }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 20 20" fill="currentColor">
-      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm0-2a6 6 0 100-12 6 6 0 000 12zm0-2a4 4 0 100-8 4 4 0 000 8zm0-2a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
-    </svg>
-  )
-}
-function IconGauge({ className = "w-4 h-4" }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 20 20" fill="currentColor">
-      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm.75-11.25a.75.75 0 00-1.5 0v2.5c0 .414.336.75.75.75h2.5a.75.75 0 000-1.5h-1.75v-1.75z" clipRule="evenodd" />
-    </svg>
-  )
-}
-function IconClipboard({ className = "w-4 h-4" }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 20 20" fill="currentColor">
-      <path fillRule="evenodd" d="M13.887 3.182c.396.037.79.08 1.183.128C16.194 3.45 17 4.414 17 5.517V16.75A2.25 2.25 0 0114.75 19h-9.5A2.25 2.25 0 013 16.75V5.517c0-1.103.806-2.068 1.93-2.207.393-.048.787-.09 1.183-.128A3.001 3.001 0 019 1h2c1.373 0 2.531.923 2.887 2.182zM7.5 4A1.5 1.5 0 019 2.5h2A1.5 1.5 0 0112.5 4v.5h-5V4z" clipRule="evenodd" />
-    </svg>
-  )
-}
-function IconChevron({ open, className = "w-5 h-5" }: { open: boolean; className?: string }) {
-  return (
-    <svg className={`${className} transition-transform duration-200 ${open ? "rotate-90" : ""}`} viewBox="0 0 20 20" fill="currentColor">
-      <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
-    </svg>
-  )
-}
-function IconEventAdd({ className = "w-4 h-4" }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 20 20" fill="currentColor">
-      <path fillRule="evenodd" d="M5.75 2a.75.75 0 01.75.75V4h7V2.75a.75.75 0 011.5 0V4h.25A2.75 2.75 0 0118 6.75v8.5A2.75 2.75 0 0115.25 18H4.75A2.75 2.75 0 012 15.25v-8.5A2.75 2.75 0 014.75 4H5V2.75A.75.75 0 015.75 2zm4.25 7.25a.75.75 0 00-1.5 0v1.5h-1.5a.75.75 0 000 1.5h1.5v1.5a.75.75 0 001.5 0v-1.5h1.5a.75.75 0 000-1.5h-1.5v-1.5z" clipRule="evenodd" />
-    </svg>
-  )
-}
-function IconDelete({ className = "w-4 h-4" }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 20 20" fill="currentColor">
-      <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.52.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 3.68V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clipRule="evenodd" />
-    </svg>
-  )
+interface TaskModalState {
+  sprintId: string
+  task: SprintItem | null
+  pbItemId?: string
 }
 
 export default function SprintsPage() {
   const params = useParams()
   const projectId = params.projectId as string
   const { language, t, pt } = useLanguage()
-  const confirm = useConfirm()
+  useProjectDocumentTitle(pt.sprintTitle)
 
-  const statusLabels: Record<string, string> = {
-    planning: t.sprintStatusPlanning, active: t.sprintStatusActive,
-    review: t.sprintStatusReview, done: t.sprintStatusDone, archived: t.sprintStatusArchived,
-  }
-  const statusColors: Record<string, string> = {
-    planning: "bg-amber-100 text-amber-800 border border-amber-200",
-    active: "bg-blue-100 text-blue-800 border border-blue-200",
-    review: "bg-violet-100 text-violet-800 border border-violet-200",
-    done: "bg-emerald-100 text-emerald-800 border border-emerald-200",
-    archived: "bg-slate-100 text-slate-600 border border-slate-200",
-  }
+  const data = useSprintsData(projectId)
+  const { sprints, settings, canEditPbi } = data
+  const sprintActions = useSprintActions(projectId, data)
+  const taskActions = useTaskActions(projectId, data)
 
-  const [sprints, setSprints] = useState<Sprint[]>([])
-  const [events, setEvents] = useState<CalendarEvent[]>([])
-  const [projectSettings, setProjectSettings] = useState<ProjectSettings | null>(null)
-  const [members, setMembers] = useState<Member[]>([])
-  const { data: session } = useSession()
-  const [myRole, setMyRole] = useState<string | null>(null)
-  const isAdmin = (session?.user as { role?: string } | undefined)?.role === "admin"
-  const canEditPbi = isAdmin || myRole === "po" || myRole === "sm"
-  const [readyPbItems, setReadyPbItems] = useState<PbItemFull[]>([])
-  const [selectedPbIds, setSelectedPbIds] = useState<Set<string>>(new Set())
   const [showForm, setShowForm] = useState(false)
-
-  const [showEventForm, setShowEventForm] = useState(false)
-  const [editingEventId, setEditingEventId] = useState<string | null>(null)
-  const [eventForm, setEventForm] = useState({
-    title: "", description: "", date: "", endDate: "", color: "blue", sprintId: "",
-  })
-
-  const [showTaskForm, setShowTaskForm] = useState(false)
-  const [editingTaskId, setEditingTaskId] = useState<string | null>(null)
-  const [taskFormSprintId, setTaskFormSprintId] = useState<string>("")
-  const [taskForm, setTaskForm] = useState({
-    pbItemId: "", taskName: "", assignee: "", estimatedHours: "", actualHours: "", status: "todo" as string,
-  })
-
-  // Multi-expand: by default non-archived/non-done sprints are open so users
-  // immediately see imported PBs + tasks after sprint creation.
-  const [expandedSprintIds, setExpandedSprintIds] = useState<Set<string>>(new Set())
-  const sprintsInitializedRef = useRef(false)
-  const [burndownKey, setBurndownKey] = useState(0)
   const [showArchived, setShowArchived] = useState(false)
   const [addPbiSprintId, setAddPbiSprintId] = useState<string | null>(null)
   const [detailPbiId, setDetailPbiId] = useState<string | null>(null)
+  const [statusDialog, setStatusDialog] = useState<StatusDialogState | null>(null)
+  const [taskModal, setTaskModal] = useState<TaskModalState | null>(null)
+  // Expansion overrides; by default every non-archived sprint is expanded so
+  // imported PBs + tasks are visible right after sprint creation.
+  const [expandOverrides, setExpandOverrides] = useState<ReadonlyMap<string, boolean>>(() => new Map())
 
-  const [statusDialog, setStatusDialog] = useState<{
-    sprintId: string
-    sprintName: string
-    nextStatus: string
-    reviewComment: string
-    retrospectiveMemo: string
-    retrospectiveKeep: string
-    retrospectiveProblem: string
-    retrospectiveTry: string
-  } | null>(null)
-
-  const [form, setForm] = useState({
-    sprintName: "", startDate: "", endDate: "", sprintGoal: "", capacity: 0,
-  })
-
-  const fetchSprints = useCallback(async () => {
-    const res = await fetch(`/api/projects/${projectId}/sprints`)
-    if (res.ok) setSprints(await res.json())
-  }, [projectId])
-
-  const fetchReadyPbItems = useCallback(async () => {
-    const res = await fetch(`/api/projects/${projectId}/backlog`)
-    if (res.ok) {
-      const data = await res.json()
-      setReadyPbItems(data.readyItems)
-    }
-  }, [projectId])
-
-  const fetchEvents = useCallback(async () => {
-    const res = await fetch(`/api/projects/${projectId}/events`)
-    if (res.ok) setEvents(await res.json())
-  }, [projectId])
-
-  const fetchMembers = useCallback(async () => {
-    const res = await fetch(`/api/projects/${projectId}/members`)
-    if (res.ok) {
-      const data: Member[] = await res.json()
-      setMembers(data)
-      const uid = session?.user?.id
-      if (uid) {
-        const me = data.find((m) => m.user.id === uid)
-        setMyRole(me?.role ?? null)
-      }
-    }
-  }, [projectId, session?.user?.id])
-
-  useEffect(() => {
-    fetchSprints()
-    fetchReadyPbItems()
-    fetchEvents()
-    fetchMembers()
-    fetch(`/api/projects/${projectId}`)
-      .then((r) => r.json())
-      .then((p) => {
-        setProjectSettings({
-          defaultCapacity: p.defaultCapacity ?? 0,
-          sprintDurationDays: p.sprintDurationDays ?? 7,
-          pointUnit: p.pointUnit ?? "SP",
-          pointDescription: p.pointDescription ?? null,
-        })
-      })
-  }, [fetchSprints, fetchReadyPbItems, fetchEvents, fetchMembers, projectId])
-
-  // First-load default: expand all non-archived sprints so users see PBs/tasks.
-  // New sprints (seen for the first time in later fetches) also auto-expand.
-  useEffect(() => {
-    if (sprints.length === 0) return
-    setExpandedSprintIds((prev) => {
-      const next = new Set(prev)
-      const initial = !sprintsInitializedRef.current
-      for (const s of sprints) {
-        if (s.status === "archived") continue
-        if (initial || !prev.has(s.id)) {
-          // Expand on initial load or for newly-appearing sprint ids
-          if (initial || !prev.has(s.id)) next.add(s.id)
-        }
-      }
-      return next
-    })
-    sprintsInitializedRef.current = true
-  }, [sprints])
-
-  function togglePbSelection(id: string) {
-    setSelectedPbIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
-
-  const selectedWorkload = readyPbItems
-    .filter((item) => selectedPbIds.has(item.id))
-    .reduce((sum, item) => sum + item.workloadScore, 0)
-
-  async function handleCreate(e: React.FormEvent) {
-    e.preventDefault()
-    const res = await fetch(`/api/projects/${projectId}/sprints`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ...form, sprintGoal: form.sprintGoal || undefined,
-        selectedPbIds: Array.from(selectedPbIds),
-      }),
-    })
-    if (res.ok) {
-      setShowForm(false)
-      setForm({ sprintName: "", startDate: "", endDate: "", sprintGoal: "", capacity: 0 })
-      setSelectedPbIds(new Set())
-      fetchSprints()
-      fetchReadyPbItems()
-      setBurndownKey((k) => k + 1)
-    } else if (res.status === 409) {
-      alert(t.sprintCreateBlocked)
-    }
-  }
-
-  function requestStatusChange(sprintId: string, nextStatus: string) {
-    if (nextStatus === "review" || nextStatus === "done") {
-      const sprint = sprints.find((s) => s.id === sprintId)
-      setStatusDialog({
-        sprintId,
-        sprintName: sprint?.sprintName ?? "",
-        nextStatus,
-        reviewComment: sprint?.reviewComment ?? "",
-        retrospectiveMemo: sprint?.retrospectiveMemo ?? "",
-        retrospectiveKeep: sprint?.retrospectiveKeep ?? "",
-        retrospectiveProblem: sprint?.retrospectiveProblem ?? "",
-        retrospectiveTry: sprint?.retrospectiveTry ?? "",
-      })
-    } else {
-      updateSprintStatus(sprintId, nextStatus, null)
-    }
-  }
-
-  async function updateSprintStatus(
-    sprintId: string,
-    status: string,
-    retroPayload: {
-      reviewComment?: string | null
-      retrospectiveMemo?: string | null
-      retrospectiveKeep?: string | null
-      retrospectiveProblem?: string | null
-      retrospectiveTry?: string | null
-    } | null
-  ) {
-    const payload: Record<string, unknown> = { status }
-    if (retroPayload) {
-      for (const k of ["reviewComment", "retrospectiveMemo", "retrospectiveKeep", "retrospectiveProblem", "retrospectiveTry"] as const) {
-        if (retroPayload[k] !== undefined) payload[k] = retroPayload[k] || null
-      }
-    }
-    const res = await fetch(`/api/projects/${projectId}/sprints/${sprintId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    })
-    if (res.ok) {
-      fetchSprints()
-      setBurndownKey((k) => k + 1)
-    }
-  }
-
-  async function handleStatusDialogSubmit() {
-    if (!statusDialog) return
-    await updateSprintStatus(statusDialog.sprintId, statusDialog.nextStatus, {
-      reviewComment: statusDialog.reviewComment,
-      retrospectiveMemo: statusDialog.retrospectiveMemo,
-      retrospectiveKeep: statusDialog.retrospectiveKeep,
-      retrospectiveProblem: statusDialog.retrospectiveProblem,
-      retrospectiveTry: statusDialog.retrospectiveTry,
-    })
-    setStatusDialog(null)
-  }
-
-  function openTaskForm(sprintId: string, pbItemId?: string) {
-    setTaskFormSprintId(sprintId)
-    setEditingTaskId(null)
-    setTaskForm({ pbItemId: pbItemId || "", taskName: "", assignee: "", estimatedHours: "", actualHours: "", status: "todo" })
-    setShowTaskForm(true)
-  }
-
-  function startEditTask(sprintId: string, task: SprintItem) {
-    setTaskFormSprintId(sprintId)
-    setEditingTaskId(task.id)
-    setTaskForm({
-      pbItemId: task.pbItem.id, taskName: task.taskName ?? "",
-      assignee: task.assignee ?? "", estimatedHours: task.estimatedHours?.toString() ?? "",
-      actualHours: task.actualHours?.toString() ?? "", status: task.status,
-    })
-    setShowTaskForm(true)
-  }
-
-  async function handleTaskSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    if (editingTaskId) {
-      const payload: Record<string, unknown> = {}
-      if (taskForm.taskName) payload.taskName = taskForm.taskName
-      if (taskForm.assignee !== undefined) payload.assignee = taskForm.assignee || null
-      if (taskForm.estimatedHours) payload.estimatedHours = parseFloat(taskForm.estimatedHours)
-      else payload.estimatedHours = null
-      if (taskForm.actualHours) payload.actualHours = parseFloat(taskForm.actualHours)
-      else payload.actualHours = null
-      if (taskForm.status) payload.status = taskForm.status
-
-      const res = await fetch(
-        `/api/projects/${projectId}/sprints/${taskFormSprintId}/tasks/${editingTaskId}`,
-        { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }
-      )
-      if (res.ok) {
-        setShowTaskForm(false)
-        fetchSprints()
-        setBurndownKey((k) => k + 1)
-      } else {
-        const err = await res.json().catch(() => null)
-        alert(`${t.sprintUpdateFailed}: ${err?.error || res.statusText}`)
-      }
-    } else {
-      const res = await fetch(
-        `/api/projects/${projectId}/sprints/${taskFormSprintId}/tasks`,
-        {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            pbItemId: taskForm.pbItemId, taskName: taskForm.taskName,
-            assignee: taskForm.assignee || null,
-            estimatedHours: taskForm.estimatedHours ? parseFloat(taskForm.estimatedHours) : null,
-          }),
-        }
-      )
-      if (res.ok) {
-        setShowTaskForm(false)
-        fetchSprints()
-        setBurndownKey((k) => k + 1)
-      } else {
-        const err = await res.json().catch(() => null)
-        alert(`${t.sprintAddFailed}: ${err?.error || res.statusText}`)
-      }
-    }
-  }
-
-  async function handleBulkAddFromFixedTaskGroup(
-    pbItemId: string,
-    assignee: string | null,
-    taskNames: string[]
-  ) {
-    if (!taskFormSprintId || !pbItemId || taskNames.length === 0) return
-    const results = await Promise.all(
-      taskNames.map((taskName) =>
-        fetch(`/api/projects/${projectId}/sprints/${taskFormSprintId}/tasks`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ pbItemId, taskName, assignee, estimatedHours: null }),
-        })
-      )
-    )
-    const failed = results.filter((r) => !r.ok).length
-    if (failed > 0) {
-      alert(`${t.sprintAddFailed}: ${failed}/${taskNames.length}`)
-    }
-    setShowTaskForm(false)
-    fetchSprints()
-    setBurndownKey((k) => k + 1)
-  }
-
-  async function handleDeleteTask(sprintId: string, taskId: string) {
-    if (!await confirm({ message: t.sprintDeleteTaskConfirm, confirmLabel: t.delete, cancelLabel: t.cancel, variant: "danger" })) return
-    const res = await fetch(
-      `/api/projects/${projectId}/sprints/${sprintId}/tasks/${taskId}`, { method: "DELETE" }
-    )
-    if (res.ok) {
-      fetchSprints()
-      setBurndownKey((k) => k + 1)
-    }
-  }
-
-  async function quickUpdateTaskStatus(sprintId: string, taskId: string, status: string, completionComment?: string | null) {
-    const body: Record<string, unknown> = { status }
-    if (status === "done" && completionComment !== undefined) {
-      body.completionComment = completionComment
-    }
-    const res = await fetch(
-      `/api/projects/${projectId}/sprints/${sprintId}/tasks/${taskId}`,
-      { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
-    )
-    if (res.ok) {
-      fetchSprints()
-      setBurndownKey((k) => k + 1)
-    }
-  }
-
-  async function editCompletionComment(sprintId: string, taskId: string, completionComment: string) {
-    // The PATCH route accepts null/string. Empty string is collapsed to null so
-    // the comment block disappears once the user clears it out.
-    const body = { completionComment: completionComment.trim() ? completionComment : null }
-    const res = await fetch(
-      `/api/projects/${projectId}/sprints/${sprintId}/tasks/${taskId}`,
-      { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
-    )
-    if (res.ok) fetchSprints()
-  }
-
-  async function sendTaskToIcebox(_sprintId: string, _taskId: string, request: string, background?: string) {
-    // Push a follow-up Icebox item discovered while completing a sprint task.
-    // The author defaults to the current logged-in user on the server side.
-    const body: Record<string, unknown> = { request }
-    if (background) body.background = `(${t.sprintTaskCompletionComment}) ${background}`
-    const res = await fetch(
-      `/api/projects/${projectId}/icebox`,
-      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
-    )
-    if (!res.ok) {
-      const msg = await res.text().catch(() => "")
-      throw new Error(`icebox post failed: ${res.status} ${msg.slice(0, 120)}`)
-    }
-  }
-
-  function openEventForm(startDateStr?: string, endDateStr?: string) {
-    setEditingEventId(null)
-    setEventForm({
-      title: "",
-      description: "",
-      date: startDateStr || new Date().toISOString().split("T")[0],
-      endDate: endDateStr && endDateStr !== startDateStr ? endDateStr : "",
-      color: "blue",
-      sprintId: "",
-    })
-    setShowEventForm(true)
-  }
-
-  function startEditEvent(ev: CalendarEvent) {
-    setEditingEventId(ev.id)
-    setEventForm({
-      title: ev.title, description: ev.description ?? "",
-      date: ev.date.split("T")[0], endDate: ev.endDate ? ev.endDate.split("T")[0] : "",
-      color: ev.color, sprintId: ev.sprintId ?? "",
-    })
-    setShowEventForm(true)
-  }
-
-  async function handleEventSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    const url = editingEventId
-      ? `/api/projects/${projectId}/events/${editingEventId}`
-      : `/api/projects/${projectId}/events`
-    const method = editingEventId ? "PATCH" : "POST"
-    // For PATCH, send null (not undefined) when the user has cleared the
-    // field so the server actually clears it. For POST, omit empty values.
-    const payload: Record<string, unknown> = {
-      title: eventForm.title,
-      description: eventForm.description,
-      date: eventForm.date,
-      color: eventForm.color,
-    }
-    if (editingEventId) {
-      payload.endDate = eventForm.endDate ? eventForm.endDate : null
-      payload.sprintId = eventForm.sprintId ? eventForm.sprintId : null
-    } else {
-      if (eventForm.endDate) payload.endDate = eventForm.endDate
-      if (eventForm.sprintId) payload.sprintId = eventForm.sprintId
-    }
-    const res = await fetch(url, {
-      method,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    })
-    if (res.ok) {
-      setShowEventForm(false)
-      setEditingEventId(null)
-      fetchEvents()
-    } else {
-      const err = await res.json().catch(() => null)
-      alert(`${t.error}: ${err?.error || res.statusText}`)
-    }
-  }
-
-  async function handleDeleteEvent(eventId: string) {
-    if (!await confirm({ message: t.eventDeleteConfirm, confirmLabel: t.delete, cancelLabel: t.cancel, variant: "danger" })) return
-    const res = await fetch(`/api/projects/${projectId}/events/${eventId}`, { method: "DELETE" })
-    if (res.ok) fetchEvents()
-  }
-
-  async function handleDeleteSprint(sprintId: string) {
-    if (!await confirm({ message: t.sprintDeleteFullConfirm, confirmLabel: t.delete, cancelLabel: t.cancel, variant: "danger" })) return
-    try {
-      const res = await fetch(`/api/projects/${projectId}/sprints/${sprintId}`, { method: "DELETE" })
-      if (res.ok) {
-        fetchSprints()
-        setBurndownKey((k) => k + 1)
-      } else {
-        const err = await res.json().catch(() => null)
-        alert(`${t.error}: ${err?.error || res.statusText}`)
-      }
-    } catch {
-      alert(t.error)
-    }
-  }
-
-  async function handleRemovePbi(sprintId: string, pbItemId: string) {
-    if (!await confirm({
-      message: t.sprintRemovePbiConfirm,
-      confirmLabel: t.delete,
-      cancelLabel: t.cancel,
-      variant: "danger",
-    })) return
-    const res = await fetch(
-      `/api/projects/${projectId}/sprints/${sprintId}/pbis`,
-      {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pbItemId }),
-      }
-    )
-    if (res.ok) {
-      fetchSprints()
-      fetchReadyPbItems()
-      setBurndownKey((k) => k + 1)
-    } else {
-      const err = await res.json().catch(() => null)
-      alert(`${t.error}: ${err?.error || res.statusText}`)
-    }
-  }
-
+  const pointUnit = formatPointUnit(settings?.pointUnit, t)
   const doneSprints = sprints.filter((s) => s.status === "done" || s.status === "archived")
   const avgActual = doneSprints.length > 0
     ? Math.round(doneSprints.reduce((sum, s) => sum + s.actualScore, 0) / doneSprints.length)
     : null
-
-  const locale = language === "ja" ? "ja-JP" : language === "id" ? "id-ID" : "en-US"
+  const liveSprints = sprints.filter((s) => s.status !== "archived")
   const archivedSprints = sprints.filter((s) => s.status === "archived")
-  // Block creating a new sprint while one is already in flight to keep the
-  // backlog from being split across multiple parallel sprints.
-  const hasBlockingSprint = sprints.some((s) => s.status === "active" || s.status === "planning")
+  // One sprint in flight at a time keeps the backlog from being split.
+  const isCreateBlocked = sprints.some((s) => s.status === "active" || s.status === "planning")
+
+  const isExpanded = (s: Sprint) => expandOverrides.get(s.id) ?? s.status !== "archived"
+  function toggleExpanded(s: Sprint) {
+    setExpandOverrides((prev) => new Map(prev).set(s.id, !isExpanded(s)))
+  }
+
+  function refreshAfterPbiChange() {
+    data.refetchSprints()
+    data.refetchReady()
+  }
+
+  // Stable identities so memoized task rows skip re-rendering on page state changes.
+  const cardActions = useStableHandlers<SprintCardActions>({
+    onRequestStatusChange: (sprintId, nextStatus) => {
+      const sprint = sprints.find((s) => s.id === sprintId)
+      if (sprint && needsRetroDialog(nextStatus)) setStatusDialog(statusDialogFor(sprint, nextStatus))
+      else void sprintActions.changeStatus(sprintId, nextStatus, null)
+    },
+    onOpenStatusDialog: (sprint) => setStatusDialog(statusDialogFor(sprint, sprint.status)),
+    onDeleteSprint: (sprint) => void sprintActions.deleteSprint(sprint),
+    onAddPbi: setAddPbiSprintId,
+    onRemovePbi: (sprintId, pbItemId) => void sprintActions.removePbi(sprintId, pbItemId),
+    onViewPbiDetail: setDetailPbiId,
+    onSprintUpdated: data.refetchSprints,
+    onOpenTaskForm: (sprintId, pbItemId) => setTaskModal({ sprintId, task: null, pbItemId }),
+    onStartEditTask: (sprintId, task) => setTaskModal({ sprintId, task }),
+    onDeleteTask: (sprintId, taskId) => void taskActions.deleteTask(sprintId, taskId),
+    onQuickUpdateTaskStatus: (...args) => void taskActions.quickUpdateTaskStatus(...args),
+    onEditCompletionComment: taskActions.editCompletionComment,
+    onSendToIcebox: taskActions.sendToIcebox,
+  })
+
+  function renderCard(sprint: Sprint) {
+    return (
+      <li key={sprint.id} id={`sprint-card-${sprint.id}`}>
+        <SprintCard projectId={projectId} sprint={sprint} events={data.events} pointUnit={pointUnit}
+          canEditPbi={canEditPbi} isExpanded={isExpanded(sprint)} onToggleExpand={() => toggleExpanded(sprint)}
+          actions={cardActions} />
+      </li>
+    )
+  }
+
+  const taskSprint = taskModal ? sprints.find((s) => s.id === taskModal.sprintId) : undefined
+  const statusSprint = statusDialog ? sprints.find((s) => s.id === statusDialog.sprintId) : undefined
+  const addPbiSprint = addPbiSprintId ? sprints.find((s) => s.id === addPbiSprintId) : undefined
 
   return (
     <div>
-      {showEventForm && (
-        <EventFormModal eventForm={eventForm} editingEventId={editingEventId} sprints={sprints}
-          onSubmit={handleEventSubmit} onCancel={() => setShowEventForm(false)} onChange={setEventForm} />
-      )}
-      {showTaskForm && (
-        <TaskFormModal taskForm={taskForm} editingTaskId={editingTaskId}
-          sprint={sprints.find((s) => s.id === taskFormSprintId)} members={members}
-          pointUnit={formatPointUnit(projectSettings?.pointUnit, t)}
-          projectId={projectId}
-          canEditPbi={canEditPbi}
-          onSubmit={handleTaskSubmit} onCancel={() => setShowTaskForm(false)} onChange={setTaskForm}
-          onPbiSaved={() => { fetchSprints(); fetchReadyPbItems() }}
-          onBulkAdd={handleBulkAddFromFixedTaskGroup} />
+      {taskModal && taskSprint && (
+        <TaskFormModal projectId={projectId} sprint={taskSprint} task={taskModal.task}
+          initialPbItemId={taskModal.pbItemId} members={data.members} pointUnit={pointUnit} canEditPbi={canEditPbi}
+          onSave={(form) => taskActions.saveTask(taskSprint.id, taskModal.task?.id ?? null, form)}
+          onBulkAdd={(pbItemId, assignee, names) => taskActions.bulkAddTasks(taskSprint.id, pbItemId, assignee, names)}
+          onPbiSaved={refreshAfterPbiChange} onClose={() => setTaskModal(null)} />
       )}
       {statusDialog && (
-        <SprintStatusDialog sprint={sprints.find((s) => s.id === statusDialog.sprintId)}
-          dialog={statusDialog} onDialogChange={setStatusDialog}
-          onSubmit={handleStatusDialogSubmit} onCancel={() => setStatusDialog(null)}
-          projectId={projectId} />
+        <SprintStatusDialog projectId={projectId} sprint={statusSprint} initial={statusDialog}
+          onSubmit={(fields) => sprintActions.changeStatus(statusDialog.sprintId, statusDialog.nextStatus, fields)}
+          onClose={() => setStatusDialog(null)} />
       )}
-      {addPbiSprintId && (() => {
-        const sprint = sprints.find((s) => s.id === addPbiSprintId)
-        if (!sprint) return null
-        return (
-          <AddPbiModal
-            projectId={projectId}
-            sprintId={sprint.id}
-            sprintName={sprint.sprintName}
-            existingPbIds={new Set(sprint.items.map((i) => i.pbItem.id))}
-            pointUnit={formatPointUnit(projectSettings?.pointUnit, t)}
-            canCreate={canEditPbi}
-            onAdded={() => { fetchSprints(); fetchReadyPbItems(); setBurndownKey((k) => k + 1) }}
-            onClose={() => setAddPbiSprintId(null)}
-          />
-        )
-      })()}
-      {detailPbiId && (
-        <PbiDetailModal
+      {addPbiSprint && (
+        <AddPbiModal
           projectId={projectId}
-          pbiId={detailPbiId}
-          editable={canEditPbi}
-          onSaved={() => { fetchSprints(); fetchReadyPbItems() }}
-          onClose={() => setDetailPbiId(null)}
+          sprintId={addPbiSprint.id}
+          sprintName={pickText(addPbiSprint.i18n, "sprintName", addPbiSprint.sprintName, language).text}
+          existingPbIds={new Set(addPbiSprint.items.map((i) => i.pbItem.id))}
+          pointUnit={pointUnit}
+          canCreate={canEditPbi}
+          onAdded={refreshAfterPbiChange}
+          onClose={() => setAddPbiSprintId(null)}
         />
       )}
-
-      {/* ── Page Header ── */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <IconBolt className="w-7 h-7 text-blue-500" />
-          <h1 className="text-2xl font-bold text-gray-900">{pt.sprintTitle}</h1>
-          {avgActual !== null && (
-            <span className="inline-flex items-center gap-1.5 text-sm bg-blue-50 text-blue-700 border border-blue-200 px-3 py-1 rounded-full font-medium">
-              <IconChartBar className="w-4 h-4" />
-              {t.sprintAvgScore.replace("{count}", String(doneSprints.length))}: {avgActual}
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          <Link href={`/projects/${projectId}/calendar`}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors bg-gray-100 text-gray-600 hover:bg-gray-200">
-            <IconCalendar className="w-4 h-4" />
-            {t.calendarTitle}
-          </Link>
-          <Link href={`/projects/${projectId}/burndown`}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors bg-gray-100 text-gray-600 hover:bg-gray-200">
-            <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-              <path d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM5 6a1 1 0 011-1h2a1 1 0 011 1v8a1 1 0 01-1 1H6a1 1 0 01-1-1V6zM11 3a1 1 0 011-1h2a1 1 0 011 1v11a1 1 0 01-1 1h-2a1 1 0 01-1-1V3z"/>
-            </svg>
-            {t.burndownOpenPage}
-          </Link>
-          <button onClick={() => setShowArchived(!showArchived)}
-            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${showArchived ? "bg-slate-200 text-slate-700 hover:bg-slate-300" : "bg-gray-100 text-gray-500 hover:bg-gray-200"}`}>
-            <IconArchive className="w-4 h-4" />
-            {showArchived ? t.sprintArchivedSprints : t.sprintArchivedSprints}
-            {archivedSprints.length > 0 && <span className="text-xs bg-white/60 px-1.5 rounded-full">{archivedSprints.length}</span>}
-          </button>
-          <button onClick={() => {
-            if (hasBlockingSprint) return
-            if (projectSettings) {
-              const start = new Date()
-              const end = new Date()
-              end.setDate(end.getDate() + projectSettings.sprintDurationDays)
-              setForm({
-                sprintName: "", startDate: start.toISOString().split("T")[0],
-                endDate: end.toISOString().split("T")[0], sprintGoal: "",
-                capacity: projectSettings.defaultCapacity,
-              })
-            }
-            setSelectedPbIds(new Set())
-            setShowForm(true)
-          }}
-            disabled={hasBlockingSprint}
-            title={hasBlockingSprint ? t.sprintCreateBlocked : undefined}
-            className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all shadow-sm ${
-              hasBlockingSprint
-                ? "bg-gray-200 text-gray-400 cursor-not-allowed"
-                : "bg-gradient-to-r from-blue-600 to-blue-700 text-white hover:from-blue-700 hover:to-blue-800"
-            }`}>
-            <IconPlus className="w-4 h-4" />
-            {t.sprintCreate}
-          </button>
-        </div>
-      </div>
-
-
-      {/* ── Sprint Creation Form ── */}
-      {showForm && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-6">
-          <div className="h-1 bg-gradient-to-r from-blue-500 via-violet-500 to-blue-500" />
-          <div className="p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">{t.sprintNewSprint}</h2>
-
-            {avgActual !== null && (
-              <div className="inline-flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-lg px-4 py-2.5 mb-4 text-sm text-blue-800">
-                <IconChartBar className="w-4 h-4 text-blue-500" />
-                {t.sprintAvgScore.replace("{count}", String(doneSprints.length))}: <strong>{avgActual}</strong>
-              </div>
-            )}
-
-            <form onSubmit={handleCreate} className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700 mb-1.5">
-                    <IconTag className="w-4 h-4 text-gray-400" /> {t.sprintName}
-                  </label>
-                  <input type="text" value={form.sprintName} onChange={(e) => setForm({ ...form, sprintName: e.target.value })}
-                    required placeholder="Sprint-2026-03-W1"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-shadow" />
-                </div>
-                <div>
-                  <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700 mb-1.5">
-                    <IconGauge className="w-4 h-4 text-gray-400" /> {t.sprintCapacity}
-                  </label>
-                  <div className="flex items-center gap-2">
-                    <input type="number" min={0} value={form.capacity} onChange={(e) => setForm({ ...form, capacity: parseInt(e.target.value) || 0 })}
-                      required className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-shadow" />
-                    {projectSettings && <span className="text-xs text-gray-500 whitespace-nowrap">{formatPointUnit(projectSettings.pointUnit, t)}</span>}
-                  </div>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700 mb-1.5">
-                    <IconCalendar className="w-4 h-4 text-gray-400" /> {t.sprintStartDate}
-                  </label>
-                  <input type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })}
-                    required className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-                </div>
-                <div>
-                  <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700 mb-1.5">
-                    <IconCalendar className="w-4 h-4 text-gray-400" /> {t.sprintEndDate}
-                  </label>
-                  <input type="date" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })}
-                    required className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-                </div>
-              </div>
-              <div>
-                <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700 mb-1.5">
-                  <IconTarget className="w-4 h-4 text-gray-400" /> {pt.sprintGoal}
-                </label>
-                <textarea value={form.sprintGoal} onChange={(e) => setForm({ ...form, sprintGoal: e.target.value })}
-                  rows={2} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-shadow" />
-              </div>
-
-              {/* PB Selection */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700">
-                    <IconClipboard className="w-4 h-4 text-gray-400" /> {t.sprintPbImport}
-                  </label>
-                  <span className="text-sm text-gray-500">
-                    {t.sprintSelectedWorkload}: <strong className={selectedWorkload > form.capacity ? "text-red-600" : "text-blue-600"}>{selectedWorkload}</strong> / {form.capacity}
-                  </span>
-                </div>
-                {form.capacity > 0 && (
-                  <div className="w-full bg-gray-100 rounded-full h-2.5 mb-3">
-                    <div className={`h-2.5 rounded-full transition-all duration-300 ${selectedWorkload > form.capacity ? "bg-red-500" : selectedWorkload > form.capacity * 0.8 ? "bg-amber-400" : "bg-emerald-500"}`}
-                      style={{ width: `${Math.min((selectedWorkload / form.capacity) * 100, 100)}%` }} />
-                  </div>
-                )}
-                <div className="border border-gray-200 rounded-lg max-h-48 overflow-y-auto">
-                  {readyPbItems.length === 0 ? (
-                    <p className="text-sm text-gray-400 text-center py-4">{t.sprintNoPbReady}</p>
-                  ) : readyPbItems.map((item) => (
-                    <div key={item.id} className={`flex items-center gap-3 px-3 py-2.5 border-b border-gray-100 last:border-0 hover:bg-blue-50/50 transition-colors ${selectedPbIds.has(item.id) ? "bg-blue-50" : ""}`}>
-                      <label className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer">
-                        <input type="checkbox" checked={selectedPbIds.has(item.id)} onChange={() => togglePbSelection(item.id)}
-                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
-                        <IconClipboard className="w-3.5 h-3.5 text-gray-300 flex-shrink-0" />
-                        <span className="text-xs font-mono text-gray-400">#{item.displayId}</span>
-                        <span className="flex-1 text-sm truncate">{item.initiative || item.userStory || t.sprintNotEntered}</span>
-                        <span className="text-xs font-medium bg-orange-50 text-orange-700 border border-orange-200 px-2 py-0.5 rounded-full">{item.workloadScore}</span>
-                      </label>
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); setDetailPbiId(item.id) }}
-                        className="p-1 text-gray-300 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors flex-shrink-0"
-                        title={t.view}
-                      >
-                        <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-                          <path d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" />
-                          <path fillRule="evenodd" d="M.664 10.59a1.65 1.65 0 010-1.186A10 10 0 0110 3c4.257 0 7.893 2.66 9.336 6.41.147.381.146.804 0 1.186A10 10 0 0110 17c-4.257 0-7.893-2.66-9.336-6.41zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" />
-                        </svg>
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="flex gap-2 pt-2">
-                <button type="submit"
-                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 text-sm font-medium transition-all shadow-sm">
-                  <IconPlus className="w-4 h-4" />
-                  {t.sprintCreateWithCount.replace("{count}", String(selectedPbIds.size))}
-                </button>
-                <button type="button" onClick={() => setShowForm(false)}
-                  className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 text-sm font-medium transition-colors">
-                  {t.cancel}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+      {detailPbiId && (
+        <PbiDetailModal projectId={projectId} pbiId={detailPbiId} editable={canEditPbi}
+          onSaved={refreshAfterPbiChange} onClose={() => setDetailPbiId(null)} />
       )}
 
-      {/* ── Sprint list ── */}
-      <div className="space-y-4">
-        {sprints.filter((s) => s.status !== "archived").map((sprint) => (
-          <div key={sprint.id} id={`sprint-card-${sprint.id}`}>
-          <SprintCard projectId={projectId} sprint={sprint} events={events}
-            isExpanded={expandedSprintIds.has(sprint.id)}
-            onToggleExpand={() => setExpandedSprintIds((prev) => {
-              const next = new Set(prev)
-              if (next.has(sprint.id)) next.delete(sprint.id); else next.add(sprint.id)
-              return next
-            })}
-            onRequestStatusChange={requestStatusChange} onUpdateSprintStatus={updateSprintStatus}
-            onDeleteSprint={handleDeleteSprint} onOpenTaskForm={openTaskForm}
-            onStartEditTask={startEditTask} onDeleteTask={handleDeleteTask}
-            onQuickUpdateTaskStatus={quickUpdateTaskStatus}
-            onEditCompletionComment={editCompletionComment}
-            onSendToIcebox={sendTaskToIcebox}
-            onAddPbi={(sid) => setAddPbiSprintId(sid)}
-            onRemovePbi={handleRemovePbi}
-            onViewPbiDetail={(pbiId) => setDetailPbiId(pbiId)}
-            canEditPbi={canEditPbi}
-            onOpenStatusDialog={(s) => setStatusDialog({
-              sprintId: s.id,
-              sprintName: s.sprintName,
-              nextStatus: s.status,
-              reviewComment: s.reviewComment ?? "",
-              retrospectiveMemo: s.retrospectiveMemo ?? "",
-              retrospectiveKeep: s.retrospectiveKeep ?? "",
-              retrospectiveProblem: s.retrospectiveProblem ?? "",
-              retrospectiveTry: s.retrospectiveTry ?? "",
-            })}
-            onSprintUpdated={() => { fetchSprints(); setBurndownKey((k) => k + 1) }}
-            pointUnit={formatPointUnit(projectSettings?.pointUnit, t)} />
-          </div>
-        ))}
+      <SprintsHeader projectId={projectId} avgActual={avgActual} doneSprintCount={doneSprints.length}
+        archivedCount={archivedSprints.length} showArchived={showArchived}
+        onToggleArchived={() => setShowArchived((v) => !v)}
+        isCreateBlocked={isCreateBlocked} onCreate={() => setShowForm(true)} />
 
-        {sprints.filter((s) => s.status !== "archived").length === 0 && archivedSprints.length === 0 && (
-          <div className="text-center py-12 text-gray-500">
-            <p>{t.sprintNoSprints}</p>
-          </div>
-        )}
-      </div>
+      {showForm && !isCreateBlocked && (
+        <SprintCreateForm readyPbItems={data.readyPbItems} settings={settings} pointUnitLabel={pointUnit}
+          avgActual={avgActual} doneSprintCount={doneSprints.length}
+          onCreate={sprintActions.createSprint} onClose={() => setShowForm(false)} onViewPbi={setDetailPbiId} />
+      )}
 
-      {/* ── Archived sprints ── */}
+      {data.isLoadingSprints ? (
+        <div className="space-y-4">
+          <SkeletonCard label={t.loading} />
+          <SkeletonCard />
+        </div>
+      ) : liveSprints.length === 0 && archivedSprints.length === 0 ? (
+        <EmptyState icon={<Zap className="w-6 h-6" />} title={t.sprintNoSprints} description={t.sprintNoSprintsHint}
+          action={!isCreateBlocked && !showForm ? (
+            <Button onClick={() => setShowForm(true)} leftIcon={<Plus className="w-4 h-4" />}>{t.sprintCreate}</Button>
+          ) : undefined} />
+      ) : (
+        <ul className="space-y-4">{liveSprints.map(renderCard)}</ul>
+      )}
+
       {archivedSprints.length > 0 && (
-        <div className="mt-6">
-          <button onClick={() => setShowArchived(!showArchived)}
-            className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 mb-3 transition-colors">
-            <IconChevron open={showArchived} className="w-4 h-4" />
-            <IconArchive className="w-4 h-4" />
+        <section className="mt-6" aria-label={t.sprintArchivedSprints}>
+          <button type="button" onClick={() => setShowArchived((v) => !v)} aria-expanded={showArchived}
+            className="flex items-center gap-2 min-h-8 text-body text-fg-muted hover:text-fg mb-3 transition-colors">
+            <DisclosureChevron open={showArchived} className="w-4 h-4" />
+            <Archive className="w-4 h-4" />
             <span className="font-medium">{t.sprintArchivedSprints} ({archivedSprints.length})</span>
           </button>
-          {showArchived && (
-            <div className="space-y-4 opacity-90">
-              {archivedSprints.map((sprint) => (
-                <div key={sprint.id} id={`sprint-card-${sprint.id}`}>
-                <SprintCard
-                  projectId={projectId}
-                  sprint={sprint}
-                  events={events}
-                  isExpanded={expandedSprintIds.has(sprint.id)}
-                  onToggleExpand={() => setExpandedSprintIds((prev) => {
-                    const next = new Set(prev)
-                    if (next.has(sprint.id)) next.delete(sprint.id); else next.add(sprint.id)
-                    return next
-                  })}
-                  onRequestStatusChange={requestStatusChange}
-                  onUpdateSprintStatus={updateSprintStatus}
-                  onDeleteSprint={handleDeleteSprint}
-                  onOpenTaskForm={openTaskForm}
-                  onStartEditTask={startEditTask}
-                  onDeleteTask={handleDeleteTask}
-                  onQuickUpdateTaskStatus={quickUpdateTaskStatus}
-                  onEditCompletionComment={editCompletionComment}
-                  onSendToIcebox={sendTaskToIcebox}
-                  onOpenStatusDialog={(s) => setStatusDialog({
-                    sprintId: s.id,
-                    sprintName: s.sprintName,
-                    nextStatus: s.status,
-                    reviewComment: s.reviewComment ?? "",
-                    retrospectiveMemo: s.retrospectiveMemo ?? "",
-                    retrospectiveKeep: s.retrospectiveKeep ?? "",
-                    retrospectiveProblem: s.retrospectiveProblem ?? "",
-                    retrospectiveTry: s.retrospectiveTry ?? "",
-                  })}
-                  onAddPbi={(sid) => setAddPbiSprintId(sid)}
-                  onRemovePbi={handleRemovePbi}
-                  onViewPbiDetail={(pbiId) => setDetailPbiId(pbiId)}
-                  canEditPbi={canEditPbi}
-                  onSprintUpdated={() => { fetchSprints(); setBurndownKey((k) => k + 1) }}
-                  pointUnit={formatPointUnit(projectSettings?.pointUnit, t)}
-                />
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+          {showArchived && <ul className="space-y-4 opacity-90">{archivedSprints.map(renderCard)}</ul>}
+        </section>
       )}
     </div>
   )

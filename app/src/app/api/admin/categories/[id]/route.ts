@@ -1,53 +1,35 @@
 import { NextResponse } from "next/server"
-import { z } from "zod"
-import { prisma } from "@/lib/prisma"
 import { requireAdmin } from "@/lib/api-helpers"
+import { jsonResponse, toHttpResponse } from "@/services/_shared"
+import { updateAdminCategorySchema } from "@/services/categories/categories.schemas"
+import { deleteAdminCategory, updateAdminCategory } from "@/services/categories/categories.service"
 
-const updateSchema = z.object({
-  name: z.string().min(1).max(100).optional(),
-  color: z.string().max(50).optional(),
-  sortOrder: z.number().int().optional(),
-  sectionId: z.string().nullable().optional(),
-})
+type Params = { params: Promise<{ id: string }> }
 
-export async function PATCH(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function PATCH(request: Request, { params }: Params) {
   const auth = await requireAdmin()
   if ("error" in auth) return auth.error
 
   const { id } = await params
-  let parsed
-  try {
-    parsed = updateSchema.parse(await request.json())
-  } catch {
-    return NextResponse.json({ error: "invalid_request" }, { status: 400 })
-  }
+  const parsed = updateAdminCategorySchema.safeParse(await request.json().catch(() => null))
+  if (!parsed.success) return NextResponse.json({ error: "invalid_request", code: "VALIDATION" }, { status: 400 })
 
   try {
-    const cat = await prisma.adminCategory.update({ where: { id }, data: parsed })
-    return NextResponse.json(cat)
-  } catch (err) {
-    if (err && typeof err === "object" && "code" in err && err.code === "P2002") {
-      return NextResponse.json({ error: "duplicate_name_in_scope" }, { status: 409 })
-    }
-    return NextResponse.json({ error: "not_found" }, { status: 404 })
+    return jsonResponse(await updateAdminCategory(id, parsed.data))
+  } catch (error) {
+    return toHttpResponse(error, { fallback: "update_failed", context: "Admin category PATCH" })
   }
 }
 
-export async function DELETE(
-  _request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function DELETE(_request: Request, { params }: Params) {
   const auth = await requireAdmin()
   if ("error" in auth) return auth.error
 
   const { id } = await params
   try {
-    await prisma.adminCategory.delete({ where: { id } })
+    await deleteAdminCategory(id)
     return NextResponse.json({ ok: true })
-  } catch {
-    return NextResponse.json({ error: "not_found" }, { status: 404 })
+  } catch (error) {
+    return toHttpResponse(error, { fallback: "delete_failed", context: "Admin category DELETE" })
   }
 }

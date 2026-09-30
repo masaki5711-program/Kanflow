@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
 import { prisma } from "@/lib/prisma"
-import { requireProjectMember } from "@/lib/api-helpers"
-import { buildAnalysisSystem, streamAnalysis, streamingResponse, normalizeLang, type AILang } from "@/lib/ai-analysis"
+import { requireProject } from "@/lib/authz"
+import { buildAnalysisSystem, analysisStreamResponse, normalizeLang, type AILang } from "@/lib/ai-analysis"
 import type { ChatMessage } from "@/lib/ollama"
+import { OLLAMA_TIMEOUTS } from "@/lib/ollama/config"
 
 const bodySchema = z.object({ lang: z.enum(["ja", "en", "id"]).optional() }).optional()
 
@@ -63,7 +64,7 @@ export async function POST(
   { params }: { params: Promise<{ projectId: string; sprintId: string }> }
 ) {
   const { projectId, sprintId } = await params
-  const auth = await requireProjectMember(projectId)
+  const auth = await requireProject(projectId, "ai.use")
   if ("error" in auth) return auth.error
 
   let lang: AILang = "ja"
@@ -82,7 +83,7 @@ export async function POST(
       dailyScrumNotes: { orderBy: { date: "asc" } },
     },
   })
-  if (!sprint) return NextResponse.json({ error: "not_found" }, { status: 404 })
+  if (!sprint) return NextResponse.json({ error: "not_found", code: "SPRINT_NOT_FOUND" }, { status: 404 })
 
   const lines: string[] = []
   lines.push(`# Sprint: ${sprint.sprintName}`)
@@ -122,6 +123,10 @@ export async function POST(
     { role: "user", content: sprintBlob },
   ]
 
-  const stream = streamAnalysis(messages, { temperature: 0.3 })
-  return streamingResponse(stream)
+  return analysisStreamResponse(messages, {
+    temperature: 0.3,
+    label: "retro-synthesis",
+    signal: request.signal,
+    timeoutMs: OLLAMA_TIMEOUTS.report,
+  })
 }

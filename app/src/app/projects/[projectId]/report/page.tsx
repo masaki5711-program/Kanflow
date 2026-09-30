@@ -1,7 +1,14 @@
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/lib/auth"
 import { notFound, redirect } from "next/navigation"
+import { getI18nFor } from "@/lib/translation/hooks"
 import { ReportContent } from "./report-content"
+import { buildPageMetadata } from "@/app/page-metadata"
+
+export async function generateMetadata({ params }: { params: Promise<{ projectId: string }> }) {
+  const { projectId } = await params
+  return buildPageMetadata(({ t }) => t.reportTitle, projectId)
+}
 
 export default async function ReportPage({
   params,
@@ -79,7 +86,7 @@ export default async function ReportPage({
   const backlogItems = await prisma.productBacklogItem.findMany({
     where: { projectId },
     include: {
-      productGoal: { select: { title: true } },
+      productGoal: { select: { id: true, title: true } },
     },
     orderBy: { sortOrder: "asc" },
   })
@@ -109,9 +116,24 @@ export default async function ReportPage({
     take: 20,
   })
 
+  // Both-language text, one query per entity type.
+  const allSprintItems = sprints.flatMap((s) => s.items)
+  const [projectI18n, goalI18n, sprintI18n, taskI18n, pbI18n, eventI18n] = await Promise.all([
+    getI18nFor("project", [project.id]),
+    getI18nFor("product_goal", [
+      ...project.productGoals.map((g) => g.id),
+      ...backlogItems.map((i) => i.productGoal?.id ?? "").filter(Boolean),
+    ]),
+    getI18nFor("sprint", sprints.map((s) => s.id)),
+    getI18nFor("sprint_task", allSprintItems.map((i) => i.id)),
+    getI18nFor("backlog_item", [...allSprintItems.map((i) => i.pbItem.id), ...backlogItems.map((i) => i.id)]),
+    getI18nFor("calendar_event", events.map((e) => e.id)),
+  ])
+
   // Serialize dates for client component
   const serializedSprints = sprints.map((s) => ({
     id: s.id,
+    i18n: sprintI18n.get(s.id) ?? {},
     sprintName: s.sprintName,
     startDate: s.startDate.toISOString(),
     endDate: s.endDate.toISOString(),
@@ -126,17 +148,19 @@ export default async function ReportPage({
     retrospectiveTry: s.retrospectiveTry,
     items: s.items.map((item) => ({
       id: item.id,
+      i18n: taskI18n.get(item.id) ?? {},
       taskName: item.taskName,
       assignee: item.assignee,
       estimatedHours: item.estimatedHours,
       actualHours: item.actualHours,
       status: item.status,
-      pbItem: item.pbItem,
+      pbItem: { ...item.pbItem, i18n: pbI18n.get(item.pbItem.id) ?? {} },
     })),
   }))
 
   const serializedEvents = events.map((e) => ({
     id: e.id,
+    i18n: eventI18n.get(e.id) ?? {},
     title: e.title,
     description: e.description,
     date: e.date.toISOString(),
@@ -149,19 +173,25 @@ export default async function ReportPage({
       projectId={projectId}
       projectName={project.name}
       projectDescription={project.description}
+      projectI18n={projectI18n.get(project.id) ?? {}}
       language={project.language}
       pointUnit={project.pointUnit}
       members={project.members.map((m) => ({
+        id: m.user.id,
         name: m.user.name,
         email: m.user.email,
         role: m.role,
       }))}
       productGoals={project.productGoals.map((g) => ({
+        id: g.id,
         title: g.title,
         description: g.description,
+        i18n: goalI18n.get(g.id) ?? {},
       }))}
       sprints={serializedSprints}
       backlogItems={backlogItems.map((i) => ({
+        i18n: pbI18n.get(i.id) ?? {},
+        productGoalI18n: i.productGoal ? goalI18n.get(i.productGoal.id) ?? {} : null,
         displayId: i.displayId,
         initiative: i.initiative,
         epic: i.epic,

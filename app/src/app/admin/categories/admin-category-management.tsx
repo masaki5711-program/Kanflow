@@ -1,12 +1,27 @@
 "use client"
 
-import { useEffect, useState, useCallback } from "react"
+import { useState } from "react"
+import { Pencil, Plus, Tag, Trash2 } from "lucide-react"
 import { useLanguage } from "@/lib/language-context"
+import { useConfirm, PageHeader } from "@/components/ui"
+import { apiFetch, isApiError, useApiQuery } from "@/hooks"
+import {
+  Button,
+  EmptyState,
+  Field,
+  IconButton,
+  Input,
+  Modal,
+  Select,
+  SkeletonLines,
+  useModalClose,
+  useToast,
+} from "@/components/ui"
+import type { Translations } from "@/lib/i18n"
+import { useDocumentTitle } from "@/hooks/use-document-title"
+import type { SectionRefDto } from "@/types/api"
 
-interface SectionRef {
-  id: string
-  name: string
-}
+type SectionRef = SectionRefDto
 
 interface AdminCategory {
   id: string
@@ -18,66 +33,56 @@ interface AdminCategory {
   _count: { assignments: number }
 }
 
-const COLOR_OPTIONS = ["gray", "blue", "green", "amber", "rose", "violet", "cyan"] as const
-
-const COLOR_DOT: Record<string, string> = {
-  gray: "bg-gray-400",
-  blue: "bg-blue-500",
-  green: "bg-emerald-500",
-  amber: "bg-amber-500",
-  rose: "bg-rose-500",
-  violet: "bg-violet-500",
-  cyan: "bg-cyan-500",
+interface CategoryForm {
+  name: string
+  color: string
+  sortOrder: number
+  sectionId: string
 }
+
+type ColorKey = "gray" | "blue" | "green" | "amber" | "rose" | "violet" | "cyan"
+
+const COLOR_OPTIONS: { value: ColorKey; dot: string; label: keyof Translations }[] = [
+  { value: "gray", dot: "bg-gray-400", label: "categoryColorGray" },
+  { value: "blue", dot: "bg-blue-500", label: "categoryColorBlue" },
+  { value: "green", dot: "bg-emerald-500", label: "categoryColorGreen" },
+  { value: "amber", dot: "bg-amber-500", label: "categoryColorAmber" },
+  { value: "rose", dot: "bg-rose-500", label: "categoryColorRose" },
+  { value: "violet", dot: "bg-violet-500", label: "categoryColorViolet" },
+  { value: "cyan", dot: "bg-cyan-500", label: "categoryColorCyan" },
+]
+
+const dotOf = (color: string) => COLOR_OPTIONS.find((c) => c.value === color)?.dot ?? "bg-gray-400"
+
+const EMPTY_FORM: CategoryForm = { name: "", color: "gray", sortOrder: 0, sectionId: "" }
+const CATEGORIES_URL = "/api/admin/categories"
 
 export function AdminCategoryManagement() {
   const { t } = useLanguage()
-  const [sections, setSections] = useState<SectionRef[]>([])
-  const [categories, setCategories] = useState<AdminCategory[]>([])
-  const [loading, setLoading] = useState(true)
+  useDocumentTitle([t.categoryAdminTitle])
+  const confirm = useConfirm()
+  const toast = useToast()
+  // Independent requests → fetched in parallel by two queries.
+  const sectionsQuery = useApiQuery<SectionRef[]>("/api/admin/sections", { toastOnError: true })
+  const categoriesQuery = useApiQuery<AdminCategory[]>(CATEGORIES_URL, { toastOnError: true })
+  const sections = sectionsQuery.data ?? []
+  const categories = categoriesQuery.data ?? []
+  const isLoading = sectionsQuery.isLoading || categoriesQuery.isLoading
+
+  const [open, setOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState<{ name: string; color: string; sortOrder: number; sectionId: string | "" }>({
-    name: "",
-    color: "gray",
-    sortOrder: 0,
-    sectionId: "",
-  })
+  const [initial, setInitial] = useState<CategoryForm>(EMPTY_FORM)
+  const [form, setForm] = useState<CategoryForm>(EMPTY_FORM)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
-  const fetchAll = useCallback(async () => {
-    setLoading(true)
-    const [secRes, catRes] = await Promise.all([
-      fetch("/api/admin/sections"),
-      fetch("/api/admin/categories"),
-    ])
-    if (secRes.ok) setSections((await secRes.json()).map((s: SectionRef) => ({ id: s.id, name: s.name })))
-    if (catRes.ok) setCategories(await catRes.json())
-    setLoading(false)
-  }, [])
-
-  useEffect(() => {
-    fetchAll()
-  }, [fetchAll])
-
-  function resetForm() {
-    setForm({ name: "", color: "gray", sortOrder: 0, sectionId: "" })
-    setEditingId(null)
-    setShowForm(false)
+  function openForm(c: AdminCategory | null) {
+    const next = c ? { name: c.name, color: c.color, sortOrder: c.sortOrder, sectionId: c.sectionId ?? "" } : EMPTY_FORM
+    setEditingId(c?.id ?? null)
+    setInitial(next)
+    setForm(next)
     setError(null)
-  }
-
-  function startEdit(c: AdminCategory) {
-    setForm({
-      name: c.name,
-      color: c.color,
-      sortOrder: c.sortOrder,
-      sectionId: c.sectionId ?? "",
-    })
-    setEditingId(c.id)
-    setShowForm(true)
-    setError(null)
+    setOpen(true)
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -86,193 +91,150 @@ export function AdminCategoryManagement() {
     setSaving(true)
     setError(null)
     try {
-      const url = editingId ? `/api/admin/categories/${editingId}` : "/api/admin/categories"
-      const method = editingId ? "PATCH" : "POST"
-      const body = {
-        name: form.name.trim(),
-        color: form.color,
-        sortOrder: form.sortOrder,
-        sectionId: form.sectionId === "" ? null : form.sectionId,
-      }
-      const res = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+      await apiFetch(editingId ? `${CATEGORIES_URL}/${editingId}` : CATEGORIES_URL, {
+        method: editingId ? "PATCH" : "POST",
+        json: {
+          name: form.name.trim(),
+          color: form.color,
+          sortOrder: form.sortOrder,
+          sectionId: form.sectionId === "" ? null : form.sectionId,
+        },
       })
-      if (res.status === 409) {
-        setError(t.sectionDuplicateName)
-        return
-      }
-      if (!res.ok) {
-        setError(t.error)
-        return
-      }
-      resetForm()
-      await fetchAll()
+      setOpen(false)
+      toast.success(t.saved)
+      categoriesQuery.refetch()
+    } catch (err) {
+      setError(isApiError(err) && err.status === 409 ? t.sectionDuplicateName : err instanceof Error ? err.message : t.error)
     } finally {
       setSaving(false)
     }
   }
 
-  async function handleDelete(id: string) {
-    if (!confirm("このカテゴリを削除しますか？")) return
-    const res = await fetch(`/api/admin/categories/${id}`, { method: "DELETE" })
-    if (res.ok) await fetchAll()
+  async function handleDelete(c: AdminCategory) {
+    const ok = await confirm({ title: c.name, message: t.categoryDeleteConfirm, confirmLabel: t.delete, cancelLabel: t.cancel, variant: "danger" })
+    if (!ok) return
+    try {
+      await apiFetch(`${CATEGORIES_URL}/${c.id}`, { method: "DELETE" })
+      toast.success(t.categoryDeleted)
+      categoriesQuery.refetch()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t.error)
+    }
   }
 
   // Group categories: global first, then by section.
-  const grouped: { title: string; sectionId: string | null; categories: AdminCategory[] }[] = []
+  const grouped: { key: string; title: string; categories: AdminCategory[] }[] = []
   const globalCats = categories.filter((c) => c.sectionId === null)
   if (globalCats.length || categories.length === 0) {
-    grouped.push({ title: "全体（Global）", sectionId: null, categories: globalCats })
+    grouped.push({ key: "global", title: t.categoryScopeGlobal, categories: globalCats })
   }
   for (const s of sections) {
-    grouped.push({
-      title: s.name,
-      sectionId: s.id,
-      categories: categories.filter((c) => c.sectionId === s.id),
-    })
+    grouped.push({ key: s.id, title: s.name, categories: categories.filter((c) => c.sectionId === s.id) })
   }
+
+  const isDirty = JSON.stringify(form) !== JSON.stringify(initial)
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">カテゴリ管理（Admin）</h1>
-        {!showForm && (
-          <button
-            onClick={() => {
-              resetForm()
-              setShowForm(true)
-            }}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium shadow-sm"
-          >
-            + カテゴリ追加
-          </button>
-        )}
-      </div>
+      <PageHeader
+        title={t.categoryAdminTitle}
+        description={t.categoryAdminDesc}
+        actions={
+          <Button leftIcon={<Plus className="h-4 w-4" />} onClick={() => openForm(null)}>
+            {t.categoryAdd}
+          </Button>
+        }
+      />
 
-      {showForm && (
-        <form onSubmit={handleSubmit} className="bg-white rounded-xl border border-gray-200 p-5 mb-6 space-y-3">
-          <h2 className="text-lg font-semibold mb-2">
-            {editingId ? "カテゴリ編集" : "カテゴリ追加"}
-          </h2>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">名前</label>
-              <input
-                type="text"
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-                required
-                maxLength={100}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">スコープ</label>
-              <select
-                value={form.sectionId}
-                onChange={(e) => setForm({ ...form, sectionId: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
-              >
-                <option value="">全体（Global）</option>
-                {sections.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">色</label>
-              <div className="flex flex-wrap gap-2">
-                {COLOR_OPTIONS.map((c) => (
-                  <button
-                    type="button"
-                    key={c}
-                    onClick={() => setForm({ ...form, color: c })}
-                    className={`w-7 h-7 rounded-full ${COLOR_DOT[c]} ${
-                      form.color === c ? "ring-2 ring-offset-2 ring-gray-400" : ""
-                    } transition-all`}
-                  />
-                ))}
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">並び順</label>
-              <input
-                type="number"
-                value={form.sortOrder}
-                onChange={(e) => setForm({ ...form, sortOrder: Number(e.target.value) || 0 })}
-                className="w-32 px-3 py-2 border border-gray-300 rounded-lg text-sm"
-              />
-            </div>
-          </div>
-          {error && <p className="text-sm text-red-500">{error}</p>}
-          <div className="flex gap-2 pt-2">
-            <button
-              type="submit"
-              disabled={saving || !form.name.trim()}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium"
-            >
-              {editingId ? t.update : t.add}
-            </button>
-            <button
-              type="button"
-              onClick={resetForm}
-              className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 text-sm font-medium"
-            >
-              {t.cancel}
-            </button>
-          </div>
-        </form>
-      )}
-
-      {loading ? (
-        <p className="text-sm text-gray-400">{t.loading}</p>
+      {isLoading ? (
+        <SkeletonLines lines={6} label={t.loading} />
       ) : (
         <div className="space-y-5">
           {grouped.map((g) => (
-            <div key={g.sectionId ?? "global"}>
+            <section key={g.key} aria-labelledby={`cat-group-${g.key}`}>
               <div className="flex items-center gap-2 mb-2">
-                <h2 className="text-sm font-semibold text-gray-700">{g.title}</h2>
-                <span className="text-xs text-gray-400">({g.categories.length})</span>
+                <h2 id={`cat-group-${g.key}`} className="text-body font-semibold text-fg">{g.title}</h2>
+                <span className="text-caption text-fg-muted">({g.categories.length})</span>
               </div>
               {g.categories.length === 0 ? (
-                <p className="text-xs text-gray-400 ml-2">—</p>
+                <EmptyState compact headingLevel={3} icon={<Tag className="h-5 w-5" />} title={t.categoryGroupEmpty} />
               ) : (
-                <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
+                <ul className="bg-surface rounded-ui-md border border-border divide-y divide-border">
                   {g.categories.map((c) => (
-                    <div key={c.id} className="flex items-center justify-between px-4 py-2.5">
-                      <div className="flex items-center gap-2">
-                        <span className={`w-2.5 h-2.5 rounded-full ${COLOR_DOT[c.color] ?? COLOR_DOT.gray}`} />
-                        <span className="text-sm font-medium text-gray-900">{c.name}</span>
-                        <span className="text-xs text-gray-400">{c._count.assignments} projects</span>
+                    <li key={c.id} className="flex items-center justify-between gap-3 px-4 py-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span aria-hidden className={`w-2.5 h-2.5 shrink-0 rounded-full ${dotOf(c.color)}`} />
+                        <span className="text-body font-medium text-fg truncate">{c.name}</span>
+                        <span className="text-caption text-fg-muted shrink-0">
+                          {c._count.assignments} {t.categoryProjects}
+                        </span>
                       </div>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => startEdit(c)}
-                          className="text-blue-600 hover:text-blue-800 text-xs font-medium"
-                        >
-                          {t.edit}
-                        </button>
-                        <button
-                          onClick={() => handleDelete(c.id)}
-                          className="text-red-500 hover:text-red-700 text-xs font-medium"
-                        >
-                          {t.sectionDelete}
-                        </button>
+                      <div className="flex shrink-0">
+                        <IconButton label={`${t.edit}: ${c.name}`} icon={<Pencil className="h-4 w-4" />} size="sm" onClick={() => openForm(c)} />
+                        <IconButton label={`${t.delete}: ${c.name}`} icon={<Trash2 className="h-4 w-4" />} size="sm" variant="danger" onClick={() => handleDelete(c)} />
                       </div>
-                    </div>
+                    </li>
                   ))}
-                </div>
+                </ul>
               )}
-            </div>
+            </section>
           ))}
         </div>
       )}
+
+      <Modal
+        open={open}
+        onClose={() => setOpen(false)}
+        title={editingId ? t.categoryEdit : t.categoryAdd}
+        isDirty={isDirty}
+        footer={<FormFooter saving={saving} disabled={!form.name.trim()} submitLabel={editingId ? t.update : t.add} />}
+      >
+        <form id="admin-category-form" onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label={t.categoryName} required error={error ?? undefined}>
+              <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required maxLength={100} data-autofocus />
+            </Field>
+            <Field label={t.categoryScope}>
+              <Select value={form.sectionId} onChange={(e) => setForm({ ...form, sectionId: e.target.value })}>
+                <option value="">{t.categoryScopeGlobal}</option>
+                {sections.map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </Select>
+            </Field>
+          </div>
+          <fieldset>
+            <legend className="text-body font-medium text-fg mb-2">{t.categoryColor}</legend>
+            <div className="flex flex-wrap gap-2">
+              {COLOR_OPTIONS.map((c) => (
+                <button
+                  type="button"
+                  key={c.value}
+                  aria-label={t[c.label] as string}
+                  title={t[c.label] as string}
+                  aria-pressed={form.color === c.value}
+                  onClick={() => setForm({ ...form, color: c.value })}
+                  className={`w-8 h-8 rounded-full ${c.dot} ${form.color === c.value ? "ring-2 ring-offset-2 ring-fg-muted" : ""}`}
+                />
+              ))}
+            </div>
+          </fieldset>
+          <Field label={t.categorySortOrder}>
+            <Input type="number" className="w-32" value={form.sortOrder} onChange={(e) => setForm({ ...form, sortOrder: Number(e.target.value) || 0 })} />
+          </Field>
+        </form>
+      </Modal>
     </div>
+  )
+}
+
+function FormFooter({ saving, disabled, submitLabel }: { saving: boolean; disabled: boolean; submitLabel: string }) {
+  const { t } = useLanguage()
+  const close = useModalClose()
+  return (
+    <>
+      <Button variant="secondary" onClick={close}>{t.cancel}</Button>
+      <Button type="submit" form="admin-category-form" loading={saving} disabled={disabled}>{submitLabel}</Button>
+    </>
   )
 }

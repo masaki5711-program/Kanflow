@@ -1,53 +1,32 @@
-import { NextResponse } from "next/server"
-import { prisma } from "@/lib/prisma"
-import { requireProjectMember } from "@/lib/api-helpers"
-import { z } from "zod"
+import { requireProject } from "@/lib/authz"
+import { actorFromSession, jsonResponse, successResponse, toHttpResponse } from "@/services/_shared"
+import { updateGoalSchema } from "@/services/goals/goals.schemas"
+import { deleteGoal, updateGoal } from "@/services/goals/goals.service"
 
-const updateSchema = z.object({
-  title: z.string().min(1).optional(),
-  description: z.string().nullable().optional(),
-})
+type Params = { params: Promise<{ projectId: string; goalId: string }> }
 
-export async function PATCH(
-  request: Request,
-  { params }: { params: Promise<{ projectId: string; goalId: string }> }
-) {
+export async function PATCH(request: Request, { params }: Params) {
   const { projectId, goalId } = await params
-  const result = await requireProjectMember(projectId, { roles: ["po", "sm"] })
-  if ("error" in result) return result.error
+  const gate = await requireProject(projectId, "goal.write")
+  if ("error" in gate) return gate.error
 
   try {
-    const body = await request.json()
-    const data = updateSchema.parse(body)
-
-    const goal = await prisma.productGoal.update({
-      where: { id: goalId, projectId },
-      data,
-    })
-
-    return NextResponse.json(goal)
+    const input = updateGoalSchema.parse(await request.json())
+    return jsonResponse(await updateGoal(projectId, goalId, input, actorFromSession(gate.session)))
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      return NextResponse.json({ error: error.issues }, { status: 400 })
-    }
-    console.error("Goal PATCH error:", error)
-    return NextResponse.json({ error: "更新に失敗しました" }, { status: 500 })
+    return toHttpResponse(error, { fallback: "更新に失敗しました", context: "Goal PATCH" })
   }
 }
 
-export async function DELETE(
-  _request: Request,
-  { params }: { params: Promise<{ projectId: string; goalId: string }> }
-) {
+export async function DELETE(_request: Request, { params }: Params) {
   const { projectId, goalId } = await params
-  const result = await requireProjectMember(projectId, { roles: ["po", "sm"] })
-  if ("error" in result) return result.error
+  const gate = await requireProject(projectId, "goal.write")
+  if ("error" in gate) return gate.error
 
   try {
-    await prisma.productGoal.delete({ where: { id: goalId, projectId } })
-    return NextResponse.json({ success: true })
+    await deleteGoal(projectId, goalId)
+    return successResponse()
   } catch (error) {
-    console.error("Goal DELETE error:", error)
-    return NextResponse.json({ error: "削除に失敗しました" }, { status: 500 })
+    return toHttpResponse(error, { fallback: "削除に失敗しました", context: "Goal DELETE" })
   }
 }

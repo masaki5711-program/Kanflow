@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
 import { prisma } from "@/lib/prisma"
-import { requireProjectMember } from "@/lib/api-helpers"
-import { buildAnalysisSystem, streamAnalysis, streamingResponse, normalizeLang, type AILang } from "@/lib/ai-analysis"
+import { requireProject } from "@/lib/authz"
+import { buildAnalysisSystem, analysisStreamResponse, normalizeLang, type AILang } from "@/lib/ai-analysis"
 import type { ChatMessage } from "@/lib/ollama"
+import { OLLAMA_TIMEOUTS } from "@/lib/ollama/config"
 
 const bodySchema = z.object({ lang: z.enum(["ja", "en", "id"]).optional() }).optional()
 
@@ -66,7 +67,7 @@ export async function POST(
   { params }: { params: Promise<{ projectId: string; itemId: string }> }
 ) {
   const { projectId, itemId } = await params
-  const auth = await requireProjectMember(projectId)
+  const auth = await requireProject(projectId, "ai.use")
   if ("error" in auth) return auth.error
 
   let lang: AILang = "ja"
@@ -87,7 +88,7 @@ export async function POST(
       workloadScore: true,
     },
   })
-  if (!item) return NextResponse.json({ error: "not_found" }, { status: 404 })
+  if (!item) return NextResponse.json({ error: "not_found", code: "PBI_NOT_FOUND" }, { status: 404 })
 
   const labels: Record<AILang, { title: string; init: string; epic: string; sp: string; us: string; ac: string }> = {
     ja: { title: "評価対象 PBI", init: "イニシアティブ", epic: "エピック", sp: "見積もり", us: "ユーザーストーリー", ac: "受入条件" },
@@ -115,6 +116,10 @@ export async function POST(
     { role: "user", content: pbiText },
   ]
 
-  const stream = streamAnalysis(messages, { temperature: 0.2 })
-  return streamingResponse(stream)
+  return analysisStreamResponse(messages, {
+    temperature: 0.2,
+    label: "invest-review",
+    signal: request.signal,
+    timeoutMs: OLLAMA_TIMEOUTS.report,
+  })
 }

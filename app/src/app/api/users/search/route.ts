@@ -1,6 +1,6 @@
-import { NextResponse } from "next/server"
-import { prisma } from "@/lib/prisma"
 import { requireAuth } from "@/lib/api-helpers"
+import { jsonResponse, toHttpResponse } from "@/services/_shared"
+import { searchUsers } from "@/services/users/account.service"
 
 export async function GET(request: Request) {
   const gate = await requireAuth()
@@ -10,47 +10,9 @@ export async function GET(request: Request) {
   const q = (searchParams.get("q") ?? "").trim()
   const excludeProjectId = searchParams.get("excludeProjectId") ?? undefined
 
-  if (q.length < 1) {
-    return NextResponse.json([])
+  try {
+    return jsonResponse(await searchUsers(q, excludeProjectId))
+  } catch (error) {
+    return toHttpResponse(error, { fallback: "検索に失敗しました", context: "User search" })
   }
-
-  const whereOr = [
-    { name: { contains: q } },
-    { email: { contains: q } },
-    { employeeNumber: { contains: q } },
-    { department: { contains: q } },
-  ]
-
-  const users = await prisma.user.findMany({
-    where: {
-      isActive: true,
-      OR: whereOr,
-    },
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      employeeNumber: true,
-      department: true,
-      memberships: excludeProjectId
-        ? {
-            where: { projectId: excludeProjectId },
-            select: { id: true },
-          }
-        : false,
-    },
-    orderBy: [{ name: "asc" }],
-    take: 20,
-  })
-
-  const result = users.map((u) => ({
-    id: u.id,
-    name: u.name,
-    email: u.email,
-    employeeNumber: u.employeeNumber,
-    department: u.department,
-    isMember: excludeProjectId ? (u.memberships?.length ?? 0) > 0 : false,
-  }))
-
-  return NextResponse.json(result)
 }

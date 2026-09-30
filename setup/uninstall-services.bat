@@ -21,10 +21,16 @@ timeout /t 2 /nobreak >nul
 sc delete %SVC_MYSQL% >nul 2>&1
 echo   [OK]
 
-echo Stopping and removing app task...
+echo Removing legacy app task (KanflowApp) and watchdog task...
 schtasks /End /TN "%SVC_APP_TASK%" >nul 2>&1
 schtasks /Delete /TN "%SVC_APP_TASK%" /F >nul 2>&1
+schtasks /Delete /TN "KanflowWatchdog" /F >nul 2>&1
 echo   [OK]
+
+echo Stopping app service kanflow.exe...
+sc stop kanflow.exe >nul 2>&1
+timeout /t 5 /nobreak >nul
+echo   [OK]  (to remove it completely: cd /d D:\APP\Kanflow\app ^&^& node uninstall-windows-service.js)
 
 echo Killing any remaining node / mysqld...
 for /f "tokens=5" %%P in ('netstat -ano ^| findstr ":3306 .*LISTENING"') do taskkill /F /PID %%P >nul 2>&1

@@ -1,195 +1,201 @@
 "use client"
 
+import { useCallback, useEffect, useId, useRef, useState } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
+import { X } from "lucide-react"
 import { useLanguage } from "@/lib/language-context"
-import type { ProjectTypeLabels } from "@/lib/project-type-labels"
+import { projectTypeOptions, type ProjectType } from "@/lib/project-type-labels"
+import type { Language } from "@/lib/i18n"
+import { useI18nText, type EntityI18n } from "@/components/i18n-text"
+import { IconButton, Truncate, cn } from "@/components/ui"
+import { useBodyScrollLock, useFocusTrap, useMediaQuery } from "@/hooks"
+import { useSidebarDrawer } from "@/components/app-shell/sidebar-drawer"
+import { buildSidebarGroups, isNavItemActive, type SidebarNavItem } from "@/components/app-shell/sidebar-nav"
 
 interface SidebarProps {
   projectId: string
+  projectName?: string
+  /** Both-language text of the project (name). */
+  projectI18n?: EntityI18n
 }
 
-const navItems: { labelKey: keyof ProjectTypeLabels; href: string; icon: string }[] = [
-  { labelKey: "navIcebox", href: "/icebox", icon: "icebox" },
-  { labelKey: "navBacklog", href: "/backlog", icon: "backlog" },
-  { labelKey: "navSprints", href: "/sprints", icon: "sprint" },
-  { labelKey: "navReleases", href: "/releases", icon: "release" },
-]
-
-// i18n key nav items (not project-type dependent)
-type I18nNavItem = { labelKey: "ganttTitle" | "calendarTitle" | "guideTitle" | "chatTitle" | "burndownPageTitle" | "planTitle"; href: string; icon: string }
-const i18nNavItems: I18nNavItem[] = [
-  { labelKey: "planTitle", href: "/plan", icon: "plan" },
-  { labelKey: "ganttTitle", href: "/gantt", icon: "gantt" },
-  { labelKey: "calendarTitle", href: "/calendar", icon: "calendar" },
-  { labelKey: "burndownPageTitle", href: "/burndown", icon: "burndown" },
-  { labelKey: "chatTitle", href: "/chat", icon: "chat" },
-  { labelKey: "guideTitle", href: "/guide", icon: "guide" },
-]
-
-function NavIcon({ type, active }: { type: string; active: boolean }) {
-  const color = active ? "text-blue-600" : "text-gray-400 group-hover:text-gray-600"
-  const cls = `w-5 h-5 ${color} transition-colors duration-200 shrink-0`
-
-  switch (type) {
-    case "dashboard":
-      return (
-        <svg className={cls} viewBox="0 0 20 20" fill="currentColor">
-          <path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z"/>
-        </svg>
-      )
-    case "icebox":
-      return (
-        <svg className={cls} viewBox="0 0 20 20" fill="currentColor">
-          <path fillRule="evenodd" d="M5 2a2 2 0 00-2 2v14l3.5-2 3.5 2 3.5-2 3.5 2V4a2 2 0 00-2-2H5zm4.707 3.707a1 1 0 00-1.414-1.414l-3 3a1 1 0 000 1.414l3 3a1 1 0 001.414-1.414L8.414 9H10a3 3 0 013 3v1a1 1 0 102 0v-1a5 5 0 00-5-5H8.414l1.293-1.293z" clipRule="evenodd"/>
-        </svg>
-      )
-    case "backlog":
-      return (
-        <svg className={cls} viewBox="0 0 20 20" fill="currentColor">
-          <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z"/>
-          <path fillRule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z" clipRule="evenodd"/>
-        </svg>
-      )
-    case "sprint":
-      return (
-        <svg className={cls} viewBox="0 0 20 20" fill="currentColor">
-          <path fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd"/>
-        </svg>
-      )
-    case "release":
-      return (
-        <svg className={cls} viewBox="0 0 20 20" fill="currentColor">
-          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-8.707l-3-3a1 1 0 00-1.414 0l-3 3a1 1 0 001.414 1.414L9 9.414V13a1 1 0 102 0V9.414l1.293 1.293a1 1 0 001.414-1.414z" clipRule="evenodd"/>
-        </svg>
-      )
-    case "gantt":
-      return (
-        <svg className={cls} viewBox="0 0 20 20" fill="currentColor">
-          <path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h8a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h10a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h6a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd"/>
-        </svg>
-      )
-    case "calendar":
-      return (
-        <svg className={cls} viewBox="0 0 20 20" fill="currentColor">
-          <path fillRule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clipRule="evenodd"/>
-        </svg>
-      )
-    case "guide":
-      return (
-        <svg className={cls} viewBox="0 0 20 20" fill="currentColor">
-          <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a.75.75 0 000 1.5h.253a.25.25 0 01.244.304l-.459 2.066A1.75 1.75 0 0010.747 15H11a.75.75 0 000-1.5h-.253a.25.25 0 01-.244-.304l.459-2.066A1.75 1.75 0 009.253 9H9z" clipRule="evenodd"/>
-        </svg>
-      )
-    case "chat":
-      return (
-        <svg className={cls} viewBox="0 0 20 20" fill="currentColor">
-          <path fillRule="evenodd" d="M18 5v8a2 2 0 01-2 2h-5l-5 4v-4H4a2 2 0 01-2-2V5a2 2 0 012-2h12a2 2 0 012 2zM7 8H5v2h2V8zm2 0h2v2H9V8zm6 0h-2v2h2V8z" clipRule="evenodd"/>
-        </svg>
-      )
-    case "burndown":
-      return (
-        <svg className={cls} viewBox="0 0 20 20" fill="currentColor">
-          <path d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM5 6a1 1 0 011-1h2a1 1 0 011 1v8a1 1 0 01-1 1H6a1 1 0 01-1-1V6zM11 3a1 1 0 011-1h2a1 1 0 011 1v11a1 1 0 01-1 1h-2a1 1 0 01-1-1V3z"/>
-        </svg>
-      )
-    case "plan":
-      return (
-        <svg className={cls} viewBox="0 0 20 20" fill="currentColor">
-          <path d="M2 5a2 2 0 012-2h2a2 2 0 012 2v1h2a2 2 0 012 2v1h2a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V5zm2 0v1h2V5H4zm4 3v1h2V8H8zm4 3v6h2v-6h-2z"/>
-        </svg>
-      )
-    case "settings":
-      return (
-        <svg className={cls} viewBox="0 0 20 20" fill="currentColor">
-          <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd"/>
-        </svg>
-      )
-    default:
-      return null
-  }
+const projectTypeBadgeColors: Record<ProjectType, string> = {
+  software: "bg-primary-soft text-primary-active",
+  process_improvement: "bg-warning-soft text-warning-strong",
+  general: "bg-surface-sunken text-fg-muted",
 }
 
-const projectTypeBadgeColors: Record<string, string> = {
-  software: "bg-blue-50 text-blue-600",
-  marketing: "bg-emerald-50 text-emerald-600",
-  design: "bg-violet-50 text-violet-600",
-  business: "bg-amber-50 text-amber-600",
+function projectTypeLabel(type: ProjectType, language: Language): string {
+  const opt = projectTypeOptions.find((o) => o.value === type)
+  if (!opt) return type
+  return language === "ja" ? opt.labelJa : language === "id" ? opt.labelId : opt.labelEn
 }
 
-export function Sidebar({ projectId }: SidebarProps) {
-  const pathname = usePathname()
-  const { t, pt, projectType } = useLanguage()
-
-  const badgeColor = projectTypeBadgeColors[projectType] ?? "bg-gray-50 text-gray-600"
-
-  function navLink(href: string, icon: string, label: string) {
-    const isActive = href === `/projects/${projectId}` ? pathname === href : pathname.startsWith(href)
-    return (
-      <Link
-        key={href}
-        href={href}
-        className={`group relative flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
-          isActive
-            ? "bg-blue-50/80 text-blue-700"
-            : "text-gray-600 hover:bg-gray-50/80 hover:text-gray-900 hover:translate-x-0.5"
-        }`}
-      >
-        {isActive && (
-          <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-blue-600 rounded-r-full" />
-        )}
-        <NavIcon type={icon} active={isActive} />
-        {label}
-      </Link>
-    )
-  }
+export function Sidebar({ projectId, projectName, projectI18n }: SidebarProps) {
+  const drawer = useSidebarDrawer()
+  const isDesktop = useMediaQuery("(min-width: 1024px)")
+  const drawerOpen = !!drawer?.isOpen && !isDesktop
 
   return (
-    <aside className="w-56 bg-white/80 backdrop-blur-sm border-r border-gray-200/60 min-h-[calc(100vh-49px)] py-4 px-3 flex flex-col justify-between">
-      <nav className="space-y-0.5">
-        {/* MAIN section */}
-        <div className="px-3 pt-1 pb-2">
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
-            Main
-          </span>
-        </div>
-        {navLink(`/projects/${projectId}`, "dashboard", t.navDashboard)}
+    <>
+      <aside className="hidden lg:flex lg:sticky lg:top-14 lg:self-start lg:h-[calc(100vh-3.5rem)] w-60 shrink-0 flex-col border-r border-border bg-surface/80 backdrop-blur-sm">
+        <SidebarContent projectId={projectId} projectName={projectName} projectI18n={projectI18n} />
+      </aside>
+      {drawerOpen && drawer && (
+        <SidebarDrawer onClose={drawer.close} drawerId={drawer.drawerId}>
+          <SidebarContent projectId={projectId} projectName={projectName} projectI18n={projectI18n} />
+        </SidebarDrawer>
+      )}
+    </>
+  )
+}
 
-        {navItems.map((item) =>
-          navLink(`/projects/${projectId}${item.href}`, item.icon, pt[item.labelKey])
+/** Duration of the drawer's slide-out (matches .animate-drawer-out in globals.css). */
+const DRAWER_EXIT_MS = 150
+
+function SidebarDrawer({ onClose, drawerId, children }: { onClose: () => void; drawerId: string; children: React.ReactNode }) {
+  const { t } = useLanguage()
+  const panelRef = useRef<HTMLDivElement>(null)
+  const reduceMotion = useMediaQuery("(prefers-reduced-motion: reduce)")
+  const [closing, setClosing] = useState(false)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Slide out, then unmount. With reduced motion the drawer closes at once.
+  const requestClose = useCallback(() => {
+    if (reduceMotion) {
+      onClose()
+      return
+    }
+    if (timerRef.current) return
+    setClosing(true)
+    timerRef.current = setTimeout(onClose, DRAWER_EXIT_MS)
+  }, [onClose, reduceMotion])
+
+  useEffect(
+    () => () => {
+      if (timerRef.current) clearTimeout(timerRef.current)
+    },
+    [],
+  )
+
+  useFocusTrap(panelRef, true, { onEscape: requestClose })
+  useBodyScrollLock(true)
+
+  return (
+    <div className="lg:hidden fixed inset-0 z-50">
+      <div
+        className={cn("absolute inset-0 bg-black/40", closing ? "opacity-0 transition-opacity duration-150" : "animate-fade-in")}
+        aria-hidden="true"
+        onClick={requestClose}
+      />
+      <div
+        ref={panelRef}
+        id={drawerId}
+        role="dialog"
+        aria-modal="true"
+        aria-label={t.navDrawerLabel}
+        tabIndex={-1}
+        className={cn(
+          "absolute inset-y-0 left-0 flex w-72 max-w-[85vw] flex-col bg-surface shadow-ui-overlay",
+          closing ? "animate-drawer-out" : "animate-drawer-in",
         )}
-
-        {/* TOOLS section */}
-        <div className="px-3 pt-4 pb-2">
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
-            Tools
-          </span>
+      >
+        <div className="flex items-center justify-between border-b border-border px-4 py-2">
+          <span aria-hidden="true" className="text-body font-semibold text-fg">{t.navProjectMenu}</span>
+          <IconButton label={t.navCloseMenu} icon={<X className="h-5 w-5" />} onClick={requestClose} />
         </div>
+        {children}
+      </div>
+    </div>
+  )
+}
 
-        {i18nNavItems.map((item) =>
-          navLink(`/projects/${projectId}${item.href}`, item.icon, t[item.labelKey])
-        )}
+function SidebarContent({ projectId, projectName, projectI18n }: SidebarProps) {
+  const pathname = usePathname()
+  const { t, pt, projectType, language } = useLanguage()
+  const shownName = useI18nText(projectI18n, "name", projectName).text
+  const groups = buildSidebarGroups(projectId, t, pt)
+  // The content renders twice (desktop aside + mobile drawer) -> unique ids per instance.
+  const idPrefix = useId().replace(/:/g, "")
 
-        {/* SETTINGS section */}
-        <div className="px-3 pt-4 pb-2">
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
-            Settings
-          </span>
-        </div>
-
-        {navLink(`/projects/${projectId}/settings`, "settings", t.navSettings)}
+  return (
+    <>
+      <nav aria-label={t.navProjectMenu} className="flex-1 overflow-y-auto px-2 py-3">
+        {groups.map((group) => {
+          const labelId = `${idPrefix}-group-${group.id}`
+          return (
+            <div key={group.id} className={group.label ? "mt-3 first:mt-0" : undefined}>
+              {/* Not a heading: the page's own h1 must be the first heading on the page. */}
+              {group.label && (
+                <p id={labelId} className="px-3 pb-0.5 text-caption font-semibold text-fg-subtle">
+                  {group.label}
+                </p>
+              )}
+              <ul className="space-y-px" aria-labelledby={group.label ? labelId : undefined}>
+                {group.items.map((item) => (
+                  <li key={item.href}>
+                    <SidebarLink item={item} active={isNavItemActive(pathname, item)} idPrefix={idPrefix} />
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )
+        })}
       </nav>
 
-      {/* Bottom section: project info */}
-      <div className="mt-4 pt-4 border-t border-gray-100 px-3">
-        <div className="flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-blue-500 shrink-0" />
-          <span className="text-xs font-medium text-gray-700 truncate">{t.navDashboard}</span>
-        </div>
-        <span className={`mt-1.5 inline-block text-[10px] font-medium px-2 py-0.5 rounded-full ${badgeColor}`}>
-          {projectType}
+      <div className="border-t border-border px-6 py-4">
+        {shownName && (
+          <Truncate text={shownName} lines={2} className="text-caption font-medium text-fg" />
+        )}
+        <span
+          className={cn(
+            "mt-1.5 inline-block rounded-full px-2 py-0.5 text-caption font-medium",
+            projectTypeBadgeColors[projectType] ?? projectTypeBadgeColors.general,
+          )}
+          title={t.navProjectType}
+        >
+          {projectTypeLabel(projectType, language)}
         </span>
       </div>
-    </aside>
+    </>
+  )
+}
+
+/**
+ * Single-line nav item. The accessible name is the label only; the one-line
+ * description is a hover tooltip (inactive items) or shown under the active
+ * item and referenced via aria-describedby - never both, so it is read once.
+ */
+function SidebarLink({ item, active, idPrefix }: { item: SidebarNavItem; active: boolean; idPrefix: string }) {
+  const { Icon } = item
+  const descId = `${idPrefix}-desc-${item.href.replace(/[^a-z0-9]/gi, "-")}`
+  return (
+    <>
+      <Link
+        href={item.href}
+        aria-current={active ? "page" : undefined}
+        aria-describedby={active ? descId : undefined}
+        title={active ? undefined : item.description}
+        className={cn(
+          "group relative flex min-h-9 items-center gap-2.5 rounded-ui-sm px-3 py-1.5 text-body font-medium transition-colors",
+          active ? "bg-primary-soft text-primary-strong" : "text-fg-muted hover:bg-surface-sunken hover:text-fg",
+        )}
+      >
+        {active && (
+          <span aria-hidden="true" className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-primary" />
+        )}
+        <Icon
+          aria-hidden
+          className={cn("h-[18px] w-[18px] shrink-0", active ? "text-primary-strong" : "text-fg-subtle group-hover:text-fg-muted")}
+        />
+        <span className="min-w-0 truncate">{item.label}</span>
+      </Link>
+      {active && (
+        <p id={descId} className="pb-1 pl-[2.625rem] pr-3 pt-0.5 text-caption text-fg-muted">
+          {item.description}
+        </p>
+      )}
+    </>
   )
 }

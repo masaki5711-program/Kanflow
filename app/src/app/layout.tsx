@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { type Language } from "@/lib/i18n"
 import { Providers } from "@/components/providers"
+import { SkipLink } from "@/components/app-shell/skip-link"
 import "./globals.css"
 
 export const metadata: Metadata = {
@@ -33,8 +34,11 @@ export default async function RootLayout({
 
   return (
     <html lang={userLanguage}>
-      <body className="font-sans antialiased bg-gray-50">
-        <Providers userLanguage={userLanguage}>{children}</Providers>
+      <body className="font-sans antialiased bg-surface-muted text-fg">
+        <Providers userLanguage={userLanguage}>
+          <SkipLink />
+          {children}
+        </Providers>
       </body>
     </html>
   )

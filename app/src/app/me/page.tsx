@@ -2,6 +2,11 @@ import { auth } from "@/lib/auth"
 import { redirect } from "next/navigation"
 import { Header } from "@/components/header"
 import { MyProfile } from "./my-profile"
+import { buildPageMetadata } from "@/app/page-metadata"
+
+export function generateMetadata() {
+  return buildPageMetadata(({ t }) => t.myProfileTitle)
+}
 
 export default async function MyProfilePage() {
   const session = await auth()
@@ -10,7 +15,7 @@ export default async function MyProfilePage() {
   return (
     <div className="min-h-screen bg-gray-50/50">
       <Header />
-      <main className="max-w-3xl mx-auto px-6 py-8">
+      <main className="max-w-3xl mx-auto px-4 sm:px-6 py-8">
         <MyProfile />
       </main>
     </div>

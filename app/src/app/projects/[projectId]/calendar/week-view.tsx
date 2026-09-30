@@ -6,14 +6,19 @@ import {
   toDateStr,
   isSameDay,
   eventColorBorder,
-  eventColorBg,
   eventColorDot,
+  eventCoversDay,
+  fmt,
+  i18nOf,
 } from "./calendar-types"
+import { useLanguage } from "@/lib/language-context"
+import { pickText } from "@/lib/translation/pick-text"
 
 interface WeekViewProps {
   weekStart: Date
   events: CalendarEvent[]
   weekdays: string[]
+  locale: string
   onEventClick: (ev: CalendarEvent) => void
   onSlotClick: (dateStr: string) => void
 }
@@ -26,10 +31,15 @@ export default function WeekView({
   weekStart,
   events,
   weekdays,
+  locale,
   onEventClick,
   onSlotClick,
 }: WeekViewProps) {
   const today = useMemo(() => new Date(), [])
+  const { t, language } = useLanguage()
+  // Viewer-locale side of the event text (API rows carry `i18n`).
+  const pick = (ev: CalendarEvent, field: "title" | "description") =>
+    pickText(i18nOf(ev), field, ev[field], language).text
 
   const weekDays = useMemo(() => {
     const days: Date[] = []
@@ -56,11 +66,7 @@ export default function WeekView({
   const eventsForDay = useCallback(
     (day: Date): CalendarEvent[] => {
       const dayStr = toDateStr(day)
-      return events.filter((ev) => {
-        const startStr = ev.date.split("T")[0]
-        const endStr = ev.endDate ? ev.endDate.split("T")[0] : startStr
-        return dayStr >= startStr && dayStr <= endStr
-      })
+      return events.filter((ev) => eventCoversDay(ev, dayStr))
     },
     [events]
   )
@@ -68,38 +74,43 @@ export default function WeekView({
   return (
     <div className="flex flex-col flex-1 min-h-0">
       {/* Day headers */}
-      <div className="flex border-b shrink-0 bg-white shadow-sm">
+      <div className="flex border-b border-border shrink-0 bg-surface shadow-ui-sm">
         {/* Time gutter */}
-        <div className="w-16 shrink-0 border-r border-gray-100" />
-        {weekDays.map((day, i) => {
+        <div className="w-16 shrink-0 border-r border-border" />
+        {weekDays.map((day) => {
           const isToday = isSameDay(day, today)
           const isWeekend = day.getDay() === 0 || day.getDay() === 6
+          const dayStr = toDateStr(day)
+          const fullDate = day.toLocaleDateString(locale, { year: "numeric", month: "long", day: "numeric", weekday: "short" })
           return (
-            <div
-              key={i}
-              className={`flex-1 text-center py-3 border-l border-gray-100 ${
-                isToday ? "bg-blue-50/60" : ""
+            <button
+              key={dayStr}
+              type="button"
+              onClick={() => onSlotClick(dayStr)}
+              aria-label={fmt(t.calendarAddOnDate, { date: fullDate })}
+              className={`flex-1 text-center py-3 border-l border-border hover:bg-surface-muted ${
+                isToday ? "bg-primary-soft/60" : ""
               }`}
             >
-              <div
-                className={`text-[10px] font-bold uppercase tracking-widest ${
-                  isWeekend ? "text-gray-400" : "text-gray-500"
+              <span
+                className={`block text-caption font-bold uppercase tracking-widest ${
+                  isWeekend ? "text-fg-subtle" : "text-fg-muted"
                 }`}
               >
                 {weekdays[day.getDay()]}
-              </div>
-              <div className="mt-0.5">
+              </span>
+              <span className="block mt-0.5">
                 {isToday ? (
-                  <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-blue-600 text-white text-sm font-bold shadow-sm shadow-blue-200">
+                  <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-primary text-primary-fg text-sm font-bold shadow-ui-sm">
                     {day.getDate()}
                   </span>
                 ) : (
-                  <span className="text-lg font-bold text-gray-800">
+                  <span className="text-lg font-bold text-fg">
                     {day.getDate()}
                   </span>
                 )}
-              </div>
-            </div>
+              </span>
+            </button>
           )
         })}
       </div>
@@ -107,11 +118,11 @@ export default function WeekView({
       {/* Time grid */}
       <div className="flex flex-1 min-h-0 overflow-auto">
         {/* Hour labels */}
-        <div className="w-16 shrink-0 border-r border-gray-100">
-          {hours.map((h, hi) => (
+        <div className="w-16 shrink-0 border-r border-border" aria-hidden>
+          {hours.map((h) => (
             <div
               key={h}
-              className="border-b border-gray-50 text-right pr-3 text-xs text-gray-400 font-medium"
+              className="border-b border-surface-sunken text-right pr-3 text-caption text-fg-subtle font-medium"
               style={{ height: HOUR_HEIGHT }}
             >
               <span className="relative -top-2.5">
@@ -122,7 +133,7 @@ export default function WeekView({
         </div>
 
         {/* Day columns */}
-        {weekDays.map((day, di) => {
+        {weekDays.map((day) => {
           const dayEvents = eventsForDay(day)
           const isToday = isSameDay(day, today)
           const isWeekend = day.getDay() === 0 || day.getDay() === 6
@@ -130,24 +141,25 @@ export default function WeekView({
 
           return (
             <div
-              key={di}
-              className={`flex-1 relative border-l border-gray-100 ${
-                isToday ? "bg-blue-50/20" : isWeekend ? "bg-gray-50/30" : ""
+              key={dayStr}
+              className={`flex-1 relative border-l border-border ${
+                isToday ? "bg-primary-soft/20" : isWeekend ? "bg-surface-muted/60" : ""
               }`}
             >
               {/* Hour grid lines - alternating */}
               {hours.map((h, hi) => (
                 <div
                   key={h}
-                  className={`border-b cursor-pointer transition-colors ${
-                    hi % 2 === 0 ? "border-gray-100 bg-transparent" : "border-gray-50 bg-gray-50/20"
-                  } hover:bg-blue-50/40`}
+                  aria-hidden
+                  className={`border-b cursor-pointer ${
+                    hi % 2 === 0 ? "border-border bg-transparent" : "border-surface-sunken bg-surface-muted/40"
+                  } hover:bg-primary-soft/40`}
                   style={{ height: HOUR_HEIGHT }}
                   onClick={() => onSlotClick(dayStr)}
                 >
                   {/* Half-hour line */}
                   <div
-                    className="border-b border-gray-50/80 border-dashed"
+                    className="border-b border-surface-sunken border-dashed"
                     style={{ marginTop: HOUR_HEIGHT / 2 - 1 }}
                   />
                 </div>
@@ -177,9 +189,9 @@ export default function WeekView({
                       }}
                       className={`absolute left-0 right-0 pointer-events-auto rounded-lg border-l-[3px] text-left overflow-hidden transition-shadow hover:shadow-md ${
                         eventColorBorder[ev.color] ?? "border-l-gray-500"
-                      } bg-white shadow-sm`}
+                      } bg-surface shadow-ui-sm`}
                       style={{ top: Math.max(top, 0), height }}
-                      title={ev.title}
+                      title={pick(ev, "title")}
                     >
                       <div className="px-2 py-1">
                         <div className="flex items-center gap-1">
@@ -188,13 +200,13 @@ export default function WeekView({
                               eventColorDot[ev.color] ?? "bg-gray-500"
                             }`}
                           />
-                          <span className="text-[11px] font-semibold text-gray-800 truncate">
-                            {ev.title}
+                          <span className="text-caption font-semibold text-fg truncate">
+                            {pick(ev, "title")}
                           </span>
                         </div>
                         {height > 36 && ev.description && (
-                          <p className="text-[10px] text-gray-500 truncate mt-0.5 ml-2.5">
-                            {ev.description}
+                          <p className="text-caption text-fg-muted truncate mt-0.5 ml-2.5">
+                            {pick(ev, "description")}
                           </p>
                         )}
                       </div>
@@ -253,8 +265,8 @@ function CurrentTimeLine({
       style={{ top: offset }}
     >
       <div className="flex items-center">
-        <div className="w-3 h-3 rounded-full bg-red-500 -ml-1.5 shadow-sm shadow-red-300 ring-2 ring-red-200/50" />
-        <div className="flex-1 h-[2px] bg-red-500 shadow-sm shadow-red-300/50" />
+        <div className="w-3 h-3 rounded-full bg-danger -ml-1.5 ring-2 ring-danger-soft" />
+        <div className="flex-1 h-[2px] bg-danger" />
       </div>
     </div>
   )

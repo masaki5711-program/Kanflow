@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
 import { prisma } from "@/lib/prisma"
-import { requireProjectMember } from "@/lib/api-helpers"
-import { buildAnalysisSystem, normalizeLang, streamAnalysis, streamingResponse, type AILang } from "@/lib/ai-analysis"
+import { requireProject } from "@/lib/authz"
+import { buildAnalysisSystem, normalizeLang, analysisStreamResponse, type AILang } from "@/lib/ai-analysis"
 import type { ChatMessage } from "@/lib/ollama"
+import { OLLAMA_TIMEOUTS } from "@/lib/ollama/config"
 import { analysisHandlers } from "@/lib/analysis-tools"
 import { extractAttachment } from "@/lib/attachment-extractor"
 import { aiLog } from "@/lib/ai-monitor"
@@ -15,11 +16,10 @@ export async function POST(
   { params }: { params: Promise<{ projectId: string; itemId: string }> }
 ) {
   const { projectId, itemId } = await params
-  const auth = await requireProjectMember(projectId)
+  // Same rule as creating a PBI (POST /backlog): PO and SM may author PBIs,
+  // so both may ask the AI for drafts. Admins always pass (authz policy).
+  const auth = await requireProject(projectId, "ai.draftPbi")
   if ("error" in auth) return auth.error
-  if (auth.member.role !== "po") {
-    return NextResponse.json({ error: "po_required" }, { status: 403 })
-  }
 
   let lang: AILang = "ja"
   try {
@@ -40,7 +40,7 @@ export async function POST(
       attachments: { select: { fileName: true, originalName: true, mimeType: true } },
     },
   })
-  if (!item) return NextResponse.json({ error: "not_found" }, { status: 404 })
+  if (!item) return NextResponse.json({ error: "not_found", code: "ICEBOX_ITEM_NOT_FOUND" }, { status: 404 })
 
   const productGoals = await prisma.productGoal.findMany({
     where: { projectId },
@@ -222,12 +222,12 @@ Buat **3 usulan draf Product Backlog Item (PBI)** dari item Icebox.
   // numCtx raised to 12288: the prompt now carries backlog list + estimation
   // reference + attachment excerpts on top of the icebox item, and the JSON
   // grammar needs numPredict=4096 of output headroom within the same window.
-  const stream = streamAnalysis(messages, {
+  return analysisStreamResponse(messages, {
     temperature: 0.5,
-    numCtx: 12288,
     format: "json",
     numPredict: 4096,
     label: "pbi-draft",
+    signal: request.signal,
+    timeoutMs: OLLAMA_TIMEOUTS.report,
   })
-  return streamingResponse(stream)
 }

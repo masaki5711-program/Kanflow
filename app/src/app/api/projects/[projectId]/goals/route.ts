@@ -1,27 +1,21 @@
-import { NextResponse } from "next/server"
-import { prisma } from "@/lib/prisma"
-import { requireProjectMember, requireProjectAccess } from "@/lib/api-helpers"
-import { z } from "zod"
-
-const createSchema = z.object({
-  title: z.string().min(1),
-  description: z.string().optional(),
-})
+import { requireProject } from "@/lib/authz"
+import { actorFromSession, jsonResponse, toHttpResponse } from "@/services/_shared"
+import { createGoalSchema } from "@/services/goals/goals.schemas"
+import { createGoal, listGoals } from "@/services/goals/goals.service"
 
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ projectId: string }> }
 ) {
   const { projectId } = await params
-  const result = await requireProjectAccess(projectId, "read")
-  if ("error" in result) return result.error
+  const gate = await requireProject(projectId, "project.view")
+  if ("error" in gate) return gate.error
 
-  const goals = await prisma.productGoal.findMany({
-    where: { projectId },
-    orderBy: { createdAt: "asc" },
-  })
-
-  return NextResponse.json(goals)
+  try {
+    return jsonResponse(await listGoals(projectId))
+  } catch (error) {
+    return toHttpResponse(error, { fallback: "取得に失敗しました", context: "Goal LIST" })
+  }
 }
 
 export async function POST(
@@ -29,23 +23,13 @@ export async function POST(
   { params }: { params: Promise<{ projectId: string }> }
 ) {
   const { projectId } = await params
-  const result = await requireProjectMember(projectId, { roles: ["po", "sm"] })
-  if ("error" in result) return result.error
+  const gate = await requireProject(projectId, "goal.write")
+  if ("error" in gate) return gate.error
 
   try {
-    const body = await request.json()
-    const data = createSchema.parse(body)
-
-    const goal = await prisma.productGoal.create({
-      data: { projectId, title: data.title, description: data.description },
-    })
-
-    return NextResponse.json(goal, { status: 201 })
+    const input = createGoalSchema.parse(await request.json())
+    return jsonResponse(await createGoal(projectId, input, actorFromSession(gate.session)), 201)
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      return NextResponse.json({ error: error.issues }, { status: 400 })
-    }
-    console.error("Goal CREATE error:", error)
-    return NextResponse.json({ error: "作成に失敗しました" }, { status: 500 })
+    return toHttpResponse(error, { fallback: "作成に失敗しました", context: "Goal CREATE" })
   }
 }

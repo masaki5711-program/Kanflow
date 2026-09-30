@@ -1,116 +1,42 @@
-import { NextResponse } from "next/server"
-import { prisma } from "@/lib/prisma"
-import { requireProjectMember } from "@/lib/api-helpers"
-import { recalcSprintActualScore } from "@/lib/sprint-score"
-import { syncPbiStatusFromTasks } from "@/lib/pbi-status-sync"
-import { z } from "zod"
+import { requireProject } from "@/lib/authz"
+import { jsonResponse, toHttpResponse } from "@/services/_shared"
+import { addSprintPbisSchema, removeSprintPbiSchema } from "@/services/sprint-backlog/sprint-backlog.schemas"
+import { addPbisToSprint, removePbiFromSprint } from "@/services/sprint-backlog/sprint-backlog.service"
 
-const addSchema = z.object({
-  pbIds: z.array(z.string().min(1)).min(1).max(50),
-})
+type Params = { params: Promise<{ projectId: string; sprintId: string }> }
 
 /**
  * Attach product-backlog items to an existing sprint by inserting one empty
  * placeholder SprintBacklogItem per pbId (taskName null). The client's task
  * add flow then creates real tasks under each PB.
  */
-export async function POST(
-  request: Request,
-  { params }: { params: Promise<{ projectId: string; sprintId: string }> }
-) {
+export async function POST(request: Request, { params }: Params) {
   const { projectId, sprintId } = await params
-  const result = await requireProjectMember(projectId, { roles: ["po", "sm"] })
-  if ("error" in result) return result.error
+  const gate = await requireProject(projectId, "sprint.manage")
+  if ("error" in gate) return gate.error
 
   try {
-    const body = await request.json()
-    const data = addSchema.parse(body)
-
-    const sprint = await prisma.sprint.findFirst({
-      where: { id: sprintId, projectId },
-      select: { id: true, items: { select: { pbItemId: true } } },
-    })
-    if (!sprint) return NextResponse.json({ error: "Sprint not found" }, { status: 404 })
-
-    const validPbs = await prisma.productBacklogItem.findMany({
-      where: { id: { in: data.pbIds }, projectId },
-      select: { id: true },
-    })
-    const existing = new Set(sprint.items.map((i) => i.pbItemId))
-    const toAdd = validPbs.map((p) => p.id).filter((id) => !existing.has(id))
-
-    if (toAdd.length === 0) {
-      return NextResponse.json({ added: 0, skipped: data.pbIds.length }, { status: 200 })
-    }
-
-    await prisma.sprintBacklogItem.createMany({
-      data: toAdd.map((pbItemId) => ({
-        sprintId,
-        pbItemId,
-        status: "todo",
-      })),
-    })
-
-    await recalcSprintActualScore(sprintId)
-
-    const created = await prisma.sprintBacklogItem.findMany({
-      where: { sprintId, pbItemId: { in: toAdd }, taskName: null },
-      include: { pbItem: true },
-    })
-
-    return NextResponse.json({
-      added: toAdd.length,
-      skipped: data.pbIds.length - toAdd.length,
-      items: created,
-    }, { status: 201 })
+    const { pbIds } = addSprintPbisSchema.parse(await request.json())
+    const result = await addPbisToSprint(projectId, sprintId, pbIds)
+    return jsonResponse(result, result.added === 0 ? 200 : 201)
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      return NextResponse.json({ error: error.issues }, { status: 400 })
-    }
-    console.error("Sprint PBI add error:", error)
-    return NextResponse.json({ error: "追加に失敗しました" }, { status: 500 })
+    return toHttpResponse(error, { fallback: "追加に失敗しました", context: "Sprint PBI add" })
   }
 }
-
-const removeSchema = z.object({
-  pbItemId: z.string().min(1),
-})
 
 /**
  * Detach a PBI from the sprint: removes the placeholder plus any real tasks.
  * Dangerous — requires PO/SM and will delete tasks as well.
  */
-export async function DELETE(
-  request: Request,
-  { params }: { params: Promise<{ projectId: string; sprintId: string }> }
-) {
+export async function DELETE(request: Request, { params }: Params) {
   const { projectId, sprintId } = await params
-  const result = await requireProjectMember(projectId, { roles: ["po", "sm"] })
-  if ("error" in result) return result.error
+  const gate = await requireProject(projectId, "sprint.manage")
+  if ("error" in gate) return gate.error
 
   try {
-    const body = await request.json()
-    const data = removeSchema.parse(body)
-
-    const sprint = await prisma.sprint.findFirst({
-      where: { id: sprintId, projectId },
-      select: { id: true },
-    })
-    if (!sprint) return NextResponse.json({ error: "Sprint not found" }, { status: 404 })
-
-    const res = await prisma.sprintBacklogItem.deleteMany({
-      where: { sprintId, pbItemId: data.pbItemId },
-    })
-
-    await recalcSprintActualScore(sprintId)
-    await syncPbiStatusFromTasks(data.pbItemId)
-
-    return NextResponse.json({ removed: res.count })
+    const { pbItemId } = removeSprintPbiSchema.parse(await request.json())
+    return jsonResponse(await removePbiFromSprint(projectId, sprintId, pbItemId))
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      return NextResponse.json({ error: error.issues }, { status: 400 })
-    }
-    console.error("Sprint PBI remove error:", error)
-    return NextResponse.json({ error: "削除に失敗しました" }, { status: 500 })
+    return toHttpResponse(error, { fallback: "削除に失敗しました", context: "Sprint PBI remove" })
   }
 }

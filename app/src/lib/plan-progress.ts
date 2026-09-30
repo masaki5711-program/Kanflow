@@ -1,4 +1,7 @@
+import type { Prisma } from "@/generated/prisma/client"
 import { prisma } from "@/lib/prisma"
+
+type Db = Prisma.TransactionClient
 
 /**
  * Map a leaf item's manual status to its progress percentage.
@@ -18,48 +21,79 @@ export function statusToProgress(status: string): number {
   }
 }
 
+export interface PlanNode {
+  id: string
+  parentId: string | null
+  status: string
+  progressPct: number
+}
+
+function depthOf(id: string, byId: ReadonlyMap<string, PlanNode>): number {
+  let depth = 0
+  const seen = new Set<string>()
+  let cursor = byId.get(id)?.parentId ?? null
+  while (cursor && !seen.has(cursor)) {
+    seen.add(cursor)
+    depth += 1
+    cursor = byId.get(cursor)?.parentId ?? null
+  }
+  return depth
+}
+
 /**
- * Recalculate `progressPct` for the given item and every ancestor up to the
- * root. Leaf items take their % from status; parents take the average of
- * their direct children (which themselves are kept up to date because we
- * walk depth-first from the touched node upward).
- *
- * Safe to call after any create/update/delete on a PlanItem — handles the
- * "moved to a new parent" case by accepting the OLD parent id too.
+ * Pure: recompute progress for the start items and every ancestor. Leaves
+ * take their % from status; parents take the rounded average of their direct
+ * children. Nodes are processed deepest-first so every parent sees its
+ * children's fresh values. Returns only the rows whose % changed.
  */
-export async function recalcPlanProgress(
-  projectId: string,
-  startItemIds: string[]
-) {
-  const visited = new Set<string>()
-  const queue = [...startItemIds]
-
-  while (queue.length > 0) {
-    const id = queue.shift()!
-    if (!id || visited.has(id)) continue
-    visited.add(id)
-
-    const item = await prisma.planItem.findFirst({
-      where: { id, projectId },
-      include: { children: { select: { id: true, progressPct: true, status: true } } },
-    })
-    if (!item) continue
-
-    let nextProgress: number
-    if (item.children.length === 0) {
-      nextProgress = statusToProgress(item.status)
-    } else {
-      const sum = item.children.reduce((acc, c) => acc + (c.progressPct ?? 0), 0)
-      nextProgress = Math.round(sum / item.children.length)
+export function computePlanProgressUpdates(
+  nodes: readonly PlanNode[],
+  startItemIds: readonly string[]
+): Array<{ id: string; progressPct: number }> {
+  const byId = new Map(nodes.map((n) => [n.id, n]))
+  const children = new Map<string, string[]>()
+  for (const n of nodes) {
+    if (n.parentId) children.set(n.parentId, [...(children.get(n.parentId) ?? []), n.id])
+  }
+  const touched = new Set<string>()
+  for (const start of startItemIds) {
+    let cursor: string | null = start
+    while (cursor && byId.has(cursor) && !touched.has(cursor)) {
+      touched.add(cursor)
+      cursor = byId.get(cursor)?.parentId ?? null
     }
-
-    if (nextProgress !== item.progressPct) {
-      await prisma.planItem.update({
-        where: { id },
-        data: { progressPct: nextProgress },
-      })
+  }
+  const order = Array.from(touched).sort((a, b) => depthOf(b, byId) - depthOf(a, byId))
+  const progress = new Map(nodes.map((n) => [n.id, n.progressPct]))
+  const updates: Array<{ id: string; progressPct: number }> = []
+  for (const id of order) {
+    const node = byId.get(id) as PlanNode
+    const kids = children.get(id) ?? []
+    const next = kids.length === 0
+      ? statusToProgress(node.status)
+      : Math.round(kids.reduce((acc, k) => acc + (progress.get(k) ?? 0), 0) / kids.length)
+    if (next !== progress.get(id)) {
+      progress.set(id, next)
+      updates.push({ id, progressPct: next })
     }
+  }
+  return updates
+}
 
-    if (item.parentId) queue.push(item.parentId)
+/**
+ * Recalculate `progressPct` for the given items and every ancestor up to the
+ * root, with one read of the project's plan tree (no per-node queries).
+ * Accepts old parent ids too, so "moved to a new parent" rebalances both
+ * trees. Pass a transaction client to run inside the caller's transaction.
+ */
+export async function recalcPlanProgress(projectId: string, startItemIds: string[], db: Db = prisma): Promise<void> {
+  if (startItemIds.filter(Boolean).length === 0) return
+  const nodes = await db.planItem.findMany({
+    where: { projectId },
+    select: { id: true, parentId: true, status: true, progressPct: true },
+  })
+  const updates = computePlanProgressUpdates(nodes, startItemIds.filter(Boolean))
+  for (const u of updates) {
+    await db.planItem.update({ where: { id: u.id }, data: { progressPct: u.progressPct } })
   }
 }

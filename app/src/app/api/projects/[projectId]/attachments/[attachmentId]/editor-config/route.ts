@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server"
-import { prisma } from "@/lib/prisma"
-import { requireProjectMember } from "@/lib/api-helpers"
+import { requireProject } from "@/lib/authz"
 import { getCollaboraEditorUrl, isEditableInCollabora } from "@/lib/collabora"
+import { logger } from "@/lib/logger"
+import { getWopiSigningKey, signWopiToken } from "@/lib/wopi-token"
+import { toHttpResponse } from "@/services/_shared"
+import { getAttachment } from "@/services/attachments/attachments.service"
+
+const log = logger.child({ module: "editor-config" })
 
 function downloadUrlFor(projectId: string, attachmentId: string): string {
   return `/api/projects/${projectId}/attachments/${attachmentId}`
@@ -12,13 +17,15 @@ export async function GET(
   { params }: { params: Promise<{ projectId: string; attachmentId: string }> }
 ) {
   const { projectId, attachmentId } = await params
-  const result = await requireProjectMember(projectId)
+  const result = await requireProject(projectId, "attachment.write")
   if ("error" in result) return result.error
 
-  const attachment = await prisma.projectAttachment.findFirst({
-    where: { id: attachmentId, projectId },
-  })
-  if (!attachment) return NextResponse.json({ error: "Not found" }, { status: 404 })
+  let attachment: Awaited<ReturnType<typeof getAttachment>>
+  try {
+    attachment = await getAttachment(projectId, attachmentId)
+  } catch (error) {
+    return toHttpResponse(error, { fallback: "取得に失敗しました", context: "Editor config" })
+  }
 
   const downloadUrl = downloadUrlFor(projectId, attachmentId)
 
@@ -34,8 +41,8 @@ export async function GET(
     )
   }
 
-  const accessToken = process.env.WOPI_ACCESS_TOKEN
-  if (!accessToken) {
+  const signingKey = getWopiSigningKey()
+  if (!signingKey) {
     return NextResponse.json(
       {
         error: "WOPI_ACCESS_TOKEN が設定されていません",
@@ -47,15 +54,22 @@ export async function GET(
     )
   }
 
+  // Attachment writes are open to every project member (and admins), matching
+  // the upload / PATCH / DELETE handlers, so the editor session may write too.
+  const { token: accessToken, expiresAt: accessTokenTtl } = signWopiToken(
+    { projectId, attachmentId, userId: result.session.user.id, canWrite: true },
+    signingKey
+  )
+
   try {
     const { editorUrl } = await getCollaboraEditorUrl(
       projectId,
       attachmentId,
       attachment.mimeType
     )
-    return NextResponse.json({ editorUrl, accessToken })
+    return NextResponse.json({ editorUrl, accessToken, accessTokenTtl })
   } catch (error) {
-    console.error("Collabora editor config error:", error)
+    log.error("collabora editor config failed", { error: error instanceof Error ? error.message : String(error) })
     const msg = error instanceof Error ? error.message : String(error)
     const isUnreachable =
       msg.includes("fetch failed") ||

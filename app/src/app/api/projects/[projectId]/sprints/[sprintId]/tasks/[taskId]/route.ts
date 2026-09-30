@@ -1,81 +1,32 @@
-import { NextResponse } from "next/server"
-import { prisma } from "@/lib/prisma"
-import { requireProjectMember } from "@/lib/api-helpers"
-import { recalcSprintActualScore } from "@/lib/sprint-score"
-import { syncPbiStatusFromTasks } from "@/lib/pbi-status-sync"
-import { z } from "zod"
+import { requireProject } from "@/lib/authz"
+import { actorFromSession, jsonResponse, successResponse, toHttpResponse } from "@/services/_shared"
+import { updateTaskSchema } from "@/services/sprint-backlog/sprint-backlog.schemas"
+import { deleteTask, updateTask } from "@/services/sprint-backlog/sprint-backlog.service"
 
-const updateSchema = z.object({
-  taskName: z.string().max(500).optional(),
-  assignee: z.string().max(200).nullable().optional(),
-  estimatedHours: z.number().nullable().optional(),
-  actualHours: z.number().nullable().optional(),
-  status: z.enum(["todo", "in_progress", "review", "done"]).optional(),
-  completionComment: z.string().max(5000).nullable().optional(),
-})
+type Params = { params: Promise<{ projectId: string; sprintId: string; taskId: string }> }
 
-export async function PATCH(
-  request: Request,
-  { params }: { params: Promise<{ projectId: string; sprintId: string; taskId: string }> }
-) {
+export async function PATCH(request: Request, { params }: Params) {
   const { projectId, sprintId, taskId } = await params
-  const result = await requireProjectMember(projectId)
-  if ("error" in result) return result.error
+  const gate = await requireProject(projectId, "task.write")
+  if ("error" in gate) return gate.error
 
   try {
-    const body = await request.json()
-    const data = updateSchema.parse(body)
-
-    const existing = await prisma.sprintBacklogItem.findFirst({
-      where: { id: taskId, sprintId, sprint: { projectId } },
-      select: { id: true },
-    })
-    if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 })
-
-    const updateData: Record<string, unknown> = { ...data }
-    if (data.status === "done") updateData.completedAt = new Date()
-    else if (data.status) {
-      updateData.completedAt = null
-      // Reverting from done back to another status — drop the completion note.
-      if (data.completionComment === undefined) updateData.completionComment = null
-    }
-
-    const task = await prisma.sprintBacklogItem.update({
-      where: { id: taskId },
-      data: updateData,
-      include: { pbItem: true },
-    })
-
-    await recalcSprintActualScore(sprintId)
-    if (task.pbItemId) await syncPbiStatusFromTasks(task.pbItemId)
-
-    return NextResponse.json(task)
+    const input = updateTaskSchema.parse(await request.json())
+    return jsonResponse(await updateTask(projectId, sprintId, taskId, input, actorFromSession(gate.session)))
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      return NextResponse.json({ error: error.issues }, { status: 400 })
-    }
-    console.error("Sprint task PATCH error:", error)
-    return NextResponse.json({ error: "更新に失敗しました" }, { status: 500 })
+    return toHttpResponse(error, { fallback: "更新に失敗しました", context: "Sprint task PATCH" })
   }
 }
 
-export async function DELETE(
-  _request: Request,
-  { params }: { params: Promise<{ projectId: string; sprintId: string; taskId: string }> }
-) {
+export async function DELETE(_request: Request, { params }: Params) {
   const { projectId, sprintId, taskId } = await params
-  const result = await requireProjectMember(projectId)
-  if ("error" in result) return result.error
+  const gate = await requireProject(projectId, "task.write")
+  if ("error" in gate) return gate.error
 
-  const existing = await prisma.sprintBacklogItem.findFirst({
-    where: { id: taskId, sprintId, sprint: { projectId } },
-    select: { id: true, pbItemId: true },
-  })
-  if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 })
-
-  await prisma.sprintBacklogItem.delete({ where: { id: taskId } })
-  await recalcSprintActualScore(sprintId)
-  if (existing.pbItemId) await syncPbiStatusFromTasks(existing.pbItemId)
-
-  return NextResponse.json({ success: true })
+  try {
+    await deleteTask(projectId, sprintId, taskId)
+    return successResponse()
+  } catch (error) {
+    return toHttpResponse(error, { fallback: "削除に失敗しました", context: "Sprint task DELETE" })
+  }
 }

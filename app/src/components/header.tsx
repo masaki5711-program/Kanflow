@@ -3,128 +3,115 @@
 import { useSession, signOut } from "next-auth/react"
 import Link from "next/link"
 import Image from "next/image"
+import { usePathname } from "next/navigation"
+import { ChevronRight, FolderOpen, LogOut, Menu, UserRound } from "lucide-react"
 import { useLanguage } from "@/lib/language-context"
+import { useI18nText, type EntityI18n } from "@/components/i18n-text"
+import { Truncate, cn } from "@/components/ui"
+import { useSidebarDrawer } from "@/components/app-shell/sidebar-drawer"
+import { AdminMenu } from "@/components/app-shell/admin-menu"
 
 interface HeaderProps {
   projectName?: string
+  /** Both-language text of the project (name) for the breadcrumb. */
+  projectI18n?: EntityI18n
   projectId?: string
 }
 
-export function Header({ projectName, projectId }: HeaderProps = {}) {
+const NAV_LINK =
+  "inline-flex min-h-9 items-center gap-1.5 rounded-full px-3 py-1.5 text-body font-medium transition-colors"
+
+export function Header({ projectName, projectI18n, projectId }: HeaderProps = {}) {
   const { data: session } = useSession()
   const { t } = useLanguage()
+  const pathname = usePathname()
+  const drawer = useSidebarDrawer()
+  const shownProjectName = useI18nText(projectI18n, "name", projectName).text
 
-  const initials = session?.user?.name
-    ? session.user.name.slice(0, 2).toUpperCase()
-    : "?"
-
+  const initials = session?.user?.name ? session.user.name.slice(0, 2).toUpperCase() : "?"
   const isAdmin = session?.user?.role === "admin"
 
+  function navLinkClass(active: boolean) {
+    return cn(NAV_LINK, active ? "bg-primary-soft text-primary-active" : "text-fg-muted hover:bg-surface-muted hover:text-fg")
+  }
+
   return (
-    <header className="bg-white/80 backdrop-blur-md border-b border-gray-200/60 shadow-sm shadow-gray-200/40 px-6 py-2.5 flex items-center justify-between sticky top-0 z-40">
-      <div className="flex items-center gap-2">
-        <Link href="/" className="flex items-center gap-2.5 group">
-          <Image src="/logo.svg" alt="Kanflow" width={32} height={32} className="shadow-sm group-hover:shadow-md transition-shadow duration-200 rounded-lg" />
-          <span className="text-lg font-semibold text-gray-800 tracking-tight group-hover:text-blue-600 transition-colors duration-200">
+    <header className="sticky top-0 z-40 flex h-14 items-center justify-between gap-2 border-b border-border bg-surface/90 px-4 shadow-ui-sm backdrop-blur-md sm:px-6">
+      <div className="flex min-w-0 items-center gap-2">
+        {drawer && (
+          <button
+            type="button"
+            onClick={drawer.open}
+            aria-label={t.navOpenMenu}
+            title={t.navOpenMenu}
+            aria-expanded={drawer.isOpen}
+            aria-controls={drawer.drawerId}
+            className="-ml-1 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-ui-sm text-fg-muted hover:bg-surface-muted hover:text-fg lg:hidden"
+          >
+            <Menu aria-hidden className="h-5 w-5" />
+          </button>
+        )}
+        <Link href="/" className="group flex shrink-0 items-center gap-2.5">
+          <Image src="/logo.svg" alt="" width={32} height={32} className="rounded-lg shadow-ui-sm" />
+          <span className="hidden text-title font-semibold tracking-tight text-fg transition-colors group-hover:text-primary sm:inline">
             {t.appTitle}
           </span>
+          <span className="sr-only sm:hidden">{t.appTitle}</span>
         </Link>
         {projectName && projectId && (
-          <>
-            <svg className="w-4 h-4 text-gray-300 shrink-0" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd"/>
-            </svg>
+          <nav aria-label={t.navBreadcrumb} className="flex min-w-0 items-center gap-2">
+            <ChevronRight aria-hidden className="h-4 w-4 shrink-0 text-fg-subtle" />
             <Link
               href={`/projects/${projectId}`}
-              className="text-sm font-medium text-gray-500 hover:text-blue-600 transition-colors duration-200 truncate max-w-[200px]"
-              title={projectName}
+              aria-current={pathname === `/projects/${projectId}` ? "page" : undefined}
+              className="block min-w-0 max-w-[40vw] text-body font-medium text-fg-muted transition-colors hover:text-primary md:max-w-xs"
             >
-              {projectName}
+              <Truncate text={shownProjectName} lines={1} />
             </Link>
-          </>
+          </nav>
         )}
       </div>
+
       {session?.user && (
-        <div className="flex items-center gap-1">
-          {/* Project list - always visible */}
-          <Link
-            href="/"
-            className="text-sm text-gray-500 hover:text-blue-600 transition-all duration-200 px-3 py-1.5 rounded-full hover:bg-blue-50/80 font-medium flex items-center gap-1.5"
-          >
-            <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-              <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"/>
-            </svg>
-            {t.projectListTitle}
+        <nav aria-label={t.navPrimary} className="flex shrink-0 items-center gap-1">
+          <Link href="/" className={navLinkClass(pathname === "/")} aria-current={pathname === "/" ? "page" : undefined}>
+            <FolderOpen aria-hidden className="h-4 w-4" />
+            <span className="hidden md:inline">{t.projectListTitle}</span>
+            <span className="sr-only md:hidden">{t.projectListTitle}</span>
+          </Link>
+          <Link href="/me" className={navLinkClass(pathname === "/me")} aria-current={pathname === "/me" ? "page" : undefined}>
+            <UserRound aria-hidden className="h-4 w-4" />
+            <span className="hidden md:inline">{t.myProfileMenu}</span>
+            <span className="sr-only md:hidden">{t.myProfileMenu}</span>
           </Link>
 
-          {/* My profile - always visible */}
-          <Link
-            href="/me"
-            className="text-sm text-gray-500 hover:text-blue-600 transition-all duration-200 px-3 py-1.5 rounded-full hover:bg-blue-50/80 font-medium flex items-center gap-1.5"
-          >
-            <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd"/>
-            </svg>
-            {t.myProfileMenu}
-          </Link>
+          {isAdmin && <AdminMenu />}
 
-          {/* User management - admin only */}
-          {isAdmin && (
-            <Link
-              href="/admin/users"
-              className="text-sm text-gray-500 hover:text-blue-600 transition-all duration-200 px-3 py-1.5 rounded-full hover:bg-blue-50/80 font-medium flex items-center gap-1.5"
-            >
-              <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-                <path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z"/>
-              </svg>
-              {t.userManagementTitle}
-            </Link>
-          )}
-
-          {/* Section management - admin only */}
-          {isAdmin && (
-            <Link
-              href="/admin/sections"
-              className="text-sm text-gray-500 hover:text-blue-600 transition-all duration-200 px-3 py-1.5 rounded-full hover:bg-blue-50/80 font-medium flex items-center gap-1.5"
-            >
-              <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd"/>
-              </svg>
-              {t.sectionAdminTitle}
-            </Link>
-          )}
-
-          {/* Admin category management */}
-          {isAdmin && (
-            <Link
-              href="/admin/categories"
-              className="text-sm text-gray-500 hover:text-blue-600 transition-all duration-200 px-3 py-1.5 rounded-full hover:bg-blue-50/80 font-medium flex items-center gap-1.5"
-            >
-              <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M17.707 9.293a1 1 0 010 1.414l-7 7a1 1 0 01-1.414 0l-7-7A.997.997 0 012 10V5a3 3 0 013-3h5c.256 0 .512.098.707.293l7 7zM5 6a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd"/>
-              </svg>
-              カテゴリ管理
-            </Link>
-          )}
-
-          <div className="w-px h-5 bg-gray-200/80 mx-1.5" />
+          <div aria-hidden="true" className="mx-1.5 hidden h-5 w-px bg-border sm:block" />
 
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center text-xs font-semibold text-blue-700 ring-2 ring-white shadow-sm">
+            <div
+              aria-hidden="true"
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-primary-soft text-caption font-semibold text-primary-active ring-2 ring-surface"
+            >
               {initials}
             </div>
-            <span className="text-sm font-medium text-gray-700 hidden sm:block">
+            <span className="sr-only max-w-[10rem] truncate text-body font-medium text-fg lg:not-sr-only lg:block" title={session.user.name ?? undefined}>
               {session.user.name}
             </span>
           </div>
-          <div className="w-px h-5 bg-gray-200/80 mx-1.5" />
+          <div aria-hidden="true" className="mx-1.5 hidden h-5 w-px bg-border sm:block" />
           <button
+            type="button"
             onClick={() => signOut()}
-            className="text-sm text-gray-400 hover:text-red-500 transition-all duration-200 px-2.5 py-1.5 rounded-full hover:bg-red-50/80"
+            title={t.logout}
+            className={cn(NAV_LINK, "text-fg-muted hover:bg-danger-soft hover:text-danger-strong")}
           >
-            {t.logout}
+            <LogOut aria-hidden className="h-4 w-4 sm:hidden" />
+            <span className="hidden sm:inline">{t.logout}</span>
+            <span className="sr-only sm:hidden">{t.logout}</span>
           </button>
-        </div>
+        </nav>
       )}
     </header>
   )

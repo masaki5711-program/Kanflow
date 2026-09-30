@@ -1,95 +1,45 @@
-import { NextResponse } from "next/server"
-import { prisma } from "@/lib/prisma"
-import { requireProjectMember, requireProjectAccess } from "@/lib/api-helpers"
-import { z } from "zod"
+import { requireProject } from "@/lib/authz"
+import { actorFromSession, jsonResponse, successResponse, toHttpResponse } from "@/services/_shared"
+import { updateBacklogItemSchema } from "@/services/backlog/backlog.schemas"
+import { deleteBacklogItem, getBacklogItem, updateBacklogItem } from "@/services/backlog/backlog.service"
 
-export async function GET(
-  _request: Request,
-  { params }: { params: Promise<{ projectId: string; itemId: string }> }
-) {
+type Params = { params: Promise<{ projectId: string; itemId: string }> }
+
+export async function GET(_request: Request, { params }: Params) {
   const { projectId, itemId } = await params
-  const result = await requireProjectAccess(projectId, "read")
-  if ("error" in result) return result.error
-
-  const item = await prisma.productBacklogItem.findFirst({
-    where: { id: itemId, projectId },
-    include: {
-      iceboxItem: { select: { id: true, displayId: true, request: true } },
-      productGoal: { select: { id: true, title: true } },
-    },
-  })
-  if (!item) return NextResponse.json({ error: "Not found" }, { status: 404 })
-  return NextResponse.json(item)
-}
-
-const updateSchema = z.object({
-  initiative: z.string().optional(),
-  epic: z.string().optional(),
-  userStory: z.string().optional(),
-  acceptanceCriteria: z.string().optional(),
-  referenceDoc: z.string().optional(),
-  workloadScore: z.number().int().min(0).optional(),
-  assignedPo: z.string().optional(),
-  poNote: z.string().optional(),
-  status: z.enum(["ready", "not_ready", "completed"]).optional(),
-  notReadyReason: z.string().optional(),
-  sortOrder: z.number().int().optional(),
-  productGoalId: z.string().nullable().optional(),
-})
-
-export async function PATCH(
-  request: Request,
-  { params }: { params: Promise<{ projectId: string; itemId: string }> }
-) {
-  const { projectId, itemId } = await params
-
-  // PO is the natural PBI owner, but SM ends up co-authoring during sprint
-  // planning (clarifying acceptance criteria, splitting stories), so allow
-  // them to edit too. Admin role is honored via requireProjectMember.
-  const result = await requireProjectMember(projectId, { roles: ["po", "sm"] })
-  if ("error" in result) return result.error
+  const gate = await requireProject(projectId, "project.view")
+  if ("error" in gate) return gate.error
 
   try {
-    const body = await request.json()
-    const data = updateSchema.parse(body)
-
-    if (data.productGoalId === "") data.productGoalId = null
-
-    const updateData = {
-      ...data,
-      ...(data.status === "completed"
-        ? { completedAt: new Date() }
-        : data.status ? { completedAt: null } : {}),
-    }
-
-    const item = await prisma.productBacklogItem.update({
-      where: { id: itemId, projectId },
-      data: updateData,
-    })
-
-    return NextResponse.json(item)
+    return jsonResponse(await getBacklogItem(projectId, itemId))
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      return NextResponse.json({ error: error.issues }, { status: 400 })
-    }
-    return NextResponse.json({ error: "更新に失敗しました" }, { status: 500 })
+    return toHttpResponse(error, { fallback: "取得に失敗しました", context: "Backlog GET" })
   }
 }
 
-export async function DELETE(
-  _request: Request,
-  { params }: { params: Promise<{ projectId: string; itemId: string }> }
-) {
+export async function PATCH(request: Request, { params }: Params) {
   const { projectId, itemId } = await params
-
-  const result = await requireProjectMember(projectId, { roles: ["po"] })
-  if ("error" in result) return result.error
+  // PO owns PBIs; SM co-authors during sprint planning. Admins always pass.
+  const gate = await requireProject(projectId, "backlog.write")
+  if ("error" in gate) return gate.error
 
   try {
-    await prisma.productBacklogItem.delete({ where: { id: itemId, projectId } })
-    return NextResponse.json({ success: true })
+    const input = updateBacklogItemSchema.parse(await request.json())
+    return jsonResponse(await updateBacklogItem(projectId, itemId, input, actorFromSession(gate.session)))
   } catch (error) {
-    console.error("Backlog DELETE error:", error)
-    return NextResponse.json({ error: "Failed to delete item" }, { status: 500 })
+    return toHttpResponse(error, { fallback: "更新に失敗しました", context: "Backlog PATCH" })
+  }
+}
+
+export async function DELETE(_request: Request, { params }: Params) {
+  const { projectId, itemId } = await params
+  const gate = await requireProject(projectId, "backlog.delete")
+  if ("error" in gate) return gate.error
+
+  try {
+    await deleteBacklogItem(projectId, itemId)
+    return successResponse()
+  } catch (error) {
+    return toHttpResponse(error, { fallback: "Failed to delete item", context: "Backlog DELETE" })
   }
 }

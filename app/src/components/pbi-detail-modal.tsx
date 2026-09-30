@@ -1,31 +1,15 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { useLanguage } from "@/lib/language-context"
-import { useBilingual } from "@/lib/use-bilingual"
-import { BilingualViewToggle } from "@/components/bilingual-view-toggle"
 import { AIResultModal } from "@/components/ai-result-modal"
-import { useOverlayClose } from "@/lib/use-overlay-close"
+import { GlossaryHint, I18nText, useI18nText } from "@/components/i18n-text"
+import { Badge, Button, EmptyState, Field, Input, Modal, Select, SkeletonLines, Textarea, useModalClose, type BadgeTone } from "@/components/ui"
+import { apiFetch, useApiMutation, useApiQuery, useUnsavedChangesGuard } from "@/hooks"
+import type { EntityI18n } from "@/lib/translation/types"
+import type { BacklogItemDetailDto } from "@/types/api"
 
-interface PbiDetail {
-  id: string
-  displayId: number
-  initiative: string | null
-  epic: string | null
-  userStory: string | null
-  acceptanceCriteria: string | null
-  referenceDoc: string | null
-  workloadScore: number
-  status: string
-  notReadyReason: string | null
-  poNote: string | null
-  assignedPo: string | null
-  completedAt: string | null
-  createdAt: string
-  updatedAt: string
-  productGoal: { id: string; title: string } | null
-  iceboxItem: { id: string; displayId: number; request: string } | null
-}
+type PbiDetail = Omit<BacklogItemDetailDto, "iceboxItemId" | "productGoalId">
 
 interface Props {
   projectId: string
@@ -37,10 +21,10 @@ interface Props {
   onSaved?: () => void
 }
 
-const statusClass: Record<string, string> = {
-  not_ready: "bg-amber-50 text-amber-700 border-amber-200",
-  ready: "bg-blue-50 text-blue-700 border-blue-200",
-  completed: "bg-emerald-50 text-emerald-700 border-emerald-200",
+const STATUS_TONE: Record<string, BadgeTone> = {
+  not_ready: "warning",
+  ready: "primary",
+  completed: "success",
 }
 
 interface PbiForm {
@@ -71,337 +55,283 @@ function toFormState(p: PbiDetail): PbiForm {
   }
 }
 
+/** Only the fields that differ from the loaded PBI (empty strings become null). */
+function buildPatch(item: PbiDetail, form: PbiForm): Record<string, unknown> {
+  const patch: Record<string, unknown> = {}
+  const text: (keyof PbiForm & keyof PbiDetail)[] = [
+    "initiative", "epic", "userStory", "acceptanceCriteria", "assignedPo", "poNote", "notReadyReason", "referenceDoc",
+  ]
+  for (const key of text) {
+    if (form[key] !== ((item[key] as string | null) ?? "")) patch[key] = form[key] || null
+  }
+  const ws = form.workloadScore.trim() === "" ? null : parseInt(form.workloadScore, 10)
+  if (ws !== item.workloadScore) patch.workloadScore = ws
+  if (form.status !== item.status) patch.status = form.status
+  return patch
+}
+
+function isSameForm(a: PbiForm, b: PbiForm): boolean {
+  return (Object.keys(a) as (keyof PbiForm)[]).every((k) => a[k] === b[k])
+}
+
 /**
  * Centered modal showing the full details of a Product Backlog Item. When
  * `editable=true` and the viewer is a PO/SM/admin (the underlying API will
- * reject otherwise), every field becomes inline-editable and the footer
- * gains a Save button. Otherwise the modal stays read-only.
+ * reject otherwise), every field becomes editable and the footer gains a
+ * Save button; closing with unsaved edits asks first.
  */
 export default function PbiDetailModal({ projectId, pbiId, onClose, editable, onSaved }: Props) {
-  const { t, pt, language } = useLanguage()
-  const [item, setItem] = useState<PbiDetail | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const { t, language } = useLanguage()
+  const url = `/api/projects/${projectId}/backlog/${pbiId}`
+  const { data: item, error, isLoading, refetch } = useApiQuery<PbiDetail>(url)
   const [showInvest, setShowInvest] = useState(false)
-  const [form, setForm] = useState<PbiForm | null>(null)
-  const [saving, setSaving] = useState(false)
-  const [saveError, setSaveError] = useState<string | null>(null)
+  // Edits are stored against the PBI they were made for, so a late response
+  // for another PBI can never be mixed with them.
+  const [draft, setDraft] = useState<{ id: string; form: PbiForm } | null>(null)
+  const baseline = item ? toFormState(item) : null
+  const form = draft && item && draft.id === item.id ? draft.form : baseline
+  const isEditing = !!editable && !!form && !!item
+  const isDirty = isEditing && !!baseline && !!form && !isSameForm(form, baseline)
+  useUnsavedChangesGuard(isDirty)
 
-  useEffect(() => {
-    let cancelled = false
-    setLoading(true)
-    setError(null)
-    fetch(`/api/projects/${projectId}/backlog/${pbiId}`)
-      .then((r) => (r.ok ? r.json() : Promise.reject(r)))
-      .then((data: PbiDetail) => {
-        if (!cancelled) {
-          setItem(data)
-          setForm(toFormState(data))
-        }
-      })
-      .catch(() => { if (!cancelled) setError(t.error) })
-      .finally(() => { if (!cancelled) setLoading(false) })
-    return () => { cancelled = true }
-  }, [projectId, pbiId, t.error])
+  const headInitiative = useI18nText(item?.i18n, "initiative", item?.initiative)
+  const headUserStory = useI18nText(item?.i18n, "userStory", item?.userStory)
+  const headGoal = useI18nText(item?.productGoal?.i18n, "title", item?.productGoal?.title)
 
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose()
-    }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [onClose])
+  const save = useApiMutation(
+    (patch: Record<string, unknown>) => apiFetch(url, { method: "PATCH", json: patch }),
+    {
+      onSuccess: () => {
+        onSaved?.()
+        onClose()
+      },
+      toastOnError: (e) => `${t.backlogSaveFailed}: ${e.message}`,
+      toastOnSuccess: t.backlogSaved,
+    },
+  )
 
-  const overlay = useOverlayClose(onClose)
-
-  async function handleSave() {
-    if (!item || !form) return
-    setSaving(true)
-    setSaveError(null)
-    const patch: Record<string, unknown> = {}
-    if (form.initiative !== (item.initiative ?? "")) patch.initiative = form.initiative || null
-    if (form.epic !== (item.epic ?? "")) patch.epic = form.epic || null
-    if (form.userStory !== (item.userStory ?? "")) patch.userStory = form.userStory || null
-    if (form.acceptanceCriteria !== (item.acceptanceCriteria ?? "")) patch.acceptanceCriteria = form.acceptanceCriteria || null
-    const ws = form.workloadScore.trim() === "" ? null : parseInt(form.workloadScore, 10)
-    if (ws !== item.workloadScore) patch.workloadScore = ws
-    if (form.assignedPo !== (item.assignedPo ?? "")) patch.assignedPo = form.assignedPo || null
-    if (form.status !== item.status) patch.status = form.status
-    if (form.poNote !== (item.poNote ?? "")) patch.poNote = form.poNote || null
-    if (form.notReadyReason !== (item.notReadyReason ?? "")) patch.notReadyReason = form.notReadyReason || null
-    if (form.referenceDoc !== (item.referenceDoc ?? "")) patch.referenceDoc = form.referenceDoc || null
-
-    if (Object.keys(patch).length === 0) {
-      setSaving(false)
-      onClose()
-      return
-    }
-
-    try {
-      const res = await fetch(`/api/projects/${projectId}/backlog/${pbiId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(patch),
-      })
-      if (!res.ok) {
-        const err = await res.json().catch(() => null)
-        setSaveError(err?.error ?? t.error)
-        setSaving(false)
-        return
-      }
-      onSaved?.()
-      onClose()
-    } catch {
-      setSaveError(t.error)
-      setSaving(false)
-    }
+  function setForm(next: PbiForm) {
+    if (item) setDraft({ id: item.id, form: next })
   }
 
-  const isEditing = !!editable && !!form
+  function handleSave() {
+    if (!item || !form || save.isPending) return
+    const patch = buildPatch(item, form)
+    // Raw text is saved as typed; the background worker translates it.
+    if (Object.keys(patch).length === 0) onClose()
+    else void save.mutate(patch)
+  }
+
+  const title = headInitiative.text || headUserStory.text || t.backlogDetailTitle
 
   return (
-    <div
-      className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[60] p-4"
-      {...overlay}
-    >
-      <div
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[92vh] flex flex-col"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="px-6 py-4 border-b border-gray-100 shrink-0 flex items-start justify-between gap-4">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 text-xs text-gray-400 mb-1">
-              <span className="font-mono">#{item?.displayId ?? "—"}</span>
-              {item && !isEditing && (
-                <span className={`inline-flex items-center text-[11px] font-medium px-2 py-0.5 rounded-full border ${statusClass[item.status] ?? "bg-gray-50 text-gray-600 border-gray-200"}`}>
-                  {item.status === "ready" && "Ready"}
-                  {item.status === "not_ready" && "Not Ready"}
-                  {item.status === "completed" && "Completed"}
-                </span>
-              )}
-              {item?.productGoal?.title && (
-                <span className="inline-flex items-center text-[11px] text-indigo-600">→ {item.productGoal.title}</span>
-              )}
-            </div>
-            <h3 className="text-lg font-bold text-gray-900 truncate">
-              {item?.initiative || item?.userStory || (isEditing ? t.edit : t.view)}
-            </h3>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-2 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors"
-            title={t.close}
-            aria-label={t.close}
-          >
-            <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-            </svg>
-          </button>
-        </div>
-
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto px-6 py-5">
-          {loading ? (
-            <p className="text-sm text-gray-400 py-8 text-center">{t.loading}</p>
-          ) : error || !item ? (
-            <p className="text-sm text-red-500 py-8 text-center">{error ?? t.error}</p>
-          ) : isEditing && form ? (
-            <div className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <EditField label={pt.backlogInitiative} value={form.initiative}
-                  onChange={(v) => setForm({ ...form, initiative: v })} />
-                <EditField label={pt.backlogEpic} value={form.epic}
-                  onChange={(v) => setForm({ ...form, epic: v })} />
-              </div>
-              <EditField label={pt.backlogUserStory} value={form.userStory} multiline rows={5}
-                onChange={(v) => setForm({ ...form, userStory: v })} />
-              <EditField label={pt.backlogAcceptanceCriteria} value={form.acceptanceCriteria} multiline rows={7} placeholder={"・〇〇できること\n・△△の場合は××する"}
-                onChange={(v) => setForm({ ...form, acceptanceCriteria: v })} />
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <p className="text-xs font-medium text-gray-500 mb-1">{pt.backlogWorkloadScore}</p>
-                  <input type="number" min={0} step={1} value={form.workloadScore}
-                    onChange={(e) => setForm({ ...form, workloadScore: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
-                </div>
-                <div>
-                  <p className="text-xs font-medium text-gray-500 mb-1">{pt.rolePO}</p>
-                  <input type="text" value={form.assignedPo}
-                    onChange={(e) => setForm({ ...form, assignedPo: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
-                </div>
-                <div>
-                  <p className="text-xs font-medium text-gray-500 mb-1">{t.sprintStatus}</p>
-                  <select value={form.status}
-                    onChange={(e) => setForm({ ...form, status: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-200 bg-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500">
-                    <option value="not_ready">Not Ready</option>
-                    <option value="ready">Ready</option>
-                    <option value="completed">Completed</option>
-                  </select>
-                </div>
-              </div>
-              <EditField label="POメモ" value={form.poNote} multiline rows={2}
-                onChange={(v) => setForm({ ...form, poNote: v })} />
-              {form.status === "not_ready" && (
-                <EditField label="Not Ready reason" value={form.notReadyReason} multiline rows={2}
-                  onChange={(v) => setForm({ ...form, notReadyReason: v })} />
-              )}
-              <EditField label="Reference" value={form.referenceDoc} multiline rows={2}
-                onChange={(v) => setForm({ ...form, referenceDoc: v })} />
-              {saveError && (
-                <p className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">{saveError}</p>
-              )}
-            </div>
-          ) : (
-            <div className="space-y-5">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Field label={pt.backlogInitiative} value={item.initiative} bilingual />
-                <Field label={pt.backlogEpic} value={item.epic} bilingual />
-              </div>
-              <Field label={pt.backlogUserStory} value={item.userStory} multiline bilingual />
-              <Field label={pt.backlogAcceptanceCriteria} value={item.acceptanceCriteria} multiline bilingual />
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <Field
-                  label={pt.backlogWorkloadScore}
-                  value={item.workloadScore != null ? String(item.workloadScore) : null}
-                />
-                <Field label={pt.rolePO} value={item.assignedPo} />
-                {item.iceboxItem && (
-                  <Field
-                    label={pt.iceboxTitle}
-                    value={`#${item.iceboxItem.displayId} ${item.iceboxItem.request}`}
-                  />
-                )}
-              </div>
-              <Field label={t.view + ": " + "POメモ"} value={item.poNote} multiline />
-              {item.status === "not_ready" && item.notReadyReason && (
-                <Field label="Not Ready reason" value={item.notReadyReason} multiline />
-              )}
-              <Field label="Reference" value={item.referenceDoc} multiline />
-            </div>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="px-6 py-3 border-t border-gray-100 flex items-center justify-between shrink-0 bg-gray-50/60 rounded-b-2xl">
-          <button
-            type="button"
-            onClick={() => setShowInvest(true)}
-            disabled={!item || loading}
-            className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-purple-700 border border-purple-300 rounded-lg hover:bg-purple-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            <span aria-hidden>🤖</span>
-            {t.aiInvestReview}
-          </button>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-100 transition-colors"
-            >
-              {isEditing ? t.cancel : t.close}
-            </button>
-            {isEditing && (
-              <button
-                type="button"
-                onClick={handleSave}
-                disabled={saving || loading}
-                className="px-5 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed transition-colors"
-              >
-                {saving ? "..." : t.update}
-              </button>
+    <>
+      <Modal
+        open
+        onClose={onClose}
+        size="xl"
+        // Read-only detail view closes on backdrop click; never while editing.
+        closeOnOverlayClick={!isEditing}
+        title={title}
+        description={
+          <span className="flex flex-wrap items-center gap-2">
+            <span className="font-mono">#{item?.displayId ?? "—"}</span>
+            {item && !isEditing && (
+              <Badge tone={STATUS_TONE[item.status] ?? "neutral"} size="sm">
+                {statusLabel(item.status, t)}
+              </Badge>
             )}
-          </div>
-        </div>
-      </div>
+            {item?.productGoal?.title && <span className="text-indigo-700">→ {headGoal.text}</span>}
+          </span>
+        }
+        isDirty={isDirty && !save.isPending}
+        footer={
+          <Footer
+            isEditing={isEditing}
+            canInvest={!!item}
+            saving={save.isPending}
+            onInvest={() => setShowInvest(true)}
+            onSave={handleSave}
+          />
+        }
+      >
+        {isLoading ? (
+          <SkeletonLines lines={6} label={t.loading} />
+        ) : !item ? (
+          <EmptyState
+            compact
+            title={t.error}
+            description={error?.message}
+            action={<Button variant="secondary" onClick={refetch}>{t.backlogRetry}</Button>}
+          />
+        ) : isEditing && form ? (
+          <EditBody form={form} setForm={setForm} />
+        ) : (
+          <ReadBody item={item} />
+        )}
+      </Modal>
       {showInvest && item && (
         <AIResultModal
           title={t.aiInvestTitle}
-          fetchUrl={`/api/projects/${projectId}/backlog/${pbiId}/ai/invest-review`}
+          fetchUrl={`${url}/ai/invest-review`}
           fetchBody={{ lang: language }}
           onClose={() => setShowInvest(false)}
         />
       )}
+    </>
+  )
+}
+
+type T = ReturnType<typeof useLanguage>["t"]
+
+function statusLabel(status: string, t: T): string {
+  if (status === "ready") return t.backlogStatusReady
+  if (status === "not_ready") return t.backlogStatusNotReady
+  if (status === "completed") return t.backlogStatusCompleted
+  return status
+}
+
+interface FooterProps {
+  isEditing: boolean
+  canInvest: boolean
+  saving: boolean
+  onInvest: () => void
+  onSave: () => void
+}
+
+function Footer({ isEditing, canInvest, saving, onInvest, onSave }: FooterProps) {
+  const { t } = useLanguage()
+  const close = useModalClose()
+  return (
+    <>
+      <Button variant="secondary" onClick={onInvest} disabled={!canInvest} className="mr-auto" leftIcon={<span aria-hidden="true">🤖</span>}>
+        {t.aiInvestReview}
+      </Button>
+      <Button variant="secondary" onClick={close}>
+        {isEditing ? t.cancel : t.close}
+      </Button>
+      {isEditing && (
+        <Button onClick={onSave} loading={saving}>
+          {t.update}
+        </Button>
+      )}
+    </>
+  )
+}
+
+function EditBody({ form, setForm }: { form: PbiForm; setForm: (f: PbiForm) => void }) {
+  const { t, pt } = useLanguage()
+  const set = <K extends keyof PbiForm>(key: K) => (e: { target: { value: string } }) => setForm({ ...form, [key]: e.target.value })
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <Field label={pt.backlogInitiative}>
+          <Input value={form.initiative} onChange={set("initiative")} />
+        </Field>
+        <Field label={pt.backlogEpic}>
+          <Input value={form.epic} onChange={set("epic")} />
+        </Field>
+      </div>
+      <Field label={pt.backlogUserStory}>
+        <Textarea value={form.userStory} onChange={set("userStory")} rows={5} className="resize-y" />
+      </Field>
+      <GlossaryHint />
+      <Field label={pt.backlogAcceptanceCriteria}>
+        <Textarea
+          value={form.acceptanceCriteria}
+          onChange={set("acceptanceCriteria")}
+          rows={7}
+          placeholder={t.backlogAcceptanceCriteriaPlaceholder}
+          className="min-h-[160px] resize-y"
+        />
+      </Field>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <Field label={pt.backlogWorkloadScore}>
+          <Input type="number" min={0} step={1} value={form.workloadScore} onChange={set("workloadScore")} />
+        </Field>
+        <Field label={pt.rolePO}>
+          <Input value={form.assignedPo} onChange={set("assignedPo")} />
+        </Field>
+        <Field label={t.sprintStatus}>
+          <Select value={form.status} onChange={set("status")}>
+            <option value="not_ready">{t.backlogStatusNotReady}</option>
+            <option value="ready">{t.backlogStatusReady}</option>
+            <option value="completed">{t.backlogStatusCompleted}</option>
+          </Select>
+        </Field>
+      </div>
+      <Field label={t.backlogPoNote}>
+        <Textarea value={form.poNote} onChange={set("poNote")} rows={2} />
+      </Field>
+      {form.status === "not_ready" && (
+        <Field label={t.backlogNotReadyReason}>
+          <Textarea value={form.notReadyReason} onChange={set("notReadyReason")} rows={2} />
+        </Field>
+      )}
+      <Field label={t.backlogReferenceDoc}>
+        <Textarea value={form.referenceDoc} onChange={set("referenceDoc")} rows={2} />
+      </Field>
     </div>
   )
 }
 
-function Field({
-  label,
-  value,
-  multiline,
-  bilingual,
-}: {
+function ReadBody({ item }: { item: PbiDetail }) {
+  const { t, pt } = useLanguage()
+  const headIcebox = useI18nText(item.iceboxItem?.i18n, "request", item.iceboxItem?.request)
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <ReadField label={pt.backlogInitiative} value={item.initiative} i18n={item.i18n} field="initiative" entityId={item.id} />
+        <ReadField label={pt.backlogEpic} value={item.epic} i18n={item.i18n} field="epic" entityId={item.id} />
+      </div>
+      <ReadField label={pt.backlogUserStory} value={item.userStory} multiline i18n={item.i18n} field="userStory" entityId={item.id} />
+      <ReadField label={pt.backlogAcceptanceCriteria} value={item.acceptanceCriteria} multiline i18n={item.i18n} field="acceptanceCriteria" entityId={item.id} />
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <ReadField label={pt.backlogWorkloadScore} value={item.workloadScore != null ? String(item.workloadScore) : null} />
+        <ReadField label={pt.rolePO} value={item.assignedPo} />
+        {item.iceboxItem && <ReadField label={pt.iceboxTitle} value={`#${item.iceboxItem.displayId} ${headIcebox.text}`} />}
+      </div>
+      <ReadField label={t.backlogPoNote} value={item.poNote} multiline i18n={item.i18n} field="poNote" entityId={item.id} />
+      {item.status === "not_ready" && item.notReadyReason && (
+        <ReadField label={t.backlogNotReadyReason} value={item.notReadyReason} multiline i18n={item.i18n} field="notReadyReason" entityId={item.id} />
+      )}
+      <ReadField label={t.backlogReferenceDoc} value={item.referenceDoc} multiline />
+    </div>
+  )
+}
+
+interface ReadFieldProps {
   label: string
   value: string | null
   multiline?: boolean
-  bilingual?: boolean
-}) {
-  const bil = useBilingual(value)
-  const hasValue = !!(value && value.trim())
-  const display = bilingual ? bil.display : value ?? ""
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-1 gap-2">
-        <p className="text-xs font-medium text-gray-500">{label}</p>
-        {bilingual && hasValue && (
-          <BilingualViewToggle
-            isTranslated={bil.isTranslated}
-            loading={bil.loading}
-            error={bil.error}
-            onClick={bil.toggle}
-          />
-        )}
-      </div>
-      {hasValue ? (
-        <p className={`text-sm text-gray-800 ${multiline || bil.isTranslated ? "whitespace-pre-wrap leading-relaxed" : ""} bg-gray-50 rounded-lg px-3 py-2 min-h-[38px]`}>
-          {display}
-        </p>
-      ) : (
-        <p className="text-sm text-gray-300 bg-gray-50 rounded-lg px-3 py-2 min-h-[38px]">—</p>
-      )}
-    </div>
-  )
+  /** When given, the viewer-locale side is shown (with a pending badge until translated). */
+  i18n?: EntityI18n
+  field?: string
+  entityId?: string
 }
 
-function EditField({
-  label,
-  value,
-  onChange,
-  multiline,
-  rows,
-  placeholder,
-}: {
-  label: string
-  value: string
-  onChange: (v: string) => void
-  multiline?: boolean
-  rows?: number
-  placeholder?: string
-}) {
+function ReadField({ label, value, multiline, i18n, field, entityId }: ReadFieldProps) {
+  const hasValue = !!(value && value.trim())
+  const cls = `text-body text-fg ${multiline ? "whitespace-pre-wrap leading-relaxed" : ""} bg-surface-muted rounded-ui-md px-3 py-2 min-h-[38px] break-words`
   return (
     <div>
-      <p className="text-xs font-medium text-gray-500 mb-1">{label}</p>
-      {multiline ? (
-        <textarea
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          rows={rows ?? 3}
-          placeholder={placeholder}
-          className={`w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-y ${rows && rows >= 6 ? "min-h-[160px]" : ""}`}
-        />
-      ) : (
-        <input
-          type="text"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder}
-          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-        />
-      )}
+      <p className="mb-1 text-caption font-medium text-fg-muted">{label}</p>
+      <div>
+        {!hasValue ? (
+          <p className="min-h-[38px] rounded-ui-md bg-surface-muted px-3 py-2 text-body text-fg-subtle">—</p>
+        ) : field ? (
+          <I18nText
+            as="p"
+            i18n={i18n}
+            field={field}
+            original={value}
+            entity={entityId ? { type: "backlog_item", id: entityId } : undefined}
+            className={cls}
+          />
+        ) : (
+          <p className={cls}>{value}</p>
+        )}
+      </div>
     </div>
   )
 }

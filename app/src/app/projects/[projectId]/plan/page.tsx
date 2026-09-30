@@ -2,6 +2,12 @@ import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { notFound, redirect } from "next/navigation"
 import { PlanContent } from "./plan-content"
+import { buildPageMetadata } from "@/app/page-metadata"
+
+export async function generateMetadata({ params }: { params: Promise<{ projectId: string }> }) {
+  const { projectId } = await params
+  return buildPageMetadata(({ t }) => t.planTitle, projectId)
+}
 
 export default async function PlanPage({
   params,

@@ -1,0 +1,162 @@
+# =====================================================================
+#  Kanflow CI (GitLab)
+#  Images come from Docker Hub (reachable from the corporate network);
+#  npm uses the registry.yarnpkg.com mirror because registry.npmjs.org
+#  is blocked. Keep NODE_VERSION on the production server's major version.
+# =====================================================================
+
+stages:
+  - lint
+  - typecheck
+  - test
+  - audit
+  - migrate-check
+  - e2e
+
+variables:
+  NODE_VERSION: "25"
+  NPM_CONFIG_REGISTRY: "https://registry.yarnpkg.com/"
+  NPM_CONFIG_FUND: "false"
+  NPM_CONFIG_UPDATE_NOTIFIER: "false"
+  # Dummy, non-secret value: prisma.config.ts reads DATABASE_URL; generate never connects.
+  DATABASE_URL: "mysql://ci:ci@127.0.0.1:3306/kanflow_ci"
+  # Set to "1" (CI/CD variable or pipeline input) to collect coverage.
+  RUN_COVERAGE: "0"
+
+default:
+  image: node:${NODE_VERSION}-bookworm
+  interruptible: true
+
+.node_app:
+  cache:
+    key:
+      files:
+        - app/package-lock.json
+    paths:
+      - app/.npm/
+    policy: pull-push
+  before_script:
+    - cd app
+    - node --version && npm --version
+    - npm ci --cache .npm --prefer-offline --no-audit
+    - npx prisma generate
+
+lint:
+  stage: lint
+  extends: .node_app
+  script:
+    - npm run lint
+
+typecheck:
+  stage: typecheck
+  extends: .node_app
+  script:
+    - npm run typecheck
+
+# The production worker service runs a pre-built bundle (no tsx at runtime).
+# Build it and make sure it starts (--dry-run never touches the database) and
+# only needs production dependencies (build-worker.mjs fails otherwise).
+worker-bundle:
+  stage: typecheck
+  extends: .node_app
+  variables:
+    NEXT_DIST_DIR: ".next-ci"
+  script:
+    - npm run build:worker
+    - KANFLOW_WORKER_BUNDLE=.next-ci/worker/main.cjs node src/worker/service-entry.mjs --dry-run
+
+test:
+  stage: test
+  extends: .node_app
+  script:
+    - |
+      if [ "$RUN_COVERAGE" = "1" ]; then
+        npm run test:coverage -- --coverage.reporter=text-summary --coverage.reporter=cobertura
+      else
+        npm test
+      fi
+  coverage: '/All files[^|]*\|[^|]*\s+([\d\.]+)/'
+  artifacts:
+    when: always
+    expire_in: 14 days
+    paths:
+      - app/coverage/
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: app/coverage/cobertura-coverage.xml
+
+npm-audit:
+  stage: audit
+  image: node:${NODE_VERSION}-bookworm
+  allow_failure: true
+  # Uses package-lock.json only (no install). The yarnpkg mirror may not serve
+  # the audit endpoint on every network - hence allow_failure.
+  before_script:
+    - cd app
+  script:
+    - npm audit --omit=dev --audit-level=high
+
+# Detect drift between prisma/schema.prisma and prisma/migrations (someone
+# edited the schema without creating a migration, or edited an applied
+# migration). Replays all migrations into a throw-away MySQL 8.4 shadow DB.
+prisma-migrate-check:
+  stage: migrate-check
+  extends: .node_app
+  services:
+    - name: mysql:8.4
+      alias: mysql
+  variables:
+    # Throw-away service container that only lives for this job - no secret involved.
+    MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+    MYSQL_ROOT_HOST: "%"
+    SHADOW_DATABASE_URL: "mysql://root@mysql:3306/prisma_shadow"
+  script:
+    - |
+      echo "waiting for MySQL service..."
+      node -e '
+        const net = require("net");
+        const deadline = Date.now() + 120000;
+        (function probe() {
+          const s = net.connect(3306, "mysql");
+          s.on("connect", () => { s.end(); setTimeout(() => process.exit(0), 5000); });
+          s.on("error", () => { if (Date.now() > deadline) { console.error("MySQL not reachable"); process.exit(1); } setTimeout(probe, 2000); });
+        })();'
+    # prisma.config.ts picks up SHADOW_DATABASE_URL (Prisma 7 has no --shadow-database-url flag).
+    # DATABASE_URL stays the dummy value above: migrate diff --from-migrations never connects to it.
+    - |
+      set +e
+      npx prisma migrate diff \
+        --from-migrations prisma/migrations \
+        --to-schema prisma/schema.prisma \
+        --exit-code
+      rc=$?
+      set -e
+      if [ "$rc" = "2" ]; then
+        echo "ERROR: schema.prisma and prisma/migrations have drifted. Create a migration:"
+        echo "  npx prisma migrate dev --name <change>"
+        npx prisma migrate diff --from-migrations prisma/migrations --to-schema prisma/schema.prisma --script || true
+      fi
+      exit $rc
+
+# Playwright smoke suite against a running Kanflow instance. Manual: needs a
+# reachable server (E2E_BASE_URL) and a Chromium download (set
+# PLAYWRIGHT_DOWNLOAD_HOST to an internal mirror if the default CDN is blocked).
+# Write flows run only with E2E_ALLOW_WRITE=1 + E2E_USER/E2E_PASSWORD and must
+# target a separate TEST database - never production.
+e2e-smoke:
+  stage: e2e
+  extends: .node_app
+  when: manual
+  allow_failure: true
+  variables:
+    E2E_BASE_URL: http://localhost:3001
+  script:
+    - npx playwright install --with-deps chromium
+    - npm run test:e2e
+  artifacts:
+    when: always
+    expire_in: 14 days
+    paths:
+      - app/playwright-report/
+      - app/test-results/

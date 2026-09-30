@@ -1,19 +1,15 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 import { useLanguage } from "@/lib/language-context"
 import PbiDetailModal from "@/components/pbi-detail-modal"
+import { GlossaryHint, I18nText } from "@/components/i18n-text"
+import { Button, EmptyState, Field, IconButton, Input, Modal, SkeletonLines, Textarea, Truncate, cn, useModalClose } from "@/components/ui"
+import { apiFetch, useApiMutation, useApiQuery } from "@/hooks"
+import { pickText } from "@/lib/translation/pick-text"
+import type { BacklogItemDto, PbiWithStatusDto } from "@/types/api"
 
-export interface BacklogPbi {
-  id: string
-  displayId: number
-  initiative: string | null
-  epic: string | null
-  userStory: string | null
-  workloadScore: number
-  status: string
-  productGoal?: { id: string; title: string } | null
-}
+export type BacklogPbi = PbiWithStatusDto & { productGoal?: BacklogItemDto["productGoal"] }
 
 interface Props {
   projectId: string
@@ -28,55 +24,104 @@ interface Props {
   onClose: () => void
 }
 
-export default function AddPbiModal({
-  projectId,
-  sprintId,
-  sprintName,
-  existingPbIds,
-  pointUnit,
-  canCreate,
-  onAdded,
-  onClose,
-}: Props) {
-  const { t, pt } = useLanguage()
-  const [tab, setTab] = useState<"existing" | "new">("existing")
-  const [items, setItems] = useState<BacklogPbi[]>([])
+interface NewPbiForm {
+  initiative: string
+  epic: string
+  userStory: string
+  acceptanceCriteria: string
+  workloadScore: string
+  assignedPo: string
+}
+
+type Tab = "existing" | "new"
+
+const EMPTY_NEW: NewPbiForm = {
+  initiative: "",
+  epic: "",
+  userStory: "",
+  acceptanceCriteria: "",
+  workloadScore: "3",
+  assignedPo: "",
+}
+
+function isNewFormDirty(f: NewPbiForm): boolean {
+  return (Object.keys(f) as (keyof NewPbiForm)[]).some((k) => f[k] !== EMPTY_NEW[k])
+}
+
+function SearchIcon() {
+  return (
+    <svg aria-hidden="true" className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-subtle" viewBox="0 0 20 20" fill="currentColor">
+      <path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" />
+    </svg>
+  )
+}
+
+function EyeIcon() {
+  return (
+    <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+      <path d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" />
+      <path fillRule="evenodd" d="M.664 10.59a1.65 1.65 0 010-1.186A10 10 0 0110 3c4.257 0 7.893 2.66 9.336 6.41.147.381.146.804 0 1.186A10 10 0 0110 17c-4.257 0-7.893-2.66-9.336-6.41zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" />
+    </svg>
+  )
+}
+
+export default function AddPbiModal({ projectId, sprintId, sprintName, existingPbIds, pointUnit, canCreate, onAdded, onClose }: Props) {
+  const { t } = useLanguage()
+  const [tab, setTab] = useState<Tab>("existing")
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
   const [query, setQuery] = useState("")
   const [detailPbiId, setDetailPbiId] = useState<string | null>(null)
-  const [newForm, setNewForm] = useState({
-    initiative: "",
-    epic: "",
-    userStory: "",
-    acceptanceCriteria: "",
-    workloadScore: "3",
-    assignedPo: "",
+  const [newForm, setNewForm] = useState<NewPbiForm>(EMPTY_NEW)
+  const isDirty = selected.size > 0 || isNewFormDirty(newForm)
+
+  const backlog = useApiQuery<{ readyItems?: BacklogPbi[] }>(`/api/projects/${projectId}/backlog`, { toastOnError: true })
+  const items = useMemo(() => backlog.data?.readyItems ?? [], [backlog.data])
+  const attachUrl = `/api/projects/${projectId}/sprints/${sprintId}/pbis`
+
+  const attach = useApiMutation((pbIds: string[]) => apiFetch(attachUrl, { method: "POST", json: { pbIds } }), {
+    onSuccess: () => {
+      onAdded()
+      onClose()
+    },
+    toastOnError: true,
   })
 
-  useEffect(() => {
-    fetch(`/api/projects/${projectId}/backlog`)
-      .then((r) => r.ok ? r.json() : Promise.reject(r))
-      .then((data) => {
-        if (Array.isArray(data.readyItems)) setItems(data.readyItems)
+  const createAndAttach = useApiMutation(
+    async (f: NewPbiForm) => {
+      // Step 1: create the PBI with status=ready so it shows up in the active
+      // backlog list and qualifies for sprint attachment.
+      const created = await apiFetch<{ id: string }>(`/api/projects/${projectId}/backlog`, {
+        method: "POST",
+        json: {
+          initiative: f.initiative.trim() || null,
+          epic: f.epic.trim() || null,
+          userStory: f.userStory.trim() || null,
+          acceptanceCriteria: f.acceptanceCriteria.trim() || null,
+          workloadScore: parseInt(f.workloadScore || "0", 10),
+          assignedPo: f.assignedPo.trim() || null,
+          status: "ready",
+        },
       })
-      .catch(() => {})
-      .finally(() => setLoading(false))
-  }, [projectId])
+      // Step 2: attach it to the sprint.
+      await apiFetch(attachUrl, { method: "POST", json: { pbIds: [created.id] } })
+    },
+    {
+      onSuccess: () => {
+        onAdded()
+        onClose()
+      },
+      toastOnError: true,
+    },
+  )
 
   const eligible = useMemo(() => {
     const q = query.trim().toLowerCase()
     return items.filter((it) => {
       if (existingPbIds.has(it.id)) return false
       if (q.length === 0) return true
-      const hay = [
-        `#${it.displayId}`,
-        it.initiative ?? "",
-        it.epic ?? "",
-        it.userStory ?? "",
-        it.productGoal?.title ?? "",
-      ].join(" ").toLowerCase()
+      const hay = [`#${it.displayId}`, it.initiative ?? "", it.epic ?? "", it.userStory ?? "", it.productGoal?.title ?? ""]
+        .join(" ")
+        .toLowerCase()
       return hay.includes(q)
     })
   }, [items, existingPbIds, query])
@@ -90,288 +135,239 @@ export default function AddPbiModal({
     })
   }
 
-  async function handleSubmit() {
-    if (selected.size === 0) return
-    setSaving(true)
-    try {
-      const res = await fetch(
-        `/api/projects/${projectId}/sprints/${sprintId}/pbis`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ pbIds: Array.from(selected) }),
-        }
-      )
-      if (res.ok) {
-        onAdded()
-        onClose()
-      }
-    } finally {
-      setSaving(false)
-    }
-  }
+  const saving = attach.isPending || createAndAttach.isPending
+  const canSubmitNew = !!(newForm.userStory.trim() || newForm.initiative.trim())
+  const submitDisabled = tab === "existing" ? selected.size === 0 : !canSubmitNew
 
-  async function handleCreateAndAttach() {
-    const trimmedStory = newForm.userStory.trim()
-    const trimmedInit = newForm.initiative.trim()
-    if (!trimmedStory && !trimmedInit) return
-    setSaving(true)
-    try {
-      // Step 1: create the PBI in backlog with status=ready so it shows up
-      // in the active backlog list and qualifies for sprint attachment.
-      const createRes = await fetch(`/api/projects/${projectId}/backlog`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          initiative: trimmedInit || null,
-          epic: newForm.epic.trim() || null,
-          userStory: trimmedStory || null,
-          acceptanceCriteria: newForm.acceptanceCriteria.trim() || null,
-          workloadScore: parseInt(newForm.workloadScore || "0", 10),
-          assignedPo: newForm.assignedPo.trim() || null,
-          status: "ready",
-        }),
-      })
-      if (!createRes.ok) {
-        const err = await createRes.json().catch(() => null)
-        alert(err?.error ?? t.error)
-        return
-      }
-      const created = await createRes.json()
-      // Step 2: attach it to the sprint.
-      const attachRes = await fetch(
-        `/api/projects/${projectId}/sprints/${sprintId}/pbis`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ pbIds: [created.id] }),
-        }
-      )
-      if (attachRes.ok) {
-        onAdded()
-        onClose()
-      } else {
-        const err = await attachRes.json().catch(() => null)
-        alert(err?.error ?? t.error)
-      }
-    } finally {
-      setSaving(false)
+  function handleSubmit() {
+    if (saving) return
+    if (tab === "existing") {
+      if (selected.size > 0) void attach.mutate(Array.from(selected))
+    } else if (canSubmitNew) {
+      void createAndAttach.mutate(newForm)
     }
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="px-6 py-4 border-b border-gray-100 shrink-0">
-          <h3 className="text-lg font-bold text-gray-900">{t.sprintAddPbiTitle}</h3>
-          <p className="text-sm text-gray-500 mt-1">{sprintName}</p>
-        </div>
+    <Modal
+      open
+      onClose={onClose}
+      size="lg"
+      title={t.sprintAddPbiTitle}
+      description={sprintName}
+      isDirty={isDirty && !saving}
+      footer={
+        <Footer
+          selectedCount={tab === "existing" ? selected.size : null}
+          saving={saving}
+          disabled={submitDisabled}
+          onSubmit={handleSubmit}
+        />
+      }
+    >
+      {canCreate && <TabSwitch tab={tab} onChange={setTab} />}
 
-        {/* Tabs */}
-        {canCreate && (
-          <div className="px-6 pt-3 border-b border-gray-100 shrink-0">
-            <div className="inline-flex bg-gray-100 rounded-lg p-0.5 text-xs font-medium">
-              <button
-                type="button"
-                onClick={() => setTab("existing")}
-                className={`px-3 py-1.5 rounded-md transition-colors ${
-                  tab === "existing" ? "bg-white text-blue-700 shadow" : "text-gray-600 hover:text-gray-900"
-                }`}
-              >
-                既存から選ぶ
-              </button>
-              <button
-                type="button"
-                onClick={() => setTab("new")}
-                className={`px-3 py-1.5 rounded-md transition-colors ${
-                  tab === "new" ? "bg-white text-blue-700 shadow" : "text-gray-600 hover:text-gray-900"
-                }`}
-              >
-                + 新規作成
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Search (only for existing tab) */}
-        {tab === "existing" && (
-        <div className="px-6 py-3 border-b border-gray-100 shrink-0">
-          <div className="relative">
-            <svg className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd"/>
-            </svg>
-            <input
-              type="text"
+      {tab === "existing" ? (
+        <>
+          <div className="relative mb-3">
+            <SearchIcon />
+            <Input
+              type="search"
+              aria-label={t.sprintAddPbiSearchPlaceholder}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder={t.sprintAddPbiSearchPlaceholder}
-              className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 placeholder:text-gray-300"
+              className="pl-9"
             />
           </div>
-        </div>
-        )}
-
-        {/* List (existing tab) */}
-        {tab === "existing" && (
-        <div className="flex-1 overflow-y-auto px-6 py-3">
-          {loading ? (
-            <div className="text-center text-sm text-gray-400 py-8">{t.loading}</div>
+          {backlog.isLoading ? (
+            <SkeletonLines lines={5} label={t.loading} />
           ) : eligible.length === 0 ? (
-            <div className="text-center text-sm text-gray-400 py-8">
-              {items.length === 0 ? t.sprintNoTasks : t.userNoResults}
-            </div>
+            <EmptyState compact title={items.length === 0 ? t.sprintNoTasks : t.userNoResults} />
           ) : (
             <ul className="space-y-1.5">
-              {eligible.map((pb) => {
-                const isSel = selected.has(pb.id)
-                return (
-                  <li key={pb.id} className={`relative border rounded-lg transition-colors ${
-                    isSel
-                      ? "bg-blue-50 border-blue-300 ring-1 ring-blue-300"
-                      : "border-gray-200 hover:bg-gray-50"
-                  }`}>
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); setDetailPbiId(pb.id) }}
-                      className="absolute top-2 right-2 p-1 text-gray-300 hover:text-blue-600 hover:bg-blue-50 rounded"
-                      title={t.view}
-                    >
-                      <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-                        <path d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" />
-                        <path fillRule="evenodd" d="M.664 10.59a1.65 1.65 0 010-1.186A10 10 0 0110 3c4.257 0 7.893 2.66 9.336 6.41.147.381.146.804 0 1.186A10 10 0 0110 17c-4.257 0-7.893-2.66-9.336-6.41zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" />
-                      </svg>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => toggle(pb.id)}
-                      className="w-full flex items-start gap-3 px-3 pr-10 py-2.5 text-left"
-                    >
-                      <div className={`w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 mt-0.5 ${
-                        isSel ? "bg-blue-600 border-blue-600" : "bg-white border-gray-300"
-                      }`}>
-                        {isSel && (
-                          <svg className="w-3 h-3 text-white" viewBox="0 0 20 20" fill="currentColor">
-                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/>
-                          </svg>
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-xs font-mono text-gray-400">#{pb.displayId}</span>
-                          <span className="text-sm font-semibold text-gray-800 truncate">
-                            {pb.initiative || pb.userStory || "—"}
-                          </span>
-                          <span className="inline-flex items-center text-xs bg-orange-50 text-orange-700 border border-orange-200 px-2 py-0.5 rounded-full">
-                            {pb.workloadScore} {pointUnit}
-                          </span>
-                        </div>
-                        {pb.epic && (
-                          <p className="text-xs text-gray-500 mt-0.5 truncate">{pb.epic}</p>
-                        )}
-                        {pb.productGoal?.title && (
-                          <p className="text-xs text-indigo-500 mt-0.5 truncate">→ {pb.productGoal.title}</p>
-                        )}
-                      </div>
-                    </button>
-                  </li>
-                )
-              })}
+              {eligible.map((pb) => (
+                <PbiRow key={pb.id} pb={pb} pointUnit={pointUnit} isSelected={selected.has(pb.id)} onToggle={toggle} onView={setDetailPbiId} />
+              ))}
             </ul>
           )}
-        </div>
-        )}
-
-        {/* New PBI form (new tab) */}
-        {tab === "new" && (
-          <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">{pt.backlogInitiative}</label>
-                <input type="text" value={newForm.initiative}
-                  onChange={(e) => setNewForm({ ...newForm, initiative: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">{pt.backlogEpic}</label>
-                <input type="text" value={newForm.epic}
-                  onChange={(e) => setNewForm({ ...newForm, epic: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
-              </div>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">{pt.backlogUserStory}</label>
-              <textarea value={newForm.userStory}
-                onChange={(e) => setNewForm({ ...newForm, userStory: e.target.value })}
-                rows={4}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-y" />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">{pt.backlogAcceptanceCriteria}</label>
-              <textarea value={newForm.acceptanceCriteria}
-                onChange={(e) => setNewForm({ ...newForm, acceptanceCriteria: e.target.value })}
-                rows={6}
-                placeholder={"・〇〇できること\n・△△の場合は××する"}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-y min-h-[160px]" />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">{pt.backlogWorkloadScore} ({pointUnit})</label>
-                <input type="number" min={0} step={1} value={newForm.workloadScore}
-                  onChange={(e) => setNewForm({ ...newForm, workloadScore: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">{pt.rolePO}</label>
-                <input type="text" value={newForm.assignedPo}
-                  onChange={(e) => setNewForm({ ...newForm, assignedPo: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
-              </div>
-            </div>
-            <p className="text-[11px] text-gray-500">
-              作成された PBI は自動的に「Ready」になり、バックログ一覧にも表示されます。
-            </p>
-          </div>
-        )}
-
-        {/* Footer */}
-        <div className="px-6 py-3 border-t border-gray-100 flex justify-between items-center gap-3 shrink-0 bg-gray-50/60 rounded-b-2xl">
-          <span className="text-sm text-gray-500">
-            {tab === "existing" && (<><strong className="text-gray-900">{selected.size}</strong></>)}
-          </span>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-100 transition-colors"
-            >
-              {t.cancel}
-            </button>
-            <button
-              type="button"
-              disabled={tab === "existing" ? (selected.size === 0 || saving) : (saving || (!newForm.userStory.trim() && !newForm.initiative.trim()))}
-              onClick={tab === "existing" ? handleSubmit : handleCreateAndAttach}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors shadow-sm"
-            >
-              <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd"/>
-              </svg>
-              {t.sprintAddPbiSubmit}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {detailPbiId && (
-        <PbiDetailModal
-          projectId={projectId}
-          pbiId={detailPbiId}
-          onClose={() => setDetailPbiId(null)}
-        />
+        </>
+      ) : (
+        <NewPbiFields form={newForm} onChange={setNewForm} pointUnit={pointUnit} />
       )}
+
+      {detailPbiId && <PbiDetailModal projectId={projectId} pbiId={detailPbiId} onClose={() => setDetailPbiId(null)} />}
+    </Modal>
+  )
+}
+
+function TabSwitch({ tab, onChange }: { tab: Tab; onChange: (tab: Tab) => void }) {
+  const { t } = useLanguage()
+  const options: { value: Tab; label: string }[] = [
+    { value: "existing", label: t.backlogAddPbiTabExisting },
+    { value: "new", label: `+ ${t.backlogAddPbiTabNew}` },
+  ]
+  return (
+    <div role="group" className="mb-4 inline-flex rounded-ui-md bg-surface-sunken p-0.5 text-caption font-medium">
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          aria-pressed={tab === o.value}
+          onClick={() => onChange(o.value)}
+          className={cn(
+            "min-h-8 rounded-ui-sm px-3 py-1.5",
+            tab === o.value ? "bg-surface text-primary-active shadow-ui-sm" : "text-fg-muted hover:text-fg",
+          )}
+        >
+          {o.label}
+        </button>
+      ))}
     </div>
+  )
+}
+
+interface RowProps {
+  pb: BacklogPbi
+  pointUnit: string
+  isSelected: boolean
+  onToggle: (id: string) => void
+  onView: (id: string) => void
+}
+
+function PbiRow({ pb, pointUnit, isSelected, onToggle, onView }: RowProps) {
+  const { t, language } = useLanguage()
+  const title =
+    pickText(pb.i18n, "initiative", pb.initiative, language).text ||
+    pickText(pb.i18n, "userStory", pb.userStory, language).text ||
+    "—"
+  return (
+    <li
+      className={cn(
+        "relative rounded-ui-md border",
+        isSelected ? "border-primary/50 bg-primary-soft ring-1 ring-primary/40" : "border-border hover:bg-surface-muted",
+      )}
+    >
+      <IconButton
+        label={`${t.view}: #${pb.displayId}`}
+        size="sm"
+        icon={<EyeIcon />}
+        onClick={() => onView(pb.id)}
+        className="absolute right-1.5 top-1.5"
+      />
+      <button
+        type="button"
+        role="checkbox"
+        aria-checked={isSelected}
+        aria-label={t.backlogAddPbiSelect.replace("{id}", String(pb.displayId)) + ` ${title}`}
+        onClick={() => onToggle(pb.id)}
+        className="flex w-full items-start gap-3 px-3 py-2.5 pr-12 text-left"
+      >
+        <span
+          aria-hidden="true"
+          className={cn(
+            "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border-2",
+            isSelected ? "border-primary bg-primary" : "border-border-strong bg-surface",
+          )}
+        >
+          {isSelected && (
+            <svg className="h-3 w-3 text-white" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+            </svg>
+          )}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="flex flex-wrap items-center gap-2">
+            <span className="font-mono text-caption text-fg-muted">#{pb.displayId}</span>
+            <Truncate text={title} lines={2} className="min-w-0 flex-1 text-body font-semibold text-fg" />
+            <span className="inline-flex items-center rounded-full border border-orange-200 bg-orange-50 px-2 py-0.5 text-caption text-orange-800">
+              {pb.workloadScore} {pointUnit}
+            </span>
+          </span>
+          {pb.epic && (
+            <I18nText as="span" i18n={pb.i18n} field="epic" original={pb.epic} noBadge className="mt-0.5 block truncate text-caption text-fg-muted" />
+          )}
+          {pb.productGoal?.title && (
+            <span className="mt-0.5 block truncate text-caption text-indigo-700">
+              → <I18nText i18n={pb.productGoal.i18n} field="title" original={pb.productGoal.title} noBadge />
+            </span>
+          )}
+        </span>
+      </button>
+    </li>
+  )
+}
+
+function NewPbiFields({ form, onChange, pointUnit }: { form: NewPbiForm; onChange: (f: NewPbiForm) => void; pointUnit: string }) {
+  const { t, pt } = useLanguage()
+  const set = (key: keyof NewPbiForm) => (e: { target: { value: string } }) => onChange({ ...form, [key]: e.target.value })
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <Field label={pt.backlogInitiative}>
+          <Input value={form.initiative} onChange={set("initiative")} />
+        </Field>
+        <Field label={pt.backlogEpic}>
+          <Input value={form.epic} onChange={set("epic")} />
+        </Field>
+      </div>
+      <Field label={pt.backlogUserStory}>
+        <Textarea value={form.userStory} onChange={set("userStory")} rows={4} className="resize-y" />
+      </Field>
+      <GlossaryHint className="-mt-2" />
+      <Field label={pt.backlogAcceptanceCriteria}>
+        <Textarea
+          value={form.acceptanceCriteria}
+          onChange={set("acceptanceCriteria")}
+          rows={6}
+          placeholder={t.backlogAcceptanceCriteriaPlaceholder}
+          className="min-h-[160px] resize-y"
+        />
+      </Field>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <Field label={`${pt.backlogWorkloadScore} (${pointUnit})`}>
+          <Input type="number" min={0} step={1} value={form.workloadScore} onChange={set("workloadScore")} />
+        </Field>
+        <Field label={pt.rolePO}>
+          <Input value={form.assignedPo} onChange={set("assignedPo")} />
+        </Field>
+      </div>
+      <p className="text-caption text-fg-muted">{t.backlogAddPbiNewHint}</p>
+    </div>
+  )
+}
+
+interface FooterProps {
+  /** null on the "new" tab (no selection count shown). */
+  selectedCount: number | null
+  saving: boolean
+  disabled: boolean
+  onSubmit: () => void
+}
+
+function Footer({ selectedCount, saving, disabled, onSubmit }: FooterProps) {
+  const { t } = useLanguage()
+  const close = useModalClose()
+  return (
+    <>
+      <span className="mr-auto text-body text-fg-muted" aria-live="polite">
+        {selectedCount !== null && t.backlogAddPbiSelectedCount.replace("{n}", String(selectedCount))}
+      </span>
+      <Button variant="secondary" onClick={close}>
+        {t.cancel}
+      </Button>
+      <Button
+        onClick={onSubmit}
+        disabled={disabled}
+        loading={saving}
+        leftIcon={
+          <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+            <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+          </svg>
+        }
+      >
+        {t.sprintAddPbiSubmit}
+      </Button>
+    </>
   )
 }

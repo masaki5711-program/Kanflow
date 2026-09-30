@@ -1,6 +1,8 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef } from "react"
+import { Button, Spinner, buttonClasses } from "@/components/ui"
+import { isApiError, useApiQuery } from "@/hooks"
 import { useLanguage } from "@/lib/language-context"
 
 interface CollaboraEditorProps {
@@ -9,44 +11,42 @@ interface CollaboraEditorProps {
   onClose: () => void
 }
 
+interface EditorConfig {
+  editorUrl: string
+  accessToken: string
+  accessTokenTtl: number
+}
+
+function parseEditorConfig(raw: unknown): EditorConfig {
+  const rec = (typeof raw === "object" && raw !== null ? raw : {}) as Record<string, unknown>
+  if (typeof rec.accessToken !== "string" || !rec.accessToken || typeof rec.editorUrl !== "string") {
+    throw new Error("")
+  }
+  return {
+    editorUrl: rec.editorUrl,
+    accessToken: rec.accessToken,
+    accessTokenTtl: typeof rec.accessTokenTtl === "number" ? rec.accessTokenTtl : 0,
+  }
+}
+
+/** Offline fallback the server may attach to an error: download the original file instead. */
+function fallbackFrom(error: Error | null): { url: string; name: string } | null {
+  if (!isApiError(error) || typeof error.body !== "object" || error.body === null) return null
+  const body = error.body as Record<string, unknown>
+  if (typeof body.downloadUrl !== "string") return null
+  return { url: body.downloadUrl, name: typeof body.originalName === "string" ? body.originalName : "download" }
+}
+
 export function CollaboraEditor({ projectId, attachmentId, onClose }: CollaboraEditorProps) {
   const { t } = useLanguage()
-  const [editorUrl, setEditorUrl] = useState<string | null>(null)
-  const [accessToken, setAccessToken] = useState("collabora-token")
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [fallbackDownload, setFallbackDownload] = useState<{ url: string; name: string } | null>(null)
+  const { data: config, error, isLoading } = useApiQuery<EditorConfig>(
+    `/api/projects/${projectId}/attachments/${attachmentId}/editor-config`,
+    { parse: parseEditorConfig },
+  )
+  const editorUrl = config?.editorUrl ?? null
+  const fallbackDownload = fallbackFrom(error)
   const formRef = useRef<HTMLFormElement>(null)
   const submittedRef = useRef(false)
-
-  useEffect(() => {
-    async function loadEditor() {
-      try {
-        const res = await fetch(
-          `/api/projects/${projectId}/attachments/${attachmentId}/editor-config`
-        )
-        if (!res.ok) {
-          const err = await res.json()
-          setError(err.error ?? "Failed to load editor config")
-          if (err.downloadUrl) {
-            setFallbackDownload({ url: err.downloadUrl, name: err.originalName ?? "download" })
-          }
-          setLoading(false)
-          return
-        }
-
-        const config = await res.json()
-        setEditorUrl(config.editorUrl)
-        setAccessToken(config.accessToken ?? "collabora-token")
-        setLoading(false)
-      } catch {
-        setError("Failed to initialize editor")
-        setLoading(false)
-      }
-    }
-
-    loadEditor()
-  }, [projectId, attachmentId])
 
   useEffect(() => {
     if (editorUrl && formRef.current && !submittedRef.current) {
@@ -56,55 +56,52 @@ export function CollaboraEditor({ projectId, attachmentId, onClose }: CollaboraE
   }, [editorUrl])
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-white">
-      <div className="flex items-center justify-between border-b px-4 py-2 bg-gray-50">
-        <button
-          onClick={onClose}
-          className="flex items-center gap-2 px-3 py-1.5 text-sm bg-gray-200 hover:bg-gray-300 rounded transition-colors"
-        >
-          &larr; {t.back}
-        </button>
-        {loading && <span className="text-sm text-gray-500">{t.editorLoading}</span>}
+    <div className="fixed inset-0 z-50 flex flex-col bg-surface">
+      <div className="flex items-center justify-between border-b border-border px-4 py-2 bg-surface-muted">
+        <Button variant="secondary" size="sm" onClick={onClose} leftIcon={<span aria-hidden="true">&larr;</span>}>
+          {t.back}
+        </Button>
+        <span role="status" aria-live="polite" className="inline-flex items-center gap-2 text-body text-fg-muted">
+          {isLoading && <Spinner size="sm" />}
+          {isLoading ? t.editorLoading : ""}
+        </span>
       </div>
 
-      {error && (
+      {error && !config && (
         <div className="flex items-center justify-center flex-1">
           <div className="text-center max-w-lg px-6">
-            <p className="text-red-600 mb-4 whitespace-pre-wrap">{error}</p>
-            <div className="flex items-center justify-center gap-3">
+            <p role="alert" className="text-danger mb-4 whitespace-pre-wrap">{error.message || t.editorError}</p>
+            <div className="flex flex-wrap items-center justify-center gap-3">
               {fallbackDownload && (
                 <a
                   href={`${fallbackDownload.url}?download`}
                   download={fallbackDownload.name}
-                  className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
+                  className={buttonClasses({ variant: "secondary" })}
                 >
-                  {fallbackDownload.name} をダウンロード
+                  {t.dashboardDownloadNamed.replace("{name}", fallbackDownload.name)}
                 </a>
               )}
-              <button
-                onClick={onClose}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-              >
-                {t.back}
-              </button>
+              <Button onClick={onClose}>{t.back}</Button>
             </div>
           </div>
         </div>
       )}
 
-      {editorUrl && !error && (
+      {config && (
         <>
           <form
             ref={formRef}
-            action={editorUrl}
+            action={config.editorUrl}
             method="POST"
             target="collabora-frame"
             className="hidden"
           >
-            <input type="hidden" name="access_token" value={accessToken} />
+            <input type="hidden" name="access_token" value={config.accessToken} />
+            <input type="hidden" name="access_token_ttl" value={String(config.accessTokenTtl)} />
           </form>
           <iframe
             name="collabora-frame"
+            title={t.edit}
             className="flex-1 w-full border-0"
             allow="clipboard-read; clipboard-write"
             sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads"

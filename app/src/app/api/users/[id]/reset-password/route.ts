@@ -1,29 +1,37 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
-import { prisma } from "@/lib/prisma"
-import bcrypt from "bcryptjs"
-import { z } from "zod/v4"
+import { getRateLimiter, retryAfterSeconds } from "@/lib/rate-limit"
+import { successResponse, toHttpResponse } from "@/services/_shared"
+import { resetPasswordSchema } from "@/services/users/users.schemas"
+import { resetPassword } from "@/services/users/users.service"
 
-const schema = z.object({
-  password: z.string().min(6).max(200),
-})
+/** Admin password resets allowed per admin per 15 minutes. */
+const resetLimiter = () =>
+  getRateLimiter("password-reset", { limit: 20, windowMs: 15 * 60 * 1000 })
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth()
-  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  if (session.user.role !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized", code: "UNAUTHORIZED" }, { status: 401 })
+  if (session.user.role !== "admin") return NextResponse.json({ error: "Forbidden", code: "ADMIN_REQUIRED" }, { status: 403 })
+
+  const limiter = resetLimiter()
+  const status = limiter.peek(session.user.id)
+  if (status.limited) {
+    return NextResponse.json(
+      { error: "試行回数が多すぎます。しばらくしてから再度お試しください", code: "RATE_LIMITED" },
+      { status: 429, headers: { "Retry-After": retryAfterSeconds(status) } }
+    )
+  }
+  limiter.hit(session.user.id)
 
   const { id } = await params
-  const body = await request.json().catch(() => null)
-  const parsed = schema.safeParse(body)
-  if (!parsed.success) {
-    return NextResponse.json({ error: "パスワードが不正です" }, { status: 400 })
-  }
+  const parsed = resetPasswordSchema.safeParse(await request.json().catch(() => null))
+  if (!parsed.success) return NextResponse.json({ error: "パスワードが不正です", code: "PASSWORD_TOO_SHORT" }, { status: 400 })
 
-  const hash = await bcrypt.hash(parsed.data.password, 12)
-  await prisma.user.update({
-    where: { id },
-    data: { password: hash },
-  })
-  return NextResponse.json({ success: true })
+  try {
+    await resetPassword(id, parsed.data.password)
+    return successResponse()
+  } catch (error) {
+    return toHttpResponse(error, { fallback: "更新に失敗しました", context: "Password reset" })
+  }
 }

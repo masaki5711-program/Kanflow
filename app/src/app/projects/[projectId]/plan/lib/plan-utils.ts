@@ -118,20 +118,59 @@ export function formatYmd(iso: string | Date): string {
   return `${y}-${m}-${day}`
 }
 
+/**
+ * Timeline bar fill per status. Bars carry 12px white labels, so every fill
+ * keeps >= 4.5:1 against #fff (WCAG 1.4.3):
+ *   done emerald-700 5.5 · in_progress blue-700 6.7 · delayed rose-700 6.3 ·
+ *   on_hold amber-700 5.0 · not_started slate-500 4.8
+ */
 export function statusBarColor(status: string): string {
   switch (status) {
     case "done":
-      return "bg-emerald-500"
+      return "bg-emerald-700"
     case "in_progress":
-      return "bg-blue-500"
+      return "bg-blue-700"
     case "delayed":
-      return "bg-rose-500"
+      return "bg-rose-700"
     case "on_hold":
-      return "bg-amber-500"
+      return "bg-amber-700"
     case "not_started":
     default:
-      return "bg-gray-300"
+      return "bg-slate-500"
   }
+}
+
+export type BarKeyAction =
+  | { kind: "open" }
+  | { kind: "move" | "resize"; deltaDays: number }
+
+/**
+ * Keyboard contract of a timeline bar (WCAG 2.5.7 alternative to dragging):
+ * Enter/Space opens the editor, ArrowLeft/Right moves the bar by one day and
+ * Shift+ArrowLeft/Right changes the end date by one day. Null = not handled.
+ */
+export function barKeyAction(key: string, shiftKey: boolean): BarKeyAction | null {
+  if (key === "Enter" || key === " ") return { kind: "open" }
+  if (key !== "ArrowLeft" && key !== "ArrowRight") return null
+  const deltaDays = key === "ArrowLeft" ? -1 : 1
+  return { kind: shiftKey ? "resize" : "move", deltaDays }
+}
+
+/**
+ * Shift planned dates by whole days. "move" shifts both ends; "resize" moves
+ * only the end and never lets it fall before the start (returns null when the
+ * change would be invalid, so callers can ignore the key press).
+ */
+export function shiftPlanDates(
+  start: Date,
+  end: Date,
+  mode: "move" | "resize",
+  deltaDays: number,
+): { start: Date; end: Date } | null {
+  if (mode === "move") return { start: addDays(start, deltaDays), end: addDays(end, deltaDays) }
+  const nextEnd = addDays(end, deltaDays)
+  if (nextEnd.getTime() < start.getTime()) return null
+  return { start, end: nextEnd }
 }
 
 export function statusBadgeColor(status: string): string {

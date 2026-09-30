@@ -1,141 +1,36 @@
-import { NextResponse } from "next/server"
-import { prisma } from "@/lib/prisma"
-import { requireProjectMember, requireProjectAccess } from "@/lib/api-helpers"
-import { z } from "zod"
+import { requireProject } from "@/lib/authz"
+import { jsonResponse, toHttpResponse } from "@/services/_shared"
+import { addMemberSchema } from "@/services/members/members.schemas"
+import { addMember, addMembersBulk, listMembers } from "@/services/members/members.service"
 
-const addSchema = z.object({
-  email: z.string().email().optional(),
-  userId: z.string().min(1).optional(),
-  userIds: z.array(z.string().min(1)).min(1).max(50).optional(),
-  role: z.enum(["po", "sm", "dev"]),
-}).refine((v) => !!v.email || !!v.userId || (!!v.userIds && v.userIds.length > 0), {
-  message: "email / userId / userIds のいずれかが必要です",
-})
+type Params = { params: Promise<{ projectId: string }> }
 
-export async function GET(
-  _request: Request,
-  { params }: { params: Promise<{ projectId: string }> }
-) {
+export async function GET(_request: Request, { params }: Params) {
   const { projectId } = await params
-  const result = await requireProjectAccess(projectId, "read")
-  if ("error" in result) return result.error
-
-  const members = await prisma.projectMember.findMany({
-    where: { projectId },
-    include: {
-      user: {
-        select: {
-          id: true,
-          name: true,
-          email: true,
-          employeeNumber: true,
-          department: true,
-        },
-      },
-    },
-    orderBy: { joinedAt: "asc" },
-  })
-
-  return NextResponse.json(members)
-}
-
-export async function POST(
-  request: Request,
-  { params }: { params: Promise<{ projectId: string }> }
-) {
-  const { projectId } = await params
-  const result = await requireProjectMember(projectId, { roles: ["po", "sm"] })
-  if ("error" in result) return result.error
+  const gate = await requireProject(projectId, "project.view")
+  if ("error" in gate) return gate.error
 
   try {
-    const body = await request.json()
-    const data = addSchema.parse(body)
-
-    // Bulk add path
-    if (data.userIds && data.userIds.length > 0) {
-      const users = await prisma.user.findMany({
-        where: { id: { in: data.userIds }, isActive: true },
-        select: { id: true },
-      })
-      const validIds = new Set(users.map((u) => u.id))
-
-      const existing = await prisma.projectMember.findMany({
-        where: { projectId, userId: { in: Array.from(validIds) } },
-        select: { userId: true },
-      })
-      const existingIds = new Set(existing.map((m) => m.userId))
-
-      const toInsert = Array.from(validIds).filter((id) => !existingIds.has(id))
-      if (toInsert.length === 0) {
-        return NextResponse.json({ added: 0, skipped: data.userIds.length }, { status: 200 })
-      }
-
-      await prisma.projectMember.createMany({
-        data: toInsert.map((userId) => ({ projectId, userId, role: data.role })),
-      })
-
-      const created = await prisma.projectMember.findMany({
-        where: { projectId, userId: { in: toInsert } },
-        include: {
-          user: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              employeeNumber: true,
-              department: true,
-            },
-          },
-        },
-      })
-
-      return NextResponse.json({
-        added: created.length,
-        skipped: data.userIds.length - created.length,
-        members: created,
-      }, { status: 201 })
-    }
-
-    // Single add path — find user by id or email
-    const user = data.userId
-      ? await prisma.user.findUnique({ where: { id: data.userId } })
-      : await prisma.user.findUnique({ where: { email: data.email! } })
-
-    if (!user) {
-      return NextResponse.json({ error: "ユーザーが見つかりません" }, { status: 404 })
-    }
-    if (!user.isActive) {
-      return NextResponse.json({ error: "無効化されたユーザーです" }, { status: 400 })
-    }
-
-    const existing = await prisma.projectMember.findFirst({
-      where: { projectId, userId: user.id },
-    })
-    if (existing) {
-      return NextResponse.json({ error: "既にメンバーです" }, { status: 409 })
-    }
-
-    const member = await prisma.projectMember.create({
-      data: { projectId, userId: user.id, role: data.role },
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            employeeNumber: true,
-            department: true,
-          },
-        },
-      },
-    })
-
-    return NextResponse.json(member, { status: 201 })
+    return jsonResponse(await listMembers(projectId))
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      return NextResponse.json({ error: error.issues }, { status: 400 })
+    return toHttpResponse(error, { fallback: "取得に失敗しました", context: "Member LIST" })
+  }
+}
+
+export async function POST(request: Request, { params }: Params) {
+  const { projectId } = await params
+  const gate = await requireProject(projectId, "member.manage")
+  if ("error" in gate) return gate.error
+
+  try {
+    const data = addMemberSchema.parse(await request.json())
+    if (data.userIds && data.userIds.length > 0) {
+      const result = await addMembersBulk(projectId, data.userIds, data.role)
+      return jsonResponse(result, result.added === 0 ? 200 : 201)
     }
-    console.error("Member CREATE error:", error)
-    return NextResponse.json({ error: "追加に失敗しました" }, { status: 500 })
+    const member = await addMember(projectId, { userId: data.userId, email: data.email }, data.role)
+    return jsonResponse(member, 201)
+  } catch (error) {
+    return toHttpResponse(error, { fallback: "追加に失敗しました", context: "Member CREATE" })
   }
 }

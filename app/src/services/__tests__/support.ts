@@ -1,0 +1,42 @@
+/**
+ * Shared mocks for service unit tests (not a test file itself).
+ *
+ *   vi.mock("@/services/_shared/db", async () => (await import("@/services/__tests__/support")).dbMock())
+ *   vi.mock("@/services/_shared/translations", async () => (await import("@/services/__tests__/support")).translationMock())
+ *   vi.mock("../x.repository")            // automock: every export is a vi.fn()
+ *
+ * `withTransaction(fn)` runs `fn(TX)` so tests can assert that repository
+ * and translation calls received the transaction client.
+ */
+import { vi } from "vitest"
+import type { Actor } from "@/services/_shared/actor"
+
+export const TX = Object.freeze({ __tx: true })
+export const DEFAULT_DB = Object.freeze({ __default: true })
+
+export const ACTOR: Actor = { userId: "u1", userName: "Alice", systemRole: "member" }
+
+export function dbMock() {
+  return {
+    defaultDb: DEFAULT_DB,
+    withTransaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn(TX)),
+  }
+}
+
+type Row = Record<string, unknown>
+
+export function translationMock() {
+  return {
+    prepareText: vi.fn(async <T>(data: T) => data),
+    enqueueIn: vi.fn(async () => undefined),
+    purgeIn: vi.fn(async () => 0),
+    attachI18n: vi.fn(async (_type: string, rows: Row[]) => rows.map((r) => ({ ...r, i18n: {} }))),
+    attachI18nOne: vi.fn(async (_type: string, row: Row) => ({ ...row, i18n: {} })),
+    getI18nFor: vi.fn(async () => new Map()),
+  }
+}
+
+/** A Prisma-like known request error. */
+export function prismaError(code: string): Error & { code: string } {
+  return Object.assign(new Error(`prisma ${code}`), { code })
+}

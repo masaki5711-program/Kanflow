@@ -64,7 +64,7 @@ const jaLabels: Record<ProjectType, ProjectTypeLabels> = {
     rolePO: "Product Owner",
     roleSM: "Scrum Master",
     roleDev: "Developer",
-    iceboxTitle: "IceBox",
+    iceboxTitle: "IceBox（アイデア置き場）",
     iceboxRequest: "要望・要求",
     iceboxBackground: "課題・背景",
     backlogTitle: "プロダクトバックログ",

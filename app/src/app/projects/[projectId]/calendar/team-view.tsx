@@ -1,17 +1,20 @@
 "use client"
 
 import { useMemo } from "react"
+import { Users } from "lucide-react"
+import { EmptyState, Truncate, cn } from "@/components/ui"
+import { useLanguage } from "@/lib/language-context"
+import { pickText } from "@/lib/translation/pick-text"
 import {
   Sprint,
   ProjectMember,
-  ViewMode,
   toDateStr,
   isSameDay,
   getInitials,
-  buildCalendarDays,
+  datePart,
+  i18nOf,
   memberGradients,
   memberBlockColors,
-  sprintStatusColor,
   sprintTextColor,
 } from "./calendar-types"
 
@@ -20,81 +23,58 @@ interface TeamViewProps {
   sprints: Sprint[]
   calendarDays: Date[]
   currentMonth: number
-  currentYear: number
-  viewMode: ViewMode
-  currentWeekStart: Date
   today: Date
+  locale: string
 }
 
 const roleBadgeColors: Record<string, string> = {
-  owner: "bg-amber-100 text-amber-700",
-  admin: "bg-purple-100 text-purple-700",
-  member: "bg-blue-100 text-blue-700",
-  viewer: "bg-gray-100 text-gray-600",
+  po: "bg-warning-soft text-warning-strong",
+  sm: "bg-primary-soft text-primary-strong",
+  dev: "bg-success-soft text-success-strong",
 }
 
-export default function TeamView({
-  members,
-  sprints,
-  calendarDays,
-  currentMonth,
-  currentYear,
-  viewMode,
-  currentWeekStart,
-  today,
-}: TeamViewProps) {
-  const displayDays = useMemo(() => {
-    if (viewMode === "week") {
-      const days: Date[] = []
-      for (let i = 0; i < 7; i++) {
-        days.push(
-          new Date(
-            currentWeekStart.getFullYear(),
-            currentWeekStart.getMonth(),
-            currentWeekStart.getDate() + i
-          )
-        )
-      }
-      return days
-    }
-    return calendarDays.slice(0, 35)
-  }, [viewMode, currentWeekStart, calendarDays])
+export default function TeamView({ members, sprints, calendarDays, currentMonth, today, locale }: TeamViewProps) {
+  const { t, language } = useLanguage()
+  const displayDays = useMemo(() => calendarDays.slice(0, 35), [calendarDays])
+  const sprintName = (sp: Sprint) => pickText(i18nOf(sp), "sprintName", sp.sprintName, language).text
+  const roleLabel: Record<string, string> = { po: t.rolePO, sm: t.roleSM, dev: t.roleDev }
 
-  if (members.length === 0) return null
+  if (members.length === 0) {
+    return (
+      <div className="flex-1 flex items-center justify-center bg-surface">
+        <EmptyState icon={<Users className="h-6 w-6" />} title={t.calendarNoMembers} />
+      </div>
+    )
+  }
 
   return (
-    <div className="flex flex-col flex-1 min-h-0 bg-white">
+    <div className="flex flex-col flex-1 min-h-0 bg-surface">
       <div className="flex flex-1 min-h-0 overflow-auto">
         {/* Member column (sticky) */}
-        <div className="w-44 shrink-0 border-r bg-white sticky left-0 z-10">
-          {/* Header spacer */}
-          <div className="h-10 border-b bg-gray-50/80 flex items-center px-3">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Members</span>
+        <div className="w-44 shrink-0 border-r border-border bg-surface sticky left-0 z-10">
+          <div className="h-10 border-b border-border bg-surface-muted flex items-center px-3">
+            <span className="text-caption font-semibold text-fg-muted uppercase tracking-wider">{t.calendarMembers}</span>
           </div>
-          {/* Member rows */}
           {members.map((mem, mi) => (
-            <div
-              key={mem.id}
-              className="h-14 flex items-center gap-2.5 px-3 border-b hover:bg-gray-50/50 transition-colors"
-            >
-              {/* Avatar with gradient */}
+            <div key={mem.id} className="h-14 flex items-center gap-2.5 px-3 border-b border-border">
               <div
-                className={`w-8 h-8 rounded-full bg-gradient-to-br ${
-                  memberGradients[mi % memberGradients.length]
-                } flex items-center justify-center text-white text-xs font-bold shrink-0 shadow-sm`}
+                className={cn(
+                  "w-8 h-8 rounded-full bg-gradient-to-br flex items-center justify-center text-white text-caption font-bold shrink-0 shadow-ui-sm",
+                  memberGradients[mi % memberGradients.length],
+                )}
+                aria-hidden
               >
                 {getInitials(mem.user.name, mem.user.email)}
               </div>
               <div className="min-w-0 flex-1">
-                <div className="text-xs font-semibold text-gray-800 truncate">
-                  {mem.user.name ?? mem.user.email}
-                </div>
+                <Truncate text={mem.user.name ?? mem.user.email} className="text-caption font-semibold text-fg" />
                 <span
-                  className={`inline-block text-[9px] font-medium px-1.5 py-0.5 rounded-full mt-0.5 ${
-                    roleBadgeColors[mem.role] ?? "bg-gray-100 text-gray-600"
-                  }`}
+                  className={cn(
+                    "inline-block text-caption font-medium px-1.5 rounded-full mt-0.5",
+                    roleBadgeColors[mem.role] ?? "bg-surface-sunken text-fg-muted",
+                  )}
                 >
-                  {mem.role}
+                  {roleLabel[mem.role] ?? mem.role}
                 </span>
               </div>
             </div>
@@ -103,88 +83,71 @@ export default function TeamView({
 
         {/* Day columns */}
         <div className="flex flex-1">
-          {displayDays.map((day, di) => {
+          {displayDays.map((day) => {
             const dayStr = toDateStr(day)
             const isCurrentMonth = day.getMonth() === currentMonth
             const isToday = isSameDay(day, today)
             const isWeekend = day.getDay() === 0 || day.getDay() === 6
+            const activeSprints = sprints.filter(
+              (sp) => dayStr >= datePart(sp.startDate) && dayStr <= datePart(sp.endDate),
+            )
+            const hasSprint = activeSprints.length > 0
+            const sprintStarting = activeSprints.find((sp) => datePart(sp.startDate) === dayStr)
+            const cellTitle = hasSprint ? activeSprints.map(sprintName).join(", ") : undefined
 
             return (
-              <div
-                key={di}
-                className={`flex-1 min-w-[28px] flex flex-col ${isToday ? "bg-blue-50/40" : ""}`}
-              >
-                {/* Day header */}
+              <div key={dayStr} className={cn("flex-1 min-w-[28px] flex flex-col", isToday && "bg-primary-soft/40")}>
                 <div
-                  className={`h-10 flex flex-col items-center justify-center border-b border-r ${
-                    isWeekend ? "bg-gray-50/80" : "bg-gray-50/50"
-                  }`}
+                  className={cn(
+                    "h-10 flex flex-col items-center justify-center border-b border-r border-border",
+                    isWeekend ? "bg-surface-sunken/60" : "bg-surface-muted",
+                  )}
                 >
-                  <span
-                    className={`text-[9px] font-medium uppercase ${
-                      isCurrentMonth ? "text-gray-500" : "text-gray-300"
-                    }`}
-                  >
-                    {day.toLocaleDateString("default", { weekday: "narrow" })}
+                  <span className={cn("text-caption font-medium uppercase leading-none", isCurrentMonth ? "text-fg-muted" : "text-fg-subtle")}>
+                    {day.toLocaleDateString(locale, { weekday: "narrow" })}
                   </span>
                   <span
-                    className={`text-[10px] font-bold leading-tight ${
+                    className={cn(
+                      "text-caption font-bold leading-tight",
                       isToday
-                        ? "bg-blue-600 text-white w-5 h-5 rounded-full flex items-center justify-center"
+                        ? "bg-primary text-primary-fg w-5 h-5 rounded-full flex items-center justify-center"
                         : isCurrentMonth
-                        ? "text-gray-700"
-                        : "text-gray-300"
-                    }`}
+                          ? "text-fg"
+                          : "text-fg-subtle",
+                    )}
                   >
                     {day.getDate()}
                   </span>
                 </div>
 
-                {/* Per-member cells */}
-                {members.map((mem, mi) => {
-                  const activeSprints = sprints.filter((sp) => {
-                    const start = sp.startDate.split("T")[0]
-                    const end = sp.endDate.split("T")[0]
-                    return dayStr >= start && dayStr <= end
-                  })
-                  const hasSprint = activeSprints.length > 0
-
-                  // Check if this is the first day of the sprint
-                  const sprintStarting = activeSprints.find(
-                    (sp) => sp.startDate.split("T")[0] === dayStr
-                  )
-
-                  return (
-                    <div
-                      key={mem.id}
-                      className={`h-14 border-b border-r relative flex items-center ${
-                        hasSprint ? "px-0.5" : ""
-                      } ${isWeekend && !hasSprint ? "bg-gray-50/30" : ""}`}
-                      title={
-                        hasSprint
-                          ? activeSprints.map((sp) => sp.sprintName).join(", ")
-                          : undefined
-                      }
-                    >
-                      {hasSprint && (
-                        <div
-                          className={`absolute inset-0.5 rounded ${
-                            memberBlockColors[mi % memberBlockColors.length]
-                          } border opacity-80`}
-                        />
-                      )}
-                      {sprintStarting && (
-                        <span
-                          className={`relative z-10 text-[8px] font-semibold truncate px-1 ${
-                            sprintTextColor[sprintStarting.status] ?? "text-gray-600"
-                          }`}
-                        >
-                          {sprintStarting.sprintName}
-                        </span>
-                      )}
-                    </div>
-                  )
-                })}
+                {members.map((mem, mi) => (
+                  <div
+                    key={mem.id}
+                    className={cn(
+                      "h-14 border-b border-r border-border relative flex items-center",
+                      hasSprint && "px-0.5",
+                      isWeekend && !hasSprint && "bg-surface-muted/60",
+                    )}
+                    title={cellTitle}
+                  >
+                    {hasSprint && (
+                      <div
+                        className={cn("absolute inset-0.5 rounded border opacity-80", memberBlockColors[mi % memberBlockColors.length])}
+                        aria-hidden
+                      />
+                    )}
+                    {sprintStarting && (
+                      <span
+                        className={cn(
+                          "relative z-10 text-caption font-semibold truncate px-1",
+                          sprintTextColor[sprintStarting.status] ?? "text-fg-muted",
+                        )}
+                      >
+                        {sprintName(sprintStarting)}
+                      </span>
+                    )}
+                  </div>
+                ))}
               </div>
             )
           })}

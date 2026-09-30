@@ -1,3 +1,5 @@
+import { buildWopiFileId } from "@/lib/wopi-token"
+
 // Server-side: use internal Docker hostname; Browser: use public URL
 const COLLABORA_URL = process.env.COLLABORA_INTERNAL_URL ?? process.env.NEXT_PUBLIC_COLLABORA_URL ?? "http://localhost:9980"
 const COLLABORA_PUBLIC_URL = process.env.NEXT_PUBLIC_COLLABORA_URL ?? "http://localhost:9980"
@@ -31,7 +33,7 @@ export async function getCollaboraEditorUrl(
   attachmentId: string,
   mimeType: string
 ): Promise<{ editorUrl: string; wopiSrc: string }> {
-  const fileId = `${projectId}_${attachmentId}`
+  const fileId = buildWopiFileId(projectId, attachmentId)
   const wopiSrc = `${APP_EXTERNAL_URL}/api/wopi/files/${fileId}`
 
   const ext = getFileExtension(mimeType)

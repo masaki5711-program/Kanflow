@@ -3,6 +3,23 @@ import Credentials from "next-auth/providers/credentials"
 import { prisma } from "@/lib/prisma"
 import bcrypt from "bcryptjs"
 import "@/lib/auth-types"
+import {
+  clientIpFromHeaders,
+  getLoginLimiters,
+  isLoginBlocked,
+  recordLoginFailure,
+  recordLoginSuccess,
+} from "@/lib/rate-limit"
+
+async function verifyCredentials(email: string, password: string) {
+  const user = await prisma.user.findUnique({ where: { email } })
+  if (!user || !user.isActive) return null
+
+  const isValid = await bcrypt.compare(password, user.password)
+  if (!isValid) return null
+
+  return { id: user.id, name: user.name, email: user.email, role: user.role }
+}
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   // 2-hour idle timeout (security): server side absolute upper bound for the
@@ -23,20 +40,26 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" },
       },
-      async authorize(credentials) {
+      async authorize(credentials, request) {
         const email = credentials?.email as string | undefined
         const password = credentials?.password as string | undefined
         if (!email || !password) return null
 
-        const user = await prisma.user.findUnique({ where: { email } })
-        if (!user) return null
+        const limiters = getLoginLimiters()
+        const ip = clientIpFromHeaders(request?.headers)
+        if (isLoginBlocked(limiters, email, ip)) {
+          console.warn(`[auth] login rate limit exceeded (user=${email}, ip=${ip ?? "unknown"})`)
+          return null
+        }
 
-        if (!user.isActive) return null
+        const user = await verifyCredentials(email, password)
+        if (!user) {
+          recordLoginFailure(limiters, email, ip)
+          return null
+        }
 
-        const isValid = await bcrypt.compare(password, user.password)
-        if (!isValid) return null
-
-        return { id: user.id, name: user.name, email: user.email, role: user.role }
+        recordLoginSuccess(limiters, email)
+        return user
       },
     }),
   ],

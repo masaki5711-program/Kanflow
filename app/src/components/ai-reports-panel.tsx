@@ -1,0 +1,172 @@
+"use client"
+
+import { useState } from "react"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
+import { Badge, Truncate } from "@/components/ui"
+import { useApiQuery } from "@/hooks"
+import { useLanguage } from "@/lib/language-context"
+import { ReportDocument, parseStructured } from "@/components/structured-report-document"
+
+interface AiReport {
+  id: string
+  trigger: string
+  status: string
+  title: string
+  summary: string | null
+  body: string | null
+  structured: string | null
+  createdAt: string
+}
+
+type Translations = ReturnType<typeof useLanguage>["t"]
+
+const OLDER_LIST_ID = "ai-reports-older"
+
+function toReports(raw: unknown): AiReport[] {
+  return Array.isArray(raw) ? (raw as AiReport[]) : []
+}
+
+function localeOf(language: string): string {
+  return language === "ja" ? "ja-JP" : language === "id" ? "id-ID" : "en-US"
+}
+
+interface ReportRowProps {
+  report: AiReport
+  isOpen: boolean
+  isLatest: boolean
+  onToggle: () => void
+  triggerLabel: string
+  locale: string
+  t: Translations
+}
+
+function ReportRow({ report: r, isOpen, isLatest, onToggle, triggerLabel, locale, t }: ReportRowProps) {
+  const structured = isOpen ? parseStructured(r.structured) : null
+  const panelId = `ai-report-${r.id}`
+  const hasBody = Boolean(r.structured || r.body)
+  return (
+    <li className={isLatest ? "bg-violet-50/30" : undefined}>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={hasBody ? isOpen : undefined}
+        aria-controls={hasBody && isOpen ? panelId : undefined}
+        className="w-full flex flex-wrap sm:flex-nowrap items-center gap-x-3 gap-y-1 px-4 sm:px-6 py-3 text-left hover:bg-surface-muted"
+      >
+        <svg
+          className={`w-4 h-4 text-fg-subtle flex-shrink-0 transition-transform duration-200 ${isOpen ? "rotate-90" : ""}`}
+          viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"
+        >
+          <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
+        </svg>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-start gap-2">
+            {isLatest && <Badge tone="primary" className="flex-shrink-0 mt-0.5">{t.aiReportLatest}</Badge>}
+            <Truncate text={r.title} lines={2} className="text-body font-medium text-fg" />
+          </div>
+          {r.summary && !isOpen && (
+            <Truncate text={r.summary} lines={1} className="text-caption text-fg-muted mt-0.5" />
+          )}
+        </div>
+        <Badge tone="neutral" className="flex-shrink-0">{triggerLabel}</Badge>
+        <span className="text-caption text-fg-muted flex-shrink-0">
+          {new Date(r.createdAt).toLocaleString(locale, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+        </span>
+      </button>
+      {isOpen && hasBody && (
+        <div id={panelId} className="px-4 sm:px-6 pb-5 sm:pl-[52px]">
+          {structured ? (
+            <ReportDocument
+              report={structured}
+              trigger={triggerLabel}
+              createdAt={new Date(r.createdAt).toLocaleString(locale, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+              t={t}
+            />
+          ) : (
+            <div className="bg-violet-50/40 border border-violet-100 rounded-ui-sm px-4 py-3 text-body text-fg leading-relaxed [&_h2]:text-body [&_h2]:font-bold [&_h2]:mt-3 [&_h2]:mb-1 [&_h2]:first:mt-0 [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:my-1 [&_p]:my-1">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{r.body}</ReactMarkdown>
+            </div>
+          )}
+        </div>
+      )}
+    </li>
+  )
+}
+
+/**
+ * Dashboard panel listing autonomous AI investigation reports
+ * (surveillance / sprint-completion triggers). Read-only viewer.
+ *
+ * The API returns the newest reports first (history is kept). Only the
+ * newest one is marked "latest" and listed by default; older reports are
+ * collapsed behind a toggle.
+ *
+ * Reports submitted through the submit_report tool carry a structured JSON
+ * payload and are rendered as a formal report document (title block, meta
+ * table, numbered sections). Legacy / plain-text reports fall back to the
+ * markdown body.
+ */
+export default function AiReportsPanel({ projectId }: { projectId: string }) {
+  const { t, language } = useLanguage()
+  const { data: reports = [] } = useApiQuery<AiReport[]>(`/api/projects/${projectId}/ai-reports`, {
+    parse: toReports,
+    toastOnError: () => t.aiReportLoadFailed,
+  })
+  const [openId, setOpenId] = useState<string | null>(null)
+  const [showOlder, setShowOlder] = useState(false)
+
+  // Hide the panel entirely until the first report exists — keeps the
+  // dashboard uncluttered for projects where surveillance hasn't fired yet.
+  if (reports.length === 0) return null
+
+  const locale = localeOf(language)
+  const triggerLabel: Record<string, string> = {
+    surveillance: t.aiReportTriggerSurveillance,
+    sprint_completed: t.aiReportTriggerSprintCompleted,
+  }
+  const [latest, ...older] = reports
+  const row = (r: AiReport, isLatest: boolean) => (
+    <ReportRow
+      key={r.id}
+      report={r}
+      isLatest={isLatest}
+      isOpen={openId === r.id}
+      onToggle={() => setOpenId(openId === r.id ? null : r.id)}
+      triggerLabel={triggerLabel[r.trigger] ?? r.trigger}
+      locale={locale}
+      t={t}
+    />
+  )
+
+  return (
+    <section aria-labelledby="ai-reports-heading" className="bg-surface rounded-ui-md shadow-ui-sm border border-border overflow-hidden">
+      <div className="border-l-4 border-l-violet-500 px-4 sm:px-6 py-4">
+        <div className="flex items-center gap-2.5">
+          <span className="text-xl" aria-hidden="true">🤖</span>
+          <h2 id="ai-reports-heading" className="text-body-lg font-semibold text-fg">{t.aiReportsTitle}</h2>
+          <Badge tone="primary">{reports.length}</Badge>
+        </div>
+      </div>
+      <ul className="divide-y divide-border border-t border-border">{row(latest, true)}</ul>
+      {older.length > 0 && (
+        <>
+          <button
+            type="button"
+            onClick={() => setShowOlder((v) => !v)}
+            aria-expanded={showOlder}
+            aria-controls={showOlder ? OLDER_LIST_ID : undefined}
+            className="w-full px-4 sm:px-6 py-2 text-left text-caption font-medium text-fg-muted border-t border-border hover:bg-surface-muted hover:text-fg"
+          >
+            {showOlder ? t.aiReportOlderHide : t.aiReportOlderShow.replace("{count}", String(older.length))}
+          </button>
+          {showOlder && (
+            <ul id={OLDER_LIST_ID} className="divide-y divide-border border-t border-border">
+              {older.map((r) => row(r, false))}
+            </ul>
+          )}
+        </>
+      )}
+    </section>
+  )
+}

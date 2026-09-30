@@ -75,6 +75,9 @@ echo                   http://pp-21.ymma.emi.yamaha.co.jp:3000
 echo.
 echo   To stop:    docker compose -f docker-compose-collabora.yml stop
 echo   To restart: docker compose -f docker-compose-collabora.yml restart
+echo   After changing aliasgroup / env (e.g. new host name) you MUST recreate:
+echo               docker compose -f docker-compose-collabora.yml up -d --force-recreate
+echo               ("restart" does not re-read environment variables)
 echo   Logs:       docker logs -f kanflow-collabora
 echo.
 pause

@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server"
-import bcrypt from "bcryptjs"
-import { z } from "zod/v4"
 import { auth } from "@/lib/auth"
-import { prisma } from "@/lib/prisma"
+import { getRateLimiter, retryAfterSeconds } from "@/lib/rate-limit"
+import { successResponse, toHttpResponse } from "@/services/_shared"
+import { changePassword } from "@/services/users/account.service"
+import { changePasswordSchema } from "@/services/users/users.schemas"
 
-const schema = z.object({
-  currentPassword: z.string().min(1).max(200),
-  newPassword: z.string().min(6).max(200),
-})
+/** Failed current-password attempts allowed per user per 15 minutes. */
+const passwordChangeLimiter = () =>
+  getRateLimiter("password-change", { limit: 5, windowMs: 15 * 60 * 1000 })
 
 /**
  * Self-service password change. Requires the current password to verify
@@ -15,37 +15,31 @@ const schema = z.object({
  */
 export async function POST(request: Request) {
   const session = await auth()
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized", code: "UNAUTHORIZED" }, { status: 401 })
+
+  const limiter = passwordChangeLimiter()
+  const status = limiter.peek(session.user.id)
+  if (status.limited) {
+    return NextResponse.json(
+      { error: "試行回数が多すぎます。しばらくしてから再度お試しください", code: "RATE_LIMITED" },
+      { status: 429, headers: { "Retry-After": retryAfterSeconds(status) } }
+    )
   }
 
-  const body = await request.json().catch(() => null)
-  const parsed = schema.safeParse(body)
+  const parsed = changePasswordSchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) {
-    return NextResponse.json(
-      { error: "新しいパスワードは 6 文字以上必要です" },
-      { status: 400 }
-    )
+    return NextResponse.json({ error: "新しいパスワードは 6 文字以上必要です", code: "PASSWORD_TOO_SHORT" }, { status: 400 })
   }
 
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    select: { password: true },
-  })
-  if (!user) return NextResponse.json({ error: "Not found" }, { status: 404 })
-
-  const ok = await bcrypt.compare(parsed.data.currentPassword, user.password)
-  if (!ok) {
-    return NextResponse.json(
-      { error: "現在のパスワードが間違っています" },
-      { status: 401 }
-    )
+  try {
+    const result = await changePassword(session.user.id, parsed.data.currentPassword, parsed.data.newPassword)
+    if (result === "wrong_password") {
+      limiter.hit(session.user.id)
+      return NextResponse.json({ error: "現在のパスワードが間違っています", code: "WRONG_PASSWORD" }, { status: 401 })
+    }
+    limiter.reset(session.user.id)
+    return successResponse()
+  } catch (error) {
+    return toHttpResponse(error, { fallback: "更新に失敗しました", context: "Password change" })
   }
-
-  const hash = await bcrypt.hash(parsed.data.newPassword, 12)
-  await prisma.user.update({
-    where: { id: session.user.id },
-    data: { password: hash },
-  })
-  return NextResponse.json({ success: true })
 }

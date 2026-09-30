@@ -1,18 +1,16 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { useLanguage } from "@/lib/language-context"
-import { useOverlayClose } from "@/lib/use-overlay-close"
+import { GlossaryHint } from "@/components/i18n-text"
+import { Button, Field, Input, Modal, Textarea, useToast } from "@/components/ui"
+import { apiFetch } from "@/hooks"
+import type { SprintDto } from "@/types/api"
+import { messageOf } from "../lib/errors"
+import ModalCancelButton from "./modal-cancel-button"
 
-interface SprintLite {
-  id: string
-  sprintName: string
-  startDate: string
-  endDate: string
-  sprintGoal: string | null
-  capacity: number
-}
+type SprintLite = Pick<SprintDto, "id" | "sprintName" | "startDate" | "endDate" | "sprintGoal" | "capacity">
 
 interface Props {
   projectId: string
@@ -21,150 +19,90 @@ interface Props {
   onSaved?: () => void
 }
 
+const FORM_ID_PREFIX = "sprint-edit-form-"
+
 function toDateInput(iso: string): string {
-  if (!iso) return ""
-  return iso.slice(0, 10)
+  return iso ? iso.slice(0, 10) : ""
 }
 
 export default function SprintEditDialog({ projectId, sprint, onClose, onSaved }: Props) {
   const { t } = useLanguage()
+  const toast = useToast()
   const router = useRouter()
-  const [form, setForm] = useState({
+  // Always edit the original (source-language) text, never the translation.
+  const [initial] = useState(() => ({
     sprintName: sprint.sprintName,
     startDate: toDateInput(sprint.startDate),
     endDate: toDateInput(sprint.endDate),
     sprintGoal: sprint.sprintGoal ?? "",
     capacity: sprint.capacity,
-  })
+  }))
+  const [form, setForm] = useState(initial)
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose()
-    }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [onClose])
+  const formId = `${FORM_ID_PREFIX}${sprint.id}`
+  const isDirty = (Object.keys(initial) as (keyof typeof initial)[]).some((k) => form[k] !== initial[k])
+  const isValid = !!form.sprintName.trim() && !!form.startDate && !!form.endDate
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (saving) return
+    if (saving || !isValid) return
     setSaving(true)
-    setError(null)
     try {
-      const res = await fetch(`/api/projects/${projectId}/sprints/${sprint.id}`, {
+      await apiFetch(`/api/projects/${projectId}/sprints/${sprint.id}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+        json: {
           sprintName: form.sprintName.trim(),
           startDate: form.startDate,
           endDate: form.endDate,
           sprintGoal: form.sprintGoal.trim() || null,
           capacity: Number(form.capacity) || 0,
-        }),
+        },
       })
-      if (!res.ok) {
-        const err = await res.json().catch(() => null)
-        setError(typeof err?.error === "string" ? err.error : t.error)
-        return
-      }
+      toast.success(t.sprintSaved)
       onSaved?.()
       router.refresh()
       onClose()
+    } catch (err) {
+      toast.error(messageOf(err, t.error), { title: t.sprintUpdateFailed })
     } finally {
       setSaving(false)
     }
   }
 
-  const overlay = useOverlayClose(onClose)
-
   return (
-    <div
-      className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[60] p-4"
-      {...overlay}
-    >
-      <div
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="px-6 py-4 border-b border-gray-100">
-          <h3 className="text-lg font-bold text-gray-900">{t.sprintEditTitle}</h3>
+    <Modal open onClose={onClose} title={t.sprintEditTitle} isDirty={isDirty && !saving}
+      footer={
+        <>
+          <ModalCancelButton disabled={saving} />
+          <Button type="submit" form={formId} loading={saving} disabled={!isValid}>{t.save}</Button>
+        </>
+      }>
+      <form id={formId} onSubmit={handleSubmit} className="space-y-4">
+        <Field label={t.sprintName} required>
+          <Input value={form.sprintName} maxLength={200} required
+            onChange={(e) => setForm({ ...form, sprintName: e.target.value })} />
+        </Field>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <Field label={t.sprintStartDate} required>
+            <Input type="date" value={form.startDate} required onChange={(e) => setForm({ ...form, startDate: e.target.value })} />
+          </Field>
+          <Field label={t.sprintEndDate} required>
+            <Input type="date" value={form.endDate} min={form.startDate || undefined} required
+              onChange={(e) => setForm({ ...form, endDate: e.target.value })} />
+          </Field>
         </div>
-
-        <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.sprintName}</label>
-            <input
-              type="text"
-              value={form.sprintName}
-              onChange={(e) => setForm({ ...form, sprintName: e.target.value })}
-              required
-              maxLength={200}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-            />
+        <Field label={t.sprintGoal}>
+          <Textarea value={form.sprintGoal} rows={3} maxLength={5000}
+            onChange={(e) => setForm({ ...form, sprintGoal: e.target.value })} />
+        </Field>
+        <GlossaryHint />
+        <Field label={t.sprintCapacity}>
+          <div className="w-32">
+            <Input type="number" min={0} value={form.capacity}
+              onChange={(e) => setForm({ ...form, capacity: Number(e.target.value) || 0 })} />
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.sprintStartDate ?? "開始"}</label>
-              <input
-                type="date"
-                value={form.startDate}
-                onChange={(e) => setForm({ ...form, startDate: e.target.value })}
-                required
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.sprintEndDate ?? "終了"}</label>
-              <input
-                type="date"
-                value={form.endDate}
-                onChange={(e) => setForm({ ...form, endDate: e.target.value })}
-                required
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
-              />
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.sprintGoal}</label>
-            <textarea
-              value={form.sprintGoal}
-              onChange={(e) => setForm({ ...form, sprintGoal: e.target.value })}
-              rows={3}
-              maxLength={5000}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm resize-y"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.sprintCapacity}</label>
-            <input
-              type="number"
-              value={form.capacity}
-              onChange={(e) => setForm({ ...form, capacity: Number(e.target.value) || 0 })}
-              min={0}
-              className="w-32 px-3 py-2 border border-gray-300 rounded-lg text-sm"
-            />
-          </div>
-          {error && <p className="text-sm text-red-500">{error}</p>}
-          <div className="flex justify-end gap-2 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              {t.cancel}
-            </button>
-            <button
-              type="submit"
-              disabled={saving || !form.sprintName.trim() || !form.startDate || !form.endDate}
-              className="px-5 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
-            >
-              {saving ? t.saving : t.save}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+        </Field>
+      </form>
+    </Modal>
   )
 }

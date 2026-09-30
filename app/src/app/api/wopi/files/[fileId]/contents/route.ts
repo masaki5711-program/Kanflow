@@ -1,93 +1,77 @@
 import { NextResponse } from "next/server"
 import fs from "fs/promises"
 import { prisma } from "@/lib/prisma"
-import { safeFilePath } from "@/lib/api-helpers"
+import { MAX_UPLOAD_SIZE, safeFilePath } from "@/lib/api-helpers"
+import { authorizeWopi, forbidden, readBodyWithLimit } from "../../../_lib/wopi-auth"
 
-function verifyAccessToken(request: Request): boolean {
-  const expected = process.env.WOPI_ACCESS_TOKEN
-  if (!expected) return false
-  const { searchParams } = new URL(request.url)
-  const token = searchParams.get("access_token")
-  return token === expected
+async function findAttachmentPath(projectId: string, attachmentId: string) {
+  const attachment = await prisma.projectAttachment.findFirst({
+    where: { id: attachmentId, projectId },
+  })
+  if (!attachment) return { error: NextResponse.json({ error: "Not found", code: "NOT_FOUND" }, { status: 404 }) }
+  const full = safeFilePath(projectId, attachment.fileName)
+  if (!full) return { error: NextResponse.json({ error: "Invalid path", code: "INVALID_PATH" }, { status: 400 }) }
+  return { attachment, full }
 }
 
-function parseFileId(fileId: string): { projectId: string; attachmentId: string } | null {
-  const underscore = fileId.indexOf("_")
-  if (underscore <= 0) return null
-  return {
-    projectId: fileId.slice(0, underscore),
-    attachmentId: fileId.slice(underscore + 1),
-  }
-}
-
+/** WOPI GetFile */
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ fileId: string }> }
 ) {
-  if (!verifyAccessToken(request)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
-
   const { fileId } = await params
-  const parsed = parseFileId(fileId)
-  if (!parsed) return NextResponse.json({ error: "Invalid fileId" }, { status: 400 })
+  const authz = await authorizeWopi(request, fileId)
+  if ("error" in authz) return authz.error
 
-  const attachment = await prisma.projectAttachment.findFirst({
-    where: { id: parsed.attachmentId, projectId: parsed.projectId },
-  })
-  if (!attachment) return NextResponse.json({ error: "Not found" }, { status: 404 })
-
-  const full = safeFilePath(parsed.projectId, attachment.fileName)
-  if (!full) return NextResponse.json({ error: "Invalid path" }, { status: 400 })
+  const found = await findAttachmentPath(authz.claims.projectId, authz.claims.attachmentId)
+  if ("error" in found) return found.error
 
   try {
-    const buf = await fs.readFile(full)
+    const buf = await fs.readFile(found.full)
     const arrayBuffer = buf.buffer.slice(
       buf.byteOffset,
       buf.byteOffset + buf.byteLength,
     ) as ArrayBuffer
     return new NextResponse(arrayBuffer, {
       headers: {
-        "Content-Type": attachment.mimeType,
+        "Content-Type": "application/octet-stream",
+        "X-Content-Type-Options": "nosniff",
       },
     })
   } catch {
-    return NextResponse.json({ error: "File missing" }, { status: 404 })
+    return NextResponse.json({ error: "File missing", code: "FILE_MISSING" }, { status: 404 })
   }
 }
 
+/** WOPI PutFile */
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ fileId: string }> }
 ) {
-  if (!verifyAccessToken(request)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
-
   const { fileId } = await params
-  const parsed = parseFileId(fileId)
-  if (!parsed) return NextResponse.json({ error: "Invalid fileId" }, { status: 400 })
+  const authz = await authorizeWopi(request, fileId)
+  if ("error" in authz) return authz.error
+  if (!authz.access.canWrite) return forbidden()
 
-  const attachment = await prisma.projectAttachment.findFirst({
-    where: { id: parsed.attachmentId, projectId: parsed.projectId },
-  })
-  if (!attachment) return NextResponse.json({ error: "Not found" }, { status: 404 })
-
-  const full = safeFilePath(parsed.projectId, attachment.fileName)
-  if (!full) return NextResponse.json({ error: "Invalid path" }, { status: 400 })
+  const { projectId, attachmentId } = authz.claims
+  const found = await findAttachmentPath(projectId, attachmentId)
+  if ("error" in found) return found.error
 
   try {
-    const buf = Buffer.from(await request.arrayBuffer())
-    await fs.writeFile(full, buf)
+    const read = await readBodyWithLimit(request, MAX_UPLOAD_SIZE)
+    if (!read.ok) {
+      return NextResponse.json({ error: "File too large", code: "PAYLOAD_TOO_LARGE" }, { status: 413 })
+    }
+    await fs.writeFile(found.full, read.body)
 
     await prisma.projectAttachment.update({
-      where: { id: parsed.attachmentId },
-      data: { fileSize: buf.length, updatedAt: new Date() },
+      where: { id: attachmentId },
+      data: { fileSize: read.body.length, updatedAt: new Date() },
     })
 
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error("WOPI PutFile error:", error)
-    return NextResponse.json({ error: "Failed to save" }, { status: 500 })
+    return NextResponse.json({ error: "Failed to save", code: "INTERNAL" }, { status: 500 })
   }
 }

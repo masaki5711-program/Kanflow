@@ -12,6 +12,11 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Side-by-side builds (NEXT_DIST_DIR=.next-new / .next-verify ...)
+    ".next-*/**",
+    // Prisma generated client
+    "src/generated/**",
+    "coverage/**",
   ]),
 ]);
 

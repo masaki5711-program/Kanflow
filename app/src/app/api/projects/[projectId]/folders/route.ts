@@ -1,60 +1,20 @@
-import { NextResponse } from "next/server"
-import { prisma } from "@/lib/prisma"
-import { requireProjectMember } from "@/lib/api-helpers"
-import { z } from "zod"
-
-const createSchema = z.object({
-  name: z.string().min(1).max(100),
-  parentId: z.string().nullable().optional(),
-})
+import { requireProject } from "@/lib/authz"
+import { jsonResponse, toHttpResponse } from "@/services/_shared"
+import { createFolderSchema } from "@/services/attachments/attachments.schemas"
+import { createFolder } from "@/services/attachments/attachments.service"
 
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ projectId: string }> }
 ) {
   const { projectId } = await params
-  const result = await requireProjectMember(projectId)
-  if ("error" in result) return result.error
+  const gate = await requireProject(projectId, "attachment.write")
+  if ("error" in gate) return gate.error
 
   try {
-    const body = await request.json()
-    const data = createSchema.parse(body)
-
-    const maxOrder = await prisma.attachmentFolder.aggregate({
-      where: { projectId, parentId: data.parentId ?? null },
-      _max: { sortOrder: true },
-    })
-
-    const folder = await prisma.attachmentFolder.create({
-      data: {
-        projectId,
-        name: data.name,
-        parentId: data.parentId ?? null,
-        sortOrder: (maxOrder._max.sortOrder ?? 0) + 1,
-      },
-      include: { attachments: true },
-    })
-
-    return NextResponse.json({
-      id: folder.id,
-      name: folder.name,
-      parentId: folder.parentId,
-      sortOrder: folder.sortOrder,
-      attachments: folder.attachments.map((a) => ({
-        id: a.id,
-        originalName: a.originalName,
-        fileName: a.fileName,
-        fileSize: a.fileSize,
-        mimeType: a.mimeType,
-        folderId: a.folderId,
-        createdAt: a.createdAt.toISOString(),
-      })),
-    }, { status: 201 })
+    const input = createFolderSchema.parse(await request.json())
+    return jsonResponse(await createFolder(projectId, input), 201)
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      return NextResponse.json({ error: error.issues }, { status: 400 })
-    }
-    console.error("Folder CREATE error:", error)
-    return NextResponse.json({ error: "作成に失敗しました" }, { status: 500 })
+    return toHttpResponse(error, { fallback: "作成に失敗しました", context: "Folder CREATE" })
   }
 }

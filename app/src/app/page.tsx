@@ -2,7 +2,13 @@ import { auth } from "@/lib/auth"
 import { redirect } from "next/navigation"
 import { prisma } from "@/lib/prisma"
 import { Header } from "@/components/header"
+import { getI18nFor } from "@/lib/translation/hooks"
 import { TopPage } from "./top-page"
+import { buildPageMetadata } from "@/app/page-metadata"
+
+export function generateMetadata() {
+  return buildPageMetadata(({ t }) => t.projectListTitle)
+}
 
 export default async function HomePage() {
   const session = await auth()
@@ -50,11 +56,18 @@ export default async function HomePage() {
         },
         sections: { include: { section: { select: { id: true, name: true } } } },
         favoritedBy: { where: { userId }, select: { userId: true } },
+        // Latest autonomous AI report → list badge (severity from title emoji)
+        aiReports: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: { id: true, title: true },
+        },
         _count: {
           select: {
             iceboxItems: true,
             backlogItems: true,
             sprints: true,
+            aiReports: true,
           },
         },
       },
@@ -68,11 +81,18 @@ export default async function HomePage() {
         },
         sections: { include: { section: { select: { id: true, name: true } } } },
         favoritedBy: { where: { userId }, select: { userId: true } },
+        // Latest autonomous AI report → list badge (severity from title emoji)
+        aiReports: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: { id: true, title: true },
+        },
         _count: {
           select: {
             iceboxItems: true,
             backlogItems: true,
             sprints: true,
+            aiReports: true,
           },
         },
       },
@@ -113,6 +133,7 @@ export default async function HomePage() {
         },
         pbItem: {
           select: {
+            id: true,
             displayId: true,
             userStory: true,
           },
@@ -122,6 +143,15 @@ export default async function HomePage() {
     }),
   ])
 
+  // Both-language text (one query per entity type) for everything the top
+  // page renders: project name/description, task names, PBI stories, sprints.
+  const [projectI18n, taskI18n, pbI18n, sprintI18n] = await Promise.all([
+    getI18nFor("project", [...activeProjects, ...archivedProjects].map((p) => p.id)),
+    getI18nFor("sprint_task", myTasks.map((t) => t.id)),
+    getI18nFor("backlog_item", myTasks.map((t) => t.pbItem.id)),
+    getI18nFor("sprint", myTasks.map((t) => t.sprint.id)),
+  ])
+
   // Flatten ProjectSection junction rows into a simple array of section refs,
   // and surface the per-user favorite flag.
   type RawProject = (typeof activeProjects)[number]
@@ -129,6 +159,7 @@ export default async function HomePage() {
     ...p,
     sections: p.sections.map((ps) => ps.section),
     isFavorite: p.favoritedBy.length > 0,
+    i18n: projectI18n.get(p.id) ?? {},
   })
   const flatActive = activeProjects.map(flatten)
   const flatArchived = archivedProjects.map(flatten)
@@ -136,7 +167,7 @@ export default async function HomePage() {
   return (
     <div className="min-h-screen bg-gray-50/50">
       <Header />
-      <main className="max-w-7xl mx-auto px-6 py-8">
+      <main className="max-w-7xl mx-auto px-4 py-8 sm:px-6">
         <TopPage
           activeProjects={flatActive}
           archivedProjects={flatArchived}
@@ -149,8 +180,13 @@ export default async function HomePage() {
             status: t.status,
             estimatedHours: t.estimatedHours,
             actualHours: t.actualHours,
+            pbId: t.pbItem.id,
             pbDisplayId: t.pbItem.displayId,
             pbUserStory: t.pbItem.userStory,
+            i18n: taskI18n.get(t.id) ?? {},
+            pbI18n: pbI18n.get(t.pbItem.id) ?? {},
+            sprintI18n: sprintI18n.get(t.sprint.id) ?? {},
+            projectI18n: projectI18n.get(t.sprint.projectId) ?? {},
             sprintId: t.sprint.id,
             sprintName: t.sprint.sprintName,
             sprintStatus: t.sprint.status,

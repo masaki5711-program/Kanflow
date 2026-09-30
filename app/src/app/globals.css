@@ -1,10 +1,20 @@
 @import "tailwindcss";
 
+/*
+ * Dark mode is intentionally disabled: the app is designed and tested only in
+ * light mode. Re-binding the `dark:` variant to a `.dark` class that is never
+ * applied neutralises any stray `dark:` utilities left in pages, and
+ * `color-scheme: light` keeps native form controls / scrollbars light too.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
+  color-scheme: light;
   --background: #f8fafc;
   --foreground: #0f172a;
-  --primary: #2563eb;
-  --primary-light: #dbeafe;
+  /* Legacy aliases — prefer the --color-* tokens below in new code. */
+  --primary: var(--color-primary);
+  --primary-light: var(--color-primary-soft);
 }
 
 @theme inline {
@@ -14,9 +24,115 @@
   --font-mono: ui-monospace, SFMono-Regular, "Cascadia Code", Consolas, monospace;
 }
 
+/*
+ * Design tokens. Every token below becomes both a CSS custom property
+ * (e.g. var(--color-primary)) and a Tailwind utility family
+ * (bg-primary, text-fg-muted, border-border, rounded-ui-md, shadow-ui-lg,
+ * text-body, ...). `static` guarantees the variables are always emitted so
+ * they can be referenced from plain CSS / inline styles. Names are chosen so they do NOT override Tailwind's
+ * default scales (rounded-lg, shadow-md, text-sm keep their stock values).
+ *
+ * Contrast notes (on #ffffff):
+ *   fg        #0f172a  17.8:1
+ *   fg-muted  #475569   7.6:1   (slate-600)
+ *   fg-subtle #5a687c   5.7:1   (5.2:1 on surface-sunken, 4.6:1 on primary-soft / border —
+ *                                  lightest allowed for text; ≥ 4.5:1 on every surface)
+ *   primary   #2563eb   5.2:1   (only 4.2:1 on primary-soft → use primary-strong there)
+ *   danger    #dc2626   4.8:1   (only 4.0:1 on danger-soft  → use danger-strong there)
+ *   success   #15803d   5.0:1   (4.6:1 on success-soft)
+ *   warning   #b45309   5.0:1   (4.5:1 on warning-soft)
+ *
+ * "*-strong" tokens are TEXT colours for use on the matching "*-soft" background:
+ *   primary-strong #1d4ed8 on primary-soft 5.5:1 · danger-strong #b91c1c on danger-soft 5.3:1
+ *   success-strong #166534 on success-soft 6.5:1 · warning-strong #92400e on warning-soft 6.4:1
+ * border-strong #7b8799 is the outline of inputs / secondary buttons (WCAG 1.4.11):
+ *   3.6:1 on white, 3.5:1 on surface-muted, 3.3:1 on surface-sunken.
+ */
+@theme static {
+  /* Brand primary (blue-600 family) */
+  --color-primary: #2563eb;
+  --color-primary-hover: #1d4ed8;
+  --color-primary-active: #1e40af;
+  --color-primary-soft: #dbeafe;
+  --color-primary-fg: #ffffff;
+  --color-primary-strong: #1d4ed8;
+
+  /* Semantic status colors */
+  --color-danger: #dc2626;
+  --color-danger-hover: #b91c1c;
+  --color-danger-soft: #fee2e2;
+  --color-danger-strong: #b91c1c;
+  --color-success: #15803d;
+  --color-success-hover: #166534;
+  --color-success-soft: #dcfce7;
+  --color-success-strong: #166534;
+  --color-warning: #b45309;
+  --color-warning-hover: #92400e;
+  --color-warning-soft: #fef3c7;
+  --color-warning-strong: #92400e;
+  --color-info: #0369a1;
+  --color-info-soft: #e0f2fe;
+
+  /* Chart palette (categorical series, 1 = primary). JS access: src/lib/design-tokens.ts */
+  --color-chart-1: #2563eb;
+  --color-chart-2: #0b8f6a;
+  --color-chart-3: #d97706;
+  --color-chart-4: #7c3aed;
+  --color-chart-5: #e11d48;
+  --color-chart-6: #0a8f9e;
+  --color-chart-7: #64748b;
+  --color-chart-grid: #e2e8f0;
+
+  /* Surfaces & lines */
+  --color-surface: #ffffff;
+  --color-surface-muted: #f8fafc;
+  --color-surface-sunken: #f1f5f9;
+  --color-border: #e2e8f0;
+  --color-border-strong: #7b8799;
+
+  /* Text */
+  --color-fg: #0f172a;
+  --color-fg-muted: #475569;
+  --color-fg-subtle: #5a687c;
+
+  /* Focus */
+  --color-focus: #2563eb;
+
+  /* Radii */
+  --radius-ui-sm: 0.5rem;
+  --radius-ui-md: 0.75rem;
+  --radius-ui-lg: 1rem;
+
+  /* Elevation */
+  --shadow-ui-sm: 0 1px 2px 0 rgb(15 23 42 / 0.06);
+  --shadow-ui-md: 0 4px 12px -2px rgb(15 23 42 / 0.08), 0 2px 4px -2px rgb(15 23 42 / 0.06);
+  --shadow-ui-lg: 0 12px 32px -8px rgb(15 23 42 / 0.16), 0 4px 8px -4px rgb(15 23 42 / 0.08);
+  --shadow-ui-overlay: 0 24px 64px -12px rgb(15 23 42 / 0.28);
+
+  /* Type scale — nothing below 12px for UI text */
+  --text-caption: 0.75rem;
+  --text-caption--line-height: 1rem;
+  --text-body: 0.875rem;
+  --text-body--line-height: 1.375rem;
+  --text-body-lg: 1rem;
+  --text-body-lg--line-height: 1.5rem;
+  --text-title: 1.125rem;
+  --text-title--line-height: 1.625rem;
+  --text-heading: 1.375rem;
+  --text-heading--line-height: 1.875rem;
+
+  /* Motion */
+  --ease-ui: cubic-bezier(0.2, 0, 0, 1);
+}
+
+html {
+  /* Keep focused / anchor-scrolled elements clear of the sticky 56px header (WCAG 2.4.11). */
+  scroll-padding-top: 4.5rem;
+}
+
 body {
-  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 50%, #f8fafc 100%);
-  color: var(--foreground);
+  background: var(--color-surface-muted);
+  color: var(--color-fg);
   font-family: "Hiragino Kaku Gothic ProN", "Noto Sans JP", system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -29,17 +145,54 @@ body {
   color: #1e3a5f;
 }
 
-/* Smooth transitions for interactive elements */
-button, a, input, select, textarea {
-  transition: all 0.2s ease;
+@layer base {
+  /*
+   * Transition only cheap, paint-level properties (never `all`, which also
+   * animates layout properties). In the base layer so `transition-*`
+   * utilities still override it.
+   */
+  button,
+  a,
+  input,
+  select,
+  textarea {
+    transition-property: color, background-color, border-color, box-shadow, opacity;
+    transition-duration: 150ms;
+    transition-timing-function: var(--ease-ui);
+  }
 }
 
-/* Better focus ring */
-input:focus, select:focus, textarea:focus {
-  outline: none;
-  ring: 2px;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
-  border-color: #2563eb;
+/*
+ * Global keyboard focus indicator. Deliberately UNLAYERED so it wins over
+ * legacy `focus:outline-none` utilities scattered through the pages — every
+ * interactive element must show a visible focus ring for keyboard users.
+ * `:focus-visible` keeps it off for plain mouse clicks on buttons/links.
+ */
+:where(
+    a[href],
+    button,
+    input,
+    select,
+    textarea,
+    summary,
+    [role="button"],
+    [role="link"],
+    [role="tab"],
+    [role="menuitem"],
+    [role="option"],
+    [role="switch"],
+    [role="checkbox"],
+    [contenteditable="true"],
+    [tabindex]:not([tabindex="-1"])
+  ):focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+/* Text fields: keep the ring tight to the border and tint the border. */
+:where(input:not([type="checkbox"], [type="radio"], [type="range"]), select, textarea):focus-visible {
+  outline-offset: 1px;
+  border-color: var(--color-primary);
 }
 
 /* Custom scrollbar - thinner and more subtle */
@@ -69,7 +222,7 @@ th {
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #64748b;
+  color: var(--color-fg-subtle);
 }
 td {
   vertical-align: middle;
@@ -90,5 +243,91 @@ tr:last-child td {
   to {
     opacity: 1;
     transform: scale(1) translateY(0);
+  }
+}
+
+/* Overlay fade used by ui/Modal */
+.animate-fade-in {
+  animation: fadeIn 0.15s ease-out;
+}
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Toast slide-in used by ui/Toast */
+.animate-toast-in {
+  animation: toastIn 0.2s var(--ease-ui);
+}
+@keyframes toastIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Login page background drift */
+@keyframes login-gradient-shift {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+/* Sidebar drawer (mobile) slide-in; the overlay reuses animate-fade-in. */
+.animate-drawer-in {
+  animation: drawerIn 0.2s var(--ease-ui);
+}
+@keyframes drawerIn {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+.animate-drawer-out {
+  animation: drawerOut 0.15s var(--ease-ui) forwards;
+}
+@keyframes drawerOut {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-100%);
+  }
+}
+
+/* Respect the OS "reduce motion" preference everywhere. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  /*
+   * Loading spinners keep turning (slowly) so a busy state never looks frozen.
+   * A slow, small rotation is not the kind of motion reduce-motion guards against.
+   */
+  [data-spinner],
+  [data-spinner] * {
+    animation-duration: 1.5s !important;
+    animation-iteration-count: infinite !important;
   }
 }

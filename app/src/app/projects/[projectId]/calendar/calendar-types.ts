@@ -1,42 +1,21 @@
 // ── Shared Types & Constants for Calendar ─────────────────────────
 
-export interface CalendarEvent {
-  id: string
-  title: string
-  description: string | null
-  date: string
-  endDate: string | null
-  color: string
-  sprintId: string | null
-  sprint: { id: string; sprintName: string } | null
+import type { EntityI18n } from "@/lib/translation/types"
+import type { CalendarEventDto, ProjectMemberDto, SprintDto, SprintPbItemDto, SprintTaskDto } from "@/types/api"
+
+export type CalendarEvent = Omit<CalendarEventDto, "i18n">
+
+/** Task row used by the deadline / team views (only status and PBI label are read). */
+export type SprintItem = Pick<SprintTaskDto, "id" | "status"> & {
+  pbItem: Pick<SprintPbItemDto, "id" | "displayId" | "initiative" | "epic" | "userStory" | "workloadScore">
 }
 
-export interface SprintItem {
-  id: string
-  status: string
-  pbItem: {
-    id: string
-    displayId: number | null
-    initiative: string | null
-    epic: string | null
-    userStory: string
-    workloadScore: number | null
-  }
-}
-
-export interface Sprint {
-  id: string
-  sprintName: string
-  startDate: string
-  endDate: string
-  status: string
+export type Sprint = Pick<SprintDto, "id" | "sprintName" | "startDate" | "endDate" | "status"> & {
   items: SprintItem[]
 }
 
-export interface ProjectMember {
-  id: string
-  role: string
-  user: { id: string; name: string | null; email: string; avatarUrl?: string | null }
+export type ProjectMember = Pick<ProjectMemberDto, "id" | "role"> & {
+  user: Pick<ProjectMemberDto["user"], "id" | "name" | "email" | "avatarUrl">
 }
 
 export interface EventFormState {
@@ -176,4 +155,54 @@ export function getInitials(name: string | null, email: string): string {
     return name.slice(0, 2).toUpperCase()
   }
   return email.slice(0, 2).toUpperCase()
+}
+
+/** "YYYY-MM-DD" part of an API date (ISO or plain). */
+export function datePart(iso: string): string {
+  return iso.split("T")[0]
+}
+
+/** True when the event spans the given "YYYY-MM-DD" day. */
+export function eventCoversDay(ev: CalendarEvent, dayStr: string): boolean {
+  const startStr = datePart(ev.date)
+  const endStr = ev.endDate ? datePart(ev.endDate) : startStr
+  return dayStr >= startStr && dayStr <= endStr
+}
+
+/** API rows carry `i18n` (both-language text); the shared calendar types stay unchanged. */
+export function i18nOf(row: unknown): EntityI18n | undefined {
+  return (row as { i18n?: EntityI18n } | null | undefined)?.i18n
+}
+
+/** Replace `{name}` placeholders in an i18n template. */
+export function fmt(template: string, vars: Record<string, string | number>): string {
+  return template.replace(/\{(\w+)\}/g, (m, k: string) => (k in vars ? String(vars[k]) : m))
+}
+
+/** Form → API body (trimmed, empty optional fields omitted). */
+export function toEventBody(form: EventFormState) {
+  return {
+    title: form.title.trim(),
+    description: form.description.trim() || undefined,
+    date: form.date,
+    endDate: form.endDate || undefined,
+    color: form.color,
+    sprintId: form.sprintId || undefined,
+  }
+}
+
+export function eventToForm(ev: CalendarEvent): EventFormState {
+  return {
+    title: ev.title,
+    description: ev.description ?? "",
+    date: datePart(ev.date),
+    endDate: ev.endDate ? datePart(ev.endDate) : "",
+    color: ev.color,
+    sprintId: ev.sprintId ?? "",
+  }
+}
+
+export interface DeadlineEntry {
+  tasks: SprintItem[]
+  sprintName: string
 }

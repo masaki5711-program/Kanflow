@@ -39,7 +39,7 @@ The same compose file works on plain Docker Engine (Linux) without changes.
 3. The Qwen models pulled on the host:
    ```powershell
    ollama pull qwen2.5vl:7b
-   ollama pull qwen3.6:27b-q4_K_M
+   ollama pull qwen3.8:27b-q4_K_M
    ```
 4. Recommended Ollama env vars on the host (see `install-watchdog.bat` for
    how the standalone deployment sets these):

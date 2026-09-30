@@ -5,9 +5,14 @@
 # Node
 node_modules/
 
-# Next.js
+# Next.js (incl. side-by-side builds via NEXT_DIST_DIR, e.g. .next-new / .next-verify)
 app/.next/
+app/.next-*/
 app/out/
+app/coverage/
+app/playwright-report/
+app/test-results/
+app/e2e/.auth/
 
 # Prisma
 app/src/generated/
@@ -36,6 +41,7 @@ Thumbs.db
 
 # Misc
 *.log
+*.log.[0-9]*
 *.bak
 *.db
 
@@ -48,3 +54,21 @@ memo.txt
 RESUME-STATE.md
 
 ai-activity.log
+
+# Ops runtime artefacts (logs, watchdog state, restore safety dumps, backups)
+ops/logs/*.log*
+ops/logs/*.json
+ops/restore-safety/
+ops/watchdog/MAINTENANCE
+backups/
+ops/backup/daemon-snapshot-*/
+ops/backup/node_modules-*/
+# node-windows service wrappers (winsw exe/xml + wrapper logs), generated on install
+ops/web/daemon/
+ops/worker/daemon/
+# app runtime logs + worker heartbeat file (logs/worker-heartbeat.json)
+app/logs/
+*.sql.gz
+app/private.pre-restore-*/
+app/.env.pre-restore-*
+app/prisma.ci.config.ts

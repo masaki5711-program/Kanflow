@@ -1,39 +1,21 @@
-import { NextResponse } from "next/server"
-import { prisma } from "@/lib/prisma"
-import { requireProjectMember } from "@/lib/api-helpers"
-import { z } from "zod"
-
-const reorderSchema = z.object({
-  orderedIds: z.array(z.string()).min(1),
-})
+import { requireProject } from "@/lib/authz"
+import { successResponse, toHttpResponse } from "@/services/_shared"
+import { reorderBacklogSchema } from "@/services/backlog/backlog.schemas"
+import { reorderBacklog } from "@/services/backlog/backlog.service"
 
 export async function PUT(
   request: Request,
   { params }: { params: Promise<{ projectId: string }> }
 ) {
   const { projectId } = await params
-  const result = await requireProjectMember(projectId, { roles: ["po"] })
-  if ("error" in result) return result.error
+  const gate = await requireProject(projectId, "backlog.reorder")
+  if ("error" in gate) return gate.error
 
   try {
-    const body = await request.json()
-    const { orderedIds } = reorderSchema.parse(body)
-
-    await prisma.$transaction(
-      orderedIds.map((id, index) =>
-        prisma.productBacklogItem.updateMany({
-          where: { id, projectId },
-          data: { sortOrder: index },
-        })
-      )
-    )
-
-    return NextResponse.json({ success: true })
+    const { orderedIds } = reorderBacklogSchema.parse(await request.json())
+    await reorderBacklog(projectId, orderedIds)
+    return successResponse()
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      return NextResponse.json({ error: error.issues }, { status: 400 })
-    }
-    console.error("Backlog reorder error:", error)
-    return NextResponse.json({ error: "並び替えに失敗しました" }, { status: 500 })
+    return toHttpResponse(error, { fallback: "並び替えに失敗しました", context: "Backlog reorder" })
   }
 }

@@ -1,7 +1,10 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react"
+import { Plus, X } from "lucide-react"
 import { useLanguage } from "@/lib/language-context"
+import { Badge, Button, Field, Select, cn, useToast } from "@/components/ui"
+import { apiFetch, isAbortError } from "@/hooks"
 
 export interface UserSearchResult {
   id: string
@@ -12,60 +15,78 @@ export interface UserSearchResult {
   isMember: boolean
 }
 
+type MemberRole = "po" | "sm" | "dev"
+
 interface Props {
   projectId: string
   onAdded: () => void
   rolePT: { rolePO: string; roleSM: string; roleDev: string }
 }
 
-export function MemberPicker({ projectId, onAdded, rolePT }: Props) {
-  const { t } = useLanguage()
-  const [query, setQuery] = useState("")
-  const [results, setResults] = useState<UserSearchResult[]>([])
-  const [selected, setSelected] = useState<UserSearchResult[]>([])
-  const [role, setRole] = useState<"po" | "sm" | "dev">("dev")
-  const [searching, setSearching] = useState(false)
-  const [adding, setAdding] = useState(false)
-  const [error, setError] = useState("")
-  const [focused, setFocused] = useState(false)
-  const containerRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
-  const abortRef = useRef<AbortController | null>(null)
+const SEARCH_DEBOUNCE_MS = 200
+const MIN_QUERY_LENGTH = 2
+
+/** Search state for one query: results are tagged with the query they belong to. */
+interface SearchState {
+  query: string
+  results: UserSearchResult[]
+}
+
+function useUserSearch(query: string, projectId: string, onError: (message: string) => void) {
+  const [state, setState] = useState<SearchState>({ query: "", results: [] })
+  const onErrorRef = useRef(onError)
+  useEffect(() => {
+    onErrorRef.current = onError
+  })
 
   useEffect(() => {
-    const q = query.trim()
-    if (q.length < 2) {
-      setResults([])
-      setSearching(false)
-      return
-    }
-
-    setSearching(true)
+    if (query.length < MIN_QUERY_LENGTH) return
+    const ac = new AbortController()
     const handle = setTimeout(() => {
-      abortRef.current?.abort()
-      const ac = new AbortController()
-      abortRef.current = ac
-
-      fetch(
-        `/api/users/search?q=${encodeURIComponent(q)}&excludeProjectId=${encodeURIComponent(projectId)}`,
-        { signal: ac.signal },
-      )
-        .then((r) => (r.ok ? r.json() : Promise.reject(r)))
-        .then((data: UserSearchResult[]) => setResults(data))
-        .catch(() => {})
-        .finally(() => setSearching(false))
-    }, 200)
-
+      const url = `/api/users/search?q=${encodeURIComponent(query)}&excludeProjectId=${encodeURIComponent(projectId)}`
+      apiFetch<UserSearchResult[]>(url, { signal: ac.signal })
+        .then((results) => setState({ query, results }))
+        .catch((err: unknown) => {
+          if (isAbortError(err)) return
+          setState({ query, results: [] })
+          onErrorRef.current(err instanceof Error ? err.message : String(err))
+        })
+    }, SEARCH_DEBOUNCE_MS)
     return () => {
       clearTimeout(handle)
+      ac.abort()
     }
   }, [query, projectId])
 
+  const isCurrent = state.query === query
+  return {
+    results: isCurrent ? state.results : [],
+    searching: query.length >= MIN_QUERY_LENGTH && !isCurrent,
+  }
+}
+
+export function MemberPicker({ projectId, onAdded, rolePT }: Props) {
+  const { t } = useLanguage()
+  const toast = useToast()
+  const [query, setQuery] = useState("")
+  const [selected, setSelected] = useState<UserSearchResult[]>([])
+  const [role, setRole] = useState<MemberRole>("dev")
+  const [adding, setAdding] = useState(false)
+  const [focused, setFocused] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const listRef = useRef<HTMLUListElement>(null)
+  const listId = useId()
+  const statusId = useId()
+
+  const q = query.trim()
+  const { results, searching } = useUserSearch(q, projectId, (message) =>
+    toast.error(message, { title: t.memberPickerSearchFailed }),
+  )
+
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setFocused(false)
-      }
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setFocused(false)
     }
     document.addEventListener("mousedown", handleClickOutside)
     return () => document.removeEventListener("mousedown", handleClickOutside)
@@ -74,13 +95,10 @@ export function MemberPicker({ projectId, onAdded, rolePT }: Props) {
   function pickUser(u: UserSearchResult) {
     if (u.isMember) return
     setSelected((prev) => (prev.some((x) => x.id === u.id) ? prev : [...prev, u]))
-    // Clear search and close dropdown after selection so the user can search
-    // for the next person without manually clearing the field.
+    // Clear the search so the next person can be looked up straight away.
     setQuery("")
-    setResults([])
     setFocused(false)
-    // Re-focus the input so they can immediately keep typing the next name.
-    setTimeout(() => inputRef.current?.focus(), 0)
+    inputRef.current?.focus()
   }
 
   function removeFromSelected(id: string) {
@@ -90,161 +108,197 @@ export function MemberPicker({ projectId, onAdded, rolePT }: Props) {
   async function handleAdd() {
     if (selected.length === 0) return
     setAdding(true)
-    setError("")
     try {
-      const res = await fetch(`/api/projects/${projectId}/members`, {
+      await apiFetch(`/api/projects/${projectId}/members`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userIds: selected.map((u) => u.id),
-          role,
-        }),
+        json: { userIds: selected.map((u) => u.id), role },
       })
-      if (!res.ok) {
-        const data = await res.json().catch(() => null)
-        setError(typeof data?.error === "string" ? data.error : t.error)
-        return
-      }
       setSelected([])
       setQuery("")
-      setResults([])
       onAdded()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err), { title: t.memberPickerAddFailed })
     } finally {
       setAdding(false)
     }
   }
 
+  function focusResult(index: number) {
+    const buttons = listRef.current?.querySelectorAll<HTMLButtonElement>("button:not([disabled])")
+    if (!buttons || buttons.length === 0) return
+    buttons[(index + buttons.length) % buttons.length]?.focus()
+  }
+
+  function onInputKeyDown(e: ReactKeyboardEvent<HTMLInputElement>) {
+    if (e.key === "ArrowDown") {
+      e.preventDefault()
+      if (!focused) setFocused(true)
+      else focusResult(0)
+    } else if (e.key === "Escape") {
+      setFocused(false)
+    }
+  }
+
+  function onListKeyDown(e: ReactKeyboardEvent<HTMLUListElement>) {
+    const buttons = Array.from(listRef.current?.querySelectorAll<HTMLButtonElement>("button:not([disabled])") ?? [])
+    const index = buttons.findIndex((b) => b === document.activeElement)
+    if (e.key === "ArrowDown") {
+      e.preventDefault()
+      focusResult(index + 1)
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault()
+      if (index <= 0) inputRef.current?.focus()
+      else focusResult(index - 1)
+    } else if (e.key === "Escape") {
+      // Focus first: the input's onFocus re-opens the dropdown, so close after it.
+      inputRef.current?.focus()
+      setFocused(false)
+    }
+  }
+
   const selectedIds = new Set(selected.map((u) => u.id))
-  const q = query.trim()
   const showDropdown = focused && q.length >= 1
+  const statusText =
+    q.length < MIN_QUERY_LENGTH
+      ? t.memberPickerEmpty
+      : searching
+        ? t.loading
+        : results.length === 0
+          ? t.userNoResults
+          : t.memberPickerResults.replace("{count}", String(results.length))
 
   return (
     <div ref={containerRef} className="relative">
-      <div className="flex flex-wrap items-center gap-2 border border-gray-200 rounded-xl px-2 py-2 bg-white focus-within:ring-2 focus-within:ring-blue-500/20 focus-within:border-blue-500">
+      <div className="flex flex-wrap items-center gap-2 rounded-ui-md border border-border-strong bg-surface px-2 py-2 focus-within:border-primary">
         {selected.map((u) => (
           <span
             key={u.id}
-            className="inline-flex items-center gap-1.5 bg-blue-50 text-blue-700 text-sm px-2.5 py-1 rounded-lg border border-blue-200"
+            className="inline-flex items-center gap-1.5 rounded-ui-sm border border-primary/30 bg-primary-soft px-2.5 py-1 text-body text-primary-active"
           >
-            <span className="w-5 h-5 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-[10px] font-bold">
+            <span aria-hidden="true" className="flex h-5 w-5 items-center justify-center rounded-full bg-surface text-caption font-bold">
               {u.name.slice(0, 1)}
             </span>
             <span className="font-medium">{u.name}</span>
-            {u.department && (
-              <span className="text-xs text-blue-500">· {u.department}</span>
-            )}
+            {u.department && <span className="text-caption">· {u.department}</span>}
             <button
               type="button"
               onClick={() => removeFromSelected(u.id)}
-              className="ml-0.5 text-blue-400 hover:text-blue-700"
-              aria-label="remove"
+              className="-mr-1 inline-flex h-6 w-6 items-center justify-center rounded-full hover:bg-surface"
+              aria-label={t.memberPickerRemove.replace("{name}", u.name)}
+              title={t.memberPickerRemove.replace("{name}", u.name)}
             >
-              <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd"/>
-              </svg>
+              <X aria-hidden className="h-3.5 w-3.5" />
             </button>
           </span>
         ))}
         <input
           ref={inputRef}
           type="text"
+          role="combobox"
+          aria-label={t.memberPickerSearchLabel}
+          aria-expanded={showDropdown}
+          aria-controls={showDropdown ? listId : undefined}
+          aria-autocomplete="list"
+          aria-describedby={statusId}
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(e) => {
+            setQuery(e.target.value)
+            // Typing after Escape closed the popup re-opens the results.
+            setFocused(true)
+          }}
           onFocus={() => setFocused(true)}
+          onKeyDown={onInputKeyDown}
           placeholder={t.memberPickerSearchPlaceholder}
-          className="flex-1 min-w-[220px] bg-transparent px-2 py-1 text-sm outline-none placeholder:text-gray-400"
+          className="min-w-[12rem] flex-1 bg-transparent px-2 py-1 text-body outline-none placeholder:text-fg-subtle"
         />
       </div>
 
+      <p id={statusId} role="status" aria-live="polite" className="sr-only">
+        {focused && q.length >= 1 ? statusText : ""}
+      </p>
+
       {showDropdown && (
-        <div className="absolute z-20 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-80 overflow-y-auto">
-          {q.length < 2 ? (
-            <div className="px-4 py-3 text-sm text-gray-400">{t.memberPickerEmpty}</div>
-          ) : searching ? (
-            <div className="px-4 py-3 text-sm text-gray-400">{t.loading}</div>
-          ) : results.length === 0 ? (
-            <div className="px-4 py-3 text-sm text-gray-400">{t.userNoResults}</div>
+        <div className="absolute left-0 right-0 z-20 mt-1 max-h-80 overflow-y-auto rounded-ui-md border border-border bg-surface shadow-ui-lg">
+          {results.length === 0 || searching || q.length < MIN_QUERY_LENGTH ? (
+            <p className="px-4 py-3 text-body text-fg-muted">{statusText}</p>
           ) : (
-            <ul className="divide-y divide-gray-100">
-              {results.map((u) => {
-                const isSel = selectedIds.has(u.id)
-                const disabled = u.isMember || isSel
-                return (
-                  <li key={u.id}>
-                    <button
-                      type="button"
-                      onClick={() => pickUser(u)}
-                      disabled={disabled}
-                      className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${
-                        disabled
-                          ? "bg-gray-50 cursor-not-allowed opacity-60"
-                          : "hover:bg-blue-50"
-                      }`}
-                    >
-                      <div className="w-9 h-9 rounded-full bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center text-sm font-semibold text-slate-600 shrink-0">
-                        {u.name.slice(0, 2)}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-sm font-semibold text-gray-900 truncate">{u.name}</span>
-                          {u.employeeNumber && (
-                            <span className="text-xs text-gray-400 font-mono">{u.employeeNumber}</span>
-                          )}
-                          {u.isMember && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-medium">
-                              {t.memberPickerAlreadyAdded}
-                            </span>
-                          )}
-                          {!u.isMember && isSel && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 font-medium">
-                              ✓ {t.memberPickerSelected}
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-xs text-gray-500 truncate flex items-center gap-2">
-                          <span>{u.email}</span>
-                          {u.department && <span className="text-gray-400">· {u.department}</span>}
-                        </div>
-                      </div>
-                    </button>
-                  </li>
-                )
-              })}
+            <ul id={listId} ref={listRef} onKeyDown={onListKeyDown} className="divide-y divide-border">
+              {results.map((u) => (
+                <MemberResult key={u.id} user={u} isSelected={selectedIds.has(u.id)} onPick={pickUser} />
+              ))}
             </ul>
           )}
         </div>
       )}
 
       {selected.length > 0 && (
-        <div className="mt-3 flex items-center gap-3 bg-gray-50 rounded-xl px-4 py-3">
-          <span className="text-sm text-gray-600">
-            <strong className="text-gray-900">{selected.length}</strong> {t.memberPickerSelected}
+        <div className="mt-3 flex flex-wrap items-center gap-3 rounded-ui-md bg-surface-muted px-4 py-3">
+          <span className="text-body text-fg-muted">
+            <strong className="text-fg">{selected.length}</strong> {t.memberPickerSelected}
           </span>
-          <select
-            value={role}
-            onChange={(e) => setRole(e.target.value as "po" | "sm" | "dev")}
-            className="px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-          >
-            <option value="dev">{rolePT.roleDev}</option>
-            <option value="sm">{rolePT.roleSM}</option>
-            <option value="po">{rolePT.rolePO}</option>
-          </select>
-          <button
+          <Field label={t.memberPickerRole} hideLabel className="w-auto">
+            <Select selectSize="sm" value={role} onChange={(e) => setRole(e.target.value as MemberRole)}>
+              <option value="dev">{rolePT.roleDev}</option>
+              <option value="sm">{rolePT.roleSM}</option>
+              <option value="po">{rolePT.rolePO}</option>
+            </Select>
+          </Field>
+          <Button
+            size="sm"
+            className="ml-auto"
+            loading={adding}
             onClick={handleAdd}
-            disabled={adding}
-            className="ml-auto inline-flex items-center gap-2 px-4 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium"
+            leftIcon={<Plus aria-hidden className="h-4 w-4" />}
           >
-            <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd"/>
-            </svg>
             {t.memberPickerAddSelected}
-          </button>
+          </Button>
         </div>
       )}
-
-      {error && (
-        <p className="mt-2 text-sm text-red-600">{error}</p>
-      )}
     </div>
+  )
+}
+
+function MemberResult({
+  user: u,
+  isSelected,
+  onPick,
+}: {
+  user: UserSearchResult
+  isSelected: boolean
+  onPick: (u: UserSearchResult) => void
+}) {
+  const { t } = useLanguage()
+  const disabled = u.isMember || isSelected
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={() => onPick(u)}
+        disabled={disabled}
+        className={cn(
+          "flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors",
+          disabled ? "cursor-not-allowed bg-surface-muted opacity-70" : "hover:bg-primary-soft focus:bg-primary-soft",
+        )}
+      >
+        <span
+          aria-hidden="true"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-sunken text-body font-semibold text-fg-muted"
+        >
+          {u.name.slice(0, 2)}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="flex flex-wrap items-center gap-2">
+            <span className="truncate text-body font-semibold text-fg">{u.name}</span>
+            {u.employeeNumber && <span className="font-mono text-caption text-fg-muted">{u.employeeNumber}</span>}
+            {u.isMember && <Badge tone="success" size="sm">{t.memberPickerAlreadyAdded}</Badge>}
+            {!u.isMember && isSelected && <Badge tone="primary" size="sm">✓ {t.memberPickerSelected}</Badge>}
+          </span>
+          <span className="flex items-center gap-2 truncate text-caption text-fg-muted">
+            <span>{u.email}</span>
+            {u.department && <span>· {u.department}</span>}
+          </span>
+        </span>
+      </button>
+    </li>
   )
 }

@@ -1,50 +1,80 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
+import { Button, Modal, VisuallyHidden, useModalClose, useToast } from "@/components/ui"
 import { useLanguage } from "@/lib/language-context"
-import { useOverlayClose } from "@/lib/use-overlay-close"
+import { emitActivity } from "@/hooks/activity"
+import { ReportDocument, normalizeStructured } from "@/components/structured-report-document"
+import { structuredReportToMarkdown } from "@/lib/report-markdown"
+import { extractPartialObject } from "@/lib/streaming-json-array"
+import type { StructuredReport } from "@/lib/report-tool"
 
 interface Props {
   title: string
-  /**
-   * Async generator that the modal will iterate to receive streaming chunks.
-   * The modal handles fetch + streaming itself; consumer just provides the URL + body.
-   */
+  /** Endpoint that streams the AI response; the modal POSTs `fetchBody` as JSON. */
   fetchUrl: string
   fetchBody: unknown
   onClose: () => void
   /**
+   * Structured-report mode: the endpoint streams a StructuredReport-shaped
+   * JSON object; the modal incrementally parses it and live-renders the
+   * formal report document section by section as tokens arrive.
+   * `triggerLabel` fills the report's meta table.
+   */
+  structured?: boolean
+  triggerLabel?: string
+  /**
    * Optional footer slot, e.g., "use this draft" / "add to KPT" buttons.
    * Receives the full streamed text once complete.
    */
-  footer?: (fullText: string, done: boolean) => React.ReactNode
+  footer?: (fullText: string, done: boolean) => ReactNode
 }
 
 /**
  * Generic modal that POSTs to an AI endpoint and streams the response into the body.
  * Used by INVEST review, retro synthesis, progress report, etc.
  */
-export function AIResultModal({ title, fetchUrl, fetchBody, onClose, footer }: Props) {
-  const { t } = useLanguage()
-  const [text, setText] = useState("")
-  const [done, setDone] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const acRef = useRef<AbortController | null>(null)
-  const scrollRef = useRef<HTMLDivElement>(null)
+export function AIResultModal({ title, fetchUrl, fetchBody, onClose, structured = false, triggerLabel, footer }: Props) {
+  const bodyJson = JSON.stringify(fetchBody)
+  // A new request (URL/body/mode) remounts the stream so its state starts fresh.
+  return (
+    <AIResultStream
+      key={`${fetchUrl}|${bodyJson}|${structured}`}
+      title={title}
+      fetchUrl={fetchUrl}
+      bodyJson={bodyJson}
+      onClose={onClose}
+      structured={structured}
+      triggerLabel={triggerLabel}
+      footer={footer}
+    />
+  )
+}
+
+interface StreamState {
+  text: string
+  report: StructuredReport | null
+  generatedAt: Date | null
+  done: boolean
+  failed: boolean
+}
+
+const INITIAL: StreamState = { text: "", report: null, generatedAt: null, done: false, failed: false }
+
+function useAiStream(fetchUrl: string, bodyJson: string, structured: boolean): StreamState {
+  const [state, setState] = useState<StreamState>(INITIAL)
 
   useEffect(() => {
     const ac = new AbortController()
-    acRef.current = ac
-    setText("")
-    setDone(false)
-    setError(null)
-
+    // Streaming responses can't go through apiFetch; signal activity so the
+    // idle-logout watcher counts the request (and its completion) as use.
+    emitActivity()
     ;(async () => {
       try {
         const res = await fetch(fetchUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(fetchBody),
+          body: bodyJson,
           signal: ac.signal,
         })
         if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
@@ -52,118 +82,139 @@ export function AIResultModal({ title, fetchUrl, fetchBody, onClose, footer }: P
         const decoder = new TextDecoder()
         let acc = ""
         while (true) {
-          const { done: rdone, value } = await reader.read()
-          if (rdone) break
+          const { done, value } = await reader.read()
+          if (done) break
           acc += decoder.decode(value, { stream: true })
-          setText(acc)
+          // Live-render the report document as the JSON streams in:
+          // sections appear one by one while the model is still writing.
+          const partial = structured ? extractPartialObject(acc) : null
+          const rep = partial ? normalizeStructured(partial.fields) : null
+          const text = acc
+          setState((s) => ({ ...s, text, report: rep ?? s.report }))
         }
-        setDone(true)
+        let finalReport: StructuredReport | null = null
+        if (structured) {
+          // Final strict parse for fidelity; keep the last partial on failure.
+          try {
+            finalReport = normalizeStructured(JSON.parse(acc))
+          } catch {
+            finalReport = null
+          }
+        }
+        emitActivity()
+        setState((s) => ({
+          ...s,
+          report: finalReport ?? s.report,
+          generatedAt: structured ? new Date() : s.generatedAt,
+          done: true,
+        }))
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") return
-        setError(t.aiFailed)
+        setState((s) => ({ ...s, failed: true }))
       }
     })()
-
     return () => ac.abort()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fetchUrl, JSON.stringify(fetchBody)])
+  }, [fetchUrl, bodyJson, structured])
 
+  return state
+}
+
+function ThinkingIndicator({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-2 text-body text-fg-muted">
+      <span aria-hidden="true" className="inline-flex gap-1">
+        <span className="w-1.5 h-1.5 bg-fg-subtle rounded-full animate-pulse" />
+        <span className="w-1.5 h-1.5 bg-fg-subtle rounded-full animate-pulse [animation-delay:0.15s]" />
+        <span className="w-1.5 h-1.5 bg-fg-subtle rounded-full animate-pulse [animation-delay:0.3s]" />
+      </span>
+      <span>{label}</span>
+    </div>
+  )
+}
+
+function CloseButton() {
+  const { t } = useLanguage()
+  const close = useModalClose()
+  return <Button variant="secondary" size="sm" onClick={close}>{t.close}</Button>
+}
+
+function AIResultStream({ title, fetchUrl, bodyJson, onClose, structured, triggerLabel, footer }: Omit<Props, "fetchBody"> & { bodyJson: string; structured: boolean }) {
+  const { t, language } = useLanguage()
+  const toast = useToast()
+  const { text, report, generatedAt, done, failed } = useAiStream(fetchUrl, bodyJson, structured)
+  const endRef = useRef<HTMLDivElement>(null)
+
+  // Keep the newest streamed content in view.
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
-    }
+    endRef.current?.scrollIntoView({ block: "end" })
   }, [text])
 
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose()
+  async function copyToClipboard() {
+    // Structured reports copy as readable markdown, not the raw JSON stream.
+    const out = report ? structuredReportToMarkdown(report, language) : text
+    if (!out) return
+    try {
+      await navigator.clipboard.writeText(out)
+      toast.success(t.aiReportCopied)
+    } catch {
+      toast.error(t.aiReportCopyFailed)
     }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [onClose])
-
-  function copyToClipboard() {
-    if (!text) return
-    navigator.clipboard.writeText(text).catch(() => {})
   }
 
-  const overlay = useOverlayClose(onClose)
+  const locale = language === "ja" ? "ja-JP" : language === "id" ? "id-ID" : "en-US"
+  const status = failed ? t.aiFailed : done ? t.aiReportGenerationDone : t.aiThinking
+
+  let body: ReactNode
+  if (failed) {
+    body = <p role="alert" className="text-body text-danger">{t.aiFailed}</p>
+  } else if (report) {
+    body = (
+      <>
+        <ReportDocument
+          report={report}
+          docTitle={title}
+          trigger={triggerLabel ?? title}
+          createdAt={(generatedAt ?? new Date()).toLocaleString(locale, {
+            year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+          })}
+          t={t}
+        />
+        {!done && <div className="mt-3"><ThinkingIndicator label={t.aiThinking} /></div>}
+      </>
+    )
+  } else if (!text || (structured && !done)) {
+    // Raw JSON is accumulating but no renderable fields yet — keep the
+    // indicator instead of dumping JSON tokens on the user.
+    body = <ThinkingIndicator label={t.aiThinking} />
+  } else {
+    body = <div className="text-body text-fg whitespace-pre-wrap leading-relaxed">{text}</div>
+  }
 
   return (
-    <div
-      className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[60] p-4"
-      {...overlay}
-    >
-      <div
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[88vh] flex flex-col"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="text-purple-600">🤖</span>
-            <h3 className="text-lg font-bold text-gray-900">{title}</h3>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-2 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors"
-            title={t.close}
-          >
-            <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
-              <path
-                fillRule="evenodd"
-                d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-                clipRule="evenodd"
-              />
-            </svg>
-          </button>
-        </div>
-
-        <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-5 min-h-0">
-          {error ? (
-            <p className="text-sm text-red-500">{error}</p>
-          ) : !text ? (
-            <div className="flex items-center gap-2 text-sm text-gray-400">
-              <span className="inline-flex gap-1">
-                <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-pulse" />
-                <span
-                  className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-pulse"
-                  style={{ animationDelay: "0.15s" }}
-                />
-                <span
-                  className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-pulse"
-                  style={{ animationDelay: "0.3s" }}
-                />
-              </span>
-              <span>{t.aiThinking}</span>
-            </div>
-          ) : (
-            <div className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">{text}</div>
-          )}
-          {done && (
-            <p className="mt-4 text-[11px] text-gray-400">{t.aiResultDisclaimer}</p>
-          )}
-        </div>
-
-        <div className="px-6 py-3 border-t border-gray-100 flex items-center justify-end gap-2 bg-gray-50/60 rounded-b-2xl">
+    <Modal
+      open
+      onClose={onClose}
+      title={<span className="inline-flex items-center gap-2"><span aria-hidden="true">🤖</span>{title}</span>}
+      size={structured ? "xl" : "lg"}
+      // Read-only viewer: backdrop click closes it — but only once generation finished,
+      // so a stray click never throws away a running AI stream.
+      closeOnOverlayClick={done || failed}
+      footer={
+        <>
           {footer?.(text, done)}
-          <button
-            type="button"
-            onClick={copyToClipboard}
-            disabled={!text}
-            className="px-4 py-2 text-xs font-medium text-gray-600 border border-gray-300 rounded-lg hover:bg-white disabled:opacity-50 transition-colors"
-          >
+          <Button variant="secondary" size="sm" onClick={copyToClipboard} disabled={!text}>
             {t.aiCopy}
-          </button>
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 text-xs font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-white transition-colors"
-          >
-            {t.close}
-          </button>
-        </div>
-      </div>
-    </div>
+          </Button>
+          <CloseButton />
+        </>
+      }
+    >
+      <VisuallyHidden>
+        <span role="status" aria-live="polite">{status}</span>
+      </VisuallyHidden>
+      <div aria-busy={!done && !failed}>{body}</div>
+      {done && <p className="mt-4 text-caption text-fg-muted">{t.aiResultDisclaimer}</p>}
+      <div ref={endRef} />
+    </Modal>
   )
 }

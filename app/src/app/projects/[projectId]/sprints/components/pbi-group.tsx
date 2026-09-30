@@ -1,11 +1,13 @@
 "use client"
 
 import { useLanguage } from "@/lib/language-context"
-import {
-  IconClipboard, IconEditPencilAlt, IconEye, IconPlusCircle, IconScale, IconTrash,
-} from "./sprint-icons"
+import { I18nText } from "@/components/i18n-text"
+import { pickText } from "@/lib/translation/pick-text"
+import { Button, IconButton, Truncate, cn } from "@/components/ui"
+import { isRealTask } from "../lib/sprint-metrics"
 import SprintTaskRow from "./sprint-task-row"
-import type { SprintItem, SprintPbItem } from "./types"
+import type { SprintItem, SprintPbItem, SprintTaskActions } from "./types"
+import { CirclePlus, ClipboardList, Eye, Scale, SquarePen, Trash2 } from "lucide-react"
 
 interface PbiGroupProps {
   sprintId: string
@@ -19,124 +21,102 @@ interface PbiGroupProps {
   editingCommentTaskId: string | null
   onOpenCommentEditor: (taskId: string) => void
   onCloseCommentEditor: () => void
-  onRequestComplete: (task: SprintItem) => void
-  onQuickUpdateTaskStatus: (sprintId: string, taskId: string, status: string, completionComment?: string | null) => void
-  onStartEditTask: (sprintId: string, task: SprintItem) => void
-  onDeleteTask: (sprintId: string, taskId: string) => void
-  onEditCompletionComment: (sprintId: string, taskId: string, completionComment: string) => Promise<void> | void
-  onSendToIcebox: (sprintId: string, taskId: string, request: string, background?: string) => Promise<void> | void
-  onOpenTaskForm: (sprintId: string, pbItemId?: string) => void
-  onRemovePbi: (sprintId: string, pbItemId: string) => void
-  onViewPbiDetail: (pbiId: string) => void
+  actions: SprintTaskActions
 }
+
+const WARN_PERCENT = 80
 
 export default function PbiGroup({
   sprintId, sprintStatus, pbItem, tasks, pointUnit, canEditPbi,
-  editingCommentTaskId, onOpenCommentEditor, onCloseCommentEditor,
-  onRequestComplete, onQuickUpdateTaskStatus, onStartEditTask, onDeleteTask,
-  onEditCompletionComment, onSendToIcebox, onOpenTaskForm, onRemovePbi, onViewPbiDetail,
+  editingCommentTaskId, onOpenCommentEditor, onCloseCommentEditor, actions,
 }: PbiGroupProps) {
-  const { t, pt } = useLanguage()
+  const { t, pt, language } = useLanguage()
+  // Heading: initiative, falling back to the user story — each in the viewer's language.
+  const pbHeading =
+    pickText(pbItem.i18n, "initiative", pbItem.initiative, language).text ||
+    pickText(pbItem.i18n, "userStory", pbItem.userStory, language).text ||
+    t.sprintNotEntered
 
-  const realPbTasks = tasks.filter((tsk) => (tsk.taskName ?? "").trim().length > 0)
+  const realPbTasks = tasks.filter(isRealTask)
   const taskEffortSum = realPbTasks.reduce((sum, tsk) => sum + (tsk.estimatedHours ?? 0), 0)
   const pbCapacity = pbItem.workloadScore
   const pbProgress = pbCapacity > 0 ? Math.round((taskEffortSum / pbCapacity) * 100) : 0
   const pbIsOver = taskEffortSum > pbCapacity && pbCapacity > 0
   const canEditMembership = sprintStatus !== "archived" && sprintStatus !== "done"
-  // Left accent bar reflects the PBI's task progress at a glance:
-  // all done = emerald, started = blue, untouched = slate.
+  // Left accent bar: all done = success, started = primary, untouched = neutral.
   const groupAllDone = realPbTasks.length > 0 && realPbTasks.every((tsk) => tsk.status === "done")
   const groupStarted = realPbTasks.some((tsk) => tsk.status !== "todo")
-  const leftBarColor = groupAllDone ? "border-l-emerald-500" : groupStarted ? "border-l-blue-500" : "border-l-slate-300"
+  const leftBarColor = groupAllDone ? "border-l-success" : groupStarted ? "border-l-primary" : "border-l-border-strong"
+  const barColor = pbIsOver ? "bg-danger" : pbProgress > WARN_PERCENT ? "bg-warning" : "bg-primary"
+  const pbRef = `#${pbItem.displayId}`
 
   return (
-    <div className={`bg-white border border-gray-200 border-l-4 ${leftBarColor} rounded-lg overflow-hidden`}>
-      {/* PBI header band — visually separates the PBI "heading" from its task list */}
-      <div className="bg-slate-50 border-b border-gray-200 px-4 pt-2.5 pb-2">
-        <div className="flex items-center justify-between mb-1 gap-2">
+    <section aria-label={`${pbRef} ${pbHeading}`}
+      className={cn("bg-surface border border-border border-l-4 rounded-ui-sm overflow-hidden", leftBarColor)}>
+      <div className="bg-surface-muted border-b border-border px-4 pt-2.5 pb-2">
+        <div className="flex flex-wrap items-center justify-between mb-1 gap-2">
           <div className="flex items-center gap-2 min-w-0 flex-1">
-            <IconClipboard className="w-4 h-4 text-gray-400 flex-shrink-0" />
-            <span className="text-xs font-mono text-gray-500">#{pbItem.displayId}</span>
-            <span className="text-sm font-semibold text-gray-900 truncate">
-              {pbItem.initiative || pbItem.userStory || t.sprintNotEntered}
-            </span>
-            <span className="inline-flex items-center gap-1 text-xs bg-orange-50 text-orange-700 border border-orange-200 px-2 py-0.5 rounded-full">
-              <IconScale />
+            <ClipboardList className="w-4 h-4 text-fg-subtle flex-shrink-0" />
+            <span className="text-caption font-mono text-fg-muted">{pbRef}</span>
+            <Truncate text={pbHeading} as="h4" className="text-body font-semibold text-fg min-w-0" />
+            <span className="inline-flex items-center gap-1 text-caption bg-warning-soft text-warning-strong border border-warning/30 px-2 py-0.5 rounded-full whitespace-nowrap">
+              <Scale className="w-3.5 h-3.5" />
               {pbItem.workloadScore} {pointUnit}
             </span>
           </div>
           <div className="flex items-center gap-1 flex-shrink-0">
-            <button onClick={() => onViewPbiDetail(pbItem.id)}
-              className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-              title={canEditPbi ? t.edit : t.view}>
-              {canEditPbi ? <IconEditPencilAlt className="w-4 h-4" /> : <IconEye className="w-4 h-4" />}
-            </button>
-            <button onClick={() => onOpenTaskForm(sprintId, pbItem.id)}
-              className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2.5 py-1 rounded-lg transition-colors">
-              <IconPlusCircle className="w-4 h-4" />
+            <IconButton size="sm" label={`${canEditPbi ? t.edit : t.view}: ${pbRef}`}
+              icon={canEditPbi ? <SquarePen className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              onClick={() => actions.onViewPbiDetail(pbItem.id)} />
+            <Button size="sm" variant="secondary" leftIcon={<CirclePlus className="w-4 h-4" />}
+              onClick={() => actions.onOpenTaskForm(sprintId, pbItem.id)}>
               {t.sprintAddTaskShort}
-            </button>
+            </Button>
             {canEditMembership && (
-              <button onClick={() => onRemovePbi(sprintId, pbItem.id)}
-                className="p-1.5 text-gray-300 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                title={t.sprintRemovePbi}>
-                <IconTrash className="w-3.5 h-3.5" />
-              </button>
+              <IconButton size="sm" label={`${t.sprintRemovePbi}: ${pbRef}`} icon={<Trash2 className="w-4 h-4" />}
+                className="hover:text-danger-strong hover:bg-danger-soft"
+                onClick={() => actions.onRemovePbi(sprintId, pbItem.id)} />
             )}
           </div>
         </div>
 
-        {/* PBI progress bar */}
         {pbCapacity > 0 && (
           <div className="mb-1">
-            <div className="flex justify-between text-xs text-gray-500 mb-0.5">
+            <div className="flex justify-between text-caption text-fg-muted mb-0.5">
               <span>{t.sprintTaskEstimateTotal}: {taskEffortSum} / {pbCapacity} {pointUnit}</span>
-              <span className={pbIsOver ? "text-red-600 font-medium" : ""}>{pbProgress}%</span>
+              <span className={pbIsOver ? "text-danger font-medium" : ""}>{pbProgress}%</span>
             </div>
-            <div className="w-full bg-gray-100 rounded-full h-1.5">
-              <div className={`h-1.5 rounded-full transition-all duration-300 ${pbIsOver ? "bg-red-500" : pbProgress > 80 ? "bg-amber-400" : "bg-blue-500"}`}
-                style={{ width: `${Math.min(pbProgress, 100)}%` }} />
+            <div className="w-full bg-surface-sunken rounded-full h-1.5 overflow-hidden" aria-hidden="true">
+              <div className={cn("h-1.5 w-full rounded-full origin-left transition-transform duration-300", barColor)}
+                style={{ transform: `scaleX(${Math.min(pbProgress, 100) / 100})` }} />
             </div>
           </div>
         )}
 
         {pbItem.epic && (
-          <p className="text-xs text-gray-500 mb-1">{pt.backlogEpic}: {pbItem.epic}</p>
+          <p className="text-caption text-fg-muted mb-1">
+            {pt.backlogEpic}: <I18nText i18n={pbItem.i18n} field="epic" original={pbItem.epic} noBadge />
+          </p>
         )}
       </div>
 
-      {/* Tasks */}
       <div className="px-3 py-2">
         {realPbTasks.length === 0 ? (
-          <button
-            onClick={() => onOpenTaskForm(sprintId, pbItem.id)}
-            className="w-full border border-dashed border-gray-300 rounded-lg py-3 text-xs text-gray-400 hover:border-blue-300 hover:text-blue-600 hover:bg-blue-50/40 transition-colors"
-          >
+          <button type="button" onClick={() => actions.onOpenTaskForm(sprintId, pbItem.id)}
+            className="w-full border border-dashed border-border-strong rounded-ui-sm py-3 text-caption text-fg-muted hover:border-primary hover:text-primary-strong hover:bg-primary-soft/40 transition-colors">
             + {t.sprintNoTasksYet} — {t.sprintAddTask}
           </button>
         ) : (
-          <div className="divide-y divide-gray-100">
+          <ul className="divide-y divide-border">
             {realPbTasks.map((task) => (
-              <SprintTaskRow
-                key={task.id}
-                sprintId={sprintId}
-                task={task}
-                pointUnit={pointUnit}
+              <SprintTaskRow key={task.id} sprintId={sprintId} task={task} pointUnit={pointUnit}
                 isCommentEditorOpen={editingCommentTaskId === task.id}
-                onOpenCommentEditor={onOpenCommentEditor}
-                onCloseCommentEditor={onCloseCommentEditor}
-                onRequestComplete={onRequestComplete}
-                onQuickUpdateTaskStatus={onQuickUpdateTaskStatus}
-                onStartEditTask={onStartEditTask}
-                onDeleteTask={onDeleteTask}
-                onEditCompletionComment={onEditCompletionComment}
-                onSendToIcebox={onSendToIcebox}
-              />
+                onOpenCommentEditor={onOpenCommentEditor} onCloseCommentEditor={onCloseCommentEditor}
+                actions={actions} />
             ))}
-          </div>
+          </ul>
         )}
       </div>
-    </div>
+    </section>
   )
 }

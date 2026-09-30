@@ -1,93 +1,16 @@
-import { NextResponse } from "next/server"
-import { prisma } from "@/lib/prisma"
-import { copyTemplateFile, requireAuth } from "@/lib/api-helpers"
-import { z } from "zod"
-
-const createSchema = z.object({
-  name: z.string().min(1).max(200),
-  description: z.string().max(5000).optional(),
-  projectType: z.enum(["software", "process_improvement", "general"]).optional(),
-  sectionIds: z.array(z.string()).optional(),
-})
-
-const PRODUCT_GOAL_TEMPLATE = {
-  fileName: "ProductGoalSheet.xlsx",
-  displayName: "ProductGoalSheet.xlsx",
-  mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-}
+import { requireAuth } from "@/lib/api-helpers"
+import { actorFromSession, jsonResponse, toHttpResponse } from "@/services/_shared"
+import { createProjectSchema } from "@/services/projects/projects.schemas"
+import { createProject } from "@/services/projects/projects.service"
 
 export async function POST(request: Request) {
   const gate = await requireAuth()
   if ("error" in gate) return gate.error
 
   try {
-    const body = await request.json()
-    const data = createSchema.parse(body)
-    const projectType = data.projectType ?? "software"
-
-    const user = await prisma.user.findUnique({
-      where: { id: gate.session.user.id },
-      select: {
-        language: true,
-        role: true,
-        sections: { select: { sectionId: true }, orderBy: { assignedAt: "asc" } },
-      },
-    })
-    const language = user?.language ?? "ja"
-
-    // Section assignment policy:
-    // - Admin: explicit sectionIds from request body (or empty)
-    // - Others: auto-inherit ALL of the user's sections (request body ignored)
-    let sectionIds: string[] = []
-    if (user?.role === "admin") {
-      sectionIds = data.sectionIds ?? []
-    } else if (user?.sections && user.sections.length > 0) {
-      sectionIds = user.sections.map((s) => s.sectionId)
-    }
-
-    const project = await prisma.project.create({
-      data: {
-        name: data.name,
-        description: data.description,
-        projectType,
-        language,
-        members: {
-          create: { userId: gate.session.user.id, role: "po" },
-        },
-        sections: sectionIds.length
-          ? { create: sectionIds.map((sectionId) => ({ sectionId })) }
-          : undefined,
-      },
-    })
-
-    const copied = await copyTemplateFile(
-      project.id,
-      PRODUCT_GOAL_TEMPLATE.fileName,
-      PRODUCT_GOAL_TEMPLATE.displayName,
-      PRODUCT_GOAL_TEMPLATE.mimeType
-    )
-    if (copied.ok) {
-      await prisma.projectAttachment.create({
-        data: {
-          projectId: project.id,
-          folderId: null,
-          fileName: copied.fileName,
-          originalName: copied.originalName,
-          fileSize: copied.fileSize,
-          mimeType: copied.mimeType,
-          uploadedBy: gate.session.user.name ?? null,
-        },
-      })
-    } else {
-      console.warn("Default template attach skipped:", copied.error)
-    }
-
-    return NextResponse.json(project, { status: 201 })
+    const input = createProjectSchema.parse(await request.json())
+    return jsonResponse(await createProject(input, actorFromSession(gate.session)), 201)
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      return NextResponse.json({ error: error.issues }, { status: 400 })
-    }
-    console.error("Project CREATE error:", error)
-    return NextResponse.json({ error: "作成に失敗しました" }, { status: 500 })
+    return toHttpResponse(error, { fallback: "作成に失敗しました", context: "Project CREATE" })
   }
 }

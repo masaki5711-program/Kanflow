@@ -1,7 +1,11 @@
 import { z } from "zod"
 import { NextResponse } from "next/server"
-import { requireProjectMember } from "@/lib/api-helpers"
-import { ollamaChatStreamWithTools, detectLang, type ChatMessage } from "@/lib/ollama"
+import { requireProject } from "@/lib/authz"
+import { ollamaChatStreamWithTools, detectLang, type ChatMessage, type ChatStreamEvent, type ToolCall } from "@/lib/ollama"
+import { OLLAMA_TIMEOUTS } from "@/lib/ollama/config"
+import { OllamaAbortedError, OllamaTimeoutError, ollamaErrorMessage, ollamaErrorResponse } from "@/lib/ollama/errors"
+import { primeStream } from "@/lib/ollama/prime"
+import { anySignal, startDeadline } from "@/lib/ollama/signals"
 import { buildProjectContext, CHAT_SYSTEM_PROMPT } from "@/lib/project-context"
 import { normalizeLang, type AILang } from "@/lib/ai-analysis"
 import { CHAT_TOOLS, runTool } from "@/lib/chat-tools"
@@ -125,7 +129,7 @@ export async function POST(
   { params }: { params: Promise<{ projectId: string }> }
 ) {
   const { projectId } = await params
-  const auth = await requireProjectMember(projectId)
+  const auth = await requireProject(projectId, "ai.use")
   if ("error" in auth) return auth.error
 
   let parsed
@@ -133,7 +137,7 @@ export async function POST(
     const json = await request.json()
     parsed = bodySchema.parse(json)
   } catch {
-    return NextResponse.json({ error: "invalid_request" }, { status: 400 })
+    return NextResponse.json({ error: "invalid_request", code: "VALIDATION" }, { status: 400 })
   }
 
   const context = await buildProjectContext(projectId)
@@ -163,13 +167,46 @@ export async function POST(
     ...parsed.messages,
   ]
 
+  // Whole-conversation deadline + client disconnect (request.signal) +
+  // stream cancel (local): any of them aborts the in-flight Ollama request.
+  const local = new AbortController()
+  const deadline = startDeadline(OLLAMA_TIMEOUTS.chat, () => new OllamaTimeoutError(OLLAMA_TIMEOUTS.chat))
+  const signal = anySignal([request.signal, deadline.signal, local.signal])
+  const turnOptions = {
+    signal,
+    timeoutMs: OLLAMA_TIMEOUTS.chat,
+    label: "chat",
+    think: false,
+    tools: CHAT_TOOLS,
+    numPredict: 4096,
+  }
+  const conversation = [...baseMessages]
+  const chatT0 = Date.now()
+
+  // Open the first turn before responding so that failures before any output
+  // (Ollama down, timeout, client gone) become a JSON error status.
+  aiLog("LLM_TURN", `iteration=1/${MAX_TOOL_ITERATIONS} waiting for local model…`)
+  let firstTurn: AsyncIterableIterator<ChatStreamEvent>
+  try {
+    firstTurn = await primeStream(ollamaChatStreamWithTools(conversation, turnOptions))
+  } catch (err) {
+    deadline.clear()
+    aiLog(err instanceof OllamaAbortedError ? "CHAT_ABORT" : "CHAT_ERROR", ollamaErrorMessage(err))
+    return ollamaErrorResponse(err)
+  }
+
   const stream = new ReadableStream({
     async start(controller) {
       const encoder = new TextEncoder()
-      const ac = new AbortController()
-      const timeout = setTimeout(() => ac.abort(), 240_000)
-      const conversation = [...baseMessages]
-      const chatT0 = Date.now()
+      let closed = false
+      const send = (text: string) => {
+        if (closed) return
+        try {
+          controller.enqueue(encoder.encode(text))
+        } catch {
+          closed = true // client went away
+        }
+      }
       // Demo monitor: flag chart/table generation once per chat so the
       // console shows a [図表] event (rendering itself happens client-side).
       let chartLogged = false
@@ -180,27 +217,22 @@ export async function POST(
         // we execute them and re-enter the stream for the next turn.
         for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
           let textBuf = ""
-          let toolCalls: import("@/lib/ollama").ToolCall[] = []
+          let toolCalls: ToolCall[] = []
           // Demo monitor: log streaming progress in coarse slices, not per token.
           let sliceStart = 0
           let firstToken = true
-          aiLog("LLM_TURN", `iteration=${i + 1}/${MAX_TOOL_ITERATIONS} waiting for local model…`)
+          if (i > 0) aiLog("LLM_TURN", `iteration=${i + 1}/${MAX_TOOL_ITERATIONS} waiting for local model…`)
           const turnT0 = Date.now()
+          const turn = i === 0 ? firstTurn : ollamaChatStreamWithTools(conversation, turnOptions)
 
-          for await (const event of ollamaChatStreamWithTools(conversation, {
-            signal: ac.signal,
-            think: false,
-            tools: CHAT_TOOLS,
-            numCtx: 8192,
-            numPredict: 4096,
-          })) {
+          for await (const event of turn) {
             if (event.type === "text") {
               if (firstToken) {
                 firstToken = false
-                aiLog("LLM_FIRST_TOK", `first token after ${Date.now() - turnT0}ms`)
+                aiLog("LLM_FIRST_TOK", `first token after ${Date.now() - (i === 0 ? chatT0 : turnT0)}ms`)
               }
               textBuf += event.chunk
-              controller.enqueue(encoder.encode(event.chunk))
+              send(event.chunk)
               if (!chartLogged && textBuf.includes("```chart")) {
                 chartLogged = true
                 aiLog("VIZ_CHART", "chart JSON を生成中 → 画面側で Recharts がグラフ描画（数値はツール結果から転記）")
@@ -226,7 +258,7 @@ export async function POST(
           // Surface a tiny status hint so the user knows a tool is running
           // (otherwise the chat would appear frozen for several seconds).
           const toolNames = toolCalls.map((c) => c.function.name).join(", ")
-          controller.enqueue(encoder.encode(`\n\n_🔧 ${toolNames}_\n\n`))
+          send(`\n\n_🔧 ${toolNames}_\n\n`)
 
           conversation.push({
             role: "assistant",
@@ -255,19 +287,25 @@ export async function POST(
         }
 
         aiLog("CHAT_LIMIT", `tool iteration limit (${MAX_TOOL_ITERATIONS}) reached`)
-        controller.enqueue(
-          encoder.encode(
-            "\n\n[error] tool iteration limit reached; please rephrase your question"
-          )
-        )
+        send("\n\n[error] tool iteration limit reached; please rephrase your question")
       } catch (err) {
-        const message = err instanceof Error ? err.message : "stream_error"
-        aiLog("CHAT_ERROR", message)
-        controller.enqueue(encoder.encode(`\n\n[error] ${message}`))
+        aiLog(err instanceof OllamaAbortedError ? "CHAT_ABORT" : "CHAT_ERROR", ollamaErrorMessage(err))
+        send(`\n\n[error] ${ollamaErrorMessage(err)}`)
       } finally {
-        clearTimeout(timeout)
-        controller.close()
+        deadline.clear()
+        if (!closed) {
+          closed = true
+          try {
+            controller.close()
+          } catch {
+            // already cancelled
+          }
+        }
       }
+    },
+    cancel() {
+      // Client disconnected: stop generation even if request.signal lags.
+      local.abort(new OllamaAbortedError())
     },
   })
 

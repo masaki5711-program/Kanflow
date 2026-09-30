@@ -1,200 +1,146 @@
 "use client"
 
-import { useState } from "react"
+import { useId, useState } from "react"
 import { useLanguage } from "@/lib/language-context"
 import { AIResultModal } from "@/components/ai-result-modal"
+import { GlossaryHint, I18nText } from "@/components/i18n-text"
+import { Badge, Button, Field, Modal, Textarea } from "@/components/ui"
+import ModalCancelButton from "./modal-cancel-button"
+import type { RetroFields, Sprint, StatusDialogState } from "./types"
 
-interface Sprint {
-  id: string
-  sprintName: string
-  status: string
-  reviewComment: string | null
-  retrospectiveMemo: string | null
-  retrospectiveKeep?: string | null
-  retrospectiveProblem?: string | null
-  retrospectiveTry?: string | null
-}
+type KptField = "retrospectiveKeep" | "retrospectiveProblem" | "retrospectiveTry"
 
-interface StatusDialogState {
-  sprintId: string
-  sprintName: string
-  nextStatus: string
-  reviewComment: string
-  retrospectiveMemo: string
-  retrospectiveKeep: string
-  retrospectiveProblem: string
-  retrospectiveTry: string
-}
+const KPT: { field: KptField; letter: string; box: string; title: string; dot: string }[] = [
+  { field: "retrospectiveKeep", letter: "K", box: "bg-success-soft/60 border-success/30", title: "text-success-strong", dot: "bg-success" },
+  { field: "retrospectiveProblem", letter: "P", box: "bg-danger-soft/60 border-danger/30", title: "text-danger-strong", dot: "bg-danger" },
+  { field: "retrospectiveTry", letter: "T", box: "bg-info-soft/60 border-info/30", title: "text-info", dot: "bg-info" },
+]
 
-interface SprintStatusDialogProps {
-  sprint: Sprint | undefined
-  dialog: StatusDialogState
-  onDialogChange: (dialog: StatusDialogState) => void
-  onSubmit: () => void
-  onCancel: () => void
+const RETRO_KEYS: (keyof RetroFields)[] = [
+  "reviewComment", "retrospectiveMemo", "retrospectiveKeep", "retrospectiveProblem", "retrospectiveTry",
+]
+
+interface Props {
   projectId: string
+  sprint: Sprint | undefined
+  initial: StatusDialogState
+  /** Saves the retro fields (and the status change). Resolves true on success. */
+  onSubmit: (fields: RetroFields) => Promise<boolean>
+  onClose: () => void
 }
 
-export default function SprintStatusDialog({
-  sprint,
-  dialog,
-  onDialogChange,
-  onSubmit,
-  onCancel,
-  projectId,
-}: SprintStatusDialogProps) {
+export default function SprintStatusDialog({ projectId, sprint, initial, onSubmit, onClose }: Props) {
   const { t, language } = useLanguage()
+  const [fields, setFields] = useState<RetroFields>(() => ({
+    reviewComment: initial.reviewComment,
+    retrospectiveMemo: initial.retrospectiveMemo,
+    retrospectiveKeep: initial.retrospectiveKeep,
+    retrospectiveProblem: initial.retrospectiveProblem,
+    retrospectiveTry: initial.retrospectiveTry,
+  }))
+  const [saving, setSaving] = useState(false)
+  const kptHeadingId = useId()
+  // The AI modal is a kit Modal stacked on top of this one (Esc closes only it).
   const [showRetroAI, setShowRetroAI] = useState(false)
 
   const statusLabels: Record<string, string> = {
-    planning: t.sprintStatusPlanning,
-    active: t.sprintStatusActive,
-    review: t.sprintStatusReview,
-    done: t.sprintStatusDone,
-    archived: t.sprintStatusArchived,
+    planning: t.sprintStatusPlanning, active: t.sprintStatusActive,
+    review: t.sprintStatusReview, done: t.sprintStatusDone, archived: t.sprintStatusArchived,
+  }
+  const kptLabels: Record<KptField, { label: string; placeholder: string }> = {
+    retrospectiveKeep: { label: t.sprintKptKeep, placeholder: t.sprintKptKeepPlaceholder },
+    retrospectiveProblem: { label: t.sprintKptProblem, placeholder: t.sprintKptProblemPlaceholder },
+    retrospectiveTry: { label: t.sprintKptTry, placeholder: t.sprintKptTryPlaceholder },
+  }
+  const isEditOnly = sprint?.status === initial.nextStatus
+  const showRetroFields = initial.nextStatus === "review" || initial.nextStatus === "done"
+  const hasLegacyReview = !!sprint?.reviewComment?.trim()
+  const isDirty = RETRO_KEYS.some((k) => fields[k] !== initial[k])
+
+  async function submit() {
+    setSaving(true)
+    const ok = await onSubmit(fields)
+    setSaving(false)
+    if (ok) onClose()
   }
 
-  const isEditOnly = sprint?.status === dialog.nextStatus
-  // KPT + other memo are shown whenever transitioning into review or done.
-  const showRetroFields = dialog.nextStatus === "review" || dialog.nextStatus === "done"
-  const hasLegacyReview = !!(sprint?.reviewComment && sprint.reviewComment.trim().length > 0)
+  function appendAiToTry(text: string) {
+    const header = t.sprintKptAiSuggestionHeader
+    setFields((f) => ({ ...f, retrospectiveTry: f.retrospectiveTry ? `${f.retrospectiveTry}\n\n${header}\n${text}` : text }))
+    setShowRetroAI(false)
+  }
+
+  const description = isEditOnly ? initial.sprintName : (
+    <span className="inline-flex flex-wrap items-center gap-2">
+      <span className="font-medium text-fg">{initial.sprintName}</span>
+      <span aria-hidden="true">→</span>
+      <Badge tone="primary">{statusLabels[initial.nextStatus] ?? initial.nextStatus}</Badge>
+    </span>
+  )
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[92vh] flex flex-col"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="px-6 py-4 border-b border-gray-100 shrink-0">
-          <h3 className="text-xl font-bold text-gray-900">
-            {isEditOnly ? t.sprintRetrospectiveMemo : t.sprintReviewDialogTitle}
-          </h3>
-          {!isEditOnly ? (
-            <p className="text-sm text-gray-500 mt-1">
-              <span className="font-medium text-gray-700">{dialog.sprintName}</span>
-              <span className="mx-2 text-gray-300">→</span>
-              <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 text-xs font-medium">
-                {statusLabels[dialog.nextStatus] ?? dialog.nextStatus}
-              </span>
-            </p>
-          ) : (
-            <p className="text-sm text-gray-500 mt-1 font-medium">{dialog.sprintName}</p>
-          )}
-        </div>
-
-        {/* Body (scrollable) */}
-        <div className="px-6 py-5 overflow-y-auto flex-1 space-y-6">
-          {/* Legacy review comment — read-only banner when pre-existing data */}
+    <>
+      <Modal open onClose={onClose} size="xl" isDirty={isDirty && !saving}
+        title={isEditOnly ? t.sprintRetrospectiveMemo : t.sprintReviewDialogTitle} description={description}
+        footer={
+          <>
+            <ModalCancelButton disabled={saving} />
+            <Button loading={saving} onClick={submit}>{isEditOnly ? t.save : t.sprintSubmitAndChangeStatus}</Button>
+          </>
+        }>
+        <div className="space-y-6">
           {hasLegacyReview && (
-            <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
-              <p className="text-xs font-semibold text-amber-700 mb-1">
-                {t.sprintReviewComment}（legacy · read-only）
+            <div className="bg-warning-soft border border-warning/30 rounded-ui-md px-4 py-3">
+              <p className="text-caption font-semibold text-warning mb-1">
+                {t.sprintReviewComment} ({t.sprintReviewLegacyReadOnly})
               </p>
-              <p className="text-sm text-amber-900 whitespace-pre-wrap">{sprint?.reviewComment}</p>
+              <I18nText as="p" i18n={sprint?.i18n} field="reviewComment" original={sprint?.reviewComment}
+                entity={sprint ? { type: "sprint", id: sprint.id } : undefined} className="text-body text-fg whitespace-pre-wrap" />
             </div>
           )}
 
-          {/* KPT grid */}
           {showRetroFields && (
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="flex items-center gap-2 text-base font-semibold text-gray-800">
-                  <span className="inline-block w-1.5 h-5 bg-blue-500 rounded-sm" />
+            <section aria-labelledby={kptHeadingId}>
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                <h3 id={kptHeadingId} className="flex items-center gap-2 text-body-lg font-semibold text-fg">
+                  <span className="inline-block w-1.5 h-5 bg-primary rounded-sm" aria-hidden="true" />
                   {t.sprintRetrospectiveMemo} — KPT
-                </label>
-                <button
-                  type="button"
-                  onClick={() => setShowRetroAI(true)}
-                  className="inline-flex items-center gap-1.5 text-xs font-medium text-purple-700 border border-purple-300 rounded-lg hover:bg-purple-50 px-3 py-1.5 transition-colors"
-                >
-                  <span aria-hidden>🤖</span>
-                  {t.aiRetroSynthesis}
-                </button>
+                </h3>
+                {sprint && (
+                  <Button size="sm" variant="secondary" onClick={() => setShowRetroAI(true)}
+                    leftIcon={<span aria-hidden="true">🤖</span>}>
+                    {t.aiRetroSynthesis}
+                  </Button>
+                )}
               </div>
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                {/* Keep */}
-                <div className="bg-emerald-50/60 border border-emerald-200 rounded-xl p-4">
-                  <label className="flex items-center gap-2 text-sm font-bold text-emerald-700 mb-2">
-                    <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-emerald-500 text-white text-xs">K</span>
-                    {t.sprintKptKeep}
-                  </label>
-                  <textarea
-                    value={dialog.retrospectiveKeep}
-                    onChange={(e) => onDialogChange({ ...dialog, retrospectiveKeep: e.target.value })}
-                    placeholder={t.sprintKptKeepPlaceholder}
-                    rows={8}
-                    className="w-full px-3 py-2.5 border border-emerald-200 bg-white rounded-lg text-base leading-relaxed focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 resize-y placeholder:text-gray-300"
-                  />
-                </div>
-
-                {/* Problem */}
-                <div className="bg-rose-50/60 border border-rose-200 rounded-xl p-4">
-                  <label className="flex items-center gap-2 text-sm font-bold text-rose-700 mb-2">
-                    <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-rose-500 text-white text-xs">P</span>
-                    {t.sprintKptProblem}
-                  </label>
-                  <textarea
-                    value={dialog.retrospectiveProblem}
-                    onChange={(e) => onDialogChange({ ...dialog, retrospectiveProblem: e.target.value })}
-                    placeholder={t.sprintKptProblemPlaceholder}
-                    rows={8}
-                    className="w-full px-3 py-2.5 border border-rose-200 bg-white rounded-lg text-base leading-relaxed focus:outline-none focus:ring-2 focus:ring-rose-500/30 focus:border-rose-500 resize-y placeholder:text-gray-300"
-                  />
-                </div>
-
-                {/* Try */}
-                <div className="bg-sky-50/60 border border-sky-200 rounded-xl p-4">
-                  <label className="flex items-center gap-2 text-sm font-bold text-sky-700 mb-2">
-                    <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-sky-500 text-white text-xs">T</span>
-                    {t.sprintKptTry}
-                  </label>
-                  <textarea
-                    value={dialog.retrospectiveTry}
-                    onChange={(e) => onDialogChange({ ...dialog, retrospectiveTry: e.target.value })}
-                    placeholder={t.sprintKptTryPlaceholder}
-                    rows={8}
-                    className="w-full px-3 py-2.5 border border-sky-200 bg-white rounded-lg text-base leading-relaxed focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500 resize-y placeholder:text-gray-300"
-                  />
-                </div>
+                {KPT.map(({ field, letter, box, title, dot }) => (
+                  <div key={field} className={`border rounded-ui-md p-4 ${box}`}>
+                    <Field label={
+                      <span className={`flex items-center gap-2 font-bold ${title}`}>
+                        <span aria-hidden="true" className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-white text-caption ${dot}`}>{letter}</span>
+                        {kptLabels[field].label}
+                      </span>
+                    }>
+                      <Textarea value={fields[field]} rows={8} placeholder={kptLabels[field].placeholder}
+                        className="text-body-lg leading-relaxed"
+                        onChange={(e) => setFields((f) => ({ ...f, [field]: e.target.value }))} />
+                    </Field>
+                  </div>
+                ))}
               </div>
-            </div>
+              <GlossaryHint className="mt-2" />
+            </section>
           )}
 
-          {/* Other memo */}
           {showRetroFields && (
-            <div>
-              <label className="flex items-center gap-2 text-sm font-semibold text-gray-600 mb-2">
-                <span className="inline-block w-1 h-4 bg-gray-300 rounded-sm" />
-                {t.sprintRetrospectiveOther}
-              </label>
-              <textarea
-                value={dialog.retrospectiveMemo}
-                onChange={(e) => onDialogChange({ ...dialog, retrospectiveMemo: e.target.value })}
-                placeholder={t.sprintRetrospectiveOtherPlaceholder}
-                rows={4}
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 resize-y placeholder:text-gray-300"
-              />
-            </div>
+            <Field label={t.sprintRetrospectiveOther}>
+              <Textarea value={fields.retrospectiveMemo} rows={4} placeholder={t.sprintRetrospectiveOtherPlaceholder}
+                onChange={(e) => setFields((f) => ({ ...f, retrospectiveMemo: e.target.value }))} />
+            </Field>
           )}
         </div>
-
-        {/* Footer */}
-        <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-3 shrink-0 bg-gray-50/60 rounded-b-2xl">
-          <button
-            onClick={onCancel}
-            className="px-5 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-100 transition-colors"
-          >
-            {t.cancel}
-          </button>
-          <button
-            onClick={onSubmit}
-            className="px-5 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
-          >
-            {isEditOnly ? t.save : t.sprintSubmitAndChangeStatus}
-          </button>
-        </div>
-      </div>
+      </Modal>
       {showRetroAI && sprint && (
         <AIResultModal
           title={t.aiRetroTitle}
@@ -202,24 +148,10 @@ export default function SprintStatusDialog({
           fetchBody={{ lang: language }}
           onClose={() => setShowRetroAI(false)}
           footer={(text, done) =>
-            done && text.trim() ? (
-              <button
-                type="button"
-                onClick={() => {
-                  const append = dialog.retrospectiveTry
-                    ? `${dialog.retrospectiveTry}\n\n--- AI 提案 ---\n${text}`
-                    : text
-                  onDialogChange({ ...dialog, retrospectiveTry: append })
-                  setShowRetroAI(false)
-                }}
-                className="px-4 py-2 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                {t.aiAddToTry}
-              </button>
-            ) : null
+            done && text.trim() ? <Button size="sm" onClick={() => appendAiToTry(text)}>{t.aiAddToTry}</Button> : null
           }
         />
       )}
-    </div>
+    </>
   )
 }

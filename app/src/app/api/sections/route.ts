@@ -1,14 +1,14 @@
-import { NextResponse } from "next/server"
-import { prisma } from "@/lib/prisma"
 import { requireAuth } from "@/lib/api-helpers"
+import { jsonResponse, toHttpResponse } from "@/services/_shared"
+import { listSectionOptions } from "@/services/sections/sections.service"
 
 export async function GET() {
   const auth = await requireAuth()
   if ("error" in auth) return auth.error
 
-  const sections = await prisma.section.findMany({
-    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-    select: { id: true, name: true },
-  })
-  return NextResponse.json(sections)
+  try {
+    return jsonResponse(await listSectionOptions())
+  } catch (error) {
+    return toHttpResponse(error, { fallback: "取得に失敗しました", context: "Section options" })
+  }
 }

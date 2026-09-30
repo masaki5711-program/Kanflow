@@ -256,6 +256,17 @@ function parsePartialObject(buf: string, start: number): { obj: PartialJsonObjec
   return { obj, end: i }
 }
 
+/**
+ * Best-effort parse of the FIRST top-level JSON object in the buffer,
+ * returning whatever fields have arrived so far (partial strings included).
+ * Used for live-rendering a structured document while the model streams it.
+ */
+export function extractPartialObject(buffer: string): PartialJsonObject | null {
+  const start = buffer.indexOf("{")
+  if (start === -1) return null
+  return parsePartialObject(buffer, start).obj
+}
+
 export function extractPartialArrayObjects(buffer: string, arrayKey: string): PartialJsonObject[] {
   const keyPattern = new RegExp(`"${arrayKey}"\\s*:\\s*\\[`)
   const match = buffer.match(keyPattern)

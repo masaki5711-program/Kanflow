@@ -19,13 +19,13 @@ export const FAQ_CATEGORY_LABELS: Record<FaqCategory, Record<Language, string>> 
 }
 
 export const FAQ_CATEGORY_COLORS: Record<FaqCategory, string> = {
-  basic: "bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300",
-  icebox: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300",
+  basic: "bg-slate-100 text-slate-700",
+  icebox: "bg-cyan-100 text-cyan-700",
   backlog:
-    "bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300",
+    "bg-violet-100 text-violet-700",
   sprint:
-    "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300",
-  other: "bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300",
+    "bg-orange-100 text-orange-700",
+  other: "bg-teal-100 text-teal-700",
 }
 
 export const FAQ_ENTRIES: FaqItem[] = [

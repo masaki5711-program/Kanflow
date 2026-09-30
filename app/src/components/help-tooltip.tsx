@@ -1,11 +1,12 @@
 "use client"
 
 import { useId, useState, type ReactNode } from "react"
+import { useLanguage } from "@/lib/language-context"
 
 interface Props {
   /** Text shown when the tooltip is revealed. Multi-line strings render preserving line breaks. */
   content: ReactNode
-  /** Accessible label for the trigger. Defaults to "help". */
+  /** Accessible label for the trigger. Defaults to the localized "Help". */
   ariaLabel?: string
   /** Which side to render the bubble. */
   side?: "top" | "bottom" | "left" | "right"
@@ -16,7 +17,8 @@ interface Props {
  * Escape to dismiss. The bubble renders to the requested side with a small
  * arrow. Parent should have enough space on that side.
  */
-export function HelpTooltip({ content, ariaLabel = "help", side = "top" }: Props) {
+export function HelpTooltip({ content, ariaLabel, side = "top" }: Props) {
+  const { t } = useLanguage()
   const [open, setOpen] = useState(false)
   const id = useId()
 
@@ -38,7 +40,7 @@ export function HelpTooltip({ content, ariaLabel = "help", side = "top" }: Props
     <span className="relative inline-flex">
       <button
         type="button"
-        aria-label={ariaLabel}
+        aria-label={ariaLabel ?? t.helpTooltipLabel}
         aria-describedby={open ? id : undefined}
         onMouseEnter={() => setOpen(true)}
         onMouseLeave={() => setOpen(false)}
@@ -46,15 +48,20 @@ export function HelpTooltip({ content, ariaLabel = "help", side = "top" }: Props
         onBlur={() => setOpen(false)}
         onKeyDown={(e) => { if (e.key === "Escape") setOpen(false) }}
         onClick={(e) => { e.preventDefault(); setOpen((v) => !v) }}
-        className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-slate-200 text-slate-500 hover:bg-blue-100 hover:text-blue-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 text-[10px] font-bold leading-none transition-colors"
+        className="group/help inline-flex h-6 w-6 items-center justify-center rounded-full"
       >
-        ?
+        <span
+          aria-hidden="true"
+          className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-surface-sunken text-caption font-bold leading-none text-fg-muted transition-colors group-hover/help:bg-primary-soft group-hover/help:text-primary-strong"
+        >
+          ?
+        </span>
       </button>
       {open && (
         <span
           id={id}
           role="tooltip"
-          className={`absolute z-50 ${sideClass} w-72 px-3 py-2 rounded-lg bg-slate-800 text-white text-xs leading-relaxed shadow-lg whitespace-pre-line pointer-events-none`}
+          className={`absolute z-50 ${sideClass} w-72 px-3 py-2 rounded-lg bg-slate-800 text-white text-caption leading-relaxed shadow-lg whitespace-pre-line pointer-events-none`}
         >
           {content}
           <span className={`absolute w-0 h-0 border-4 ${arrowClass}`} aria-hidden />

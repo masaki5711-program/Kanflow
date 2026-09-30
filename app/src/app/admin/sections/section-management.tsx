@@ -1,7 +1,24 @@
 "use client"
 
-import { useEffect, useState, useCallback } from "react"
+import { useState } from "react"
+import { Pencil, Plus, Trash2, Layers } from "lucide-react"
 import { useLanguage } from "@/lib/language-context"
+import { useConfirm, PageHeader } from "@/components/ui"
+import { apiFetch, isApiError, useApiQuery } from "@/hooks"
+import {
+  Button,
+  EmptyState,
+  Field,
+  IconButton,
+  Input,
+  Modal,
+  SkeletonTable,
+  Textarea,
+  VisuallyHidden,
+  useModalClose,
+  useToast,
+} from "@/components/ui"
+import { useDocumentTitle } from "@/hooks/use-document-title"
 
 interface Section {
   id: string
@@ -11,42 +28,36 @@ interface Section {
   _count: { users: number; projects: number; categories: number }
 }
 
+interface SectionForm {
+  name: string
+  description: string
+  sortOrder: number
+}
+
+const EMPTY_FORM: SectionForm = { name: "", description: "", sortOrder: 0 }
+const SECTIONS_URL = "/api/admin/sections"
+
 export function SectionManagement() {
   const { t } = useLanguage()
-  const [sections, setSections] = useState<Section[]>([])
-  const [loading, setLoading] = useState(true)
-  const [showForm, setShowForm] = useState(false)
+  useDocumentTitle([t.sectionAdminTitle])
+  const confirm = useConfirm()
+  const toast = useToast()
+  const { data: sections = [], isLoading, refetch } = useApiQuery<Section[]>(SECTIONS_URL, { toastOnError: true })
+
+  const [open, setOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [form, setForm] = useState({ name: "", description: "", sortOrder: 0 })
+  const [initial, setInitial] = useState<SectionForm>(EMPTY_FORM)
+  const [form, setForm] = useState<SectionForm>(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const fetchSections = useCallback(async () => {
-    setLoading(true)
-    try {
-      const res = await fetch("/api/admin/sections")
-      if (res.ok) setSections(await res.json())
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    fetchSections()
-  }, [fetchSections])
-
-  function resetForm() {
-    setForm({ name: "", description: "", sortOrder: 0 })
-    setEditingId(null)
-    setShowForm(false)
+  function openForm(s: Section | null) {
+    const next = s ? { name: s.name, description: s.description ?? "", sortOrder: s.sortOrder } : EMPTY_FORM
+    setEditingId(s?.id ?? null)
+    setInitial(next)
+    setForm(next)
     setError(null)
-  }
-
-  function startEdit(s: Section) {
-    setForm({ name: s.name, description: s.description ?? "", sortOrder: s.sortOrder })
-    setEditingId(s.id)
-    setShowForm(true)
-    setError(null)
+    setOpen(true)
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -55,148 +66,80 @@ export function SectionManagement() {
     setSaving(true)
     setError(null)
     try {
-      const url = editingId ? `/api/admin/sections/${editingId}` : "/api/admin/sections"
-      const method = editingId ? "PATCH" : "POST"
-      const res = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: form.name.trim(),
-          description: form.description.trim() || null,
-          sortOrder: form.sortOrder,
-        }),
+      await apiFetch(editingId ? `${SECTIONS_URL}/${editingId}` : SECTIONS_URL, {
+        method: editingId ? "PATCH" : "POST",
+        json: { name: form.name.trim(), description: form.description.trim() || null, sortOrder: form.sortOrder },
       })
-      if (res.status === 409) {
-        setError(t.sectionDuplicateName)
-        return
-      }
-      if (!res.ok) {
-        setError(t.error)
-        return
-      }
-      resetForm()
-      await fetchSections()
+      setOpen(false)
+      toast.success(t.saved)
+      refetch()
+    } catch (err) {
+      setError(isApiError(err) && err.status === 409 ? t.sectionDuplicateName : err instanceof Error ? err.message : t.error)
     } finally {
       setSaving(false)
     }
   }
 
-  async function handleDelete(id: string) {
-    if (!confirm(t.sectionDeleteConfirm)) return
-    const res = await fetch(`/api/admin/sections/${id}`, { method: "DELETE" })
-    if (res.ok) await fetchSections()
+  async function handleDelete(s: Section) {
+    const ok = await confirm({ title: s.name, message: t.sectionDeleteConfirm, confirmLabel: t.delete, cancelLabel: t.cancel, variant: "danger" })
+    if (!ok) return
+    try {
+      await apiFetch(`${SECTIONS_URL}/${s.id}`, { method: "DELETE" })
+      toast.success(t.sectionDeleted)
+      refetch()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t.error)
+    }
   }
+
+  const isDirty = JSON.stringify(form) !== JSON.stringify(initial)
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">{t.sectionAdminTitle}</h1>
-        {!showForm && (
-          <button
-            onClick={() => {
-              resetForm()
-              setShowForm(true)
-            }}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium shadow-sm"
-          >
-            + {t.sectionAdd}
-          </button>
-        )}
-      </div>
+      <PageHeader
+        title={t.sectionAdminTitle}
+        actions={
+          <Button leftIcon={<Plus className="h-4 w-4" />} onClick={() => openForm(null)}>
+            {t.sectionAdd}
+          </Button>
+        }
+      />
 
-      {showForm && (
-        <form onSubmit={handleSubmit} className="bg-white rounded-xl border border-gray-200 p-5 mb-6 space-y-3">
-          <h2 className="text-lg font-semibold mb-2">{editingId ? t.sectionEdit : t.sectionAdd}</h2>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">{t.sectionName}</label>
-            <input
-              type="text"
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              required
-              maxLength={100}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">{t.sectionDescription}</label>
-            <textarea
-              value={form.description}
-              onChange={(e) => setForm({ ...form, description: e.target.value })}
-              rows={2}
-              maxLength={500}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">{t.sectionSortOrder}</label>
-            <input
-              type="number"
-              value={form.sortOrder}
-              onChange={(e) => setForm({ ...form, sortOrder: Number(e.target.value) || 0 })}
-              className="w-32 px-3 py-2 border border-gray-300 rounded-lg text-sm"
-            />
-          </div>
-          {error && <p className="text-sm text-red-500">{error}</p>}
-          <div className="flex gap-2 pt-2">
-            <button
-              type="submit"
-              disabled={saving || !form.name.trim()}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium"
-            >
-              {editingId ? t.update : t.add}
-            </button>
-            <button
-              type="button"
-              onClick={resetForm}
-              className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 text-sm font-medium"
-            >
-              {t.cancel}
-            </button>
-          </div>
-        </form>
-      )}
-
-      {loading ? (
-        <p className="text-sm text-gray-400">{t.loading}</p>
+      {isLoading ? (
+        <SkeletonTable rows={4} columns={5} label={t.loading} />
       ) : sections.length === 0 ? (
-        <p className="text-sm text-gray-400">No sections yet.</p>
+        <EmptyState icon={<Layers className="h-6 w-6" />} title={t.sectionEmpty} />
       ) : (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-xs text-gray-500 uppercase">
+        <div className="bg-surface rounded-ui-md border border-border overflow-x-auto">
+          <table className="w-full text-body">
+            <caption>
+              <VisuallyHidden>{t.sectionTableCaption}</VisuallyHidden>
+            </caption>
+            <thead className="bg-surface-muted text-caption text-fg-muted uppercase">
               <tr>
-                <th className="px-4 py-2 text-left">{t.sectionName}</th>
-                <th className="px-4 py-2 text-left">{t.sectionDescription}</th>
-                <th className="px-4 py-2 text-center">{t.sectionUserCount}</th>
-                <th className="px-4 py-2 text-center">{t.sectionProjectCount}</th>
-                <th className="px-4 py-2 text-center">{t.sectionCategoryCount}</th>
-                <th className="px-4 py-2 text-center">{t.sectionSortOrder}</th>
-                <th className="px-4 py-2 text-right">—</th>
+                <th scope="col" className="px-4 py-2 text-left">{t.sectionName}</th>
+                <th scope="col" className="px-4 py-2 text-left">{t.sectionDescription}</th>
+                <th scope="col" className="px-4 py-2 text-center">{t.sectionUserCount}</th>
+                <th scope="col" className="px-4 py-2 text-center">{t.sectionProjectCount}</th>
+                <th scope="col" className="px-4 py-2 text-center">{t.sectionCategoryCount}</th>
+                <th scope="col" className="px-4 py-2 text-center">{t.sectionSortOrder}</th>
+                <th scope="col" className="px-4 py-2 text-right">{t.sectionActions}</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
+            <tbody className="divide-y divide-border">
               {sections.map((s) => (
                 <tr key={s.id}>
-                  <td className="px-4 py-3 font-medium text-gray-900">{s.name}</td>
-                  <td className="px-4 py-3 text-gray-600 max-w-[280px] truncate">{s.description ?? "—"}</td>
+                  <th scope="row" className="px-4 py-3 text-left font-medium text-fg">{s.name}</th>
+                  <td className="px-4 py-3 text-fg-muted max-w-[280px] truncate" title={s.description ?? undefined}>
+                    {s.description ?? "—"}
+                  </td>
                   <td className="px-4 py-3 text-center">{s._count.users}</td>
                   <td className="px-4 py-3 text-center">{s._count.projects}</td>
                   <td className="px-4 py-3 text-center">{s._count.categories}</td>
-                  <td className="px-4 py-3 text-center text-gray-500">{s.sortOrder}</td>
-                  <td className="px-4 py-3 text-right space-x-2 whitespace-nowrap">
-                    <button
-                      onClick={() => startEdit(s)}
-                      className="text-blue-600 hover:text-blue-800 text-xs font-medium"
-                    >
-                      {t.edit}
-                    </button>
-                    <button
-                      onClick={() => handleDelete(s.id)}
-                      className="text-red-500 hover:text-red-700 text-xs font-medium"
-                    >
-                      {t.sectionDelete}
-                    </button>
+                  <td className="px-4 py-3 text-center text-fg-muted">{s.sortOrder}</td>
+                  <td className="px-4 py-2 text-right whitespace-nowrap">
+                    <IconButton label={`${t.edit}: ${s.name}`} icon={<Pencil className="h-4 w-4" />} size="sm" onClick={() => openForm(s)} />
+                    <IconButton label={`${t.sectionDelete}: ${s.name}`} icon={<Trash2 className="h-4 w-4" />} size="sm" variant="danger" onClick={() => handleDelete(s)} />
                   </td>
                 </tr>
               ))}
@@ -204,6 +147,37 @@ export function SectionManagement() {
           </table>
         </div>
       )}
+
+      <Modal
+        open={open}
+        onClose={() => setOpen(false)}
+        title={editingId ? t.sectionEdit : t.sectionAdd}
+        isDirty={isDirty}
+        footer={<FormFooter saving={saving} disabled={!form.name.trim()} submitLabel={editingId ? t.update : t.add} />}
+      >
+        <form id="section-form" onSubmit={handleSubmit} className="space-y-4">
+          <Field label={t.sectionName} required error={error ?? undefined}>
+            <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required maxLength={100} data-autofocus />
+          </Field>
+          <Field label={t.sectionDescription}>
+            <Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={2} maxLength={500} />
+          </Field>
+          <Field label={t.sectionSortOrder}>
+            <Input type="number" className="w-32" value={form.sortOrder} onChange={(e) => setForm({ ...form, sortOrder: Number(e.target.value) || 0 })} />
+          </Field>
+        </form>
+      </Modal>
     </div>
+  )
+}
+
+function FormFooter({ saving, disabled, submitLabel }: { saving: boolean; disabled: boolean; submitLabel: string }) {
+  const { t } = useLanguage()
+  const close = useModalClose()
+  return (
+    <>
+      <Button variant="secondary" onClick={close}>{t.cancel}</Button>
+      <Button type="submit" form="section-form" loading={saving} disabled={disabled}>{submitLabel}</Button>
+    </>
   )
 }
