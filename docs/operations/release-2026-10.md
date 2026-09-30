@@ -67,6 +67,10 @@ node --import tsx scripts/heal-plan.ts --apply
 - Collabora の文書は開き直す（WOPI トークン形式が変わっているため）
 - 管理画面の用語集に `board → ボード` を登録（機械翻訳の「基板」対策）
 
+## 5a. 既知のログ
+
+- Next 16.3.7 では、閲覧中にブラウザが通信を切ると `⨯ Error: The destination stream closed early.`（digest 3625913719）が Web ログに出る。利用者影響なし（vercel/next.js#96704、16.3.x の今後のパッチで解消見込み）。アラート対象外。
+
 ## 6. 利用者への周知事項
 
 - パスワードは新規設定・変更時に 8 文字以上（既存パスワードはそのまま使える）
