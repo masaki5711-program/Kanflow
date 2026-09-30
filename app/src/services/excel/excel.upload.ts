@@ -5,6 +5,7 @@
 import { HEAD_BYTES, extensionOf, verifyFileType } from "@/lib/upload/file-type"
 import { StatusError, ValidationError } from "@/services/_shared/errors"
 import { IMPORT_MAX_BYTES } from "./backlog.import"
+import { inspectZip } from "./zip-guard"
 
 /** Multipart overhead allowed on top of the file itself before reading the body. */
 const MULTIPART_SLACK = 64 * 1024
@@ -31,6 +32,11 @@ export async function readUploadedXlsx(file: FormDataEntryValue | null): Promise
   }
   if (!verifyFileType(file.name, buffer.subarray(0, HEAD_BYTES)).ok) {
     throw new StatusError(415, "ファイルの内容が拡張子と一致しません", {}, "FILE_TYPE_MISMATCH")
+  }
+  // Before exceljs inflates anything: reject zip bombs from the central directory.
+  const zip = inspectZip(buffer)
+  if (!zip.ok) {
+    throw new StatusError(413, "ファイルの展開後サイズが上限を超えているか、形式が不正です", { reason: zip.reason }, "PAYLOAD_TOO_LARGE")
   }
   return buffer
 }

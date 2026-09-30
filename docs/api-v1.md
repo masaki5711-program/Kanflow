@@ -69,8 +69,9 @@ Errors: `{ "error": "<message>", "code": "<CODE>" }`
   `Retry-After` (seconds).
 - **Failed authentications** (brute-force guard): 30 per minute per client IP
   (taken from `X-Forwarded-For`, so only meaningful behind a proxy that sets
-  it), then `429` for that IP; and 600 per minute across all clients, then
-  `429` for every `/api/v1` request until the minute passes.
+  it), then `429` for that IP. There is deliberately no all-clients cap:
+  a shared counter would let anyone lock out every token holder, and
+  256-bit tokens are not guessable.
 - Limits are kept in memory per web process and reset on restart.
 - `lastUsedAt` (shown on `/me`) is updated at most once per minute per token.
 

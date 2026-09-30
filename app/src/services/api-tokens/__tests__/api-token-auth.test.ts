@@ -12,7 +12,7 @@ vi.mock("@/lib/authz/session-validity", async (orig) => ({
 }))
 
 const repo = await import("../api-tokens.repository")
-const { authenticateApiRequest, resetApiTokenTouchCache, AUTH_FAILURES_PER_IP_PER_MIN, AUTH_FAILURES_GLOBAL_PER_MIN } = await import("../api-token-auth")
+const { authenticateApiRequest, resetApiTokenTouchCache, AUTH_FAILURES_PER_IP_PER_MIN } = await import("../api-token-auth")
 const { generateApiToken } = await import("@/lib/api-tokens/token")
 
 const NOW = Date.parse("2026-10-05T00:00:00Z")
@@ -125,11 +125,11 @@ describe("authenticateApiRequest", () => {
     expect(await authenticateApiRequest(req(`Bearer ${token.token}`, "10.9.9.8"), clock)).toMatchObject({ status: 401 })
   })
 
-  it("throttles everyone once the global failure budget is spent (spoofed IPs)", async () => {
+  it("does not lock out valid tokens when many spoofed IPs fail", async () => {
     vi.mocked(repo.findTokenByHash).mockResolvedValue(null)
-    for (let i = 0; i < AUTH_FAILURES_GLOBAL_PER_MIN; i++) await authenticateApiRequest(req(`Bearer ${token.token}`, `10.1.${i >> 8}.${i & 255}`), clock)
+    for (let i = 0; i < 700; i++) await authenticateApiRequest(req(`Bearer ${token.token}`, `10.1.${i >> 8}.${i & 255}`), clock)
     vi.mocked(repo.findTokenByHash).mockResolvedValue(tokenRow() as never)
-    expect(await authenticateApiRequest(req(`Bearer ${token.token}`, "10.200.0.1"), clock)).toMatchObject({ status: 429 })
+    expect(await authenticateApiRequest(req(`Bearer ${token.token}`, "10.200.0.1"), clock)).toMatchObject({ ok: true })
   })
 
   it("writes lastUsedAt at most once per minute", async () => {

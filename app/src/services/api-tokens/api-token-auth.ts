@@ -26,13 +26,9 @@ const log = logger.child({ module: "api-v1-auth" })
 const MINUTE_MS = 60_000
 /** Failed credential attempts per client IP per minute before 429. */
 export const AUTH_FAILURES_PER_IP_PER_MIN = 30
-/**
- * Failed credential attempts per minute across all clients. Backstop for the
- * per-IP budget, whose key comes from X-Forwarded-For and can be spoofed when
- * the app is reached without a header-stripping proxy.
- */
-export const AUTH_FAILURES_GLOBAL_PER_MIN = 600
-const GLOBAL_KEY = "*"
+// No global (all-clients) failure budget: a shared counter lets anyone lock
+// every token holder out. Tokens are 256-bit random, so guessing is not a
+// threat the per-IP limit has to stop; it only damps noisy clients.
 /** lastUsedAt is written at most this often per token. */
 export const LAST_USED_WRITE_INTERVAL_MS = MINUTE_MS
 
@@ -75,10 +71,6 @@ function failureLimiter() {
   return getRateLimiter("api-v1:auth-fail-ip", { limit: AUTH_FAILURES_PER_IP_PER_MIN, windowMs: MINUTE_MS })
 }
 
-function globalFailureLimiter() {
-  return getRateLimiter("api-v1:auth-fail-all", { limit: AUTH_FAILURES_GLOBAL_PER_MIN, windowMs: MINUTE_MS })
-}
-
 function tokenLimiter(limit: number) {
   // The limit is part of the name so a changed API_V1_RATE_LIMIT_PER_MIN takes effect.
   return getRateLimiter(`api-v1:token:${limit}`, { limit, windowMs: MINUTE_MS })
@@ -109,7 +101,6 @@ function maybeTouchLastUsed(row: { id: string; lastUsedAt: Date | null }, nowMs:
 
 function reject(ip: string | null, reason: string, fields: Record<string, unknown> = {}): AuthFailure {
   if (ip) failureLimiter().hit(ip)
-  if (reason !== "missing") globalFailureLimiter().hit(GLOBAL_KEY)
   log.info("api request rejected", { reason, ip, ...fields })
   return UNAUTHORIZED
 }
@@ -119,8 +110,6 @@ export async function authenticateApiRequest(request: Request, now: () => number
   if (!cfg.enabled) return { ok: false, status: 403, error: "API tokens are disabled", code: "FORBIDDEN" }
 
   const ip = clientIpFromHeaders(request.headers)
-  const globalBudget = globalFailureLimiter().peek(GLOBAL_KEY)
-  if (globalBudget.limited) return tooMany(globalBudget, AUTH_FAILURES_GLOBAL_PER_MIN)
   if (ip) {
     const budget = failureLimiter().peek(ip)
     if (budget.limited) return tooMany(budget, AUTH_FAILURES_PER_IP_PER_MIN)
