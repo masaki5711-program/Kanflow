@@ -4,6 +4,8 @@
  * sprints, oldest → newest, plus their average.
  */
 import { defaultDb, type Db } from "@/services/_shared/db"
+import { getI18nFor } from "@/services/_shared/translations"
+import type { EntityI18n } from "@/lib/translation/types"
 
 /** Sprints whose points are final (review / done / archived). */
 export const VELOCITY_STATUSES = ["review", "done", "archived"] as const
@@ -26,6 +28,8 @@ export interface VelocityPoint {
   points: number
   capacity: number
   endDate: string
+  /** Translations of the sprint name (the client picks the viewer's language). */
+  i18n?: EntityI18n
 }
 
 export interface VelocitySeries {
@@ -70,5 +74,9 @@ export async function getVelocity(projectId: string, window: number = VELOCITY_W
     findVelocitySprints(defaultDb, projectId, window),
     defaultDb.project.findUnique({ where: { id: projectId }, select: { pointUnit: true } }),
   ])
-  return { ...computeVelocity(rows, window), pointUnit: project?.pointUnit ?? "SP" }
+  const series = computeVelocity(rows, window)
+  if (series.sprints.length === 0) return { ...series, pointUnit: project?.pointUnit ?? "SP" }
+  const i18n = await getI18nFor("sprint", series.sprints.map((s) => s.id))
+  const sprints = series.sprints.map((s) => ({ ...s, i18n: i18n.get(s.id) ?? {} }))
+  return { ...series, sprints, pointUnit: project?.pointUnit ?? "SP" }
 }

@@ -13,6 +13,8 @@ interface Props {
   className?: string
   /** Tooltip (default: the generic export hint). */
   title?: string
+  /** Hide the label visually below `sm` (it stays the accessible name); for crowded phone toolbars. */
+  iconOnlyOnPhone?: boolean
 }
 
 /** Pure: export URL with the UI language (sheet / header names) and extra params. */
@@ -26,12 +28,12 @@ export function exportHref(href: string, language: string, params: Record<string
  * "Excel 出力": a plain download link — the browser streams the .xlsx with
  * the server's file name (Content-Disposition), no client-side buffering.
  */
-export function ExcelExportButton({ href, params, size = "md", className, title }: Props) {
+export function ExcelExportButton({ href, params, size = "md", className, title, iconOnlyOnPhone = false }: Props) {
   const { t, language } = useLanguage()
   return (
     <a href={exportHref(href, language, params)} download title={title ?? t.excelExportHint} className={buttonClasses({ variant: "secondary", size, className })}>
       <FileSpreadsheet aria-hidden className="h-4 w-4" />
-      {t.excelExport}
+      {iconOnlyOnPhone ? <span className="sr-only sm:not-sr-only">{t.excelExport}</span> : t.excelExport}
     </a>
   )
 }

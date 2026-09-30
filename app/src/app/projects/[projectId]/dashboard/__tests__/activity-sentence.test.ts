@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { getTranslations } from "@/lib/i18n"
-import { entityHref, entityLabel, feedSentence, type FeedEntry } from "../activity-sentence"
+import { getProjectTypeLabels } from "@/lib/project-type-labels"
+import { entityHref, entityLabel, feedSentence, statusLabel, type FeedEntry } from "../activity-sentence"
 
 const ja = getTranslations("ja")
 const en = getTranslations("en")
@@ -114,5 +115,39 @@ describe("member entries (S-12)", () => {
     const removed = feedSentence(entry({ entityType: "member", action: "delete", label: "user-cuid", meta: { userName: "Budi" } }), "p1", ja, "ja")
     expect(`${removed.before}${removed.entity}${removed.after}`).toBe("Alice がメンバー「Budi」を削除しました")
     expect(entityLabel({ entityType: "member", label: "user-cuid", changes: null, meta: { userName: "  " } })).toBeNull()
+  })
+})
+
+describe("statusLabel (A4-01: no raw status codes in the feed)", () => {
+  const id = getTranslations("id")
+  const RAW = /^(not_started|in_progress|on_hold|done|delayed|todo|review|ready|not_ready|completed|planning|active|archived|unreviewed|reviewed|frozen|staged|released|deferred)$/
+
+  it.each([
+    ["plan_item", ["not_started", "in_progress", "done", "on_hold", "delayed"]],
+    ["sprint_task", ["todo", "in_progress", "review", "done"]],
+    ["pbi", ["ready", "not_ready", "completed"]],
+    ["sprint", ["planning", "active", "review", "done", "archived"]],
+    ["icebox", ["unreviewed", "reviewed", "completed", "frozen"]],
+    ["project", ["active", "archived"]],
+    ["release", ["staged", "ready", "released", "deferred"]],
+  ] as const)("localizes every %s status in ja and id", (entityType, codes) => {
+    for (const [lang, t] of [["ja", ja], ["id", id]] as const) {
+      const pt = getProjectTypeLabels("software", lang)
+      for (const code of codes) expect(statusLabel(entityType, code, t, pt)).not.toMatch(RAW)
+    }
+  })
+
+  it("renders plan-item status changes with the plan labels", () => {
+    const e = entry({ entityType: "plan_item", action: "status_change", label: "現状把握", changes: { status: { from: "in_progress", to: "on_hold" } } })
+    expect(feedSentence(e, "p1", ja, "ja").statusTo).toBe(`→ ${ja.planStatusOnHold}`)
+    const e2 = entry({ entityType: "plan_item", action: "status_change", changes: { status: { from: "not_started", to: "in_progress" } } })
+    expect(feedSentence(e2, "p1", id, "id").statusTo).toBe(`→ ${id.planStatusInProgress}`)
+  })
+
+  it("uses the project-type release labels when given", () => {
+    const pt = getProjectTypeLabels("software", "ja")
+    const e = entry({ entityType: "release", action: "status_change", changes: { status: { from: "staged", to: "released" } } })
+    expect(feedSentence(e, "p1", ja, "ja", pt).statusTo).toBe(`→ ${pt.releaseStatusReleased}`)
+    expect(feedSentence(e, "p1", ja, "ja").statusTo).toBe("→ released")
   })
 })

@@ -93,6 +93,8 @@ describe("ProjectDashboard (server)", () => {
     expect(props.activeSprint).toMatchObject({ id: "s1", name: "S1", taskCounts: { todo: 1, inProgress: 1, done: 2 }, i18n: { name: { en: "en-s1" } } })
     expect((props.productGoals as { i18n: unknown }[])[0].i18n).toEqual({ name: { en: "en-g1" } })
     expect(props.canEditGoals).toBe(false)
+    expect(props.canUseAi).toBe(true)
+    expect(props.isProjectMember).toBe(true)
   })
 
   it("lets PO / SM edit goals (goal.write)", async () => {
@@ -177,6 +179,9 @@ describe("ProjectDashboard (server)", () => {
     const props = await renderPage()
     expect(props.currentUserRole).toBe("section_manager")
     expect(props.canEditGoals).toBe(false)
+    // A3-13: a read-only section manager gets no AI button and no "my tasks" widget.
+    expect(props.canUseAi).toBe(false)
+    expect(props.isProjectMember).toBe(false)
     expect(m.prisma.userSection.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { userId: "u1", sectionId: { in: ["sec1"] } } }))
   })
 

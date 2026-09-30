@@ -5,7 +5,7 @@ import { I18nText } from "@/components/i18n-text"
 import { pickText } from "@/lib/translation/pick-text"
 import { Badge, Button, DisclosureChevron, IconButton, SprintStatusIcon } from "@/components/ui"
 import { sprintStatusTone } from "@/lib/design-tokens"
-import { dateLocale } from "../lib/locale"
+import { formatDateRange } from "@/lib/format-date"
 import { NEXT_SPRINT_STATUSES } from "../lib/sprint-metrics"
 import type { Sprint, SprintCardActions } from "./types"
 import { ArrowRight, Calendar, CirclePlus, MessageSquareText, Pencil, Trash2, Zap } from "lucide-react"
@@ -22,7 +22,6 @@ interface Props {
 
 export default function SprintCardHeader({ sprint, isExpanded, onToggleExpand, onEdit, actions, canManage }: Props) {
   const { t, language } = useLanguage()
-  const locale = dateLocale(language)
   const statusLabels: Record<string, string> = {
     planning: t.sprintStatusPlanning, active: t.sprintStatusActive,
     review: t.sprintStatusReview, done: t.sprintStatusDone, archived: t.sprintStatusArchived,
@@ -59,7 +58,8 @@ export default function SprintCardHeader({ sprint, isExpanded, onToggleExpand, o
       <div className="flex flex-wrap items-center gap-2">
         <span className="inline-flex items-center gap-1.5 text-body text-fg-muted">
           <Calendar className="w-4 h-4 text-fg-subtle" />
-          {new Date(sprint.startDate).toLocaleDateString(locale)} - {new Date(sprint.endDate).toLocaleDateString(locale)}
+          {/* Same shared format as the dashboard and the task cards (A3-14): id "30 Sep 2026 – 7 Okt 2026". */}
+          {formatDateRange(sprint.startDate, sprint.endDate, language, { utc: true })}
         </span>
         <span className="w-px h-5 bg-border" aria-hidden="true" />
         {canEditMembership && (

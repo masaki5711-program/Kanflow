@@ -119,7 +119,10 @@ test("today label, initial scroll to open work, compact grid (F-01, F-05)", asyn
     return { scrollLeft: c.scrollLeft, gridRight: grid.right, gridWidth: grid.width, chartWidth: cr.width }
   })
   console.log("layout", JSON.stringify(s))
-  expect(s.gridWidth).toBeLessThan(s.chartWidth * 0.45)
+  // A4-06 (cycle 4): at ≥ 1280 px the name column is sized to the longest name (≤ 360px), so the
+  // default grid is ≤ 360 + period + progress and the timeline still keeps most of the rest.
+  expect(s.gridWidth).toBeLessThanOrEqual(360 + 128 + 104 + 1)
+  expect(s.chartWidth - s.gridWidth).toBeGreaterThan(s.chartWidth * 0.45)
   // Initial scroll: the earliest unfinished (e.g. overdue) bar starts ~3 days right of the grid.
   const plan = await getPlan(page)
   const rendered = new Set(await page.locator("[data-plan-bar]").evaluateAll((els) => els.map((e) => e.getAttribute("data-plan-bar"))))
@@ -230,7 +233,8 @@ test("column show/hide and the splitter persist across reload (F-01, F-07)", asy
   await expect(headers.filter({ hasText: /^担当$/ })).toHaveCount(1)
   await expect(page.getByRole("separator", { name: "表の幅" })).toHaveAttribute("aria-valuenow", String(w0 + 32))
   const nameW = await headers.first().evaluate((e) => e.getBoundingClientRect().width)
-  expect(Math.round(nameW)).toBe(w0 + 32)
+  // (the header row's 1px right border is shared by the flex cells: allow ±1px)
+  expect(Math.abs(Math.round(nameW) - (w0 + 32))).toBeLessThanOrEqual(1)
   // Mouse drag on the splitter
   const sb = (await page.getByRole("separator", { name: "表の幅" }).boundingBox())!
   await page.mouse.move(sb.x + sb.width / 2, sb.y + 100)

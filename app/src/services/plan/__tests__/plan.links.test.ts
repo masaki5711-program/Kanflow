@@ -66,8 +66,8 @@ describe("plan.links", () => {
     ] as never)
     await expect(links.getPlanLinks("p1", "leaf")).resolves.toEqual({
       pbis: [
-        { id: "b1", displayId: 1, title: "Init", status: "ready", points: 2, sprint: { id: "s1", name: "S1" } },
-        { id: "b2", displayId: 2, title: "story b2", status: "ready", points: 0, sprint: null },
+        { id: "b1", displayId: 1, title: "Init", status: "ready", points: 2, sprint: { id: "s1", name: "S1" }, i18n: {} },
+        { id: "b2", displayId: 2, title: "story b2", status: "ready", points: 0, sprint: null, i18n: {} },
       ],
     })
     expect(repo.findLinkedPbisOfItem).toHaveBeenCalledWith(DEFAULT_DB, "p1", "leaf")
@@ -116,10 +116,33 @@ describe("plan.links", () => {
     const out = await links.listLinkablePbis("p1", " #12 ")
     expect(repo.findLinkablePbis).toHaveBeenCalledWith(DEFAULT_DB, "p1", "#12", 12)
     expect(out.pbis).toEqual([
-      { id: "b1", displayId: 12, title: "u", status: "ready", points: 3, planItem: { id: "pl", name: "Plan" } },
-      { id: "b2", displayId: 13, title: "I", status: "completed", points: 0, planItem: null },
+      { id: "b1", displayId: 12, title: "u", status: "ready", points: 3, planItem: { id: "pl", name: "Plan", i18n: {} }, i18n: {} },
+      { id: "b2", displayId: 13, title: "I", status: "completed", points: 0, planItem: null, i18n: {} },
     ])
     await links.listLinkablePbis("p1", undefined)
     expect(repo.findLinkablePbis).toHaveBeenLastCalledWith(DEFAULT_DB, "p1", undefined, null)
+  })
+
+  it("attaches the title / plan-name translations so the picker can show the viewer's language (A4-04)", async () => {
+    const tr = await import("@/services/_shared/translations")
+    const ft = (ja: string, id: string) => ({ ja, id, source: "id" as const, status: "done" as const })
+    vi.mocked(tr.getI18nFor).mockImplementation(async (type) =>
+      type === "backlog_item"
+        ? new Map([
+            ["b1", { initiative: ft("標準化", "Standarisasi"), userStory: ft("物語", "Cerita") }],
+            ["b2", { initiative: ft("X", "Y"), userStory: ft("開発者として", "Sebagai developer") }],
+          ])
+        : new Map([["pl", { name: ft("現状把握", "Pemetaan Kondisi") }]]),
+    )
+    vi.mocked(repo.findLinkablePbis).mockResolvedValue([
+      { id: "b1", displayId: 6, initiative: "Standarisasi", userStory: "Cerita", status: "ready", workloadScore: 1, planItem: { id: "pl", name: "Pemetaan Kondisi", deletedAt: null } },
+      { id: "b2", displayId: 7, initiative: " ", userStory: "Sebagai developer", status: "ready", workloadScore: 1, planItem: null },
+    ] as never)
+    const out = await links.listLinkablePbis("p1", undefined)
+    expect(out.pbis[0].i18n).toEqual({ title: ft("標準化", "Standarisasi") })
+    expect(out.pbis[0].planItem?.i18n).toEqual({ name: ft("現状把握", "Pemetaan Kondisi") })
+    expect(out.pbis[1].i18n).toEqual({ title: ft("開発者として", "Sebagai developer") }) // title from userStory
+    expect(tr.getI18nFor).toHaveBeenCalledWith("plan_item", ["pl"])
+    expect(links.fieldI18n(undefined, "name", "name")).toEqual({})
   })
 })

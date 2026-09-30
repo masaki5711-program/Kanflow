@@ -24,7 +24,7 @@ function renderComposer(props: Partial<React.ComponentProps<typeof CommentCompos
 }
 
 describe("CommentComposer mention autocomplete", () => {
-  it("lists filtered members after @ and inserts the bracket token with Enter", async () => {
+  it("lists filtered members after @ and inserts @Name (no raw token) with Enter", async () => {
     const { box } = renderComposer()
     await userEvent.type(box, "Hi @Ta")
     const list = screen.getByRole("listbox", { name: t.commentsMentionListLabel })
@@ -41,20 +41,20 @@ describe("CommentComposer mention autocomplete", () => {
     expect(within(list).getAllByRole("option")[1]).toHaveAttribute("aria-selected", "true")
     await userEvent.keyboard("{Enter}")
 
-    expect(box).toHaveValue("Hi @[Takeshi] ")
+    expect(box).toHaveValue("Hi @Takeshi ")
     expect(screen.queryByRole("listbox")).not.toBeInTheDocument()
     await userEvent.type(box, "ok")
-    expect(box).toHaveValue("Hi @[Takeshi] ok")
+    expect(box).toHaveValue("Hi @Takeshi ok")
   })
 
   it("Tab also inserts; clicking an option inserts", async () => {
     const { box } = renderComposer()
     await userEvent.type(box, "@han")
     await userEvent.keyboard("{Tab}")
-    expect(box).toHaveValue("@[Hanako] ")
+    expect(box).toHaveValue("@Hanako ")
     await userEvent.type(box, "and @Taro Y")
     await userEvent.click(screen.getByRole("option", { name: "@Taro Yamada" }))
-    expect(box).toHaveValue("@[Hanako] and @[Taro Yamada] ")
+    expect(box).toHaveValue("@Hanako and @Taro Yamada ")
   })
 
   it("shows a no-match note, and Escape closes the list without closing the modal", async () => {
@@ -162,7 +162,7 @@ describe("mention list placement and early Enter (F-08)", () => {
     expect(box).toHaveValue("Hi @Han")
     expect(onSubmit).not.toHaveBeenCalled()
     rerender(<CommentComposer members={MEMBERS} onSubmit={onSubmit} label="New comment" submitLabel="Send" />)
-    await waitFor(() => expect(box).toHaveValue("Hi @[Hanako] "))
+    await waitFor(() => expect(box).toHaveValue("Hi @Hanako "))
   })
   it("Enter on an open @token without a match does not type a newline (cycle 2)", async () => {
     const { box } = renderComposer()
@@ -174,7 +174,7 @@ describe("mention list placement and early Enter (F-08)", () => {
   it("a multi-word query ('@Taro Y') + immediate Enter inserts the mention, not a newline", async () => {
     const { box } = renderComposer()
     await userEvent.type(box, "@Taro Y{Enter}")
-    expect(box).toHaveValue("@[Taro Yamada] ")
+    expect(box).toHaveValue("@Taro Yamada ")
   })
 
   it("after Escape and clearing the text, a new @ at the same place opens the list again (cycle 2 repro)", async () => {
@@ -184,6 +184,31 @@ describe("mention list placement and early Enter (F-08)", () => {
     expect(screen.queryByRole("listbox")).not.toBeInTheDocument()
     await userEvent.clear(box)
     await userEvent.type(box, "@Tak{Enter}")
-    expect(box).toHaveValue("@[Takeshi] ")
+    expect(box).toHaveValue("@Takeshi ")
+  })
+})
+
+describe("CommentComposer shows mentions as @Name and stores tokens (A3-20)", () => {
+  it("submits picked mentions as bracket tokens while the text area shows plain @Name", async () => {
+    const { box, onSubmit } = renderComposer()
+    await userEvent.type(box, "@Taro Y{Enter}")
+    await userEvent.type(box, "and @han{Tab}please check")
+    expect(box).toHaveValue("@Taro Yamada and @Hanako please check")
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument()
+    await userEvent.keyboard("{Control>}{Enter}{/Control}")
+    expect(onSubmit).toHaveBeenCalledWith("@[Taro Yamada] and @[Hanako] please check")
+  })
+
+  it("editing an existing comment shows its tokens as @Name and saves them back unchanged", async () => {
+    const onSubmit = vi.fn(async () => true)
+    renderWithProviders(
+      <CommentComposer members={MEMBERS} onSubmit={onSubmit} label="Edit" submitLabel="Save" initialValue="Hi @[Taro Yamada], ok?" />,
+    )
+    const box = screen.getByLabelText("Edit")
+    expect(box).toHaveValue("Hi @Taro Yamada, ok?")
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled()
+    await userEvent.type(box, "!")
+    await userEvent.click(screen.getByRole("button", { name: "Save" }))
+    expect(onSubmit).toHaveBeenCalledWith("Hi @[Taro Yamada], ok?!")
   })
 })

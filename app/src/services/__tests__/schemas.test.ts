@@ -314,11 +314,12 @@ describe("translations-admin / user-categories schemas", () => {
 })
 
 describe("user schemas", () => {
-  const base = { name: "n", email: "a@b.co", password: "secret", role: "member" }
+  const base = { name: "n", email: "a@b.co", password: "secret12", role: "member" }
   it("create", () => {
     ok(createUserSchema, base)
     ok(createUserSchema, { ...base, employeeNumber: null, department: null, sectionIds: ["s1"] })
-    bad(createUserSchema, { ...base, password: "12345" })
+    // A3-18: new passwords need at least 8 characters.
+    bad(createUserSchema, { ...base, password: "1234567" })
     bad(createUserSchema, { ...base, password: s(201) })
     bad(createUserSchema, { ...base, email: "bad" })
     bad(createUserSchema, { ...base, role: "superuser" })
@@ -328,12 +329,13 @@ describe("user schemas", () => {
   it("update / reset / profile / change / language", () => {
     ok(updateUserSchema, { isActive: false, role: "section_manager" })
     bad(updateUserSchema, { email: "x" })
-    ok(resetPasswordSchema, { password: "123456" })
-    bad(resetPasswordSchema, { password: "12345" })
+    ok(resetPasswordSchema, { password: "12345678" })
+    bad(resetPasswordSchema, { password: "1234567" })
     ok(updateProfileSchema, { employeeNumber: null })
     bad(updateProfileSchema, { department: s(101) })
-    ok(changePasswordSchema, { currentPassword: "x", newPassword: "abcdef" })
-    bad(changePasswordSchema, { currentPassword: "", newPassword: "abcdef" })
+    ok(changePasswordSchema, { currentPassword: "x", newPassword: "abcdefgh" })
+    bad(changePasswordSchema, { currentPassword: "", newPassword: "abcdefgh" })
+    bad(changePasswordSchema, { currentPassword: "x", newPassword: "abcdefg" })
     bad(changePasswordSchema, { currentPassword: "x", newPassword: "abc" })
     ok(languageSchema, { language: "en" })
     bad(languageSchema, { language: "fr" })

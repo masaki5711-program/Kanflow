@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { useState, type ReactNode } from "react"
 import { CalendarDays, CheckCheck, FolderOpen, ListChecks, Tag } from "lucide-react"
-import { Button, EmptyState, buttonClasses, cn } from "@/components/ui"
+import { Button, EmptyState, buttonClasses } from "@/components/ui"
 import { ProjectList } from "./project-list"
 import { MySprintTasks, type MyTask } from "./my-sprint-tasks"
 import { summarizeMyTasks } from "./_my-tasks/task-urgency"
@@ -12,6 +12,9 @@ import FixedTasksModal from "@/components/fixed-tasks-modal"
 import { useLanguage } from "@/lib/language-context"
 import { useDocumentTitle } from "@/hooks/use-document-title"
 import type { Category, Project } from "./_project-list/types"
+import type { PoHomeSummary } from "@/services/projects/po-home-summary.types"
+import { HomeKpis } from "./_home-kpis/home-kpis"
+import { buildHomeKpis } from "./_home-kpis/home-kpi-tiles"
 
 interface Props {
   activeProjects: Project[]
@@ -21,9 +24,11 @@ interface Props {
   isAdmin: boolean
   myTasks: MyTask[]
   userName: string | null
+  /** PO numbers (A3-16); null when the user is PO of no project. */
+  poSummary?: PoHomeSummary | null
 }
 
-export function TopPage({ activeProjects, archivedCount, categories, isAdmin, myTasks, userName }: Props) {
+export function TopPage({ activeProjects, archivedCount, categories, isAdmin, myTasks, userName, poSummary = null }: Props) {
   const { t } = useLanguage()
   useDocumentTitle([t.projectListTitle])
   const [fixedTasksOpen, setFixedTasksOpen] = useState(false)
@@ -35,7 +40,7 @@ export function TopPage({ activeProjects, archivedCount, categories, isAdmin, my
 
   return (
     <div className="space-y-8">
-      {/* Hero: greeting + the three numbers that matter today */}
+      {/* Hero: greeting + the numbers that matter today for this user's role (A3-16) */}
       <section
         aria-labelledby="top-greeting"
         className="rounded-3xl bg-gradient-to-br from-primary-active via-primary to-sky-600 px-6 py-6 text-white shadow-ui-lg md:px-8"
@@ -45,11 +50,7 @@ export function TopPage({ activeProjects, archivedCount, categories, isAdmin, my
             <p className="text-caption font-medium uppercase tracking-widest text-white/80">{t.appTitle}</p>
             <h1 id="top-greeting" className="mt-1 text-2xl font-bold leading-tight md:text-3xl">{greeting}</h1>
           </div>
-          <dl className="grid shrink-0 grid-cols-3 gap-2 md:gap-3">
-            <Kpi label={t.topKpiOpen} value={kpi.open} />
-            <Kpi label={t.topKpiOverdue} value={kpi.overdue} alert={kpi.overdue > 0} />
-            <Kpi label={t.topKpiDueThisWeek} value={kpi.dueThisWeek} />
-          </dl>
+          <HomeKpis model={buildHomeKpis(poSummary, kpi, t)} />
         </div>
       </section>
 
@@ -105,23 +106,6 @@ function SectionTitle({ id, icon, title, subtitle }: { id: string; icon: ReactNo
         </h2>
         <p className="text-caption text-fg-muted">{subtitle}</p>
       </div>
-    </div>
-  )
-}
-
-function Kpi({ label, value, alert = false }: { label: string; value: number; alert?: boolean }) {
-  return (
-    <div
-      className={cn(
-        "flex min-w-[88px] flex-col-reverse rounded-2xl px-3 py-2 text-center backdrop-blur md:px-4 md:py-3",
-        alert ? "bg-white text-danger-strong shadow-ui-md" : "bg-white/15",
-      )}
-    >
-      {/* Wraps onto two lines instead of "Tugas terb…" at 375 px (A3-17). */}
-      <dt data-testid="kpi-label" className={cn("mt-1 break-words text-caption leading-tight", alert ? "font-semibold" : "text-white/90")} title={label}>
-        {label}
-      </dt>
-      <dd className="text-2xl font-bold leading-none md:text-3xl">{value}</dd>
     </div>
   )
 }

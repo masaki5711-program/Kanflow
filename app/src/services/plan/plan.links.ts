@@ -9,6 +9,8 @@ import type { Actor } from "@/services/_shared/actor"
 import { labelOf, logActivity } from "@/services/_shared/activity"
 import { defaultDb, withTransaction, type Db } from "@/services/_shared/db"
 import { ValidationError } from "@/services/_shared/errors"
+import { getI18nFor } from "@/services/_shared/translations"
+import type { EntityI18n } from "@/lib/translation/types"
 import * as repo from "./plan.repository"
 import { milestoneLinkError, planItemNotFound } from "./plan.rules"
 
@@ -19,6 +21,8 @@ export interface PlanLinkedPbiDto {
   status: string
   points: number
   sprint: { id: string; name: string } | null
+  /** `{ title }`: translation of the field the title comes from (client picks the viewer's language). */
+  i18n: EntityI18n
 }
 
 export interface LinkablePbiDto {
@@ -27,10 +31,26 @@ export interface LinkablePbiDto {
   title: string
   status: string
   points: number
-  planItem: { id: string; name: string } | null
+  planItem: { id: string; name: string; i18n: EntityI18n } | null
+  /** `{ title }`: translation of the field the title comes from. */
+  i18n: EntityI18n
 }
 
-const titleOf = (p: { initiative: string | null; userStory: string | null }) => (p.initiative?.trim() ? p.initiative : p.userStory ?? "")
+type TitleSource = { initiative: string | null; userStory: string | null }
+const titleField = (p: TitleSource) => (p.initiative?.trim() ? "initiative" : "userStory")
+const titleOf = (p: TitleSource) => (titleField(p) === "initiative" ? (p.initiative ?? "") : (p.userStory ?? ""))
+
+/** Pure: `{ [key]: translation of field }` of one entity, `{}` without one. */
+export function fieldI18n(all: EntityI18n | undefined, field: string, key: string): EntityI18n {
+  const entry = all?.[field]
+  return entry ? { [key]: entry } : {}
+}
+
+/** Title translations of PBIs (one query), keyed by PBI id → `{ title }`. */
+async function titleI18nOf(rows: ReadonlyArray<TitleSource & { id: string }>): Promise<(p: TitleSource & { id: string }) => EntityI18n> {
+  const map = await getI18nFor("backlog_item", rows.map((p) => p.id))
+  return (p) => fieldI18n(map.get(p.id), titleField(p), "title")
+}
 
 const SPRINT_RANK: Readonly<Record<string, number>> = { active: 0, planning: 1 }
 
@@ -65,6 +85,7 @@ export async function assertLinkablePlanItem(db: Db, projectId: string, planItem
 export async function getPlanLinks(projectId: string, itemId: string, db: Db = defaultDb): Promise<{ pbis: PlanLinkedPbiDto[] }> {
   if (!(await repo.findPlanItem(db, projectId, itemId))) throw planItemNotFound()
   const rows = await repo.findLinkedPbisOfItem(db, projectId, itemId)
+  const i18nOf = await titleI18nOf(rows)
   return {
     pbis: rows.map((p) => ({
       id: p.id,
@@ -73,6 +94,7 @@ export async function getPlanLinks(projectId: string, itemId: string, db: Db = d
       status: p.status,
       points: p.workloadScore ?? 0,
       sprint: currentSprintOf(p.sprintItems),
+      i18n: i18nOf(p),
     })),
   }
 }
@@ -139,10 +161,19 @@ export async function setPlanLinks(projectId: string, itemId: string, pbiIds: re
   return getPlanLinks(projectId, itemId)
 }
 
+function withPlanI18n(item: { id: string; name: string } | null, map: ReadonlyMap<string, EntityI18n>) {
+  return item ? { id: item.id, name: item.name, i18n: fieldI18n(map.get(item.id), "name", "name") } : null
+}
+
 /** GET /plan/linkable-pbis?q=: live PBIs (≤ 200) with the plan item they are linked to (trashed items read as none). */
 export async function listLinkablePbis(projectId: string, q: string | undefined): Promise<{ pbis: LinkablePbiDto[] }> {
   const text = q?.trim().slice(0, 200) || undefined
   const rows = await repo.findLinkablePbis(defaultDb, projectId, text, text ? parseDisplayId(text) : null)
+  const live = (p: (typeof rows)[number]) => (p.planItem && p.planItem.deletedAt === null ? p.planItem : null)
+  const [i18nOf, planI18n] = await Promise.all([
+    titleI18nOf(rows),
+    getI18nFor("plan_item", rows.flatMap((p) => live(p)?.id ?? [])),
+  ])
   return {
     pbis: rows.map((p) => ({
       id: p.id,
@@ -150,7 +181,8 @@ export async function listLinkablePbis(projectId: string, q: string | undefined)
       title: titleOf(p),
       status: p.status,
       points: p.workloadScore ?? 0,
-      planItem: p.planItem && p.planItem.deletedAt === null ? { id: p.planItem.id, name: p.planItem.name } : null,
+      planItem: withPlanI18n(live(p), planI18n),
+      i18n: i18nOf(p),
     })),
   }
 }

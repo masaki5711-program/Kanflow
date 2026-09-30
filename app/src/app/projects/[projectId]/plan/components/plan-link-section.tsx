@@ -6,6 +6,7 @@ import { AlertTriangle, Link2, Search, X } from "lucide-react"
 import { IconButton, Input, Spinner } from "@/components/ui"
 import { useLanguage } from "@/lib/language-context"
 import { fillTemplate } from "../lib/template"
+import { linkPlanName, linkTitle } from "./link-label"
 import type { PlanLinksState } from "../hooks/use-plan-links"
 
 interface Props {
@@ -22,7 +23,7 @@ interface Props {
  * come from — saving moves them here.
  */
 export const PlanLinkSection = forwardRef<HTMLElement, Props>(function PlanLinkSection({ links, itemId, disabled, backlogHref }, ref) {
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
   const headingId = useId()
   const resultsId = useId()
   return (
@@ -47,7 +48,7 @@ export const PlanLinkSection = forwardRef<HTMLElement, Props>(function PlanLinkS
           {links.chosen.map((p) => (
             <li key={p.id} className="flex items-center gap-2 rounded-ui-sm bg-surface-muted px-2 py-1 text-body">
               <span className="font-mono text-caption text-fg-muted">#{p.displayId}</span>
-              <span className="min-w-0 flex-1 truncate text-fg" title={p.title}>{p.title}</span>
+              <span className="min-w-0 flex-1 truncate text-fg" title={linkTitle(p, language)}>{linkTitle(p, language)}</span>
               {!disabled && (
                 <IconButton size="sm" label={`${t.planLinkUnlink}: #${p.displayId}`} icon={<X className="h-4 w-4" />} onClick={() => links.toggle(p)} />
               )}
@@ -89,12 +90,12 @@ export const PlanLinkSection = forwardRef<HTMLElement, Props>(function PlanLinkS
                     <span className="min-w-0 flex-1">
                       <span className="flex items-center gap-1.5 text-body text-fg">
                         <span className="font-mono text-caption text-fg-muted">#{p.displayId}</span>
-                        <span className="truncate">{p.title}</span>
+                        <span className="truncate" title={linkTitle(p, language)}>{linkTitle(p, language)}</span>
                       </span>
                       {elsewhere && (
                         <span className="flex items-center gap-1 text-caption text-warning-strong">
                           <AlertTriangle aria-hidden="true" className="h-3 w-3" />
-                          {fillTemplate(t.planLinkMoveWarning, { name: elsewhere.name })}
+                          {fillTemplate(t.planLinkMoveWarning, { name: linkPlanName(elsewhere, language) })}
                         </span>
                       )}
                     </span>

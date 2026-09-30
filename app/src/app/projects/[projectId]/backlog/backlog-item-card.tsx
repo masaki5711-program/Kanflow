@@ -8,6 +8,7 @@ import { pickText } from "@/lib/translation/pick-text"
 import { CardMenu } from "./card-menu"
 import type { BacklogItem, BacklogStatus } from "./types"
 import { DND_HANDLE_ATTR, DND_ROW_ATTR } from "./use-reorder-dnd"
+import { backlogItemElementId } from "./use-created-highlight"
 import {
   ArrowDownToLine,
   ArrowLeft,
@@ -151,6 +152,7 @@ export const BacklogItemCard = memo(function BacklogItemCard(props: Props) {
 
   return (
     <li
+      id={backlogItemElementId(item.id)}
       {...{ [DND_ROW_ATTR]: item.id }}
       className={cn(
         "rounded-ui-md border border-l-4 p-4 hover:shadow-ui-md",

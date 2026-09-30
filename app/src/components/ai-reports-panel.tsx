@@ -12,7 +12,7 @@ import { AiJobChip } from "@/components/ai-jobs/ai-job-chip"
 import { AI_REPORTS_CHANGED_EVENT, type AiJobView } from "@/components/ai-jobs/ai-job-client"
 import { useActiveAiJobs } from "@/components/ai-jobs/use-active-ai-jobs"
 import { aiJobKindLabel } from "@/components/notifications/notification-format"
-import { languageLabels, type Language } from "@/lib/i18n"
+import type { Language } from "@/lib/i18n"
 import { detectReportLang, localizeStructuredReport, pickBilingualLines, pickReportTitle } from "./ai-report-language"
 
 interface AiReport {
@@ -27,6 +27,11 @@ interface AiReport {
 }
 
 type Translations = ReturnType<typeof useLanguage>["t"]
+
+/** A language's name in the UI language. */
+function languageName(lang: Language, t: Translations): string {
+  return { ja: t.aiReportLangNameJa, en: t.aiReportLangNameEn, id: t.aiReportLangNameId }[lang]
+}
 
 const OLDER_LIST_ID = "ai-reports-older"
 /** `?report=<id>` opens that report (links from the ai_report_ready notification). */
@@ -82,7 +87,17 @@ function ReportRow({ report: r, isOpen, isLatest, onToggle, triggerLabel, langua
             <Truncate text={title} lines={2} className="text-body font-medium text-fg" />
           </div>
           {summary && !isOpen && (
-            <Truncate text={summary} lines={1} className="text-caption text-fg-muted mt-0.5" />
+            <div className="mt-0.5 flex min-w-0 items-center gap-1.5">
+              {/* A3-16: a report in another language says so instead of looking untranslated. */}
+              {otherLanguage && (
+                <span data-testid="ai-report-language-chip" className="shrink-0 rounded-ui-sm bg-surface-sunken px-1.5 text-caption text-fg-muted">
+                  {t.aiReportWrittenInShort.replace("{language}", languageName(otherLanguage, t))}
+                </span>
+              )}
+              <div className="min-w-0 flex-1" lang={otherLanguage ?? undefined}>
+                <Truncate text={summary} lines={1} className="text-caption text-fg-muted" />
+              </div>
+            </div>
           )}
         </div>
         <Badge tone="neutral" className="flex-shrink-0">{triggerLabel}</Badge>
@@ -94,7 +109,7 @@ function ReportRow({ report: r, isOpen, isLatest, onToggle, triggerLabel, langua
         <div id={panelId} className="px-4 sm:px-6 pb-5 sm:pl-[52px]">
           {otherLanguage && (
             <p className="mb-2 text-caption text-fg-muted" data-testid="ai-report-language-note">
-              {t.aiReportWrittenIn.replace("{language}", languageLabels[otherLanguage])}
+              {t.aiReportWrittenIn.replace("{language}", languageName(otherLanguage, t))}
             </p>
           )}
           {structured ? (

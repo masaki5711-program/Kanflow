@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { apiFetch, useApiQuery } from "@/hooks"
+import type { EntityI18n } from "@/lib/translation/types"
 import type { LinkablePbi, LinkedPbi } from "../lib/plan-types"
 
 export const LINK_SEARCH_DEBOUNCE_MS = 250
@@ -12,7 +13,9 @@ export interface LinkChoice {
   displayId: number
   title: string
   status: string
-  planItem: { id: string; name: string } | null
+  planItem: { id: string; name: string; i18n?: EntityI18n } | null
+  /** `{ title }` translation. */
+  i18n?: EntityI18n
 }
 
 const NO_LINKS: LinkedPbi[] = []

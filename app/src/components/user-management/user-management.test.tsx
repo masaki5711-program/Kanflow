@@ -144,7 +144,7 @@ describe("UserManagementBase", () => {
     const dialog = await screen.findByRole("dialog", { name: t.userCreateTitle })
     await userEvent.type(within(dialog).getByLabelText(new RegExp(t.userName)), "Dave")
     await userEvent.type(within(dialog).getByLabelText(new RegExp(t.userEmail)), "dave@x.com")
-    await userEvent.type(within(dialog).getByLabelText(new RegExp(t.userInitialPassword)), "secret1")
+    await userEvent.type(within(dialog).getByLabelText(new RegExp(t.userInitialPassword)), "secret12")
     await userEvent.selectOptions(within(dialog).getByLabelText(t.userRole), "section_manager")
     const secB = within(dialog).getByRole("checkbox", { name: "Sec B" })
     await userEvent.click(secB)
@@ -161,7 +161,7 @@ describe("UserManagementBase", () => {
       employeeNumber: null,
       department: null,
       sectionIds: ["s2"],
-      password: "secret1",
+      password: "secret12",
     })
     await waitFor(() =>
       expect(calls.filter((c) => c.url === "/api/users" && c.method === "GET").length).toBeGreaterThan(getsBefore),
@@ -175,7 +175,7 @@ describe("UserManagementBase", () => {
     const dialog = await screen.findByRole("dialog", { name: t.userCreateTitle })
     await userEvent.type(within(dialog).getByLabelText(new RegExp(t.userName)), "D")
     await userEvent.type(within(dialog).getByLabelText(new RegExp(t.userEmail)), "d@x.com")
-    await userEvent.type(within(dialog).getByLabelText(new RegExp(t.userInitialPassword)), "secret1")
+    await userEvent.type(within(dialog).getByLabelText(new RegExp(t.userInitialPassword)), "secret12")
     await userEvent.click(within(dialog).getByRole("button", { name: t.create }))
     expect(await within(dialog).findByRole("alert")).toHaveTextContent("Email taken")
   })
@@ -186,7 +186,7 @@ describe("UserManagementBase", () => {
     const dialog = await screen.findByRole("dialog", { name: t.userCreateTitle })
     expect(dialog.querySelector("form")).toHaveAttribute("novalidate")
     await userEvent.type(within(dialog).getByLabelText(new RegExp(t.userEmail)), "not-an-email")
-    await userEvent.type(within(dialog).getByLabelText(new RegExp(t.userInitialPassword)), "12345")
+    await userEvent.type(within(dialog).getByLabelText(new RegExp(t.userInitialPassword)), "1234567")
     await userEvent.click(within(dialog).getByRole("button", { name: t.create }))
     expect(await within(dialog).findByText(t.userNameRequired)).toBeInTheDocument()
     expect(within(dialog).getByText(t.userEmailInvalid)).toBeInTheDocument()
@@ -226,10 +226,10 @@ describe("UserManagementBase", () => {
     expect(input).toHaveAttribute("aria-invalid", "true")
 
     failReset = true
-    await userEvent.type(input, "defg")
+    await userEvent.type(input, "defgh")
     await userEvent.click(within(dialog).getByRole("button", { name: t.userReset }))
     await waitFor(() => expect(within(dialog).getByRole("alert")).toHaveTextContent(/.+/))
-    expect(calls.find((c) => c.url.endsWith("/reset-password"))?.body).toEqual({ password: "abcdefg" })
+    expect(calls.find((c) => c.url.endsWith("/reset-password"))?.body).toEqual({ password: "abcdefgh" })
 
     failReset = false
     await userEvent.click(within(dialog).getByRole("button", { name: t.userReset }))

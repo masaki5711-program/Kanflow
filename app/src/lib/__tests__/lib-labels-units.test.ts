@@ -45,9 +45,24 @@ describe("project-type-labels", () => {
     const ja = getProjectTypeLabels("software", "ja")
     expect(["po", "sm", "dev", "guest"].map((r) => projectRoleLabel(r, ja))).toEqual(["プロダクトオーナー", "スクラムマスター", "開発者", "guest"])
     expect(projectRoleLabel("dev", getProjectTypeLabels("process_improvement", "id"))).toBe("Anggota Tim Perbaikan")
-    expect(["po", "sm", "dev"].map((r) => projectRoleShortLabel(r, "ja"))).toEqual(["PO", "SM", "開発"])
+    expect(["po", "sm", "dev"].map((r) => projectRoleShortLabel(r, "ja"))).toEqual(["PO", "SM", "Dev"])
     expect(projectRoleShortLabel("dev", "en")).toBe("Dev")
     expect(projectRoleShortLabel("x", "id")).toBe("x")
+    expect(["po", "sm", "dev"].map((r) => projectRoleShortLabel(r, "ja", "general"))).toEqual(["オーナー", "ファシリ", "メンバー"])
+    expect(["po", "sm", "dev"].map((r) => projectRoleShortLabel(r, "id", "process_improvement"))).toEqual(["Pemilik", "Fasilitator", "Anggota"])
+    expect(projectRoleShortLabel("po", "ja", "unknown-type")).toBe("PO")
+  })
+
+  it("keeps each short role set in one script, for every project type and language (A3-07)", () => {
+    const JA = /[぀-ヿ㐀-鿿]/
+    for (const type of ["software", "process_improvement", "general"]) {
+      for (const lang of ["ja", "en", "id"] as const) {
+        const set = ["po", "sm", "dev"].map((r) => projectRoleShortLabel(r, lang, type))
+        const scripts = new Set(set.map((s) => JA.test(s)))
+        expect(scripts.size, `${type}/${lang}: ${set.join(",")}`).toBe(1)
+        if (lang !== "ja") expect(set.some((s) => JA.test(s))).toBe(false)
+      }
+    }
   })
 
   it("names the release import after the backlog, not 'PB' (A3-15)", () => {

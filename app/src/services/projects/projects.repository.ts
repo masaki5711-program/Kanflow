@@ -1,6 +1,7 @@
 import type { Db } from "@/services/_shared/db"
 import { NOT_DELETED, RESTORE_DATA, notDeleted, softDeleteData } from "@/services/_shared/soft-delete"
 import type { TranslationTree } from "@/services/_shared/translations"
+import { NEW_PROJECT_SURVEILLANCE_SETTINGS, serializeSurveillanceSettings } from "@/lib/surveillance-settings"
 
 export function findCreatorProfile(db: Db, userId: string) {
   return db.user.findUnique({
@@ -22,7 +23,7 @@ export interface NewProject {
   sectionIds: readonly string[]
 }
 
-/** The creator becomes the first PO. */
+/** The creator becomes the first PO. AI surveillance starts OFF for new projects. */
 export function insertProject(db: Db, p: NewProject) {
   return db.project.create({
     data: {
@@ -30,6 +31,7 @@ export function insertProject(db: Db, p: NewProject) {
       description: p.description,
       projectType: p.projectType,
       language: p.language,
+      surveillanceSettings: serializeSurveillanceSettings(NEW_PROJECT_SURVEILLANCE_SETTINGS),
       members: { create: { userId: p.ownerId, role: "po" } },
       sections: p.sectionIds.length
         ? { create: p.sectionIds.map((sectionId) => ({ sectionId })) }

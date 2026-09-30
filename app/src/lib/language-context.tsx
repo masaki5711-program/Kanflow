@@ -1,6 +1,6 @@
 "use client"
 
-import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from "react"
+import { createContext, useContext, useState, useCallback, useEffect, useMemo, type ReactNode } from "react"
 import { type Language, type Translations, getTranslations } from "./i18n"
 import { type ProjectType, type ProjectTypeLabels, getProjectTypeLabels } from "./project-type-labels"
 import { apiFetch } from "@/hooks/api-client"
@@ -91,4 +91,29 @@ export function LanguageProvider({
 
 export function useLanguage() {
   return useContext(LanguageContext)
+}
+
+/**
+ * Project-type labels for one project's pages (C3-01). The type comes from the
+ * server (project layout), so the server HTML and every hydration pass render
+ * the same `pt` labels from the first paint. It used to be pushed into the
+ * root provider from an effect after hydration, i.e. a context change that
+ * could reach a page boundary still waiting to hydrate. `setProjectType`
+ * (settings page) changes the scope until the server prop changes.
+ */
+export function ProjectTypeScope({ projectType, children }: { projectType: ProjectType; children: ReactNode }) {
+  const { language, setLanguage, setLanguageLocal, t } = useContext(LanguageContext)
+  const [local, setLocal] = useState({ from: projectType, value: projectType })
+  let current = local
+  if (local.from !== projectType) {
+    current = { from: projectType, value: projectType }
+    setLocal(current)
+  }
+  const activeType = current.value
+  const setProjectType = useCallback((type: ProjectType) => setLocal((prev) => ({ ...prev, value: type })), [])
+  const value = useMemo(
+    () => ({ language, setLanguage, setLanguageLocal, t, projectType: activeType, setProjectType, pt: getProjectTypeLabels(activeType, language) }),
+    [language, setLanguage, setLanguageLocal, t, activeType, setProjectType],
+  )
+  return <LanguageContext.Provider value={value}>{children}</LanguageContext.Provider>
 }

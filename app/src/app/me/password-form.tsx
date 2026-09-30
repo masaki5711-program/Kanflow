@@ -4,8 +4,8 @@ import { useState } from "react"
 import { useLanguage } from "@/lib/language-context"
 import { apiFetch, isApiError } from "@/hooks"
 import { Button, Field, Input, useToast } from "@/components/ui"
+import { MIN_PASSWORD_LENGTH } from "@/services/users/users.schemas"
 
-const MIN_PASSWORD_LENGTH = 6
 const EMPTY = { current: "", next: "", confirm: "" }
 
 /** Change own password (current + new + confirmation). */

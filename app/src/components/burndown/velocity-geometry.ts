@@ -1,4 +1,5 @@
 // Pure geometry of the velocity bar chart (unit-tested in velocity-geometry.test.ts).
+import type { EntityI18n } from "@/lib/translation/types"
 import { yTicks } from "./burndown-geometry"
 
 export interface VelocityPoint {
@@ -8,6 +9,8 @@ export interface VelocityPoint {
   points: number
   capacity: number
   endDate: string
+  /** Sprint-name translations (`sprintName`). */
+  i18n?: EntityI18n
 }
 
 export interface VelocityData {
@@ -49,9 +52,4 @@ export function velocityScale(data: Pick<VelocityData, "sprints" | "average">): 
       return { x: center - width / 2, width, center }
     },
   }
-}
-
-/** Short x-axis label: the sprint name cut to `max` characters. */
-export function shortLabel(name: string, max = 10): string {
-  return name.length > max ? `${name.slice(0, max - 1)}…` : name
 }

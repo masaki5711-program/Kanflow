@@ -1,6 +1,6 @@
 "use client"
 
-import { CalendarRange, Crosshair, Diamond, Plus } from "lucide-react"
+import { CalendarRange, Crosshair, Diamond, Maximize2, Plus } from "lucide-react"
 import { CardMenu, type CardMenuItem } from "@/app/projects/[projectId]/backlog/card-menu"
 import { Button, PageHeader, cn } from "@/components/ui"
 import { useLanguage } from "@/lib/language-context"
@@ -10,6 +10,9 @@ interface Props {
   zoom: PlanZoom
   onZoom: (z: PlanZoom) => void
   onJumpToday: () => void
+  /** "Show everything": zoom + scroll so all live items and today are in view. */
+  onFitAll: () => void
+  fitDisabled?: boolean
   canEdit: boolean
   onAddItem: () => void
   onAddMilestone: () => void
@@ -20,7 +23,7 @@ interface Props {
   onPrint: () => void
 }
 
-/** Page header (h1) with zoom switch, today jump, add actions and a "more" menu. */
+/** Page header (h1) with zoom switch, today jump, "show everything", add actions and a "more" menu. */
 export function PlanToolbar(props: Props) {
   const { t } = useLanguage()
   const zoomLabel: Record<PlanZoom, string> = {
@@ -70,6 +73,9 @@ export function PlanToolbar(props: Props) {
           </div>
           <Button variant="secondary" size="sm" leftIcon={<Crosshair className="h-4 w-4" />} onClick={props.onJumpToday}>
             {t.planTodayJump}
+          </Button>
+          <Button variant="secondary" size="sm" leftIcon={<Maximize2 className="h-4 w-4" />} onClick={props.onFitAll} disabled={props.fitDisabled}>
+            {t.planFitAll}
           </Button>
           {props.canEdit && (
             <>

@@ -6,6 +6,7 @@ import type { Language, Translations } from "@/lib/i18n"
 import type { ActivityEntry } from "@/components/activity/history-format"
 import { LABEL_FIELDS, localizeLabel } from "@/lib/translation/localize-label"
 import type { EntityI18n } from "@/lib/translation/types"
+import type { ProjectTypeLabels } from "@/lib/project-type-labels"
 
 export interface FeedEntry extends ActivityEntry {
   entityType: string
@@ -48,12 +49,20 @@ const ENTITY_KEY: Record<string, keyof Translations> = {
   project: "dashboardFeedEntityProject",
 }
 
-/** Status code → label per entity type (unknown codes stay as they are). */
-function statusLabel(entityType: string, value: string, t: Translations): string {
+/**
+ * Status code → label per entity type (unknown codes stay as they are).
+ * Release labels depend on the project type, so they need `pt`.
+ */
+export function statusLabel(entityType: string, value: string, t: Translations, pt?: ProjectTypeLabels): string {
   const maps: Record<string, Record<string, string>> = {
     sprint_task: { todo: t.taskTodo, in_progress: t.taskInProgress, review: t.topTaskReview, done: t.taskDone },
     pbi: { ready: t.backlogStatusReady, not_ready: t.backlogStatusNotReady, completed: t.backlogStatusCompleted },
     sprint: { planning: t.sprintStatusPlanning, active: t.sprintStatusActive, review: t.sprintStatusReview, done: t.sprintStatusDone, archived: t.sprintStatusArchived },
+    // "delayed" is a legacy plan status, read as in progress (lib/plan-progress.ts).
+    plan_item: { not_started: t.planStatusNotStarted, in_progress: t.planStatusInProgress, delayed: t.planStatusInProgress, done: t.planStatusDone, on_hold: t.planStatusOnHold },
+    icebox: { unreviewed: t.iceboxStatusUnreviewed, reviewed: t.iceboxStatusReviewed, completed: t.iceboxStatusCompleted, frozen: t.iceboxStatusFrozen },
+    project: { active: t.portfolioStatusActive, archived: t.portfolioStatusArchived },
+    ...(pt && { release: { staged: pt.releaseStatusStaged, ready: pt.releaseStatusReady, released: pt.releaseStatusReleased, deferred: pt.releaseStatusDeferred } }),
   }
   return maps[entityType]?.[value] ?? value
 }
@@ -116,7 +125,7 @@ function quote(label: string, language: Language): string {
   return language === "ja" ? `「${label}」` : ` “${label}”`
 }
 
-export function feedSentence(entry: FeedEntry, projectId: string, t: Translations, language: Language): FeedSentence {
+export function feedSentence(entry: FeedEntry, projectId: string, t: Translations, language: Language, pt?: ProjectTypeLabels): FeedSentence {
   const actor = entry.actor?.name || t.historySystem
   // A member is added to the project, not "created".
   const actionKey = entry.entityType === "member" && entry.action === "create" ? "dashboardFeedMemberAdd" : ACTION_KEY[entry.action]
@@ -132,6 +141,6 @@ export function feedSentence(entry: FeedEntry, projectId: string, t: Translation
     entity: label ? `${word}${quote(label, language)}` : word,
     after,
     href: entityHref(projectId, entry),
-    statusTo: to === null ? null : t.dashboardFeedStatusTo.replace("{status}", statusLabel(entry.entityType, to, t)),
+    statusTo: to === null ? null : t.dashboardFeedStatusTo.replace("{status}", statusLabel(entry.entityType, to, t, pt)),
   }
 }

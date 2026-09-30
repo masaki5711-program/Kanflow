@@ -131,6 +131,18 @@ describe("sidebar-nav", () => {
     const manage = withTrash[withTrash.length - 1]
     expect(manage.items.find((i) => i.href === "/projects/p9/trash")).toMatchObject({ label: t.trashTitle })
   })
+
+  it("hides team settings and AI chat when not allowed (section manager, A3-13)", () => {
+    const pt = { navIcebox: "I", navBacklog: "B", navSprints: "S", navReleases: "R" } as never
+    const hrefs = (groups: ReturnType<typeof buildSidebarGroups>) => groups.flatMap((g) => g.items.map((i) => i.href))
+    const full = hrefs(buildSidebarGroups("p9", t, pt))
+    expect(full).toContain("/projects/p9/settings")
+    expect(full).toContain("/projects/p9/chat")
+    const reader = hrefs(buildSidebarGroups("p9", t, pt, { showSettings: false, showChat: false }))
+    expect(reader).not.toContain("/projects/p9/settings")
+    expect(reader).not.toContain("/projects/p9/chat")
+    expect(reader).toContain("/projects/p9/guide")
+  })
 })
 
 describe("Sidebar", () => {

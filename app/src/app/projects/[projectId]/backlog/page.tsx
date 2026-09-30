@@ -22,6 +22,7 @@ import type { BacklogItem, BacklogStatus } from "./types"
 import { exportFilterParams, hasActiveFilters, pbiIdForRef } from "./url-state"
 import { useBacklogData } from "./use-backlog-data"
 import { useBacklogUrlState } from "./use-backlog-url-state"
+import { useCreatedHighlight } from "./use-created-highlight"
 import { DONE_PAGE_SIZE, useBacklogView } from "./use-backlog-view"
 import { useBacklogSelection, useBulkActions } from "./use-bulk-actions"
 import { useDraftPrefill } from "./use-draft-prefill"
@@ -61,6 +62,7 @@ function BacklogPageContent() {
   const [doneLimit, setDoneLimit] = useState(DONE_PAGE_SIZE)
   const view = useBacklogView(backlog.data, url.filters, doneLimit)
   const selection = useBacklogSelection(view.orderedIds)
+  const highlightWhenLoaded = useCreatedHighlight({ items: view.all, loaded: !!backlog.data, filters: url.filters, setFilters: url.setFilters })
   const bulk = useBulkActions(projectId, { refetch: backlog.refetch, onTrashed: data.showTrashUndo, onDone: selection.clear })
 
   const [createDraft, setCreateDraft] = useState<Partial<PbiForm> | null>(null)
@@ -260,7 +262,10 @@ function BacklogPageContent() {
           projectId={projectId}
           initialForm={createDraft}
           formOptions={formOptions}
-          onCreated={() => backlog.refetch()}
+          onCreated={(created) => {
+            highlightWhenLoaded(created.id)
+            backlog.refetch()
+          }}
           onClose={() => setCreateDraft(null)}
         />
       )}

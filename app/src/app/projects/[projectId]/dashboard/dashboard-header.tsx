@@ -17,9 +17,9 @@ import { FileText, LayoutDashboard } from "lucide-react"
  * in-process runner): the button shows a status chip and the requester gets
  * a notification when it is ready; the report appears in the AI reports
  * panel. Without a job runner (503 ai_jobs_disabled) it falls back to the
- * streaming modal.
+ * streaming modal. Hidden for users without `ai.use` (section managers, A3-13).
  */
-export function DashboardHeader({ projectId }: { projectId: string }) {
+export function DashboardHeader({ projectId, canUseAi = true }: { projectId: string; canUseAi?: boolean }) {
   const { t, language } = useLanguage()
   useProjectDocumentTitle(t.dashboardTitle)
   const [showProgressReport, setShowProgressReport] = useState(false)
@@ -37,16 +37,18 @@ export function DashboardHeader({ projectId }: { projectId: string }) {
         }
         actions={
           <>
-            {reportJob.job && <AiJobChip job={reportJob.job} />}
-            <Button
-              variant="secondary"
-              leftIcon={<span aria-hidden="true">🤖</span>}
-              loading={reportJob.starting}
-              disabled={reportJob.active}
-              onClick={() => void reportJob.start()}
-            >
-              {t.aiProgressReport}
-            </Button>
+            {canUseAi && reportJob.job && <AiJobChip job={reportJob.job} />}
+            {canUseAi && (
+              <Button
+                variant="secondary"
+                leftIcon={<span aria-hidden="true">🤖</span>}
+                loading={reportJob.starting}
+                disabled={reportJob.active}
+                onClick={() => void reportJob.start()}
+              >
+                {t.aiProgressReport}
+              </Button>
+            )}
             <Link href={`/projects/${projectId}/report`} className={buttonClasses({ variant: "primary" })}>
               <FileText className="w-4 h-4" />
               {t.reportTitle}

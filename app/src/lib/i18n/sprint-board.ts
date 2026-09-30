@@ -47,6 +47,9 @@ export interface SprintBoardTranslations {
   sprintBoardOverColumn: string
   sprintBoardDropped: string
   sprintBoardCancelled: string
+  /** Phone-only toggle of a long sprint goal (A3-17). */
+  sprintGoalShowAll: string
+  sprintGoalShowLess: string
 }
 
 export const ja: SprintBoardTranslations = {
@@ -83,6 +86,8 @@ export const ja: SprintBoardTranslations = {
   sprintBoardOverColumn: "{column} の列（{position} / {total}）",
   sprintBoardDropped: "「{name}」を {column} に移動しました",
   sprintBoardCancelled: "「{name}」の移動を取り消しました",
+  sprintGoalShowAll: "ゴールをすべて表示",
+  sprintGoalShowLess: "ゴールを折りたたむ",
 }
 
 export const en: SprintBoardTranslations = {
@@ -119,6 +124,8 @@ export const en: SprintBoardTranslations = {
   sprintBoardOverColumn: "{column} column ({position} of {total})",
   sprintBoardDropped: "Moved “{name}” to {column}",
   sprintBoardCancelled: "Move of “{name}” cancelled",
+  sprintGoalShowAll: "Show the whole goal",
+  sprintGoalShowLess: "Show less of the goal",
 }
 
 export const id: SprintBoardTranslations = {
@@ -155,4 +162,6 @@ export const id: SprintBoardTranslations = {
   sprintBoardOverColumn: "Kolom {column} ({position} dari {total})",
   sprintBoardDropped: "“{name}” dipindahkan ke {column}",
   sprintBoardCancelled: "Pemindahan “{name}” dibatalkan",
+  sprintGoalShowAll: "Tampilkan seluruh tujuan",
+  sprintGoalShowLess: "Ringkas tujuan",
 }

@@ -84,6 +84,8 @@ export interface LinkedPbi {
   status: string
   points: number | null
   sprint: { id: string; name: string } | null
+  /** `{ title }` translation (GET /plan/:id/links). */
+  i18n?: EntityI18n
 }
 
 export interface LinkablePbi {
@@ -92,7 +94,9 @@ export interface LinkablePbi {
   title: string
   status: string
   points: number | null
-  planItem: { id: string; name: string } | null
+  planItem: { id: string; name: string; i18n?: EntityI18n } | null
+  /** `{ title }` translation (GET /plan/linkable-pbis). */
+  i18n?: EntityI18n
 }
 
 /** Body of POST /plan (and the editable subset of PATCH /plan/:id). */

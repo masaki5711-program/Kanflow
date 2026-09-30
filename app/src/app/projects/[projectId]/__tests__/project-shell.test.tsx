@@ -34,7 +34,9 @@ vi.mock("@/components/header", () => ({
   Header: ({ projectName, projectI18n }: { projectName?: string; projectI18n: unknown }) => <header>{`H:${projectName}:${JSON.stringify(projectI18n)}`}</header>,
 }))
 vi.mock("@/components/sidebar", () => ({
-  Sidebar: ({ projectId, showTrash }: { projectId: string; showTrash?: boolean }) => <nav>{`S:${projectId}:trash=${String(showTrash)}`}</nav>,
+  Sidebar: ({ projectId, showTrash, showSettings, showChat }: { projectId: string; showTrash?: boolean; showSettings?: boolean; showChat?: boolean }) => (
+    <nav>{`S:${projectId}:trash=${String(showTrash)}:settings=${String(showSettings)}:chat=${String(showChat)}`}</nav>
+  ),
 }))
 vi.mock("@/components/app-shell/sidebar-drawer", () => ({ SidebarDrawerProvider: ({ children }: { children: React.ReactNode }) => <>{children}</> }))
 vi.mock("@/components/collabora-editor", () => ({
@@ -78,7 +80,7 @@ describe("ProjectLayout (server)", () => {
     const el = (await ProjectLayout({ children: <ProjectTypeProbe />, params: Promise.resolve({ projectId: "p1" }) })) as ReactElement
     render(<LanguageProvider>{el}</LanguageProvider>)
     expect(screen.getByRole("banner")).toHaveTextContent('H:Proj:{"name":{"en":"Proj EN"}}')
-    expect(screen.getByRole("navigation")).toHaveTextContent("S:p1:trash=false")
+    expect(screen.getByRole("navigation")).toHaveTextContent("S:p1:trash=false:settings=true:chat=true")
     expect(screen.getByRole("main")).toContainElement(screen.getByTestId("ptype"))
     expect(screen.getByTestId("ptype")).toHaveTextContent("general")
   })
@@ -125,6 +127,8 @@ describe("ProjectLayout access (P-01)", () => {
     const el = (await ProjectLayout({ children: null, params: Promise.resolve({ projectId: "p1" }) })) as ReactElement
     render(<LanguageProvider>{el}</LanguageProvider>)
     expect(screen.getByRole("banner")).toHaveTextContent("ZEVA-Link secret")
+    // A3-13: a non-member section manager reads only — no team settings, no AI chat.
+    expect(screen.getByRole("navigation")).toHaveTextContent("settings=false:chat=false")
     cleanup()
 
     m.auth.mockResolvedValue({ user: { id: "a1", role: "admin" } })

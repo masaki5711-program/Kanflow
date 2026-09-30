@@ -86,11 +86,14 @@ export interface NameWidthMode {
   compact: boolean
   /** Below lg (tablets): the default grid takes ≤ 40% of the box (40 / 60 split). */
   tablet?: boolean
+  /** Wide screens: the measured width of the longest name (see autoNameWidth); null = the fixed default. */
+  auto?: number | null
 }
 
-/** Name width before the viewer moves the splitter: 240px (180 compact; tablets capped to a 40% grid). */
+/** Name width before the viewer moves the splitter: the measured auto width on wide screens, else 240px (180 compact; tablets capped to a 40% grid). */
 export function defaultNameWidth(containerWidth: number, columns: readonly PlanColumn[], mode: NameWidthMode): number {
   if (mode.compact) return NAME_COLUMN_WIDTH_COMPACT
+  if (mode.auto != null && !mode.tablet) return mode.auto
   if (!mode.tablet || containerWidth <= 0) return NAME_COLUMN_WIDTH
   return Math.min(NAME_COLUMN_WIDTH, Math.round(containerWidth * DEFAULT_GRID_SHARE) - columnsWidth(columns))
 }
@@ -107,4 +110,37 @@ export function resolveNameWidth(pref: number | null, opts: NameWidthMode & { co
 /** Phone "names first": the name column takes the box except a timeline peek. */
 export function phoneNamesWidth(containerWidth: number): number {
   return Math.max(NAME_WIDTH_MIN, Math.round(containerWidth) - PHONE_TIMELINE_PEEK)
+}
+
+/** Auto-sized default name width (wide screens, before the splitter is used): measured names clamped to this range (A4-06). */
+export const AUTO_NAME_MIN = 200
+export const AUTO_NAME_MAX = 360
+/** Name cell parts around the text: drag handle, chevron, paddings, gaps and the row menu. */
+export const NAME_CELL_CHROME = 108
+/** Indent per tree level (plan-name-cell INDENT_PX) and the milestone diamond. */
+const NAME_INDENT = 14
+const MILESTONE_MARK = 14
+
+export interface NameMeasureRow {
+  depth: number
+  text: string
+  bold: boolean
+  milestone: boolean
+}
+
+/** Width that shows the longest row name in full (text + indent + chrome), clamped to [AUTO_NAME_MIN, AUTO_NAME_MAX]. */
+export function autoNameWidth(rows: readonly NameMeasureRow[], measure: (text: string, bold: boolean) => number): number {
+  let widest = 0
+  for (const r of rows) {
+    const w = measure(r.text, r.bold) + r.depth * NAME_INDENT + (r.milestone ? MILESTONE_MARK : 0) + NAME_CELL_CHROME
+    if (w > widest) widest = w
+  }
+  return clamp(Math.ceil(widest), AUTO_NAME_MIN, AUTO_NAME_MAX)
+}
+
+/** Text width estimate when canvas is unavailable: full-width (CJK) characters ≈ 1em, others ≈ 0.6em. */
+export function estimateTextWidth(text: string, fontPx: number): number {
+  let em = 0
+  for (const ch of text) em += /[ᄀ-ᇿ⺀-꓏가-힯豈-﫿＀-￯]/.test(ch) ? 1 : 0.6
+  return em * fontPx
 }

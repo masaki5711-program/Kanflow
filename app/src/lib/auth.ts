@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma"
 import bcrypt from "bcryptjs"
 import "@/lib/auth-types"
 import type { JWT } from "next-auth/jwt"
+import { authLogger } from "@/lib/auth-logger"
 import { checkTokenAgainstUser, loadUserAuthState } from "@/lib/authz/session-validity"
 import {
   clientIpFromHeaders,
@@ -103,4 +104,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   pages: {
     signIn: "/login",
   },
+  // Wrong passwords log one warn line instead of a stack trace (C3-02).
+  logger: authLogger,
 })

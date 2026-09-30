@@ -38,7 +38,7 @@ export const EMPTY_USER_FORM: UserFormValues = {
   sectionIds: [],
 }
 
-export const MIN_PASSWORD_LENGTH = 6
+export { MIN_PASSWORD_LENGTH } from "@/services/users/users.schemas"
 export const DEPARTMENT_LIST_ID = "kf-department-list"
 
 export function toUserRole(role: string): UserRole {

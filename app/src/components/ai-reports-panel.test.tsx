@@ -130,6 +130,21 @@ describe("AiReportsPanel", () => {
 
     await userEvent.click(screen.getByRole("button", { name: t.aiReportOlderShow.replace("{count}", "1") }))
     await userEvent.click(screen.getByText("📊 進捗レポート"))
-    expect(screen.getByTestId("ai-report-language-note")).toHaveTextContent(t.aiReportWrittenIn.replace("{language}", "Bahasa Indonesia"))
+    expect(screen.getByTestId("ai-report-language-note")).toHaveTextContent(t.aiReportWrittenIn.replace("{language}", t.aiReportLangNameId))
+  })
+
+  it("labels the collapsed summary of a report written in another language (A3-16)", () => {
+    q.reports = [
+      { id: "j1", trigger: "manual", status: "done", title: "📊 進捗レポート", summary: "IoT Platform Pilot Projectはインフラ構築と検証を進めています。", body: "x", structured: null, createdAt: "2026-09-23T06:30:00Z" },
+      { id: "i1", trigger: "manual", status: "done", title: "📊 進捗レポート", summary: "プロジェクトは計画どおりです。", body: "y", structured: null, createdAt: "2026-09-22T06:30:00Z" },
+    ]
+    render(<AiReportsPanel projectId="p1" />)
+    // ja viewer, ja report: no chip
+    expect(screen.queryByTestId("ai-report-language-chip")).not.toBeInTheDocument()
+    q.reports = [{ ...(q.reports[0] as object), summary: "Proyek berjalan sesuai rencana dan tim sudah menyelesaikan tugas." } as never]
+    render(<AiReportsPanel projectId="p1" />)
+    const chip = screen.getByTestId("ai-report-language-chip")
+    expect(chip).toHaveTextContent(t.aiReportWrittenInShort.replace("{language}", t.aiReportLangNameId))
+    expect(chip.nextElementSibling).toHaveAttribute("lang", "id")
   })
 })

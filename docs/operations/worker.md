@@ -217,7 +217,7 @@ The logic moved from `app/api/surveillance/route.ts` to `src/worker/jobs/surveil
 
   | Setting | Default | Check |
   |---|---|---|
-  | `enabled` | `true` | `false` = the project is skipped (`skipped: "disabled"`) |
+  | `enabled` | `true` (existing projects) / **`false` for new projects** | `false` = the project is skipped (`skipped: "disabled"`) |
   | `stalledDays` / `stalledTasksThreshold` | 3 / 3 | warning when ≥ threshold in-progress tasks of one sprint were not updated for ≥ days |
   | `checkDailyScrum` / `dailyScrumSilentDays` | `true` / 3 | warning when an active sprint's last daily scrum note is ≥ days old (or missing) |
   | `overCapacityTolerancePct` | 0 | warning when committed points > capacity × (1 + pct/100) |
@@ -226,6 +226,17 @@ The logic moved from `app/api/surveillance/route.ts` to `src/worker/jobs/surveil
 
   Invalid or missing stored fields fall back to the default one by one; the API validates the full
   object (integers within the ranges shown in the UI).
+- **Off by default for new projects.** A project created from 2026-10 on stores
+  `{"enabled": false, …defaults}` at creation (`NEW_PROJECT_SURVEILLANCE_SETTINGS` in
+  `lib/surveillance-settings.ts`). Projects created earlier keep `NULL` and stay **enabled**, so
+  nothing changes for them. The PO / an admin turns it on under *Project settings → AI
+  surveillance*; the card explains the cost. Why: the Ollama instance is shared with other
+  applications (BankMasalah). Each enabled project adds detection work plus, when it has anomalies
+  or follow-ups, an agent investigation (several model calls) to the daily run. A model switch
+  between the two apps costs a reload of about 8–10 s. Before you turn surveillance on for more
+  projects, agree the capacity with the owner of the other application.
+  To list the projects that surveillance currently covers, run
+  `SELECT id, name FROM Project WHERE deletedAt IS NULL AND (surveillanceSettings IS NULL OR surveillanceSettings NOT LIKE '%"enabled":false%');`
 - **Exclusive across processes:** the MySQL named lock `kanflow_surveillance`. Inside one web
   process, an in-memory single-flight mutex also applies.
 - **Manual trigger:**

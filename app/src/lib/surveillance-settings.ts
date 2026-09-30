@@ -39,6 +39,17 @@ export const DEFAULT_SURVEILLANCE_SETTINGS: Readonly<SurveillanceSettings> = Obj
   notifyCritical: true,
 })
 
+/**
+ * Settings stored on a NEWLY created project: AI surveillance starts OFF so a
+ * new project adds no load to the Ollama instance shared with other apps
+ * until its PO turns it on in project settings (release condition 3).
+ * Existing projects keep `surveillanceSettings = null` → defaults (enabled).
+ */
+export const NEW_PROJECT_SURVEILLANCE_SETTINGS: Readonly<SurveillanceSettings> = Object.freeze({
+  ...DEFAULT_SURVEILLANCE_SETTINGS,
+  enabled: false,
+})
+
 /** Inclusive bounds of the numeric fields (shared by the API schema and the form). */
 export const SURVEILLANCE_LIMITS = {
   stalledDays: { min: 1, max: 30 },

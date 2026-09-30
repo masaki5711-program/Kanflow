@@ -147,7 +147,8 @@ test("F-08 mention listbox visible above the footer; Enter before suggestions lo
   await page.waitForTimeout(800)
   console.log("F-08 race value:", JSON.stringify(await box.inputValue()))
   // Fixed (cycle 2): Enter on the open @token inserts the mention, never a newline.
-  await expect(box).toHaveValue("@[E2E SM] ")
+  // Cycle 4 (A3-20): the text area shows "@Name"; the "@[Name]" token is only the stored form.
+  await expect(box).toHaveValue("@E2E SM ")
   await box.fill("")
   await del(page, p.id)
   report("c2-mention", issues)

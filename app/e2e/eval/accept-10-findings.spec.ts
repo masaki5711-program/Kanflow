@@ -47,10 +47,12 @@ test("A3-02 task title translation survives a status change (writes; re-triggers
   await s.page.locator("button:visible[data-move-option]", { hasText: /Belum Mulai/ }).last().click()
   await s.page.waitForTimeout(1500)
   await s.page.reload()
+  await expect(board.getByRole("listitem").first()).toBeVisible({ timeout: 20_000 })
   const titles = await board.getByRole("listitem").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label") ?? ""))
   s.log(`A3-02 board titles right after a move (id UI): ${titles.join(" | ")}`)
   await snap(s, "A3-02-board-titles")
   await s.ctx.close()
+  expect(titles.length, "board rendered its cards").toBeGreaterThan(0)
   expect(titles.filter((t) => /[぀-ヿ]/.test(t)), "moved task lost its id translation").toHaveLength(0)
 })
 

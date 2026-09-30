@@ -21,6 +21,10 @@ interface SidebarProps {
   projectI18n?: EntityI18n
   /** Show the project trash entry (users with the "trash.manage" permission). */
   showTrash?: boolean
+  /** Show team settings (hidden for non-member section managers). Default true. */
+  showSettings?: boolean
+  /** Show AI chat (users with "ai.use"). Default true. */
+  showChat?: boolean
 }
 
 const projectTypeBadgeColors: Record<ProjectType, string> = {
@@ -35,7 +39,7 @@ function projectTypeLabel(type: ProjectType, language: Language): string {
   return language === "ja" ? opt.labelJa : language === "id" ? opt.labelId : opt.labelEn
 }
 
-export function Sidebar({ projectId, projectName, projectI18n, showTrash = false }: SidebarProps) {
+export function Sidebar(props: SidebarProps) {
   const drawer = useSidebarDrawer()
   const isDesktop = useMediaQuery("(min-width: 1024px)")
   const drawerOpen = !!drawer?.isOpen && !isDesktop
@@ -43,11 +47,11 @@ export function Sidebar({ projectId, projectName, projectI18n, showTrash = false
   return (
     <>
       <aside className="hidden lg:flex lg:sticky lg:top-14 lg:self-start lg:h-[calc(100vh-3.5rem)] w-60 shrink-0 flex-col border-r border-border bg-surface/80 backdrop-blur-sm">
-        <SidebarContent projectId={projectId} projectName={projectName} projectI18n={projectI18n} showTrash={showTrash} />
+        <SidebarContent {...props} />
       </aside>
       {drawerOpen && drawer && (
         <SidebarDrawer onClose={drawer.close} drawerId={drawer.drawerId}>
-          <SidebarContent projectId={projectId} projectName={projectName} projectI18n={projectI18n} showTrash={showTrash} />
+          <SidebarContent {...props} />
         </SidebarDrawer>
       )}
     </>
@@ -114,11 +118,11 @@ function SidebarDrawer({ onClose, drawerId, children }: { onClose: () => void; d
   )
 }
 
-function SidebarContent({ projectId, projectName, projectI18n, showTrash = false }: SidebarProps) {
+function SidebarContent({ projectId, projectName, projectI18n, showTrash = false, showSettings = true, showChat = true }: SidebarProps) {
   const pathname = usePathname()
   const { t, pt, projectType, language } = useLanguage()
   const shownName = useI18nText(projectI18n, "name", projectName).text
-  const groups = buildSidebarGroups(projectId, t, pt, { showTrash })
+  const groups = buildSidebarGroups(projectId, t, pt, { showTrash, showSettings, showChat })
   // The content renders twice (desktop aside + mobile drawer) -> unique ids per instance.
   const idPrefix = useId().replace(/:/g, "")
 

@@ -33,8 +33,8 @@ function initial(name: string | null | undefined): string {
 }
 
 function FeedItem({ entry, projectId, now }: { entry: FeedEntry; projectId: string; now: Date }) {
-  const { t, language } = useLanguage()
-  const s = feedSentence(entry, projectId, t, language)
+  const { t, pt, language } = useLanguage()
+  const s = feedSentence(entry, projectId, t, language, pt)
   return (
     <li className="flex gap-3 py-2.5">
       <span aria-hidden="true" className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-surface-sunken text-caption font-semibold text-fg-muted">

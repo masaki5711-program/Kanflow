@@ -76,8 +76,12 @@ describe("nextProposalOutcome", () => {
 
   it("release drops only a reservation; reject refuses applied / applying", () => {
     expect(svc.nextProposalOutcome(outcome("applying"), { action: "release" }, "u1", NOW)).toEqual({ next: undefined })
+    expect(svc.nextProposalOutcome(undefined, { action: "release" }, "u1", NOW)).toEqual({ next: undefined })
     const done = outcome("applied")
-    expect(svc.nextProposalOutcome(done, { action: "release" }, "u1", NOW)).toEqual({ next: done })
+    // C3-03: releasing a final outcome is a conflict, consistent with reserve / reject.
+    expect(svc.nextProposalOutcome(done, { action: "release" }, "u1", NOW)).toEqual({ conflict: done })
+    const rejectedOutcome = outcome("rejected")
+    expect(svc.nextProposalOutcome(rejectedOutcome, { action: "release" }, "u1", NOW)).toEqual({ conflict: rejectedOutcome })
     expect(svc.nextProposalOutcome(undefined, { action: "reject" }, "u1", NOW)).toEqual({ next: outcome("rejected") })
     expect("conflict" in svc.nextProposalOutcome(done, { action: "reject" }, "u1", NOW)).toBe(true)
     expect("conflict" in svc.nextProposalOutcome(outcome("applying"), { action: "reject" }, "u1", NOW)).toBe(true)
@@ -117,6 +121,14 @@ describe("updateProposalOutcome", () => {
     vi.mocked(repo.findProposalMessages).mockResolvedValue([{ id: "m1", toolEvents: stored(outcome("applying")) }])
     expect(await svc.updateProposalOutcome(OWNER, "t1", "prop_1", { action: "release" }, NOW)).toBeNull()
     expect(repo.swapToolEvents).toHaveBeenCalledWith(DEFAULT_DB, "m1", stored(outcome("applying")), stored())
+  })
+
+  it("release on an applied proposal is a 409 conflict and writes nothing (C3-03)", async () => {
+    vi.mocked(repo.findProposalMessages).mockResolvedValue([{ id: "m1", toolEvents: stored(outcome("applied")) }])
+    await expect(svc.updateProposalOutcome(OWNER, "t1", "prop_1", { action: "release" }, NOW)).rejects.toBeInstanceOf(
+      ConflictError
+    )
+    expect(repo.swapToolEvents).not.toHaveBeenCalled()
   })
 
   it("keeps the outcome on the oldest message that carries the proposal", async () => {

@@ -49,7 +49,10 @@ export function nextProposalOutcome(
       if (live && current?.by !== by) return { conflict: current as ProposalOutcome }
       return { next: { status: "applied", appliedEntityId: input.appliedEntityId, at, by } }
     case "release":
-      return { next: current?.status === "applying" ? undefined : current }
+      // Only a reservation can be released; an applied / rejected proposal is
+      // final and answers 409 like reserve / reject do (C3-03).
+      if (current?.status === "applied" || current?.status === "rejected") return { conflict: current }
+      return { next: undefined }
     case "reject":
       if (current?.status === "applied" || live) return { conflict: current as ProposalOutcome }
       if (current?.status === "rejected") return { next: current }

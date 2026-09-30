@@ -333,17 +333,19 @@ function DiagramBox({
   hint?: string
   narrow?: boolean
 }) {
+  const { language } = useLanguage()
   const c = boxColors[color]
+  // Localized badge (A3-20): the same words as the legend, not English capitals.
   const tag =
     variant === "artifact"
-      ? { txt: "ARTIFACT", cls: "bg-indigo-500/80" }
-      : { txt: "EVENT", cls: "bg-blue-500/80" }
+      ? { txt: T("legendArtifact", language), cls: "bg-indigo-500/80" }
+      : { txt: T("legendEvent", language), cls: "bg-blue-500/80" }
   return (
     <div
       className={`${c.bg} ${c.border} border-2 rounded-xl px-4 py-3 ${narrow ? "max-w-sm mx-auto" : ""}`}
     >
       <div className="flex items-center gap-2 mb-0.5">
-        <span className={`${tag.cls} text-white text-caption font-bold tracking-wide px-1.5 py-0.5 rounded`}>
+        <span className={`${tag.cls} text-white text-caption font-bold px-1.5 py-0.5 rounded`}>
           {tag.txt}
         </span>
         <span className={`${c.label} text-sm font-bold`}>{label}</span>

@@ -52,6 +52,17 @@ function displayedTextLang(
   return lang === language ? undefined : lang
 }
 
+/**
+ * Hover text of a translated field: the DISPLAYED text first (the full text
+ * when a truncated label is hovered), then the source text, labelled as such
+ * (A4-05: a bare source-language tooltip read as an untranslated leak).
+ * Untranslated text gets no tooltip, so a parent's truncation title applies.
+ */
+export function translatedTooltip(picked: PickedText, originalLabel: string): string | undefined {
+  if (!picked.translated || !picked.original) return undefined
+  return `${picked.text}\n${originalLabel}: ${picked.original}`
+}
+
 interface I18nTextProps {
   i18n: EntityI18n | null | undefined
   field: string
@@ -78,7 +89,7 @@ interface I18nTextProps {
  *   the `title` tooltip is possible without nesting controls.
  */
 export function I18nText({ i18n, field, original, as, className, noBadge, entity, fallback }: I18nTextProps) {
-  const { language } = useLanguage()
+  const { language, t } = useLanguage()
   const picked = useI18nText(i18n, field, original)
   const [nested, nestRef] = useNestedInInteractive()
   const [showOriginal, setShowOriginal] = useState(false)
@@ -91,7 +102,7 @@ export function I18nText({ i18n, field, original, as, className, noBadge, entity
       ref={nestRef}
       className={className}
       lang={displayedTextLang(i18n, field, picked, language)}
-      title={picked.translated && picked.original ? picked.original : undefined}
+      title={translatedTooltip(picked, t.translationOriginalLabel)}
     >
       {picked.text}
       {!noBadge && (picked.pending || picked.failed) && (

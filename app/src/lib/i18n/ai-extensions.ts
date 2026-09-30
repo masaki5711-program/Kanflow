@@ -50,6 +50,7 @@ export interface AiExtensionsTranslations {
   survHint: string
   survEnabled: string
   survDisabledNote: string
+  survSharedLoadNote: string
   survStalledDays: string
   survStalledDaysHint: string
   survStalledTasks: string
@@ -109,6 +110,7 @@ export const ja: AiExtensionsTranslations = {
   survHint: "毎日の AI 監視で使う検知のしきい値です。変更は次回の監視から反映されます。PO と管理者が変更できます。",
   survEnabled: "このプロジェクトを AI 監視の対象にする",
   survDisabledNote: "対象外の間は、このプロジェクトの監視レポートは作成されません。",
+  survSharedLoadNote: "新しいプロジェクトでは AI 監視は既定でオフです。AI サーバー (Ollama) は他のアプリと共用のため、対象にすると毎日の監視で負荷が増えます。必要なプロジェクトだけオンにしてください。",
   survStalledDays: "停滞とみなす日数",
   survStalledDaysHint: "進行中のタスクがこの日数以上更新されないと停滞とみなします（{min}〜{max} 日）",
   survStalledTasks: "停滞タスクの警告件数",
@@ -168,6 +170,7 @@ export const en: AiExtensionsTranslations = {
   survHint: "Thresholds of the daily AI surveillance run. Changes apply from the next run. The PO and admins can change them.",
   survEnabled: "Include this project in AI surveillance",
   survDisabledNote: "While excluded, no surveillance reports are created for this project.",
+  survSharedLoadNote: "AI surveillance is off by default for new projects. The AI server (Ollama) is shared with other applications, so each included project adds load to the daily run. Turn it on only where it is needed.",
   survStalledDays: "Days until a task counts as stalled",
   survStalledDaysHint: "An in-progress task not updated for this many days is stalled ({min}–{max} days)",
   survStalledTasks: "Stalled tasks before a warning",
@@ -227,6 +230,7 @@ export const id: AiExtensionsTranslations = {
   survHint: "Ambang batas pemantauan AI harian. Perubahan berlaku mulai pemantauan berikutnya. PO dan admin dapat mengubahnya.",
   survEnabled: "Sertakan proyek ini dalam pemantauan AI",
   survDisabledNote: "Selama tidak disertakan, laporan pemantauan untuk proyek ini tidak dibuat.",
+  survSharedLoadNote: "Pemantauan AI nonaktif secara bawaan untuk proyek baru. Server AI (Ollama) dipakai bersama aplikasi lain, jadi setiap proyek yang disertakan menambah beban pemantauan harian. Aktifkan hanya bila diperlukan.",
   survStalledDays: "Hari sampai tugas dianggap macet",
   survStalledDaysHint: "Tugas yang sedang dikerjakan dan tidak diperbarui selama jumlah hari ini dianggap macet ({min}–{max} hari)",
   survStalledTasks: "Jumlah tugas macet sebelum peringatan",

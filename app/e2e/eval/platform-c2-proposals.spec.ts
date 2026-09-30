@@ -63,6 +63,7 @@ test("P-02: persisted outcome, second tab and re-open cannot approve again", asy
       const rel = await owner.post(url(), { data: { action: "release" } })
       log.push(`[applied] reject -> ${rej.status()} release -> ${rel.status()}`)
       expect.soft(rej.status()).toBe(409)
+      expect.soft(rel.status(), "C3-03: release on an applied proposal is 409 like reserve / reject").toBe(409)
       const ctx = await browser.newContext({ baseURL: BASE, storageState: storage })
       const c = await ctx.newPage()
       let creates = 0

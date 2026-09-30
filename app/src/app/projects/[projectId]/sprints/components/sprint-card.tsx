@@ -12,6 +12,7 @@ import SprintTasksView from "./sprint-tasks-view"
 import SprintCardHeader from "./sprint-card-header"
 import SprintRetroSummary from "./sprint-retro-summary"
 import SprintProgress from "./sprint-progress"
+import { SprintGoal } from "./sprint-goal"
 import { CommentsProvider } from "@/components/comments/comments-provider"
 import { computeSprintMetrics, isRealTask } from "../lib/sprint-metrics"
 import { dateLocale } from "../lib/locale"
@@ -64,12 +65,7 @@ export default function SprintCard({
       <SprintCardHeader sprint={sprint} isExpanded={isExpanded} onToggleExpand={onToggleExpand}
         onEdit={() => setShowSprintEdit(true)} actions={actions} canManage={canManageSprint} />
 
-      {sprint.sprintGoal && (
-        <div className="px-6 pb-2">
-          <I18nText as="p" i18n={sprint.i18n} field="sprintGoal" original={sprint.sprintGoal}
-            entity={{ type: "sprint", id: sprint.id }} className="text-body text-fg-muted italic whitespace-pre-wrap" />
-        </div>
-      )}
+      <SprintGoal sprint={sprint} />
 
       <SprintRetroSummary sprint={sprint} />
       <SprintProgress capacity={sprint.capacity} metrics={metrics} />

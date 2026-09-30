@@ -1,12 +1,19 @@
 import { z } from "zod"
 
+/**
+ * Minimum length of a NEW password (create / admin reset / own change), A3-18.
+ * Login is not length-checked, so existing shorter passwords keep working.
+ * Pure module: the forms import the same constant.
+ */
+export const MIN_PASSWORD_LENGTH = 8
+
 export const SYSTEM_ROLE_VALUES = ["admin", "section_manager", "member"] as const
 export const UI_LANGUAGES = ["ja", "en", "id"] as const
 
 export const createUserSchema = z.object({
   name: z.string().min(1).max(100),
   email: z.string().email().max(200),
-  password: z.string().min(6).max(200),
+  password: z.string().min(MIN_PASSWORD_LENGTH).max(200),
   role: z.enum(SYSTEM_ROLE_VALUES),
   employeeNumber: z.string().max(50).optional().nullable(),
   department: z.string().max(100).optional().nullable(),
@@ -24,7 +31,7 @@ export const updateUserSchema = z.object({
 })
 
 export const resetPasswordSchema = z.object({
-  password: z.string().min(6).max(200),
+  password: z.string().min(MIN_PASSWORD_LENGTH).max(200),
 })
 
 export const updateProfileSchema = z.object({
@@ -35,7 +42,7 @@ export const updateProfileSchema = z.object({
 
 export const changePasswordSchema = z.object({
   currentPassword: z.string().min(1).max(200),
-  newPassword: z.string().min(6).max(200),
+  newPassword: z.string().min(MIN_PASSWORD_LENGTH).max(200),
 })
 
 export const languageSchema = z.object({

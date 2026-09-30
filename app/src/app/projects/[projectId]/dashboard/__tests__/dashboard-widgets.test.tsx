@@ -269,6 +269,13 @@ describe("DashboardHeader", () => {
     await user.click(screen.getByText("close-ai"))
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
   })
+
+  it("hides the AI progress report button without ai.use (section manager, A3-13) but keeps the report link", () => {
+    const en = tr("en")
+    renderWithProviders(<DashboardHeader projectId="p1" canUseAi={false} />, { language: "en" })
+    expect(screen.queryByRole("button", { name: new RegExp(en.aiProgressReport) })).toBeNull()
+    expect(screen.getByRole("link", { name: en.reportTitle })).toBeInTheDocument()
+  })
 })
 
 describe("DashboardHeader — background progress report", () => {

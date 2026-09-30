@@ -39,12 +39,16 @@ export type SidebarGroupId = (typeof SIDEBAR_GROUP_IDS)[number]
 export interface SidebarNavOptions {
   /** Add the project trash entry (only for users with the "trash.manage" permission). */
   showTrash?: boolean
+  /** Team settings entry; false for section managers who are not members (A3-13). Default true. */
+  showSettings?: boolean
+  /** AI chat entry; false without the "ai.use" permission (A3-13). Default true. */
+  showChat?: boolean
 }
 
 /**
  * Sidebar information architecture, four collapsible sections:
  * 計画 (overview and schedule) → 実行 (backlog, sprints) → 振り返り・AI → 管理.
- * Every project route stays reachable; only the trash is permission-gated.
+ * The trash, team settings and AI chat entries are permission-gated.
  */
 export function buildSidebarGroups(
   projectId: string,
@@ -53,8 +57,15 @@ export function buildSidebarGroups(
   options: SidebarNavOptions = {},
 ): SidebarNavGroup[] {
   const base = `/projects/${projectId}`
-  const trash: SidebarNavItem[] = options.showTrash
+  const { showTrash = false, showSettings = true, showChat = true } = options
+  const trash: SidebarNavItem[] = showTrash
     ? [{ href: `${base}/trash`, label: t.trashTitle, description: t.trashNavDescription, Icon: Trash2 }]
+    : []
+  const settings: SidebarNavItem[] = showSettings
+    ? [{ href: `${base}/settings`, label: t.navSettings, description: t.navDescSettings, Icon: Settings }]
+    : []
+  const chat: SidebarNavItem[] = showChat
+    ? [{ href: `${base}/chat`, label: t.chatTitle, description: t.navDescChat, Icon: MessageSquare }]
     : []
   return [
     {
@@ -83,14 +94,14 @@ export function buildSidebarGroups(
       label: t.navGroupReview,
       items: [
         { href: `${base}/report`, label: t.reportTitle, description: t.navDescReport, Icon: FileText },
-        { href: `${base}/chat`, label: t.chatTitle, description: t.navDescChat, Icon: MessageSquare },
+        ...chat,
       ],
     },
     {
       id: "manage",
       label: t.navGroupManage,
       items: [
-        { href: `${base}/settings`, label: t.navSettings, description: t.navDescSettings, Icon: Settings },
+        ...settings,
         ...trash,
         { href: `${base}/guide`, label: t.guideTitle, description: t.navDescGuide, Icon: BookOpen },
       ],

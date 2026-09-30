@@ -226,7 +226,8 @@ describe("PBI linking", () => {
     await openMenu(user, "Alpha-2", t.planLinkPbis)
     const dialog = await screen.findByRole("dialog", { name: t.planEditTitle })
     const section = within(dialog).getByRole("region", { name: lbl(t.planLinkSection) })
-    expect(await within(section).findByText("Login form", { selector: "span[title]" })).toBeInTheDocument()
+    // Chosen row and search result both carry the title as tooltip (A4-05).
+    expect((await within(section).findAllByText("Login form", { selector: "span[title]" }))[0]).toBeInTheDocument()
     expect(within(section).getByRole("link", { name: t.planLinkOpenBacklog })).toHaveAttribute("href", "/projects/p1/backlog?plan=A2")
     await user.type(within(section).getByRole("searchbox", { name: t.planLinkSearch }), "sign")
     const signup = await within(section).findByRole("checkbox", { name: /Signup/ })

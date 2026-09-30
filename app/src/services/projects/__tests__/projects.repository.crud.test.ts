@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { fakeDb } from "@/services/__tests__/fake-db"
 import * as repo from "../projects.repository"
+import { DEFAULT_SURVEILLANCE_SETTINGS, parseStoredSurveillanceSettings } from "@/lib/surveillance-settings"
 
 describe("projects.repository CRUD", () => {
   it("findCreatorProfile selects language, role and sections", async () => {
@@ -27,6 +28,17 @@ describe("projects.repository CRUD", () => {
     expect(withSections.data.sections).toEqual({ create: [{ sectionId: "s1" }] })
     expect(noSections.data.sections).toBeUndefined()
     expect(noSections.data).toMatchObject({ name: "P", description: "d", projectType: "general", language: "ja" })
+  })
+
+  it("insertProject stores AI surveillance OFF for a new project (condition 3)", async () => {
+    const db = fakeDb()
+    await repo.insertProject(db.client, { name: "P", description: undefined, projectType: "general", language: "ja", ownerId: "u1", sectionIds: [] })
+    const [call] = db.fn("project.create").mock.calls[0]
+    const stored = parseStoredSurveillanceSettings(call.data.surveillanceSettings)
+    expect(stored.enabled).toBe(false)
+    expect(stored).toEqual({ ...DEFAULT_SURVEILLANCE_SETTINGS, enabled: false })
+    // Existing projects (column null) keep the old default: enabled.
+    expect(parseStoredSurveillanceSettings(null).enabled).toBe(true)
   })
 
   it("findProjectDetail / update / delete by project id", async () => {

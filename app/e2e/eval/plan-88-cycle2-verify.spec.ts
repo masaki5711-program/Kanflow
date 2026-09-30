@@ -110,8 +110,8 @@ for (const w of WIDTHS) {
     expect(overlaps).toEqual([])
     expect(l.h1.w).toBeGreaterThan(100)
     for (const fl of l.filterLabels) expect(fl.h, `label ${fl.t} on one line`).toBeLessThan(28)
-    // Bars on screen, or (N-02: open work > 60 days old → the view starts at today − 14) the "◀ n 件" pill
-    expect(l.visibleBars > 0 || l.pills.some((p) => p.startsWith("before:")), "bars visible or announced").toBe(true)
+    // A3-09 (cycle 4): the first view always shows a bar — an empty anchored window fits everything instead
+    expect(l.visibleBars, "bars visible on the first view").toBeGreaterThan(0)
     // N-02: today is on screen, or a "今日 ◀/▶" pill points at it
     expect(l.todayVisible || l.todayPill, "today visible or pointed at").toBeTruthy()
     // N-04: pills live in the header band and cover nothing

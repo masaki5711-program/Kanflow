@@ -6,10 +6,12 @@ import { EmptyState, SkeletonCard, VisuallyHidden } from "@/components/ui"
 import { useApiQuery } from "@/hooks"
 import { formatPointUnit } from "@/lib/i18n"
 import { useLanguage } from "@/lib/language-context"
+import { pickText } from "@/lib/translation/pick-text"
 import {
-  V_HEIGHT, V_INNER_WIDTH, V_PADDING, V_WIDTH, shortLabel, velocityScale,
+  V_HEIGHT, V_INNER_WIDTH, V_PADDING, V_WIDTH, velocityScale,
   type VelocityData, type VelocityScale,
 } from "./velocity-geometry"
+import { axisLabels, unitsForWidth } from "./velocity-labels"
 
 /** Series colours from the kit tokens (legend and marks stay in sync). */
 const COLOR = {
@@ -40,8 +42,13 @@ function Grid({ scale }: { scale: VelocityScale }) {
   )
 }
 
-function Bars({ sprints, scale }: { sprints: VelocityData["sprints"]; scale: VelocityScale }) {
+/** Line height of the two-line x-axis labels. */
+const LABEL_LINE = 14
+
+function Bars({ sprints, names, scale }: { sprints: VelocityData["sprints"]; names: string[]; scale: VelocityScale }) {
   const base = scale.toY(0)
+  const slot = sprints.length > 1 ? scale.bar(1).center - scale.bar(0).center : V_INNER_WIDTH
+  const labels = axisLabels(names, unitsForWidth(slot - 4, FONT))
   return (
     <g>
       {sprints.map((s, i) => {
@@ -49,13 +56,16 @@ function Bars({ sprints, scale }: { sprints: VelocityData["sprints"]; scale: Vel
         const top = scale.toY(s.points)
         return (
           <g key={s.id}>
+            <title>{names[i]}</title>
             {s.capacity > 0 && (
               <rect x={x} y={scale.toY(s.capacity)} width={width} height={base - scale.toY(s.capacity)} rx={4}
                 fill="none" stroke={COLOR.capacity} strokeWidth="1.5" strokeDasharray="4,3" />
             )}
             <rect x={x + 3} y={top} width={Math.max(width - 6, 2)} height={Math.max(base - top, 0)} rx={3} fill={COLOR.completed} />
             <text x={center} y={top - 6} textAnchor="middle" fontSize={FONT} fontWeight="600" fill={COLOR.value}>{fmt(s.points)}</text>
-            <text x={center} y={base + 18} textAnchor="middle" fontSize={FONT} fill={COLOR.text}>{shortLabel(s.name)}</text>
+            <text x={center} y={base + 16} textAnchor="middle" fontSize={FONT} fill={COLOR.text}>
+              {labels[i].map((line, n) => <tspan key={n} x={center} dy={n === 0 ? 0 : LABEL_LINE}>{line}</tspan>)}
+            </text>
           </g>
         )
       })}
@@ -92,13 +102,15 @@ function Legend({ unit }: { unit: string }) {
  * the same numbers as a table.
  */
 export default function VelocityChart({ projectId }: { projectId: string }) {
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
   const titleId = useId()
   const { data, error, isLoading } = useApiQuery<VelocityData>(`/api/projects/${projectId}/velocity`, { toastOnError: true })
 
   if (isLoading) return <SkeletonCard label={t.loading} />
 
   const sprints = data?.sprints ?? []
+  // Sprint names in the viewer's language (A4-02).
+  const names = sprints.map((s) => pickText(s.i18n, "sprintName", s.name, language).text)
   const unit = formatPointUnit(data?.pointUnit, t)
   const average = data?.average ?? null
   const scale = velocityScale({ sprints, average })
@@ -129,7 +141,7 @@ export default function VelocityChart({ projectId }: { projectId: string }) {
               aria-label={t.velocityChartLabel.replace("{count}", String(sprints.length)).replace("{average}", `${fmt(average ?? 0)} ${unit}`)}
             >
               <Grid scale={scale} />
-              <Bars sprints={sprints} scale={scale} />
+              <Bars sprints={sprints} names={names} scale={scale} />
               {average !== null && <AverageLine average={average} scale={scale} label={fmt(average)} />}
             </svg>
           </div>
@@ -144,9 +156,9 @@ export default function VelocityChart({ projectId }: { projectId: string }) {
                 </tr>
               </thead>
               <tbody>
-                {sprints.map((s) => (
+                {sprints.map((s, i) => (
                   <tr key={s.id}>
-                    <th scope="row">{s.name}</th>
+                    <th scope="row">{names[i]}</th>
                     <td>{fmt(s.points)} {unit}</td>
                     <td>{fmt(s.capacity)}</td>
                   </tr>

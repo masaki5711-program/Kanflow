@@ -45,7 +45,7 @@ export default async function RootLayout({
   return (
     <html lang={userLanguage}>
       <body className="font-sans antialiased bg-surface-muted text-fg">
-        <Providers userLanguage={userLanguage}>
+        <Providers userLanguage={userLanguage} session={session}>
           <SkipLink />
           {signedIn && <RememberLanguage language={userLanguage} />}
           {children}

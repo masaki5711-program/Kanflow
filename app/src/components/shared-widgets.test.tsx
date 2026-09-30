@@ -43,13 +43,14 @@ function Ja({ children }: { children: ReactNode }) {
 }
 
 describe("I18nText", () => {
-  it("shows the viewer-locale translation with the original as title", () => {
+  it("shows the viewer-locale translation; the tooltip leads with the shown text and labels the original (A4-05)", () => {
     render(
       <Ja>
         <I18nText i18n={{ title: { source: "id", ja: "日本語", id: "Bahasa", status: "done" } as never }} field="title" original="Bahasa" />
       </Ja>,
     )
-    expect(screen.getByText("日本語")).toHaveAttribute("title", "Bahasa")
+    expect(screen.getByText("日本語")).toHaveAttribute("title", `日本語
+${ja.translationOriginalLabel}: Bahasa`)
   })
 
   it("renders the fallback (or nothing) when the text is empty", () => {

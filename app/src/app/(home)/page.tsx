@@ -6,6 +6,7 @@ import { getI18nFor } from "@/lib/translation/hooks"
 import { TopPage } from "../top-page"
 import { buildPageMetadata } from "@/app/page-metadata"
 import { isMyTask, myTaskAssigneeWhere } from "@/lib/my-tasks"
+import { loadPoHomeSummary } from "@/services/projects/po-home-summary"
 import { countProjectList, findProjectList, loadProjectListScope, toProjectListItem } from "@/services/projects/project-list"
 
 export function generateMetadata() {
@@ -27,7 +28,7 @@ export default async function HomePage() {
   // loads them from /api/projects/archived when the section is expanded.
   const scope = await loadProjectListScope({ id: userId, role: session.user.role })
 
-  const [activeProjects, archivedCount, categories, taskCandidates] = await Promise.all([
+  const [activeProjects, archivedCount, categories, taskCandidates, poSummary] = await Promise.all([
     findProjectList(scope, "active"),
     countProjectList(scope, "archived"),
     prisma.userProjectCategory.findMany({
@@ -77,6 +78,8 @@ export default async function HomePage() {
       },
       orderBy: { createdAt: "asc" },
     }),
+    // Backlog / sprint numbers for Product Owners (A3-16).
+    loadPoHomeSummary(userId),
   ])
 
   const myTasks = taskCandidates.filter((task) => isMyTask(task, userId, userName))
@@ -102,6 +105,7 @@ export default async function HomePage() {
           categories={categories}
           isAdmin={isAdmin}
           userName={userName}
+          poSummary={poSummary}
           myTasks={myTasks.map((t) => ({
             id: t.id,
             taskName: t.taskName,

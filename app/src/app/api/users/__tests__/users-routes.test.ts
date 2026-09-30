@@ -49,7 +49,7 @@ function jsonReq(url: string, method: string, body?: unknown): Request {
   })
 }
 
-const validUser = { name: "New", email: "new@example.com", password: "secret1", role: "member" }
+const validUser = { name: "New", email: "new@example.com", password: "secret12", role: "member" }
 
 const ADMIN_ENDPOINTS: Array<[string, () => Promise<Response>]> = [
   ["GET /users", () => usersRoute.GET()],
@@ -57,7 +57,7 @@ const ADMIN_ENDPOINTS: Array<[string, () => Promise<Response>]> = [
   ["PATCH /users/[id]", () => userRoute.PATCH(jsonReq(`${BASE}/u9`, "PATCH", { name: "x" }), idParams())],
   [
     "POST /users/[id]/reset-password",
-    () => resetRoute.POST(jsonReq(`${BASE}/u9/reset-password`, "POST", { password: "abcdef" }), idParams()),
+    () => resetRoute.POST(jsonReq(`${BASE}/u9/reset-password`, "POST", { password: "abcdefgh" }), idParams()),
   ],
 ]
 
@@ -109,7 +109,7 @@ describe("GET/POST /api/users", () => {
 
   it.each([
     ["invalid email", { ...validUser, email: "nope" }],
-    ["short password", { ...validUser, password: "12345" }],
+    ["short password", { ...validUser, password: "1234567" }],
     ["unknown role", { ...validUser, role: "root" }],
     ["missing name", { ...validUser, name: "" }],
     ["malformed JSON", "{"],
@@ -152,7 +152,7 @@ describe("PATCH /api/users/[id]", () => {
 })
 
 describe("POST /api/users/[id]/reset-password (rate limited)", () => {
-  const post = (body: unknown = { password: "newpass" }, id = "u9") =>
+  const post = (body: unknown = { password: "newpass1" }, id = "u9") =>
     resetRoute.POST(jsonReq(`${BASE}/${id}/reset-password`, "POST", body), idParams(id))
 
   it("resets the target user's password", async () => {
@@ -160,10 +160,10 @@ describe("POST /api/users/[id]/reset-password (rate limited)", () => {
     const res = await post()
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ success: true })
-    expect(users.resetPassword).toHaveBeenCalledWith("u9", "newpass")
+    expect(users.resetPassword).toHaveBeenCalledWith("u9", "newpass1")
   })
 
-  it.each([["short", { password: "123" }], ["missing", {}], ["malformed", "{"]])(
+  it.each([["short", { password: "1234567" }], ["missing", {}], ["malformed", "{"]])(
     "rejects a %s password with 400",
     async (_l, body) => {
       expect((await post(body)).status).toBe(400)
@@ -180,7 +180,7 @@ describe("POST /api/users/[id]/reset-password (rate limited)", () => {
 
   it("returns 429 with Retry-After once an admin exceeds 20 resets in the window", async () => {
     users.resetPassword.mockResolvedValue(undefined)
-    for (let i = 0; i < 20; i++) expect((await post({ password: "newpass" }, `u${i}`)).status).toBe(200)
+    for (let i = 0; i < 20; i++) expect((await post({ password: "newpass1" }, `u${i}`)).status).toBe(200)
 
     const limited = await post()
     expect(limited.status).toBe(429)

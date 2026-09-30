@@ -2,6 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const db = vi.hoisted(() => ({ sprint: { findMany: vi.fn() }, project: { findUnique: vi.fn() } }))
 vi.mock("@/services/_shared/db", () => ({ defaultDb: db }))
+const getI18nFor = vi.hoisted(() =>
+  vi.fn(async (_type: string, ids: string[]) => new Map(ids.map((id) => [id, { sprintName: { ja: `JA-S-${id}`, id: `S-${id}`, source: "id", status: "done" } }]))),
+)
+vi.mock("@/services/_shared/translations", () => ({ getI18nFor }))
 
 const { computeVelocity, findVelocitySprints, getVelocity, VELOCITY_STATUSES, VELOCITY_WINDOW } = await import("../velocity")
 
@@ -66,9 +70,18 @@ describe("findVelocitySprints / getVelocity", () => {
     expect(db.project.findUnique).toHaveBeenCalledWith({ where: { id: "p1" }, select: { pointUnit: true } })
   })
 
+  it("getVelocity attaches the sprint-name translations (A4-02)", async () => {
+    db.sprint.findMany.mockResolvedValue([row("a", "2026-01-15", 6)])
+    db.project.findUnique.mockResolvedValue({ pointUnit: "SP" })
+    const out = await getVelocity("p1")
+    expect(getI18nFor).toHaveBeenCalledWith("sprint", ["a"])
+    expect(out.sprints[0].i18n?.sprintName?.ja).toBe("JA-S-a")
+  })
+
   it("getVelocity falls back to SP when the project row is missing", async () => {
     db.sprint.findMany.mockResolvedValue([])
     db.project.findUnique.mockResolvedValue(null)
     await expect(getVelocity("p1")).resolves.toEqual({ sprints: [], average: null, pointUnit: "SP" })
+    expect(getI18nFor).not.toHaveBeenCalled()
   })
 })

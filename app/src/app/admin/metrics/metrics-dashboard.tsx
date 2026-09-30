@@ -61,7 +61,8 @@ const TONE_TEXT: Record<BadgeTone, string> = {
 
 function Kpi({ label, value, sub, valueTone = "neutral" }: { label: string; value: ReactNode; sub?: ReactNode; valueTone?: BadgeTone }) {
   return (
-    <div className="rounded-ui-lg border border-border bg-surface p-4 shadow-ui-sm">
+    // min-w-0: a grid item otherwise refuses to shrink below its content width (A4-03).
+    <div className="min-w-0 rounded-ui-lg border border-border bg-surface p-4 shadow-ui-sm">
       <dt className="text-caption font-medium text-fg-muted">{label}</dt>
       <dd className={`mt-1 text-2xl font-semibold tabular-nums ${TONE_TEXT[valueTone]}`}>{value}</dd>
       {sub && <dd className="mt-0.5 text-caption text-fg-subtle">{sub}</dd>}
@@ -78,7 +79,10 @@ export function workerLabel(t: Translations, worker: MetricsCurrent["worker"]): 
   return { text: t.metricsWorkerAbsent, tone: "warning" }
 }
 
-function KpiStrip({ current }: { current: MetricsCurrent }) {
+/** Lets a long worker label wrap inside a half-width tile at 375 px (A4-03). */
+export const WORKER_BADGE_CLASS = "max-w-full whitespace-normal break-words rounded-ui-md text-left"
+
+export function KpiStrip({ current }: { current: MetricsCurrent }) {
   const { t } = useLanguage()
   const w = current.http.last5m
   const worker = workerLabel(t, current.worker)
@@ -94,7 +98,7 @@ function KpiStrip({ current }: { current: MetricsCurrent }) {
         value={current.db.ok ? formatMs(current.db.latencyMs) : t.metricsDbDown}
         valueTone={current.db.ok ? "neutral" : "danger"}
       />
-      <Kpi label={t.metricsWorker} value={<Badge tone={worker.tone} size="md">{worker.text}</Badge>} sub={ago(current.worker.heartbeatAgeSec)} />
+      <Kpi label={t.metricsWorker} value={<Badge tone={worker.tone} size="md" className={WORKER_BADGE_CLASS}>{worker.text}</Badge>} sub={ago(current.worker.heartbeatAgeSec)} />
     </dl>
   )
 }

@@ -40,6 +40,8 @@ interface Input {
   isPhone: boolean
   /** clientWidth of the chart box (0 before the first measure). */
   containerWidth: number
+  /** Measured default name width on wide screens (null = fixed default). */
+  autoNameWidth?: number | null
   print: PrintRequest | null
 }
 
@@ -54,14 +56,14 @@ function printColumns(columns: readonly PlanColumn[], nameWidth: number): PlanCo
  * narrow screens) and the time range / day width — the zoom's on screen, a
  * page-fitted one while printing.
  */
-export function usePlanLayout({ items, today, zoom, language, prefs, shown, isNarrow, isTablet, isPhone, containerWidth, print }: Input): PlanLayout {
+export function usePlanLayout({ items, today, zoom, language, prefs, shown, isNarrow, isTablet, isPhone, containerWidth, autoNameWidth = null, print }: Input): PlanLayout {
   const gridCollapsed = prefs.gridCollapsed ?? isNarrow
   const fitted = useMemo(() => fitColumns(visibleColumns(shown, gridCollapsed, PLAN_COLUMNS), containerWidth), [shown, gridCollapsed, containerWidth])
   const screenColumns = fitted.columns
   const phoneNames = isPhone && prefs.phoneLayout === "names" && containerWidth > 0
   const nameWidth = phoneNames
     ? phoneNamesWidth(containerWidth - columnsWidth(screenColumns))
-    : resolveNameWidth(prefs.nameWidth, { compact: isNarrow, tablet: isTablet, containerWidth, columns: screenColumns })
+    : resolveNameWidth(prefs.nameWidth, { compact: isNarrow, tablet: isTablet, auto: autoNameWidth, containerWidth, columns: screenColumns })
   const screenRange = useMemo(() => chartRange(items, today, zoom), [items, today, zoom])
 
   return useMemo(() => {

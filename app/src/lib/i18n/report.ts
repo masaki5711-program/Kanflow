@@ -7,6 +7,12 @@ export interface ReportTranslations {
   aiReportLatest: string
   /** Notice on a report written in another language than the UI ({language} = its name). */
   aiReportWrittenIn: string
+  /** Short badge on a collapsed report row written in another language ({language} = its name). */
+  aiReportWrittenInShort: string
+  /** Language names in the UI language, for the notes above. */
+  aiReportLangNameJa: string
+  aiReportLangNameEn: string
+  aiReportLangNameId: string
   aiReportOlderShow: string
   aiReportOlderHide: string
   aiReportsEmpty: string
@@ -76,6 +82,10 @@ export const ja: ReportTranslations = {
   aiReportsTitle: "AIからの報告",
   aiReportLatest: "最新",
   aiReportWrittenIn: "このレポートは{language}で作成されています。「進捗レポート生成」で表示言語のレポートを作成できます。",
+  aiReportWrittenInShort: "{language}で作成",
+  aiReportLangNameJa: "日本語",
+  aiReportLangNameEn: "英語",
+  aiReportLangNameId: "インドネシア語",
   aiReportOlderShow: "過去のレポートを表示（{count}件）",
   aiReportOlderHide: "過去のレポートを隠す",
   aiReportsEmpty: "まだ報告はありません。AIが異常検知やスプリント完了時に自動で調査レポートを作成します。",
@@ -143,6 +153,10 @@ export const en: ReportTranslations = {
   aiReportsTitle: "AI Reports",
   aiReportLatest: "Latest",
   aiReportWrittenIn: "This report was written in {language}. Use “Progress Report” to create one in your language.",
+  aiReportWrittenInShort: "Written in {language}",
+  aiReportLangNameJa: "Japanese",
+  aiReportLangNameEn: "English",
+  aiReportLangNameId: "Indonesian",
   aiReportOlderShow: "Show older reports ({count})",
   aiReportOlderHide: "Hide older reports",
   aiReportsEmpty: "No reports yet. The AI automatically investigates anomalies and completed sprints.",
@@ -210,6 +224,10 @@ export const id: ReportTranslations = {
   aiReportsTitle: "Laporan dari AI",
   aiReportLatest: "Terbaru",
   aiReportWrittenIn: "Laporan ini ditulis dalam {language}. Gunakan “Laporan Progres” untuk membuatnya dalam bahasa Anda.",
+  aiReportWrittenInShort: "Ditulis dalam {language}",
+  aiReportLangNameJa: "bahasa Jepang",
+  aiReportLangNameEn: "bahasa Inggris",
+  aiReportLangNameId: "bahasa Indonesia",
   aiReportOlderShow: "Tampilkan laporan lama ({count})",
   aiReportOlderHide: "Sembunyikan laporan lama",
   aiReportsEmpty: "Belum ada laporan. AI otomatis menyelidiki anomali dan sprint yang selesai.",

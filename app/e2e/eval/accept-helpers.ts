@@ -2,7 +2,7 @@ import { expect, type Browser, type BrowserContext, type Page } from "@playwrigh
 import * as fs from "node:fs"
 import * as path from "node:path"
 
-export const BASE = process.env.E2E_BASE_URL || "http://localhost:3102"
+export const BASE = process.env.E2E_BASE_URL || "http://localhost:3103"
 export const PASSWORD = "E2e-Kanflow-2026!"
 export const PILOT = "cmr8tnrzm0000m09lghm5jshr"
 export const ZEVA = "cmouvgryo0004eg9lpqdtctmq"
@@ -30,7 +30,7 @@ const LOGIN_LABELS: Record<string, { email: string; password: string; button: st
 
 /** Log a line to the per-persona log file and stdout. */
 function logger(file: string) {
-  const p = path.join(OUT, file)
+  const p = path.join(OUT, `${process.env.ACC_TAG ?? "acc4"}-${file}`)
   return (s: string) => {
     const line = `[${new Date().toISOString().slice(11, 19)}] ${s}`
     fs.appendFileSync(p, line + "\n")
@@ -77,7 +77,7 @@ export async function visit(s: Session, url: string, label: string): Promise<num
 }
 
 export async function snap(s: Session, name: string, fullPage = false): Promise<string> {
-  const f = `${SHOTS}/acc3-${name}.png`
+  const f = `${SHOTS}/${process.env.ACC_TAG ?? "acc4"}-${name}.png`
   await s.page.screenshot({ path: f, fullPage })
   s.log(`SHOT ${f}`)
   return f
@@ -86,7 +86,7 @@ export async function snap(s: Session, name: string, fullPage = false): Promise<
 /** Dump the ARIA snapshot of the main area for later textual review. */
 export async function dump(s: Session, name: string): Promise<void> {
   const aria = await s.page.locator("body").ariaSnapshot().catch((e) => `ERR ${e}`)
-  fs.writeFileSync(path.join(OUT, `${name}.aria.txt`), aria)
+  fs.writeFileSync(path.join(OUT, `${process.env.ACC_TAG ?? "acc4"}-${name}.aria.txt`), aria)
 }
 
 /** Horizontal overflow in px (document scrollWidth - viewport width). */

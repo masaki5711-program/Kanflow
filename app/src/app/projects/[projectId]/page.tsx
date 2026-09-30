@@ -167,6 +167,8 @@ export default async function ProjectDashboard({
       planProgressPct={planProgressPct}
       currentUserRole={effectiveRole ?? "member"}
       canEditGoals={can(actor, "goal.write")}
+      canUseAi={can(actor, "ai.use")}
+      isProjectMember={!!membership}
       activeSprint={
         activeSprint
           ? {

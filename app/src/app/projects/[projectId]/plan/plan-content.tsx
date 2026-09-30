@@ -14,15 +14,16 @@ import { EMPTY_FILTER, isFilterActive, matchesFilter, type PlanFilter } from "./
 import { dayCenterX, spanGeometry } from "./lib/geometry"
 import type { PlanItem } from "./lib/plan-types"
 import { fullPlanRange, visibleRange, type PrintScope } from "./lib/print"
-import type { ChartRange } from "./lib/scale"
+import type { ChartRange, PlanZoom } from "./lib/scale"
 import { fillTemplate } from "./lib/template"
 import { ancestorIds, buildFlatTree, descendantIds, dropItem, filterVisibleIds, indentItem, moveSibling, outdentItem, parentIds } from "./lib/tree"
-import { initialAnchorDay } from "./lib/viewport"
+import { firstViewTarget, fitTarget } from "./lib/fit-view"
 import { useBarDrag } from "./hooks/use-bar-drag"
 import { usePlanData } from "./hooks/use-plan-data"
+import { useNameAutoWidth } from "./hooks/use-name-auto-width"
 import { usePlanLayout } from "./hooks/use-plan-layout"
 import { usePlanPrint } from "./hooks/use-plan-print"
-import { initialScrollLeft, revealItem, scrollTimelineTo, useInitialScroll } from "./hooks/use-plan-scroll"
+import { revealItem, scrollTimelineTo, useInitialScroll } from "./hooks/use-plan-scroll"
 import { usePlanViewState } from "./hooks/use-plan-view-state"
 import { useRowDrag } from "./hooks/use-row-drag"
 import { useTimelineViewport } from "./hooks/use-timeline-viewport"
@@ -80,6 +81,7 @@ function PlanPage({ projectId, canEdit }: Props) {
   const isNarrow = useMediaQuery("(max-width: 767px)")
   const isTablet = useMediaQuery("(max-width: 1023px)")
   const isPhone = useMediaQuery("(max-width: 639px)")
+  const isWide = useMediaQuery("(min-width: 1280px)")
   const view = usePlanViewState(projectId, isTablet)
   const membersQuery = useApiQuery<ProjectMemberDto[]>(`/api/projects/${projectId}/members`)
   const members = useMemo(() => (membersQuery.data ?? NO_MEMBERS).map((m) => ({ id: m.user.id, name: m.user.name })), [membersQuery.data])
@@ -102,6 +104,9 @@ function PlanPage({ projectId, canEdit }: Props) {
   )
   const rows = useMemo(() => buildFlatTree(items, filterOn ? new Set() : collapsed, visible), [items, collapsed, filterOn, visible])
   const rowIds = useMemo(() => rows.map((r) => r.item.id), [rows])
+  // Every row (nothing collapsed) sizes the default name column, so it does not jump on expand / collapse.
+  const allRows = useMemo(() => buildFlatTree(items, new Set(), null), [items])
+  const autoName = useNameAutoWidth(allRows, nameOf, isWide)
 
   const { zoom } = view
   const ready = !api.isLoading && items.length > 0
@@ -120,6 +125,7 @@ function PlanPage({ projectId, canEdit }: Props) {
     isTablet,
     isPhone,
     containerWidth: viewport.clientWidth,
+    autoNameWidth: autoName,
     print: printFlow.request,
   })
   const { range, dayWidth, scale, columns, gridCollapsed, nameWidth } = layout
@@ -129,15 +135,18 @@ function PlanPage({ projectId, canEdit }: Props) {
     [t, language, range.startDay, dayWidth, today, canEdit, columns, gw, nameWidth, gridCollapsed, layout.printing, nameOf],
   )
   const todayX = dayCenterX(today, range.startDay, dayWidth)
-  // First view: the earliest unfinished / overdue work (or today) is on screen.
-  useInitialScroll(
+  // First view: the earliest unfinished / overdue work (or today); an empty window fits everything instead (A3-09).
+  const shownItems = useMemo(() => rows.map((r) => r.item), [rows])
+  const visibleWidth = (clientWidth: number) => clientWidth - gw
+  const applyView = useInitialScroll(
     scrollRef,
     ready,
-    (clientWidth) =>
-      initialScrollLeft(initialAnchorDay(items, today, (clientWidth - gw) / dayWidth), { startDay: range.startDay, dayWidth, todayX, clientWidth, gridWidth: gw }),
+    (clientWidth, isFirst) => firstViewTarget(items, shownItems, today, zoom, visibleWidth(clientWidth), isFirst),
     zoom,
+    (z) => view.setZoom(z as PlanZoom),
     !!view.itemParam,
   )
+  const fitAll = () => applyView(fitTarget(items, shownItems, today, visibleWidth(scrollRef.current?.clientWidth ?? 0)))
 
   const drag = useBarDrag({
     dayWidth,
@@ -246,6 +255,8 @@ function PlanPage({ projectId, canEdit }: Props) {
         zoom={zoom}
         onZoom={view.setZoom}
         onJumpToday={() => scrollTimelineTo(scrollRef.current, todayX, gw)}
+        onFitAll={fitAll}
+        fitDisabled={!ready || rows.length === 0}
         canEdit={canEdit}
         onAddItem={() => openDraft(null, false)}
         onAddMilestone={() => openDraft(null, true)}

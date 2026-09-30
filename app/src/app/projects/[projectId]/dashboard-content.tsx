@@ -37,6 +37,10 @@ interface DashboardContentProps {
   currentUserRole: string
   /** goal.write from the authz policy (the API enforces the same rule). */
   canEditGoals?: boolean
+  /** ai.use: project members / admins. Section managers (read-only) get no AI report button. */
+  canUseAi?: boolean
+  /** Explicit project member: only members have "my tasks" here (section managers do not). */
+  isProjectMember?: boolean
   activeSprint: ActiveSprint | null
   /** My open tasks in this project's planning / active sprints. */
   myTasks?: DashboardMyTask[]
@@ -65,6 +69,8 @@ export function DashboardContent({
   planProgressPct,
   currentUserRole,
   canEditGoals = false,
+  canUseAi = true,
+  isProjectMember = true,
   activeSprint,
   myTasks = [],
   upcomingDue = [],
@@ -76,7 +82,7 @@ export function DashboardContent({
 
   return (
     <div className="space-y-6">
-      <DashboardHeader projectId={projectId} />
+      <DashboardHeader projectId={projectId} canUseAi={canUseAi} />
 
       {/* Autonomous AI reports (surveillance / sprint completion) — hidden until the first report exists */}
       <AiReportsPanel projectId={projectId} />
@@ -97,10 +103,13 @@ export function DashboardContent({
         <div className="min-w-0 lg:col-span-6">
           <ActiveSprintCard projectId={projectId} sprint={activeSprint} />
         </div>
-        <div className="min-w-0 lg:col-span-3">
-          <MyProjectTasks projectId={projectId} tasks={myTasks} />
-        </div>
-        <div className="min-w-0 lg:col-span-3">
+        {isProjectMember && (
+          <div className="min-w-0 lg:col-span-3">
+            <MyProjectTasks projectId={projectId} tasks={myTasks} />
+          </div>
+        )}
+        {/* Without "my tasks" (section manager, A3-13) the due list takes the freed columns. */}
+        <div className={isProjectMember ? "min-w-0 lg:col-span-3" : "min-w-0 lg:col-span-6"}>
           <UpcomingDue projectId={projectId} items={upcomingDue} />
         </div>
       </div>

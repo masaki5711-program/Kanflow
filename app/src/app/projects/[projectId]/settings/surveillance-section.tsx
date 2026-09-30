@@ -158,6 +158,7 @@ function SurveillanceForm({ projectId, initial }: { projectId: string; initial: 
   return (
     <form onSubmit={submit} className="space-y-4" noValidate>
       {checkbox("enabled", t.survEnabled)}
+      <p className="text-caption text-fg-muted">{t.survSharedLoadNote}</p>
       {!draft.enabled && <p className="text-caption text-warning">{t.survDisabledNote}</p>}
       <fieldset disabled={!draft.enabled} className="space-y-4 disabled:opacity-60">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -180,7 +181,7 @@ function SurveillanceForm({ projectId, initial }: { projectId: string; initial: 
           label={t.settingsSaveButton}
           unsavedLabel={t.settingsUnsavedChanges}
         />
-        <Button type="button" variant="ghost" size="sm" onClick={() => setDraft(toDraft(DEFAULT_SURVEILLANCE_SETTINGS))}>
+        <Button type="button" variant="ghost" size="sm" onClick={() => setDraft((prev) => ({ ...toDraft(DEFAULT_SURVEILLANCE_SETTINGS), enabled: prev.enabled }))}>
           {t.survResetDefaults}
         </Button>
       </div>

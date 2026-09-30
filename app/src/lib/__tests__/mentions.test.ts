@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest"
 import {
   activeMentionQuery,
+  toComposerText,
+  toStoredMentions,
   commentExcerpt,
   extractMentionNames,
   mentionToken,
@@ -105,5 +107,32 @@ describe("activeMentionQuery", () => {
     expect(activeMentionQuery("@ta\nx", 5)).toBeNull()
     expect(activeMentionQuery("@a b c d", 8)).toBeNull()
     expect(activeMentionQuery("@" + "x".repeat(101), 102)).toBeNull()
+  })
+})
+
+describe("composer display form (A3-20)", () => {
+  it("toComposerText shows bracket tokens as @Name and returns the names", () => {
+    expect(toComposerText("Hi @[Taro Yamada] and @hanako, @[Taro Yamada]!")).toEqual({
+      text: "Hi @Taro Yamada and @hanako, @Taro Yamada!",
+      names: ["Taro Yamada"],
+    })
+    expect(toComposerText("no mentions")).toEqual({ text: "no mentions", names: [] })
+  })
+
+  it("toStoredMentions turns picked names back into tokens, longest name first, on word boundaries", () => {
+    expect(toStoredMentions("@Taro Yamada and @Taro, see @Taro Yamada.", ["Taro", "Taro Yamada"])).toBe(
+      "@[Taro Yamada] and @[Taro], see @[Taro Yamada].",
+    )
+    expect(toStoredMentions("@Hanakosan mail a@Hanako", ["Hanako"])).toBe("@Hanakosan mail a@Hanako")
+    expect(toStoredMentions("@A.B (x)", ["A.B"])).toBe("@[A.B] (x)")
+    expect(toStoredMentions("plain", [])).toBe("plain")
+  })
+
+  it("round-trips a stored body through the composer unchanged", () => {
+    const body = "E2E-ACC4 明日までに確認して @[E2E Dev]"
+    const { text, names } = toComposerText(body)
+    expect(text).toBe("E2E-ACC4 明日までに確認して @E2E Dev")
+    expect(toStoredMentions(text, names)).toBe(body)
+    expect(extractMentionNames(toStoredMentions(text, names))).toEqual(["E2E Dev"])
   })
 })

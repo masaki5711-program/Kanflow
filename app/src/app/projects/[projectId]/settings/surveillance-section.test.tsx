@@ -75,4 +75,23 @@ describe("SurveillanceSection", () => {
     await user.click(screen.getByRole("button", { name: t.survResetDefaults }))
     expect(stalled).toHaveValue(3)
   })
+
+  it("shows the shared-Ollama note next to the on/off switch (condition 3)", async () => {
+    renderWithProviders(<SurveillanceSection projectId="p1" />)
+    expect(await screen.findByRole("switch", { name: t.survEnabled })).toBeChecked()
+    expect(screen.getByText(t.survSharedLoadNote)).toBeInTheDocument()
+  })
+
+  it("shows a new project's stored OFF state and reset keeps it OFF", async () => {
+    fetchMock.mockImplementationOnce(async () => jsonResponse({ settings: { ...DEFAULT_SURVEILLANCE_SETTINGS, enabled: false, stalledDays: 9 } }))
+    const user = userEvent.setup()
+    renderWithProviders(<SurveillanceSection projectId="p1" />)
+    const toggle = await screen.findByRole("switch", { name: t.survEnabled })
+    expect(toggle).not.toBeChecked()
+    expect(screen.getByText(t.survDisabledNote)).toBeInTheDocument()
+
+    await user.click(screen.getByRole("button", { name: t.survResetDefaults }))
+    expect(screen.getByLabelText(t.survStalledDays)).toHaveValue(3)
+    expect(screen.getByRole("switch", { name: t.survEnabled })).not.toBeChecked()
+  })
 })

@@ -3,7 +3,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react"
 import { Send } from "lucide-react"
 import { useLanguage } from "@/lib/language-context"
-import { activeMentionQuery, mentionToken } from "@/lib/mentions"
+import { activeMentionQuery, mentionTokenName, toComposerText, toStoredMentions } from "@/lib/mentions"
 import { Button, Field, Textarea } from "@/components/ui"
 import { MentionListbox } from "./mention-listbox"
 import { COMMENT_BODY_MAX, type MentionMember } from "./types"
@@ -37,9 +37,15 @@ export function filterMembers(members: readonly MentionMember[], query: string):
   return [...starts, ...hits.filter((m) => !starts.includes(m))].slice(0, MAX_SUGGESTIONS)
 }
 
+/** True when the @-query is a mention already picked, followed by more text (the list stays closed). */
+export function isCompletedMention(query: string, names: readonly string[]): boolean {
+  return names.some((n) => query.length > n.length && query.startsWith(n) && !/[\p{L}\p{N}_]/u.test(query[n.length]))
+}
+
 /**
  * Comment text area with @mention autocomplete. Typing `@` lists project
- * members (filtered as you type); ↑/↓ move, Enter or Tab inserts `@[Name]`,
+ * members (filtered as you type); ↑/↓ move, Enter or Tab inserts `@Name`
+ * (shown as typed; stored as the `@[Name]` token on save, A3-20),
  * Escape closes the list (without closing a surrounding modal).
  * Ctrl/⌘ + Enter submits. While an @token is open, Enter never types a
  * newline: it inserts the active match; while the members are still loading
@@ -49,8 +55,11 @@ export function filterMembers(members: readonly MentionMember[], query: string):
  */
 export function CommentComposer({ members, membersLoading = false, onSubmit, label, submitLabel, initialValue = "", onCancel, autoFocus }: Props) {
   const { t } = useLanguage()
-  const [value, setValue] = useState(initialValue)
-  const [caret, setCaret] = useState(initialValue.length)
+  // Display text shows mentions as "@Name"; `names` turns them back into tokens on save.
+  const [initial] = useState(() => toComposerText(initialValue))
+  const [value, setValue] = useState(initial.text)
+  const [names, setNames] = useState<readonly string[]>(initial.names)
+  const [caret, setCaret] = useState(initial.text.length)
   const [activeIndex, setActiveIndex] = useState(0)
   // Start index of a query the user dismissed with Escape (stays closed until a new @).
   const [dismissedAt, setDismissedAt] = useState<number | null>(null)
@@ -61,12 +70,13 @@ export function CommentComposer({ members, membersLoading = false, onSubmit, lab
   const pendingCaret = useRef<number | null>(null)
   const listId = useId()
 
-  const mention = activeMentionQuery(value, caret)
+  const query = activeMentionQuery(value, caret)
+  const mention = query && !isCompletedMention(query.query, names) ? query : null
   const isOpen = !!mention && mention.start !== dismissedAt
   const suggestions = isOpen ? filterMembers(members, mention.query) : []
   const active = suggestions.length > 0 ? Math.min(activeIndex, suggestions.length - 1) : -1
   const tooLong = value.length > COMMENT_BODY_MAX
-  const canSubmit = value.trim().length > 0 && !tooLong && !submitting && value !== initialValue
+  const canSubmit = value.trim().length > 0 && !tooLong && !submitting && value !== initial.text
 
   // The members arrived after an early Enter: insert the first match (or give up when none matches).
   const firstMatch = pendingPickAt !== null && mention?.start === pendingPickAt && !membersLoading ? (suggestions[0] ?? null) : undefined
@@ -93,7 +103,9 @@ export function CommentComposer({ members, membersLoading = false, onSubmit, lab
 
   function insert(member: MentionMember) {
     if (!mention) return
-    const token = `${mentionToken(member.name)} `
+    const name = mentionTokenName(member.name)
+    const token = `@${name} `
+    setNames((prev) => (prev.includes(name) ? prev : [...prev, name]))
     const next = value.slice(0, mention.start) + token + value.slice(caret)
     const at = mention.start + token.length
     pendingCaret.current = at
@@ -104,8 +116,11 @@ export function CommentComposer({ members, membersLoading = false, onSubmit, lab
     if (!canSubmit) return
     setSubmitting(true)
     try {
-      const ok = await onSubmit(value.trim())
-      if (ok && !initialValue) update("", 0)
+      const ok = await onSubmit(toStoredMentions(value.trim(), names))
+      if (ok && !initialValue) {
+        update("", 0)
+        setNames([])
+      }
     } finally {
       setSubmitting(false)
     }

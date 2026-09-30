@@ -45,10 +45,12 @@ export function ProjectCreateModal({ open, onClose }: { open: boolean; onClose: 
     onClose()
   }
 
-  const create = useApiMutation((body: CreateBody) => apiFetch("/api/projects", { method: "POST", json: body }), {
-    onSuccess: () => {
+  const create = useApiMutation((body: CreateBody) => apiFetch<{ id?: string }>("/api/projects", { method: "POST", json: body }), {
+    // Open the new project's dashboard (A3-11); without an id, just refresh the list.
+    onSuccess: (created) => {
       close()
-      router.refresh()
+      if (created?.id) router.push(`/projects/${created.id}`)
+      else router.refresh()
     },
     toastOnSuccess: t.projectCreated,
     toastOnError: (e) => `${t.projectCreateFailed}: ${e.message}`,

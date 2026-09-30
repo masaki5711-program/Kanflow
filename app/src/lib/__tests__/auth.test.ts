@@ -12,6 +12,7 @@ interface CapturedConfig {
   providers: Array<{ authorize: AnyFn }>
   callbacks: { jwt: AnyFn; session: AnyFn }
   pages: { signIn: string }
+  logger: { error: AnyFn }
 }
 
 const captured = vi.hoisted(() => ({ config: null as unknown }))
@@ -83,6 +84,11 @@ describe("auth config", () => {
     expect(config.session).toEqual({ strategy: "jwt", maxAge: 7200, updateAge: 600 })
     expect(config.jwt).toEqual({ maxAge: 7200 })
     expect(config.pages.signIn).toBe("/login")
+  })
+
+  it("installs the quiet auth logger so wrong passwords do not dump stacks (C3-02)", async () => {
+    const { authLogger } = await import("@/lib/auth-logger")
+    expect(config.logger).toBe(authLogger)
   })
 
   it("re-exports the NextAuth handlers from the catch-all route", () => {

@@ -14,6 +14,7 @@ const m = vi.hoisted(() => ({
     sprintBacklogItem: { findMany: vi.fn() },
   },
   getI18nFor: vi.fn(),
+  loadPoHomeSummary: vi.fn(),
 }))
 
 vi.mock("@/lib/auth", () => ({ auth: m.auth }))
@@ -21,6 +22,7 @@ vi.mock("next/navigation", () => ({ redirect: m.redirect }))
 vi.mock("@/lib/prisma", () => ({ prisma: m.prisma }))
 vi.mock("@/components/header", () => ({ Header: () => <header>HEADER</header> }))
 vi.mock("@/lib/translation/hooks", () => ({ getI18nFor: m.getI18nFor }))
+vi.mock("@/services/projects/po-home-summary", () => ({ loadPoHomeSummary: m.loadPoHomeSummary }))
 vi.mock("../top-page", () => ({
   TopPage: (props: Record<string, unknown>) => {
     m.topPageProps = props
@@ -70,6 +72,7 @@ describe("HomePage (server)", () => {
     m.prisma.project.count.mockResolvedValue(2)
     m.prisma.userProjectCategory.findMany.mockResolvedValue([{ id: "c1" }])
     m.prisma.sprintBacklogItem.findMany.mockResolvedValue([rawTask])
+    m.loadPoHomeSummary.mockResolvedValue(null)
     m.getI18nFor.mockImplementation(async (type: string) => new Map(type === "project" ? [["p1", { name: { ja: "x" } }]] : []))
   })
 
@@ -101,6 +104,9 @@ describe("HomePage (server)", () => {
     expect(m.getI18nFor).toHaveBeenCalledWith("project", ["p1"])
     expect(props.isAdmin).toBe(false)
     expect(props.userName).toBe("Taro")
+    // A3-16: PO numbers are loaded for the signed-in user (null = PO of no project).
+    expect(m.loadPoHomeSummary).toHaveBeenCalledWith("u1")
+    expect(props.poSummary).toBeNull()
     expect((props.myTasks as unknown as Array<Record<string, unknown>>)[0]).toMatchObject({
       id: "t1",
       version: 4,

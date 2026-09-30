@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, type RefObject } from "react"
+import { useEffect, useRef, type RefObject } from "react"
+import { useStableCallback } from "@/hooks/use-stable-callback"
 
 /** Fraction of the visible timeline left of the focus point (today / a revealed bar). */
 export const FOCUS_FRACTION = 1 / 3
@@ -42,13 +43,53 @@ export function initialScrollLeft(
   return Math.max(0, Math.round((anchorDay - geometry.startDay) * geometry.dayWidth))
 }
 
-/** On first load and on every zoom change, scroll to `computeLeft(clientWidth)` (the latest geometry). */
-export function useInitialScroll(ref: RefObject<HTMLElement | null>, ready: boolean, computeLeft: (clientWidth: number) => number, zoom: string, skip: boolean): void {
+/** A zoom + scrollLeft the chart should show (see lib/fit-view). */
+export interface ScrollTarget {
+  zoom: string
+  left: number
+}
+
+/**
+ * On first load and on every zoom change, scroll to `target(clientWidth, isFirst)`
+ * (computed from the latest geometry). A target with another zoom switches the
+ * zoom first and scrolls once the chart re-rendered at it. Returns `apply`
+ * (the "show everything" button uses it too).
+ */
+export function useInitialScroll(
+  ref: RefObject<HTMLElement | null>,
+  ready: boolean,
+  target: (clientWidth: number, isFirst: boolean) => ScrollTarget,
+  zoom: string,
+  setZoom: (zoom: string) => void,
+  skip: boolean,
+): (next: ScrollTarget) => void {
+  const pendingLeft = useRef<number | null>(null)
+  const firstDone = useRef(false)
+  const apply = useStableCallback((next: ScrollTarget) => {
+    const el = ref.current
+    if (!el) return
+    if (next.zoom !== zoom) {
+      pendingLeft.current = next.left
+      setZoom(next.zoom)
+      return
+    }
+    el.scrollLeft = next.left
+  })
   useEffect(() => {
     const el = ref.current
+    // A deep-linked item (?item=) owns the first view.
+    if (ready && skip) firstDone.current = true
     if (!ready || skip || !el) return
-    el.scrollLeft = computeLeft(el.clientWidth)
-    // computeLeft reads the latest items / geometry; re-running on their own changes would fight the user's scrolling.
+    if (pendingLeft.current !== null) {
+      el.scrollLeft = pendingLeft.current
+      pendingLeft.current = null
+      return
+    }
+    const isFirst = !firstDone.current
+    firstDone.current = true
+    apply(target(el.clientWidth, isFirst))
+    // target reads the latest items / geometry; re-running on their own changes would fight the user's scrolling.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, zoom, skip])
+  return apply
 }

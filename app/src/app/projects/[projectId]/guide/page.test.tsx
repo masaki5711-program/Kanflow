@@ -137,6 +137,17 @@ describe("GettingStartedTab", () => {
       unmount()
     }
   })
+
+  it("labels the diagram's artifact / event badges in the UI language, not English capitals (A3-20)", () => {
+    const { unmount } = renderWithProviders(<GuidePage />, { language: "ja" })
+    expect(screen.queryByText("ARTIFACT")).toBeNull()
+    expect(screen.queryByText("EVENT")).toBeNull()
+    expect(screen.getAllByText("アーティファクト").length).toBeGreaterThan(1)
+    expect(screen.getAllByText("イベント").length).toBeGreaterThan(1)
+    unmount()
+    renderWithProviders(<GuidePage />, { language: "id" })
+    expect(screen.getAllByText("Artefak").length).toBeGreaterThan(1)
+  })
 })
 
 describe("GlossaryTab", () => {

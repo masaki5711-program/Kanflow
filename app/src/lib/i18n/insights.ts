@@ -57,6 +57,12 @@ export interface InsightsTranslations {
   topKpiOpen: string
   topKpiOverdue: string
   topKpiDueThisWeek: string
+  topKpiRefinement: string
+  topKpiReview: string
+  topKpiSprintCompletion: string
+  topKpiTasksDone: string
+  topKpiNoActiveSprint: string
+  topKpiNoTasksHint: string
   topTaskOverdueBadge: string
   topTaskDueSoonBadge: string
   topTaskDueOn: string
@@ -129,6 +135,12 @@ export const ja: InsightsTranslations = {
   topKpiOpen: "未完了のタスク",
   topKpiOverdue: "期限切れ",
   topKpiDueThisWeek: "今週が期限",
+  topKpiRefinement: "リファインメント待ち PBI",
+  topKpiReview: "レビュー待ちスプリント",
+  topKpiSprintCompletion: "今スプリントの完了率",
+  topKpiTasksDone: "{done}/{total} タスク完了",
+  topKpiNoActiveSprint: "実行中のスプリントはありません",
+  topKpiNoTasksHint: "担当中のタスクはありません。スプリントでタスクを担当すると、ここに件数が表示されます。",
   topTaskOverdueBadge: "期限切れ",
   topTaskDueSoonBadge: "まもなく期限",
   topTaskDueOn: "期限 {date}",
@@ -198,6 +210,12 @@ export const en: InsightsTranslations = {
   topKpiOpen: "Open tasks",
   topKpiOverdue: "Overdue",
   topKpiDueThisWeek: "Due this week",
+  topKpiRefinement: "PBIs awaiting refinement",
+  topKpiReview: "Sprints awaiting review",
+  topKpiSprintCompletion: "Current sprint done",
+  topKpiTasksDone: "{done} of {total} tasks done",
+  topKpiNoActiveSprint: "No sprint is running",
+  topKpiNoTasksHint: "You have no open tasks. Counts appear here once you take on tasks in a sprint.",
   topTaskOverdueBadge: "Overdue",
   topTaskDueSoonBadge: "Due soon",
   topTaskDueOn: "Due {date}",
@@ -267,6 +285,12 @@ export const id: InsightsTranslations = {
   topKpiOpen: "Tugas terbuka",
   topKpiOverdue: "Terlambat",
   topKpiDueThisWeek: "Jatuh tempo minggu ini",
+  topKpiRefinement: "PBI menunggu penyempurnaan",
+  topKpiReview: "Sprint menunggu tinjauan",
+  topKpiSprintCompletion: "Penyelesaian sprint ini",
+  topKpiTasksDone: "{done} dari {total} tugas selesai",
+  topKpiNoActiveSprint: "Tidak ada sprint yang berjalan",
+  topKpiNoTasksHint: "Anda tidak memiliki tugas terbuka. Jumlahnya akan muncul di sini setelah Anda mengambil tugas di sprint.",
   topTaskOverdueBadge: "Terlambat",
   topTaskDueSoonBadge: "Segera jatuh tempo",
   topTaskDueOn: "Tenggat {date}",

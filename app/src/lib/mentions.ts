@@ -88,6 +88,42 @@ export function mentionToken(name: string): string {
   return `@[${name.replace(/[\]\r\n]/g, "").trim().slice(0, MENTION_NAME_MAX)}]`
 }
 
+/** The name as it appears inside a token (`]` / line breaks dropped, trimmed, capped). */
+export function mentionTokenName(name: string): string {
+  return mentionToken(name).slice(2, -1)
+}
+
+/**
+ * Composer display form of a stored body (A3-20): bracket tokens `@[Name]`
+ * are shown as `@Name`, and the names are returned so that saving can turn
+ * them back into tokens with `toStoredMentions`.
+ */
+export function toComposerText(body: string): { text: string; names: string[] } {
+  const names: string[] = []
+  const text = splitMentionSegments(body)
+    .map((seg) => {
+      if (seg.type !== "mention" || !seg.bracket) return seg.type === "mention" ? seg.raw : seg.text
+      if (!names.includes(seg.name)) names.push(seg.name)
+      return `@${seg.name}`
+    })
+    .join("")
+  return { text, names }
+}
+
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+
+/**
+ * Stored form of composer text: every `@Name` of a picked member becomes the
+ * bracket token `@[Name]` (longest names first, so "Taro Yamada" wins over
+ * "Taro"). A name must end at a non-letter, so "@Hanakosan" stays plain text.
+ */
+export function toStoredMentions(text: string, names: readonly string[]): string {
+  const clean = [...new Set(names.map(mentionTokenName).filter(Boolean))].sort((a, b) => b.length - a.length)
+  if (clean.length === 0) return text
+  const re = new RegExp(String.raw`(?<![\p{L}\p{N}_.+\-@\[])@(${clean.map(escapeRe).join("|")})(?![\p{L}\p{N}_])`, "gu")
+  return text.replace(re, (_m, name: string) => `@[${name}]`)
+}
+
 /** Plain-text rendering: `@[Name]` → `@Name`. */
 export function mentionsToPlainText(body: string): string {
   return splitMentionSegments(body)

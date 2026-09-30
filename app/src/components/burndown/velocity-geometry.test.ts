@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { V_INNER_HEIGHT, V_INNER_WIDTH, V_PADDING, shortLabel, velocityScale, type VelocityPoint } from "./velocity-geometry"
+import { V_INNER_HEIGHT, V_INNER_WIDTH, V_PADDING, velocityScale, type VelocityPoint } from "./velocity-geometry"
 
 const pt = (id: string, points: number, capacity = 0): VelocityPoint => ({ id, name: id, status: "done", points, capacity, endDate: "2026-01-01T00:00:00.000Z" })
 
@@ -28,12 +28,5 @@ describe("velocityScale", () => {
     const one = velocityScale({ sprints: [pt("a", 1)], average: 1 })
     expect(one.bar(0).width).toBe(56)
     expect(one.bar(0).x + one.bar(0).width / 2).toBe(one.bar(0).center)
-  })
-})
-
-describe("shortLabel", () => {
-  it("cuts long sprint names with an ellipsis", () => {
-    expect(shortLabel("Sprint 1")).toBe("Sprint 1")
-    expect(shortLabel("Sprint 2026-10 kickoff", 10)).toBe("Sprint 20…")
   })
 })

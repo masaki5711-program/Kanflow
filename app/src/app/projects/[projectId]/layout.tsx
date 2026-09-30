@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth"
 import { notFound, redirect } from "next/navigation"
-import { can, loadProjectActor } from "@/lib/authz"
+import { accessVia, can, loadProjectActor } from "@/lib/authz"
 import { prisma } from "@/lib/prisma"
 import { type ProjectType } from "@/lib/project-type-labels"
 import { getI18nFor } from "@/lib/translation/hooks"
@@ -40,6 +40,9 @@ export default async function ProjectLayout({
   const i18nMap = await getI18nFor("project", [projectId])
   // The trash entry is shown only to users who may manage the project trash.
   const showTrash = can(actor, "trash.manage")
+  // A section manager who is not a member reads the project only: no team settings, no AI chat (A3-13).
+  const showSettings = accessVia(actor) !== "section_manager"
+  const showChat = can(actor, "ai.use")
 
   const projectType = (project.projectType as ProjectType) ?? "software"
   const projectI18n = i18nMap.get(projectId) ?? {}
@@ -51,7 +54,7 @@ export default async function ProjectLayout({
         <div className="min-h-screen bg-surface-muted">
           <Header projectName={project.name} projectI18n={projectI18n} projectId={projectId} />
           <div className="flex">
-            <Sidebar projectId={projectId} projectName={project.name} projectI18n={projectI18n} showTrash={showTrash} />
+            <Sidebar projectId={projectId} projectName={project.name} projectI18n={projectI18n} showTrash={showTrash} showSettings={showSettings} showChat={showChat} />
             <main id="main-content" tabIndex={-1} className="min-w-0 flex-1 overflow-x-auto px-4 py-6 sm:px-6 lg:px-8">{children}</main>
           </div>
         </div>

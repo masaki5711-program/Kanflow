@@ -69,6 +69,7 @@ let rectSpy: ReturnType<typeof vi.spyOn>
 beforeEach(() => {
   Object.defineProperty(window, "localStorage", { value: memoryStorage(), configurable: true, writable: true })
   router.refresh.mockReset()
+  router.push.mockReset()
   rectSpy = vi
     .spyOn(HTMLElement.prototype, "getClientRects")
     .mockImplementation(() => [{ width: 1, height: 1 }] as unknown as DOMRectList)
@@ -365,7 +366,7 @@ describe("ProjectList actions", () => {
 })
 
 describe("ProjectCreateModal", () => {
-  it("validates the name, creates the project and refreshes", async () => {
+  it("validates the name, creates the project and opens its dashboard (A3-11)", async () => {
     const fetchMock = stubFetch([{ match: "/api/projects", method: "POST", respond: () => jsonResponse({ id: "new" }, 201) }])
     const user = userEvent.setup()
     renderList()
@@ -383,7 +384,7 @@ describe("ProjectCreateModal", () => {
     expect(radios[1]).toBeChecked()
     await user.click(submit)
 
-    await waitFor(() => expect(router.refresh).toHaveBeenCalled())
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith("/projects/new"))
     const body = JSON.parse(fetchMock.mock.calls[0][1]?.body as string)
     expect(body).toEqual({ name: "New one", description: "desc", projectType: radios[1].getAttribute("value") })
     expect(screen.getByText(t.projectCreated)).toBeInTheDocument()
