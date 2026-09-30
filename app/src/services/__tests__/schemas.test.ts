@@ -90,6 +90,27 @@ describe("backlog schemas", () => {
   })
 })
 
+describe("optimistic lock + assignee id fields (P2)", () => {
+  it("update schemas accept an optional non-negative integer version", () => {
+    for (const schema of [updateBacklogItemSchema, updateIceboxItemSchema, updateSprintSchema, updateTaskSchema]) {
+      ok(schema, { version: 0 })
+      ok(schema, {})
+      bad(schema, { version: -1 })
+      bad(schema, { version: 1.5 })
+      bad(schema, { version: "3" })
+    }
+  })
+
+  it("task schemas accept assigneeIds (bounded) next to the legacy string", () => {
+    ok(createTaskSchema, { pbItemId: "b1", assigneeIds: ["u1", "u2"] })
+    ok(updateTaskSchema, { assigneeIds: [] })
+    ok(updateTaskSchema, { assignee: "Ann", assigneeIds: ["u1"] })
+    bad(updateTaskSchema, { assigneeIds: [""] })
+    bad(updateTaskSchema, { assigneeIds: Array.from({ length: 21 }, (_, i) => `u${i}`) })
+    bad(updateTaskSchema, { assigneeIds: "u1" })
+  })
+})
+
 describe("admin category / section schemas", () => {
   it("categories", () => {
     ok(createAdminCategorySchema, { name: "n", sectionId: null })

@@ -89,7 +89,7 @@ describe("PATCH/DELETE /icebox/[itemId]", () => {
     asRole("dev")
     vi.mocked(svc.deleteIceboxItem).mockResolvedValue(undefined as never)
     expect(await read(await one.DELETE(req("DELETE"), iCtx()))).toEqual({ status: 200, body: { success: true } })
-    expect(svc.deleteIceboxItem).toHaveBeenCalledWith(PROJECT_ID, "ice-1", ACTOR)
+    expect(svc.deleteIceboxItem).toHaveBeenCalledWith(PROJECT_ID, "ice-1", ACTOR, undefined)
   })
 
   it("maps delete failure to 500", async () => {

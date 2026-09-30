@@ -71,6 +71,7 @@ describe("sprint-backlog.service", () => {
     vi.mocked(repo.findProjectPbiId).mockResolvedValueOnce(null)
     await expect(svc.createTask("p1", "s1", { pbItemId: "b1" }, ACTOR)).rejects.toThrow("PBI not found")
     vi.mocked(repo.findProjectPbiId).mockResolvedValue({ id: "b1" })
+    vi.mocked(repo.findProjectMemberCandidates).mockResolvedValue([])
     vi.mocked(repo.insertTask).mockResolvedValue({ id: "t9" } as never)
     await svc.createTask("p1", "s1", { pbItemId: "b1", taskName: "T", assignee: "A,B" }, ACTOR)
     expect(repo.insertTask).toHaveBeenCalledWith(TX, expect.objectContaining({ assignee: "A", status: "todo", estimatedHours: null }))
@@ -80,7 +81,8 @@ describe("sprint-backlog.service", () => {
 
   it("update enqueues task name and the effective completion comment", async () => {
     vi.mocked(repo.findTask).mockResolvedValue({ id: "t1", pbItemId: "b1" })
-    vi.mocked(repo.updateTask).mockResolvedValue({ id: "t1", pbItemId: "b1" } as never)
+    vi.mocked(repo.updateTask).mockResolvedValue(1)
+    vi.mocked(repo.findTaskDetail).mockResolvedValue({ id: "t1", pbItemId: "b1" } as never)
     await svc.updateTask("p1", "s1", "t1", { status: "in_progress" }, ACTOR)
     expect(tr.enqueueIn).toHaveBeenCalledWith(TX, "sprint_task", "t1", { taskName: undefined, completionComment: null })
     expect(recalcSprintActualScore).toHaveBeenCalledWith("s1", TX)
@@ -94,8 +96,9 @@ describe("sprint-backlog.service", () => {
 
   it("delete purges the task translation and re-syncs its PBI", async () => {
     vi.mocked(repo.findTask).mockResolvedValue({ id: "t1", pbItemId: "b1" })
+    vi.mocked(repo.deleteTask).mockResolvedValue(1)
     await svc.deleteTask("p1", "s1", "t1")
-    expect(repo.deleteTask).toHaveBeenCalledWith(TX, "t1")
+    expect(repo.deleteTask).toHaveBeenCalledWith(TX, "t1", undefined)
     expect(tr.purgeIn).toHaveBeenCalledWith(TX, { sprint_task: ["t1"] })
     expect(syncPbiStatusFromTasks).toHaveBeenCalledWith("b1", TX)
   })

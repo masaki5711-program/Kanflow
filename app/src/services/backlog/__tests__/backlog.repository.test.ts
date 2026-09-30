@@ -43,9 +43,19 @@ describe("backlog.repository", () => {
   it("softDeleteBacklogItem stamps only a live row of the project", async () => {
     const db = fakeDb({ "productBacklogItem.updateMany": { count: 1 } })
     const now = new Date("2026-10-01T00:00:00Z")
-    await expect(repo.softDeleteBacklogItem(db.client, "p1", "b1", "u1", now)).resolves.toBe(true)
+    await expect(repo.softDeleteBacklogItem(db.client, "p1", "b1", "u1", undefined, now)).resolves.toBe(true)
     expect(db.fn("productBacklogItem.updateMany")).toHaveBeenCalledWith({
       where: { id: "b1", projectId: "p1", deletedAt: null },
+      data: { deletedAt: now, deletedById: "u1" },
+    })
+  })
+
+  it("softDeleteBacklogItem only matches the expected version when one is given", async () => {
+    const db = fakeDb({ "productBacklogItem.updateMany": { count: 1 } })
+    const now = new Date("2026-10-01T00:00:00Z")
+    await repo.softDeleteBacklogItem(db.client, "p1", "b1", "u1", 4, now)
+    expect(db.fn("productBacklogItem.updateMany")).toHaveBeenCalledWith({
+      where: { id: "b1", projectId: "p1", version: 4, deletedAt: null },
       data: { deletedAt: now, deletedById: "u1" },
     })
   })
@@ -118,15 +128,30 @@ describe("backlog.repository", () => {
     expect(db.fn("productBacklogItem.create")).toHaveBeenCalledWith({ data })
   })
 
-  it("update / delete / setSortOrder are all project-scoped (update and reorder skip the trash)", async () => {
+  it("updateBacklogItem is a compare-and-set on the version and bumps it", async () => {
+    const db = fakeDb({ "productBacklogItem.updateMany": { count: 1 }, "productBacklogItem.findFirst": { id: "b1", version: 5 } })
+    await expect(repo.updateBacklogItem(db.client, "p1", "b1", { epic: "e" }, 4)).resolves.toEqual({ id: "b1", version: 5 })
+    expect(db.fn("productBacklogItem.updateMany")).toHaveBeenCalledWith({
+      where: { id: "b1", projectId: "p1", version: 4, deletedAt: null },
+      data: { epic: "e", version: { increment: 1 } },
+    })
+    expect(db.fn("productBacklogItem.findFirst")).toHaveBeenCalledWith({ where: { id: "b1", projectId: "p1" } })
+  })
+
+  it("updateBacklogItem without a version still bumps it; null when nothing matched", async () => {
+    const db = fakeDb({ "productBacklogItem.updateMany": { count: 0 } })
+    await expect(repo.updateBacklogItem(db.client, "p1", "b1", { epic: "e" })).resolves.toBeNull()
+    expect(db.fn("productBacklogItem.updateMany")).toHaveBeenCalledWith({
+      where: { id: "b1", projectId: "p1", deletedAt: null },
+      data: { epic: "e", version: { increment: 1 } },
+    })
+    expect(db.fn("productBacklogItem.findFirst")).not.toHaveBeenCalled()
+  })
+
+  it("delete / setSortOrder are project-scoped (reorder skips the trash)", async () => {
     const db = fakeDb()
-    await repo.updateBacklogItem(db.client, "p1", "b1", { epic: "e" })
     await repo.deleteBacklogItem(db.client, "p1", "b1")
     await repo.setBacklogSortOrder(db.client, "p1", "b1", 5)
-    expect(db.fn("productBacklogItem.update")).toHaveBeenCalledWith({
-      where: { id: "b1", projectId: "p1", deletedAt: null },
-      data: { epic: "e" },
-    })
     expect(db.fn("productBacklogItem.delete")).toHaveBeenCalledWith({ where: { id: "b1", projectId: "p1" } })
     expect(db.fn("productBacklogItem.updateMany")).toHaveBeenCalledWith({
       where: { id: "b1", projectId: "p1", deletedAt: null },

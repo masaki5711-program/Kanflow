@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { afterCursorWhere, decodeCursor, encodeCursor, toPage } from "../cursor"
+import { afterCursorWhere, afterCursorWhereAsc, decodeCursor, encodeCursor, toPage } from "../cursor"
 
 const at = new Date("2026-10-01T09:00:00.000Z")
 
@@ -19,6 +19,13 @@ describe("cursor", () => {
     expect(afterCursorWhere(undefined)).toEqual({})
     expect(afterCursorWhere(encodeCursor({ createdAt: at, id: "c1" }))).toEqual({
       OR: [{ createdAt: { lt: at } }, { createdAt: at, id: { lt: "c1" } }],
+    })
+  })
+
+  it("afterCursorWhereAsc pages forward in ascending order", () => {
+    expect(afterCursorWhereAsc(undefined)).toEqual({})
+    expect(afterCursorWhereAsc(encodeCursor({ createdAt: at, id: "c1" }))).toEqual({
+      OR: [{ createdAt: { gt: at } }, { createdAt: at, id: { gt: "c1" } }],
     })
   })
 

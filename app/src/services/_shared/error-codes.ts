@@ -21,6 +21,8 @@ export const API_ERROR_CODES = [
   "INTERNAL",
   "UPSTREAM_FAILED",
   "SERVICE_UNAVAILABLE",
+  /** Optimistic lock: the row changed since the client loaded it (body carries `current`). */
+  "VERSION_CONFLICT",
   // Auth / admin / account
   "ADMIN_REQUIRED",
   "WRONG_PASSWORD",

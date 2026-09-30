@@ -1,6 +1,7 @@
 "use client"
 
-import { useId } from "react"
+import { useId, useMemo } from "react"
+import { CommentsProvider } from "@/components/comments/comments-provider"
 import { Button, EmptyState, cn } from "@/components/ui"
 import { useLanguage } from "@/lib/language-context"
 import { IceboxItemCard, type IceboxCardActions } from "./icebox-item-card"
@@ -28,6 +29,7 @@ export function IceboxSection({ projectId, title, status, items, statusLabels, o
   const { t } = useLanguage()
   const headingId = useId()
   const theme = THEME[status]
+  const itemIds = useMemo(() => items.map((i) => i.id), [items])
   return (
     <section aria-labelledby={headingId} className={cn("overflow-hidden rounded-ui-lg border border-l-4 border-border bg-surface shadow-ui-sm", theme.border)}>
       <div className="flex items-center gap-3 border-b border-border px-5 py-3.5">
@@ -55,22 +57,24 @@ export function IceboxSection({ projectId, title, status, items, statusLabels, o
           }
         />
       ) : (
-        <ul className="divide-y divide-border">
-          {items.map((item) => {
-            const itemTheme = THEME[item.status as IceboxStatus] ?? theme
-            return (
-              <IceboxItemCard
-                key={item.id}
-                projectId={projectId}
-                item={item}
-                statusLabel={statusLabels[item.status] ?? item.status}
-                badgeClass={itemTheme.badge}
-                accentClass={theme.accent}
-                {...actions}
-              />
-            )
-          })}
-        </ul>
+        <CommentsProvider projectId={projectId} entityType="icebox" entityIds={itemIds}>
+          <ul className="divide-y divide-border">
+            {items.map((item) => {
+              const itemTheme = THEME[item.status as IceboxStatus] ?? theme
+              return (
+                <IceboxItemCard
+                  key={item.id}
+                  projectId={projectId}
+                  item={item}
+                  statusLabel={statusLabels[item.status] ?? item.status}
+                  badgeClass={itemTheme.badge}
+                  accentClass={theme.accent}
+                  {...actions}
+                />
+              )
+            })}
+          </ul>
+        </CommentsProvider>
       )}
     </section>
   )

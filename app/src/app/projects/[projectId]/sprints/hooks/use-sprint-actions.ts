@@ -1,7 +1,7 @@
 "use client"
 
 import { useToast, useConfirm } from "@/components/ui"
-import { apiFetch, isApiError } from "@/hooks"
+import { apiFetch, isApiError, useVersionConflict, versionParam, withVersion } from "@/hooks"
 import { useLanguage } from "@/lib/language-context"
 import { messageOf } from "../lib/errors"
 import { buildStatusPatch } from "../lib/task-payload"
@@ -24,7 +24,9 @@ export function useSprintActions(projectId: string, { sprints, refetchSprints, r
   const { t } = useLanguage()
   const toast = useToast()
   const confirm = useConfirm()
+  const onVersionConflict = useVersionConflict()
   const base = `/api/projects/${projectId}/sprints`
+  const versionOf = (sprintId: string) => sprints.find((s) => s.id === sprintId)?.version
 
   async function createSprint(input: CreateSprintInput): Promise<boolean> {
     try {
@@ -45,10 +47,11 @@ export function useSprintActions(projectId: string, { sprints, refetchSprints, r
 
   async function changeStatus(sprintId: string, status: string, retro: Partial<RetroFields> | null): Promise<boolean> {
     try {
-      await apiFetch(`${base}/${sprintId}`, { method: "PATCH", json: buildStatusPatch(status, retro) })
+      await apiFetch(`${base}/${sprintId}`, { method: "PATCH", json: withVersion(buildStatusPatch(status, retro), versionOf(sprintId)) })
       refetchSprints()
       return true
     } catch (err) {
+      if (onVersionConflict(err, () => refetchSprints())) return false
       toast.error(messageOf(err, t.error), { title: t.sprintStatusUpdateFailed })
       return false
     }
@@ -62,11 +65,12 @@ export function useSprintActions(projectId: string, { sprints, refetchSprints, r
     const snapshot = sprints
     mutateSprints(sprints.filter((s) => s.id !== sprint.id))
     try {
-      await apiFetch(`${base}/${sprint.id}`, { method: "DELETE" })
+      await apiFetch(`${base}/${sprint.id}${versionParam(sprint.version)}`, { method: "DELETE" })
       toast.success(t.sprintDeleted)
       refetchReady()
     } catch (err) {
       mutateSprints(snapshot)
+      if (onVersionConflict(err, () => refetchSprints())) return
       toast.error(messageOf(err, t.error), { title: t.sprintDeleteFailed })
     }
   }

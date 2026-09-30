@@ -27,7 +27,7 @@ describe("icebox trash", () => {
   it("delete moves the item to the trash and keeps files and translations", async () => {
     vi.mocked(repo.softDeleteIceboxItem).mockResolvedValue(true)
     await svc.deleteIceboxItem("p1", "i", ACTOR)
-    expect(repo.softDeleteIceboxItem).toHaveBeenCalledWith(TX, "p1", "i", ACTOR.userId)
+    expect(repo.softDeleteIceboxItem).toHaveBeenCalledWith(TX, "p1", "i", ACTOR.userId, undefined)
     expect(repo.deleteIceboxItem).not.toHaveBeenCalled()
     expect(tr.purgeIn).not.toHaveBeenCalled()
     expect(files.deleteUploadedFile).not.toHaveBeenCalled()

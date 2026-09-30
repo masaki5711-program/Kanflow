@@ -60,6 +60,10 @@ export const PROJECT_ACTIONS = [
   "trash.manage",
   /** Permanently delete (purge) a trashed PBI / Icebox item before the retention period ends. */
   "trash.purge",
+  /** Post comments on PBIs / sprint tasks / Icebox items; edit and delete one's own. */
+  "comment.write",
+  /** Delete anyone's comment (moderation). */
+  "comment.moderate",
 ] as const
 export type ProjectAction = (typeof PROJECT_ACTIONS)[number]
 
@@ -97,6 +101,8 @@ const POLICY: Readonly<Record<ProjectAction, readonly Grantee[]>> = {
   "ai.draftPbi": PO_SM,
   "trash.manage": PO_SM,
   "trash.purge": PO,
+  "comment.write": MEMBER,
+  "comment.moderate": PO,
 }
 
 export function isSystemAdmin(actor: Pick<ProjectActor, "systemRole">): boolean {

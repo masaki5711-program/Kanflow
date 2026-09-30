@@ -41,6 +41,21 @@ export class ConflictError extends ServiceError {
   readonly status = 409
 }
 
+/**
+ * 409 VERSION_CONFLICT — optimistic lock: the row was changed by someone else
+ * since the client loaded it. `current` (the row as it is now, in the same
+ * DTO shape the endpoint returns) goes to the client as a top-level field so
+ * it can replace its stale copy without another request.
+ */
+export class VersionConflictError extends ServiceError {
+  readonly status = 409
+  readonly current: unknown
+  constructor(current: unknown, message = "他のユーザーが先に更新しました") {
+    super(message, { current }, "VERSION_CONFLICT")
+    this.current = current
+  }
+}
+
 /** 400 — input that passed the schema but breaks a business rule (bad date, cycle, ...). */
 export class ValidationError extends ServiceError {
   readonly status = 400

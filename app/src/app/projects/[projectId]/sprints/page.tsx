@@ -118,7 +118,7 @@ export default function SprintsPage() {
         <TaskFormModal projectId={projectId} sprint={taskSprint} task={taskModal.task}
           initialPbItemId={taskModal.pbItemId} members={data.members} pointUnit={pointUnit} canEditPbi={canEditPbi}
           onSave={(form) => taskActions.saveTask(taskSprint.id, taskModal.task?.id ?? null, form)}
-          onBulkAdd={(pbItemId, assignee, names) => taskActions.bulkAddTasks(taskSprint.id, pbItemId, assignee, names)}
+          onBulkAdd={(pbItemId, assigneeIds, names) => taskActions.bulkAddTasks(taskSprint.id, pbItemId, assigneeIds, names)}
           onPbiSaved={refreshAfterPbiChange} onClose={() => setTaskModal(null)} />
       )}
       {statusDialog && (

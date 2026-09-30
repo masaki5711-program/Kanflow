@@ -189,4 +189,31 @@ describe("PbiDetailModal (edit mode)", () => {
     expect(patchBodies).toEqual([{ workloadScore: null }])
     expect(onClose).not.toHaveBeenCalled()
   })
+
+  it("sends the loaded version; a VERSION_CONFLICT drops the edits, reloads the PBI and stays open", async () => {
+    let gets = 0
+    const bodies: unknown[] = []
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (init?.method === "PATCH") {
+          bodies.push(JSON.parse(String(init.body)))
+          return jsonResponse({ error: "stale", code: "VERSION_CONFLICT", current: { ...PBI, epic: "Theirs", version: 4 } }, 409)
+        }
+        if (!String(url).endsWith("/backlog/pbi-1")) return jsonResponse([])
+        gets++
+        return jsonResponse(gets === 1 ? { ...PBI, version: 3 } : { ...PBI, epic: "Theirs", version: 4 })
+      }),
+    )
+    const { onClose } = renderModal({ editable: true })
+    const epic = await screen.findByLabelText(pt.backlogEpic)
+    await userEvent.clear(epic)
+    await userEvent.type(epic, "Mine")
+    await userEvent.click(screen.getByRole("button", { name: t.update }))
+    await waitFor(() => expect(bodies).toEqual([{ epic: "Mine", version: 3 }]))
+    expect(await screen.findByDisplayValue("Theirs")).toBeInTheDocument()
+    expect(screen.queryByText(new RegExp(t.backlogSaveFailed))).not.toBeInTheDocument()
+    expect(onClose).not.toHaveBeenCalled()
+    expect(gets).toBe(2)
+  })
 })

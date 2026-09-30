@@ -2,6 +2,7 @@ import type { Prisma } from "@/generated/prisma/client"
 import type { Db } from "@/services/_shared/db"
 import { LIST_LIMITS } from "@/services/_shared/limits"
 import { RESTORE_DATA, notDeleted, softDeleteData } from "@/services/_shared/soft-delete"
+import { BUMP_VERSION, versionWhere } from "@/services/_shared/versioning"
 import type { PbiStatus } from "./backlog.schemas"
 
 const LINKED_SELECT = {
@@ -45,13 +46,24 @@ export function insertBacklogItem(db: Db, data: Prisma.ProductBacklogItemUncheck
   return db.productBacklogItem.create({ data })
 }
 
-export function updateBacklogItem(
+/**
+ * Optimistic-lock update of a live PBI: matches `version` when given and
+ * always bumps it. Returns the updated row, or null when nothing matched
+ * (missing / trashed / stale version — the service tells them apart).
+ */
+export async function updateBacklogItem(
   db: Db,
   projectId: string,
   itemId: string,
-  data: Prisma.ProductBacklogItemUncheckedUpdateInput
+  data: Prisma.ProductBacklogItemUncheckedUpdateInput,
+  version?: number
 ) {
-  return db.productBacklogItem.update({ where: notDeleted({ id: itemId, projectId }), data })
+  const res = await db.productBacklogItem.updateMany({
+    where: notDeleted({ id: itemId, projectId, ...versionWhere(version) }),
+    data: { ...data, ...BUMP_VERSION },
+  })
+  if (res.count === 0) return null
+  return db.productBacklogItem.findFirst({ where: { id: itemId, projectId } })
 }
 
 /** Sprint tasks (incl. placeholders) that cascade with the PBI. */
@@ -82,16 +94,17 @@ export function findProjectGoalId(db: Db, projectId: string, productGoalId: stri
 
 const TRASHED = { deletedAt: { not: null } } as const
 
-/** Move a live PBI of the project to the trash. False when no live row matched. */
+/** Move a live PBI of the project (at `version`, when given) to the trash. False when no live row matched. */
 export async function softDeleteBacklogItem(
   db: Db,
   projectId: string,
   itemId: string,
   actorUserId: string,
+  version?: number,
   now: Date = new Date()
 ): Promise<boolean> {
   const res = await db.productBacklogItem.updateMany({
-    where: notDeleted({ id: itemId, projectId }),
+    where: notDeleted({ id: itemId, projectId, ...versionWhere(version) }),
     data: softDeleteData(actorUserId, now),
   })
   return res.count > 0

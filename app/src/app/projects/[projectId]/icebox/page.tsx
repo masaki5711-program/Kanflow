@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation"
 import MediaPreviewModal, { type MediaItem } from "@/components/media-preview-modal"
 import { PbiDraftPickerModal, type PbiDraft } from "@/components/pbi-draft-picker-modal"
 import { Button, EmptyState, Input, SkeletonCard, useConfirm, PageHeader } from "@/components/ui"
-import { apiFetch, useApiMutation, useApiQuery } from "@/hooks"
+import { apiFetch, conflictAwareToast, useApiMutation, useApiQuery, versionConflictOf, versionParam, withVersion } from "@/hooks"
 import { useLanguage } from "@/lib/language-context"
 import { IceboxCreateForm } from "./icebox-create-form"
 import { IceboxEditModal } from "./icebox-edit-modal"
@@ -53,7 +53,7 @@ export default function IceboxPage() {
   }
 
   const changeStatus = useApiMutation(
-    ({ item, to }: StatusVars) => apiFetch(`${url}/${item.id}`, { method: "PATCH", json: { status: to } }),
+    ({ item, to }: StatusVars) => apiFetch(`${url}/${item.id}`, { method: "PATCH", json: withVersion({ status: to }, item.version) }),
     {
       onMutate: ({ item, to }) => {
         const prev = lists
@@ -70,11 +70,14 @@ export default function IceboxPage() {
       },
       rollback: (prev) => setLists(prev),
       onSuccess: () => refetch(),
-      toastOnError: (e) => `${t.iceboxStatusChangeFailed}: ${e.message}`,
+      onError: (e) => {
+        if (versionConflictOf(e)) refetch()
+      },
+      toastOnError: conflictAwareToast((e) => `${t.iceboxStatusChangeFailed}: ${e.message}`),
     },
   )
 
-  const remove = useApiMutation((item: IceboxItem) => apiFetch(`${url}/${item.id}`, { method: "DELETE" }), {
+  const remove = useApiMutation((item: IceboxItem) => apiFetch(`${url}/${item.id}${versionParam(item.version)}`, { method: "DELETE" }), {
     onMutate: (item) => {
       const prev = lists
       const status = item.status as IceboxStatus
@@ -82,7 +85,10 @@ export default function IceboxPage() {
       return prev
     },
     rollback: (prev) => setLists(prev),
-    toastOnError: (e) => `${t.iceboxDeleteFailed}: ${e.message}`,
+    onError: (e) => {
+      if (versionConflictOf(e)) refetch()
+    },
+    toastOnError: conflictAwareToast((e) => `${t.iceboxDeleteFailed}: ${e.message}`),
     toastOnSuccess: t.iceboxDeleted,
   })
 

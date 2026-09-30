@@ -91,6 +91,7 @@ vi.mock("@/services/events/events.service", () => h.inertModule("events.service"
 vi.mock("@/services/daily-scrums/daily-scrums.service", () => h.inertModule("daily-scrums.service"))
 vi.mock("@/services/ai-reports/ai-reports.service", () => h.inertModule("ai-reports.service"))
 vi.mock("@/services/activity/activity.service", () => h.inertModule("activity.service"))
+vi.mock("@/services/comments/comments.service", () => h.inertModule("comments.service"))
 vi.mock("@/services/trash/trash.service", () => h.inertModule("trash.service"))
 
 // AI / file / network modules
@@ -120,6 +121,9 @@ const ROUTES: RouteCase[] = [
   { file: "route.ts", load: () => import("@/app/api/projects/[projectId]/route"), params: {} },
   { file: "activity/route.ts", load: () => import("@/app/api/projects/[projectId]/activity/route"), params: {} },
   { file: "activity/[entityType]/[entityId]/route.ts", load: () => import("@/app/api/projects/[projectId]/activity/[entityType]/[entityId]/route"), params: { entityType: "pbi", entityId: "pbi-1" } },
+  { file: "comments/route.ts", load: () => import("@/app/api/projects/[projectId]/comments/route"), params: {} },
+  { file: "comments/counts/route.ts", load: () => import("@/app/api/projects/[projectId]/comments/counts/route"), params: {} },
+  { file: "comments/[commentId]/route.ts", load: () => import("@/app/api/projects/[projectId]/comments/[commentId]/route"), params: { commentId: "c-1" } },
   { file: "ai-reports/route.ts", load: () => import("@/app/api/projects/[projectId]/ai-reports/route"), params: {} },
   { file: "ai/generate-pbi-field/route.ts", load: () => import("@/app/api/projects/[projectId]/ai/generate-pbi-field/route"), params: {} },
   { file: "ai/progress-report/route.ts", load: () => import("@/app/api/projects/[projectId]/ai/progress-report/route"), params: {} },

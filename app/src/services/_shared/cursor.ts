@@ -38,6 +38,16 @@ export function afterCursorWhere(cursor: string | undefined) {
 
 export const NEWEST_FIRST = [{ createdAt: "desc" as const }, { id: "desc" as const }]
 
+/** Prisma `where` fragment: rows strictly after the cursor in (createdAt ASC, id ASC) order. */
+export function afterCursorWhereAsc(cursor: string | undefined) {
+  if (!cursor) return {}
+  const { createdAt, id } = decodeCursor(cursor)
+  return { OR: [{ createdAt: { gt: createdAt } }, { createdAt, id: { gt: id } }] }
+}
+
+/** Oldest first (comment threads); pair with `afterCursorWhereAsc`. */
+export const OLDEST_FIRST = [{ createdAt: "asc" as const }, { id: "asc" as const }]
+
 export interface Page<T> {
   items: T[]
   nextCursor: string | null

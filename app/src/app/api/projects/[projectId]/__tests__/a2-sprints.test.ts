@@ -180,7 +180,7 @@ describe("sprint routes", () => {
       asRole(m, "sm")
       const res = await sprint.DELETE(getReq(), PS)
       expect(res.status).toBe(200)
-      expect(m.deleteSprint).toHaveBeenCalledWith("p1", "s1", expect.objectContaining({ userId: expect.any(String) }))
+      expect(m.deleteSprint).toHaveBeenCalledWith("p1", "s1", expect.objectContaining({ userId: expect.any(String) }), undefined)
     })
 
     it("DELETE 500 on failure", async () => {
@@ -368,7 +368,25 @@ describe("sprint routes", () => {
       asRole(m, "dev")
       const res = await task.DELETE(getReq(), PST)
       expect(res.status).toBe(200)
-      expect(m.deleteTask).toHaveBeenCalledWith("p1", "s1", "t1", expect.objectContaining({ userId: expect.any(String) }))
+      expect(m.deleteTask).toHaveBeenCalledWith("p1", "s1", "t1", expect.objectContaining({ userId: expect.any(String) }), undefined)
+    })
+
+    it("DELETE task forwards ?version= and returns 409 VERSION_CONFLICT with current", async () => {
+      asRole(m, "dev")
+      const { VersionConflictError } = await import("@/services/_shared")
+      m.deleteTask.mockRejectedValueOnce(new VersionConflictError({ id: "t1", version: 3 }))
+      const res = await task.DELETE(getReq("http://localhost/api/x?version=2"), PST)
+      expect(res.status).toBe(409)
+      expect(await res.json()).toMatchObject({ code: "VERSION_CONFLICT", current: { id: "t1", version: 3 } })
+      expect(m.deleteTask).toHaveBeenCalledWith("p1", "s1", "t1", expect.anything(), 2)
+    })
+
+    it("PATCH task accepts assigneeIds and version", async () => {
+      asRole(m, "dev")
+      m.updateTask.mockResolvedValueOnce({ id: "t1" })
+      const res = await task.PATCH(jsonReq("PATCH", { assigneeIds: ["u1"], version: 1 }), PST)
+      expect(res.status).toBe(200)
+      expect(m.updateTask).toHaveBeenCalledWith("p1", "s1", "t1", { assigneeIds: ["u1"], version: 1 }, expect.anything())
     })
 
     it("DELETE 500 on failure", async () => {

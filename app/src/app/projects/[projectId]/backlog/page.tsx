@@ -6,7 +6,15 @@ import PbiDetailModal from "@/components/pbi-detail-modal"
 import { AIResultModal } from "@/components/ai-result-modal"
 import { Button, EmptyState, Input, PageHeader, SkeletonCard, useUiLabels, useConfirm } from "@/components/ui"
 import { useProjectDocumentTitle } from "@/components/app-shell/project-title-context"
-import { apiFetch, useApiMutation, useStableHandlers, useUnsavedChangesGuard } from "@/hooks"
+import {
+  apiFetch,
+  conflictAwareToast,
+  useApiMutation,
+  useStableHandlers,
+  useUnsavedChangesGuard,
+  versionConflictOf,
+  withVersion,
+} from "@/hooks"
 import { useLanguage } from "@/lib/language-context"
 import { BacklogForm, type IceboxUsage } from "./backlog-form"
 import { BacklogSection } from "./backlog-section"
@@ -17,6 +25,7 @@ import {
   matchesQuery,
   swapped,
   type BacklogForm as FormState,
+  type BacklogFormSource,
   type BacklogItem,
   type BacklogStatus,
 } from "./types"
@@ -28,6 +37,8 @@ import { ChevronDown, ClipboardList, Plus, Scale, Search } from "lucide-react"
 interface SaveVars {
   editingId: string | null
   form: FormState
+  /** Optimistic-lock version of the PBI being edited. */
+  version?: number
 }
 
 export default function BacklogPage() {
@@ -50,6 +61,7 @@ export default function BacklogPage() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
   const [initialForm, setInitialForm] = useState<FormState>(EMPTY_FORM)
+  const [editingVersion, setEditingVersion] = useState<number | undefined>(undefined)
   const isDirty = formOpen && !isFormEqual(form, initialForm)
   useUnsavedChangesGuard(isDirty)
 
@@ -65,6 +77,7 @@ export default function BacklogPage() {
   function closeForm() {
     setFormOpen(false)
     setEditingId(null)
+    setEditingVersion(undefined)
     setForm(EMPTY_FORM)
     setInitialForm(EMPTY_FORM)
   }
@@ -108,12 +121,12 @@ export default function BacklogPage() {
   }, [all, editingId])
 
   const save = useApiMutation(
-    ({ editingId: id, form: f }: SaveVars) =>
+    ({ editingId: id, form: f, version }: SaveVars) =>
       apiFetch(id ? `/api/projects/${projectId}/backlog/${id}` : `/api/projects/${projectId}/backlog`, {
         method: id ? "PATCH" : "POST",
         // Raw text is saved as typed; the other language is prepared by the
         // background translation worker (lib/translation).
-        json: {
+        json: withVersion({
           initiative: f.initiative || undefined,
           epic: f.epic || undefined,
           userStory: f.userStory || undefined,
@@ -122,14 +135,26 @@ export default function BacklogPage() {
           status: f.status,
           iceboxItemId: f.iceboxItemId || undefined,
           productGoalId: f.productGoalId || null,
-        },
+        }, id ? version : undefined),
       }),
     {
       onSuccess: () => {
         closeForm()
         backlog.refetch()
       },
-      toastOnError: (e) => `${t.backlogSaveFailed}: ${e.message}`,
+      // Someone else saved the PBI first: show their version in the form and reload the list.
+      onError: (e) => {
+        const conflict = versionConflictOf<BacklogFormSource & { version?: number }>(e)
+        if (!conflict) return
+        if (conflict.current) {
+          const latest = formFromItem(conflict.current)
+          setForm(latest)
+          setInitialForm(latest)
+          setEditingVersion(conflict.current.version)
+        }
+        backlog.refetch()
+      },
+      toastOnError: conflictAwareToast((e) => `${t.backlogSaveFailed}: ${e.message}`),
       toastOnSuccess: t.backlogSaved,
     },
   )
@@ -137,7 +162,7 @@ export default function BacklogPage() {
   function handleSubmit() {
     // Never save while an AI stream is still writing into the form.
     if (ai.generating || save.isPending) return
-    void save.mutate({ editingId, form })
+    void save.mutate({ editingId, form, version: editingVersion })
   }
 
   async function handleCancel() {
@@ -149,7 +174,9 @@ export default function BacklogPage() {
   }
 
   async function handleEdit(item: BacklogItem) {
-    if (await confirmDiscard()) openForm(formFromItem(item), item.id)
+    if (!(await confirmDiscard())) return
+    openForm(formFromItem(item), item.id)
+    setEditingVersion(item.version)
   }
 
   async function handleSelectIcebox(iceboxId: string) {
@@ -179,7 +206,7 @@ export default function BacklogPage() {
 
   async function handleDelete(item: BacklogItem) {
     const ok = await confirm({ message: t.backlogDeleteConfirm, confirmLabel: t.trashMoveToTrash, cancelLabel: t.cancel, variant: "danger" })
-    if (ok) void data.remove.mutate(item.id)
+    if (ok) void data.remove.mutate(item)
   }
 
   const q = searchQuery.toLowerCase().trim()

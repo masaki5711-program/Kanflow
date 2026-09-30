@@ -59,7 +59,13 @@ export const LIST_KEY: Record<BacklogStatus, "readyItems" | "notReadyItems" | "c
   completed: "completedItems",
 }
 
-export function formFromItem(item: BacklogItem): BacklogForm {
+/** The PBI fields the form edits (list rows and the GET /backlog/:id detail both have them). */
+export type BacklogFormSource = Pick<
+  BacklogItem,
+  "initiative" | "epic" | "userStory" | "acceptanceCriteria" | "workloadScore" | "status" | "iceboxItemId" | "productGoalId"
+>
+
+export function formFromItem(item: BacklogFormSource): BacklogForm {
   return {
     initiative: item.initiative ?? "",
     epic: item.epic ?? "",

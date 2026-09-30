@@ -1,12 +1,12 @@
 "use client"
 
 import { useToast, useConfirm } from "@/components/ui"
-import { apiFetch } from "@/hooks"
+import { apiFetch, useVersionConflict, versionParam, withVersion } from "@/hooks"
 import { useLanguage } from "@/lib/language-context"
 import { messageOf } from "../lib/errors"
 import { patchTask, removeTask } from "../lib/sprint-metrics"
 import { buildTaskCreate, buildTaskPatch } from "../lib/task-payload"
-import type { TaskFormState } from "../components/types"
+import type { Sprint, SprintItem, TaskFormState } from "../components/types"
 import type { SprintsData } from "./use-sprints-data"
 
 type Deps = Pick<SprintsData, "sprints" | "refetchSprints" | "mutateSprints">
@@ -15,33 +15,47 @@ function isFinishedSprint(sprint: { status: string } | undefined): boolean {
   return sprint?.status === "done" || sprint?.status === "archived"
 }
 
+/** Optimistic-lock version of a loaded task (undefined = unknown → unchecked write). */
+export function taskVersion(sprints: readonly Sprint[], sprintId: string, taskId: string): number | undefined {
+  return sprints.find((s) => s.id === sprintId)?.items.find((i) => i.id === taskId)?.version
+}
+
 /** Task-level writes. Status toggles and deletes are optimistic with rollback. */
 export function useTaskActions(projectId: string, { sprints, refetchSprints, mutateSprints }: Deps) {
   const { t } = useLanguage()
   const toast = useToast()
   const confirm = useConfirm()
+  const onVersionConflict = useVersionConflict()
   const tasksUrl = (sprintId: string) => `/api/projects/${projectId}/sprints/${sprintId}/tasks`
+  const versionOf = (sprintId: string, taskId: string) => taskVersion(sprints, sprintId, taskId)
+  // Someone else changed the task first: toast, then reload the sprints (the
+  // task DTO in `current` lacks the sprint-level i18n, so a refetch is simplest).
+  const conflictReloads = (err: unknown) => onVersionConflict(err, () => refetchSprints())
 
   async function saveTask(sprintId: string, taskId: string | null, form: TaskFormState): Promise<boolean> {
     try {
       if (taskId) {
-        await apiFetch(`${tasksUrl(sprintId)}/${taskId}`, { method: "PATCH", json: buildTaskPatch(form) })
+        await apiFetch(`${tasksUrl(sprintId)}/${taskId}`, {
+          method: "PATCH",
+          json: withVersion(buildTaskPatch(form), versionOf(sprintId, taskId)),
+        })
       } else {
         await apiFetch(tasksUrl(sprintId), { method: "POST", json: buildTaskCreate(form) })
       }
       refetchSprints()
       return true
     } catch (err) {
+      if (conflictReloads(err)) return false
       toast.error(messageOf(err, t.error), { title: taskId ? t.sprintUpdateFailed : t.sprintAddFailed })
       return false
     }
   }
 
-  async function bulkAddTasks(sprintId: string, pbItemId: string, assignee: string | null, taskNames: string[]): Promise<boolean> {
+  async function bulkAddTasks(sprintId: string, pbItemId: string, assigneeIds: string[], taskNames: string[]): Promise<boolean> {
     if (!sprintId || !pbItemId || taskNames.length === 0) return false
     const results = await Promise.allSettled(
       taskNames.map((taskName) =>
-        apiFetch(tasksUrl(sprintId), { method: "POST", json: { pbItemId, taskName, assignee, estimatedHours: null } }),
+        apiFetch(tasksUrl(sprintId), { method: "POST", json: { pbItemId, taskName, assigneeIds, estimatedHours: null } }),
       ),
     )
     refetchSprints()
@@ -60,12 +74,14 @@ export function useTaskActions(projectId: string, { sprints, refetchSprints, mut
     })
     if (!ok) return
     const snapshot = sprints
+    const version = versionOf(sprintId, taskId)
     mutateSprints(removeTask(sprints, sprintId, taskId))
     try {
-      await apiFetch(`${tasksUrl(sprintId)}/${taskId}`, { method: "DELETE" })
+      await apiFetch(`${tasksUrl(sprintId)}/${taskId}${versionParam(version)}`, { method: "DELETE" })
       refetchSprints()
     } catch (err) {
       mutateSprints(snapshot)
+      if (conflictReloads(err)) return
       toast.error(messageOf(err, t.error), { title: t.sprintTaskDeleteFailed })
     }
   }
@@ -74,16 +90,26 @@ export function useTaskActions(projectId: string, { sprints, refetchSprints, mut
     const body: Record<string, unknown> = { status }
     if (status === "done" && completionComment !== undefined) body.completionComment = completionComment
     const snapshot = sprints
+    const version = versionOf(sprintId, taskId)
     mutateSprints(patchTask(sprints, sprintId, taskId, body))
     try {
-      await apiFetch(`${tasksUrl(sprintId)}/${taskId}`, { method: "PATCH", json: body })
+      const saved = await apiFetch<Pick<SprintItem, "version"> | undefined>(`${tasksUrl(sprintId)}/${taskId}`, {
+        method: "PATCH",
+        json: withVersion(body, version),
+      })
       // The optimistic patch already shows the new status and every in-card
-      // metric is derived client-side, so no full reload of all sprints.
-      // Only a finished sprint's stored actualScore (average shown in the
-      // header) needs the server's recalculation.
+      // metric is derived client-side, so no full reload of all sprints —
+      // only the new version is kept for the next write. Only a finished
+      // sprint's stored actualScore (average shown in the header) needs the
+      // server's recalculation.
+      if (typeof saved?.version === "number") {
+        const next = saved.version
+        mutateSprints((prev) => prev && patchTask(prev, sprintId, taskId, { version: next }))
+      }
       if (isFinishedSprint(sprints.find((s) => s.id === sprintId))) refetchSprints()
     } catch (err) {
       mutateSprints(snapshot)
+      if (conflictReloads(err)) return
       toast.error(messageOf(err, t.error), { title: t.sprintTaskStatusFailed })
     }
   }
@@ -92,10 +118,14 @@ export function useTaskActions(projectId: string, { sprints, refetchSprints, mut
     // Empty string collapses to null so the comment block disappears.
     const completionComment = comment.trim() ? comment : null
     try {
-      await apiFetch(`${tasksUrl(sprintId)}/${taskId}`, { method: "PATCH", json: { completionComment } })
+      await apiFetch(`${tasksUrl(sprintId)}/${taskId}`, {
+        method: "PATCH",
+        json: withVersion({ completionComment }, versionOf(sprintId, taskId)),
+      })
       refetchSprints()
       return true
     } catch (err) {
+      if (conflictReloads(err)) return false
       toast.error(messageOf(err, t.error), { title: t.sprintTaskCommentSaveFailed })
       return false
     }

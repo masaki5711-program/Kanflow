@@ -25,10 +25,10 @@ describe("sprint-backlog.service activity + notifications", () => {
   it("createTask logs create and notifies the resolved assignee", async () => {
     const task = { id: "t9", sprintId: "s1", pbItemId: "b1", taskName: "Build", assignee: "Bob" }
     vi.mocked(repo.insertTask).mockResolvedValue(task as never)
-    vi.mocked(nt.resolveAssigneeUserIds).mockResolvedValueOnce(["u-bob"])
+    vi.mocked(repo.findProjectMemberCandidates).mockResolvedValueOnce([{ id: "u-bob", name: "Bob" }])
     await svc.createTask("p1", "s1", { pbItemId: "b1", taskName: "Build", assignee: "Bob" }, ACTOR)
     expect(act.logCreate).toHaveBeenCalledWith(TX, expect.objectContaining({ entityType: "sprint_task", entityId: "t9", actor: ACTOR, row: task }))
-    expect(nt.resolveAssigneeUserIds).toHaveBeenCalledWith(TX, "p1", "Bob")
+    expect(repo.findProjectMemberCandidates).toHaveBeenCalledWith(TX, "p1")
     expect(nt.notify).toHaveBeenCalledWith(TX, {
       recipientIds: ["u-bob"],
       actorId: "u1",
@@ -49,25 +49,28 @@ describe("sprint-backlog.service activity + notifications", () => {
   it("updateTask diffs the snapshot and notifies newly assigned users", async () => {
     vi.mocked(act.loadSnapshot).mockResolvedValueOnce({ id: "t1", assignee: "Ann", status: "todo" })
     const updated = { id: "t1", sprintId: "s1", pbItemId: "b1", taskName: "T", assignee: "Bob", status: "todo" }
-    vi.mocked(repo.updateTask).mockResolvedValue(updated as never)
-    vi.mocked(nt.newlyAssignedUserIds).mockResolvedValueOnce(["u-bob"])
+    vi.mocked(repo.updateTask).mockResolvedValue(1)
+    vi.mocked(repo.findTaskDetail).mockResolvedValue(updated as never)
+    vi.mocked(repo.findTaskAssigneeIds).mockResolvedValue([])
+    vi.mocked(repo.findProjectMemberCandidates).mockResolvedValueOnce([{ id: "u-ann", name: "Ann" }, { id: "u-bob", name: "Bob" }])
     await svc.updateTask("p1", "s1", "t1", { assignee: "Bob" }, ACTOR)
     expect(act.loadSnapshot).toHaveBeenCalledWith(TX, "sprint_task", "t1")
     expect(act.logUpdate).toHaveBeenCalledWith(TX, expect.objectContaining({ entityId: "t1", after: updated, meta: { sprintId: "s1", pbItemId: "b1" } }))
-    expect(nt.newlyAssignedUserIds).toHaveBeenCalledWith(TX, "p1", "Ann", "Bob")
     expect(nt.notify).toHaveBeenCalledWith(TX, expect.objectContaining({ type: "assigned", recipientIds: ["u-bob"], entityId: "t1" }))
   })
 
   it("updateTask without an assignee change does not notify", async () => {
     vi.mocked(act.loadSnapshot).mockResolvedValueOnce({ id: "t1", assignee: "Ann", status: "todo" })
-    vi.mocked(repo.updateTask).mockResolvedValue({ id: "t1", pbItemId: "b1", assignee: "Ann", status: "done" } as never)
+    vi.mocked(repo.updateTask).mockResolvedValue(1)
+    vi.mocked(repo.findTaskDetail).mockResolvedValue({ id: "t1", pbItemId: "b1", assignee: "Ann", status: "done" } as never)
     await svc.updateTask("p1", "s1", "t1", { status: "done" }, ACTOR)
-    expect(nt.newlyAssignedUserIds).not.toHaveBeenCalled()
+    expect(repo.replaceTaskAssignees).not.toHaveBeenCalled()
     expect(nt.notify).not.toHaveBeenCalled()
   })
 
   it("deleteTask logs the snapshot as deleted", async () => {
     vi.mocked(act.loadSnapshot).mockResolvedValueOnce({ id: "t1", taskName: "T" })
+    vi.mocked(repo.deleteTask).mockResolvedValue(1)
     await svc.deleteTask("p1", "s1", "t1", ACTOR)
     expect(act.logDelete).toHaveBeenCalledWith(TX, expect.objectContaining({ entityId: "t1", row: { id: "t1", taskName: "T" }, actor: ACTOR }))
   })

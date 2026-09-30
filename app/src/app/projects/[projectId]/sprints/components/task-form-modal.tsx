@@ -6,7 +6,7 @@ import { GlossaryHint } from "@/components/i18n-text"
 import { pickText } from "@/lib/translation/pick-text"
 import { Button, Field, Input, Modal, Select } from "@/components/ui"
 import { usePbiDetail } from "../hooks/use-pbi-detail"
-import { EMPTY_TASK_FORM, taskFormFromItem } from "../lib/task-payload"
+import { EMPTY_TASK_FORM, isTaskFormDirty, taskFormFromItem } from "../lib/task-payload"
 import FixedTaskBulkAdd from "./fixed-task-bulk-add"
 import ModalCancelButton from "./modal-cancel-button"
 import TaskAssigneePicker from "./task-assignee-picker"
@@ -25,13 +25,12 @@ interface TaskFormModalProps {
   canEditPbi?: boolean
   /** Resolves true when saved (errors are toasted by the caller). */
   onSave: (form: TaskFormState) => Promise<boolean>
-  onBulkAdd?: (pbItemId: string, assignee: string | null, taskNames: string[]) => Promise<boolean>
+  onBulkAdd?: (pbItemId: string, assigneeIds: string[], taskNames: string[]) => Promise<boolean>
   onPbiSaved?: () => void
   onClose: () => void
 }
 
 const FORM_ID = "sprint-task-form"
-const FORM_KEYS = Object.keys(EMPTY_TASK_FORM) as (keyof TaskFormState)[]
 
 export default function TaskFormModal({
   projectId, sprint, task, initialPbItemId, members, pointUnit, canEditPbi = false,
@@ -40,7 +39,7 @@ export default function TaskFormModal({
   const { t, language } = useLanguage()
   const isEdit = task !== null
   const [initial] = useState<TaskFormState>(() =>
-    task ? taskFormFromItem(task) : { ...EMPTY_TASK_FORM, pbItemId: initialPbItemId ?? "" },
+    task ? taskFormFromItem(task, members) : { ...EMPTY_TASK_FORM, pbItemId: initialPbItemId ?? "" },
   )
   const [form, setForm] = useState<TaskFormState>(initial)
   const [saving, setSaving] = useState(false)
@@ -48,7 +47,7 @@ export default function TaskFormModal({
 
   const sprintPbItems: SprintPbItem[] = [...new Map(sprint.items.map((i) => [i.pbItem.id, i.pbItem])).values()]
   const hasPbItems = sprintPbItems.length > 0
-  const isDirty = FORM_KEYS.some((k) => form[k] !== initial[k]) || pbi.isDirty
+  const isDirty = isTaskFormDirty(form, initial) || pbi.isDirty
   const busy = saving || pbi.isSaving
   const sprintName = pickText(sprint.i18n, "sprintName", sprint.sprintName, language).text || sprint.sprintName
 
@@ -75,7 +74,7 @@ export default function TaskFormModal({
 
   async function handleBulkAdd(taskNames: string[]) {
     if (!onBulkAdd || !form.pbItemId) return
-    await onBulkAdd(form.pbItemId, form.assignee || null, taskNames)
+    await onBulkAdd(form.pbItemId, form.assigneeIds, taskNames)
     onClose()
   }
 
@@ -121,7 +120,7 @@ export default function TaskFormModal({
           <GlossaryHint className="mt-1" />
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <TaskAssigneePicker members={members} value={form.assignee} onChange={(assignee) => setForm({ ...form, assignee })} />
+          <TaskAssigneePicker members={members} value={form.assigneeIds} onChange={(assigneeIds) => setForm({ ...form, assigneeIds })} />
           <Field label={`${t.sprintEstimatedHoursShort} (${pointUnit})`}>
             <Input type="number" step="0.5" min="0" value={form.estimatedHours} placeholder={t.taskHoursPlaceholder}
               onChange={(e) => setForm({ ...form, estimatedHours: e.target.value })} />

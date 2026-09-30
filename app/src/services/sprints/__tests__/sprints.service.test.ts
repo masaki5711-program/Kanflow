@@ -25,10 +25,11 @@ describe("sprints.service", () => {
 
   it("lists sprints with task and PBI i18n nested", async () => {
     vi.mocked(repo.findSprints).mockResolvedValue([
-      { id: "s1", items: [{ id: "t1", pbItemId: "b1", pbItem: { id: "b1" } }] },
+      { id: "s1", items: [{ id: "t1", pbItemId: "b1", pbItem: { id: "b1" }, assignees: [{ user: { id: "u1", name: "Ann" } }] }] },
     ] as never)
     const out = await svc.listSprints("p1")
     expect(out[0]).toMatchObject({ id: "s1", i18n: {}, items: [{ id: "t1", i18n: {}, pbItem: { id: "b1", i18n: {} } }] })
+    expect(out[0].items[0].assignees).toEqual([{ id: "u1", name: "Ann" }])
   })
 
   it("getSprint 404s", async () => {
@@ -79,8 +80,9 @@ describe("sprints.service", () => {
       tasks: [{ id: "t1", pbItemId: "b1" }, { id: "t2", pbItemId: "b1" }, { id: "t3", pbItemId: "b2" }],
       notes: [{ id: "n1" }],
     })
+    vi.mocked(repo.deleteSprint).mockResolvedValue(1)
     await svc.deleteSprint("p1", "s1")
-    expect(repo.deleteSprint).toHaveBeenCalledWith(TX, "p1", "s1")
+    expect(repo.deleteSprint).toHaveBeenCalledWith(TX, "p1", "s1", undefined)
     expect(tr.purgeIn).toHaveBeenCalledWith(TX, {
       sprint: ["s1"],
       sprint_task: ["t1", "t2", "t3"],

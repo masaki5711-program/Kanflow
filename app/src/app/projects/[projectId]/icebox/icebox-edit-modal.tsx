@@ -3,7 +3,7 @@
 import { useState, type FormEvent } from "react"
 import { GlossaryHint } from "@/components/i18n-text"
 import { Button, Field, Input, Modal, Select, Textarea, useModalClose } from "@/components/ui"
-import { apiFetch, useApiMutation, useUnsavedChangesGuard } from "@/hooks"
+import { apiFetch, conflictAwareToast, useApiMutation, useUnsavedChangesGuard, versionConflictOf, withVersion } from "@/hooks"
 import { useLanguage } from "@/lib/language-context"
 import { IceboxAttachmentsEditor } from "./icebox-attachments-editor"
 import { editFormFromItem, type IceboxAttachment, type IceboxEditForm, type IceboxItem } from "./types"
@@ -50,7 +50,7 @@ export function IceboxEditModal({ projectId, item, onClose, onChanged }: Props) 
     (f: IceboxEditForm) =>
       apiFetch(`/api/projects/${projectId}/icebox/${item.id}`, {
         method: "PATCH",
-        json: {
+        json: withVersion({
           author: f.author || undefined,
           request: f.request,
           background: f.background || null,
@@ -58,14 +58,20 @@ export function IceboxEditModal({ projectId, item, onClose, onChanged }: Props) 
           poHearingMemo: f.poHearingMemo || null,
           poReviewMemo: f.poReviewMemo || null,
           freezeReason: f.freezeReason || null,
-        },
+        }, item.version),
       }),
     {
       onSuccess: () => {
         onChanged()
         onClose()
       },
-      toastOnError: (e) => `${t.iceboxSaveFailed}: ${e.message}`,
+      // Someone else saved the item first: reload the list and close; reopening shows theirs.
+      onError: (e) => {
+        if (!versionConflictOf(e)) return
+        onChanged()
+        onClose()
+      },
+      toastOnError: conflictAwareToast((e) => `${t.iceboxSaveFailed}: ${e.message}`),
       toastOnSuccess: t.iceboxSaved,
     },
   )

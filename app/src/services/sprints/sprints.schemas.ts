@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { versionField } from "@/services/_shared/versioning"
 
 export const SPRINT_STATUSES = ["planning", "active", "review", "done", "archived"] as const
 
@@ -23,6 +24,8 @@ export const updateSprintSchema = z.object({
   retrospectiveKeep: z.string().max(10000).nullable().optional(),
   retrospectiveProblem: z.string().max(10000).nullable().optional(),
   retrospectiveTry: z.string().max(10000).nullable().optional(),
+  /** Optimistic lock: the version the client loaded (omitted = unchecked, legacy). */
+  version: versionField,
 })
 
 export type CreateSprintInput = z.infer<typeof createSprintSchema>

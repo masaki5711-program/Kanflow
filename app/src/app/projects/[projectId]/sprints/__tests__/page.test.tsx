@@ -123,6 +123,40 @@ describe("SprintsPage", () => {
     expect(screen.getByText(t.sprintTaskStatusFailed)).toBeInTheDocument()
   })
 
+  it("sends the loaded version and keeps the returned one for the next toggle", async () => {
+    const s1 = sprint("s1", { items: [task("t1", pb1, { version: 3 })] })
+    let v = 3
+    const { calls } = stubFetch(baseRoutes([s1], {
+      [`PATCH ${BASE}/sprints/s1/tasks/t1`]: () => json({ id: "t1", version: ++v }),
+    }))
+    renderWithProviders(<SprintsPage />)
+    await userEvent.click(await screen.findByRole("button", { name: toggleLabel("Task t1", t.taskTodo) }))
+    await waitFor(() => expect(calls.filter((c) => c.method === "PATCH")).toHaveLength(1))
+    expect(calls.find((c) => c.method === "PATCH")?.body).toEqual({ status: "in_progress", version: 3 })
+    // Next toggle (in_progress → done asks for a completion comment first) uses the new version.
+    await userEvent.click(await screen.findByRole("button", { name: toggleLabel("Task t1", t.taskInProgress) }))
+    await userEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: t.sprintTaskCompleteSkip }))
+    await waitFor(() => expect(calls.filter((c) => c.method === "PATCH")).toHaveLength(2))
+    expect(calls.filter((c) => c.method === "PATCH")[1].body).toMatchObject({ status: "done", version: 4 })
+  })
+
+  it("on a VERSION_CONFLICT rolls back, toasts the conflict message and reloads the sprints", async () => {
+    const s1 = sprint("s1", { items: [task("t1", pb1, { version: 3 })] })
+    let served = [s1]
+    const { calls } = stubFetch(baseRoutes(() => json(served), {
+      [`PATCH ${BASE}/sprints/s1/tasks/t1`]: () => {
+        served = [sprint("s1", { items: [task("t1", pb1, { version: 5, status: "done" })] })]
+        return json({ error: "stale", code: "VERSION_CONFLICT", current: { id: "t1", version: 5 } }, 409)
+      },
+    }))
+    renderWithProviders(<SprintsPage />)
+    await userEvent.click(await screen.findByRole("button", { name: toggleLabel("Task t1", t.taskTodo) }))
+    expect(await screen.findByText(t.apiErrVersionConflict)).toBeInTheDocument()
+    expect(screen.queryByText(t.sprintTaskStatusFailed)).not.toBeInTheDocument()
+    await waitFor(() => expect(calls.filter((c) => c.url === `${BASE}/sprints` && c.method === "GET").length).toBe(2))
+    expect(await screen.findByRole("button", { name: toggleLabel("Task t1", t.taskDone) })).toBeInTheDocument()
+  })
+
   it("keeps the new status without reloading every sprint when the toggle succeeds", async () => {
     const patch = deferred<Response>()
     const { calls } = stubFetch(baseRoutes([sprint("s1", { items: [task("t1", pb1, { status: "done" })] })], {
@@ -329,7 +363,7 @@ describe("SprintsPage", () => {
     const dialog = await screen.findByRole("dialog")
     await userEvent.type(within(dialog).getByPlaceholderText(t.taskNamePlaceholder), "Write docs")
     await userEvent.click(within(dialog).getByRole("button", { name: t.add }))
-    await waitFor(() => expect(calls.find((c) => c.method === "POST")?.body).toEqual({ pbItemId: "pb1", taskName: "Write docs", assignee: null, estimatedHours: null }))
+    await waitFor(() => expect(calls.find((c) => c.method === "POST")?.body).toEqual({ pbItemId: "pb1", taskName: "Write docs", assigneeIds: [], estimatedHours: null }))
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
   })
 
@@ -385,6 +419,15 @@ describe("SprintsPage", () => {
     await userEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: t.delete }))
     expect(await screen.findByText(t.sprintTaskDeleteFailed)).toBeInTheDocument()
     expect(screen.getByText("Task t1")).toBeInTheDocument()
+  })
+
+  it("deletes a task with ?version= of the loaded row", async () => {
+    const s1 = sprint("s1", { items: [task("t1", pb1, { version: 7 })] })
+    const { calls } = stubFetch(baseRoutes([s1], { [`DELETE ${BASE}/sprints/s1/tasks/t1?version=7`]: {} }))
+    renderWithProviders(<SprintsPage />)
+    await userEvent.click(await screen.findByRole("button", { name: t.sprintTaskDeleteNamed.replace("{name}", "Task t1") }))
+    await userEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: t.delete }))
+    await waitFor(() => expect(calls.some((c) => c.method === "DELETE" && c.url.endsWith("?version=7"))).toBe(true))
   })
 
   it("deletes a task successfully", async () => {

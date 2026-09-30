@@ -6,7 +6,9 @@ import { I18nText } from "@/components/i18n-text"
 import { pickText } from "@/lib/translation/pick-text"
 import { cn, IconButton, TaskStatusIcon } from "@/components/ui"
 import { nextTaskStatus } from "../lib/sprint-metrics"
+import { displayAssignees } from "../lib/task-payload"
 import CompletionCommentEditor from "./completion-comment-editor"
+import { CommentsButton } from "@/components/comments/comments-provider"
 import type { SprintItem, SprintTaskActions } from "./types"
 import { Clock, Pencil, Trash2, User } from "lucide-react"
 
@@ -34,7 +36,7 @@ const SprintTaskRow = memo(function SprintTaskRow({
   const { t, language } = useLanguage()
   const taskStatusLabels: Record<string, string> = { todo: t.taskTodo, in_progress: t.taskInProgress, done: t.taskDone }
   const name = pickText(task.i18n, "taskName", task.taskName, language).text || t.sprintNoTaskName
-  const assignees = (task.assignee ?? "").split(",").map((a) => a.trim()).filter(Boolean)
+  const assignees = displayAssignees(task)
   const statusLabel = t.sprintStatusClickToggle.replace("{status}", taskStatusLabels[task.status] ?? task.status)
   const showComment = task.status === "done" && (!!task.completionComment?.trim() || isCommentEditorOpen)
 
@@ -60,8 +62,8 @@ const SprintTaskRow = memo(function SprintTaskRow({
         {assignees.length > 0 ? (
           <ul className="flex flex-wrap items-center gap-1" aria-label={t.sprintAssignee}>
             {assignees.map((a) => (
-              <li key={a} className="inline-flex items-center gap-1 text-caption bg-primary-soft text-primary-active px-2 py-0.5 rounded-full">
-                <User className="w-3.5 h-3.5" /> {a}
+              <li key={a.key} className="inline-flex items-center gap-1 text-caption bg-primary-soft text-primary-active px-2 py-0.5 rounded-full">
+                <User className="w-3.5 h-3.5" /> {a.name}
               </li>
             ))}
           </ul>
@@ -79,6 +81,7 @@ const SprintTaskRow = memo(function SprintTaskRow({
 
         {/* Always visible (touch has no hover); hover/focus just intensifies. */}
         <div className="opacity-80 group-hover:opacity-100 group-focus-within:opacity-100 flex gap-0.5 transition-opacity">
+          <CommentsButton entityId={task.id} name={name} />
           <IconButton size="sm" label={t.sprintTaskEditNamed.replace("{name}", name)} icon={<Pencil className="w-4 h-4" />}
             onClick={() => actions.onStartEditTask(sprintId, task)} />
           <IconButton size="sm" label={t.sprintTaskDeleteNamed.replace("{name}", name)} icon={<Trash2 className="w-4 h-4" />}

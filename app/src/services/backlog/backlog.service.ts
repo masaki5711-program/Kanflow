@@ -6,6 +6,7 @@ import { NotFoundError, rethrowPrisma } from "@/services/_shared/errors"
 import { newlyAssignedUserIds, notify } from "@/services/_shared/notifications"
 import { assertProjectLive } from "@/services/_shared/soft-delete"
 import { DISPLAY_ID_CONFLICT, retryOnUniqueViolation } from "@/services/_shared/unique-retry"
+import { noteUnversionedWrite, staleOrMissing, takeVersion } from "@/services/_shared/versioning"
 import { attachI18n, attachI18nOne, enqueueIn, getI18nFor, prepareText, purgeIn } from "@/services/_shared/translations"
 import * as repo from "./backlog.repository"
 import type { CreateBacklogItemInput, ListBacklogQuery, UpdateBacklogItemInput } from "./backlog.schemas"
@@ -70,11 +71,24 @@ export async function listBacklog(projectId: string, query: ListBacklogQuery = {
   }
 }
 
-export async function getBacklogItem(projectId: string, itemId: string) {
-  const item = await repo.findBacklogItem(defaultDb, projectId, itemId)
-  if (!item) throw new NotFoundError("Not found", {}, "PBI_NOT_FOUND")
+const pbiNotFound = () => new NotFoundError("Not found", {}, "PBI_NOT_FOUND")
+
+/** The GET /backlog/:id DTO of a loaded row. */
+async function toDetailDto(item: NonNullable<Awaited<ReturnType<typeof repo.findBacklogItem>>>) {
   const [out] = await withLinkedI18n([await attachI18nOne("backlog_item", item)])
   return out
+}
+
+export async function getBacklogItem(projectId: string, itemId: string) {
+  const item = await repo.findBacklogItem(defaultDb, projectId, itemId)
+  if (!item) throw pbiNotFound()
+  return toDetailDto(item)
+}
+
+/** Error for a versioned PBI write that matched nothing: 409 with the current DTO, or 404. */
+async function pbiWriteMiss(tx: Db, projectId: string, itemId: string) {
+  const current = await repo.findBacklogItem(tx, projectId, itemId)
+  return staleOrMissing(current && (await toDetailDto(current)), pbiNotFound)
 }
 
 /**
@@ -137,13 +151,17 @@ async function notifyPbiAssigned(tx: Db, projectId: string, item: AssignedPbi, u
   })
 }
 
+/** `input.version` (optional) = the version the client loaded; stale → 409 VERSION_CONFLICT with `current`. */
 export async function updateBacklogItem(projectId: string, itemId: string, input: UpdateBacklogItemInput, actor: Actor) {
-  const cleaned = await prepareText(input, actor.userId)
+  const { version, data: fields } = takeVersion(input)
+  noteUnversionedWrite("pbi", itemId, version)
+  const cleaned = await prepareText(fields, actor.userId)
   const data = cleaned.productGoalId === "" ? { ...cleaned, productGoalId: null } : cleaned
   const item = await withTransaction(async (tx) => {
     await assertLinksInProject(tx, projectId, data)
     const before = await loadSnapshot(tx, "pbi", itemId)
-    const updated = await repo.updateBacklogItem(tx, projectId, itemId, { ...data, ...completionPatch(data.status) })
+    const updated = await repo.updateBacklogItem(tx, projectId, itemId, { ...data, ...completionPatch(data.status) }, version)
+    if (!updated) throw await pbiWriteMiss(tx, projectId, itemId)
     await enqueueIn(tx, "backlog_item", updated.id, data)
     const meta = { displayId: updated.displayId }
     const changes = await logUpdate(tx, { projectId, entityType: "pbi", entityId: itemId, actor, before, after: updated, meta })
@@ -168,10 +186,11 @@ async function rescoreSprintsOf(tx: Db, tasks: ReadonlyArray<{ sprintId: string 
  * and the purge-trash worker job). Its sprint tasks keep their rows but drop
  * out of every sprint view and score; translations are kept for a restore.
  */
-export async function deleteBacklogItem(projectId: string, itemId: string, actor: Actor): Promise<void> {
+export async function deleteBacklogItem(projectId: string, itemId: string, actor: Actor, version?: number): Promise<void> {
+  noteUnversionedWrite("pbi", itemId, version)
   await withTransaction(async (tx) => {
-    if (!(await repo.softDeleteBacklogItem(tx, projectId, itemId, actor.userId))) {
-      throw new NotFoundError("Not found", {}, "PBI_NOT_FOUND")
+    if (!(await repo.softDeleteBacklogItem(tx, projectId, itemId, actor.userId, version))) {
+      throw version === undefined ? pbiNotFound() : await pbiWriteMiss(tx, projectId, itemId)
     }
     await rescoreSprintsOf(tx, await repo.findTasksOfBacklogItem(tx, itemId))
     await logActivity(tx, { projectId, entityType: "pbi", entityId: itemId, action: "delete", actor, diff: { meta: { trashed: true } } })

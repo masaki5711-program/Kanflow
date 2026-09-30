@@ -1,15 +1,33 @@
 // Request-body builders for the sprint page (pure → unit-tested).
-import type { RetroFields, Sprint, SprintItem, StatusDialogState, TaskFormState } from "../components/types"
+import { splitAssigneeNames } from "@/lib/assignees"
+import type { Member, RetroFields, Sprint, SprintItem, StatusDialogState, TaskFormState } from "../components/types"
 
 export const EMPTY_TASK_FORM: TaskFormState = {
-  pbItemId: "", taskName: "", assignee: "", estimatedHours: "", actualHours: "", status: "todo",
+  pbItemId: "", taskName: "", assigneeIds: [], loadedAssigneeIds: null, estimatedHours: "", actualHours: "", status: "todo",
 }
 
-export function taskFormFromItem(task: SprintItem): TaskFormState {
+/**
+ * The task's assignee ids: the normalized `assignees`, or — for a task not
+ * backfilled yet — the members whose name appears verbatim in the legacy string.
+ */
+export function assigneeIdsOf(task: SprintItem, members: readonly Member[]): string[] {
+  if (task.assignees && task.assignees.length > 0) return task.assignees.map((a) => a.id)
+  const names = new Set(splitAssigneeNames(task.assignee))
+  return members.filter((m) => names.has(m.user.name)).map((m) => m.user.id)
+}
+
+/** Assignee chips of a task row: normalized names, else the legacy comma-separated string. */
+export function displayAssignees(task: SprintItem): { key: string; name: string }[] {
+  if (task.assignees && task.assignees.length > 0) return task.assignees.map((a) => ({ key: a.id, name: a.name }))
+  return splitAssigneeNames(task.assignee).map((name) => ({ key: name, name }))
+}
+
+export function taskFormFromItem(task: SprintItem, members: readonly Member[] = []): TaskFormState {
   return {
     pbItemId: task.pbItem.id,
     taskName: task.taskName ?? "",
-    assignee: task.assignee ?? "",
+    assigneeIds: assigneeIdsOf(task, members),
+    loadedAssigneeIds: assigneeIdsOf(task, members),
     estimatedHours: task.estimatedHours?.toString() ?? "",
     actualHours: task.actualHours?.toString() ?? "",
     status: task.status,
@@ -22,11 +40,25 @@ function hours(value: string): number | null {
   return Number.isFinite(n) ? n : null
 }
 
-/** PATCH body for an existing task. Empty hours clear the value (null). */
+function sameValue(a: TaskFormState[keyof TaskFormState], b: TaskFormState[keyof TaskFormState]): boolean {
+  if (Array.isArray(a) && Array.isArray(b)) return a.length === b.length && a.every((v, i) => v === b[i])
+  return a === b
+}
+
+/** True when any field differs from the loaded form (assignee ids compared by value). */
+export function isTaskFormDirty(form: TaskFormState, initial: TaskFormState): boolean {
+  return (Object.keys(initial) as (keyof TaskFormState)[]).some((k) => !sameValue(form[k], initial[k]))
+}
+
+/**
+ * PATCH body for an existing task. Empty hours clear the value (null);
+ * `assigneeIds` is sent only when changed ([] unassigns).
+ */
 export function buildTaskPatch(form: TaskFormState): Record<string, unknown> {
+  const assigneesChanged = form.loadedAssigneeIds === null || !sameValue(form.assigneeIds, form.loadedAssigneeIds)
   return {
     ...(form.taskName ? { taskName: form.taskName } : {}),
-    assignee: form.assignee || null,
+    ...(assigneesChanged ? { assigneeIds: form.assigneeIds } : {}),
     estimatedHours: hours(form.estimatedHours),
     actualHours: hours(form.actualHours),
     ...(form.status ? { status: form.status } : {}),
@@ -38,7 +70,7 @@ export function buildTaskCreate(form: TaskFormState): Record<string, unknown> {
   return {
     pbItemId: form.pbItemId,
     taskName: form.taskName,
-    assignee: form.assignee || null,
+    assigneeIds: form.assigneeIds,
     estimatedHours: hours(form.estimatedHours),
   }
 }

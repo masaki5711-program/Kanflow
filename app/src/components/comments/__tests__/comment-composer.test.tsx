@@ -1,0 +1,128 @@
+import { describe, expect, it, vi } from "vitest"
+import { screen, waitFor, within } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
+import { getTranslations } from "@/lib/i18n"
+import { Modal } from "@/components/ui"
+import { renderWithProviders, stubLayout } from "@/components/__tests__/helpers"
+import { CommentComposer } from "../comment-composer"
+
+stubLayout()
+
+const t = getTranslations("en")
+const MEMBERS = [
+  { id: "u1", name: "Taro Yamada" },
+  { id: "u2", name: "Hanako" },
+  { id: "u3", name: "Takeshi" },
+]
+
+function renderComposer(props: Partial<React.ComponentProps<typeof CommentComposer>> = {}) {
+  const onSubmit = vi.fn(async () => true)
+  renderWithProviders(
+    <CommentComposer members={MEMBERS} onSubmit={onSubmit} label="New comment" submitLabel="Send" {...props} />,
+  )
+  return { onSubmit: (props.onSubmit as typeof onSubmit | undefined) ?? onSubmit, box: screen.getByLabelText("New comment") }
+}
+
+describe("CommentComposer mention autocomplete", () => {
+  it("lists filtered members after @ and inserts the bracket token with Enter", async () => {
+    const { box } = renderComposer()
+    await userEvent.type(box, "Hi @Ta")
+    const list = screen.getByRole("listbox", { name: t.commentsMentionListLabel })
+    const options = within(list).getAllByRole("option")
+    expect(options.map((o) => o.textContent)).toEqual(["@Taro Yamada", "@Takeshi"])
+    expect(options[0]).toHaveAttribute("aria-selected", "true")
+    expect(box).toHaveAttribute("aria-activedescendant", options[0].id)
+
+    await userEvent.keyboard("{ArrowDown}")
+    expect(within(list).getAllByRole("option")[1]).toHaveAttribute("aria-selected", "true")
+    await userEvent.keyboard("{ArrowDown}")
+    expect(within(list).getAllByRole("option")[0]).toHaveAttribute("aria-selected", "true")
+    await userEvent.keyboard("{ArrowUp}")
+    expect(within(list).getAllByRole("option")[1]).toHaveAttribute("aria-selected", "true")
+    await userEvent.keyboard("{Enter}")
+
+    expect(box).toHaveValue("Hi @[Takeshi] ")
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument()
+    await userEvent.type(box, "ok")
+    expect(box).toHaveValue("Hi @[Takeshi] ok")
+  })
+
+  it("Tab also inserts; clicking an option inserts", async () => {
+    const { box } = renderComposer()
+    await userEvent.type(box, "@han")
+    await userEvent.keyboard("{Tab}")
+    expect(box).toHaveValue("@[Hanako] ")
+    await userEvent.type(box, "and @Taro Y")
+    await userEvent.click(screen.getByRole("option", { name: "@Taro Yamada" }))
+    expect(box).toHaveValue("@[Hanako] and @[Taro Yamada] ")
+  })
+
+  it("shows a no-match note, and Escape closes the list without closing the modal", async () => {
+    const onClose = vi.fn()
+    const onSubmit = vi.fn(async () => true)
+    renderWithProviders(
+      <Modal open onClose={onClose} title="Dialog">
+        <CommentComposer members={MEMBERS} onSubmit={onSubmit} label="New comment" submitLabel="Send" />
+      </Modal>,
+    )
+    const box = screen.getByLabelText("New comment")
+    await userEvent.type(box, "@zz")
+    expect(screen.getByText(t.commentsMentionNoMatch)).toBeInTheDocument()
+    await userEvent.keyboard("{Escape}")
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument()
+    expect(onClose).not.toHaveBeenCalled()
+    // Enter now types a newline (list is closed for this @)
+    await userEvent.keyboard("{Enter}")
+    expect(box).toHaveValue("@zz\n")
+    // A second Escape (no list) closes the modal as usual
+    await userEvent.keyboard("{Escape}")
+    await waitFor(() => expect(onClose).toHaveBeenCalledWith("escape"))
+  })
+
+  it("does not open for e-mail addresses", async () => {
+    const { box } = renderComposer()
+    await userEvent.type(box, "taro@ex")
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument()
+  })
+})
+
+describe("CommentComposer submit", () => {
+  it("Ctrl+Enter submits the trimmed text and clears on success", async () => {
+    const { box, onSubmit } = renderComposer()
+    await userEvent.type(box, "  hello  ")
+    await userEvent.keyboard("{Control>}{Enter}{/Control}")
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith("hello"))
+    await waitFor(() => expect(box).toHaveValue(""))
+  })
+
+  it("keeps the text when the submit fails; the button is disabled while empty", async () => {
+    const onSubmit = vi.fn(async () => false)
+    const { box } = renderComposer({ onSubmit })
+    const send = screen.getByRole("button", { name: "Send" })
+    expect(send).toBeDisabled()
+    await userEvent.type(box, "x")
+    await userEvent.click(send)
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith("x"))
+    expect(box).toHaveValue("x")
+  })
+
+  it("flags text over the limit and blocks submit", async () => {
+    const { box } = renderComposer({ initialValue: "x".repeat(10_001) })
+    expect(screen.getByText(t.commentsTooLong.replace("{max}", "10000"))).toBeInTheDocument()
+    expect(box).toHaveAttribute("aria-invalid", "true")
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled()
+  })
+
+  it("edit mode: cancel button, unchanged text cannot be saved, edited text saves without clearing", async () => {
+    const onCancel = vi.fn()
+    const onSubmit = vi.fn(async () => true)
+    const { box } = renderComposer({ initialValue: "old", onCancel, onSubmit, submitLabel: "Save" })
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled()
+    await userEvent.type(box, "!")
+    await userEvent.click(screen.getByRole("button", { name: "Save" }))
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith("old!"))
+    expect(box).toHaveValue("old!")
+    await userEvent.click(screen.getByRole("button", { name: t.commentsCancel }))
+    expect(onCancel).toHaveBeenCalled()
+  })
+})

@@ -23,6 +23,7 @@ export interface ApiErrorsTranslations {
   apiErrInternal: string
   apiErrUpstreamFailed: string
   apiErrServiceUnavailable: string
+  apiErrVersionConflict: string
   apiErrAdminRequired: string
   apiErrWrongPassword: string
   apiErrPasswordTooShort: string
@@ -86,6 +87,7 @@ export const API_ERROR_MESSAGE_KEYS: Readonly<Record<ApiErrorCode, ApiErrorMessa
   INTERNAL: "apiErrInternal",
   UPSTREAM_FAILED: "apiErrUpstreamFailed",
   SERVICE_UNAVAILABLE: "apiErrServiceUnavailable",
+  VERSION_CONFLICT: "apiErrVersionConflict",
   ADMIN_REQUIRED: "apiErrAdminRequired",
   WRONG_PASSWORD: "apiErrWrongPassword",
   PASSWORD_TOO_SHORT: "apiErrPasswordTooShort",
@@ -152,6 +154,7 @@ export const ja: ApiErrorsTranslations = {
   apiErrInternal: "サーバーでエラーが発生しました",
   apiErrUpstreamFailed: "外部サービスとの通信に失敗しました",
   apiErrServiceUnavailable: "サービスが一時的に利用できません",
+  apiErrVersionConflict: "他のユーザーが先に更新しました。最新の内容を読み込みました",
   apiErrAdminRequired: "管理者権限が必要です",
   apiErrWrongPassword: "現在のパスワードが間違っています",
   apiErrPasswordTooShort: "パスワードは 6〜200 文字で入力してください",
@@ -212,6 +215,7 @@ export const en: ApiErrorsTranslations = {
   apiErrInternal: "A server error occurred",
   apiErrUpstreamFailed: "Communication with an external service failed",
   apiErrServiceUnavailable: "The service is temporarily unavailable",
+  apiErrVersionConflict: "Someone else updated this first. The latest version has been loaded",
   apiErrAdminRequired: "Administrator permission is required",
   apiErrWrongPassword: "The current password is incorrect",
   apiErrPasswordTooShort: "The password must be 6-200 characters",
@@ -272,6 +276,7 @@ export const id: ApiErrorsTranslations = {
   apiErrInternal: "Terjadi kesalahan pada server",
   apiErrUpstreamFailed: "Komunikasi dengan layanan eksternal gagal",
   apiErrServiceUnavailable: "Layanan sementara tidak tersedia",
+  apiErrVersionConflict: "Pengguna lain sudah memperbarui lebih dulu. Versi terbaru telah dimuat",
   apiErrAdminRequired: "Diperlukan hak akses administrator",
   apiErrWrongPassword: "Kata sandi saat ini salah",
   apiErrPasswordTooShort: "Kata sandi harus 6-200 karakter",

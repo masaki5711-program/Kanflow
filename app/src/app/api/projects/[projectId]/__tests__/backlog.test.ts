@@ -127,7 +127,7 @@ describe("GET/PATCH/DELETE /backlog/[itemId]", () => {
     asRole("po")
     vi.mocked(svc.deleteBacklogItem).mockResolvedValue(undefined as never)
     expect(await read(await item.DELETE(req("DELETE"), itemCtx()))).toEqual({ status: 200, body: { success: true } })
-    expect(svc.deleteBacklogItem).toHaveBeenCalledWith(PROJECT_ID, "pbi-1", ACTOR)
+    expect(svc.deleteBacklogItem).toHaveBeenCalledWith(PROJECT_ID, "pbi-1", ACTOR, undefined)
 
     asRole("sm")
     expect((await item.DELETE(req("DELETE"), itemCtx())).status).toBe(403)
@@ -141,6 +141,25 @@ describe("GET/PATCH/DELETE /backlog/[itemId]", () => {
       status: 409,
       body: { error: "in sprint", blocker: "s1", code: "CONFLICT" },
     })
+  })
+
+  it("passes ?version= to the delete and surfaces a VERSION_CONFLICT with the current row", async () => {
+    asRole("po")
+    const { VersionConflictError } = await import("@/services/_shared")
+    vi.mocked(svc.deleteBacklogItem).mockRejectedValue(new VersionConflictError({ id: "pbi-1", version: 9 }))
+    const res = await item.DELETE(new Request(`http://localhost/api/projects/${PROJECT_ID}/backlog/pbi-1?version=4`, { method: "DELETE" }), itemCtx())
+    expect(await read(res)).toEqual({
+      status: 409,
+      body: { error: expect.any(String), code: "VERSION_CONFLICT", current: { id: "pbi-1", version: 9 } },
+    })
+    expect(svc.deleteBacklogItem).toHaveBeenCalledWith(PROJECT_ID, "pbi-1", ACTOR, 4)
+  })
+
+  it("PATCH forwards the version in the body to the service", async () => {
+    asRole("po")
+    vi.mocked(svc.updateBacklogItem).mockResolvedValue({ id: "pbi-1", version: 5 } as never)
+    await item.PATCH(req("PATCH", { status: "ready", version: 4 }), itemCtx())
+    expect(svc.updateBacklogItem).toHaveBeenCalledWith(PROJECT_ID, "pbi-1", { status: "ready", version: 4 }, ACTOR)
   })
 
   it("returns 500 when delete fails unexpectedly", async () => {

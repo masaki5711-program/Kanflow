@@ -2,6 +2,7 @@
 
 import { Button, cn } from "@/components/ui"
 import { I18nText } from "@/components/i18n-text"
+import { CommentsButton } from "@/components/comments/comments-provider"
 import { useLanguage } from "@/lib/language-context"
 import { ArrowRight, CircleCheck, Clock, Eye, FileIcon, Info, MessageSquareText, Paperclip, Pencil, Snowflake, Trash2, User, type LucideIcon } from "lucide-react"
 import { attachmentUrl, formatFileSize, isImageType, type IceboxItem, type IceboxStatus } from "./types"
@@ -222,6 +223,7 @@ export function IceboxItemCard(props: Props) {
                 {t.aiGeneratePbiDraft}
               </Button>
             )}
+            <CommentsButton entityId={item.id} name={`#${item.displayId}`} />
             <Button variant="ghost" size="sm" onClick={() => props.onEdit(item)} leftIcon={<Pencil className="h-3 w-3" />}>
               {t.edit}
             </Button>

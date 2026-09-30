@@ -27,15 +27,9 @@ describe("icebox.repository", () => {
     const db = fakeDb()
     const data = { projectId: "p1", request: "r" } as never
     await repo.insertIceboxItem(db.client, data)
-    await repo.updateIceboxItem(db.client, "p1", "i1", { request: "x" })
     await repo.deleteIceboxItem(db.client, "p1", "i1")
     await repo.findIceboxItemId(db.client, "p1", "i1")
     expect(db.fn("iceboxItem.create")).toHaveBeenCalledWith({ data, include: { attachments: true } })
-    expect(db.fn("iceboxItem.update")).toHaveBeenCalledWith({
-      where: { id: "i1", projectId: "p1", deletedAt: null },
-      data: { request: "x" },
-      include: { attachments: true },
-    })
     expect(db.fn("iceboxItem.delete")).toHaveBeenCalledWith({ where: { id: "i1", projectId: "p1" } })
     expect(db.fn("iceboxItem.findFirst")).toHaveBeenCalledWith({
       where: { id: "i1", projectId: "p1", deletedAt: null },
@@ -60,10 +54,38 @@ describe("icebox.repository", () => {
 })
 
 describe("icebox.repository trash", () => {
+  it("updateIceboxItem is a version compare-and-set that bumps the version and reloads with attachments", async () => {
+    const db = fakeDb({ "iceboxItem.updateMany": { count: 1 }, "iceboxItem.findFirst": { id: "i1", version: 3 } })
+    await expect(repo.updateIceboxItem(db.client, "p1", "i1", { request: "x" }, 2)).resolves.toEqual({ id: "i1", version: 3 })
+    expect(db.fn("iceboxItem.updateMany")).toHaveBeenCalledWith({
+      where: { id: "i1", projectId: "p1", version: 2, deletedAt: null },
+      data: { request: "x", version: { increment: 1 } },
+    })
+    expect(db.fn("iceboxItem.findFirst")).toHaveBeenCalledWith({ where: { id: "i1", projectId: "p1" }, include: { attachments: true } })
+  })
+
+  it("updateIceboxItem returns null when nothing matched (no version filter when omitted)", async () => {
+    const db = fakeDb({ "iceboxItem.updateMany": { count: 0 } })
+    await expect(repo.updateIceboxItem(db.client, "p1", "i1", { request: "x" })).resolves.toBeNull()
+    expect(db.fn("iceboxItem.updateMany")).toHaveBeenCalledWith({
+      where: { id: "i1", projectId: "p1", deletedAt: null },
+      data: { request: "x", version: { increment: 1 } },
+    })
+  })
+
+  it("findIceboxItem loads a live item with attachments", async () => {
+    const db = fakeDb()
+    await repo.findIceboxItem(db.client, "p1", "i1")
+    expect(db.fn("iceboxItem.findFirst")).toHaveBeenCalledWith({
+      where: { id: "i1", projectId: "p1", deletedAt: null },
+      include: { attachments: true },
+    })
+  })
+
   it("softDeleteIceboxItem stamps a live row of the project only", async () => {
     const db = fakeDb({ "iceboxItem.updateMany": { count: 1 } })
     const now = new Date("2026-10-01T00:00:00Z")
-    await expect(repo.softDeleteIceboxItem(db.client, "p1", "i1", "u1", now)).resolves.toBe(true)
+    await expect(repo.softDeleteIceboxItem(db.client, "p1", "i1", "u1", undefined, now)).resolves.toBe(true)
     expect(db.fn("iceboxItem.updateMany")).toHaveBeenCalledWith({
       where: { id: "i1", projectId: "p1", deletedAt: null },
       data: { deletedAt: now, deletedById: "u1" },

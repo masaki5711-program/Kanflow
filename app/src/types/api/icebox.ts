@@ -24,5 +24,7 @@ export interface IceboxItemDto {
   freezeReason: string | null
   createdAt: string
   attachments: IceboxAttachmentDto[]
+  /** Optimistic-lock version (send it back on PATCH / DELETE; stale → 409 VERSION_CONFLICT). */
+  version?: number
   i18n?: EntityI18n
 }

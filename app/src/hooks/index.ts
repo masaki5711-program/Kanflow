@@ -9,3 +9,12 @@ export { useMediaQuery, useIsMobile } from "./use-media-query"
 export { useBodyScrollLock, lockBodyScroll } from "./use-body-scroll-lock"
 export { useDocumentTitle } from "./use-document-title"
 export { useStableCallback, useStableHandlers } from "./use-stable-callback"
+export {
+  conflictAwareToast,
+  handleVersionConflict,
+  useVersionConflict,
+  versionConflictOf,
+  versionParam,
+  withVersion,
+  type VersionConflict,
+} from "./version-conflict"

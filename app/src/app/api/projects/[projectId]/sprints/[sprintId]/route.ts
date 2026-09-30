@@ -1,5 +1,6 @@
 import { requireProject } from "@/lib/authz"
 import { actorFromSession, jsonResponse, successResponse, toHttpResponse } from "@/services/_shared"
+import { parseVersionParam } from "@/services/_shared/versioning"
 import { updateSprintSchema } from "@/services/sprints/sprints.schemas"
 import { deleteSprint, getSprint, updateSprint } from "@/services/sprints/sprints.service"
 
@@ -31,13 +32,14 @@ export async function PATCH(request: Request, { params }: Params) {
   }
 }
 
-export async function DELETE(_request: Request, { params }: Params) {
+export async function DELETE(request: Request, { params }: Params) {
   const { projectId, sprintId } = await params
   const gate = await requireProject(projectId, "sprint.manage")
   if ("error" in gate) return gate.error
 
   try {
-    await deleteSprint(projectId, sprintId, actorFromSession(gate.session))
+    // `?version=N` (optional) = optimistic lock; stale → 409 VERSION_CONFLICT.
+    await deleteSprint(projectId, sprintId, actorFromSession(gate.session), parseVersionParam(request))
     return successResponse()
   } catch (error) {
     return toHttpResponse(error, { fallback: "削除に失敗しました", context: "Sprint DELETE" })

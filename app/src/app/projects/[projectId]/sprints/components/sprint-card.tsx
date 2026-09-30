@@ -11,7 +11,8 @@ import PbiGroup from "./pbi-group"
 import SprintCardHeader from "./sprint-card-header"
 import SprintRetroSummary from "./sprint-retro-summary"
 import SprintProgress from "./sprint-progress"
-import { computeSprintMetrics, groupTasksByPb } from "../lib/sprint-metrics"
+import { CommentsProvider } from "@/components/comments/comments-provider"
+import { computeSprintMetrics, groupTasksByPb, isRealTask } from "../lib/sprint-metrics"
 import { dateLocale } from "../lib/locale"
 import type { CalendarEvent, Sprint, SprintCardActions, SprintItem, SprintTaskActions } from "./types"
 import { Calendar, CirclePlus, ClipboardList, MessageSquareText } from "lucide-react"
@@ -50,6 +51,7 @@ export default function SprintCard({
   const dailyId = `sprint-daily-${sprint.id}`
   const taskActions: SprintTaskActions = useMemo(() => ({ ...actions, onRequestComplete: setPendingDoneTask }), [actions])
   const closeCommentEditor = useCallback(() => setEditingCommentTaskId(null), [])
+  const taskIds = useMemo(() => sprint.items.filter(isRealTask).map((i) => i.id), [sprint.items])
 
   return (
     <article className="bg-surface rounded-ui-md shadow-ui-sm border border-border overflow-hidden">
@@ -67,38 +69,40 @@ export default function SprintCard({
       <SprintProgress capacity={sprint.capacity} metrics={metrics} />
 
       {isExpanded && (
-        <div id={`sprint-body-${sprint.id}`}>
-          <div className="border-t border-border px-6 py-2.5 bg-surface-muted">
-            <button type="button" onClick={() => setShowDaily((v) => !v)} aria-expanded={showDaily} aria-controls={dailyId}
-              className="flex items-center gap-2 w-full min-h-8 text-body font-medium text-fg-muted hover:text-fg transition-colors">
-              <DisclosureChevron open={showDaily} className="w-4 h-4" />
-              <MessageSquareText className="w-4 h-4 text-fg-subtle" />
-              {t.sprintDailyScrum}
-            </button>
-            {showDaily && (
-              <div id={dailyId} className="pt-3">
-                <DailyScrumPanel projectId={projectId} sprintId={sprint.id} sprintStartDate={sprint.startDate}
-                  sprintEndDate={sprint.endDate} readOnly={sprint.status === "archived"} />
-              </div>
-            )}
-          </div>
+        <CommentsProvider projectId={projectId} entityType="sprint_task" entityIds={taskIds}>
+          <div id={`sprint-body-${sprint.id}`}>
+            <div className="border-t border-border px-6 py-2.5 bg-surface-muted">
+              <button type="button" onClick={() => setShowDaily((v) => !v)} aria-expanded={showDaily} aria-controls={dailyId}
+                className="flex items-center gap-2 w-full min-h-8 text-body font-medium text-fg-muted hover:text-fg transition-colors">
+                <DisclosureChevron open={showDaily} className="w-4 h-4" />
+                <MessageSquareText className="w-4 h-4 text-fg-subtle" />
+                {t.sprintDailyScrum}
+              </button>
+              {showDaily && (
+                <div id={dailyId} className="pt-3">
+                  <DailyScrumPanel projectId={projectId} sprintId={sprint.id} sprintStartDate={sprint.startDate}
+                    sprintEndDate={sprint.endDate} readOnly={sprint.status === "archived"} />
+                </div>
+              )}
+            </div>
 
-          <div className="border-t border-border px-6 py-4 space-y-4 bg-surface-muted">
-            {pbGroups.length === 0 ? (
-              <EmptyState compact headingLevel={4} icon={<ClipboardList className="w-6 h-6" />} title={t.sprintNoTasks}
-                action={canEditMembership ? (
-                  <Button onClick={() => actions.onAddPbi(sprint.id)} leftIcon={<CirclePlus className="w-4 h-4" />}>
-                    {t.sprintAddPbi}
-                  </Button>
-                ) : undefined} />
-            ) : pbGroups.map(({ pbItem, tasks }) => (
-              <PbiGroup key={pbItem.id} sprintId={sprint.id} sprintStatus={sprint.status} pbItem={pbItem} tasks={tasks}
-                pointUnit={pointUnit} canEditPbi={canEditPbi} editingCommentTaskId={editingCommentTaskId}
-                onOpenCommentEditor={setEditingCommentTaskId} onCloseCommentEditor={closeCommentEditor}
-                actions={taskActions} />
-            ))}
+            <div className="border-t border-border px-6 py-4 space-y-4 bg-surface-muted">
+              {pbGroups.length === 0 ? (
+                <EmptyState compact headingLevel={4} icon={<ClipboardList className="w-6 h-6" />} title={t.sprintNoTasks}
+                  action={canEditMembership ? (
+                    <Button onClick={() => actions.onAddPbi(sprint.id)} leftIcon={<CirclePlus className="w-4 h-4" />}>
+                      {t.sprintAddPbi}
+                    </Button>
+                  ) : undefined} />
+              ) : pbGroups.map(({ pbItem, tasks }) => (
+                <PbiGroup key={pbItem.id} sprintId={sprint.id} sprintStatus={sprint.status} pbItem={pbItem} tasks={tasks}
+                  pointUnit={pointUnit} canEditPbi={canEditPbi} editingCommentTaskId={editingCommentTaskId}
+                  onOpenCommentEditor={setEditingCommentTaskId} onCloseCommentEditor={closeCommentEditor}
+                  actions={taskActions} />
+              ))}
+            </div>
           </div>
-        </div>
+        </CommentsProvider>
       )}
 
       {sprintEvents.length > 0 && (

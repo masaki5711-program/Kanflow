@@ -76,6 +76,7 @@ describe("sprints.service activity + notifications", () => {
   it("deleteSprint logs the snapshot", async () => {
     vi.mocked(repo.findSprintChildren).mockResolvedValue({ tasks: [{ id: "t", pbItemId: "b" }], notes: [] } as never)
     vi.mocked(act.loadSnapshot).mockResolvedValueOnce(sprintRow("planning"))
+    vi.mocked(repo.deleteSprint).mockResolvedValue(1)
     await svc.deleteSprint("p1", "s1", ACTOR)
     expect(act.logDelete).toHaveBeenCalledWith(TX, expect.objectContaining({ entityId: "s1", meta: { taskCount: 1 }, actor: ACTOR }))
   })

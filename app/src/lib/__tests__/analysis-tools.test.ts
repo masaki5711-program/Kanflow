@@ -281,6 +281,16 @@ describe("get_member_workload", () => {
     })
     expect(out.unassigned_tasks).toBe(1)
   })
+
+  it("prefers the normalized assignees and loads them", async () => {
+    m.sbiFindMany.mockResolvedValue([
+      { taskName: "a", assignee: "stale text", assignees: [{ user: { name: "Ann" } }], status: "todo", estimatedHours: 2, actualHours: 0 },
+      { taskName: "b", assignee: "Bob", assignees: [], status: "done", estimatedHours: 1, actualHours: 1 },
+    ])
+    const out = await run("get_member_workload", "p1")
+    expect(Object.keys(out.members)).toEqual(["Ann", "Bob"])
+    expect(m.sbiFindMany.mock.calls[0][0].select.assignees).toEqual({ select: { user: { select: { name: true } } } })
+  })
 })
 
 describe("search_work_items", () => {

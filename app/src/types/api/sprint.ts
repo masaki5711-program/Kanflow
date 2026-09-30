@@ -6,16 +6,27 @@ export interface SprintPbItemDto extends PbiSummaryDto {
   acceptanceCriteria?: string | null
 }
 
+/** A normalized task assignee (TaskAssignee → user). */
+export interface TaskAssigneeDto {
+  id: string
+  name: string
+}
+
 /** Sprint backlog item (task) with its PBI. */
 export interface SprintTaskDto {
   id: string
   taskName: string | null
+  /** Legacy display-name string (dual-written; prefer `assignees`). */
   assignee: string | null
+  /** Normalized assignees; may be empty for old rows until the backfill has run (then fall back to `assignee`). */
+  assignees?: TaskAssigneeDto[]
   estimatedHours: number | null
   actualHours: number | null
   status: string
   completionComment?: string | null
   pbItem: SprintPbItemDto
+  /** Optimistic-lock version (send it back on PATCH / DELETE; stale → 409 VERSION_CONFLICT). */
+  version?: number
   i18n?: EntityI18n
 }
 
@@ -35,6 +46,8 @@ export interface SprintDto {
   retrospectiveProblem: string | null
   retrospectiveTry: string | null
   items: SprintTaskDto[]
+  /** Optimistic-lock version (send it back on PATCH / DELETE; stale → 409 VERSION_CONFLICT). */
+  version?: number
   i18n?: EntityI18n
 }
 

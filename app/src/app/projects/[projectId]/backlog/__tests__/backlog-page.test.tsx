@@ -390,3 +390,78 @@ describe("BacklogPage", () => {
     expect(screen.getByRole("searchbox", { name: tl.backlogSearchLabel })).toBeInTheDocument()
   })
 })
+
+describe("BacklogPage optimistic locking", () => {
+  beforeEach(() => {
+    Element.prototype.scrollIntoView = vi.fn()
+    session.value = { user: { id: "u1", role: "user" } }
+  })
+
+  const CONFLICT = {
+    error: "stale",
+    code: "VERSION_CONFLICT",
+    current: { ...pbi("b", 2, { initiative: "Beta (theirs)" }), version: 9 },
+  }
+
+  function setupVersioned(respond: { patch?: () => Response; del?: () => Response } = {}) {
+    let backlogCalls = 0
+    const versioned = backlogResponse({
+      readyItems: [
+        pbi("a", 1, { initiative: "Alpha login", version: 4 }),
+        pbi("b", 2, { initiative: "Beta search", version: 2 }),
+      ],
+    })
+    const fetchMock = stubFetch([
+      { match: `${BASE}/backlog`, method: "GET", respond: () => (backlogCalls++, jsonResponse(versioned)) },
+      { match: `${BASE}/icebox`, respond: () => jsonResponse({ unreviewed: [], reviewed: [] }) },
+      { match: `${BASE}/goals`, respond: () => jsonResponse([]) },
+      { match: `${BASE}/members`, respond: () => jsonResponse([{ role: "po", user: { id: "u1" } }]) },
+      { match: BASE, respond: () => jsonResponse({ pointUnit: "SP" }) },
+      { match: /\/backlog\/[a-z]+$/, method: "PATCH", respond: respond.patch ?? (() => jsonResponse({ ok: true })) },
+      { match: /\/backlog\/[a-z]+(\?version=\d+)?$/, method: "DELETE", respond: respond.del ?? (() => jsonResponse({ success: true })) },
+    ])
+    return { fetchMock, backlogCalls: () => backlogCalls }
+  }
+
+  it("sends the loaded version with a status change and a delete", async () => {
+    const { fetchMock } = setupVersioned()
+    renderPage()
+    await screen.findByRole("heading", { name: t.backlogSectionReadyTitle })
+    await userEvent.click(screen.getAllByRole("button", { name: t.backlogMoveToCompleted })[0])
+    await waitFor(() => expect(bodyOf(fetchMock, "PATCH", "/backlog/a")).toEqual({ status: "completed", version: 4 }))
+    await userEvent.click(screen.getAllByRole("button", { name: t.delete })[0])
+    await userEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: t.trashMoveToTrash }))
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some(([u, i]) => /\/backlog\/[a-z]\?version=\d$/.test(String(u)) && i?.method === "DELETE")).toBe(true),
+    )
+  })
+
+  it("edit save sends the version; on VERSION_CONFLICT shows the message, loads theirs into the form and refetches", async () => {
+    const { fetchMock, backlogCalls } = setupVersioned({ patch: () => jsonResponse(CONFLICT, 409) })
+    const user = userEvent.setup()
+    renderPage()
+    await screen.findByRole("heading", { name: t.backlogSectionReadyTitle })
+    await user.click(screen.getAllByRole("button", { name: t.edit })[1])
+    await user.click(screen.getByRole("button", { name: t.update }))
+    await waitFor(() => expect(bodyOf(fetchMock, "PATCH", "/backlog/b")).toMatchObject({ initiative: "Beta search", version: 2 }))
+    expect(await screen.findByText(t.apiErrVersionConflict)).toBeInTheDocument()
+    expect(screen.queryByText(new RegExp(t.backlogSaveFailed))).not.toBeInTheDocument()
+    expect(await screen.findByDisplayValue("Beta (theirs)")).toBeInTheDocument()
+    await waitFor(() => expect(backlogCalls()).toBeGreaterThan(1))
+    // The next save uses the server's version.
+    await user.click(screen.getByRole("button", { name: t.update }))
+    await waitFor(() => {
+      const patches = fetchMock.mock.calls.filter(([, i]) => i?.method === "PATCH")
+      expect(JSON.parse(String(patches.at(-1)?.[1]?.body))).toMatchObject({ version: 9 })
+    })
+  })
+
+  it("status change conflict rolls back, toasts the conflict message and refetches", async () => {
+    const { backlogCalls } = setupVersioned({ patch: () => jsonResponse(CONFLICT, 409) })
+    renderPage()
+    await screen.findByRole("heading", { name: t.backlogSectionReadyTitle })
+    await userEvent.click(screen.getAllByRole("button", { name: t.backlogMoveToCompleted })[0])
+    expect(await screen.findByText(t.apiErrVersionConflict)).toBeInTheDocument()
+    await waitFor(() => expect(backlogCalls()).toBeGreaterThan(1))
+  })
+})

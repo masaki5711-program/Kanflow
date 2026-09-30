@@ -22,7 +22,7 @@ interface Opts {
   initialPbItemId?: string
   canEditPbi?: boolean
   onSave?: (form: TaskFormState) => Promise<boolean>
-  onBulkAdd?: (pbItemId: string, assignee: string | null, names: string[]) => Promise<boolean>
+  onBulkAdd?: (pbItemId: string, assigneeIds: string[], names: string[]) => Promise<boolean>
 }
 
 function renderModal(o: Opts = {}) {
@@ -75,7 +75,7 @@ describe("TaskFormModal", () => {
     await userEvent.type(screen.getByPlaceholderText(t.taskHoursPlaceholder), "2.5")
     await userEvent.click(add)
     await waitFor(() => expect(onSave).toHaveBeenCalledWith({
-      pbItemId: "pb2", taskName: "Build", assignee: "Bob", estimatedHours: "2.5", actualHours: "", status: "todo",
+      pbItemId: "pb2", taskName: "Build", assigneeIds: ["u2"], loadedAssigneeIds: null, estimatedHours: "2.5", actualHours: "", status: "todo",
     }))
     expect(onClose).toHaveBeenCalled()
   })
@@ -206,8 +206,19 @@ describe("TaskFormModal", () => {
     await userEvent.selectOptions(screen.getAllByRole("combobox")[0], "pb1")
     await userEvent.click(screen.getByRole("button", { name: "Alice" }))
     await userEvent.click(screen.getByRole("button", { name: `${t.fixedTasksBulkAdd} (2)` }))
-    await waitFor(() => expect(onBulkAdd).toHaveBeenCalledWith("pb1", "Alice", ["Tag", "Deploy"]))
+    await waitFor(() => expect(onBulkAdd).toHaveBeenCalledWith("pb1", ["u1"], ["Tag", "Deploy"]))
     expect(onClose).toHaveBeenCalled()
+  })
+
+  it("pre-selects the normalized assignees of an edited task and saves ids", async () => {
+    stubFetch({})
+    const onSave = vi.fn(async () => true)
+    renderModal({ task: task("t1", pb1, { assignee: "stale text", assignees: [{ id: "u2", name: "Bob" }] }), onSave })
+    expect(screen.getByRole("button", { name: "Bob" })).toHaveAttribute("aria-pressed", "true")
+    expect(screen.getByRole("button", { name: "Alice" })).toHaveAttribute("aria-pressed", "false")
+    await userEvent.click(screen.getByRole("button", { name: "Alice" }))
+    await userEvent.click(screen.getByRole("button", { name: t.update }))
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ assigneeIds: ["u1"] })))
   })
 
   it("shows the empty assignee hint when there are no members", () => {

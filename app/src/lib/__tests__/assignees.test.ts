@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { matchAssigneeName, resolveAssignees, splitAssigneeNames } from "../assignees"
+import { assigneeNamesOf, matchAssigneeName, resolveAssignees, splitAssigneeNames } from "../assignees"
 import { backfillReportCsv, planAssigneeBackfill } from "../assignee-backfill"
 
 const users = [
@@ -30,6 +30,18 @@ describe("splitAssigneeNames", () => {
 
   it("drops duplicates that differ only by case or spacing, keeping the first spelling", () => {
     expect(splitAssigneeNames("Budi, budi, B udi")).toEqual(["Budi"])
+  })
+})
+
+describe("assigneeNamesOf", () => {
+  it("prefers the normalized TaskAssignee names", () => {
+    expect(assigneeNamesOf({ assignee: "old text", assignees: [{ user: { name: "Ann" } }, { user: { name: "Bob" } }] })).toEqual(["Ann", "Bob"])
+  })
+
+  it("falls back to the legacy string when no TaskAssignee rows exist (not backfilled / relation not loaded)", () => {
+    expect(assigneeNamesOf({ assignee: "Ann, Bob", assignees: [] })).toEqual(["Ann", "Bob"])
+    expect(assigneeNamesOf({ assignee: "Cy" })).toEqual(["Cy"])
+    expect(assigneeNamesOf({ assignee: null })).toEqual([])
   })
 })
 

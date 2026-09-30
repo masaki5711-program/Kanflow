@@ -56,5 +56,6 @@ export async function syncPbiStatusFromTasks(pbItemId: string, db: Db = prisma):
   })
   const change = derivePbiStatusChange(pbi.status, rows)
   if (!change) return
-  await db.productBacklogItem.update({ where: { id: pbItemId }, data: change })
+  // A status change is a real edit: bump the optimistic-lock version (P2).
+  await db.productBacklogItem.update({ where: { id: pbItemId }, data: { ...change, version: { increment: 1 } } })
 }

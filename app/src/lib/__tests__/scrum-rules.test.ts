@@ -59,6 +59,16 @@ describe("syncPbiStatusFromTasks", () => {
     })
   })
 
+  it("bumps the PBI version with an automatic status change (open editors get a 409, not a silent revert)", async () => {
+    db.productBacklogItem.findUnique.mockResolvedValue({ id: "pb1", status: "ready" })
+    db.sprintBacklogItem.findMany.mockResolvedValue([task("a", "done")])
+    await syncPbiStatusFromTasks("pb1", db as never)
+    expect(db.productBacklogItem.update).toHaveBeenCalledWith({
+      where: { id: "pb1" },
+      data: expect.objectContaining({ version: { increment: 1 } }),
+    })
+  })
+
   it("skips the write when nothing changes", async () => {
     db.productBacklogItem.findUnique.mockResolvedValue({ id: "pb1", status: "ready" })
     db.sprintBacklogItem.findMany.mockResolvedValue([task("a", "todo")])

@@ -109,7 +109,7 @@ describe("backlog.service", () => {
       status: "ready",
       productGoalId: null,
       completedAt: null,
-    })
+    }, undefined)
     expect(tr.enqueueIn).toHaveBeenCalledWith(TX, "backlog_item", "a", { status: "ready", productGoalId: null })
   })
 

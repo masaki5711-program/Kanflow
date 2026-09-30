@@ -61,6 +61,22 @@ export function splitAssigneeNames(raw: string | null | undefined): string[] {
   return names
 }
 
+/** A task as far as its assignee names are concerned (TaskAssignee relation optional). */
+export interface AssigneeNameSource {
+  assignee: string | null
+  assignees?: ReadonlyArray<{ user: { name: string } }>
+}
+
+/**
+ * Display names of a task's assignees: the normalized TaskAssignee users
+ * when there are any, else the legacy comma-separated string (tasks not
+ * backfilled yet, or a query that did not load the relation).
+ */
+export function assigneeNamesOf(task: AssigneeNameSource): string[] {
+  if (task.assignees && task.assignees.length > 0) return task.assignees.map((a) => a.user.name)
+  return splitAssigneeNames(task.assignee)
+}
+
 const TIERS: ReadonlyArray<{ tier: MatchTier; key: (value: string) => string }> = [
   { tier: "exact", key: tidy },
   { tier: "case_insensitive", key: foldCase },

@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { versionField } from "@/services/_shared/versioning"
 
 export const ICEBOX_STATUSES = ["unreviewed", "reviewed", "completed", "frozen"] as const
 
@@ -24,6 +25,8 @@ export const updateIceboxItemSchema = z.object({
   pbEpic: z.string().max(500).nullable().optional(),
   poFlag: z.string().max(100).nullable().optional(),
   sortOrder: z.number().int().optional(),
+  /** Optimistic lock: the version the client loaded (omitted = unchecked, legacy). */
+  version: versionField,
 })
 
 export type CreateIceboxItemInput = z.infer<typeof createIceboxItemSchema>

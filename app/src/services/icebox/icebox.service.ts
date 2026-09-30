@@ -2,10 +2,11 @@ import { deleteUploadedFile, saveUploadedFile } from "@/lib/api-helpers"
 import { assertStorageQuota } from "@/services/attachments/storage-quota"
 import type { Actor } from "@/services/_shared/actor"
 import { loadSnapshot, logActivity, logCreate, logUpdate } from "@/services/_shared/activity"
-import { defaultDb, withTransaction } from "@/services/_shared/db"
+import { defaultDb, withTransaction, type Db } from "@/services/_shared/db"
 import { NotFoundError, StatusError, ValidationError, rethrowPrisma } from "@/services/_shared/errors"
 import { assertProjectLive } from "@/services/_shared/soft-delete"
 import { DISPLAY_ID_CONFLICT, retryOnUniqueViolation } from "@/services/_shared/unique-retry"
+import { noteUnversionedWrite, staleOrMissing, takeVersion } from "@/services/_shared/versioning"
 import { attachI18n, attachI18nOne, enqueueIn, prepareText, purgeIn } from "@/services/_shared/translations"
 import * as repo from "./icebox.repository"
 import type { CreateIceboxItemInput, UpdateIceboxItemInput } from "./icebox.schemas"
@@ -45,11 +46,23 @@ function insertIceboxItemTx(projectId: string, data: CreateIceboxItemInput, acto
   })
 }
 
+const iceboxNotFound = () => new NotFoundError("Not found", {}, "ICEBOX_ITEM_NOT_FOUND")
+
+/** Error for a versioned write that matched nothing: 409 with the current item, or 404. */
+async function iceboxWriteMiss(tx: Db, projectId: string, itemId: string) {
+  const current = await repo.findIceboxItem(tx, projectId, itemId)
+  return staleOrMissing(current && (await attachI18nOne("icebox_item", current)), iceboxNotFound)
+}
+
+/** `input.version` (optional) = the version the client loaded; stale → 409 VERSION_CONFLICT with `current`. */
 export async function updateIceboxItem(projectId: string, itemId: string, input: UpdateIceboxItemInput, actor: Actor) {
-  const data = await prepareText(input, actor.userId)
+  const { version, data: fields } = takeVersion(input)
+  noteUnversionedWrite("icebox", itemId, version)
+  const data = await prepareText(fields, actor.userId)
   const item = await withTransaction(async (tx) => {
     const before = await loadSnapshot(tx, "icebox", itemId)
-    const updated = await repo.updateIceboxItem(tx, projectId, itemId, data)
+    const updated = await repo.updateIceboxItem(tx, projectId, itemId, data, version)
+    if (!updated) throw await iceboxWriteMiss(tx, projectId, itemId)
     await enqueueIn(tx, "icebox_item", updated.id, data)
     const meta = { displayId: updated.displayId }
     await logUpdate(tx, { projectId, entityType: "icebox", entityId: itemId, actor, before, after: updated, meta })
@@ -63,10 +76,11 @@ export async function updateIceboxItem(projectId: string, itemId: string, input:
  * purgeIceboxItem). Attachments (rows and files) and translations are kept;
  * PBIs made from it keep the link but no longer show the trashed request.
  */
-export async function deleteIceboxItem(projectId: string, itemId: string, actor: Actor): Promise<void> {
+export async function deleteIceboxItem(projectId: string, itemId: string, actor: Actor, version?: number): Promise<void> {
+  noteUnversionedWrite("icebox", itemId, version)
   await withTransaction(async (tx) => {
-    if (!(await repo.softDeleteIceboxItem(tx, projectId, itemId, actor.userId))) {
-      throw new NotFoundError("Not found", {}, "ICEBOX_ITEM_NOT_FOUND")
+    if (!(await repo.softDeleteIceboxItem(tx, projectId, itemId, actor.userId, version))) {
+      throw version === undefined ? iceboxNotFound() : await iceboxWriteMiss(tx, projectId, itemId)
     }
     await logActivity(tx, { projectId, entityType: "icebox", entityId: itemId, action: "delete", actor, diff: { meta: { trashed: true } } })
   })

@@ -2,7 +2,7 @@
 
 import { useMemo } from "react"
 import { useSession } from "next-auth/react"
-import { apiFetch, useApiMutation, useApiQuery } from "@/hooks"
+import { apiFetch, conflictAwareToast, useApiMutation, useApiQuery, versionConflictOf, versionParam, withVersion } from "@/hooks"
 import { useLanguage } from "@/lib/language-context"
 import {
   LIST_KEY,
@@ -80,7 +80,7 @@ export function useBacklogData(projectId: string) {
 
   const changeStatus = useApiMutation(
     ({ item, to }: StatusVars) =>
-      apiFetch(`${base}/backlog/${item.id}`, { method: "PATCH", json: { status: to } }),
+      apiFetch(`${base}/backlog/${item.id}`, { method: "PATCH", json: withVersion({ status: to }, item.version) }),
     {
       onMutate: ({ item, from, to }) => {
         const prev = backlog.data
@@ -95,14 +95,19 @@ export function useBacklogData(projectId: string) {
       rollback: (prev) => setBacklog(prev),
       // Server recomputes sort order, completedAt and the workload total.
       onSuccess: () => refetchBacklog(),
-      toastOnError: (e) => `${t.backlogStatusChangeFailed}: ${e.message}`,
+      // Someone else changed the PBI first: load the latest list.
+      onError: (e) => {
+        if (versionConflictOf(e)) refetchBacklog()
+      },
+      toastOnError: conflictAwareToast((e) => `${t.backlogStatusChangeFailed}: ${e.message}`),
     },
   )
 
   const remove = useApiMutation(
-    (itemId: string) => apiFetch(`${base}/backlog/${itemId}`, { method: "DELETE" }),
+    ({ id, version }: Pick<BacklogItem, "id" | "version">) =>
+      apiFetch(`${base}/backlog/${id}${versionParam(version)}`, { method: "DELETE" }),
     {
-      onMutate: (itemId) => {
+      onMutate: ({ id: itemId }) => {
         const prev = backlog.data
         setBacklog((d) =>
           d
@@ -118,7 +123,10 @@ export function useBacklogData(projectId: string) {
       },
       rollback: (prev) => setBacklog(prev),
       onSuccess: () => refetchBacklog(),
-      toastOnError: (e) => `${t.backlogDeleteFailed}: ${e.message}`,
+      onError: (e) => {
+        if (versionConflictOf(e)) refetchBacklog()
+      },
+      toastOnError: conflictAwareToast((e) => `${t.backlogDeleteFailed}: ${e.message}`),
       toastOnSuccess: t.backlogDeleted,
     },
   )

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma"
+import { assigneeNamesOf } from "@/lib/assignees"
 import { LIVE_PBI, NOT_DELETED, notDeleted } from "@/services/_shared/soft-delete"
 import type { ToolDefinition, ToolHandler, ToolHandlerArgs } from "@/lib/chat-tools-types"
 
@@ -24,10 +25,8 @@ function trunc(s: string | null | undefined, max: number): string {
   return t.length <= max ? t : t.slice(0, max) + "…"
 }
 
-/** Split the comma-separated assignee field used by SprintBacklogItem. */
-function splitAssignees(assignee: string | null): string[] {
-  return (assignee ?? "").split(",").map((a) => a.trim()).filter(Boolean)
-}
+/** TaskAssignee users (P2), loaded with every task query so names come from the normalized rows. */
+const ASSIGNEE_NAMES = { select: { user: { select: { name: true } } } } as const
 
 const isRealTask = (t: { taskName: string | null }) =>
   (t.taskName ?? "").trim().length > 0
@@ -194,6 +193,7 @@ export const analysisHandlers: Record<string, ToolHandler> = {
       where: { sprintId: sprint.id, ...LIVE_PBI },
       include: {
         pbItem: { select: { id: true, displayId: true, initiative: true, userStory: true, workloadScore: true } },
+        assignees: ASSIGNEE_NAMES,
       },
     })
 
@@ -226,13 +226,13 @@ export const analysisHandlers: Record<string, ToolHandler> = {
       if (it.status === "done") entry.done++
       else if (it.status === "in_progress") entry.inProgress++
       if (it.status in statusCount) statusCount[it.status as keyof typeof statusCount]++
-      for (const a of splitAssignees(it.assignee)) {
+      for (const a of assigneeNamesOf(it)) {
         assigneeCount.set(a, (assigneeCount.get(a) ?? 0) + 1)
       }
       if (it.status === "in_progress" && it.updatedAt.getTime() < cutoff) {
         stalled.push({
           task: trunc(it.taskName, 50),
-          assignee: splitAssignees(it.assignee).join(", ") || "(unassigned)",
+          assignee: assigneeNamesOf(it).join(", ") || "(unassigned)",
           idleDays: Math.floor((now().getTime() - it.updatedAt.getTime()) / 86_400_000),
         })
       }
@@ -365,13 +365,13 @@ export const analysisHandlers: Record<string, ToolHandler> = {
     if (!sprint) return JSON.stringify({ error: "no sprint found in this project" })
     const items = await prisma.sprintBacklogItem.findMany({
       where: { sprintId: sprint.id, ...LIVE_PBI },
-      select: { taskName: true, assignee: true, status: true, estimatedHours: true, actualHours: true },
+      select: { taskName: true, assignee: true, assignees: ASSIGNEE_NAMES, status: true, estimatedHours: true, actualHours: true },
     })
     const per = new Map<string, { todo: number; in_progress: number; done: number; est: number; act: number }>()
     let unassigned = 0
     for (const it of items) {
       if (!isRealTask(it)) continue
-      const names = splitAssignees(it.assignee)
+      const names = assigneeNamesOf(it)
       if (names.length === 0) { unassigned++; continue }
       for (const n of names) {
         const e = per.get(n) ?? { todo: 0, in_progress: 0, done: 0, est: 0, act: 0 }
@@ -434,7 +434,7 @@ export const analysisHandlers: Record<string, ToolHandler> = {
           taskName: { contains: keyword },
         },
         select: {
-          taskName: true, status: true, assignee: true,
+          taskName: true, status: true, assignee: true, assignees: ASSIGNEE_NAMES,
           sprint: { select: { sprintName: true, status: true } },
           pbItem: { select: { displayId: true } },
         },
@@ -454,7 +454,7 @@ export const analysisHandlers: Record<string, ToolHandler> = {
       ...tasks.map((t) => ({
         type: "task", pbi: `#${t.pbItem.displayId}`, status: t.status,
         sprint: `${t.sprint.sprintName} (${t.sprint.status})`,
-        assignee: splitAssignees(t.assignee).join(", ") || null,
+        assignee: assigneeNamesOf(t).join(", ") || null,
         title: trunc(t.taskName, 80),
       })),
     ].slice(0, LIMIT)

@@ -50,7 +50,14 @@ export interface StatusDialogState extends RetroFields {
 export interface TaskFormState {
   pbItemId: string
   taskName: string
-  assignee: string
+  /** Project members' user ids (TaskAssignee); [] = unassigned. */
+  assigneeIds: string[]
+  /**
+   * Ids the edited task had when the form opened (null for a new task). The
+   * PATCH only sends `assigneeIds` when they changed, so saving other fields
+   * never clears a legacy assignee name that matches no member.
+   */
+  loadedAssigneeIds: string[] | null
   estimatedHours: string
   actualHours: string
   status: string

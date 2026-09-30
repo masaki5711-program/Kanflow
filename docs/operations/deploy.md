@@ -232,6 +232,26 @@ npx prisma migrate resolve --applied 20260923000000_baseline_drift              
 - 新規 / CI の空 DB では通常どおり `npx prisma migrate deploy` がこの SQL を実行します。
 - resolve は `_prisma_migrations` への記録だけなので、ビルドのロールバックで戻す必要はありません。
 
+## 5a. P2 マイグレーション後: 担当者の TaskAssignee バックフィル（`20261002000000_p2_collab_foundation`）
+
+P2 のビルドはタスク担当者を `TaskAssignee`（userId）と旧 `SprintBacklogItem.assignee`（名前のカンマ区切り）の
+**両方に書き込み**ます（旧列は当面残す）。マイグレーション適用前に作られたタスクには `TaskAssignee` が無いため、
+`migrate deploy` でこのマイグレーションを適用した**後**に、一度だけバックフィルを流します。
+未実行でもホームの「マイタスク」は旧文字列の完全一致名でフォールバックしますが、名前変更や表記揺れのあるタスクは拾えません。
+
+```powershell
+cd D:\APP\Kanflow\app
+node --import tsx scripts/migrate-assignees.ts            # dry-run（既定）: 書き込みなし。計画件数と CSV を出力
+# → logs\migrate-assignees-<ts>.csv を確認（reason = unmatched / ambiguous / non_member の行）
+node --import tsx scripts/migrate-assignees.ts --apply    # 確認後に投入（冪等: 既存行はスキップ）
+```
+
+- CSV の行は**自動では割り当てられません**（あいまいな名前・未知の名前・プロジェクト外のユーザー）。
+  必要ならスプリント画面で担当者を選び直してください（保存時に `TaskAssignee` へ書き込まれます）。
+- 特定プロジェクトだけ試す: `--project <projectId>`。CSV の出力先を変える: `--report <file.csv>`。
+- `--apply` の前にバックアップがあること（`deploy.ps1` はビルド前に取得済み）。旧 `assignee` 列は変更しません。
+- ロールバック: ビルドを戻しても `TaskAssignee` 行は旧ビルドから参照されないだけで害はありません（削除不要）。
+
 ## 6. ロールバック
 
 ```powershell

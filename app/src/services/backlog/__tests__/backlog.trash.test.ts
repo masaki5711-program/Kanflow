@@ -33,7 +33,7 @@ describe("backlog trash", () => {
     vi.mocked(repo.softDeleteBacklogItem).mockResolvedValue(true)
     vi.mocked(repo.findTasksOfBacklogItem).mockResolvedValue(TASKS)
     await svc.deleteBacklogItem("p1", "a", ACTOR)
-    expect(repo.softDeleteBacklogItem).toHaveBeenCalledWith(TX, "p1", "a", ACTOR.userId)
+    expect(repo.softDeleteBacklogItem).toHaveBeenCalledWith(TX, "p1", "a", ACTOR.userId, undefined)
     expect(repo.deleteBacklogItem).not.toHaveBeenCalled()
     expect(tr.purgeIn).not.toHaveBeenCalled()
     expect(recalcSprintActualScore).toHaveBeenCalledTimes(2)

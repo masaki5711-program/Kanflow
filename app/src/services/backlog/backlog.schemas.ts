@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { versionField } from "@/services/_shared/versioning"
 
 export const PBI_STATUSES = ["ready", "not_ready", "completed"] as const
 
@@ -30,6 +31,8 @@ export const updateBacklogItemSchema = z.object({
   notReadyReason: z.string().optional(),
   sortOrder: z.number().int().optional(),
   productGoalId: z.string().nullable().optional(),
+  /** Optimistic lock: the version the client loaded (omitted = unchecked, legacy). */
+  version: versionField,
 })
 
 export const reorderBacklogSchema = z.object({

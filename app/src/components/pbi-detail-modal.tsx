@@ -3,9 +3,10 @@
 import { useState } from "react"
 import { useLanguage } from "@/lib/language-context"
 import { AIResultModal } from "@/components/ai-result-modal"
+import { PbiDetailTabs } from "@/components/pbi-detail-tabs"
 import { GlossaryHint, I18nText, useI18nText } from "@/components/i18n-text"
 import { Badge, Button, EmptyState, Field, Input, Modal, Select, SkeletonLines, Textarea, useModalClose, type BadgeTone } from "@/components/ui"
-import { apiFetch, useApiMutation, useApiQuery, useUnsavedChangesGuard } from "@/hooks"
+import { apiFetch, conflictAwareToast, useApiMutation, useApiQuery, useUnsavedChangesGuard, versionConflictOf, withVersion } from "@/hooks"
 import type { EntityI18n } from "@/lib/translation/types"
 import type { BacklogItemDetailDto } from "@/types/api"
 
@@ -105,7 +106,13 @@ export default function PbiDetailModal({ projectId, pbiId, onClose, editable, on
         onSaved?.()
         onClose()
       },
-      toastOnError: (e) => `${t.backlogSaveFailed}: ${e.message}`,
+      // Someone else saved the PBI first: drop the local edits and load theirs.
+      onError: (e) => {
+        if (!versionConflictOf(e)) return
+        setDraft(null)
+        refetch()
+      },
+      toastOnError: conflictAwareToast((e) => `${t.backlogSaveFailed}: ${e.message}`),
       toastOnSuccess: t.backlogSaved,
     },
   )
@@ -119,7 +126,7 @@ export default function PbiDetailModal({ projectId, pbiId, onClose, editable, on
     const patch = buildPatch(item, form)
     // Raw text is saved as typed; the background worker translates it.
     if (Object.keys(patch).length === 0) onClose()
-    else void save.mutate(patch)
+    else void save.mutate(withVersion(patch, item.version))
   }
 
   const title = headInitiative.text || headUserStory.text || t.backlogDetailTitle
@@ -164,10 +171,12 @@ export default function PbiDetailModal({ projectId, pbiId, onClose, editable, on
             description={error?.message}
             action={<Button variant="secondary" onClick={refetch}>{t.backlogRetry}</Button>}
           />
-        ) : isEditing && form ? (
-          <EditBody form={form} setForm={setForm} />
         ) : (
-          <ReadBody item={item} />
+          <PbiDetailTabs
+            projectId={projectId}
+            pbiId={item.id}
+            details={isEditing && form ? <EditBody form={form} setForm={setForm} /> : <ReadBody item={item} />}
+          />
         )}
       </Modal>
       {showInvest && item && (

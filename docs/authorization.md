@@ -67,6 +67,8 @@ System admins skip the membership lookup; every request (admins included) does o
 | `ai.draftPbi` | Y | Y | Y | - | - |
 | `trash.manage` | Y | Y | Y | - | - |
 | `trash.purge` | Y | Y | - | - | - |
+| `comment.write` | Y | Y | Y | Y | - |
+| `comment.moderate` | Y | Y | - | - | - |
 
 ## Route → action
 
@@ -118,8 +120,22 @@ Paths are relative to `/api/projects/[projectId]`.
 | `/trash` | trash.manage | | | |
 | `/trash/[entityType]/[id]/restore` | | trash.manage | | |
 | `/trash/[entityType]/[id]` | | | | trash.purge |
+| `/comments` | project.view | comment.write | | |
+| `/comments/counts` | project.view | | | |
+| `/comments/[commentId]` | | | PATCH: comment.write + author only (403) | comment.write + author, or comment.moderate (403) |
 
 Outside project scope: `/api/admin/**` uses `requireAdmin()`, and user-scoped routes use `requireAuth()`. `/api/wopi/**` uses its own signed-token auth (`src/app/api/wopi/_lib/wopi-auth.ts`, which re-checks admin or explicit membership, the same as `attachment.write` without the section-manager path).
+
+## Comments (2026-10)
+
+Comments hang off PBIs, sprint tasks and Icebox items (`Comment.entityType` = `pbi` / `sprint_task` / `icebox`).
+
+- **Read**: everyone with `project.view` (incl. section managers).
+- **Write** (`comment.write`): every explicit project member — `dev` included, because sprint-task discussion is mostly between developers. Section managers who are not members read only (their write path, `icebox.write`, is for submitting requests, not for joining team discussions).
+- **Edit**: the author only — the route checks `comment.write`, the service returns 403 for anyone else (moderators included; nobody puts words in someone else's mouth).
+- **Delete** (soft): the author, or `comment.moderate` (PO / admin) for anyone's comment. The row stays as a tombstone (`deleted: true`, `body: null` in the API).
+- The target must exist in the project and not be in the trash (404 otherwise); a sprint task counts as trashed when its PBI is.
+- Each `CommentDto` carries `canEdit` / `canDelete` for the viewer, so the UI never re-implements this table.
 
 ## Behaviour changes from unification (2026-09)
 

@@ -1,6 +1,8 @@
 import type { Prisma } from "@/generated/prisma/client"
 import type { Db } from "@/services/_shared/db"
 import { LIVE_PBI, notDeleted } from "@/services/_shared/soft-delete"
+import { BUMP_VERSION, versionWhere } from "@/services/_shared/versioning"
+import { ASSIGNEES_INCLUDE } from "./task-assignees"
 
 export function findSprintPbiIds(db: Db, projectId: string, sprintId: string) {
   return db.sprint.findFirst({
@@ -56,10 +58,53 @@ export function findTask(db: Db, projectId: string, sprintId: string, taskId: st
   })
 }
 
-export function updateTask(db: Db, taskId: string, data: Prisma.SprintBacklogItemUncheckedUpdateInput) {
-  return db.sprintBacklogItem.update({ where: { id: taskId }, data, include: { pbItem: true } })
+/** Optimistic-lock update (matches `version` when given, always bumps it). Rows updated: 0 or 1. */
+export async function updateTask(
+  db: Db,
+  taskId: string,
+  data: Prisma.SprintBacklogItemUncheckedUpdateInput,
+  version?: number
+): Promise<number> {
+  const res = await db.sprintBacklogItem.updateMany({
+    where: { id: taskId, ...versionWhere(version) },
+    data: { ...data, ...BUMP_VERSION },
+  })
+  return res.count
 }
 
-export function deleteTask(db: Db, taskId: string) {
-  return db.sprintBacklogItem.delete({ where: { id: taskId } })
+/** A task with its PBI and assignees (the task DTO before flattening). */
+export function findTaskDetail(db: Db, taskId: string) {
+  return db.sprintBacklogItem.findFirst({
+    where: { id: taskId },
+    include: { pbItem: true, assignees: ASSIGNEES_INCLUDE },
+  })
+}
+
+/** Delete at `version` (when given); TaskAssignee rows cascade. Rows deleted: 0 or 1. */
+export async function deleteTask(db: Db, taskId: string, version?: number): Promise<number> {
+  const res = await db.sprintBacklogItem.deleteMany({ where: { id: taskId, ...versionWhere(version) } })
+  return res.count
+}
+
+/** The project's members as assignee candidates ({ id: userId, name }). */
+export async function findProjectMemberCandidates(db: Db, projectId: string) {
+  const rows = await db.projectMember.findMany({
+    where: { projectId },
+    select: { userId: true, user: { select: { name: true } } },
+  })
+  return rows.map((r) => ({ id: r.userId, name: r.user.name }))
+}
+
+/** User ids currently in TaskAssignee for the task (assignment order). */
+export async function findTaskAssigneeIds(db: Db, taskId: string): Promise<string[]> {
+  const rows = await db.taskAssignee.findMany({ where: { taskId }, select: { userId: true }, orderBy: { createdAt: "asc" } })
+  return rows.map((r) => r.userId)
+}
+
+/** Replace the task's TaskAssignee set (same transaction as the task write). */
+export async function replaceTaskAssignees(db: Db, taskId: string, userIds: readonly string[]): Promise<void> {
+  await db.taskAssignee.deleteMany({ where: { taskId } })
+  if (userIds.length > 0) {
+    await db.taskAssignee.createMany({ data: userIds.map((userId) => ({ taskId, userId })), skipDuplicates: true })
+  }
 }

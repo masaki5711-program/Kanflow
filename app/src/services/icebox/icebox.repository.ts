@@ -2,6 +2,7 @@ import type { Prisma } from "@/generated/prisma/client"
 import type { Db } from "@/services/_shared/db"
 import { LIST_LIMITS } from "@/services/_shared/limits"
 import { RESTORE_DATA, notDeleted, softDeleteData } from "@/services/_shared/soft-delete"
+import { BUMP_VERSION, versionWhere } from "@/services/_shared/versioning"
 
 export function findIceboxItems(db: Db, projectId: string) {
   return db.iceboxItem.findMany({
@@ -22,8 +23,29 @@ export function insertIceboxItem(db: Db, data: Prisma.IceboxItemUncheckedCreateI
   return db.iceboxItem.create({ data, include: { attachments: true } })
 }
 
-export function updateIceboxItem(db: Db, projectId: string, itemId: string, data: Prisma.IceboxItemUncheckedUpdateInput) {
-  return db.iceboxItem.update({ where: notDeleted({ id: itemId, projectId }), data, include: { attachments: true } })
+/**
+ * Optimistic-lock update of a live item: matches `version` when given and
+ * always bumps it. The updated row (with attachments), or null when nothing
+ * matched (missing / trashed / stale — the service tells them apart).
+ */
+export async function updateIceboxItem(
+  db: Db,
+  projectId: string,
+  itemId: string,
+  data: Prisma.IceboxItemUncheckedUpdateInput,
+  version?: number
+) {
+  const res = await db.iceboxItem.updateMany({
+    where: notDeleted({ id: itemId, projectId, ...versionWhere(version) }),
+    data: { ...data, ...BUMP_VERSION },
+  })
+  if (res.count === 0) return null
+  return db.iceboxItem.findFirst({ where: { id: itemId, projectId }, include: { attachments: true } })
+}
+
+/** A live item of the project with its attachments (the list DTO shape). */
+export function findIceboxItem(db: Db, projectId: string, itemId: string) {
+  return db.iceboxItem.findFirst({ where: notDeleted({ id: itemId, projectId }), include: { attachments: true } })
 }
 
 /** Stored file names of the item's attachments (the rows cascade on delete). */
@@ -61,16 +83,17 @@ export function deleteIceboxAttachment(db: Db, attachmentId: string) {
 
 const TRASHED = { deletedAt: { not: null } } as const
 
-/** Move a live Icebox item of the project to the trash. False when no live row matched. */
+/** Move a live Icebox item of the project (at `version`, when given) to the trash. False when no live row matched. */
 export async function softDeleteIceboxItem(
   db: Db,
   projectId: string,
   itemId: string,
   actorUserId: string,
+  version?: number,
   now: Date = new Date()
 ): Promise<boolean> {
   const res = await db.iceboxItem.updateMany({
-    where: notDeleted({ id: itemId, projectId }),
+    where: notDeleted({ id: itemId, projectId, ...versionWhere(version) }),
     data: softDeleteData(actorUserId, now),
   })
   return res.count > 0

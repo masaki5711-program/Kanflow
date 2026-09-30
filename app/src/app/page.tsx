@@ -5,6 +5,7 @@ import { Header } from "@/components/header"
 import { getI18nFor } from "@/lib/translation/hooks"
 import { TopPage } from "./top-page"
 import { buildPageMetadata } from "@/app/page-metadata"
+import { isMyTask, myTaskAssigneeWhere } from "@/lib/my-tasks"
 
 export function generateMetadata() {
   return buildPageMetadata(({ t }) => t.projectListTitle)
@@ -49,7 +50,7 @@ export default async function HomePage() {
     return { members: { some: { userId } }, status, deletedAt: null }
   }
 
-  const [activeProjects, archivedProjects, categories, myTasks] = await Promise.all([
+  const [activeProjects, archivedProjects, categories, taskCandidates] = await Promise.all([
     prisma.project.findMany({
       where: buildWhere("active"),
       include: {
@@ -107,12 +108,12 @@ export default async function HomePage() {
       },
       orderBy: { sortOrder: "asc" },
     }),
-    // Fetch active sprint tasks assigned to current user across all projects.
-    // Assignees are stored as a comma-separated string of names; match by
-    // substring so multi-assignee tasks still appear for each member.
+    // Active sprint tasks assigned to the current user across all projects:
+    // TaskAssignee by user id, or (rows not backfilled yet) the display name
+    // in the legacy string — refined to an exact name match by isMyTask below.
     prisma.sprintBacklogItem.findMany({
       where: {
-        assignee: userName ? { contains: userName } : undefined,
+        ...myTaskAssigneeWhere(userId, userName),
         sprint: {
           status: { in: ["planning", "active"] },
           project: {
@@ -125,6 +126,7 @@ export default async function HomePage() {
         pbItem: { deletedAt: null },
       },
       include: {
+        assignees: { select: { userId: true } },
         sprint: {
           select: {
             id: true,
@@ -147,6 +149,8 @@ export default async function HomePage() {
       orderBy: { createdAt: "asc" },
     }),
   ])
+
+  const myTasks = taskCandidates.filter((task) => isMyTask(task, userId, userName))
 
   // Both-language text (one query per entity type) for everything the top
   // page renders: project name/description, task names, PBI stories, sprints.

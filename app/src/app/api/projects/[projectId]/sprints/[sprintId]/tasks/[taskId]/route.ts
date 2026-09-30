@@ -1,5 +1,6 @@
 import { requireProject } from "@/lib/authz"
 import { actorFromSession, jsonResponse, successResponse, toHttpResponse } from "@/services/_shared"
+import { parseVersionParam } from "@/services/_shared/versioning"
 import { updateTaskSchema } from "@/services/sprint-backlog/sprint-backlog.schemas"
 import { deleteTask, updateTask } from "@/services/sprint-backlog/sprint-backlog.service"
 
@@ -18,13 +19,14 @@ export async function PATCH(request: Request, { params }: Params) {
   }
 }
 
-export async function DELETE(_request: Request, { params }: Params) {
+export async function DELETE(request: Request, { params }: Params) {
   const { projectId, sprintId, taskId } = await params
   const gate = await requireProject(projectId, "task.write")
   if ("error" in gate) return gate.error
 
   try {
-    await deleteTask(projectId, sprintId, taskId, actorFromSession(gate.session))
+    // `?version=N` (optional) = optimistic lock; stale → 409 VERSION_CONFLICT.
+    await deleteTask(projectId, sprintId, taskId, actorFromSession(gate.session), parseVersionParam(request))
     return successResponse()
   } catch (error) {
     return toHttpResponse(error, { fallback: "削除に失敗しました", context: "Sprint task DELETE" })

@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { useToast } from "@/components/ui"
-import { apiFetch, useApiQuery } from "@/hooks"
+import { apiFetch, useApiQuery, useVersionConflict, withVersion } from "@/hooks"
 import { useLanguage } from "@/lib/language-context"
 import { messageOf } from "../lib/errors"
 
@@ -17,6 +17,8 @@ export interface PbiFullDetail {
   status: string
   assignedPo: string | null
   poNote: string | null
+  /** Optimistic-lock version (sent back on save). */
+  version?: number
 }
 
 const EDITABLE_KEYS = [
@@ -37,6 +39,7 @@ interface Edits {
 export function usePbiDetail(projectId: string, pbItemId: string, canEdit: boolean, onSaved?: () => void) {
   const { t } = useLanguage()
   const toast = useToast()
+  const onVersionConflict = useVersionConflict()
   const { data, isLoading, mutate } = useApiQuery<PbiFullDetail>(
     pbItemId ? `/api/projects/${projectId}/backlog/${pbItemId}` : null,
     { toastOnError: true },
@@ -58,13 +61,22 @@ export function usePbiDetail(projectId: string, pbItemId: string, canEdit: boole
     if (!detail || !isDirty || !canEdit) return true
     setIsSaving(true)
     try {
-      const json = Object.fromEntries(EDITABLE_KEYS.map((k) => [k, detail[k]]))
-      await apiFetch(`/api/projects/${projectId}/backlog/${detail.id}`, { method: "PATCH", json })
-      mutate(detail)
+      const json = withVersion(Object.fromEntries(EDITABLE_KEYS.map((k) => [k, detail[k]])), data?.version)
+      const saved = await apiFetch<Pick<PbiFullDetail, "version"> | undefined>(
+        `/api/projects/${projectId}/backlog/${detail.id}`,
+        { method: "PATCH", json },
+      )
+      mutate({ ...detail, version: saved?.version ?? detail.version })
       setEdits(null)
       onSaved?.()
       return true
     } catch (err) {
+      // Someone else saved the PBI first: show their version and drop the local edits.
+      const replaced = onVersionConflict<PbiFullDetail>(err, (current) => {
+        if (current) mutate(current)
+        setEdits(null)
+      })
+      if (replaced) return false
       toast.error(messageOf(err, t.error), { title: t.sprintTaskPbiSaveFailed })
       return false
     } finally {

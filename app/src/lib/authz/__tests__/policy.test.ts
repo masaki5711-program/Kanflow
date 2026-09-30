@@ -66,6 +66,8 @@ const EXPECTED: Record<ProjectAction, Persona[]> = {
   "ai.draftPbi": PO_SM,
   "trash.manage": PO_SM,
   "trash.purge": PO,
+  "comment.write": MEMBERS,
+  "comment.moderate": PO,
 }
 
 const cases = PROJECT_ACTIONS.flatMap((action) =>

@@ -1,5 +1,6 @@
 import { requireProject } from "@/lib/authz"
 import { actorFromSession, jsonResponse, successResponse, toHttpResponse } from "@/services/_shared"
+import { parseVersionParam } from "@/services/_shared/versioning"
 import { updateBacklogItemSchema } from "@/services/backlog/backlog.schemas"
 import { deleteBacklogItem, getBacklogItem, updateBacklogItem } from "@/services/backlog/backlog.service"
 
@@ -31,14 +32,15 @@ export async function PATCH(request: Request, { params }: Params) {
   }
 }
 
-export async function DELETE(_request: Request, { params }: Params) {
+export async function DELETE(request: Request, { params }: Params) {
   const { projectId, itemId } = await params
   const gate = await requireProject(projectId, "backlog.delete")
   if ("error" in gate) return gate.error
 
   try {
     // Moves the PBI to the project trash (restore / purge: /trash).
-    await deleteBacklogItem(projectId, itemId, actorFromSession(gate.session))
+    // `?version=N` (optional) = optimistic lock; stale → 409 VERSION_CONFLICT.
+    await deleteBacklogItem(projectId, itemId, actorFromSession(gate.session), parseVersionParam(request))
     return successResponse()
   } catch (error) {
     return toHttpResponse(error, { fallback: "Failed to delete item", context: "Backlog DELETE" })

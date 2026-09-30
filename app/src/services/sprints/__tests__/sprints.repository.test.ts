@@ -3,7 +3,8 @@ import { fakeDb } from "@/services/__tests__/fake-db"
 import { LIST_LIMITS } from "@/services/_shared/limits"
 import * as repo from "../sprints.repository"
 
-const WITH_ITEMS = { items: { where: { pbItem: { deletedAt: null } }, include: { pbItem: true } } }
+const ASSIGNEES = { select: { user: { select: { id: true, name: true } } }, orderBy: { createdAt: "asc" } }
+const WITH_ITEMS = { items: { where: { pbItem: { deletedAt: null } }, include: { pbItem: true, assignees: ASSIGNEES } } }
 
 describe("sprints.repository", () => {
   it("findSprints is project-scoped, newest first, bounded", async () => {
@@ -15,6 +16,7 @@ describe("sprints.repository", () => {
     expect(arg.take).toBe(LIST_LIMITS.sprints)
     expect(arg.include.items.orderBy).toEqual({ createdAt: "asc" })
     expect(arg.include.items.where).toEqual({ pbItem: { deletedAt: null } })
+    expect(arg.include.items.include.assignees).toEqual(ASSIGNEES)
   })
 
   it("single-sprint lookups require the projectId", async () => {
@@ -62,12 +64,31 @@ describe("sprints.repository", () => {
     })
   })
 
-  it("update / delete require the projectId", async () => {
-    const db = fakeDb()
-    await repo.updateSprint(db.client, "p1", "s1", { status: "done" })
-    await repo.deleteSprint(db.client, "p1", "s1")
-    expect(db.fn("sprint.update")).toHaveBeenCalledWith({ where: { id: "s1", projectId: "p1" }, data: { status: "done" }, include: WITH_ITEMS })
-    expect(db.fn("sprint.delete")).toHaveBeenCalledWith({ where: { id: "s1", projectId: "p1" } })
+  it("updateSprint is a project-scoped version compare-and-set that bumps the version", async () => {
+    const db = fakeDb({ "sprint.updateMany": { count: 1 }, "sprint.findFirst": { id: "s1", version: 4 } })
+    await expect(repo.updateSprint(db.client, "p1", "s1", { status: "done" }, 3)).resolves.toEqual({ id: "s1", version: 4 })
+    expect(db.fn("sprint.updateMany")).toHaveBeenCalledWith({
+      where: { id: "s1", projectId: "p1", version: 3 },
+      data: { status: "done", version: { increment: 1 } },
+    })
+    expect(db.fn("sprint.findFirst")).toHaveBeenCalledWith({ where: { id: "s1", projectId: "p1" }, include: WITH_ITEMS })
+  })
+
+  it("updateSprint without a version still bumps it; null when nothing matched", async () => {
+    const db = fakeDb({ "sprint.updateMany": { count: 0 } })
+    await expect(repo.updateSprint(db.client, "p1", "s1", { status: "done" })).resolves.toBeNull()
+    expect(db.fn("sprint.updateMany")).toHaveBeenCalledWith({
+      where: { id: "s1", projectId: "p1" },
+      data: { status: "done", version: { increment: 1 } },
+    })
+  })
+
+  it("deleteSprint is project-scoped, checks the version when given and returns the count", async () => {
+    const db = fakeDb({ "sprint.deleteMany": { count: 1 } })
+    await expect(repo.deleteSprint(db.client, "p1", "s1")).resolves.toBe(1)
+    expect(db.fn("sprint.deleteMany")).toHaveBeenCalledWith({ where: { id: "s1", projectId: "p1" } })
+    await repo.deleteSprint(db.client, "p1", "s1", 2)
+    expect(db.fn("sprint.deleteMany")).toHaveBeenLastCalledWith({ where: { id: "s1", projectId: "p1", version: 2 } })
   })
 
   it("findSprintChildren returns tasks and notes", async () => {

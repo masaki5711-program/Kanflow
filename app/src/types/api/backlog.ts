@@ -31,6 +31,8 @@ export interface BacklogItemDto extends PbiWithStatusDto {
   iceboxItem: { id: string; displayId: number; request: string; i18n?: EntityI18n } | null
   productGoalId: string | null
   productGoal: { id: string; title: string; i18n?: EntityI18n } | null
+  /** Optimistic-lock version (send it back on PATCH / DELETE; stale → 409 VERSION_CONFLICT). */
+  version?: number
   /** Planning/active sprints already working on this PBI (one row per sprint task). */
   sprintItems?: { sprint: { id: string; sprintName: string; status: string } }[]
 }

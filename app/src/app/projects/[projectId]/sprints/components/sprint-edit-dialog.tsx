@@ -5,12 +5,12 @@ import { useRouter } from "next/navigation"
 import { useLanguage } from "@/lib/language-context"
 import { GlossaryHint } from "@/components/i18n-text"
 import { Button, Field, Input, Modal, Textarea, useToast } from "@/components/ui"
-import { apiFetch } from "@/hooks"
+import { apiFetch, useVersionConflict, withVersion } from "@/hooks"
 import type { SprintDto } from "@/types/api"
 import { messageOf } from "../lib/errors"
 import ModalCancelButton from "./modal-cancel-button"
 
-type SprintLite = Pick<SprintDto, "id" | "sprintName" | "startDate" | "endDate" | "sprintGoal" | "capacity">
+type SprintLite = Pick<SprintDto, "id" | "sprintName" | "startDate" | "endDate" | "sprintGoal" | "capacity" | "version">
 
 interface Props {
   projectId: string
@@ -29,6 +29,7 @@ export default function SprintEditDialog({ projectId, sprint, onClose, onSaved }
   const { t } = useLanguage()
   const toast = useToast()
   const router = useRouter()
+  const onVersionConflict = useVersionConflict()
   // Always edit the original (source-language) text, never the translation.
   const [initial] = useState(() => ({
     sprintName: sprint.sprintName,
@@ -50,19 +51,21 @@ export default function SprintEditDialog({ projectId, sprint, onClose, onSaved }
     try {
       await apiFetch(`/api/projects/${projectId}/sprints/${sprint.id}`, {
         method: "PATCH",
-        json: {
+        json: withVersion({
           sprintName: form.sprintName.trim(),
           startDate: form.startDate,
           endDate: form.endDate,
           sprintGoal: form.sprintGoal.trim() || null,
           capacity: Number(form.capacity) || 0,
-        },
+        }, sprint.version),
       })
       toast.success(t.sprintSaved)
       onSaved?.()
       router.refresh()
       onClose()
     } catch (err) {
+      // Stale edit: reload the sprints and close; the user re-opens on the latest values.
+      if (onVersionConflict(err, () => { onSaved?.(); onClose() })) return
       toast.error(messageOf(err, t.error), { title: t.sprintUpdateFailed })
     } finally {
       setSaving(false)

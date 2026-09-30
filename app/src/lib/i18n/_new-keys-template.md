@@ -52,6 +52,8 @@ Rules:
 | `admin-users.ts` | `/admin` user management (`user-management-inline.tsx`) | `user*` |
 | `admin-org.ts` | Sections admin, `/settings/categories` | `section*`, `roleSectionManager`, `category*` |
 | `admin-glossary.ts` | Admin glossary + translation queue | `glossary*`, `translations*` |
+| `trash.ts` | Project trash, admin project trash, "move to trash" wording | `trash*` |
+| `comments.ts` | Comment thread / composer (`components/comments/`), PBI detail tabs, change history | `comments*`, `history*` |
 
 Keep each file under ~400 lines; if a domain grows past that, split it (e.g. `backlog-detail.ts`)
 and register the new file in `index.ts`.

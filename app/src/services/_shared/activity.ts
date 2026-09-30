@@ -36,7 +36,7 @@ export const ACTIVITY_ENTITY_TYPES = [
 ] as const
 export type ActivityEntityType = (typeof ACTIVITY_ENTITY_TYPES)[number]
 
-export const ACTIVITY_ACTIONS = ["create", "update", "delete", "status_change", "assign", "move", "restore"] as const
+export const ACTIVITY_ACTIONS = ["create", "update", "delete", "status_change", "assign", "move", "restore", "comment"] as const
 export type ActivityAction = (typeof ACTIVITY_ACTIONS)[number]
 
 /** Text longer than this (either side) is recorded as `{ changed: true }`. */

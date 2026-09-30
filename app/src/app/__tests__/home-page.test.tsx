@@ -43,6 +43,8 @@ const rawProject = (id: string, fav: boolean) => ({
 const rawTask = {
   id: "t1",
   taskName: "Task",
+  assignee: "Taro",
+  assignees: [] as { userId: string }[],
   status: "todo",
   estimatedHours: 2,
   actualHours: null,
@@ -103,16 +105,34 @@ describe("HomePage (server)", () => {
       projectI18n: { name: { ja: "x" } },
     })
     const taskWhere = m.prisma.sprintBacklogItem.findMany.mock.calls[0][0].where
-    expect(taskWhere.assignee).toEqual({ contains: "Taro" })
+    expect(taskWhere.OR).toEqual([
+      { assignees: { some: { userId: "u1" } } },
+      { assignees: { none: {} }, assignee: { contains: "Taro" } },
+    ])
     expect(taskWhere.pbItem).toEqual({ deletedAt: null })
     expect(taskWhere.sprint.project.deletedAt).toBeNull()
+  })
+
+  it("my tasks: TaskAssignee by id, legacy rows only on an exact name match", async () => {
+    m.auth.mockResolvedValue({ user: { id: "u1", name: "Taro", role: "member" } })
+    m.prisma.sprintBacklogItem.findMany.mockResolvedValue([
+      { ...rawTask, id: "by-id", assignee: "renamed", assignees: [{ userId: "u1" }] },
+      { ...rawTask, id: "legacy-exact", assignee: "Hanako, Taro", assignees: [] },
+      { ...rawTask, id: "legacy-substring", assignee: "Taro Yamada", assignees: [] },
+      { ...rawTask, id: "someone-else", assignee: "Taro", assignees: [{ userId: "u2" }] },
+    ])
+    render(await HomePage())
+    const ids = ((m.topPageProps as Record<string, unknown>).myTasks as Array<{ id: string }>).map((t) => t.id)
+    expect(ids).toEqual(["by-id", "legacy-exact"])
+    expect(m.prisma.sprintBacklogItem.findMany.mock.calls[0][0].include.assignees).toEqual({ select: { userId: true } })
   })
 
   it("admins see all projects", async () => {
     m.auth.mockResolvedValue({ user: { id: "u1", name: null, role: "admin" } })
     render(await HomePage())
     expect(m.prisma.project.findMany.mock.calls[0][0].where).toEqual({ status: "active", deletedAt: null })
-    expect(m.prisma.sprintBacklogItem.findMany.mock.calls[0][0].where.assignee).toBeUndefined()
+    // No display name: only TaskAssignee rows by id (never every task).
+    expect(m.prisma.sprintBacklogItem.findMany.mock.calls[0][0].where.assignees).toEqual({ some: { userId: "u1" } })
     expect((m.topPageProps as Record<string, unknown>).isAdmin).toBe(true)
   })
 

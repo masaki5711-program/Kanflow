@@ -55,6 +55,27 @@ function fileInput(dialog: HTMLElement) {
 }
 
 describe("IceboxEditModal", () => {
+  it("sends the item version; a VERSION_CONFLICT toasts the conflict message, reloads the list and closes", async () => {
+    const user = userEvent.setup()
+    const onClose = vi.fn()
+    const onChanged = vi.fn()
+    const fetchMock = stubFetch([
+      {
+        match: "/api/projects/p1/icebox/i1",
+        method: "PATCH",
+        respond: () => jsonResponse({ error: "stale", code: "VERSION_CONFLICT", current: { ...ITEM, version: 6 } }, 409),
+      },
+    ])
+    renderWithProviders(<IceboxEditModal projectId="p1" item={{ ...ITEM, version: 5 }} onClose={onClose} onChanged={onChanged} />)
+    const dialog = screen.getByRole("dialog", { name: t.iceboxEditTitle })
+    await user.click(within(dialog).getByRole("button", { name: t.update }))
+    await waitFor(() => expect(onClose).toHaveBeenCalled())
+    const body = JSON.parse(String(fetchMock.mock.calls.find(([, i]) => i?.method === "PATCH")?.[1]?.body))
+    expect(body).toMatchObject({ request: "Original request", version: 5 })
+    expect(onChanged).toHaveBeenCalled()
+    expect(await screen.findByText(t.apiErrVersionConflict)).toBeInTheDocument()
+  })
+
   it("saves edits, including the freeze reason shown only for frozen status", async () => {
     const user = userEvent.setup()
     const { dialog, fetchMock, onClose, onChanged } = renderModal()

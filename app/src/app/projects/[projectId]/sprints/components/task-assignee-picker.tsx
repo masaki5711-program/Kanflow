@@ -7,23 +7,24 @@ import type { Member } from "./types"
 
 interface Props {
   members: Member[]
-  /** Comma-separated legacy value is tolerated; picking collapses it to one name. */
-  value: string
-  onChange: (value: string) => void
+  /** Selected members' user ids (TaskAssignee). */
+  value: string[]
+  onChange: (userIds: string[]) => void
 }
 
 /**
- * Single-owner assignee picker (toggle buttons). Clicking the selected
- * member again clears the assignment.
+ * Single-owner assignee picker over the project's members (toggle buttons,
+ * one owner per task — 責任所在の明確化). Emits user ids; clicking the
+ * selected member again clears the assignment. A task that already has
+ * several assignees (legacy data) collapses to the one picked.
  */
 export default function TaskAssigneePicker({ members, value, onChange }: Props) {
   const { t } = useLanguage()
   const labelId = useId()
-  const selected = value.split(",").map((s) => s.trim()).filter(Boolean)
 
-  function pick(name: string) {
-    const isOnlySelected = selected.length === 1 && selected[0] === name
-    onChange(isOnlySelected ? "" : name)
+  function pick(userId: string) {
+    const isOnlySelected = value.length === 1 && value[0] === userId
+    onChange(isOnlySelected ? [] : [userId])
   }
 
   return (
@@ -34,9 +35,9 @@ export default function TaskAssigneePicker({ members, value, onChange }: Props) 
         {members.length === 0 ? (
           <span className="text-caption text-fg-subtle">{t.sprintUnassigned}</span>
         ) : members.map((m) => {
-          const pressed = selected.includes(m.user.name)
+          const pressed = value.includes(m.user.id)
           return (
-            <button key={m.id} type="button" aria-pressed={pressed} onClick={() => pick(m.user.name)}
+            <button key={m.id} type="button" aria-pressed={pressed} onClick={() => pick(m.user.id)}
               className={cn(
                 "inline-flex items-center min-h-8 text-caption px-2.5 rounded-full border transition-colors",
                 pressed ? "bg-primary-soft border-primary/40 text-primary-active font-medium" : "bg-surface border-border text-fg-muted hover:border-border-strong",
