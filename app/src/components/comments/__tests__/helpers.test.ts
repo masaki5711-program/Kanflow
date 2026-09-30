@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import { linkifyParts } from "../linkify"
 import { formatFullDateTime, formatRelativeTime, localeOf } from "../relative-time"
 import { asPage } from "../types"
-import { toCounts, toMentionMembers } from "../use-comment-thread"
+import { toCounts, toMentionMembers, withoutUser } from "../use-comment-thread"
 import { filterMembers } from "../comment-composer"
 
 const NOW = new Date("2026-10-10T12:00:00.000Z")
@@ -46,6 +46,12 @@ describe("parsers", () => {
     expect(asPage({ items: [], nextCursor: 5 })).toEqual({ items: [], nextCursor: null })
     expect(asPage(null)).toEqual({ items: [], nextCursor: null })
     expect(asPage({ id: "x" })).toEqual({ items: [], nextCursor: null })
+  })
+
+  it("withoutUser drops the comment author from the mention candidates (F-08)", () => {
+    const members = [{ id: "u1", name: "A" }, { id: "u2", name: "B" }]
+    expect(withoutUser(members, "u1")).toEqual([{ id: "u2", name: "B" }])
+    expect(withoutUser(members, null)).toEqual(members)
   })
 
   it("toMentionMembers maps members API rows and skips junk", () => {

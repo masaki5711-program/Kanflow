@@ -186,4 +186,29 @@ describe("backlog.service", () => {
     expect(repo.setBacklogSortOrder).toHaveBeenNthCalledWith(1, TX, "p1", "x", 0)
     expect(repo.setBacklogSortOrder).toHaveBeenNthCalledWith(2, TX, "p1", "y", 1)
   })
+  describe("update keeps the PBI titled (N-01)", () => {
+    it("refuses (400 PBI_CONTENT_REQUIRED) a PATCH that leaves neither initiative nor user story", async () => {
+      vi.mocked(repo.updateBacklogItem).mockResolvedValueOnce({ id: "b1", displayId: 7, initiative: "", userStory: "  " } as never)
+      await expect(svc.updateBacklogItem("p1", "b1", { initiative: "", userStory: "", version: 0 }, ACTOR)).rejects.toMatchObject({
+        status: 400,
+        code: "PBI_CONTENT_REQUIRED",
+      })
+      expect(tr.enqueueIn).not.toHaveBeenCalled()
+    })
+
+    it("refuses clearing the only remaining title field", async () => {
+      vi.mocked(repo.updateBacklogItem).mockResolvedValueOnce({ id: "b1", displayId: 7, initiative: null, userStory: "" } as never)
+      await expect(svc.updateBacklogItem("p1", "b1", { userStory: "" }, ACTOR)).rejects.toMatchObject({ code: "PBI_CONTENT_REQUIRED" })
+    })
+
+    it("accepts clearing one field while the other keeps text", async () => {
+      vi.mocked(repo.updateBacklogItem).mockResolvedValueOnce({ id: "b1", displayId: 7, initiative: "", userStory: "US" } as never)
+      await expect(svc.updateBacklogItem("p1", "b1", { initiative: "" }, ACTOR)).resolves.toMatchObject({ id: "b1" })
+    })
+
+    it("does not re-check untouched title fields (status change of a legacy untitled PBI)", async () => {
+      vi.mocked(repo.updateBacklogItem).mockResolvedValueOnce({ id: "b1", displayId: 7, initiative: null, userStory: "", status: "ready" } as never)
+      await expect(svc.updateBacklogItem("p1", "b1", { status: "ready" }, ACTOR)).resolves.toMatchObject({ id: "b1" })
+    })
+  })
 })

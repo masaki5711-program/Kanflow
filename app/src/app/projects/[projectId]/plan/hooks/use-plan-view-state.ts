@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useSyncExternalStore } from "react"
 import { usePathname, useSearchParams } from "next/navigation"
-import { parsePrefs, prefsKey, readPrefsRaw, shownColumns, toggleColumnIn, writePrefsRaw, type PlanColumn, type PlanPrefs } from "../lib/prefs"
+import { parsePrefs, prefsKey, readPrefsRaw, shownColumns, toggleColumnIn, writePrefsRaw, type PhoneLayout, type PlanColumn, type PlanPrefs } from "../lib/prefs"
 import { isPlanZoom, type PlanZoom } from "../lib/scale"
 
 export const DEFAULT_ZOOM: PlanZoom = "week"
@@ -32,7 +32,7 @@ export function withParam(search: string, key: string, value: string | null): st
  * ?item=); per-viewer layout (collapsed rows, visible columns, name width)
  * lives in localStorage (server render uses the defaults).
  */
-export function usePlanViewState(projectId: string) {
+export function usePlanViewState(projectId: string, tablet = false) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const rawZoom = searchParams?.get("zoom")
@@ -65,12 +65,13 @@ export function usePlanViewState(projectId: string) {
     [update],
   )
   const toggleColumn = useCallback(
-    (col: PlanColumn) => update((p) => ({ ...p, columns: toggleColumnIn(shownColumns(p), col) })),
-    [update],
+    (col: PlanColumn) => update((p) => ({ ...p, columns: toggleColumnIn(shownColumns(p, tablet), col) })),
+    [update, tablet],
   )
   const setGridCollapsed = useCallback((v: boolean) => update((p) => ({ ...p, gridCollapsed: v })), [update])
   const setNameWidth = useCallback((w: number) => update((p) => ({ ...p, nameWidth: Math.round(w) })), [update])
-  const columns = useMemo(() => shownColumns(prefs), [prefs])
+  const setPhoneLayout = useCallback((v: PhoneLayout) => update((p) => ({ ...p, phoneLayout: v })), [update])
+  const columns = useMemo(() => shownColumns(prefs, tablet), [prefs, tablet])
 
-  return { zoom, setZoom, itemParam, clearItemParam, prefs, columns, setCollapsed, toggleColumn, setGridCollapsed, setNameWidth }
+  return { zoom, setZoom, itemParam, clearItemParam, prefs, columns, setCollapsed, toggleColumn, setGridCollapsed, setNameWidth, setPhoneLayout }
 }

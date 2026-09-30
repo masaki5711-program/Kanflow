@@ -167,14 +167,25 @@ test("touch: swipe scrolls the timeline, long-press drags the bar", async ({ bro
   const cdp = await ctx.newCDPSession(page)
   const touch = async (type: "touchStart" | "touchMove" | "touchEnd", x: number, y: number) =>
     cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x, y }] })
+  // Start the swipe on the visible timeline (not under the sticky name column / drag handle)
+  await page.evaluate((id) => {
+    const c = document.querySelector("[data-plan-chart]") as HTMLElement
+    const bar = document.querySelector(`[data-plan-bar="${id}"]`)!.getBoundingClientRect()
+    const grid = (document.querySelector('[data-plan-chart] [role="row"] > div') as HTMLElement).getBoundingClientRect()
+    c.scrollLeft += bar.x - (grid.right + 60)
+  }, leaf2.id)
+  await page.waitForTimeout(200)
   const box = (await b.boundingBox())!
   const cx = box.x + Math.min(box.width / 2, 20)
   const cy = box.y + box.height / 2
   const chart = page.locator("[data-plan-chart]")
   const sl0 = await chart.evaluate((e) => e.scrollLeft)
-  // Swipe: quick horizontal move
+  const maxSl = await chart.evaluate((e) => e.scrollWidth - e.clientWidth)
+  // Swipe: quick horizontal move (towards the side that can still scroll)
+  const dir = sl0 >= maxSl - 5 ? 1 : -1
+  console.log("swipe start scrollLeft/max", sl0, maxSl, "dir", dir, "at", cx, cy, "hit", await page.evaluate(([x, y]) => { const e = document.elementFromPoint(x, y) as HTMLElement | null; return e ? `${e.tagName}.${e.className.toString().slice(0, 120)} ta=${getComputedStyle(e).touchAction}` : "none" }, [cx, cy]))
   await touch("touchStart", cx, cy)
-  for (let i = 1; i <= 6; i++) { await touch("touchMove", cx - i * 15, cy); await page.waitForTimeout(16) }
+  for (let i = 1; i <= 6; i++) { await touch("touchMove", cx + dir * i * 15, cy); await page.waitForTimeout(16) }
   await touch("touchEnd", 0, 0)
   await page.waitForTimeout(700)
   const sl1 = await chart.evaluate((e) => e.scrollLeft)

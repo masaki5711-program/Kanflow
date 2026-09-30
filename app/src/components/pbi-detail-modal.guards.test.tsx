@@ -149,3 +149,31 @@ describe("PbiDetailModal — version conflict", () => {
     await waitFor(() => expect(patches).toEqual([{ epic: "Mine", version: 3 }, { epic: "Mine", version: 4 }]))
   })
 })
+
+describe("PbiDetailModal — untitled PBI (N-01) and missing PBI (N-04)", () => {
+  it("disables Update and shows the content error when both initiative and user story are cleared", async () => {
+    renderModal({ editable: true })
+    await userEvent.click(await screen.findByRole("button", { name: t.edit }))
+    const initiative = await screen.findByLabelText(pt.backlogInitiative, { selector: "input, textarea" })
+    const story = screen.getByLabelText(pt.backlogUserStory, { selector: "input, textarea" })
+    await userEvent.clear(initiative)
+    expect(screen.getByRole("button", { name: t.update })).toBeEnabled()
+    await userEvent.clear(story)
+    const update = screen.getByRole("button", { name: t.update })
+    expect(update).toBeDisabled()
+    const message = t.backlogContentRequired.replace("{story}", pt.backlogUserStory).replace("{initiative}", pt.backlogInitiative)
+    expect(screen.getAllByText(message).length).toBeGreaterThan(0)
+    await userEvent.type(story, "As a user")
+    expect(screen.getByRole("button", { name: t.update })).toBeEnabled()
+    expect(patches).toEqual([])
+  })
+
+  it("a PBI that cannot be loaded offers no INVEST / copy link", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ error: "not found" }, 404)))
+    renderModal({ editable: true })
+    expect(await screen.findByText("not found")).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: new RegExp(t.aiInvestReview) })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: t.backlogCopyLink })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: t.edit })).not.toBeInTheDocument()
+  })
+})

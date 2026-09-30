@@ -41,9 +41,11 @@ export function filterMembers(members: readonly MentionMember[], query: string):
  * Comment text area with @mention autocomplete. Typing `@` lists project
  * members (filtered as you type); ↑/↓ move, Enter or Tab inserts `@[Name]`,
  * Escape closes the list (without closing a surrounding modal).
- * Ctrl/⌘ + Enter submits. While the members are still loading, Enter (or
- * Ctrl+Enter) on an @token neither types a newline nor posts: the first
- * match is inserted once the list arrives.
+ * Ctrl/⌘ + Enter submits. While an @token is open, Enter never types a
+ * newline: it inserts the active match; while the members are still loading
+ * (the list shows a loading row) the first match is inserted once they
+ * arrive; with no match it does nothing (Escape closes the list, then Enter
+ * types a newline).
  */
 export function CommentComposer({ members, membersLoading = false, onSubmit, label, submitLabel, initialValue = "", onCancel, autoFocus }: Props) {
   const { t } = useLanguage()
@@ -85,6 +87,8 @@ export function CommentComposer({ members, membersLoading = false, onSubmit, lab
     setValue(next)
     setCaret(nextCaret)
     setActiveIndex(0)
+    // Escape dismisses one @token only: once it is gone, a new @ at the same place opens the list again (F-08).
+    if (!activeMentionQuery(next, nextCaret)) setDismissedAt(null)
   }
 
   function insert(member: MentionMember) {
@@ -113,6 +117,12 @@ export function CommentComposer({ members, membersLoading = false, onSubmit, lab
       e.preventDefault()
       e.stopPropagation()
       setPendingPickAt(mention.start)
+      return
+    }
+    // While an @token is open, plain Enter never types a newline (it picks, or does nothing without a match).
+    if (e.key === "Enter" && isOpen && !e.ctrlKey && !e.metaKey && !e.shiftKey && suggestions.length === 0) {
+      e.preventDefault()
+      e.stopPropagation()
       return
     }
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {

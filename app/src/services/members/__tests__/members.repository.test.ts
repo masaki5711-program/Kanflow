@@ -89,3 +89,14 @@ describe("members.repository", () => {
     expect(db.fn("projectMember.delete")).toHaveBeenCalledWith({ where: { id: "m1", projectId: "p1" } })
   })
 })
+
+describe("findMemberUserName (S-12)", () => {
+  it("is project-scoped and selects only the user name", async () => {
+    const db = fakeDb()
+    await repo.findMemberUserName(db.client, "p1", "m1")
+    expect(db.fn("projectMember.findFirst")).toHaveBeenCalledWith({
+      where: { id: "m1", projectId: "p1" },
+      select: { user: { select: { name: true } } },
+    })
+  })
+})

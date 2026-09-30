@@ -10,13 +10,22 @@ const SHORT_DATE_OPTIONS: Readonly<Record<Language, Intl.DateTimeFormatOptions>>
   id: { day: "numeric", month: "short" },
 }
 
-const formatters = new Map<Language, Intl.DateTimeFormat>()
+export interface ShortDateOptions {
+  /** false drops the weekday (ja "9/8") for dense places such as chart axes. Default true. */
+  weekday?: boolean
+}
 
-function formatterFor(language: Language): Intl.DateTimeFormat {
-  const cached = formatters.get(language)
+const formatters = new Map<string, Intl.DateTimeFormat>()
+
+function formatterFor(language: Language, withWeekday: boolean): Intl.DateTimeFormat {
+  const key = `${language}:${withWeekday ? "w" : "-"}`
+  const cached = formatters.get(key)
   if (cached) return cached
-  const created = new Intl.DateTimeFormat(DATE_LOCALE[language] ?? DATE_LOCALE.ja, SHORT_DATE_OPTIONS[language] ?? SHORT_DATE_OPTIONS.ja)
-  formatters.set(language, created)
+  const base = SHORT_DATE_OPTIONS[language] ?? SHORT_DATE_OPTIONS.ja
+  const { weekday, ...withoutWeekday } = base
+  const options = withWeekday && weekday ? base : withoutWeekday
+  const created = new Intl.DateTimeFormat(DATE_LOCALE[language] ?? DATE_LOCALE.ja, options)
+  formatters.set(key, created)
   return created
 }
 
@@ -25,8 +34,8 @@ function formatterFor(language: Language): Intl.DateTimeFormat {
  * viewer's local time zone. Returns "" for an invalid date.
  * Avoids hard-coded "M/D", which an Indonesian reader (D/M) misreads.
  */
-export function formatShortDate(value: string | Date, language: Language): string {
+export function formatShortDate(value: string | Date, language: Language, options: ShortDateOptions = {}): string {
   const date = value instanceof Date ? value : new Date(value)
   if (Number.isNaN(date.getTime())) return ""
-  return formatterFor(language).format(date)
+  return formatterFor(language, options.weekday !== false).format(date)
 }

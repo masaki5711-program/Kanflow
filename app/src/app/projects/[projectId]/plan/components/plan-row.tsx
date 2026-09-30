@@ -4,7 +4,7 @@ import { memo, type KeyboardEvent, type PointerEvent } from "react"
 import { Badge, cn } from "@/components/ui"
 import { spanDays } from "../lib/date"
 import { formatCompactRange, formatFullDate, formatGridDate } from "../lib/date-format"
-import { COLUMN_WIDTH } from "../lib/filter"
+import { COLUMN_WIDTH } from "../lib/grid-layout"
 import { ROW_HEIGHT } from "../lib/geometry"
 import type { BarKind } from "../lib/interaction"
 import type { PlanItem } from "../lib/plan-types"
@@ -112,13 +112,19 @@ export const PlanRow = memo(function PlanRow(props: Props) {
       className={cn("group flex break-inside-avoid border-b border-border", selected ? "bg-primary-soft/50" : "hover:bg-surface-muted/60")}
       style={{ height: ROW_HEIGHT }}
     >
+      {/*
+        Sticky grid part: opaque, above every timeline decoration (today line / tint, weekend
+        stripes, arrows), and a full ROW_HEIGHT tall with its own bottom border, so it also
+        covers the row's 1px border line that the decorations would otherwise show through (F-10).
+      */}
       <div
         role="none"
+        data-plan-grid-cell=""
         className={cn(
-          "sticky left-0 z-10 flex shrink-0 border-r border-border focus-within:z-20",
+          "sticky left-0 z-10 flex shrink-0 self-start border-b border-r border-border focus-within:z-20",
           selected ? "bg-primary-soft" : "bg-surface group-hover:bg-surface-muted",
         )}
-        style={{ width: env.gridWidth }}
+        style={{ width: env.gridWidth, height: ROW_HEIGHT }}
       >
         <PlanNameCell
           row={row}

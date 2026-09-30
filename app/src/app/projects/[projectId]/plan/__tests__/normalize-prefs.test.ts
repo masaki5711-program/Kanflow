@@ -69,6 +69,7 @@ describe("prefs (localStorage)", () => {
       columns: ["owner"],
       gridCollapsed: true,
       nameWidth: 302,
+      phoneLayout: null,
     })
     // pre-2026-10 prefs (hiddenColumns) fall back to the compact default columns
     const legacy = parsePrefs(JSON.stringify({ collapsed: [], hiddenColumns: [] }))
@@ -78,7 +79,9 @@ describe("prefs (localStorage)", () => {
   })
 
   it("round-trips and survives storage failures", () => {
-    savePrefs("p1", { collapsed: ["x"], columns: ["period"], gridCollapsed: false, nameWidth: 280 })
+    savePrefs("p1", { collapsed: ["x"], columns: ["period"], gridCollapsed: false, nameWidth: 280, phoneLayout: "names" })
+    expect(loadPrefs("p1").phoneLayout).toBe("names")
+    expect(parsePrefs(JSON.stringify({ phoneLayout: "sideways" })).phoneLayout).toBeNull()
     expect(window.localStorage.getItem(prefsKey("p1"))).toContain("x")
     expect(loadPrefs("p1").collapsed).toEqual(["x"])
     vi.spyOn(storage, "getItem").mockImplementation(() => {

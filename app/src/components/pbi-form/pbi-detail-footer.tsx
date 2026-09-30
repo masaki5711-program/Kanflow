@@ -10,8 +10,12 @@ export interface PbiDetailFooterProps {
   isDirty: boolean
   /** The PBI has loaded (copy link / INVEST need it). */
   isLoaded: boolean
+  /** The PBI could not be loaded (not found / error): no item actions (INVEST, copy link). */
+  isMissing?: boolean
   /** ai.use: offer the INVEST review (hidden without the permission). */
   canInvest: boolean
+  /** The form keeps an initiative or a user story (else Update is disabled, like create). */
+  canSave?: boolean
   saving: boolean
   generating: boolean
   onInvest: () => void
@@ -39,7 +43,7 @@ export function PbiDetailFooter(props: PbiDetailFooterProps) {
 
   return (
     <>
-      {props.canInvest ? (
+      {props.canInvest && !props.isMissing ? (
         <Button variant="secondary" onClick={props.onInvest} disabled={!props.isLoaded} className="mr-auto" leftIcon={<span aria-hidden="true">🤖</span>}>
           {t.aiInvestReview}
         </Button>
@@ -51,15 +55,17 @@ export function PbiDetailFooter(props: PbiDetailFooterProps) {
           <Button variant="secondary" onClick={() => void cancelEdit()}>
             {t.cancel}
           </Button>
-          <Button onClick={props.onSave} loading={props.saving} disabled={props.generating}>
+          <Button onClick={props.onSave} loading={props.saving} disabled={props.generating || props.canSave === false}>
             {t.update}
           </Button>
         </>
       ) : (
         <>
-          <Button variant="ghost" onClick={props.onCopyLink} disabled={!props.isLoaded} leftIcon={<Link2 className="h-4 w-4" />}>
-            {t.backlogCopyLink}
-          </Button>
+          {!props.isMissing && (
+            <Button variant="ghost" onClick={props.onCopyLink} disabled={!props.isLoaded} leftIcon={<Link2 className="h-4 w-4" />}>
+              {t.backlogCopyLink}
+            </Button>
+          )}
           <Button variant="secondary" onClick={close}>
             {t.close}
           </Button>

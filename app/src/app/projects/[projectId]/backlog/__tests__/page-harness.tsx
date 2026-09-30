@@ -33,7 +33,7 @@ export interface SetupOptions {
   backlog?: BacklogResponse
   backlogStatus?: number
   reorderStatus?: number
-  statusPatch?: number | (() => Response)
+  statusPatch?: number | ((body: unknown) => Response | Promise<Response>)
   deleteStatus?: number
   saveStatus?: number
   bulk?: (body: unknown) => Response
@@ -84,7 +84,8 @@ export function setupBacklog(opts: SetupOptions = {}) {
     {
       match: /\/backlog\/[a-z]+$/,
       method: "PATCH",
-      respond: () => (typeof opts.statusPatch === "function" ? opts.statusPatch() : jsonResponse({ ok: true }, opts.statusPatch ?? 200)),
+      respond: (_u, init) =>
+        (typeof opts.statusPatch === "function" ? opts.statusPatch(JSON.parse(String(init?.body))) : jsonResponse({ ok: true }, opts.statusPatch ?? 200)),
     },
     { match: /\/backlog\/[a-z]+(\?version=\d+)?$/, method: "DELETE", respond: () => jsonResponse({ error: "locked" }, opts.deleteStatus ?? 200) },
     { match: /\/trash\/backlog_item\/[a-z]+\/restore$/, method: "POST", respond: () => jsonResponse({ success: true }, opts.restoreStatus ?? 200) },

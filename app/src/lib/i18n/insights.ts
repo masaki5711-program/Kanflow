@@ -42,6 +42,8 @@ export interface InsightsTranslations {
   dashboardFeedEntityMember: string
   dashboardFeedEntityProject: string
   dashboardFeedCreate: string
+  /** A member joining the project ("create" of a member entry). */
+  dashboardFeedMemberAdd: string
   dashboardFeedUpdate: string
   dashboardFeedDelete: string
   dashboardFeedStatusChange: string
@@ -114,6 +116,7 @@ export const ja: InsightsTranslations = {
   dashboardFeedEntityMember: "メンバー",
   dashboardFeedEntityProject: "プロジェクト",
   dashboardFeedCreate: "{actor} が{entity}を作成しました",
+  dashboardFeedMemberAdd: "{actor} が{entity}を追加しました",
   dashboardFeedUpdate: "{actor} が{entity}を更新しました",
   dashboardFeedDelete: "{actor} が{entity}を削除しました",
   dashboardFeedStatusChange: "{actor} が{entity}のステータスを変更しました",
@@ -182,6 +185,7 @@ export const en: InsightsTranslations = {
   dashboardFeedEntityMember: "member",
   dashboardFeedEntityProject: "project",
   dashboardFeedCreate: "{actor} created {entity}",
+  dashboardFeedMemberAdd: "{actor} added {entity}",
   dashboardFeedUpdate: "{actor} updated {entity}",
   dashboardFeedDelete: "{actor} deleted {entity}",
   dashboardFeedStatusChange: "{actor} changed the status of {entity}",
@@ -250,6 +254,7 @@ export const id: InsightsTranslations = {
   dashboardFeedEntityMember: "anggota",
   dashboardFeedEntityProject: "proyek",
   dashboardFeedCreate: "{actor} membuat {entity}",
+  dashboardFeedMemberAdd: "{actor} menambahkan {entity}",
   dashboardFeedUpdate: "{actor} memperbarui {entity}",
   dashboardFeedDelete: "{actor} menghapus {entity}",
   dashboardFeedStatusChange: "{actor} mengubah status {entity}",

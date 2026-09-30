@@ -33,7 +33,7 @@ test("dev sees a read-only plan (no add/drag/menu edits, read-only editor)", asy
   await expect(page.getByRole("button", { name: "Tambah tonggak" })).toHaveCount(0)
   await expect(page.locator("[data-plan-handle]")).toHaveCount(0)
   await expect(page.locator("[data-plan-resize]")).toHaveCount(0)
-  await expect(row(page, leaf.id).getByRole("cell").first()).toHaveText("1 Okt (Kam)")
+  await expect(row(page, leaf.id).getByRole("cell").first()).toHaveText("1–7 Okt")
   await page.screenshot({ path: `${SHOTS}/97-dev-readonly.png` })
   // More menu: no baseline entries
   await page.getByRole("button", { name: "Tindakan lain" }).click()
@@ -85,7 +85,7 @@ test("dev sees a read-only plan (no add/drag/menu edits, read-only editor)", asy
   expect(c.status).toBe(403)
   expect(b.status).toBe(403)
   // Export allowed
-  const x = await page.request.get(`http://localhost:3100/api/projects/${PROJECT}/plan/export?lang=id`)
+  const x = await page.request.get(`${process.env.E2E_BASE_URL ?? "http://localhost:3101"}/api/projects/${PROJECT}/plan/export?lang=id`)
   console.log("dev export status:", x.status())
   report("dev readonly", issues)
   await ctx.close()

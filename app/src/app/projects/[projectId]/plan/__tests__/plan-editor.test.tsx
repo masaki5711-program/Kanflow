@@ -117,7 +117,7 @@ describe("editor: derived fields, save, conflicts", () => {
     expect(options).toEqual(["not_started", "in_progress", "done", "on_hold"])
   })
 
-  it("saves changed fields with the version and toasts; 409 shows the conflict message", async () => {
+  it("saves changed fields with the version and toasts; a 409 is explained in the dialog only (N-05: no duplicate toast)", async () => {
     const user = userEvent.setup()
     const fetchMock = await renderPlan()
     let dialog = await openEditor(user, "Alpha-1")
@@ -134,7 +134,8 @@ describe("editor: derived fields, save, conflicts", () => {
     // meanwhile another user renamed it (server version 2)
     state.items = state.items.map((i) => (i.id === "B" ? { ...i, name: "Beta by Suzuki", version: 2 } : i))
     await user.click(within(dialog).getByRole("button", { name: t.save }))
-    expect(await screen.findByText(t.apiErrVersionConflict)).toBeInTheDocument()
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(t.apiErrVersionConflictReenter)
+    expect(screen.queryByText(t.apiErrVersionConflict)).not.toBeInTheDocument()
     expect(screen.getByRole("dialog", { name: t.planEditTitle })).toBeInTheDocument()
   })
 

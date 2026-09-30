@@ -17,11 +17,11 @@ export interface BurndownSprintOption {
 
 interface Props {
   projectId: string
-  /** Active / review / done sprints, newest first. */
+  /** Active / review / done / archived sprints, newest first. */
   sprints: BurndownSprintOption[]
 }
 
-/** "" = the whole project (all non-archived sprints). */
+/** "" = the whole project (all non-archived sprints). An archived sprint is selectable on its own. */
 const ALL = ""
 
 /** `?sprint=all` keeps the whole-project choice across reloads. */
@@ -45,6 +45,14 @@ export function sprintParamOf(selection: string): string {
   return selection === ALL ? ALL_PARAM : selection
 }
 
+/** Pure: archived sprints apart from the rest, each keeping the given (newest-first) order. */
+export function splitArchived<T extends Pick<BurndownSprintOption, "status">>(sprints: readonly T[]): { live: T[]; archived: T[] } {
+  return {
+    live: sprints.filter((s) => s.status !== "archived"),
+    archived: sprints.filter((s) => s.status === "archived"),
+  }
+}
+
 export function BurndownPageContent({ projectId, sprints }: Props) {
   const { t } = useLanguage()
   useProjectDocumentTitle(t.burndownPageTitle)
@@ -59,6 +67,9 @@ export function BurndownPageContent({ projectId, sprints }: Props) {
     params.set(SPRINT_PARAM, sprintParamOf(next))
     router.replace(`${pathname}?${params.toString()}`, { scroll: false })
   }
+
+  // Finished sprints auto-archive; they stay selectable under their own group (S-10).
+  const { live, archived } = splitArchived(sprints)
 
   const statusLabel: Record<string, string> = {
     active: t.sprintStatusActive,
@@ -81,13 +92,20 @@ export function BurndownPageContent({ projectId, sprints }: Props) {
             <label htmlFor={selectId} className="text-body font-medium text-fg-muted">
               {t.burndownSprintSelect}
             </label>
-            <Select id={selectId} selectSize="sm" value={selected} onChange={(e) => select(e.target.value)} className="min-w-[14rem]">
+            <Select id={selectId} selectSize="sm" value={selected} onChange={(e) => select(e.target.value)} className="min-w-0 max-w-full sm:min-w-[14rem]">
               <option value={ALL}>{t.burndownSprintAll}</option>
-              {sprints.map((s) => (
+              {live.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name} · {statusLabel[s.status] ?? s.status}
                 </option>
               ))}
+              {archived.length > 0 && (
+                <optgroup label={t.sprintStatusArchived}>
+                  {archived.map((s) => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </optgroup>
+              )}
             </Select>
           </div>
         }

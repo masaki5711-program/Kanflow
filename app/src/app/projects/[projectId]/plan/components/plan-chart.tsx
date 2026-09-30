@@ -4,11 +4,12 @@ import { forwardRef, memo, useCallback, useId, useMemo, useRef, type KeyboardEve
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react"
 import { IconButton } from "@/components/ui"
 import { ymdToDay } from "../lib/date"
-import { COLUMN_WIDTH } from "../lib/filter"
+import { COLUMN_WIDTH } from "../lib/grid-layout"
 import type { PlanColumn } from "../lib/prefs"
 import { ROW_HEIGHT, buildArrows, dayCenterX } from "../lib/geometry"
 import type { PlanDependency, PlanItem } from "../lib/plan-types"
 import type { TimeScale } from "../lib/scale"
+import { clampPillX } from "../lib/scale-labels"
 import type { FlatRow } from "../lib/tree"
 import type { BarDrag, LiveEdit } from "../hooks/use-bar-drag"
 import type { ChartEnv, RowHandlers } from "./chart-types"
@@ -29,6 +30,8 @@ interface Props {
   collapsed: ReadonlySet<string>
   renamingId: string | null
   todayLabel: string
+  /** Visible timeline window (timeline px; null while printing): keeps the today pill inside it. */
+  view: { left: number; width: number } | null
   onToggleGrid: () => void
   /** Row drag-reorder (handle). */
   rowDrop: { targetId: string; position: "before" | "after" } | null
@@ -108,6 +111,8 @@ export const PlanChart = forwardRef<HTMLDivElement, Props>(function PlanChart(pr
   )
   const tabStopId = selectedId !== null && rowIndex.has(selectedId) ? selectedId : (rows[0]?.item.id ?? null)
   const bodyHeight = rows.length * ROW_HEIGHT
+  const rawTodayX = dayCenterX(env.today, env.startDay, env.dayWidth)
+  const todayX = rawTodayX >= 0 && rawTodayX <= scale.width ? rawTodayX : null
 
   const onNavigate = useCallback((e: KeyboardEvent<HTMLElement>): boolean => {
     if (!NAV_KEYS.has(e.key)) return false
@@ -139,10 +144,9 @@ export const PlanChart = forwardRef<HTMLDivElement, Props>(function PlanChart(pr
               scale={scale}
               dayWidth={env.dayWidth}
               todayLabel={props.todayLabel}
-              todayX={(() => {
-                const x = dayCenterX(env.today, env.startDay, env.dayWidth)
-                return x >= 0 && x <= scale.width ? x : null
-              })()}
+              todayX={todayX}
+              pillX={todayX === null ? null : clampPillX(todayX, props.todayLabel, props.view)}
+              stickyLeft={env.gridWidth}
             />
           </div>
         </div>

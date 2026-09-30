@@ -39,7 +39,7 @@ const { Header } = await import("@/components/header")
 const { SidebarDrawerProvider } = await import("./sidebar-drawer")
 const { LanguageProvider } = await import("@/lib/language-context")
 const bp = await import("./header-breakpoints")
-const { placePopover, POPOVER_VIEWPORT_MARGIN } = await import("./anchored-popover")
+const { placePopover, popoverMaxHeight, POPOVER_MIN_HEIGHT, POPOVER_VIEWPORT_MARGIN } = await import("./anchored-popover")
 const { SEARCH_BUTTON_CLASS } = await import("./header-tools")
 
 stubLayout()
@@ -171,6 +171,39 @@ describe("Header responsive layout", () => {
     const panel = screen.getByTestId("user-menu-panel")
     expect(panel.style.position).toBe("fixed")
     expect(Number.parseFloat(panel.style.left)).toBeGreaterThanOrEqual(POPOVER_VIEWPORT_MARGIN)
+  })
+
+  it("caps the user menu to a short viewport and keeps logout outside the scrolling part (N-02)", async () => {
+    const original = window.innerHeight
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 375 })
+    try {
+      const user = userEvent.setup()
+      renderHeader()
+      await user.click(userMenuButton())
+      const panel = screen.getByTestId("user-menu-panel")
+      const top = Number.parseFloat(panel.style.top)
+      expect(Number.parseFloat(panel.style.maxHeight)).toBe(popoverMaxHeight(top, 375))
+      expect(top + Number.parseFloat(panel.style.maxHeight)).toBeLessThanOrEqual(375 - POPOVER_VIEWPORT_MARGIN)
+      expect(classesOf(panel)).toEqual(expect.arrayContaining(["flex", "flex-col", "overflow-hidden"]))
+      const scroll = within(panel).getByTestId("user-menu-scroll")
+      expect(classesOf(scroll)).toEqual(expect.arrayContaining(["overflow-y-auto", "min-h-0", "flex-1"]))
+      expect(within(scroll).getByRole("list", { name: t.navAdminMenu })).toBeInTheDocument()
+      const logout = within(panel).getByRole("button", { name: t.logout })
+      expect(scroll.contains(logout)).toBe(false)
+      expect(classesOf(within(panel).getByTestId("user-menu-footer"))).toContain("shrink-0")
+    } finally {
+      Object.defineProperty(window, "innerHeight", { configurable: true, value: original })
+    }
+  })
+})
+
+describe("popoverMaxHeight", () => {
+  it("fills the space below the anchor minus the viewport margin", () => {
+    expect(popoverMaxHeight(54, 600)).toBe(600 - 54 - POPOVER_VIEWPORT_MARGIN)
+  })
+
+  it("never goes below the minimum height on tiny viewports", () => {
+    expect(popoverMaxHeight(54, 100)).toBe(POPOVER_MIN_HEIGHT)
   })
 })
 

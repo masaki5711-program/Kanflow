@@ -17,12 +17,19 @@ export function isUnfinished(item: Pick<PlanItem, "status" | "scheduleState">): 
   return item.status !== "done" && item.status !== "on_hold" && item.scheduleState !== "done"
 }
 
+/** An anchor further than this before today would hide today on the first view. */
+export const MAX_ANCHOR_LAG_DAYS = 60
+/** …in which case the view starts this many days before today (≤ a third of a narrow window; older work: the "◀ n" pill). */
+export const TODAY_LEAD_DAYS = 14
+
 /**
  * First day of the initial view: min(today, earliest unfinished start) − LEAD_DAYS,
- * so overdue / running work is on screen. Null when nothing is unfinished
- * (the caller then centres on today).
+ * so overdue / running work is on screen. When that anchor is more than
+ * MAX_ANCHOR_LAG_DAYS before today and today would not be visible from it
+ * (`visibleDays` wide; unknown = never), the view starts at today − TODAY_LEAD_DAYS instead.
+ * Null when nothing is unfinished (the caller then centres on today).
  */
-export function initialAnchorDay(items: readonly PlanItem[], today: Ymd): number | null {
+export function initialAnchorDay(items: readonly PlanItem[], today: Ymd, visibleDays = 0): number | null {
   let earliest: number | null = null
   for (const it of items) {
     if (!isUnfinished(it)) continue
@@ -30,7 +37,20 @@ export function initialAnchorDay(items: readonly PlanItem[], today: Ymd): number
     if (earliest === null || d < earliest) earliest = d
   }
   if (earliest === null) return null
-  return Math.min(ymdToDay(today), earliest) - LEAD_DAYS
+  const todayDay = ymdToDay(today)
+  const anchor = Math.min(todayDay, earliest) - LEAD_DAYS
+  const lag = todayDay - anchor
+  if (lag <= MAX_ANCHOR_LAG_DAYS || lag < visibleDays) return anchor
+  // A narrow window (phone) keeps today in its first third.
+  const lead = visibleDays > 0 ? Math.min(TODAY_LEAD_DAYS, Math.floor(visibleDays / 3)) : TODAY_LEAD_DAYS
+  return todayDay - lead
+}
+
+/** Where today's x lies relative to the visible timeline window. */
+export function todaySide(todayX: number, viewStart: number, viewEnd: number): "before" | "after" | null {
+  if (todayX < viewStart) return "before"
+  if (todayX > viewEnd) return "after"
+  return null
 }
 
 export interface RowSpan {

@@ -26,6 +26,8 @@ export interface SprintTasksTranslations {
   burndownIdeal: string
   burndownActual: string
   burndownTotal: string
+  /** Task count in a burndown sprint band; {count}. */
+  burndownBandTaskCount: string
   burndownRemainingTasks: string
   burndownCompleted: string
   // Task status
@@ -47,7 +49,8 @@ export interface SprintTasksTranslations {
   sprintActualHoursShort: string
   /** Unit of task estimate / actual hours (not the project point unit). */
   sprintHoursUnit: string
-  sprintTaskEstimateTotal: string
+  /** PBI task line (S-20): {done} {total} {hours}; tasks are counted, estimates are hours. */
+  sprintPbiTaskSummary: string
   sprintNoTaskName: string
   sprintAddTaskShort: string
   sprintNoTasks: string
@@ -101,6 +104,7 @@ export const ja: SprintTasksTranslations = {
   burndownIdeal: "理想（全日）",
   burndownActual: "実績",
   burndownTotal: "全{count}件",
+  burndownBandTaskCount: "{count}件",
   burndownRemainingTasks: "残タスク数 (件)",
   burndownCompleted: "件完了",
   taskTodo: "未着手",
@@ -120,9 +124,9 @@ export const ja: SprintTasksTranslations = {
   sprintEstimatedHoursShort: "見積時間",
   sprintActualHoursShort: "実績時間",
   sprintHoursUnit: "h",
-  sprintTaskEstimateTotal: "タスク見積合計",
+  sprintPbiTaskSummary: "タスク {done}/{total} 件 · 見積 {hours}h",
   sprintNoTaskName: "(タスク名なし)",
-  sprintAddTaskShort: "+ タスク",
+  sprintAddTaskShort: "タスク追加",
   sprintNoTasks: "タスクがありません",
   sprintStatusClickToggle: "現在: {status} (クリックで切替)",
   sprintDeleteTaskConfirm: "このタスクを削除しますか？",
@@ -174,6 +178,7 @@ export const en: SprintTasksTranslations = {
   burndownIdeal: "Ideal (All Days)",
   burndownActual: "Actual",
   burndownTotal: "Total {count}",
+  burndownBandTaskCount: "{count} tasks",
   burndownRemainingTasks: "Remaining Tasks",
   burndownCompleted: " completed",
   taskTodo: "To Do",
@@ -193,9 +198,9 @@ export const en: SprintTasksTranslations = {
   sprintEstimatedHoursShort: "Estimated",
   sprintActualHoursShort: "Actual",
   sprintHoursUnit: "h",
-  sprintTaskEstimateTotal: "Task est. total",
+  sprintPbiTaskSummary: "Tasks {done}/{total} · est. {hours} h",
   sprintNoTaskName: "(No task name)",
-  sprintAddTaskShort: "+ Task",
+  sprintAddTaskShort: "Add task",
   sprintNoTasks: "No tasks",
   sprintStatusClickToggle: "Current: {status} (Click to toggle)",
   sprintDeleteTaskConfirm: "Delete this task?",
@@ -247,6 +252,7 @@ export const id: SprintTasksTranslations = {
   burndownIdeal: "Ideal (Semua Hari)",
   burndownActual: "Aktual",
   burndownTotal: "Total {count}",
+  burndownBandTaskCount: "{count} tugas",
   burndownRemainingTasks: "Sisa Tugas",
   burndownCompleted: " selesai",
   taskTodo: "Belum Mulai",
@@ -266,9 +272,9 @@ export const id: SprintTasksTranslations = {
   sprintEstimatedHoursShort: "Estimasi",
   sprintActualHoursShort: "Aktual",
   sprintHoursUnit: "jam",
-  sprintTaskEstimateTotal: "Total estimasi tugas",
+  sprintPbiTaskSummary: "Tugas {done}/{total} · estimasi {hours} jam",
   sprintNoTaskName: "(Tanpa nama tugas)",
-  sprintAddTaskShort: "+ Tugas",
+  sprintAddTaskShort: "Tambah tugas",
   sprintNoTasks: "Tidak ada tugas",
   sprintStatusClickToggle: "Saat ini: {status} (Klik untuk mengganti)",
   sprintDeleteTaskConfirm: "Hapus tugas ini?",

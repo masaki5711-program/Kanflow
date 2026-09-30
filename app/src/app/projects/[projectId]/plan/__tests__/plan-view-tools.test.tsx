@@ -5,7 +5,7 @@ import { renderWithProviders, tr } from "@/app/__tests__/test-utils"
 import { stubLayout } from "@/components/__tests__/helpers"
 import { resetUrl } from "@/app/projects/[projectId]/backlog/__tests__/nav-mock"
 import { PlanContent } from "../plan-content"
-import { NAME_COLUMN_WIDTH } from "../lib/filter"
+import { NAME_COLUMN_WIDTH } from "../lib/grid-layout"
 import { prefsKey } from "../lib/prefs"
 import { freshState, planServer, stubMatchMedia, type ServerState } from "./plan-server"
 import { installMemoryStorage } from "./fixtures"
@@ -15,7 +15,8 @@ vi.mock("next/navigation", async () => (await import("@/app/projects/[projectId]
 stubLayout()
 const t = tr("en")
 let state: ServerState
-const CHART_WIDTH = 900
+/** Wide enough that the default name column is the full 240px (the 40% cap does not apply). */
+const CHART_WIDTH = 1200
 
 async function renderPlan() {
   const fetchMock = planServer(state)

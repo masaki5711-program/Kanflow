@@ -12,7 +12,7 @@ import { reapplyEdits, useConflictRebase } from "@/hooks/version-conflict"
 import { VersionConflictNotice } from "@/components/version-conflict-notice"
 import { PbiDetailFooter } from "@/components/pbi-form/pbi-detail-footer"
 import { PbiEditFields } from "@/components/pbi-form/pbi-edit-fields"
-import { EMPTY_PBI_FORM, buildPbiPatch, isSamePbiForm, toPbiForm, type PbiForm } from "@/components/pbi-form/pbi-form-state"
+import { EMPTY_PBI_FORM, buildPbiPatch, hasPbiFormContent, isSamePbiForm, toPbiForm, type PbiForm } from "@/components/pbi-form/pbi-form-state"
 import { PbiReadBody, type PbiDetail } from "@/components/pbi-form/pbi-read-body"
 import { useAiFieldGenerator } from "@/components/pbi-form/use-ai-field-generator"
 import { pbiDeepLink, useCopyLink } from "@/components/pbi-form/use-copy-link"
@@ -118,9 +118,13 @@ export default function PbiDetailModal(props: Props) {
     toastOnSuccess: t.backlogSaved,
   })
 
+  // Same rule as create (N-01): a PBI keeps an initiative or a user story.
+  const hasContent = !form || hasPbiFormContent(form)
+  const contentMessage = t.backlogContentRequired.replace("{story}", pt.backlogUserStory).replace("{initiative}", pt.backlogInitiative)
+
   function handleSave() {
-    // Never save while an AI stream is still writing into the form.
-    if (!item || !form || save.isPending || ai.generating) return
+    // Never save while an AI stream is still writing into the form, nor an untitled PBI.
+    if (!item || !form || save.isPending || ai.generating || !hasContent) return
     const patch = buildPbiPatch(item, form)
     // Raw text is saved as typed; the background worker translates it.
     if (Object.keys(patch).length === 0) {
@@ -169,7 +173,9 @@ export default function PbiDetailModal(props: Props) {
             canEdit={!!editable && !!item}
             isDirty={isDirty}
             isLoaded={!!item}
+            isMissing={!isLoading && !item}
             canInvest={canInvest}
+            canSave={hasContent}
             saving={save.isPending}
             generating={ai.generating !== null}
             onInvest={() => setShowInvest(true)}
@@ -219,6 +225,7 @@ export default function PbiDetailModal(props: Props) {
                     disabled={save.isPending}
                     generating={ai.generating}
                     onGenerate={ai.generate}
+                    contentError={hasContent ? undefined : contentMessage}
                   />
                 </div>
               ) : (

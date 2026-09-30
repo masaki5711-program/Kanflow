@@ -29,7 +29,7 @@ test("dashboard (dev, id): active sprint card counts, sparkline, my tasks, upcom
   await expect(details).not.toHaveAttribute("open", "")
   await details.locator("summary").click()
   await expect(details).toHaveAttribute("open", "")
-  await expect(page.getByText("E2E sprints evaluation (cycle 1).").first()).toBeVisible()
+  await expect(page.getByText("E2E sprints evaluation (cycle 2).").first()).toBeVisible()
   // feed link navigates to the sprint deep link
   await feed.getByRole("link", { name: /sprint “E2E-Sprint-A”/ }).first().click()
   await expect(page).toHaveURL(/\/sprints/)

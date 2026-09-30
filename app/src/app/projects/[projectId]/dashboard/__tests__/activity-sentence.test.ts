@@ -92,3 +92,20 @@ describe("entityHref", () => {
     expect(entityHref("p1", { entityType: "pbi", entityId: "x", action: "delete" })).toBeNull()
   })
 })
+
+describe("member entries (S-12)", () => {
+  const idT = getTranslations("id")
+
+  it("names the member by user name and says 'added' for a new member", () => {
+    const added = feedSentence(entry({ entityType: "member", label: "user-cuid", meta: { userName: "Budi" } }), "p1", idT, "id")
+    expect(`${added.before}${added.entity}${added.after}`).toBe("Alice menambahkan anggota “Budi”")
+    const jaAdded = feedSentence(entry({ entityType: "member", label: "user-cuid", meta: { userName: "Budi" } }), "p1", ja, "ja")
+    expect(`${jaAdded.before}${jaAdded.entity}${jaAdded.after}`).toBe("Alice がメンバー「Budi」を追加しました")
+  })
+
+  it("names a removed member and never shows the user id", () => {
+    const removed = feedSentence(entry({ entityType: "member", action: "delete", label: "user-cuid", meta: { userName: "Budi" } }), "p1", ja, "ja")
+    expect(`${removed.before}${removed.entity}${removed.after}`).toBe("Alice がメンバー「Budi」を削除しました")
+    expect(entityLabel({ entityType: "member", label: "user-cuid", changes: null, meta: { userName: "  " } })).toBeNull()
+  })
+})

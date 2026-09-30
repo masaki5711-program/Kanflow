@@ -18,7 +18,7 @@ describe("backlog optimistic locking", () => {
   beforeEach(() => vi.clearAllMocks())
 
   it("passes the expected version to the repository and never writes it as a column", async () => {
-    vi.mocked(repo.updateBacklogItem).mockResolvedValue({ id: "a", version: 4 } as never)
+    vi.mocked(repo.updateBacklogItem).mockResolvedValue({ id: "a", version: 4, userStory: "x" } as never)
     const out = await svc.updateBacklogItem("p1", "a", { userStory: "x", version: 3 }, ACTOR)
     expect(repo.updateBacklogItem).toHaveBeenCalledWith(TX, "p1", "a", { userStory: "x" }, 3)
     expect(tr.enqueueIn).toHaveBeenCalledWith(TX, "backlog_item", "a", { userStory: "x" })
@@ -42,7 +42,7 @@ describe("backlog optimistic locking", () => {
   })
 
   it("without a version: backward-compatible plain update (version undefined)", async () => {
-    vi.mocked(repo.updateBacklogItem).mockResolvedValue({ id: "a", version: 1 } as never)
+    vi.mocked(repo.updateBacklogItem).mockResolvedValue({ id: "a", version: 1, userStory: "x" } as never)
     await svc.updateBacklogItem("p1", "a", { userStory: "x" }, ACTOR)
     expect(repo.updateBacklogItem).toHaveBeenCalledWith(TX, "p1", "a", { userStory: "x" }, undefined)
   })

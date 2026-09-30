@@ -74,6 +74,11 @@ export function updateMemberRole(db: Db, projectId: string, memberId: string, ro
   })
 }
 
+/** The member's user name (activity labels), or null when the membership is gone. */
+export function findMemberUserName(db: Db, projectId: string, memberId: string) {
+  return db.projectMember.findFirst({ where: { id: memberId, projectId }, select: { user: { select: { name: true } } } })
+}
+
 export function deleteMember(db: Db, projectId: string, memberId: string) {
   return db.projectMember.delete({ where: { id: memberId, projectId } })
 }

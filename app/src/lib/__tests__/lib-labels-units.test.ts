@@ -18,6 +18,12 @@ describe("project-type-labels", () => {
     expect(getProjectTypeLabels("general", "en")).not.toEqual(getProjectTypeLabels("general", "ja"))
   })
 
+  it("names the PO role in the UI language, not in English, for ja / id (F-13)", () => {
+    expect(getProjectTypeLabels("software", "ja").rolePO).toBe("プロダクトオーナー")
+    expect(getProjectTypeLabels("software", "id").rolePO).toBe("Pemilik Produk")
+    expect(getProjectTypeLabels("software", "en").rolePO).toBe("Product Owner")
+  })
+
   it("falls back to ja/software for unknown values", () => {
     const fallback = getProjectTypeLabels("software", "ja")
     expect(getProjectTypeLabels("bogus" as ProjectType, "en")).toBe(fallback)

@@ -1,6 +1,7 @@
 "use client"
 
-import { useCallback, useState } from "react"
+import { useCallback, useContext, useMemo, useState } from "react"
+import { SessionContext } from "next-auth/react"
 import { apiFetch, useApiQuery } from "@/hooks"
 import { asPage, commentsBaseUrl, type CommentDto, type CommentEntityType, type MentionMember, type Page } from "./types"
 
@@ -88,12 +89,28 @@ export function toMentionMembers(raw: unknown): MentionMember[] {
 
 const NO_MEMBERS: MentionMember[] = []
 
-/** Project members for the mention autocomplete (`isLoading` until the first list arrived). */
+/** Pure: the members minus the given user (the comment author never mentions themselves). */
+export function withoutUser(members: readonly MentionMember[], userId: string | null | undefined): MentionMember[] {
+  return userId ? members.filter((m) => m.id !== userId) : [...members]
+}
+
+/** The signed-in user's id, or null (no SessionProvider — e.g. isolated component tests). */
+function useSignedInUserId(): string | null {
+  const session = useContext(SessionContext)
+  return session?.data?.user?.id ?? null
+}
+
+/**
+ * Project members for the mention autocomplete (`isLoading` until the first
+ * list arrived), without the signed-in user — the author of the comment (F-08).
+ */
 export function useMentionMembersState(projectId: string): { members: MentionMember[]; isLoading: boolean } {
   const { data, isLoading } = useApiQuery<MentionMember[]>(`/api/projects/${encodeURIComponent(projectId)}/members`, {
     parse: toMentionMembers,
   })
-  return { members: data ?? NO_MEMBERS, isLoading }
+  const selfId = useSignedInUserId()
+  const members = useMemo(() => (data ? withoutUser(data, selfId) : NO_MEMBERS), [data, selfId])
+  return { members, isLoading }
 }
 
 

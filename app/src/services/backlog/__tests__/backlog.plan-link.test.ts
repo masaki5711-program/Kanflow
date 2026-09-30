@@ -89,7 +89,7 @@ describe("backlog ↔ plan link", () => {
 
     it("status / points changes recalc the linked plan item; other edits do not", async () => {
       vi.mocked(repo.findPbiPlanItemId).mockResolvedValue("pl")
-      vi.mocked(repo.updateBacklogItem).mockResolvedValue({ id: "a", displayId: 1, planItemId: "pl" } as never)
+      vi.mocked(repo.updateBacklogItem).mockResolvedValue({ id: "a", displayId: 1, planItemId: "pl", userStory: "x" } as never)
       await svc.updateBacklogItem("p1", "a", { workloadScore: 5 }, ACTOR)
       expect(recalcPlanItems).toHaveBeenCalledWith(["pl", "pl"], TX)
       vi.mocked(recalcPlanItems).mockClear()

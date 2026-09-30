@@ -143,7 +143,7 @@ export function PlanNameCell({ row, env, handlers, collapsed, renaming, width, h
         </button>
       )}
       <div className="shrink-0 opacity-100 print:hidden [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:opacity-100 [@media(hover:hover)]:group-data-[selected=true]:opacity-100">
-        <CardMenu label={fillTemplate(t.planMenuLabel, { name })} items={menuItems(row, env, handlers)} />
+        <CardMenu portal label={fillTemplate(t.planMenuLabel, { name })} items={menuItems(row, env, handlers)} />
       </div>
     </div>
   )

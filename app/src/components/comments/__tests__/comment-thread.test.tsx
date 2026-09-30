@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { screen, within } from "@testing-library/react"
+import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { getTranslations } from "@/lib/i18n"
 import { jsonResponse, renderWithProviders, stubLayout } from "@/components/__tests__/helpers"
+import { SessionContext } from "next-auth/react"
 import { CommentThread } from "../comment-thread"
 import type { CommentDto } from "../types"
 
@@ -188,5 +189,21 @@ describe("CommentThread", () => {
     fail = false
     await userEvent.click(screen.getByRole("button", { name: t.commentsRetry }))
     expect(await screen.findByText(t.commentsEmptyTitle)).toBeInTheDocument()
+  })
+  it("does not offer the signed-in user (the author) as a mention candidate (F-08)", async () => {
+    routes[`GET ${LIST}`] = () => jsonResponse({ items: [], nextCursor: null })
+    routes[`GET /api/projects/p1/members`] = () =>
+      jsonResponse([{ userId: "me", user: { name: "Tanaka Me" } }, { userId: "u2", user: { name: "Taro Yamada" } }])
+    const session = { data: { user: { id: "me" }, expires: "" }, status: "authenticated", update: async () => null }
+    renderWithProviders(
+      <SessionContext.Provider value={session as never}>
+        <CommentThread projectId="p1" entityType="pbi" entityId="b1" />
+      </SessionContext.Provider>,
+    )
+    const box = await screen.findByLabelText(t.commentsBodyLabel)
+    await waitFor(() => expect(calls.some((c) => c.url.endsWith("/members"))).toBe(true))
+    await userEvent.type(box, "@Ta")
+    const list = await screen.findByRole("listbox")
+    await waitFor(() => expect(within(list).getAllByRole("option").map((o) => o.textContent)).toEqual(["@Taro Yamada"]))
   })
 })

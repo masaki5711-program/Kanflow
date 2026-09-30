@@ -120,18 +120,20 @@ export const ProjectCard = memo(function ProjectCard(props: ProjectItemProps) {
     <article
       onContextMenu={(e) => props.onContextMenu(e, project.id)}
       className={cn(
-        "group relative rounded-2xl border p-6 shadow-sm transition-shadow hover:shadow-md",
+        // min-w-0: a grid item must not grow to its min-content width (P-14 / S-17: 523px cards at 375px).
+        "group relative min-w-0 rounded-2xl border p-4 shadow-sm transition-shadow hover:shadow-md sm:p-6",
         tint ?? "border-border bg-surface hover:border-border-strong",
       )}
     >
-      <div className="flex items-start justify-between gap-4">
+      {/* Below sm the counters wrap under the title instead of squeezing it to one word per line. */}
+      <div data-testid="project-card-header" className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
         <div className="min-w-0 flex-1">
           {editing ? (
             <RenameInput project={project} onRename={(name) => props.onRename(project.id, name)} onCancel={props.onCancelEdit} />
           ) : (
             <div className="flex items-center gap-2">
               <FavoriteButton active={isFavorite} onToggle={() => props.onToggleFavorite(project)} />
-              <h3 className="min-w-0 text-title font-semibold text-fg group-hover:text-primary">
+              <h3 className="min-w-0 break-words text-title font-semibold text-fg group-hover:text-primary [overflow-wrap:anywhere]">
                 <NameLink project={project} />
               </h3>
               <ProjectTypeMark type={project.projectType} className="shrink-0 rounded-md bg-surface-sunken px-1.5 py-0.5 text-caption" />
@@ -141,7 +143,7 @@ export const ProjectCard = memo(function ProjectCard(props: ProjectItemProps) {
           {project.description && (
             <I18nText
               as="p"
-              className="mt-1 line-clamp-2 text-body text-fg-muted"
+              className="mt-1 line-clamp-2 break-words text-body text-fg-muted"
               i18n={project.i18n}
               field="description"
               original={project.description}
@@ -155,7 +157,7 @@ export const ProjectCard = memo(function ProjectCard(props: ProjectItemProps) {
             </div>
           )}
         </div>
-        <div className="flex shrink-0 items-center gap-4 text-caption">
+        <div data-testid="project-card-stats" className="flex flex-wrap items-center gap-x-4 gap-y-2 text-caption sm:shrink-0 sm:flex-nowrap">
           <ProjectCounts project={project} />
           <OptionsButton expanded={menuOpen} onOpen={(e) => props.onOpenOptions(e, project.id)} />
         </div>

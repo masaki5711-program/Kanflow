@@ -68,13 +68,15 @@ export async function newUserPage(browser: Browser, role: Role, opts: Parameters
 export const LANG: Record<Role, LoginLanguage> = { admin: "ja", po: "ja", sm: "ja", dev: "id" }
 
 /**
- * Login through the form with the account's language selected. NOTE: the login
- * page always starts at JA and saves the chosen language as the user's default,
- * so the language must be picked on every login.
+ * Login through the form with the account's language explicitly selected (cycle 2:
+ * the login page starts from the kanflow_lang cookie / Accept-Language and only
+ * saves the language when a pill is clicked). Pass `lang: null` to log in
+ * without touching the pills (the page's resolved language is detected).
  */
-export async function loginAs(page: Page, role: Role, lang: LoginLanguage = LANG[role]) {
+export async function loginAs(page: Page, role: Role, lang: LoginLanguage | null = LANG[role]) {
   await page.goto("/login")
-  if (lang !== "ja") await page.getByRole("button", { name: new RegExp(`^${lang.toUpperCase()}`) }).click()
+  if (lang) await page.getByRole("button", { name: new RegExp(`^${lang.toUpperCase()}`) }).click()
+  else lang = (await page.locator("html").getAttribute("lang")) as LoginLanguage
   const t = LOGIN_TEXT[lang]
   await page.getByLabel(t.email).fill(USERS[role].email)
   await page.getByLabel(t.password).fill(PASSWORD)

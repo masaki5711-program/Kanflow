@@ -21,16 +21,41 @@ interface Props {
   onViewPbi: (pbiId: string) => void
 }
 
-function initialForm(settings: ProjectSettings | null) {
-  const start = new Date()
-  const end = new Date()
+export interface SprintFormState {
+  sprintName: string
+  startDate: string
+  endDate: string
+  sprintGoal: string
+  capacity: number
+}
+
+type SeededField = "startDate" | "endDate" | "capacity"
+
+export function initialForm(settings: ProjectSettings | null, today: Date = new Date()): SprintFormState {
+  const end = new Date(today)
   end.setDate(end.getDate() + (settings?.sprintDurationDays ?? 7))
   return {
     sprintName: "",
-    startDate: settings ? toLocalIsoDate(start) : "",
+    startDate: settings ? toLocalIsoDate(today) : "",
     endDate: settings ? toLocalIsoDate(end) : "",
     sprintGoal: "",
     capacity: settings?.defaultCapacity ?? 0,
+  }
+}
+
+/**
+ * Pure (S-16): once the project defaults arrive, fill the date / capacity
+ * fields the user has not touched yet; edited fields are kept.
+ */
+export function seedUntouched(
+  form: SprintFormState, settings: ProjectSettings, touched: ReadonlySet<SeededField>, today: Date = new Date(),
+): SprintFormState {
+  const defaults = initialForm(settings, today)
+  return {
+    ...form,
+    startDate: touched.has("startDate") ? form.startDate : defaults.startDate,
+    endDate: touched.has("endDate") ? form.endDate : defaults.endDate,
+    capacity: touched.has("capacity") ? form.capacity : defaults.capacity,
   }
 }
 
@@ -50,6 +75,21 @@ export default function SprintCreateForm({
   const { t, pt } = useLanguage()
   const headingId = useId()
   const [form, setForm] = useState(() => initialForm(settings))
+  const [touched, setTouched] = useState<ReadonlySet<SeededField>>(() => new Set())
+  // Defaults that were not available at open time are applied when they arrive
+  // (state adjusted during render, no effect needed).
+  const [seededWith, setSeededWith] = useState<ProjectSettings | null>(settings)
+  if (settings && seededWith === null) {
+    setSeededWith(settings)
+    setForm((prev) => seedUntouched(prev, settings, touched))
+  }
+  function edit(patch: Partial<SprintFormState>) {
+    setForm((prev) => ({ ...prev, ...patch }))
+    const seeded = (Object.keys(patch) as Array<keyof SprintFormState>).filter(
+      (k): k is SeededField => k === "startDate" || k === "endDate" || k === "capacity",
+    )
+    if (seeded.length > 0) setTouched((prev) => new Set([...prev, ...seeded]))
+  }
   const [selectedPbIds, setSelectedPbIds] = useState<ReadonlySet<string>>(() => new Set())
   const [saving, setSaving] = useState(false)
 
@@ -91,27 +131,27 @@ export default function SprintCreateForm({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Field label={<IconLabel icon={<Tag className="w-4 h-4" />}>{t.sprintName}</IconLabel>} required>
               <Input value={form.sprintName} maxLength={200} placeholder="Sprint-2026-03-W1"
-                onChange={(e) => setForm({ ...form, sprintName: e.target.value })} required />
+                onChange={(e) => edit({ sprintName: e.target.value })} required />
             </Field>
             <Field label={<IconLabel icon={<Gauge className="w-4 h-4" />}>{t.sprintCapacity}</IconLabel>} required>
               <div className="flex items-center gap-2">
                 <Input type="number" min={0} value={form.capacity} required
-                  onChange={(e) => setForm({ ...form, capacity: parseInt(e.target.value, 10) || 0 })} />
+                  onChange={(e) => edit({ capacity: parseInt(e.target.value, 10) || 0 })} />
                 {settings && <span className="text-caption text-fg-muted whitespace-nowrap">{pointUnitLabel}</span>}
               </div>
             </Field>
             <Field label={<IconLabel icon={<Calendar className="w-4 h-4" />}>{t.sprintStartDate}</IconLabel>} required>
               <Input type="date" value={form.startDate} required
-                onChange={(e) => setForm({ ...form, startDate: e.target.value })} />
+                onChange={(e) => edit({ startDate: e.target.value })} />
             </Field>
             <Field label={<IconLabel icon={<Calendar className="w-4 h-4" />}>{t.sprintEndDate}</IconLabel>} required>
               <Input type="date" value={form.endDate} min={form.startDate || undefined} required
-                onChange={(e) => setForm({ ...form, endDate: e.target.value })} />
+                onChange={(e) => edit({ endDate: e.target.value })} />
             </Field>
           </div>
           <Field label={<IconLabel icon={<Target className="w-4 h-4" />}>{pt.sprintGoal}</IconLabel>}>
             <Textarea value={form.sprintGoal} rows={2} maxLength={5000}
-              onChange={(e) => setForm({ ...form, sprintGoal: e.target.value })} />
+              onChange={(e) => edit({ sprintGoal: e.target.value })} />
           </Field>
 
           <PbSelectionList items={readyPbItems} selectedIds={selectedPbIds} capacity={form.capacity}

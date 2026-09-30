@@ -2,11 +2,11 @@
 
 import { useEffect, useId, useRef, useState } from "react"
 import { ChevronsDownUp, ChevronsUpDown, Columns3, Search, X } from "lucide-react"
-import { Button, Input, Select } from "@/components/ui"
+import { Button, Input, Select, cn } from "@/components/ui"
 import { useLanguage } from "@/lib/language-context"
 import { EMPTY_FILTER, OWNER_NONE, isFilterActive, type PlanFilter } from "../lib/filter"
 import { SCHEDULE_STATES } from "../lib/plan-types"
-import { PLAN_COLUMNS, type PlanColumn } from "../lib/prefs"
+import { PLAN_COLUMNS, type PhoneLayout, type PlanColumn } from "../lib/prefs"
 import { scheduleLabel } from "../lib/status"
 
 interface Props {
@@ -15,7 +15,12 @@ interface Props {
   owners: readonly { id: string; name: string }[]
   /** Visible grid columns. */
   shownColumns: readonly PlanColumn[]
+  /** Chosen columns the chart box is too narrow for (marked in the column menu). */
+  hiddenColumns: readonly PlanColumn[]
   onToggleColumn: (c: PlanColumn) => void
+  /** Phones: the current names-first / timeline-first choice (null = not a phone, no toggle). */
+  phoneLayout: PhoneLayout | null
+  onPhoneLayout: (v: PhoneLayout) => void
   columnsDisabled: boolean
   onExpandAll: () => void
   onCollapseAll: () => void
@@ -24,7 +29,7 @@ interface Props {
 }
 
 /** Column visibility popover (checkbox list). */
-function ColumnsMenu({ shown, onToggle, disabled }: { shown: readonly PlanColumn[]; onToggle: (c: PlanColumn) => void; disabled: boolean }) {
+function ColumnsMenu({ shown, hidden, onToggle, disabled }: { shown: readonly PlanColumn[]; hidden: readonly PlanColumn[]; onToggle: (c: PlanColumn) => void; disabled: boolean }) {
   const { t } = useLanguage()
   const [open, setOpen] = useState(false)
   const id = useId()
@@ -56,12 +61,46 @@ function ColumnsMenu({ shown, onToggle, disabled }: { shown: readonly PlanColumn
           <legend className="sr-only">{t.planColumnsMenu}</legend>
           {PLAN_COLUMNS.map((c) => (
             <label key={c} className="flex min-h-8 cursor-pointer items-center gap-2 rounded-ui-sm px-2 text-body text-fg hover:bg-surface-muted">
-              <input type="checkbox" className="h-4 w-4" checked={shown.includes(c)} onChange={() => onToggle(c)} />
-              {labels[c]}
+              <input type="checkbox" className="h-4 w-4" checked={shown.includes(c)} onChange={() => onToggle(c)} aria-describedby={hidden.includes(c) ? `${id}-${c}` : undefined} />
+              <span className="flex min-w-0 flex-col leading-tight">
+                {labels[c]}
+                {hidden.includes(c) && (
+                  <span id={`${id}-${c}`} aria-hidden="true" data-plan-column-hidden={c} className="text-caption text-fg-muted">
+                    {t.planColumnHiddenNarrow}
+                  </span>
+                )}
+              </span>
             </label>
           ))}
         </fieldset>
       )}
+    </div>
+  )
+}
+
+/** Phones: names first (wide name column, timeline peek) or timeline first (the splitter layout). */
+function PhoneLayoutToggle({ value, onChange }: { value: PhoneLayout; onChange: (v: PhoneLayout) => void }) {
+  const { t } = useLanguage()
+  const options: [PhoneLayout, string][] = [
+    ["names", t.planPhoneNamesFirst],
+    ["timeline", t.planPhoneTimelineFirst],
+  ]
+  return (
+    <div role="group" aria-label={t.planPhoneLayoutLabel} data-plan-phone-layout="" className="inline-flex rounded-ui-md border border-border bg-surface-muted p-0.5">
+      {options.map(([v, label]) => (
+        <button
+          key={v}
+          type="button"
+          aria-pressed={value === v}
+          onClick={() => onChange(v)}
+          className={cn(
+            "min-h-8 rounded-ui-sm px-2.5 text-caption font-semibold focus-visible:outline-2 focus-visible:outline-focus",
+            value === v ? "bg-surface text-fg shadow-ui-sm" : "text-fg-muted hover:text-fg",
+          )}
+        >
+          {label}
+        </button>
+      ))}
     </div>
   )
 }
@@ -117,7 +156,8 @@ export function PlanFilterBar(props: Props) {
         <Button variant="ghost" size="sm" leftIcon={<ChevronsDownUp className="h-4 w-4" />} onClick={props.onCollapseAll}>
           {t.planCollapseAll}
         </Button>
-        <ColumnsMenu shown={props.shownColumns} onToggle={props.onToggleColumn} disabled={props.columnsDisabled} />
+        <ColumnsMenu shown={props.shownColumns} hidden={props.hiddenColumns} onToggle={props.onToggleColumn} disabled={props.columnsDisabled} />
+        {props.phoneLayout && <PhoneLayoutToggle value={props.phoneLayout} onChange={props.onPhoneLayout} />}
       </div>
     </div>
   )

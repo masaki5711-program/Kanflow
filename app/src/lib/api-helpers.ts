@@ -12,6 +12,7 @@ import {
 import type { ApiErrorCode } from "@/services/_shared/error-codes"
 import { HEAD_BYTES, verifyFileType, type FileTypeVerdict } from "@/lib/upload/file-type"
 import { readHead, writeStreamToFile } from "@/lib/upload/stream-write"
+import { needsCharsetSniff, sniffFileCharset, withTextCharset } from "@/lib/upload/text-charset"
 
 /**
  * Verify that a resolved file path stays within the uploads directory.
@@ -287,7 +288,12 @@ export async function serveStoredFile(
   }
 
   const encoded = encodeURIComponent(originalName)
-  const { contentType, disposition } = resolveServeHeaders(mimeType, forceDownload)
+  const resolved = resolveServeHeaders(mimeType, forceDownload)
+  const { disposition } = resolved
+  // P-13: text uploads carry no encoding — sniff UTF-8 / Shift_JIS so the browser decodes them right.
+  const contentType = needsCharsetSniff(resolved.contentType)
+    ? withTextCharset(resolved.contentType, await sniffFileCharset(full))
+    : resolved.contentType
   const contentDisposition = `${disposition}; filename="${encoded}"; filename*=UTF-8''${encoded}`
   const totalSize = stat.size
   const rangeHeader = request.headers.get("range")

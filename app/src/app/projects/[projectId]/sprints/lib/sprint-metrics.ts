@@ -130,3 +130,26 @@ export function unfinishedWork(items: readonly SprintItem[]): UnfinishedWork {
   const tasks = items.filter((i) => isRealTask(i) && i.status !== "done").length
   return { tasks, pbis }
 }
+
+export interface PbTaskSummary {
+  /** Real tasks under the PBI. */
+  total: number
+  done: number
+  /** Sum of the tasks' estimated hours (task unit: hours, never PBI points). */
+  estimatedHours: number
+  /** done / total in % (0 without tasks). */
+  donePercent: number
+}
+
+/** Per-PBI task line: task counts and estimated hours, each in its own unit. */
+export function summarizePbTasks(tasks: readonly SprintItem[]): PbTaskSummary {
+  const real = tasks.filter(isRealTask)
+  const done = real.filter((i) => i.status === "done").length
+  const estimatedHours = real.reduce((sum, i) => sum + (i.estimatedHours ?? 0), 0)
+  return {
+    total: real.length,
+    done,
+    estimatedHours: Math.round(estimatedHours * 10) / 10,
+    donePercent: real.length > 0 ? Math.round((done / real.length) * 100) : 0,
+  }
+}

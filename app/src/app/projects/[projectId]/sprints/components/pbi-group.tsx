@@ -4,7 +4,8 @@ import { useLanguage } from "@/lib/language-context"
 import { I18nText } from "@/components/i18n-text"
 import { pickText } from "@/lib/translation/pick-text"
 import { Button, IconButton, Truncate, cn } from "@/components/ui"
-import { isRealTask } from "../lib/sprint-metrics"
+import { fillTemplate } from "@/lib/fill-template"
+import { isRealTask, summarizePbTasks } from "../lib/sprint-metrics"
 import SprintTaskRow from "./sprint-task-row"
 import type { SprintItem, SprintPbItem, SprintTaskActions } from "./types"
 import { CirclePlus, ClipboardList, Eye, Scale, SquarePen, Trash2 } from "lucide-react"
@@ -26,8 +27,6 @@ interface PbiGroupProps {
   actions: SprintTaskActions
 }
 
-const WARN_PERCENT = 80
-
 export default function PbiGroup({
   sprintId, sprintStatus, canManageSprint, pbItem, tasks, pointUnit, canEditPbi,
   editingCommentTaskId, onOpenCommentEditor, onCloseCommentEditor, actions,
@@ -40,16 +39,14 @@ export default function PbiGroup({
     t.sprintNotEntered
 
   const realPbTasks = tasks.filter(isRealTask)
-  const taskEffortSum = realPbTasks.reduce((sum, tsk) => sum + (tsk.estimatedHours ?? 0), 0)
-  const pbCapacity = pbItem.workloadScore
-  const pbProgress = pbCapacity > 0 ? Math.round((taskEffortSum / pbCapacity) * 100) : 0
-  const pbIsOver = taskEffortSum > pbCapacity && pbCapacity > 0
+  // Task counts and task hours only — PBI points stay on the badge, never mixed in (S-20).
+  const taskSummary = summarizePbTasks(realPbTasks)
   const canEditMembership = canManageSprint && sprintStatus !== "archived" && sprintStatus !== "done"
   // Left accent bar: all done = success, started = primary, untouched = neutral.
   const groupAllDone = realPbTasks.length > 0 && realPbTasks.every((tsk) => tsk.status === "done")
   const groupStarted = realPbTasks.some((tsk) => tsk.status !== "todo")
   const leftBarColor = groupAllDone ? "border-l-success" : groupStarted ? "border-l-primary" : "border-l-border-strong"
-  const barColor = pbIsOver ? "bg-danger" : pbProgress > WARN_PERCENT ? "bg-warning" : "bg-primary"
+  const barColor = groupAllDone ? "bg-success" : "bg-primary"
   const pbRef = `#${pbItem.displayId}`
 
   return (
@@ -57,10 +54,11 @@ export default function PbiGroup({
       className={cn("bg-surface border border-border border-l-4 rounded-ui-sm overflow-hidden", leftBarColor)}>
       <div className="bg-surface-muted border-b border-border px-4 pt-2.5 pb-2">
         <div className="flex flex-wrap items-center justify-between mb-1 gap-2">
-          <div className="flex items-center gap-2 min-w-0 flex-1">
+          {/* Wraps on phones: the points badge drops below the title instead of sliding under the buttons. */}
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0 flex-1">
             <ClipboardList className="w-4 h-4 text-fg-subtle flex-shrink-0" />
             <span className="text-caption font-mono text-fg-muted">{pbRef}</span>
-            <Truncate text={pbHeading} as="h4" className="text-body font-semibold text-fg min-w-0" />
+            <Truncate text={pbHeading} as="h4" className="text-body font-semibold text-fg min-w-0 flex-1 basis-32" />
             <span className="inline-flex items-center gap-1 text-caption bg-warning-soft text-warning-strong border border-warning/30 px-2 py-0.5 rounded-full whitespace-nowrap">
               <Scale className="w-3.5 h-3.5" />
               {pbItem.workloadScore} {pointUnit}
@@ -82,15 +80,15 @@ export default function PbiGroup({
           </div>
         </div>
 
-        {pbCapacity > 0 && (
+        {taskSummary.total > 0 && (
           <div className="mb-1">
-            <div className="flex justify-between text-caption text-fg-muted mb-0.5">
-              <span>{t.sprintTaskEstimateTotal}: {taskEffortSum} / {pbCapacity} {pointUnit}</span>
-              <span className={pbIsOver ? "text-danger font-medium" : ""}>{pbProgress}%</span>
+            <div className="flex flex-wrap justify-between gap-x-2 text-caption text-fg-muted mb-0.5">
+              <span>{fillTemplate(t.sprintPbiTaskSummary, { done: taskSummary.done, total: taskSummary.total, hours: taskSummary.estimatedHours })}</span>
+              <span>{taskSummary.donePercent}%</span>
             </div>
             <div className="w-full bg-surface-sunken rounded-full h-1.5 overflow-hidden" aria-hidden="true">
               <div className={cn("h-1.5 w-full rounded-full origin-left transition-transform duration-300", barColor)}
-                style={{ transform: `scaleX(${Math.min(pbProgress, 100) / 100})` }} />
+                style={{ transform: `scaleX(${taskSummary.donePercent / 100})` }} />
             </div>
           </div>
         )}

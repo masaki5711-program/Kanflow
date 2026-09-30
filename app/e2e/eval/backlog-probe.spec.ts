@@ -25,8 +25,22 @@ test("cleanup: trash leftover backlog-eval PBIs", async ({ page }) => {
   await gotoBacklog(page)
   const r = await api(page, "GET", `/api/projects/${PROJECT}/backlog`)
   const d = (r.body.data ?? r.body) as Record<string, Array<Record<string, unknown>>>
-  const mine = [...d.readyItems, ...d.notReadyItems, ...d.completedItems].filter((x) => /^E2E-(MODAL|STATUS|CREATE|CMT|XLS|NOTIF|LOCK|LINK|GUARD|TRASH|BULK)/.test(String(x.initiative ?? "")))
+  const mine = [...d.readyItems, ...d.notReadyItems, ...d.completedItems].filter((x) => /^E2E-(MODAL|STATUS|CREATE|CMT|XLS|NOTIF|LOCK|LINK|GUARD|TRASH|BULK|REORDER|DRAG|KEY|MENU|C2)/.test(String(x.initiative ?? "")))
   if (mine.length === 0) return
   const t = await api(page, "POST", `/api/projects/${PROJECT}/backlog/bulk`, { action: "trash", ids: mine.map((x) => x.id) })
   console.log("trashed", t.status, mine.map((x) => x.displayId))
+})
+
+test("cleanup: restore Ready order (36,38,39,40 first)", async ({ page }) => {
+  await login(page, "po")
+  await gotoBacklog(page)
+  const r = await api(page, "GET", `/api/projects/${PROJECT}/backlog`)
+  const d = (r.body.data ?? r.body) as Record<string, Array<{ id: string; displayId: number }>>
+  const want = [36, 38, 39, 40]
+  const ordered = [...d.readyItems].sort((a, b) => {
+    const ia = want.indexOf(a.displayId), ib = want.indexOf(b.displayId)
+    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib)
+  })
+  const put = await api(page, "PUT", `/api/projects/${PROJECT}/backlog/reorder`, { orderedIds: ordered.map((i) => i.id) })
+  console.log("restore order", put.status, ordered.map((i) => i.displayId))
 })

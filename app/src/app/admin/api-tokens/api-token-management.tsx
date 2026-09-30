@@ -50,7 +50,7 @@ export function ApiTokenManagement() {
       ) : !data || data.tokens.length === 0 ? (
         <EmptyState icon={<KeyRound className="h-6 w-6" />} title={t.apiTokenAdminEmpty} headingLevel={2} />
       ) : (
-        <div className="overflow-x-auto rounded-ui-lg border border-border bg-surface">
+        <div className="relative overflow-x-auto rounded-ui-lg border border-border bg-surface">
           <table className="w-full text-body">
             <caption className="sr-only">{t.apiTokenAdminTitle}</caption>
             <thead className="bg-surface-muted text-left text-caption text-fg-muted">

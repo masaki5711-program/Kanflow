@@ -34,7 +34,7 @@ export function VersionConflictNotice({ lost, labels, formatValue, onRestore, on
   return (
     <div role="alert" className="rounded-ui-md border border-warning/40 bg-warning-soft px-3 py-2 text-body text-warning-strong">
       <div className="flex items-start gap-2">
-        <p className="flex-1 font-medium">{t.apiErrVersionConflictReenter}</p>
+        <p className="flex-1 font-medium text-pretty">{t.apiErrVersionConflictReenter}</p>
         <IconButton size="sm" label={t.close} icon={<X className="h-4 w-4" />} onClick={onDismiss} />
       </div>
       {lost.length > 0 && (

@@ -300,6 +300,33 @@ describe("BacklogPage — status, trash and undo", () => {
   })
 })
 
+describe("BacklogPage — quick successive status clicks (N-03)", () => {
+  it("serializes them: the second PATCH waits and sends the version the first returned; no conflict toast", async () => {
+    let release: (() => void) | null = null
+    const bodies: unknown[] = []
+    const { fetchMock } = setup({
+      backlog: backlogResponse({ notReadyItems: [pbi("d", 4, { status: "not_ready", initiative: "Delta", version: 0 })] }),
+      statusPatch: (body) => {
+        bodies.push(body)
+        if (bodies.length > 1) return jsonResponse({ id: "d", version: 2 })
+        return new Promise<Response>((resolve) => {
+          release = () => resolve(jsonResponse({ id: "d", version: 1 }))
+        })
+      },
+    })
+    renderPage()
+    await screen.findByRole("heading", { name: t.backlogSectionReadyTitle })
+    await userEvent.click(screen.getByRole("button", { name: t.backlogMoveToReady }))
+    const card = screen.getByRole("heading", { level: 3, name: "Delta" }).closest("li") as HTMLElement
+    await userEvent.click(within(card).getByRole("button", { name: t.backlogMoveToCompleted }))
+    // The second click waits for the first response.
+    expect(callsOf(fetchMock, "PATCH", "/backlog/d")).toHaveLength(1)
+    release!()
+    await waitFor(() => expect(bodies).toEqual([{ status: "ready", version: 0 }, { status: "completed", version: 1 }]))
+    expect(screen.queryByText(t.apiErrVersionConflict)).not.toBeInTheDocument()
+  })
+})
+
 describe("BacklogPage — create / edit / INVEST", () => {
   it("creates a PBI in the create modal", async () => {
     const { fetchMock } = setup()

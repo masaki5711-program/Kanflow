@@ -35,9 +35,12 @@ export function UserRow({ user, onEdit, onResetPassword, onToggleActive, togglin
             <span className={`text-body font-semibold truncate ${user.isActive ? "text-fg" : "text-fg-muted"}`}>{user.name}</span>
             {user.employeeNumber && <span className="text-caption text-fg-muted font-mono">{user.employeeNumber}</span>}
             <Badge tone={roleTone} size="sm">{roleLabel}</Badge>
-            {user.sections.length > 0 && (
-              <Badge tone="info" size="sm">{user.sections.map((s) => s.name).join(" / ")}</Badge>
-            )}
+            {/* One badge per section so a long list wraps on phones (P-15). */}
+            {user.sections.map((s) => (
+              <Badge key={s.id} tone="info" size="sm" data-testid="user-section-badge">
+                {s.name}
+              </Badge>
+            ))}
             {!user.isActive && <Badge tone="danger" size="sm">{t.userInactive}</Badge>}
           </div>
           <div className="text-caption text-fg-muted mt-0.5 flex items-center gap-2 flex-wrap">

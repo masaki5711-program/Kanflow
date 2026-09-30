@@ -79,6 +79,9 @@ test("chat: ask for a PBI proposal (AI #1), approve creates a PBI", async ({ bro
 })
 
 test("chat threads: resume (?thread=), rename, private to owner, delete", async ({ browser }) => {
+  // Cycle 2: the cycle-1 thread belongs to the cycle-1 throwaway user; resume / duplicate / rename /
+  // delete are covered by platform-c2-proposals.spec.ts with that user re-activated.
+  test.skip(true, "superseded by platform-c2-proposals.spec.ts")
   if (!threadId && fs.existsSync(`${DATA}/platform-ai-thread.txt`)) threadId = fs.readFileSync(`${DATA}/platform-ai-thread.txt`, "utf8").trim()
   expect(threadId).not.toBe("")
   const page = await open(browser)

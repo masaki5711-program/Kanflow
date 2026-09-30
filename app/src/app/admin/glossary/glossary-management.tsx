@@ -180,7 +180,7 @@ export function GlossaryManagement() {
 
         <GlossaryAddForm source={source} onAdded={() => (offset === 0 ? refetch() : setOffset(0))} />
 
-        <div className="overflow-x-auto" aria-busy={isFetching}>
+        <div className="relative overflow-x-auto" aria-busy={isFetching}>
           {isLoading ? (
             <SkeletonTable rows={6} columns={5} label={t.glossaryLoading} />
           ) : (

@@ -51,6 +51,11 @@ export async function findEntityLabelRows(db: Db, projectId: string, ids: LabelL
   return { pbis, tasks, sprints, planItems }
 }
 
+/** Names of the given users (member feed entries logged without a name). */
+export function findUserNames(db: Db, userIds: readonly string[]) {
+  return db.user.findMany({ where: { id: { in: [...userIds] } }, select: { id: true, name: true } })
+}
+
 /** History of one entity (scoped to the project), newest first. */
 export function findEntityActivity(db: Db, projectId: string, entityType: string, entityId: string, args: PageArgs) {
   return db.activityLog.findMany({

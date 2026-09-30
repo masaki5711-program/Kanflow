@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { Sprint, SprintItem } from "../components/types"
-import { computeSprintMetrics, groupTasksByPb, nextTaskStatus, patchTask, removeTask, unfinishedWork } from "./sprint-metrics"
+import { computeSprintMetrics, groupTasksByPb, nextTaskStatus, patchTask, removeTask, summarizePbTasks, unfinishedWork } from "./sprint-metrics"
 
 function pb(id: string, workloadScore: number) {
   return { id, displayId: 1, initiative: null, epic: null, userStory: null, workloadScore }
@@ -83,5 +83,21 @@ describe("unfinishedWork", () => {
 
   it("is empty when everything is done", () => {
     expect(unfinishedWork([task("a1", "A", 3, "done")])).toEqual({ tasks: 0, pbis: 0 })
+  })
+})
+
+describe("summarizePbTasks (S-20)", () => {
+  it("counts done / total real tasks and sums estimated hours without PBI points", () => {
+    const items = [
+      { ...task("a", "p1", 3, "done"), estimatedHours: 4 },
+      { ...task("b", "p1", 3, "todo"), estimatedHours: 8.25 },
+      { ...task("c", "p1", 3, "in_progress"), estimatedHours: null },
+      task("placeholder", "p1", 3, "todo", null),
+    ]
+    expect(summarizePbTasks(items)).toEqual({ total: 3, done: 1, estimatedHours: 12.3, donePercent: 33 })
+  })
+
+  it("is all zero without real tasks", () => {
+    expect(summarizePbTasks([task("x", "p1", 5, "todo", "")])).toEqual({ total: 0, done: 0, estimatedHours: 0, donePercent: 0 })
   })
 })

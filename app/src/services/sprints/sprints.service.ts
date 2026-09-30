@@ -181,7 +181,7 @@ export async function deleteSprint(projectId: string, sprintId: string, actor: A
 
 /**
  * Project-wide burndown (all non-archived sprints), or — with `sprintId` — the
- * burndown of that one sprint (active / review / done; anything else 404s).
+ * burndown of that one sprint (active / review / done / archived; planning 404s).
  */
 export async function getBurndown(projectId: string, sprintId?: string, now: Date = new Date()): Promise<BurndownData> {
   if (sprintId) {

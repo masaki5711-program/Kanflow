@@ -376,3 +376,31 @@ describe("requireAuth / requireAdmin", () => {
     expect(await requireAdmin()).toEqual({ session })
   })
 })
+
+describe("serveStoredFile charset (P-13)", () => {
+  const req = (headers: Record<string, string> = {}) => new Request("http://x/f", { headers })
+
+  it("adds charset=utf-8 to a UTF-8 text file", async () => {
+    writeStored("ja.txt", "日本語のメモ")
+    const res = await serveStoredFile(PROJECT, "ja.txt", "text/plain", "ja.txt", req(), false)
+    expect(res.headers.get("Content-Type")).toBe("text/plain; charset=utf-8")
+  })
+
+  it("adds charset=shift_jis to a Shift_JIS CSV, also for range requests", async () => {
+    writeStored("sjis.csv", Buffer.from([0x93, 0xfa, 0x96, 0x7b, 0x8c, 0xea, 0x2c, 0x31]))
+    const full = await serveStoredFile(PROJECT, "sjis.csv", "text/csv", "s.csv", req(), false)
+    expect(full.headers.get("Content-Type")).toBe("text/csv; charset=shift_jis")
+    const part = await serveStoredFile(PROJECT, "sjis.csv", "text/csv", "s.csv", req({ range: "bytes=0-1" }), false)
+    expect(part.status).toBe(206)
+    expect(part.headers.get("Content-Type")).toBe("text/csv; charset=shift_jis")
+  })
+
+  it("leaves unknown encodings and non-text types without a charset", async () => {
+    writeStored("bin.txt", Buffer.from([0x80, 0x41]))
+    const res = await serveStoredFile(PROJECT, "bin.txt", "text/plain", "b.txt", req(), false)
+    expect(res.headers.get("Content-Type")).toBe("text/plain")
+    writeStored("p.png", "PNG")
+    const img = await serveStoredFile(PROJECT, "p.png", "image/png", "p.png", req(), false)
+    expect(img.headers.get("Content-Type")).toBe("image/png")
+  })
+})

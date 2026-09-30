@@ -1,6 +1,8 @@
 "use client"
 
 import { useLanguage } from "@/lib/language-context"
+import { fillTemplate } from "@/lib/fill-template"
+import { formatShortDate } from "@/lib/format-date"
 import { TONE_COLOR, TONE_SOFT, sprintStatusTone } from "@/lib/design-tokens"
 import {
   CHART_HEIGHT, CHART_WIDTH, INNER_HEIGHT, INNER_WIDTH, PADDING,
@@ -30,7 +32,7 @@ const FONT = 12
 const TEXT_MUTED = "var(--color-fg-muted)"
 const GRID = "var(--color-border)"
 
-function SprintBand({ marker, scale, dayCount, itemsLabel }: { marker: SprintMarker; scale: Scale; dayCount: number; itemsLabel: string }) {
+function SprintBand({ marker, scale, dayCount, countTemplate }: { marker: SprintMarker; scale: Scale; dayCount: number; countTemplate: string }) {
   if (marker.startIndex < 0 && marker.endIndex < 0) return null
   const x1 = scale.toX(Math.max(marker.startIndex, 0))
   const x2 = scale.toX(marker.endIndex >= 0 ? marker.endIndex : dayCount - 1)
@@ -42,14 +44,14 @@ function SprintBand({ marker, scale, dayCount, itemsLabel }: { marker: SprintMar
       <line x1={x1} y1={PADDING.top} x2={x1} y2={bottom} stroke={stroke} strokeWidth="1" strokeDasharray="3,3" opacity="0.6" />
       <line x1={x2} y1={PADDING.top} x2={x2} y2={bottom} stroke={stroke} strokeWidth="1" strokeDasharray="3,3" opacity="0.4" />
       <text x={(x1 + x2) / 2} y={PADDING.top + 14} textAnchor="middle" fontSize={FONT} fill={stroke} fontWeight="600">
-        {marker.name} ({marker.taskCount}{itemsLabel})
+        {marker.name} ({fillTemplate(countTemplate, { count: marker.taskCount })})
       </text>
     </g>
   )
 }
 
 function Axes({ data, scale }: { data: BurndownData; scale: Scale }) {
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
   const dayCount = data.days.length
   const interval = labelInterval(dayCount)
   const halfStep = INNER_WIDTH / Math.max(dayCount - 1, 1) / 2
@@ -79,7 +81,7 @@ function Axes({ data, scale }: { data: BurndownData; scale: Scale }) {
               stroke={GRID} strokeWidth="0.5" strokeDasharray={weekend ? "2,2" : undefined} />
             <text x={scale.toX(i)} y={PADDING.top + INNER_HEIGHT + 18} textAnchor="middle" fontSize={FONT}
               fill={TEXT_MUTED} fontStyle={weekend ? "italic" : undefined}>
-              {d.getMonth() + 1}/{d.getDate()}
+              {formatShortDate(d, language, { weekday: false })}
             </text>
           </g>
         )
@@ -123,7 +125,7 @@ export default function BurndownSvg({ data, todayIndex, label }: Props) {
         <rect x={PADDING.left} y={PADDING.top} width={INNER_WIDTH} height={INNER_HEIGHT}
           fill="var(--color-surface-muted)" stroke={GRID} strokeWidth="1" />
         {data.sprintMarkers.map((sm) => (
-          <SprintBand key={`band-${sm.id}`} marker={sm} scale={scale} dayCount={data.days.length} itemsLabel={t.items} />
+          <SprintBand key={`band-${sm.id}`} marker={sm} scale={scale} dayCount={data.days.length} countTemplate={t.burndownBandTaskCount} />
         ))}
         <Axes data={data} scale={scale} />
         <TodayMarker index={todayIndex} scale={scale} />

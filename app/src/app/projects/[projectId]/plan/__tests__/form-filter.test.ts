@@ -1,22 +1,5 @@
 import { describe, expect, it } from "vitest"
-import {
-  COLUMN_WIDTH,
-  EMPTY_FILTER,
-  MIN_TIMELINE_WIDTH,
-  NAME_COLUMN_WIDTH,
-  NAME_COLUMN_WIDTH_COMPACT,
-  NAME_WIDTH_MAX,
-  NAME_WIDTH_MIN,
-  OWNER_NONE,
-  columnsWidth,
-  dropTargetAt,
-  gridWidth,
-  isFilterActive,
-  matchesFilter,
-  nameWidthBounds,
-  resolveNameWidth,
-  visibleColumns,
-} from "../lib/filter"
+import { EMPTY_FILTER, OWNER_NONE, dropTargetAt, isFilterActive, matchesFilter } from "../lib/filter"
 import {
   buildCreateInput,
   buildPatch,
@@ -124,35 +107,11 @@ describe("filters and columns", () => {
     expect(matchesFilter(a, { ...EMPTY_FILTER, owner: OWNER_NONE }, "Design")).toBe(false)
   })
 
-  it("column visibility (canonical order) and grid width", () => {
-    expect(visibleColumns(["status", "period", "owner"], false, PLAN_COLUMNS)).toEqual(["period", "owner", "status"])
-    expect(visibleColumns(DEFAULT_COLUMNS, true, PLAN_COLUMNS)).toEqual([])
+  it("column toggling keeps the canonical order", () => {
     expect(DEFAULT_COLUMNS).toEqual(["period", "progress"])
-    expect(gridWidth([], 180)).toBe(180)
-    expect(gridWidth(["start", "end"], 200)).toBe(200 + COLUMN_WIDTH.start + COLUMN_WIDTH.end)
     expect(toggleColumnIn(DEFAULT_COLUMNS, "owner")).toEqual(["period", "progress", "owner"])
     expect(toggleColumnIn(["period", "progress"], "period")).toEqual(["progress"])
-  })
-
-  it("F-01: the default grid leaves most of a 1440px chart to the timeline", () => {
-    const chart = 1150 // chart box at a 1440px window (sidebar + page padding)
-    const grid = gridWidth(DEFAULT_COLUMNS, resolveNameWidth(null, { compact: false, containerWidth: chart, columns: DEFAULT_COLUMNS }))
-    expect(grid).toBe(NAME_COLUMN_WIDTH + columnsWidth(DEFAULT_COLUMNS))
-    expect(chart - grid).toBeGreaterThan(chart * 0.55)
-  })
-
-  it("name width: default / compact, splitter value clamped so the timeline keeps its minimum", () => {
-    const cols = DEFAULT_COLUMNS
-    expect(resolveNameWidth(null, { compact: true, containerWidth: 0, columns: [] })).toBe(NAME_COLUMN_WIDTH_COMPACT)
-    expect(resolveNameWidth(10, { compact: false, containerWidth: 0, columns: cols })).toBe(NAME_WIDTH_MIN)
-    expect(resolveNameWidth(5000, { compact: false, containerWidth: 0, columns: cols })).toBe(NAME_WIDTH_MAX)
-    expect(resolveNameWidth(600, { compact: false, containerWidth: 900, columns: cols })).toBe(900 - columnsWidth(cols) - MIN_TIMELINE_WIDTH)
-    // phone: the timeline keeps 40% so names get ~200px (F-07)
-    expect(nameWidthBounds(343, [])).toEqual({ min: NAME_WIDTH_MIN, max: 343 - Math.round(343 * 0.4) })
-    expect(resolveNameWidth(null, { compact: true, containerWidth: 343, columns: [] })).toBe(NAME_COLUMN_WIDTH_COMPACT)
-    expect(nameWidthBounds(180, [])).toEqual({ min: NAME_WIDTH_MIN, max: NAME_WIDTH_MIN })
-    expect(nameWidthBounds(900, cols).max).toBe(900 - columnsWidth(cols) - MIN_TIMELINE_WIDTH)
-    expect(nameWidthBounds(2000, cols).max).toBe(NAME_WIDTH_MAX)
+    expect(PLAN_COLUMNS).toHaveLength(7)
   })
 
   it("dropTargetAt picks the row half under the pointer", () => {

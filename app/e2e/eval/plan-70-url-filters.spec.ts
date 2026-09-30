@@ -117,7 +117,18 @@ test("collapse persists across reload; 今日へ scrolls back to today", async (
   await page.getByRole("button", { name: "今日へ" }).click()
   const back = await chart.evaluate((e) => e.scrollLeft)
   console.log("scrollLeft initial/after 今日へ:", initial, back)
-  expect(Math.abs(back - initial)).toBeLessThan(3)
+  // cycle 2: the first view anchors on the earliest unfinished work; 今日へ puts today in view
+  // (N-07: the header's today label renders only while today is in view — poll past the scroll frame)
+  const todayVisible = () =>
+    page.evaluate(() => {
+      const c = document.querySelector("[data-plan-chart]") as HTMLElement
+      const lbl = document.querySelector("[data-plan-today-label]") as HTMLElement | null
+      if (!lbl) return false
+      const r = lbl.getBoundingClientRect(), cr = c.getBoundingClientRect()
+      return r.left >= cr.left && r.right <= cr.right
+    })
+  expect(back).toBeGreaterThan(0)
+  await expect.poll(todayVisible).toBe(true)
   report("collapse", issues)
   await ctx.close()
 })

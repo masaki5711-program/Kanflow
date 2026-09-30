@@ -51,7 +51,7 @@ export default async function BurndownPage({
   })
   if (!project) notFound()
 
-  // Sprints selectable in the per-sprint burndown (planning has no burn yet).
+  // Sprints selectable in the per-sprint burndown (planning has no burn yet; archived ones are grouped in the selector).
   const sprints = await prisma.sprint.findMany({
     where: { projectId, status: { in: [...BURNDOWN_SELECTABLE_STATUSES] } },
     select: { id: true, sprintName: true, status: true },

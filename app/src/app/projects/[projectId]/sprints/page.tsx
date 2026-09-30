@@ -70,6 +70,8 @@ export default function SprintsPage() {
   const archivedSprints = sprints.filter((s) => s.status === "archived")
   // One sprint in flight at a time keeps the backlog from being split.
   const isCreateBlocked = sprints.some((s) => s.status === "active" || s.status === "planning")
+  // The create form seeds its dates and capacity from the project defaults (S-16).
+  const isCreateLoading = settings === null
 
   const isExpanded = (s: Sprint) => expandOverrides.get(s.id) ?? isInFlightSprint(s)
   function toggleExpanded(s: Sprint) {
@@ -161,7 +163,8 @@ export default function SprintsPage() {
       <SprintsHeader projectId={projectId} avgActual={avgActual} doneSprintCount={doneSprints.length}
         archivedCount={archivedSprints.length} showArchived={showArchived}
         onToggleArchived={() => setShowArchived((v) => !v)}
-        isCreateBlocked={isCreateBlocked} canCreate={canManageSprint} onCreate={() => setShowForm(true)} />
+        isCreateBlocked={isCreateBlocked} canCreate={canManageSprint} isCreateLoading={isCreateLoading}
+        onCreate={() => setShowForm(true)} />
 
       {showForm && canManageSprint && !isCreateBlocked && (
         <SprintCreateForm readyPbItems={data.readyPbItems} settings={settings} pointUnitLabel={pointUnit}
@@ -175,10 +178,13 @@ export default function SprintsPage() {
           <SkeletonCard />
         </div>
       ) : liveSprints.length === 0 && archivedSprints.length === 0 ? (
-        <EmptyState icon={<Zap className="w-6 h-6" />} title={t.sprintNoSprints} description={t.sprintNoSprintsHint}
-          action={canManageSprint && !isCreateBlocked && !showForm ? (
-            <Button onClick={() => setShowForm(true)} leftIcon={<Plus className="w-4 h-4" />}>{t.sprintCreate}</Button>
-          ) : undefined} />
+        // The open create form replaces the "no sprints yet" empty state.
+        showForm ? null : (
+          <EmptyState icon={<Zap className="w-6 h-6" />} title={t.sprintNoSprints} description={t.sprintNoSprintsHint}
+            action={canManageSprint && !isCreateBlocked ? (
+              <Button onClick={() => setShowForm(true)} disabled={isCreateLoading} leftIcon={<Plus className="w-4 h-4" />}>{t.sprintCreate}</Button>
+            ) : undefined} />
+        )
       ) : (
         <ul className="space-y-4">{liveSprints.map(renderCard)}</ul>
       )}

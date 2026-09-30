@@ -130,3 +130,48 @@ describe("activity.repository", () => {
     expect(args.select.project).toEqual({ select: { id: true, name: true } })
   })
 })
+
+describe("withMemberNames (S-12)", () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  const member = (id: string, diff: Record<string, unknown>, action = "create") =>
+    svc.toActivityDto(row(id, { entityType: "member", entityId: `m-${id}`, action, diff: JSON.stringify(diff) }))
+
+  it("fills meta.userName of member entries logged without it, from the user id label (one query)", async () => {
+    vi.mocked(repo.findUserNames).mockResolvedValue([{ id: "u7", name: "Budi" }] as never)
+    const items = [
+      member("a", { label: "u7" }, "delete"),
+      member("b", { label: "u7", meta: { userName: "Kept" } }),
+      member("c", { label: "u-gone" }),
+      member("d", { label: "u7", meta: { other: 1 } }, "update"),
+      svc.toActivityDto(row("e")),
+    ]
+    const out = await svc.withMemberNames(items)
+    expect(out.map((i) => i.meta?.userName ?? null)).toEqual(["Budi", "Kept", null, "Budi", null])
+    expect(out[3].meta).toEqual({ other: 1, userName: "Budi" })
+    expect(repo.findUserNames).toHaveBeenCalledTimes(1)
+    expect(repo.findUserNames).toHaveBeenCalledWith(DEFAULT_DB, ["u7", "u-gone"])
+    expect(items[0].meta).toBeNull()
+  })
+
+  it("skips the lookup when every member entry is named", async () => {
+    const items = [member("a", { label: "u7", meta: { userName: "Budi" } }), svc.toActivityDto(row("b"))]
+    expect(await svc.withMemberNames(items)).toEqual(items)
+    expect(repo.findUserNames).not.toHaveBeenCalled()
+  })
+
+  it("the project feed names members", async () => {
+    vi.mocked(repo.findProjectActivity).mockResolvedValue([row("a", { entityType: "member", entityId: "m1", action: "create", diff: JSON.stringify({ label: "u7" }) })] as never)
+    vi.mocked(repo.findUserNames).mockResolvedValue([{ id: "u7", name: "Budi" }] as never)
+    const page = await svc.listProjectActivity("p1", { limit: 20 })
+    expect(page.items[0].meta).toEqual({ userName: "Budi" })
+  })
+})
+
+describe("activity.repository findUserNames", () => {
+  it("selects id and name of the given users", async () => {
+    const db = fakeDb()
+    await realRepo.findUserNames(db.client, ["u1", "u2"])
+    expect(db.fn("user.findMany")).toHaveBeenCalledWith({ where: { id: { in: ["u1", "u2"] } }, select: { id: true, name: true } })
+  })
+})

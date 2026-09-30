@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test"
 import * as fs from "node:fs"
-import { USERS, api, newUserPage, readState, report, shot, writeState } from "./sprints-support"
+import { USERS, api, isoDate, newUserPage, readState, report, shot, writeState } from "./sprints-support"
 
 /**
  * Sprint lifecycle as PO in the isolated E2E project:
@@ -22,6 +22,12 @@ test("create sprint via UI with 3 READY PBIs", async ({ browser }) => {
   await page.getByRole("button", { name: "スプリント作成" }).first().click()
   const form = page.getByRole("region", { name: "新規スプリント" })
   await form.getByRole("textbox", { name: /スプリント名/ }).fill("E2E-Sprint-A")
+  // cycle 2 (S-16): the form can open before the project detail loads and then keeps empty dates
+  const dateInputs = form.locator("input[type=date]")
+  const dates = await dateInputs.evaluateAll((els) => els.map((e) => (e as HTMLInputElement).value))
+  console.log("create form prefilled dates:", JSON.stringify(dates))
+  if (!dates[0]) await dateInputs.nth(0).fill(isoDate(0))
+  if (!dates[1]) await dateInputs.nth(1).fill(isoDate(7))
   await form.getByRole("spinbutton", { name: /キャパシティ/ }).fill("20")
   await form.getByRole("textbox", { name: "スプリントゴール" }).fill("E2E goal: verify the board")
   for (const n of [1, 2, 3]) await form.getByRole("checkbox", { name: new RegExp(`^#${n} `) }).check()
@@ -68,8 +74,8 @@ test("add tasks via task form (assignee picker single-owner rule)", async ({ bro
   const { ctx, page, issues } = await newUserPage(browser, "po")
   await page.goto(`/projects/${s.projectId}/sprints`)
   const c = await card(page)
-  // Task 1 via "+ タスク" on PBI #1
-  await c.getByRole("region", { name: /^#1 / }).getByRole("button", { name: "+ タスク", exact: true }).click()
+  // Task 1 via "タスク追加" on PBI #1 (the literal "+" was dropped in cycle 2, S-15b)
+  await c.getByRole("region", { name: /^#1 / }).getByRole("button", { name: "タスク追加", exact: true }).click()
   let dlg = page.getByRole("dialog", { name: /タスク追加/ })
   await expect(dlg).toBeVisible()
   dump("taskform", await dlg.ariaSnapshot())

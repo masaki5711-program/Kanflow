@@ -20,6 +20,13 @@ describe("formatShortDate", () => {
     expect(formatShortDate(oct7, "ja")).toBe("10/7(水)")
   })
 
+  it("drops only the weekday with { weekday: false } (chart axes)", () => {
+    expect(formatShortDate(sep8, "ja", { weekday: false })).toBe("9/8")
+    expect(formatShortDate(sep8, "id", { weekday: false })).toBe("8 Sep")
+    expect(formatShortDate(sep8, "en", { weekday: false })).toBe("Sep 8")
+    expect(formatShortDate(sep8, "ja")).toBe("9/8(火)")
+  })
+
   it("returns an empty string for an invalid date", () => {
     expect(formatShortDate("not-a-date", "ja")).toBe("")
   })

@@ -102,3 +102,24 @@ describe("BurndownSvg", () => {
     expect(screen.queryByText(t.burndownToday)).not.toBeInTheDocument()
   })
 })
+
+describe("BurndownSvg localization (S-05 / S-15d)", () => {
+  const FIXED: BurndownData = {
+    ...DATA,
+    days: ["2026-09-30", "2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04"],
+    sprintMarkers: [{ id: "s1", name: "E2E-Sprint-A", status: "active", startIndex: 0, endIndex: 4, taskCount: 6, doneCount: 2 }],
+  }
+
+  it.each([
+    ["id", "30 Sep", "1 Okt", "E2E-Sprint-A (6 tugas)"],
+    ["en", "Sep 30", "Oct 1", "E2E-Sprint-A (6 tasks)"],
+    ["ja", "9/30", "10/1", "E2E-Sprint-A (6件)"],
+  ] as const)("labels the x axis and the sprint band in %s", (language, first, second, band) => {
+    const { container } = renderWithProviders(<BurndownSvg data={FIXED} todayIndex={-1} label="chart" />, language)
+    const texts = Array.from(container.querySelectorAll("text")).map((n) => n.textContent)
+    expect(texts).toContain(first)
+    expect(texts).toContain(second)
+    expect(texts).toContain(band)
+    expect(texts.some((s) => /item/.test(s ?? ""))).toBe(false)
+  })
+})

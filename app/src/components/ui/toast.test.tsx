@@ -146,10 +146,14 @@ describe("ToastProvider", () => {
     renderToasts()
     const region = screen.getByRole("region", { name: "Notifications" })
     const classes = region.className.split(" ")
-    // Same offset at every width (no mobile "top-4" over the header).
+    // Phones: right below the app header (no "top-4" over the header).
     expect(classes).toContain("top-16")
-    expect(classes.some((c) => /^(\w+:)?top-(?!16$)/.test(c))).toBe(false)
-    expect(classes.some((c) => c.startsWith("bottom-"))).toBe(false)
+    // md+: below the page header as well, so the page subtitle stays readable (P-11).
+    expect(classes).toContain("md:top-40")
+    expect(classes.filter((c) => /^(\w+:)?top-/.test(c)).sort()).toEqual(["md:top-40", "top-16"])
+    expect(classes.some((c) => /^(\w+:)?bottom-/.test(c))).toBe(false)
+    // Narrow on the right from sm, full width with a gutter on phones.
+    expect(classes).toEqual(expect.arrayContaining(["sm:right-4", "sm:w-80", "inset-x-4"]))
   })
 
   it("F6 moves focus to the newest toast and back to the page, without trapping", () => {

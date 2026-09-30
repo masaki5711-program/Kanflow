@@ -38,3 +38,28 @@ export function tierLabelInset(cellX: number, label: string, pill: PillBox | nul
   if (pill.right <= start || pill.left >= end) return TIER_LABEL_INSET
   return Math.round(pill.right - cellX + GAP)
 }
+
+/** Gap kept between the today pill and the edges of the visible timeline. */
+const PILL_EDGE = 4
+
+/**
+ * Centre of the today pill: today's x, shifted inward just enough that the
+ * pill stays inside the visible timeline `view` (timeline px). Null while
+ * today is outside the view (the "今日 ◀/▶" edge pill points at it instead of
+ * a half-clipped label) or the view is too narrow for the pill (phone
+ * "names first" peek: the today line alone). No view (print, not measured): today's x.
+ */
+export function clampPillX(todayX: number, label: string, view: { left: number; width: number } | null): number | null {
+  if (!view || view.width <= 0) return todayX
+  if (todayX < view.left || todayX > view.left + view.width) return null
+  const half = (estimateTextWidth(label) + PILL_CHROME) / 2
+  const lo = view.left + half + PILL_EDGE
+  const hi = view.left + view.width - half - PILL_EDGE
+  if (lo > hi) return null
+  return Math.round(Math.min(hi, Math.max(lo, todayX)))
+}
+
+/** A scale cell shows its label only when the text fits (`pad` = horizontal padding); print squeezes cells. */
+export function labelFits(cellWidth: number, label: string, pad: number): boolean {
+  return cellWidth >= estimateTextWidth(label) + pad
+}

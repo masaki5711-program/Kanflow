@@ -110,7 +110,7 @@ export function SectionManagement() {
       ) : sections.length === 0 ? (
         <EmptyState icon={<Layers className="h-6 w-6" />} title={t.sectionEmpty} />
       ) : (
-        <div className="bg-surface rounded-ui-md border border-border overflow-x-auto">
+        <div className="relative bg-surface rounded-ui-md border border-border overflow-x-auto">
           <table className="w-full text-body">
             <caption>
               <VisuallyHidden>{t.sectionTableCaption}</VisuallyHidden>

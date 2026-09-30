@@ -55,7 +55,8 @@ export function UserMenu({ userName, isAdmin, showPortfolio }: UserMenuProps) {
   const buttonRef = useRef<HTMLButtonElement>(null)
   const wrapperRef = useRef<HTMLDivElement>(null)
   const panelId = useId()
-  const panelStyle = useAnchoredPopover(buttonRef, open, PANEL_WIDTH)
+  // fitHeight: on short screens (375x600, landscape) the panel scrolls instead of running off the bottom (N-02).
+  const panelStyle = useAnchoredPopover(buttonRef, open, PANEL_WIDTH, { fitHeight: true })
   const close = useCallback(() => setOpen(false), [])
 
   useEffect(() => {
@@ -102,48 +103,51 @@ export function UserMenu({ userName, isAdmin, showPortfolio }: UserMenuProps) {
           id={panelId}
           data-testid="user-menu-panel"
           style={panelStyle}
-          className="fixed right-2 top-14 z-50 max-w-[calc(100vw-1rem)] overflow-hidden rounded-ui-md border border-border bg-surface py-1.5 shadow-ui-lg"
+          className="fixed right-2 top-14 z-50 flex max-h-[calc(100dvh-4rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden rounded-ui-md border border-border bg-surface py-1.5 shadow-ui-lg"
         >
-          {userName && <p className="truncate border-b border-border px-3 pb-2 pt-1 text-body font-semibold text-fg">{userName}</p>}
-          <ul className="py-1">
-            <li className={HEADER_PRIMARY_IN_MENU}>
-              <MenuLink href="/" icon={<FolderOpen aria-hidden className="h-4 w-4 shrink-0 text-fg-muted" />} onNavigate={close}>
-                {t.projectListTitle}
-              </MenuLink>
-            </li>
-            <li className={HEADER_PRIMARY_IN_MENU}>
-              <MenuLink href="/me" icon={<UserRound aria-hidden className="h-4 w-4 shrink-0 text-fg-muted" />} onNavigate={close}>
-                {t.myProfileMenu}
-              </MenuLink>
-            </li>
-            {showPortfolio && (
-              <li className={HEADER_SECONDARY_IN_MENU}>
-                <MenuLink href="/portfolio" icon={<Briefcase aria-hidden className="h-4 w-4 shrink-0 text-fg-muted" />} onNavigate={close}>
-                  {t.portfolioNav}
+          {userName && <p className="shrink-0 truncate border-b border-border px-3 pb-2 pt-1 text-body font-semibold text-fg">{userName}</p>}
+          {/* Scrollable middle; the name above and logout below always stay visible. */}
+          <div data-testid="user-menu-scroll" className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+            <ul className="py-1">
+              <li className={HEADER_PRIMARY_IN_MENU}>
+                <MenuLink href="/" icon={<FolderOpen aria-hidden className="h-4 w-4 shrink-0 text-fg-muted" />} onNavigate={close}>
+                  {t.projectListTitle}
                 </MenuLink>
               </li>
+              <li className={HEADER_PRIMARY_IN_MENU}>
+                <MenuLink href="/me" icon={<UserRound aria-hidden className="h-4 w-4 shrink-0 text-fg-muted" />} onNavigate={close}>
+                  {t.myProfileMenu}
+                </MenuLink>
+              </li>
+              {showPortfolio && (
+                <li className={HEADER_SECONDARY_IN_MENU}>
+                  <MenuLink href="/portfolio" icon={<Briefcase aria-hidden className="h-4 w-4 shrink-0 text-fg-muted" />} onNavigate={close}>
+                    {t.portfolioNav}
+                  </MenuLink>
+                </li>
+              )}
+            </ul>
+            {isAdmin && (
+              <div className={cn(HEADER_SECONDARY_IN_MENU, "border-t border-border py-1")}>
+                <p id={`${panelId}-admin`} className="px-3 pb-1 pt-1.5 text-caption font-semibold text-fg-muted">
+                  {t.navAdminMenu}
+                </p>
+                <ul aria-labelledby={`${panelId}-admin`}>
+                  {adminLinks(t).map(({ href, label: linkLabel, Icon }) => (
+                    <li key={href}>
+                      <MenuLink href={href} icon={<Icon aria-hidden className="h-4 w-4 shrink-0 text-fg-muted" />} onNavigate={close}>
+                        {linkLabel}
+                      </MenuLink>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
-          </ul>
-          {isAdmin && (
-            <div className={cn(HEADER_SECONDARY_IN_MENU, "border-t border-border py-1")}>
-              <p id={`${panelId}-admin`} className="px-3 pb-1 pt-1.5 text-caption font-semibold text-fg-muted">
-                {t.navAdminMenu}
-              </p>
-              <ul aria-labelledby={`${panelId}-admin`}>
-                {adminLinks(t).map(({ href, label: linkLabel, Icon }) => (
-                  <li key={href}>
-                    <MenuLink href={href} icon={<Icon aria-hidden className="h-4 w-4 shrink-0 text-fg-muted" />} onNavigate={close}>
-                      {linkLabel}
-                    </MenuLink>
-                  </li>
-                ))}
-              </ul>
+            <div className={cn(HEADER_SECONDARY_IN_MENU, "border-t border-border px-1 py-1")}>
+              <LanguageMenu className="w-full rounded-ui-sm" />
             </div>
-          )}
-          <div className={cn(HEADER_SECONDARY_IN_MENU, "border-t border-border px-1 py-1")}>
-            <LanguageMenu className="w-full rounded-ui-sm" />
           </div>
-          <div className="border-t border-border pt-1">
+          <div data-testid="user-menu-footer" className="shrink-0 border-t border-border pt-1">
             <button
               type="button"
               onClick={() => signOut()}

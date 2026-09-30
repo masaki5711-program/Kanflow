@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 import { useSession } from "next-auth/react"
 import { apiFetch, conflictAwareToast, useApiMutation, useApiQuery, versionConflictOf, versionParam, withVersion } from "@/hooks"
 import { useLanguage } from "@/lib/language-context"
@@ -14,6 +14,7 @@ import {
   type ProductGoal,
   type ProjectMember,
 } from "./types"
+import { createKeyedSerialQueue, newestVersion } from "./keyed-serial-queue"
 import { useTrashUndo } from "./use-bulk-actions"
 
 const NO_MEMBERS: ProjectMember[] = []
@@ -88,9 +89,13 @@ export function useBacklogData(projectId: string) {
     },
   )
 
+  // One status write per PBI at a time; a quick second click sends the version the first one produced (N-03).
+  const [statusQueue] = useState(createKeyedSerialQueue)
   const changeStatus = useApiMutation(
     ({ item, to }: StatusVars) =>
-      apiFetch(`${base}/backlog/${item.id}`, { method: "PATCH", json: withVersion({ status: to }, item.version) }),
+      statusQueue.run(item.id, (known) =>
+        apiFetch<BacklogItem>(`${base}/backlog/${item.id}`, { method: "PATCH", json: withVersion({ status: to }, newestVersion(item.version, known)) }),
+      ),
     {
       onMutate: ({ item, from, to }) => {
         const prev = backlog.data

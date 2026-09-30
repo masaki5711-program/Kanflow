@@ -4,9 +4,19 @@ import { formatCompactRange, formatGridDate } from "../lib/date-format"
 import { successorBlocks, upstreamOf } from "../lib/dependency-rules"
 import { PRINT_WIDTH, fullPlanRange, printLayout, visibleRange } from "../lib/print"
 import { TRAILING_GUTTER_PX, ZOOM_DAY_WIDTH, buildScale, chartRange, zoomForDayWidth } from "../lib/scale"
-import { TIER_LABEL_INSET, estimateTextWidth, tierLabelInset, todayPillBox } from "../lib/scale-labels"
+import { TIER_LABEL_INSET, clampPillX, estimateTextWidth, labelFits, tierLabelInset, todayPillBox } from "../lib/scale-labels"
 import { buildFlatTree } from "../lib/tree"
-import { LEAD_DAYS, initialAnchorDay, isUnfinished, itemSpans, offscreenSummary, revealScrollLeft } from "../lib/viewport"
+import {
+  LEAD_DAYS,
+  MAX_ANCHOR_LAG_DAYS,
+  TODAY_LEAD_DAYS,
+  initialAnchorDay,
+  isUnfinished,
+  itemSpans,
+  offscreenSummary,
+  revealScrollLeft,
+  todaySide,
+} from "../lib/viewport"
 import { initialScrollLeft } from "../hooks/use-plan-scroll"
 import { mkItem } from "./fixtures"
 
@@ -20,9 +30,33 @@ describe("F-01 initial view and off-screen indicators", () => {
   it("anchors at min(today, earliest unfinished start) − 3 days; done / paused work is ignored", () => {
     expect(isUnfinished(done)).toBe(false)
     expect(isUnfinished(held)).toBe(false)
-    expect(initialAnchorDay([done, held, overdue, future], today)).toBe(ymdToDay("2026-06-15") - LEAD_DAYS)
+    // a window wide enough to show today from the anchor (e.g. quarter zoom) keeps the open-work anchor
+    expect(initialAnchorDay([done, held, overdue, future], today, 400)).toBe(ymdToDay("2026-06-15") - LEAD_DAYS)
     expect(initialAnchorDay([future], today)).toBe(ymdToDay(today) - LEAD_DAYS)
     expect(initialAnchorDay([done], today)).toBeNull()
+  })
+
+  it("N-02: an anchor > 60 days before today that would hide today starts at today − 14 instead", () => {
+    // June work, today 9/30, week zoom (≈ 47 visible days): today would be off-screen
+    expect(initialAnchorDay([overdue], today, 47)).toBe(ymdToDay(today) - TODAY_LEAD_DAYS)
+    expect(initialAnchorDay([overdue], today)).toBe(ymdToDay(today) - TODAY_LEAD_DAYS)
+    // phone (≈ 12 visible days): today lands in the first third of the window
+    expect(initialAnchorDay([overdue], today, 12)).toBe(ymdToDay(today) - 4)
+    // ≤ 60 days behind: the anchor rule stays (the "今日 ▶" pill points at today)
+    const recent = mkItem({ id: "r", plannedStart: "2026-08-15", plannedEnd: "2026-09-10", status: "in_progress" })
+    expect(ymdToDay(today) - (ymdToDay("2026-08-15") - LEAD_DAYS)).toBeLessThanOrEqual(MAX_ANCHOR_LAG_DAYS)
+    expect(initialAnchorDay([recent], today, 12)).toBe(ymdToDay("2026-08-15") - LEAD_DAYS)
+    // the older work then sits left of the view → the "◀ n 件" pill counts it
+    const startDay = ymdToDay("2026-05-25")
+    const spans = itemSpans([overdue], startDay, 14)
+    const viewStart = (ymdToDay(today) - TODAY_LEAD_DAYS - startDay) * 14
+    expect(offscreenSummary(spans, viewStart, viewStart + 660).before).toBe(1)
+  })
+
+  it("N-02: todaySide tells which edge today lies beyond", () => {
+    expect(todaySide(50, 100, 400)).toBe("before")
+    expect(todaySide(500, 100, 400)).toBe("after")
+    expect(todaySide(200, 100, 400)).toBeNull()
   })
 
   it("initial scrollLeft puts the anchor at the timeline's left edge (today at 1/3 when nothing is open)", () => {
@@ -104,6 +138,32 @@ describe("F-05 today pill vs month labels", () => {
     // September cell starts far left: untouched
     expect(tierLabelInset(-200, "2026年9月", pill)).toBe(TIER_LABEL_INSET)
     expect(tierLabelInset(0, "2026年", null)).toBe(TIER_LABEL_INSET)
+  })
+
+  it("N-07: the today pill is kept inside the visible timeline while today is in it", () => {
+    const label = "今日 09/30(水)"
+    const half = (estimateTextWidth(label) + 14) / 2
+    const view = { left: 1000, width: 600 }
+    // today 2px left of the right edge: the pill shifts inward instead of being clipped
+    const x = clampPillX(1598, label, view)!
+    expect(x + half).toBeLessThanOrEqual(view.left + view.width)
+    expect(clampPillX(1002, label, view)! - half).toBeGreaterThanOrEqual(view.left)
+    // mid-view: unchanged; off-screen: hidden (the edge pill takes over); no view (print): unchanged
+    expect(clampPillX(1300, label, view)).toBe(1300)
+    expect(clampPillX(2000, label, view)).toBeNull()
+    expect(clampPillX(990, label, view)).toBeNull()
+    expect(clampPillX(1598, label, null)).toBe(1598)
+    // a 64px phone peek cannot hold the pill: only the today line shows
+    expect(clampPillX(1030, label, { left: 1000, width: 64 })).toBeNull()
+  })
+})
+
+describe("N-06 scale labels that do not fit are left out (print)", () => {
+  it("labelFits compares the estimated text width with the cell", () => {
+    expect(labelFits(10, "5月", 14)).toBe(false)
+    expect(labelFits(60, "5月", 14)).toBe(true)
+    expect(labelFits(20, "2026年", 16)).toBe(false)
+    expect(labelFits(200, "2026年", 16)).toBe(true)
   })
 })
 

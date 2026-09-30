@@ -4,6 +4,7 @@ import type { MouseEvent, ReactNode } from "react"
 import { Bot, ClipboardList, Layers, MoreVertical, Star, Tag, Zap } from "lucide-react"
 import { cn, IconButton, VisuallyHidden } from "@/components/ui"
 import { useLanguage } from "@/lib/language-context"
+import { pickReportTitle } from "@/components/ai-report-language"
 import {
   colorDot,
   colorMap,
@@ -82,7 +83,7 @@ export function CategoryBadges({ categories, max, compact }: { categories: Categ
         <span
           key={cat.id}
           className={cn(
-            "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-caption",
+            "inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 text-caption [overflow-wrap:anywhere]",
             compact && "hidden md:inline-flex",
             colorMap[cat.color] ?? colorMap.gray,
           )}
@@ -102,7 +103,7 @@ export function SectionBadges({ sections }: { sections?: { id: string; name: str
       {sections.map((s) => (
         <span
           key={s.id}
-          className="inline-flex items-center gap-1 rounded-full bg-warning-soft px-2 py-0.5 text-caption font-medium text-warning-strong"
+          className="inline-flex max-w-full items-center gap-1 rounded-full bg-warning-soft px-2 py-0.5 text-caption font-medium text-warning-strong [overflow-wrap:anywhere]"
         >
           <Tag aria-hidden="true" className="h-3 w-3" />
           {s.name}
@@ -124,9 +125,12 @@ function Count({ icon, value, label }: { icon: ReactNode; value: number; label: 
 
 /** AI report / IceBox / backlog / sprint counters shown on cards and rows. */
 export function ProjectCounts({ project }: { project: Project }) {
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
   const aiCount = project._count.aiReports ?? 0
   const critical = hasCriticalAiReport(project)
+  // S-18: autonomous report titles are "JA / ID" pairs — show the viewer's side.
+  const latestTitle = project.aiReports?.[0]?.title
+  const aiTooltip = latestTitle ? pickReportTitle(latestTitle, language) : t.aiReportsTitle
   return (
     <>
       {aiCount > 0 && (
@@ -135,7 +139,7 @@ export function ProjectCounts({ project }: { project: Project }) {
             "flex items-center gap-1 rounded-full border px-2 py-0.5 font-semibold",
             critical ? "border-danger/30 bg-danger-soft text-danger-strong" : "border-info/30 bg-info-soft text-info",
           )}
-          title={project.aiReports?.[0]?.title ?? t.aiReportsTitle}
+          title={aiTooltip}
         >
           <Bot aria-hidden="true" className="h-3.5 w-3.5" />
           <span>{aiCount}</span>

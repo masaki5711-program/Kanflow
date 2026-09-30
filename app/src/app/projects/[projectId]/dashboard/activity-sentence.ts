@@ -90,13 +90,20 @@ function nameFromMeta(meta: FeedEntry["meta"]): string | null {
   return typeof displayId === "number" || (typeof displayId === "string" && displayId) ? `#${displayId}` : null
 }
 
+/** The member's user name (logged, or filled in by the API for older entries). */
+function memberName(meta: FeedEntry["meta"]): string | null {
+  const name = meta?.userName
+  return typeof name === "string" && name.trim() ? name.trim() : null
+}
+
 /**
  * Readable name of the entry's entity: the logged label (the API fills it in
  * from the entity for entries logged without one), else a name in the diff or
- * meta ("#12" for a PBI). Member labels are user ids — never shown.
+ * meta ("#12" for a PBI). Member labels are user ids — never shown; members
+ * are named by `meta.userName`.
  */
 export function entityLabel(entry: Pick<FeedEntry, "entityType" | "label" | "changes" | "meta">): string | null {
-  if (entry.entityType === "member") return null
+  if (entry.entityType === "member") return memberName(entry.meta)
   if (entry.label?.trim()) return entry.label.trim()
   return nameFromChanges(entry.changes) ?? nameFromMeta(entry.meta)
 }
@@ -107,7 +114,9 @@ function quote(label: string, language: Language): string {
 
 export function feedSentence(entry: FeedEntry, projectId: string, t: Translations, language: Language): FeedSentence {
   const actor = entry.actor?.name || t.historySystem
-  const template = (t[ACTION_KEY[entry.action] ?? "dashboardFeedUpdate"] as string).replace("{actor}", actor)
+  // A member is added to the project, not "created".
+  const actionKey = entry.entityType === "member" && entry.action === "create" ? "dashboardFeedMemberAdd" : ACTION_KEY[entry.action]
+  const template = (t[actionKey ?? "dashboardFeedUpdate"] as string).replace("{actor}", actor)
   const [before, after = ""] = template.split("{entity}")
   const word = ENTITY_KEY[entry.entityType] ? (t[ENTITY_KEY[entry.entityType]] as string) : entry.entityType
   const label = entityLabel(entry)

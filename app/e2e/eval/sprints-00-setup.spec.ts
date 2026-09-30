@@ -1,12 +1,12 @@
 import { expect, test } from "@playwright/test"
 import { USERS, api, newUserPage, stamp, writeState } from "./sprints-support"
 
-/** Creates an isolated project "E2E-Sprints-C1-<stamp>" with SM/Dev members and 4 READY PBIs. */
+/** Creates an isolated project "E2E-Sprints-C2-<stamp>" with SM/Dev members and 4 READY PBIs. */
 test("setup: project, members, ready PBIs", async ({ browser }) => {
   const { ctx, page } = await newUserPage(browser, "po")
-  const projectName = `E2E-Sprints-C1-${stamp()}`
+  const projectName = `E2E-Sprints-C2-${stamp()}`
   const proj = await api<{ id: string }>(page, "POST", "/api/projects", {
-    name: projectName, description: "E2E sprints evaluation (cycle 1). ".repeat(12), projectType: "software",
+    name: projectName, description: "E2E sprints evaluation (cycle 2). ".repeat(12), projectType: "software",
   })
   expect(proj.status, JSON.stringify(proj.body)).toBe(201)
   const projectId = proj.body.id

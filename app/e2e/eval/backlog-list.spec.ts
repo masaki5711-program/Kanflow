@@ -44,7 +44,7 @@ test("facet filters write URL state and survive reload", async ({ page }) => {
   await expect(page.getByRole("combobox", { name: "エピック" })).toHaveValue("PFS Infrastructure Setup")
   // po facet via URL
   await page.goto(`${BACKLOG}?po=__none`)
-  await expect(page.getByRole("combobox", { name: "Product Owner" })).toHaveValue("__none")
+  await expect(page.getByRole("combobox", { name: "プロダクトオーナー" })).toHaveValue("__none")
   // invalid values are ignored
   await page.goto(`${BACKLOG}?status=bogus&points=abc`)
   await expect(page.getByRole("combobox", { name: "状態" })).toHaveValue("")

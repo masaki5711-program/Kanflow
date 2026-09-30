@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo } from "react"
 import { useToast } from "@/components/ui"
-import { apiFetch, useApiQuery, useVersionConflict, versionParam, withVersion } from "@/hooks"
+import { apiFetch, useApiQuery, useVersionConflict, versionConflictOf, versionParam, withVersion } from "@/hooks"
 import { useLanguage } from "@/lib/language-context"
 import { normalizeItem, normalizePlanData } from "../lib/normalize"
 import type { PlanData, PlanItem, PlanItemInput, PlanItemPatch, ReorderUpdate } from "../lib/plan-types"
@@ -70,9 +70,15 @@ export function usePlanData(projectId: string) {
         if (options?.notify) toast.success(t.planSavedJustNow)
         return true
       } catch (err) {
-        const handled = onVersionConflict<Record<string, unknown>>(err, (current) =>
-          options?.onConflict?.(current && typeof current === "object" ? normalizeItem(current, item.plannedStart) : null),
-        )
+        const toItem = (current: Record<string, unknown> | null) =>
+          current && typeof current === "object" ? normalizeItem(current, item.plannedStart) : null
+        const conflict = options?.onConflict ? versionConflictOf<Record<string, unknown>>(err) : null
+        if (conflict && options?.onConflict) {
+          // The editor explains the conflict in place (with "restore my input"): no duplicate toast (N-05).
+          options.onConflict(toItem(conflict.current))
+          return false
+        }
+        const handled = onVersionConflict<Record<string, unknown>>(err, (current) => options?.onConflict?.(toItem(current)))
         if (!handled) fail(err)
         return false
       } finally {

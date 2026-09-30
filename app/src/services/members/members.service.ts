@@ -94,7 +94,9 @@ export async function removeMember(projectId: string, memberId: string, actor: A
   await withTransaction(async (tx) => {
     await assertKeepsPo(tx, projectId, memberId, null, { message: LAST_PO_REMOVE, code: "LAST_PO_REMOVE" })
     const row = await loadSnapshot(tx, "member", memberId)
+    // Name the removed user in the feed (S-12); it cannot be looked up after the delete.
+    const userName = (await repo.findMemberUserName(tx, projectId, memberId))?.user?.name ?? null
     await repo.deleteMember(tx, projectId, memberId)
-    await logDelete(tx, { projectId, entityType: "member", entityId: memberId, actor, row })
+    await logDelete(tx, { projectId, entityType: "member", entityId: memberId, actor, row, meta: { userName } })
   })
 }

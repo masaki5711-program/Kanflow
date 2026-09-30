@@ -200,6 +200,11 @@ export function touchesPlan(data: { planItemId?: unknown; status?: unknown; work
   return data.planItemId !== undefined || data.status !== undefined || data.workloadScore !== undefined
 }
 
+/** A PBI write that sets the title text (initiative or user story). */
+export function touchesPbiContent(data: { initiative?: unknown; userStory?: unknown }): boolean {
+  return data.initiative !== undefined || data.userStory !== undefined
+}
+
 /** `input.version` (optional) = the version the client loaded; stale → 409 VERSION_CONFLICT with `current`. */
 export async function updateBacklogItem(projectId: string, itemId: string, input: UpdateBacklogItemInput, actor: Actor) {
   const { version, data: fields } = takeVersion(input)
@@ -227,6 +232,11 @@ export async function updateBacklogItemIn(
   const prevPlanItemId = touchesPlan(data) ? await repo.findPbiPlanItemId(tx, projectId, itemId) : null
   const updated = await repo.updateBacklogItem(tx, projectId, itemId, { ...data, ...completionPatch(data.status) }, version)
   if (!updated) throw await pbiWriteMiss(tx, projectId, itemId)
+  // Same rule as create (N-01): the resulting row must keep an initiative or a user story.
+  // Thrown inside the transaction, so the write is rolled back.
+  if (touchesPbiContent(data) && !hasPbiContent(updated)) {
+    throw new ValidationError(PBI_CONTENT_REQUIRED_MESSAGE, {}, "PBI_CONTENT_REQUIRED")
+  }
   // Plan progress follows the PBI (old and new plan item when the link moved).
   if (touchesPlan(data)) await recalcPlanItems([prevPlanItemId, updated.planItemId], tx)
   await enqueueIn(tx, "backlog_item", updated.id, data)

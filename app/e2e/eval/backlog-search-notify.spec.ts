@@ -125,7 +125,7 @@ test("notifications: mention + assignment → SM bell, mark read, preferences", 
   // assign PO = E2E SM (free-text name) via edit
   await pdlg.getByRole("tab", { name: "詳細" }).click()
   await pdlg.getByRole("button", { name: "編集" }).click()
-  await pdlg.getByRole("textbox", { name: "Product Owner" }).fill("E2E SM")
+  await pdlg.getByRole("textbox", { name: "プロダクトオーナー" }).fill("E2E SM")
   await pdlg.getByRole("button", { name: "更新" }).click()
   await expect(po.page.getByText("PBI を保存しました")).toBeVisible()
   await po.ctx.close()

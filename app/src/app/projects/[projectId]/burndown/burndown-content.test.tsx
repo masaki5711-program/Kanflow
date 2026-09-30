@@ -32,7 +32,7 @@ vi.mock("@/components/burndown/velocity-chart", () => ({
   default: ({ projectId }: { projectId: string }) => <div data-testid="velocity">{projectId}</div>,
 }))
 
-const { BurndownPageContent, defaultSprintSelection, sprintSelectionFromParam } = await import("./burndown-content")
+const { BurndownPageContent, defaultSprintSelection, splitArchived, sprintSelectionFromParam } = await import("./burndown-content")
 const t = getTranslations("ja")
 
 const sprints = [
@@ -92,5 +92,41 @@ describe("BurndownPageContent", () => {
   it("falls back to the whole project without an active sprint", () => {
     expect(defaultSprintSelection([{ id: "a", name: "A", status: "done" }])).toBe("")
     expect(defaultSprintSelection([])).toBe("")
+  })
+})
+
+describe("archived sprints in the selector (S-10)", () => {
+  const withArchived = [
+    { id: "s3", name: "Sprint 3", status: "active" },
+    { id: "s2", name: "Sprint 2", status: "archived" },
+    { id: "s1", name: "Sprint 1", status: "archived" },
+  ]
+
+  beforeEach(() => {
+    nav.search = ""
+    nav.replace.mockClear()
+  })
+
+  it("lists archived sprints under their own group and opens their burndown", async () => {
+    const user = userEvent.setup()
+    render(<BurndownPageContent projectId="p1" sprints={withArchived} />)
+    const group = screen.getByRole("group", { name: t.sprintStatusArchived })
+    expect(Array.from(group.querySelectorAll("option")).map((o) => o.textContent)).toEqual(["Sprint 2", "Sprint 1"])
+    await user.selectOptions(screen.getByRole("combobox", { name: t.burndownSprintSelect }), "s1")
+    expect(chartProps).toHaveBeenLastCalledWith({ projectId: "p1", sprintId: "s1", refreshable: true })
+    expect(nav.replace).toHaveBeenLastCalledWith("/projects/p1/burndown?sprint=s1", { scroll: false })
+  })
+
+  it("restores an archived sprint from the URL and omits the group without archived sprints", () => {
+    nav.search = "sprint=s2"
+    const { unmount } = render(<BurndownPageContent projectId="p1" sprints={withArchived} />)
+    expect((screen.getByRole("combobox", { name: t.burndownSprintSelect }) as HTMLSelectElement).value).toBe("s2")
+    unmount()
+    render(<BurndownPageContent projectId="p1" sprints={sprints} />)
+    expect(screen.queryByRole("group")).not.toBeInTheDocument()
+  })
+
+  it("splitArchived keeps order and separates archived sprints", () => {
+    expect(splitArchived(withArchived)).toEqual({ live: [withArchived[0]], archived: [withArchived[1], withArchived[2]] })
   })
 })

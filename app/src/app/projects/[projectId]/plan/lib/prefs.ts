@@ -8,6 +8,11 @@ export type PlanColumn = "period" | "start" | "end" | "duration" | "progress" | 
 export const PLAN_COLUMNS: readonly PlanColumn[] = ["period", "start", "end", "duration", "progress", "owner", "status"]
 /** Shown until the viewer picks columns: compact period + progress keep the timeline wide. */
 export const DEFAULT_COLUMNS: readonly PlanColumn[] = ["period", "progress"]
+/** Default below the lg breakpoint (tablets): name + progress only, so the timeline keeps ~60%. */
+export const TABLET_COLUMNS: readonly PlanColumn[] = ["progress"]
+
+/** Phones: what the narrow chart favours — legible names or the timeline. */
+export type PhoneLayout = "names" | "timeline"
 
 export interface PlanPrefs {
   collapsed: string[]
@@ -17,9 +22,11 @@ export interface PlanPrefs {
   gridCollapsed: boolean | null
   /** Name column width in px set with the splitter (null = default). */
   nameWidth: number | null
+  /** Phone layout toggle (null = timeline first). */
+  phoneLayout: PhoneLayout | null
 }
 
-export const DEFAULT_PREFS: PlanPrefs = Object.freeze({ collapsed: [], columns: null, gridCollapsed: null, nameWidth: null }) as PlanPrefs
+export const DEFAULT_PREFS: PlanPrefs = Object.freeze({ collapsed: [], columns: null, gridCollapsed: null, nameWidth: null, phoneLayout: null }) as PlanPrefs
 
 export const prefsKey = (projectId: string) => `kanflow:plan:${projectId}`
 
@@ -36,15 +43,16 @@ export function parsePrefs(raw: string | null): PlanPrefs {
       columns: Array.isArray(obj.columns) ? [...new Set(strings(obj.columns).filter(isColumn))] : null,
       gridCollapsed: typeof obj.gridCollapsed === "boolean" ? obj.gridCollapsed : null,
       nameWidth: typeof obj.nameWidth === "number" && Number.isFinite(obj.nameWidth) ? Math.round(obj.nameWidth) : null,
+      phoneLayout: obj.phoneLayout === "names" || obj.phoneLayout === "timeline" ? obj.phoneLayout : null,
     }
   } catch {
     return DEFAULT_PREFS
   }
 }
 
-/** The visible columns a preference selects (defaults when unset). */
-export function shownColumns(prefs: Pick<PlanPrefs, "columns">): readonly PlanColumn[] {
-  return prefs.columns ?? DEFAULT_COLUMNS
+/** The visible columns a preference selects (the desktop or tablet default when unset). */
+export function shownColumns(prefs: Pick<PlanPrefs, "columns">, tablet = false): readonly PlanColumn[] {
+  return prefs.columns ?? (tablet ? TABLET_COLUMNS : DEFAULT_COLUMNS)
 }
 
 /** Toggle one column on / off (result in canonical order). */

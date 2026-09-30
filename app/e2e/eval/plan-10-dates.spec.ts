@@ -125,7 +125,18 @@ test("today label, initial scroll to open work, compact grid (F-01, F-05)", asyn
   const rendered = new Set(await page.locator("[data-plan-bar]").evaluateAll((els) => els.map((e) => e.getAttribute("data-plan-bar"))))
   const open = plan.items.filter((i: any) => rendered.has(i.id) && i.status !== "done" && i.status !== "on_hold" && i.scheduleState !== "done")
   const earliest = open.reduce((a: any, b: any) => (b.plannedStart < a.plannedStart ? b : a))
-  const anchor = earliest.plannedStart < today ? earliest : null
+  const daysBetween = (a: string, b: string) => Math.round((Date.parse(b) - Date.parse(a)) / 86_400_000)
+  // N-02: open work more than 60 days before today would hide today → the view starts at today − 14
+  // and the older bars are announced by the "◀ n 件" pill instead.
+  const farBehind = earliest.plannedStart < today && daysBetween(earliest.plannedStart, today) + 3 > 60
+  if (farBehind) {
+    const todayBox = (await label.boundingBox())!
+    const chartBox = (await page.locator("[data-plan-chart]").boundingBox())!
+    expect(todayBox.x).toBeGreaterThanOrEqual(s.gridRight)
+    expect(todayBox.x + todayBox.width).toBeLessThanOrEqual(chartBox.x + chartBox.width)
+    await expect(page.locator('[data-plan-offscreen="before"]')).toBeVisible()
+  }
+  const anchor = earliest.plannedStart < today && !farBehind ? earliest : null
   if (anchor) {
     const box = (await bar(page, anchor.id).boundingBox())!
     console.log("earliest open item", anchor.plannedStart, "bar x", box.x, "grid right", s.gridRight)
@@ -226,7 +237,8 @@ test("column show/hide and the splitter persist across reload (F-01, F-07)", asy
   await page.mouse.down()
   await page.mouse.move(sb.x + sb.width / 2 - 64, sb.y + 100, { steps: 4 })
   await page.mouse.up()
-  await expect(page.getByRole("separator", { name: "表の幅" })).toHaveAttribute("aria-valuenow", String(w0 + 32 - 64))
+  // (N-03: the name column never gets narrower than 160px)
+  await expect(page.getByRole("separator", { name: "表の幅" })).toHaveAttribute("aria-valuenow", String(Math.max(160, w0 + 32 - 64)))
   // Back to the defaults
   await page.getByRole("button", { name: "表示する列" }).click()
   await page.getByRole("checkbox", { name: "担当" }).uncheck()

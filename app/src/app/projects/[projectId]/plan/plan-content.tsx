@@ -77,8 +77,10 @@ function PlanPage({ projectId, canEdit }: Props) {
   const api = usePlanData(projectId)
   const { items, dependencies } = api.data
   const today = api.data.today || localTodayYmd()
-  const view = usePlanViewState(projectId)
   const isNarrow = useMediaQuery("(max-width: 767px)")
+  const isTablet = useMediaQuery("(max-width: 1023px)")
+  const isPhone = useMediaQuery("(max-width: 639px)")
+  const view = usePlanViewState(projectId, isTablet)
   const membersQuery = useApiQuery<ProjectMemberDto[]>(`/api/projects/${projectId}/members`)
   const members = useMemo(() => (membersQuery.data ?? NO_MEMBERS).map((m) => ({ id: m.user.id, name: m.user.name })), [membersQuery.data])
 
@@ -115,21 +117,24 @@ function PlanPage({ projectId, canEdit }: Props) {
     prefs: view.prefs,
     shown: view.columns,
     isNarrow,
+    isTablet,
+    isPhone,
     containerWidth: viewport.clientWidth,
     print: printFlow.request,
   })
   const { range, dayWidth, scale, columns, gridCollapsed, nameWidth } = layout
   const gw = layout.gridWidth
   const env = useMemo<ChartEnv>(
-    () => ({ t, language, startDay: range.startDay, dayWidth, today, canEdit, columns, gridWidth: gw, nameWidth, gridCollapsed, nameOf }),
-    [t, language, range.startDay, dayWidth, today, canEdit, columns, gw, nameWidth, gridCollapsed, nameOf],
+    () => ({ t, language, startDay: range.startDay, dayWidth, today, canEdit, columns, gridWidth: gw, nameWidth, gridCollapsed, printing: layout.printing, nameOf }),
+    [t, language, range.startDay, dayWidth, today, canEdit, columns, gw, nameWidth, gridCollapsed, layout.printing, nameOf],
   )
   const todayX = dayCenterX(today, range.startDay, dayWidth)
   // First view: the earliest unfinished / overdue work (or today) is on screen.
   useInitialScroll(
     scrollRef,
     ready,
-    (clientWidth) => initialScrollLeft(initialAnchorDay(items, today), { startDay: range.startDay, dayWidth, todayX, clientWidth, gridWidth: gw }),
+    (clientWidth) =>
+      initialScrollLeft(initialAnchorDay(items, today, (clientWidth - gw) / dayWidth), { startDay: range.startDay, dayWidth, todayX, clientWidth, gridWidth: gw }),
     zoom,
     !!view.itemParam,
   )
@@ -270,7 +275,10 @@ function PlanPage({ projectId, canEdit }: Props) {
             onFilter={setFilter}
             owners={members}
             shownColumns={view.columns}
+            hiddenColumns={layout.hiddenColumns}
             onToggleColumn={view.toggleColumn}
+            phoneLayout={isPhone ? (view.prefs.phoneLayout ?? "timeline") : null}
+            onPhoneLayout={view.setPhoneLayout}
             columnsDisabled={gridCollapsed}
             onExpandAll={() => view.setCollapsed(() => [])}
             onCollapseAll={() => view.setCollapsed(() => parentIds(items))}
@@ -293,6 +301,8 @@ function PlanPage({ projectId, canEdit }: Props) {
               nameWidth={nameWidth}
               nameBounds={layout.nameBounds}
               onNameWidth={view.setNameWidth}
+              splitter={!layout.phoneNames}
+              today={{ x: todayX, label: formatShortDate(today, language) }}
               printing={layout.printing}
             >
               <PlanChart
@@ -309,6 +319,7 @@ function PlanPage({ projectId, canEdit }: Props) {
                 collapsed={filterOn ? new Set() : collapsed}
                 renamingId={renamingId}
                 todayLabel={fillTemplate(t.planTodayLabel, { date: formatShortDate(today, language) })}
+                view={layout.printing ? null : { left: viewport.scrollLeft, width: viewport.clientWidth - gw }}
                 onToggleGrid={() => view.setGridCollapsed(!gridCollapsed)}
                 rowDrop={rowDrag.target}
                 onHandlePointerDown={rowDrag.onHandlePointerDown}

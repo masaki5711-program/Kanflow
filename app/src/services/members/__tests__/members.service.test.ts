@@ -78,3 +78,26 @@ describe("members.service", () => {
     expect(repo.countPos).not.toHaveBeenCalled()
   })
 })
+
+describe("member activity names the user (S-12)", () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it("logs the removed member's user name, read before the delete", async () => {
+    const activity = await import("@/services/_shared/activity")
+    vi.mocked(repo.findMemberRole).mockResolvedValue({ role: "dev" })
+    vi.mocked(repo.findMemberUserName).mockResolvedValue({ user: { name: "Budi" } } as never)
+    await svc.removeMember("p1", "m9")
+    expect(repo.findMemberUserName).toHaveBeenCalledWith(TX, "p1", "m9")
+    expect(vi.mocked(repo.findMemberUserName).mock.invocationCallOrder[0])
+      .toBeLessThan(vi.mocked(repo.deleteMember).mock.invocationCallOrder[0])
+    expect(activity.logDelete).toHaveBeenCalledWith(TX, expect.objectContaining({ entityType: "member", entityId: "m9", meta: { userName: "Budi" } }))
+  })
+
+  it("logs a null name when the membership row is not found", async () => {
+    const activity = await import("@/services/_shared/activity")
+    vi.mocked(repo.findMemberRole).mockResolvedValue({ role: "dev" })
+    vi.mocked(repo.findMemberUserName).mockResolvedValue(null)
+    await svc.removeMember("p1", "m9")
+    expect(activity.logDelete).toHaveBeenCalledWith(TX, expect.objectContaining({ meta: { userName: null } }))
+  })
+})

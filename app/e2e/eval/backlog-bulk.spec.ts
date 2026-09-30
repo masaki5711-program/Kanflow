@@ -51,7 +51,7 @@ test("selection mode + bulk status / PO / sprint / trash + Undo", async ({ page 
   // PO assign
   if (await bar.isVisible()) {
     await bar.getByRole("button", { name: "表示中をすべて選択" }).click()
-    const poSelect = bar.getByRole("combobox", { name: "Product Owner" })
+    const poSelect = bar.getByRole("combobox", { name: "プロダクトオーナー" })
     const opts = await poSelect.locator("option").allInnerTexts()
     console.log("PO options", opts)
     const po = opts.find((o) => /E2E/.test(o)) ?? opts[1]

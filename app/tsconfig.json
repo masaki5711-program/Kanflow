@@ -38,7 +38,13 @@
     ".next-verify/types/**/*.ts",
     ".next-verify/dev/types/**/*.ts",
     ".next-new/types/**/*.ts",
-    ".next-new/dev/types/**/*.ts"
+    ".next-new/dev/types/**/*.ts",
+    ".next-c2/types/**/*.ts",
+    ".next-c2/dev/types/**/*.ts",
+    ".next-fixb/types/**/*.ts",
+    ".next-fixb/dev/types/**/*.ts",
+    ".next-fixd/types/**/*.ts",
+    ".next-fixd/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

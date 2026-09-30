@@ -18,6 +18,8 @@ export interface ChartEnv {
   /** Width of the name column (splitter / default). */
   nameWidth: number
   gridCollapsed: boolean
+  /** Print layout (bar labels that do not fit move right of the bar). */
+  printing: boolean
   /** Localized display name of an item. */
   nameOf: (item: PlanItem) => string
 }

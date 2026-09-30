@@ -7,7 +7,7 @@ export const PASSWORD = "E2e-Kanflow-2026!"
 export const PROJECT = "cmr8tnrzm0000m09lghm5jshr"
 export const PROJECT2 = "cmouvgryo0004eg9lpqdtctmq"
 export const PLAN = `/projects/${PROJECT}/plan`
-export const SHOTS = "D:/APP/Kanflow-e2e/reports/shots/plan"
+export const SHOTS = "D:/APP/Kanflow-e2e/reports/shots/plan-c2"
 export const USERS = {
   admin: "e2e-admin@example.test",
   po: "e2e-po@example.test",
@@ -16,7 +16,7 @@ export const USERS = {
 } as const
 export type Role = keyof typeof USERS
 
-const STATE_DIR = "C:/Users/fujikawa/AppData/Local/Temp/claude/D--APP-Kanflow/3065c797-7a23-4897-8778-6275c9a5a863/scratchpad/plan-auth"
+const STATE_DIR = "C:/Users/fujikawa/AppData/Local/Temp/claude/D--APP-Kanflow/3065c797-7a23-4897-8778-6275c9a5a863/scratchpad/plan-auth-c2"
 
 export interface Issues { console: string[]; failed: string[] }
 
@@ -47,7 +47,7 @@ export async function userPage(
   fs.mkdirSync(STATE_DIR, { recursive: true })
   const file = path.join(STATE_DIR, `${role}.json`)
   const fresh = fs.existsSync(file) && Date.now() - fs.statSync(file).mtimeMs < 60 * 60 * 1000
-  const ctx = await browser.newContext({ acceptDownloads: true, ...opts, ...(fresh ? { storageState: file } : {}) })
+  const ctx = await browser.newContext({ acceptDownloads: true, locale: "ja-JP", ...opts, ...(fresh ? { storageState: file } : {}) })
   const page = await ctx.newPage()
   const issues = watch(page)
   if (!fresh) {
@@ -59,7 +59,7 @@ export async function userPage(
 
 type Json = Record<string, unknown>
 export async function api(page: Page, method: string, url: string, data?: unknown): Promise<{ status: number; body: any }> {
-  const origin = "http://localhost:3100"
+  const origin = (process.env.E2E_BASE_URL ?? "http://localhost:3101")
   const res = await page.request.fetch(url.startsWith("http") ? url : origin + url, {
     method,
     data: data as Json | undefined,

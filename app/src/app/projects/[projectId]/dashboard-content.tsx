@@ -80,33 +80,34 @@ export function DashboardContent({
 
       <section aria-labelledby="dashboard-project-name" className="space-y-3">
         <div className="flex items-center gap-3">
-          <Briefcase aria-hidden="true" className="h-6 w-6 text-primary" />
-          <h2 id="dashboard-project-name" className="text-2xl font-bold text-fg">
+          <Briefcase aria-hidden="true" className="h-6 w-6 shrink-0 text-primary" />
+          <h2 id="dashboard-project-name" className="min-w-0 break-words text-2xl font-bold text-fg">
             <I18nText i18n={projectText} field="name" original={projectName} entity={{ type: "project", id: projectId }} />
           </h2>
         </div>
         <ProgressEditor projectId={projectId} initialProgress={projectProgressPct} canEdit={currentUserRole === "po"} />
       </section>
 
-      {/* Row 1 — now */}
-      <div className="grid gap-4 lg:grid-cols-12">
-        <div className="lg:col-span-6">
+      {/* Row 1 — now. grid-cols-1 (minmax(0, 1fr)) + min-w-0 keep long names from
+          widening the single phone column past the viewport. */}
+      <div data-testid="dashboard-row-now" className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+        <div className="min-w-0 lg:col-span-6">
           <ActiveSprintCard projectId={projectId} sprint={activeSprint} />
         </div>
-        <div className="lg:col-span-3">
+        <div className="min-w-0 lg:col-span-3">
           <MyProjectTasks projectId={projectId} tasks={myTasks} />
         </div>
-        <div className="lg:col-span-3">
+        <div className="min-w-0 lg:col-span-3">
           <UpcomingDue projectId={projectId} items={upcomingDue} />
         </div>
       </div>
 
       {/* Row 2 — what happened, with counts and goals alongside */}
-      <div className="grid items-start gap-4 lg:grid-cols-12">
-        <div className="lg:col-span-8">
+      <div data-testid="dashboard-row-feed" className="grid grid-cols-1 items-start gap-4 lg:grid-cols-12">
+        <div className="min-w-0 lg:col-span-8">
           <ActivityFeed projectId={projectId} />
         </div>
-        <aside className="space-y-4 lg:col-span-4" aria-label={projectName}>
+        <aside className="min-w-0 space-y-4 lg:col-span-4" aria-label={projectName}>
           <OverviewCards projectId={projectId} iceboxCount={iceboxCount} backlogCount={backlogCount} sprintCount={sprintCount} />
           <div className="rounded-ui-lg border border-border bg-surface p-4 shadow-ui-sm">
             <ProductGoals projectId={projectId} initialGoals={productGoals} canEdit={canEditGoals} />

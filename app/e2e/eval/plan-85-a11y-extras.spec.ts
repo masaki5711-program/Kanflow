@@ -49,6 +49,8 @@ test("optimistic lock: stale editor save → conflict handling", async ({ browse
   const notice = d.getByRole("alert").filter({ hasText: "他のユーザーが先に更新したため" })
   await expect(notice).toBeVisible()
   await expect(notice).toContainText("stale edit")
+  // N-05: the dialog's notice is the only message — no duplicate red toast
+  await expect(page.getByText("他のユーザーが先に更新しました。最新の内容を読み込みました")).toHaveCount(0)
   await expect(d.getByLabel("説明")).toHaveValue("other user")
   await d.getByRole("button", { name: "保存" }).click()
   await expect(d).toHaveCount(0)

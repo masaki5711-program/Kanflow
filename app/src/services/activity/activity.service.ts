@@ -95,10 +95,31 @@ function setLabel(labels: Map<string, string>, type: LookupType, id: string, lab
   if (label) labels.set(`${type}:${id}`, label)
 }
 
+/** Pure: the user name a member entry already carries (meta.userName), or null. */
+export function memberUserName(item: Pick<ActivityDto, "meta">): string | null {
+  const name = item.meta?.userName
+  return typeof name === "string" && name.trim() ? name.trim() : null
+}
+
+/**
+ * Member entries name the user (S-12). Entries logged without `meta.userName`
+ * (older rows) look it up by the user id stored as their label. One query.
+ */
+export async function withMemberNames(items: readonly ActivityDto[]): Promise<ActivityDto[]> {
+  const needsName = (item: ActivityDto) => item.entityType === "member" && !memberUserName(item) && !!item.label
+  const userIds = [...new Set(items.filter(needsName).map((item) => item.label as string))]
+  if (userIds.length === 0) return [...items]
+  const names = new Map((await repo.findUserNames(defaultDb, userIds)).map((u) => [u.id, u.name]))
+  return items.map((item) => {
+    const userName = needsName(item) ? names.get(item.label as string) : undefined
+    return userName ? { ...item, meta: { ...(item.meta ?? {}), userName } } : item
+  })
+}
+
 export async function listProjectActivity(projectId: string, query: ProjectActivityQuery): Promise<Page<ActivityDto>> {
   const rows = await repo.findProjectActivity(defaultDb, projectId, query)
   const page = toPage(rows, query.limit, toActivityDto)
-  return { ...page, items: await withEntityLabels(projectId, page.items) }
+  return { ...page, items: await withMemberNames(await withEntityLabels(projectId, page.items)) }
 }
 
 export async function listEntityActivity(projectId: string, ref: EntityRef, query: PageQuery): Promise<Page<ActivityDto>> {

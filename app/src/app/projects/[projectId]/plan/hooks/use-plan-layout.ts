@@ -2,7 +2,7 @@
 
 import { useMemo } from "react"
 import type { Language } from "@/lib/i18n"
-import { columnsWidth, gridWidth, nameWidthBounds, resolveNameWidth, visibleColumns } from "../lib/filter"
+import { columnsWidth, fitColumns, gridWidth, nameWidthBounds, phoneNamesWidth, resolveNameWidth, visibleColumns } from "../lib/grid-layout"
 import type { PlanItem, Ymd } from "../lib/plan-types"
 import { DEFAULT_COLUMNS, PLAN_COLUMNS, type PlanColumn, type PlanPrefs } from "../lib/prefs"
 import { PRINT_NAME_MAX, PRINT_WIDTH, fullPlanRange, printLayout } from "../lib/print"
@@ -19,6 +19,10 @@ export interface PlanLayout {
   scale: TimeScale
   /** Splitter limits for the name column. */
   nameBounds: { min: number; max: number }
+  /** Chosen columns left out because the chart box is too narrow (column menu hint). */
+  hiddenColumns: PlanColumn[]
+  /** Phone "names first" layout (the name column is fixed; no splitter). */
+  phoneNames: boolean
   printing: boolean
 }
 
@@ -30,6 +34,10 @@ interface Input {
   prefs: PlanPrefs
   shown: readonly PlanColumn[]
   isNarrow: boolean
+  /** Below the lg breakpoint (the default grid keeps a 40 / 60 split). */
+  isTablet: boolean
+  /** Below the sm breakpoint (the names-first / timeline-first toggle applies). */
+  isPhone: boolean
   /** clientWidth of the chart box (0 before the first measure). */
   containerWidth: number
   print: PrintRequest | null
@@ -46,10 +54,14 @@ function printColumns(columns: readonly PlanColumn[], nameWidth: number): PlanCo
  * narrow screens) and the time range / day width — the zoom's on screen, a
  * page-fitted one while printing.
  */
-export function usePlanLayout({ items, today, zoom, language, prefs, shown, isNarrow, containerWidth, print }: Input): PlanLayout {
+export function usePlanLayout({ items, today, zoom, language, prefs, shown, isNarrow, isTablet, isPhone, containerWidth, print }: Input): PlanLayout {
   const gridCollapsed = prefs.gridCollapsed ?? isNarrow
-  const screenColumns = useMemo(() => visibleColumns(shown, gridCollapsed, PLAN_COLUMNS), [shown, gridCollapsed])
-  const nameWidth = resolveNameWidth(prefs.nameWidth, { compact: isNarrow, containerWidth, columns: screenColumns })
+  const fitted = useMemo(() => fitColumns(visibleColumns(shown, gridCollapsed, PLAN_COLUMNS), containerWidth), [shown, gridCollapsed, containerWidth])
+  const screenColumns = fitted.columns
+  const phoneNames = isPhone && prefs.phoneLayout === "names" && containerWidth > 0
+  const nameWidth = phoneNames
+    ? phoneNamesWidth(containerWidth - columnsWidth(screenColumns))
+    : resolveNameWidth(prefs.nameWidth, { compact: isNarrow, tablet: isTablet, containerWidth, columns: screenColumns })
   const screenRange = useMemo(() => chartRange(items, today, zoom), [items, today, zoom])
 
   return useMemo(() => {
@@ -65,6 +77,8 @@ export function usePlanLayout({ items, today, zoom, language, prefs, shown, isNa
         dayWidth,
         scale: buildScale(screenRange, zoom, language),
         nameBounds,
+        hiddenColumns: fitted.hidden,
+        phoneNames,
         printing: false,
       }
     }
@@ -72,17 +86,19 @@ export function usePlanLayout({ items, today, zoom, language, prefs, shown, isNa
     const columns = printColumns(screenColumns, printName)
     const gw = gridWidth(columns, printName)
     const base = print.scope === "visible" && print.visible ? print.visible : fullPlanRange(items, today)
-    const fitted = printLayout(base, gw, print.scope)
+    const page = printLayout(base, gw, print.scope)
     return {
       columns,
       nameWidth: printName,
       gridWidth: gw,
       gridCollapsed,
-      range: fitted.range,
-      dayWidth: fitted.dayWidth,
-      scale: buildScale(fitted.range, fitted.zoom, language, fitted.dayWidth),
+      range: page.range,
+      dayWidth: page.dayWidth,
+      scale: buildScale(page.range, page.zoom, language, page.dayWidth),
       nameBounds,
+      hiddenColumns: [],
+      phoneNames: false,
       printing: true,
     }
-  }, [containerWidth, gridCollapsed, items, language, nameWidth, print, screenColumns, screenRange, today, zoom])
+  }, [containerWidth, fitted.hidden, gridCollapsed, items, language, nameWidth, phoneNames, print, screenColumns, screenRange, today, zoom])
 }

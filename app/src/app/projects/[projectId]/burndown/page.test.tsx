@@ -54,7 +54,7 @@ describe("BurndownPage access gate", () => {
     expect(el.type).toBe(BurndownPageContent)
     expect(el.props.projectId).toBe("p1")
     expect(el.props.sprints).toEqual([{ id: "s1", name: "S1", status: "active" }])
-    expect(mocks.sprintFind.mock.calls[0][0].where).toEqual({ projectId: "p1", status: { in: ["active", "review", "done"] } })
+    expect(mocks.sprintFind.mock.calls[0][0].where).toEqual({ projectId: "p1", status: { in: ["active", "review", "done", "archived"] } })
     expect(mocks.memberFind).toHaveBeenCalledWith({ where: { projectId: "p1", userId: "u1" } })
   })
 

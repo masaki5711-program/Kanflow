@@ -63,7 +63,7 @@ export async function apiFor(role: Role): Promise<APIRequestContext> {
 
 export function shot(name: string): string {
   fs.mkdirSync(SHOTS, { recursive: true })
-  return `${SHOTS}/platform-${name}.png`
+  return `${SHOTS}/platform-${process.env.PLAT_TAG ?? "c2-"}${name}.png`
 }
 
 /** Append a line to a JSON-lines findings log (for the report). */

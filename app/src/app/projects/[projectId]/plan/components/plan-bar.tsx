@@ -4,6 +4,7 @@ import { memo, useEffect, useRef, type KeyboardEvent } from "react"
 import { cn } from "@/components/ui"
 import { formatFullDate } from "../lib/date-format"
 import { ROW_LAYOUT, dayCenterX, spanGeometry } from "../lib/geometry"
+import { estimateTextWidth } from "../lib/scale-labels"
 import type { BarKind } from "../lib/interaction"
 import type { PlanItem } from "../lib/plan-types"
 import { barFillClass, itemBadge, milestoneClass } from "../lib/status"
@@ -11,6 +12,9 @@ import { fillTemplate } from "../lib/template"
 import type { BarDrag, LiveEdit } from "../hooks/use-bar-drag"
 import { ActualBar, BarChips, BaselineBar, DragTooltip, SprintBands } from "./plan-bar-overlays"
 import type { ChartEnv } from "./chart-types"
+
+/** Horizontal padding of the in-bar label (px-1.5) plus the resize grip. */
+const BAR_LABEL_PAD = 14
 
 interface Props {
   item: PlanItem
@@ -90,9 +94,15 @@ export const PlanBar = memo(function PlanBar({ item, kind, env, drag, live, sele
   } as const
   const ring = selected ? "ring-2 ring-focus ring-offset-1 ring-offset-surface" : ""
 
+  const name = env.nameOf(item)
+  // On screen a bar ≥ 48px shows its (truncated) name; a printout has no hover title, so a
+  // name that does not fit inside the bar is printed right of it instead.
+  const labelInside = env.printing ? g.width >= estimateTextWidth(name) + BAR_LABEL_PAD : g.width >= 48
   let main: React.ReactNode
   let chipLeft = g.x + g.width
+  let outsideName: string | undefined = kind === "leaf" && env.printing && !labelInside ? name : undefined
   if (kind === "milestone") {
+    outsideName = name
     chipLeft = center + 10
     main = (
       <div
@@ -121,9 +131,9 @@ export const PlanBar = memo(function PlanBar({ item, kind, env, drag, live, sele
         style={{ left: g.x, width: g.width, top: ROW_LAYOUT.bar.top, height: ROW_LAYOUT.bar.height }}
       >
         <span aria-hidden="true" className="absolute inset-y-0 left-0 bg-black/25" style={{ width: `${item.progressPct}%` }} />
-        {g.width >= 48 && (
+        {labelInside && (
           <span aria-hidden="true" className="pointer-events-none absolute inset-0 flex items-center truncate px-1.5 text-caption font-medium leading-none text-white">
-            {env.nameOf(item)}
+            {name}
           </span>
         )}
         {draggable && (
@@ -144,7 +154,7 @@ export const PlanBar = memo(function PlanBar({ item, kind, env, drag, live, sele
       <BaselineBar item={item} env={env} />
       <SprintBands item={item} env={env} />
       {main}
-      <BarChips item={item} env={env} left={chipLeft} name={kind === "milestone" ? env.nameOf(item) : undefined} />
+      <BarChips item={item} env={env} left={chipLeft} name={outsideName} />
       {live && <DragTooltip edit={live} env={env} x={kind === "milestone" ? center : g.x + g.width / 2} single={kind === "milestone"} />}
     </>
   )

@@ -164,4 +164,26 @@ describe("mention list placement and early Enter (F-08)", () => {
     rerender(<CommentComposer members={MEMBERS} onSubmit={onSubmit} label="New comment" submitLabel="Send" />)
     await waitFor(() => expect(box).toHaveValue("Hi @[Hanako] "))
   })
+  it("Enter on an open @token without a match does not type a newline (cycle 2)", async () => {
+    const { box } = renderComposer()
+    await userEvent.type(box, "@zz")
+    await userEvent.keyboard("{Enter}")
+    expect(box).toHaveValue("@zz")
+  })
+
+  it("a multi-word query ('@Taro Y') + immediate Enter inserts the mention, not a newline", async () => {
+    const { box } = renderComposer()
+    await userEvent.type(box, "@Taro Y{Enter}")
+    expect(box).toHaveValue("@[Taro Yamada] ")
+  })
+
+  it("after Escape and clearing the text, a new @ at the same place opens the list again (cycle 2 repro)", async () => {
+    const { box } = renderComposer()
+    await userEvent.type(box, "@Ta")
+    await userEvent.keyboard("{Escape}")
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument()
+    await userEvent.clear(box)
+    await userEvent.type(box, "@Tak{Enter}")
+    expect(box).toHaveValue("@[Takeshi] ")
+  })
 })
