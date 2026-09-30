@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   memberFind: vi.fn(),
   projectFind: vi.fn(),
   userSectionFind: vi.fn(),
+  sprintFind: vi.fn(),
 }))
 
 vi.mock("@/lib/auth", () => ({ auth: mocks.auth }))
@@ -14,6 +15,7 @@ vi.mock("@/lib/prisma", () => ({
     projectMember: { findFirst: mocks.memberFind },
     project: { findUnique: mocks.projectFind },
     userSection: { findFirst: mocks.userSectionFind },
+    sprint: { findMany: mocks.sprintFind },
   },
 }))
 vi.mock("next/navigation", () => ({
@@ -34,6 +36,7 @@ const user = (role: string) => ({ user: { id: "u1", role } })
 
 beforeEach(() => {
   vi.resetAllMocks()
+  mocks.sprintFind.mockResolvedValue([])
 })
 
 describe("BurndownPage access gate", () => {
@@ -46,9 +49,12 @@ describe("BurndownPage access gate", () => {
     mocks.auth.mockResolvedValue(user("member"))
     mocks.memberFind.mockResolvedValue({ id: "m1" })
     mocks.projectFind.mockResolvedValue({ name: "P" })
-    const el = (await BurndownPage({ params })) as ReactElement<{ projectId: string }>
+    mocks.sprintFind.mockResolvedValue([{ id: "s1", sprintName: "S1", status: "active" }])
+    const el = (await BurndownPage({ params })) as ReactElement<{ projectId: string; sprints: unknown }>
     expect(el.type).toBe(BurndownPageContent)
     expect(el.props.projectId).toBe("p1")
+    expect(el.props.sprints).toEqual([{ id: "s1", name: "S1", status: "active" }])
+    expect(mocks.sprintFind.mock.calls[0][0].where).toEqual({ projectId: "p1", status: { in: ["active", "review", "done"] } })
     expect(mocks.memberFind).toHaveBeenCalledWith({ where: { projectId: "p1", userId: "u1" } })
   })
 

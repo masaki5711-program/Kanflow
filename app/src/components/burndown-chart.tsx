@@ -11,6 +11,8 @@ interface Props {
   projectId: string
   /** Show a manual "reload" control (the dedicated burndown page). */
   refreshable?: boolean
+  /** One sprint's burndown; omitted = the whole project (all non-archived sprints). */
+  sprintId?: string | null
 }
 
 function localToday(): string {
@@ -29,10 +31,11 @@ function LegendLine({ color, dashed, label }: { color: string; dashed?: boolean;
   )
 }
 
-export default function BurndownChart({ projectId, refreshable = false }: Props) {
+export default function BurndownChart({ projectId, refreshable = false, sprintId = null }: Props) {
   const { t } = useLanguage()
+  const query = sprintId ? `?sprintId=${encodeURIComponent(sprintId)}` : ""
   const { data, error, isLoading, isFetching, refetch } = useApiQuery<BurndownData>(
-    `/api/projects/${projectId}/burndown`,
+    `/api/projects/${projectId}/burndown${query}`,
     { toastOnError: true },
   )
 

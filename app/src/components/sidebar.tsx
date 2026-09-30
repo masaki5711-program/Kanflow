@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { X } from "lucide-react"
+import { ChevronDown, X } from "lucide-react"
 import { useLanguage } from "@/lib/language-context"
 import { projectTypeOptions, type ProjectType } from "@/lib/project-type-labels"
 import type { Language } from "@/lib/i18n"
@@ -11,7 +11,8 @@ import { useI18nText, type EntityI18n } from "@/components/i18n-text"
 import { IconButton, Truncate, cn } from "@/components/ui"
 import { useBodyScrollLock, useFocusTrap, useMediaQuery } from "@/hooks"
 import { useSidebarDrawer } from "@/components/app-shell/sidebar-drawer"
-import { buildSidebarGroups, isNavItemActive, type SidebarNavItem } from "@/components/app-shell/sidebar-nav"
+import { buildSidebarGroups, isNavItemActive, type SidebarNavGroup, type SidebarNavItem } from "@/components/app-shell/sidebar-nav"
+import { useCollapsedGroups } from "@/components/app-shell/sidebar-collapse"
 
 interface SidebarProps {
   projectId: string
@@ -124,26 +125,9 @@ function SidebarContent({ projectId, projectName, projectI18n, showTrash = false
   return (
     <>
       <nav aria-label={t.navProjectMenu} className="flex-1 overflow-y-auto px-2 py-3">
-        {groups.map((group) => {
-          const labelId = `${idPrefix}-group-${group.id}`
-          return (
-            <div key={group.id} className={group.label ? "mt-3 first:mt-0" : undefined}>
-              {/* Not a heading: the page's own h1 must be the first heading on the page. */}
-              {group.label && (
-                <p id={labelId} className="px-3 pb-0.5 text-caption font-semibold text-fg-subtle">
-                  {group.label}
-                </p>
-              )}
-              <ul className="space-y-px" aria-labelledby={group.label ? labelId : undefined}>
-                {group.items.map((item) => (
-                  <li key={item.href}>
-                    <SidebarLink item={item} active={isNavItemActive(pathname, item)} idPrefix={idPrefix} />
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )
-        })}
+        {groups.map((group) => (
+          <SidebarGroup key={group.id} group={group} pathname={pathname} idPrefix={idPrefix} />
+        ))}
       </nav>
 
       <div className="border-t border-border px-6 py-4">
@@ -161,6 +145,41 @@ function SidebarContent({ projectId, projectName, projectI18n, showTrash = false
         </span>
       </div>
     </>
+  )
+}
+
+/**
+ * One collapsible section. The toggle is a disclosure button (not a heading:
+ * the page's own h1 must be the first heading); the list is labelled by it.
+ * A collapsed section still shows the current page's link so the user never
+ * loses their place.
+ */
+function SidebarGroup({ group, pathname, idPrefix }: { group: SidebarNavGroup; pathname: string; idPrefix: string }) {
+  const { isCollapsed, toggle } = useCollapsedGroups()
+  const collapsed = isCollapsed(group.id)
+  const labelId = `${idPrefix}-group-${group.id}`
+  const listId = `${idPrefix}-list-${group.id}`
+  const items = collapsed ? group.items.filter((item) => isNavItemActive(pathname, item)) : group.items
+  return (
+    <div className="mt-2 first:mt-0">
+      <button
+        type="button"
+        onClick={() => toggle(group.id)}
+        aria-expanded={!collapsed}
+        aria-controls={listId}
+        className="flex w-full min-h-8 items-center justify-between rounded-ui-sm px-3 py-1 text-caption font-semibold text-fg-subtle hover:bg-surface-sunken hover:text-fg-muted"
+      >
+        <span id={labelId}>{group.label}</span>
+        <ChevronDown aria-hidden className={cn("h-4 w-4 shrink-0 transition-transform", collapsed && "-rotate-90")} />
+      </button>
+      <ul id={listId} className="space-y-px" aria-labelledby={labelId} hidden={items.length === 0}>
+        {items.map((item) => (
+          <li key={item.href}>
+            <SidebarLink item={item} active={isNavItemActive(pathname, item)} idPrefix={idPrefix} />
+          </li>
+        ))}
+      </ul>
+    </div>
   )
 }
 

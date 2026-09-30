@@ -191,6 +191,37 @@ describe("ToastProvider", () => {
     outside.remove()
   })
 
+  it("renders an optional action button that runs once and dismisses the toast", () => {
+    renderToasts()
+    const onClick = vi.fn()
+    act(() => {
+      api.success("Moved to trash", { action: { label: "Undo", onClick } })
+      api.info("Plain")
+    })
+    const undo = screen.getByRole("button", { name: "Undo" })
+    // Only the toast with an action gets an extra button.
+    expect(screen.getAllByRole("button")).toHaveLength(3)
+    fireEvent.click(undo)
+    expect(onClick).toHaveBeenCalledTimes(1)
+    expect(screen.queryByText("Moved to trash")).not.toBeInTheDocument()
+    expect(screen.getByText("Plain")).toBeInTheDocument()
+  })
+
+  it("keeps a toast with an action on screen longer than the plain default", () => {
+    renderToasts()
+    act(() => {
+      api.success("Undoable", { action: { label: "Undo", onClick: () => {} } })
+    })
+    act(() => {
+      vi.advanceTimersByTime(4000)
+    })
+    expect(screen.getByText("Undoable")).toBeInTheDocument()
+    act(() => {
+      vi.advanceTimersByTime(4000)
+    })
+    expect(screen.queryByText("Undoable")).not.toBeInTheDocument()
+  })
+
   it("useToast throws outside the provider; useOptionalToast returns null", () => {
     const err = vi.spyOn(console, "error").mockImplementation(() => {})
     function Bad() {

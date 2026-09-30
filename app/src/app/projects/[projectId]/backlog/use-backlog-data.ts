@@ -14,6 +14,9 @@ import {
   type ProductGoal,
   type ProjectMember,
 } from "./types"
+import { useTrashUndo } from "./use-bulk-actions"
+
+const NO_MEMBERS: ProjectMember[] = []
 
 interface ReorderVars {
   status: BacklogStatus
@@ -50,6 +53,9 @@ export function useBacklogData(projectId: string) {
   const uid = session?.user?.id
   const myRole = uid ? (members.data?.find((m) => m.user.id === uid)?.role ?? null) : null
   const canEdit = isAdmin || myRole === "po" || myRole === "sm"
+  // Reorder and trash are PO-only on the server (backlog.reorder / backlog.delete).
+  const canReorder = isAdmin || myRole === "po"
+  const canDelete = canReorder
   // A failed member lookup must not silently look like "no permission".
   const roleError = !isAdmin && !members.data && members.error !== null
 
@@ -60,6 +66,8 @@ export function useBacklogData(projectId: string) {
 
   const setBacklog = backlog.mutate
   const refetchBacklog = backlog.refetch
+  // "Moved to trash — Undo" toast (single delete here, bulk trash on the page).
+  const showTrashUndo = useTrashUndo(projectId, refetchBacklog)
 
   const reorder = useApiMutation(
     ({ ordered }: ReorderVars) =>
@@ -122,12 +130,15 @@ export function useBacklogData(projectId: string) {
         return prev
       },
       rollback: (prev) => setBacklog(prev),
-      onSuccess: () => refetchBacklog(),
+      // The "moved to trash — undo" toast replaces a plain success toast.
+      onSuccess: (_res, { id }) => {
+        refetchBacklog()
+        showTrashUndo([id])
+      },
       onError: (e) => {
         if (versionConflictOf(e)) refetchBacklog()
       },
       toastOnError: conflictAwareToast((e) => `${t.backlogDeleteFailed}: ${e.message}`),
-      toastOnSuccess: t.backlogDeleted,
     },
   )
 
@@ -137,10 +148,14 @@ export function useBacklogData(projectId: string) {
     iceboxOptions,
     pointUnit: project.data?.pointUnit ?? "SP",
     canEdit,
+    canReorder,
+    canDelete,
+    members: members.data ?? NO_MEMBERS,
     roleError,
     retryRole: members.refetch,
     reorder,
     changeStatus,
     remove,
+    showTrashUndo,
   }
 }

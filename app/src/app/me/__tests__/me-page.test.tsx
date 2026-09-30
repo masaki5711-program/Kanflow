@@ -12,6 +12,7 @@ vi.mock("@/lib/auth", () => ({ auth: m.auth }))
 vi.mock("next/navigation", () => ({ redirect: m.redirect }))
 vi.mock("@/components/header", () => ({ Header: () => <header>HEADER</header> }))
 vi.mock("../my-profile", () => ({ MyProfile: () => <div>PROFILE</div> }))
+vi.mock("@/components/notifications/notification-settings", () => ({ NotificationSettings: () => <div>NOTIFICATION SETTINGS</div> }))
 
 const { default: MyProfilePage } = await import("../page")
 
@@ -25,6 +26,7 @@ describe("MyProfilePage (server)", () => {
     m.auth.mockResolvedValue({ user: { id: "u1", role: "member" } })
     render(await MyProfilePage())
     expect(screen.getByText("PROFILE")).toBeInTheDocument()
+    expect(screen.getByText("NOTIFICATION SETTINGS")).toBeInTheDocument()
     expect(screen.getByRole("main")).toHaveClass("page-narrow")
   })
 })

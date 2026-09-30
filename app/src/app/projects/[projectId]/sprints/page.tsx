@@ -18,6 +18,7 @@ import type { Sprint, SprintCardActions, SprintItem, StatusDialogState } from ".
 import { useSprintsData } from "./hooks/use-sprints-data"
 import { useSprintActions } from "./hooks/use-sprint-actions"
 import { useTaskActions } from "./hooks/use-task-actions"
+import { useBoardViewState } from "./hooks/use-board-view-state"
 import { needsRetroDialog, statusDialogFor } from "./lib/task-payload"
 import { useProjectDocumentTitle } from "@/components/app-shell/project-title-context"
 import { Archive, Plus, Zap } from "lucide-react"
@@ -45,6 +46,7 @@ export default function SprintsPage() {
   const { sprints, settings, canEditPbi } = data
   const sprintActions = useSprintActions(projectId, data)
   const taskActions = useTaskActions(projectId, data)
+  const boardView = useBoardViewState(data.userId)
 
   const [showForm, setShowForm] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
@@ -103,7 +105,7 @@ export default function SprintsPage() {
       <li key={sprint.id} id={`sprint-card-${sprint.id}`}>
         <SprintCard projectId={projectId} sprint={sprint} events={data.events} pointUnit={pointUnit}
           canEditPbi={canEditPbi} isExpanded={isExpanded(sprint)} onToggleExpand={() => toggleExpanded(sprint)}
-          actions={cardActions} />
+          actions={cardActions} viewState={boardView} members={data.members} currentUserId={data.userId} />
       </li>
     )
   }

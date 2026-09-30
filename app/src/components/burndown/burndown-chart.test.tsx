@@ -62,6 +62,13 @@ describe("BurndownChart", () => {
     expect(screen.queryByRole("button", { name: t.burndownRefresh })).not.toBeInTheDocument()
   })
 
+  it("requests the per-sprint burndown when a sprint is given", async () => {
+    renderWithProviders(<BurndownChart projectId="p1" sprintId="s 2" />)
+    await screen.findByRole("img")
+    const fetchMock = vi.mocked(fetch)
+    expect(String(fetchMock.mock.calls[0][0])).toBe("/api/projects/p1/burndown?sprintId=s%202")
+  })
+
   it("offers a refresh button on the dedicated page", async () => {
     renderWithProviders(<BurndownChart projectId="p1" refreshable />)
     await userEvent.click(await screen.findByRole("button", { name: t.burndownRefresh }))

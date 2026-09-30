@@ -3,19 +3,21 @@
 import { useCallback, useMemo, useState } from "react"
 import { useLanguage } from "@/lib/language-context"
 import { I18nText } from "@/components/i18n-text"
-import { Button, DisclosureChevron, EmptyState } from "@/components/ui"
+import { pickText } from "@/lib/translation/pick-text"
+import { DisclosureChevron } from "@/components/ui"
 import DailyScrumPanel from "./daily-scrum-panel"
 import TaskCompleteDialog from "./task-complete-dialog"
 import SprintEditDialog from "./sprint-edit-dialog"
-import PbiGroup from "./pbi-group"
+import SprintTasksView from "./sprint-tasks-view"
 import SprintCardHeader from "./sprint-card-header"
 import SprintRetroSummary from "./sprint-retro-summary"
 import SprintProgress from "./sprint-progress"
 import { CommentsProvider } from "@/components/comments/comments-provider"
-import { computeSprintMetrics, groupTasksByPb, isRealTask } from "../lib/sprint-metrics"
+import { computeSprintMetrics, isRealTask } from "../lib/sprint-metrics"
 import { dateLocale } from "../lib/locale"
-import type { CalendarEvent, Sprint, SprintCardActions, SprintItem, SprintTaskActions } from "./types"
-import { Calendar, CirclePlus, ClipboardList, MessageSquareText } from "lucide-react"
+import type { BoardViewState } from "../hooks/use-board-view-state"
+import type { CalendarEvent, Member, Sprint, SprintCardActions, SprintItem, SprintTaskActions } from "./types"
+import { Calendar, MessageSquareText } from "lucide-react"
 import { eventColorBg } from "./event-colors"
 
 interface SprintCardProps {
@@ -28,10 +30,14 @@ interface SprintCardProps {
   canEditPbi?: boolean
   pointUnit: string
   actions: SprintCardActions
+  /** List / board view and task filters (URL state, shared by every card). */
+  viewState: BoardViewState
+  members: readonly Member[]
+  currentUserId: string | null
 }
 
 export default function SprintCard({
-  projectId, sprint, events, isExpanded, onToggleExpand, canEditPbi, pointUnit, actions,
+  projectId, sprint, events, isExpanded, onToggleExpand, canEditPbi, pointUnit, actions, viewState, members, currentUserId,
 }: SprintCardProps) {
   const { language, t } = useLanguage()
   // Completing a task opens a dialog for an optional completion comment; the
@@ -45,8 +51,6 @@ export default function SprintCard({
 
   const metrics = computeSprintMetrics(sprint)
   const sprintEvents = events.filter((ev) => ev.sprintId === sprint.id)
-  const pbGroups = groupTasksByPb(sprint.items)
-  const canEditMembership = sprint.status !== "archived" && sprint.status !== "done"
   const locale = dateLocale(language)
   const dailyId = `sprint-daily-${sprint.id}`
   const taskActions: SprintTaskActions = useMemo(() => ({ ...actions, onRequestComplete: setPendingDoneTask }), [actions])
@@ -86,21 +90,11 @@ export default function SprintCard({
               )}
             </div>
 
-            <div className="border-t border-border px-6 py-4 space-y-4 bg-surface-muted">
-              {pbGroups.length === 0 ? (
-                <EmptyState compact headingLevel={4} icon={<ClipboardList className="w-6 h-6" />} title={t.sprintNoTasks}
-                  action={canEditMembership ? (
-                    <Button onClick={() => actions.onAddPbi(sprint.id)} leftIcon={<CirclePlus className="w-4 h-4" />}>
-                      {t.sprintAddPbi}
-                    </Button>
-                  ) : undefined} />
-              ) : pbGroups.map(({ pbItem, tasks }) => (
-                <PbiGroup key={pbItem.id} sprintId={sprint.id} sprintStatus={sprint.status} pbItem={pbItem} tasks={tasks}
-                  pointUnit={pointUnit} canEditPbi={canEditPbi} editingCommentTaskId={editingCommentTaskId}
-                  onOpenCommentEditor={setEditingCommentTaskId} onCloseCommentEditor={closeCommentEditor}
-                  actions={taskActions} />
-              ))}
-            </div>
+            <SprintTasksView sprint={sprint} sprintName={pickText(sprint.i18n, "sprintName", sprint.sprintName, language).text || sprint.sprintName}
+              pointUnit={pointUnit} canEditPbi={canEditPbi} viewState={viewState} members={members}
+              currentUserId={currentUserId} editingCommentTaskId={editingCommentTaskId}
+              onOpenCommentEditor={setEditingCommentTaskId} onCloseCommentEditor={closeCommentEditor}
+              actions={taskActions} onAddPbi={() => actions.onAddPbi(sprint.id)} />
           </div>
         </CommentsProvider>
       )}

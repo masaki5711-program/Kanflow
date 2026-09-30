@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { render, screen } from "@testing-library/react"
+import { render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type { ReactElement } from "react"
 import { LanguageProvider, useLanguage } from "@/lib/language-context"
@@ -159,6 +159,15 @@ describe("DashboardContent", () => {
     expect(screen.getByText("dash-header")).toBeInTheDocument()
     expect(screen.getByText("attachments")).toBeInTheDocument()
     expect(screen.getByText(ja.dashboardNoActiveSprint)).toBeInTheDocument()
+    // Top row: sprint pulse, my tasks, coming up; then the feed and counts.
+    expect(screen.getByRole("heading", { name: ja.dashboardMyTasksTitle })).toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: ja.dashboardDueTitle })).toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: ja.dashboardFeedTitle })).toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: ja.dashboardOverview })).toBeInTheDocument()
+    // The description is reference material: collapsed by default.
+    const details = screen.getByText("Purpose text").closest("details")!
+    expect(details).not.toHaveAttribute("open")
+    expect(within(details).getByText(ja.dashboardProjectDetails)).toBeInTheDocument()
   })
 
   it("shows translated project name in English and read-only progress for developers", () => {

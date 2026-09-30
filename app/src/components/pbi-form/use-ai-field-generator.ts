@@ -4,7 +4,17 @@ import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 
 import { useToast } from "@/components/ui"
 import { emitActivity } from "@/hooks"
 import { useLanguage } from "@/lib/language-context"
-import type { BacklogForm, GeneratedField } from "./types"
+
+/** The PBI field an AI draft can be generated for. */
+export type GeneratedField = "userStory" | "acceptanceCriteria"
+
+/** The text fields the AI reads as context (any PBI form shape that has them). */
+export interface AiSourceFields {
+  initiative: string
+  epic: string
+  userStory: string
+  acceptanceCriteria: string
+}
 
 /**
  * Streams an AI-drafted user story / acceptance criteria into the form.
@@ -12,10 +22,10 @@ import type { BacklogForm, GeneratedField } from "./types"
  * cancel or failure the field is restored to its pre-generation content so
  * no partial output or "[error]" marker can be saved by accident.
  */
-export function useAiFieldGenerator(
+export function useAiFieldGenerator<F extends AiSourceFields>(
   projectId: string,
-  form: BacklogForm,
-  setForm: Dispatch<SetStateAction<BacklogForm>>,
+  form: F,
+  setForm: Dispatch<SetStateAction<F>>,
 ) {
   const { t, language } = useLanguage()
   const toast = useToast()

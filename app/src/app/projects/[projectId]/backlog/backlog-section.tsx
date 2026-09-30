@@ -1,10 +1,11 @@
 "use client"
 
-import { useId } from "react"
+import { Fragment, useId, useMemo, type ReactNode } from "react"
 import { Button, EmptyState, cn } from "@/components/ui"
 import { HelpTooltip } from "@/components/help-tooltip"
 import { useLanguage } from "@/lib/language-context"
-import { BacklogItemCard, type CardActions } from "./backlog-item-card"
+import { BacklogItemCard, type CardActions, type CardPermissions } from "./backlog-item-card"
+import { previewIds, type DragState } from "./reorder"
 import type { BacklogItem, BacklogStatus } from "./types"
 import { Archive, CircleCheck, Clock, Scale } from "lucide-react"
 
@@ -14,22 +15,48 @@ const SECTION_STYLE: Record<BacklogStatus, { Icon: typeof Clock; border: string;
   completed: { Icon: Archive, border: "border-l-slate-400", icon: "text-fg-muted", badge: "bg-surface-sunken text-fg-muted" },
 }
 
-interface Props extends CardActions {
+interface Props extends CardPermissions {
   title: string
   hint: string
   status: BacklogStatus
+  /** Visible items in display order. */
   items: BacklogItem[]
-  canEdit: boolean
+  /** Items in the section before filtering (for the count badge). */
+  totalCount?: number
+  actions: CardActions
+  selectMode: boolean
+  selectedIds: ReadonlySet<string>
+  drag: DragState
   showWorkloadTotal?: boolean
-  /** Empty-state action: open the create form (shown on the Not-Ready section, where new items land). */
+  /** Empty-state action: open the create modal (shown on the Not-Ready section, where new items land). */
   onAdd?: () => void
+  /** Rendered below the list (e.g. "show more"). */
+  footer?: ReactNode
 }
 
-export function BacklogSection({ title, hint, status, items, canEdit, showWorkloadTotal, onAdd, ...actions }: Props) {
+function DropIndicator() {
+  return <li aria-hidden="true" className="h-1 rounded-full bg-primary" data-drop-indicator="" />
+}
+
+export function BacklogSection(props: Props) {
+  const { title, hint, status, items, actions, drag, selectMode, selectedIds, showWorkloadTotal, onAdd } = props
   const { t } = useLanguage()
   const headingId = useId()
   const style = SECTION_STYLE[status]
   const sectionWorkload = items.reduce((sum, i) => sum + i.workloadScore, 0)
+  const session = drag?.section === status ? drag : null
+
+  // Keyboard drags preview the new order live; pointer drags show an insertion line.
+  const ordered = useMemo(() => {
+    if (session?.mode !== "keyboard") return items
+    const byId = new Map(items.map((i) => [i.id, i]))
+    return previewIds(session).flatMap((id) => byId.get(id) ?? [])
+  }, [items, session])
+  const indicator = useMemo(() => {
+    if (session?.mode !== "pointer" || session.to === session.from) return null
+    const others = items.filter((i) => i.id !== session.itemId)
+    return { beforeId: others[session.to]?.id ?? null }
+  }, [items, session])
 
   return (
     <section aria-labelledby={headingId} className="overflow-hidden rounded-ui-lg border border-border bg-surface shadow-ui-sm">
@@ -41,7 +68,7 @@ export function BacklogSection({ title, hint, status, items, canEdit, showWorklo
               {title}
             </h2>
             <span className={cn("rounded-full px-2 py-0.5 text-caption font-medium", style.badge)}>
-              {items.length}
+              {props.totalCount !== undefined && props.totalCount !== items.length ? `${items.length} / ${props.totalCount}` : items.length}
               {t.items}
             </span>
             <HelpTooltip content={hint} ariaLabel={title} side="right" />
@@ -60,7 +87,7 @@ export function BacklogSection({ title, hint, status, items, canEdit, showWorklo
             compact
             title={t.iceboxNoItems}
             action={
-              canEdit && onAdd && status === "not_ready" ? (
+              props.canEdit && onAdd && status === "not_ready" ? (
                 <Button size="sm" variant="secondary" onClick={onAdd}>
                   {t.backlogAddItem}
                 </Button>
@@ -68,20 +95,30 @@ export function BacklogSection({ title, hint, status, items, canEdit, showWorklo
             }
           />
         ) : (
-          <ul className="space-y-2">
-            {items.map((item, index) => (
-              <BacklogItemCard
-                key={item.id}
-                item={item}
-                section={status}
-                canEdit={canEdit}
-                isFirst={index === 0}
-                isLast={index === items.length - 1}
-                {...actions}
-              />
-            ))}
+          <ul className="space-y-2" data-dnd-list={status}>
+            {ordered.map((item) => {
+              const isDragged = session?.itemId === item.id
+              return (
+                <Fragment key={item.id}>
+                  {indicator?.beforeId === item.id && <DropIndicator />}
+                  <BacklogItemCard
+                    item={item}
+                    section={status}
+                    canEdit={props.canEdit}
+                    canReorder={props.canReorder}
+                    canDelete={props.canDelete}
+                    selectMode={selectMode}
+                    isSelected={selectedIds.has(item.id)}
+                    isDragging={isDragged}
+                    {...actions}
+                  />
+                </Fragment>
+              )
+            })}
+            {indicator && indicator.beforeId === null && <DropIndicator />}
           </ul>
         )}
+        {props.footer}
       </div>
     </section>
   )

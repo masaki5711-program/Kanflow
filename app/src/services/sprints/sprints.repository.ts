@@ -118,3 +118,21 @@ export function findBurndownSprints(db: Db, projectId: string) {
     take: LIST_LIMITS.burndownSprints,
   })
 }
+
+/** Sprints selectable in the per-sprint burndown (planning has no burn yet; archived is history). */
+export const BURNDOWN_SELECTABLE_STATUSES = ["active", "review", "done"] as const
+
+/** One sprint of the project with only the task fields the burndown needs. */
+export function findBurndownSprint(db: Db, projectId: string, sprintId: string) {
+  return db.sprint.findFirst({
+    where: { id: sprintId, projectId, status: { in: [...BURNDOWN_SELECTABLE_STATUSES] } },
+    select: {
+      id: true,
+      sprintName: true,
+      status: true,
+      startDate: true,
+      endDate: true,
+      items: { where: LIVE_PBI, select: { taskName: true, status: true, completedAt: true } },
+    },
+  })
+}

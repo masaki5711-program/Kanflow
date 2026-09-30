@@ -119,6 +119,7 @@ toast.success(t.saved)
 toast.error(err.message, { title: t.saveFailed })
 toast.info(t.syncing, { duration: 0 })   // 0 = sticky
 const id = toast.info("…"); toast.dismiss(id)
+toast.success(t.movedToTrash, { action: { label: t.undo, onClick: restore } })  // inline action (Undo); 8s default
 ```
 The region sits at the **top** (top-right below the header on desktop, top edge on mobile) so it never covers modal footers. **F6** moves focus to the newest toast's dismiss button and back (no trap); **Esc** on a focused toast dismisses it (without closing an open modal).
 Use success toasts only for explicit saves/creates/deletes — not for inline edits, autosave, drag & drop or toggles whose result is already visible in place.

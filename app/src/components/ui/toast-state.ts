@@ -1,10 +1,17 @@
 export type ToastKind = "success" | "error" | "info"
 
+/** Optional inline action of a toast (e.g. "Undo"). Runs once, then the toast closes. */
+export interface ToastActionButton {
+  label: string
+  onClick: () => void
+}
+
 export interface ToastItem {
   id: number
   kind: ToastKind
   message: string
   title?: string
+  action?: ToastActionButton
   /** Auto-dismiss delay in ms; 0 keeps the toast until dismissed. */
   duration: number
 }
@@ -17,6 +24,9 @@ export const DEFAULT_DURATION: Record<ToastKind, number> = {
   // Errors stay longer so they can actually be read.
   error: 8000,
 }
+
+/** Default delay of a toast that offers an action: long enough to reach the button. */
+export const ACTION_DURATION = 8000
 
 export type ToastAction =
   | { type: "add"; toast: ToastItem; max?: number }

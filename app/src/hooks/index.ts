@@ -18,3 +18,4 @@ export {
   withVersion,
   type VersionConflict,
 } from "./version-conflict"
+export { useShortcuts, projectGoHref, isTypingTarget, isModalOpen, GO_KEYS, type GoKey, type UseShortcutsOptions } from "./use-shortcuts"

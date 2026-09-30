@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth"
 import { redirect } from "next/navigation"
 import { Header } from "@/components/header"
 import { MyProfile } from "./my-profile"
+import { NotificationSettings } from "@/components/notifications/notification-settings"
 import { buildPageMetadata } from "@/app/page-metadata"
 
 export function generateMetadata() {
@@ -17,6 +18,9 @@ export default async function MyProfilePage() {
       <Header />
       <main id="main-content" className="page-narrow">
         <MyProfile />
+        <div className="mt-6">
+          <NotificationSettings />
+        </div>
       </main>
     </div>
   )

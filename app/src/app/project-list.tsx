@@ -1,10 +1,11 @@
 "use client"
 
 import { useMemo, useRef, useState, type MouseEvent } from "react"
-import { ChevronRight, Plus } from "lucide-react"
-import { Button, cn } from "@/components/ui"
-import { useStableHandlers } from "@/hooks"
+import { Plus } from "lucide-react"
+import { Button } from "@/components/ui"
+import { useApiQuery, useStableHandlers } from "@/hooks"
 import { useLanguage } from "@/lib/language-context"
+import { ARCHIVED_PROJECTS_URL, ArchivedSection, type ArchivedProjectsResponse } from "./_project-list/archived-section"
 import { filterAndSortProjects } from "./_project-list/filter-projects"
 import { ProjectCard, ProjectRow } from "./_project-list/project-card"
 import { ProjectCreateModal } from "./_project-list/project-create-modal"
@@ -21,12 +22,13 @@ const NO_BADGES: Category[] = []
 
 interface Props {
   activeProjects: Project[]
-  archivedProjects: Project[]
+  /** Archived projects are fetched when the section is first expanded. */
+  archivedCount: number
   categories: Category[]
   isAdmin: boolean
 }
 
-export function ProjectList({ activeProjects, archivedProjects, categories }: Props) {
+export function ProjectList({ activeProjects, archivedCount, categories }: Props) {
   const { t, language } = useLanguage()
   const prefs = useProjectListPrefs()
   const actions = useProjectActions(categories)
@@ -35,6 +37,10 @@ export function ProjectList({ activeProjects, archivedProjects, categories }: Pr
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all")
   const [searchQuery, setSearchQuery] = useState("")
   const [showArchived, setShowArchived] = useState(false)
+  // Latches on the first expand so collapsing again keeps the loaded list.
+  const [archivedRequested, setArchivedRequested] = useState(false)
+  const archived = useApiQuery<ArchivedProjectsResponse>(archivedRequested ? ARCHIVED_PROJECTS_URL : null)
+  const archivedProjects = archived.data?.items
   const [menu, setMenu] = useState<MenuAnchor | null>(null)
   const menuTriggerRef = useRef<HTMLElement | null>(null)
 
@@ -117,7 +123,7 @@ export function ProjectList({ activeProjects, archivedProjects, categories }: Pr
   }
 
   const menuProject = menu
-    ? (activeProjects.find((p) => p.id === menu.projectId) ?? archivedProjects.find((p) => p.id === menu.projectId))
+    ? (activeProjects.find((p) => p.id === menu.projectId) ?? archivedProjects?.find((p) => p.id === menu.projectId))
     : undefined
 
   const createButton = (
@@ -166,29 +172,19 @@ export function ProjectList({ activeProjects, archivedProjects, categories }: Pr
         />
       )}
 
-      {archivedProjects.length > 0 && (
-        <section className="mt-8 border-t border-border pt-6" aria-label={t.projectArchivedSection}>
-          <button
-            type="button"
-            onClick={() => setShowArchived((v) => !v)}
-            aria-expanded={showArchived}
-            aria-controls="archived-projects"
-            className="flex items-center gap-2 rounded-md text-body text-fg-muted transition-colors hover:text-fg"
-          >
-            <ChevronRight aria-hidden="true" className={cn("h-4 w-4 transition-transform", showArchived && "rotate-90")} />
-            {t.sprintStatusArchived} ({archivedProjects.length})
-          </button>
-          {showArchived && (
-            <div id="archived-projects" className="mt-4 grid gap-4">
-              {archivedProjects.map((project) => (
-                <div key={project.id} className="opacity-70">
-                  {renderItem(project, false)}
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-      )}
+      <ArchivedSection
+        count={archivedCount}
+        expanded={showArchived}
+        onToggle={() => {
+          setArchivedRequested(true)
+          setShowArchived((v) => !v)
+        }}
+        projects={archivedProjects}
+        isLoading={archived.isLoading}
+        error={archived.error}
+        onRetry={archived.refetch}
+        renderItem={(project) => renderItem(project, false)}
+      />
 
       {menu && (
         <ProjectOptionsMenu

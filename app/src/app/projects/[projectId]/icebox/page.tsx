@@ -4,7 +4,7 @@ import { useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import MediaPreviewModal, { type MediaItem } from "@/components/media-preview-modal"
 import { PbiDraftPickerModal, type PbiDraft } from "@/components/pbi-draft-picker-modal"
-import { Button, EmptyState, Input, SkeletonCard, useConfirm, PageHeader } from "@/components/ui"
+import { Button, EmptyState, Input, SkeletonCard, useConfirm, useToast, PageHeader } from "@/components/ui"
 import { apiFetch, conflictAwareToast, useApiMutation, useApiQuery, versionConflictOf, versionParam, withVersion } from "@/hooks"
 import { useLanguage } from "@/lib/language-context"
 import { IceboxCreateForm } from "./icebox-create-form"
@@ -34,6 +34,7 @@ export default function IceboxPage() {
   const { t, pt } = useLanguage()
   useProjectDocumentTitle(pt.iceboxTitle)
   const confirm = useConfirm()
+  const toast = useToast()
 
   const url = `/api/projects/${projectId}/icebox`
   const query = useApiQuery<IceboxLists>(url, { toastOnError: (e) => `${t.iceboxLoadFailed}: ${e.message}` })
@@ -88,9 +89,23 @@ export default function IceboxPage() {
     onError: (e) => {
       if (versionConflictOf(e)) refetch()
     },
+    // Moved to the trash: the toast offers an immediate undo (trash restore).
+    onSuccess: (_result, item) => {
+      toast.success(t.iceboxDeleted, { action: { label: t.iceboxUndo, onClick: () => void undoDelete(item) } })
+    },
     toastOnError: conflictAwareToast((e) => `${t.iceboxDeleteFailed}: ${e.message}`),
-    toastOnSuccess: t.iceboxDeleted,
   })
+
+  async function undoDelete(item: IceboxItem) {
+    try {
+      await apiFetch(`/api/projects/${projectId}/trash/icebox_item/${item.id}/restore`, { method: "POST" })
+      toast.success(t.trashRestored)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err), { title: t.trashRestoreFailed })
+    } finally {
+      refetch()
+    }
+  }
 
   async function handleDelete(item: IceboxItem) {
     const ok = await confirm({ message: t.iceboxDeleteConfirm, confirmLabel: t.trashMoveToTrash, cancelLabel: t.cancel, variant: "danger" })

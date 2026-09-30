@@ -1,25 +1,32 @@
 "use client"
 
-import { useState } from "react"
+import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react"
 import { useLanguage } from "@/lib/language-context"
 import { AIResultModal } from "@/components/ai-result-modal"
 import { PbiDetailTabs } from "@/components/pbi-detail-tabs"
-import { GlossaryHint, I18nText, useI18nText } from "@/components/i18n-text"
-import { Badge, Button, EmptyState, Field, Input, Modal, Select, SkeletonLines, Textarea, useModalClose, type BadgeTone } from "@/components/ui"
+import { useI18nText } from "@/components/i18n-text"
+import { Badge, Button, EmptyState, Modal, SkeletonLines, useConfirm, useModalClose, useUiLabels, type BadgeTone } from "@/components/ui"
 import { apiFetch, conflictAwareToast, useApiMutation, useApiQuery, useUnsavedChangesGuard, versionConflictOf, withVersion } from "@/hooks"
-import type { EntityI18n } from "@/lib/translation/types"
-import type { BacklogItemDetailDto } from "@/types/api"
-
-type PbiDetail = Omit<BacklogItemDetailDto, "iceboxItemId" | "productGoalId">
+import { PbiEditFields } from "@/components/pbi-form/pbi-edit-fields"
+import { EMPTY_PBI_FORM, buildPbiPatch, isSamePbiForm, toPbiForm, type PbiForm } from "@/components/pbi-form/pbi-form-state"
+import { PbiReadBody, type PbiDetail } from "@/components/pbi-form/pbi-read-body"
+import { useAiFieldGenerator } from "@/components/pbi-form/use-ai-field-generator"
+import { pbiDeepLink, useCopyLink } from "@/components/pbi-form/use-copy-link"
+import { usePbiFormOptions, type PbiFormOptions } from "@/components/pbi-form/use-pbi-form-options"
+import { Link2, Pencil } from "lucide-react"
 
 interface Props {
   projectId: string
   pbiId: string
   onClose: () => void
-  /** When true and the viewer has rights, fields become editable. */
+  /** When true (viewer is PO/SM/admin — the API rejects others), the read view offers "Edit". */
   editable?: boolean
   /** Called after a successful save so the caller can refresh its data. */
   onSaved?: () => void
+  /** Start in edit mode (e.g. the card's pencil). Ignored unless `editable`. Default: read. */
+  initialMode?: "read" | "edit"
+  /** Form choices the caller already holds (else they are fetched when editing starts). */
+  formOptions?: PbiFormOptions
 }
 
 const STATUS_TONE: Record<string, BadgeTone> = {
@@ -28,105 +35,66 @@ const STATUS_TONE: Record<string, BadgeTone> = {
   completed: "success",
 }
 
-interface PbiForm {
-  initiative: string
-  epic: string
-  userStory: string
-  acceptanceCriteria: string
-  workloadScore: string
-  assignedPo: string
-  status: string
-  poNote: string
-  notReadyReason: string
-  referenceDoc: string
-}
+type T = ReturnType<typeof useLanguage>["t"]
 
-function toFormState(p: PbiDetail): PbiForm {
-  return {
-    initiative: p.initiative ?? "",
-    epic: p.epic ?? "",
-    userStory: p.userStory ?? "",
-    acceptanceCriteria: p.acceptanceCriteria ?? "",
-    workloadScore: p.workloadScore != null ? String(p.workloadScore) : "",
-    assignedPo: p.assignedPo ?? "",
-    status: p.status,
-    poNote: p.poNote ?? "",
-    notReadyReason: p.notReadyReason ?? "",
-    referenceDoc: p.referenceDoc ?? "",
-  }
-}
-
-/** Only the fields that differ from the loaded PBI (empty strings become null). */
-function buildPatch(item: PbiDetail, form: PbiForm): Record<string, unknown> {
-  const patch: Record<string, unknown> = {}
-  const text: (keyof PbiForm & keyof PbiDetail)[] = [
-    "initiative", "epic", "userStory", "acceptanceCriteria", "assignedPo", "poNote", "notReadyReason", "referenceDoc",
-  ]
-  for (const key of text) {
-    if (form[key] !== ((item[key] as string | null) ?? "")) patch[key] = form[key] || null
-  }
-  const ws = form.workloadScore.trim() === "" ? null : parseInt(form.workloadScore, 10)
-  if (ws !== item.workloadScore) patch.workloadScore = ws
-  if (form.status !== item.status) patch.status = form.status
-  return patch
-}
-
-function isSameForm(a: PbiForm, b: PbiForm): boolean {
-  return (Object.keys(a) as (keyof PbiForm)[]).every((k) => a[k] === b[k])
+function statusLabel(status: string, t: T): string {
+  if (status === "ready") return t.backlogStatusReady
+  if (status === "not_ready") return t.backlogStatusNotReady
+  if (status === "completed") return t.backlogStatusCompleted
+  return status
 }
 
 /**
- * Centered modal showing the full details of a Product Backlog Item. When
- * `editable=true` and the viewer is a PO/SM/admin (the underlying API will
- * reject otherwise), every field becomes editable and the footer gains a
- * Save button; closing with unsaved edits asks first.
+ * The one place a PBI is viewed and edited. Opens read-only (Details /
+ * Comments / History tabs); "Edit" switches the Details tab to the form.
+ * Leaving edit mode, closing, or navigating away with unsaved changes asks
+ * first. Saves send the loaded version; a 409 loads the other user's version.
  */
-export default function PbiDetailModal({ projectId, pbiId, onClose, editable, onSaved }: Props) {
+export default function PbiDetailModal({ projectId, pbiId, onClose, editable, onSaved, initialMode, formOptions }: Props) {
   const { t, language } = useLanguage()
   const url = `/api/projects/${projectId}/backlog/${pbiId}`
   const { data: item, error, isLoading, refetch } = useApiQuery<PbiDetail>(url)
   const [showInvest, setShowInvest] = useState(false)
-  // Edits are stored against the PBI they were made for, so a late response
-  // for another PBI can never be mixed with them.
-  const [draft, setDraft] = useState<{ id: string; form: PbiForm } | null>(null)
-  const baseline = item ? toFormState(item) : null
-  const form = draft && item && draft.id === item.id ? draft.form : baseline
-  const isEditing = !!editable && !!form && !!item
-  const isDirty = isEditing && !!baseline && !!form && !isSameForm(form, baseline)
+  const [mode, setMode] = useState<"read" | "edit">(initialMode === "edit" ? "edit" : "read")
+  const isEditing = !!editable && mode === "edit" && !!item
+  const edit = usePbiEditState(item)
+  const form = edit.form
+  const isDirty = isEditing && !!form && edit.isDirty
   useUnsavedChangesGuard(isDirty)
+  const options = usePbiFormOptions(projectId, isEditing, formOptions)
+  const ai = useAiFieldGenerator(projectId, form ?? EMPTY_PBI_FORM, edit.setForm)
+  const copyLink = useCopyLink()
 
   const headInitiative = useI18nText(item?.i18n, "initiative", item?.initiative)
   const headUserStory = useI18nText(item?.i18n, "userStory", item?.userStory)
   const headGoal = useI18nText(item?.productGoal?.i18n, "title", item?.productGoal?.title)
 
-  const save = useApiMutation(
-    (patch: Record<string, unknown>) => apiFetch(url, { method: "PATCH", json: patch }),
-    {
-      onSuccess: () => {
-        onSaved?.()
-        onClose()
-      },
-      // Someone else saved the PBI first: drop the local edits and load theirs.
-      onError: (e) => {
-        if (!versionConflictOf(e)) return
-        setDraft(null)
-        refetch()
-      },
-      toastOnError: conflictAwareToast((e) => `${t.backlogSaveFailed}: ${e.message}`),
-      toastOnSuccess: t.backlogSaved,
+  const save = useApiMutation((patch: Record<string, unknown>) => apiFetch(url, { method: "PATCH", json: patch }), {
+    onSuccess: () => {
+      onSaved?.()
+      edit.reset()
+      setMode("read")
+      refetch()
     },
-  )
-
-  function setForm(next: PbiForm) {
-    if (item) setDraft({ id: item.id, form: next })
-  }
+    // Someone else saved the PBI first: drop the local edits and load theirs.
+    onError: (e) => {
+      if (!versionConflictOf(e)) return
+      edit.reset()
+      refetch()
+    },
+    toastOnError: conflictAwareToast((e) => `${t.backlogSaveFailed}: ${e.message}`),
+    toastOnSuccess: t.backlogSaved,
+  })
 
   function handleSave() {
-    if (!item || !form || save.isPending) return
-    const patch = buildPatch(item, form)
+    // Never save while an AI stream is still writing into the form.
+    if (!item || !form || save.isPending || ai.generating) return
+    const patch = buildPbiPatch(item, form)
     // Raw text is saved as typed; the background worker translates it.
-    if (Object.keys(patch).length === 0) onClose()
-    else void save.mutate(withVersion(patch, item.version))
+    if (Object.keys(patch).length === 0) {
+      edit.reset()
+      setMode("read")
+    } else void save.mutate(withVersion(patch, item.version))
   }
 
   const title = headInitiative.text || headUserStory.text || t.backlogDetailTitle
@@ -155,9 +123,18 @@ export default function PbiDetailModal({ projectId, pbiId, onClose, editable, on
         footer={
           <Footer
             isEditing={isEditing}
+            canEdit={!!editable && !!item}
+            isDirty={isDirty}
             canInvest={!!item}
             saving={save.isPending}
+            generating={ai.generating !== null}
             onInvest={() => setShowInvest(true)}
+            onCopyLink={() => item && void copyLink(pbiDeepLink(window.location.origin, projectId, item.displayId))}
+            onEdit={() => setMode("edit")}
+            onCancelEdit={() => {
+              edit.reset()
+              setMode("read")
+            }}
             onSave={handleSave}
           />
         }
@@ -175,172 +152,114 @@ export default function PbiDetailModal({ projectId, pbiId, onClose, editable, on
           <PbiDetailTabs
             projectId={projectId}
             pbiId={item.id}
-            details={isEditing && form ? <EditBody form={form} setForm={setForm} /> : <ReadBody item={item} />}
+            details={
+              isEditing && form ? (
+                <PbiEditFields
+                  form={form}
+                  setForm={edit.setForm}
+                  options={options}
+                  selfId={item.id}
+                  disabled={save.isPending}
+                  generating={ai.generating}
+                  onGenerate={ai.generate}
+                />
+              ) : (
+                <PbiReadBody item={item} />
+              )
+            }
           />
         )}
       </Modal>
       {showInvest && item && (
-        <AIResultModal
-          title={t.aiInvestTitle}
-          fetchUrl={`${url}/ai/invest-review`}
-          fetchBody={{ lang: language }}
-          onClose={() => setShowInvest(false)}
-        />
+        <AIResultModal title={t.aiInvestTitle} fetchUrl={`${url}/ai/invest-review`} fetchBody={{ lang: language }} onClose={() => setShowInvest(false)} />
       )}
     </>
   )
 }
 
-type T = ReturnType<typeof useLanguage>["t"]
-
-function statusLabel(status: string, t: T): string {
-  if (status === "ready") return t.backlogStatusReady
-  if (status === "not_ready") return t.backlogStatusNotReady
-  if (status === "completed") return t.backlogStatusCompleted
-  return status
+/**
+ * Edit draft of the loaded PBI. The draft is stored against the PBI id it was
+ * made for, so a late response for another PBI can never be mixed with it;
+ * until the first edit the form mirrors the loaded row.
+ */
+function usePbiEditState(item: PbiDetail | null | undefined) {
+  const [draft, setDraft] = useState<{ id: string; form: PbiForm } | null>(null)
+  const itemRef = useRef(item)
+  useEffect(() => {
+    itemRef.current = item
+  })
+  const baseline = item ? toPbiForm(item) : null
+  const form = draft && item && draft.id === item.id ? draft.form : baseline
+  const setForm: Dispatch<SetStateAction<PbiForm>> = useCallback((update) => {
+    setDraft((prev) => {
+      const current = itemRef.current
+      if (!current) return prev
+      const base = prev && prev.id === current.id ? prev.form : toPbiForm(current)
+      return { id: current.id, form: typeof update === "function" ? update(base) : update }
+    })
+  }, [])
+  const reset = useCallback(() => setDraft(null), [])
+  return { form, setForm, reset, isDirty: !!form && !!baseline && !isSamePbiForm(form, baseline) }
 }
 
 interface FooterProps {
   isEditing: boolean
+  canEdit: boolean
+  isDirty: boolean
   canInvest: boolean
   saving: boolean
+  generating: boolean
   onInvest: () => void
+  onCopyLink: () => void
+  onEdit: () => void
+  onCancelEdit: () => void
   onSave: () => void
 }
 
-function Footer({ isEditing, canInvest, saving, onInvest, onSave }: FooterProps) {
+function Footer(props: FooterProps) {
   const { t } = useLanguage()
+  const ui = useUiLabels()
   const close = useModalClose()
+  const confirm = useConfirm()
+
+  // Cancel returns to the read view (not closing the modal); unsaved edits ask first.
+  async function cancelEdit() {
+    if (props.isDirty) {
+      const ok = await confirm({ title: ui.unsavedTitle, message: ui.unsavedMessage, confirmLabel: ui.discard, cancelLabel: t.cancel, variant: "warning" })
+      if (!ok) return
+    }
+    props.onCancelEdit()
+  }
+
   return (
     <>
-      <Button variant="secondary" onClick={onInvest} disabled={!canInvest} className="mr-auto" leftIcon={<span aria-hidden="true">🤖</span>}>
+      <Button variant="secondary" onClick={props.onInvest} disabled={!props.canInvest} className="mr-auto" leftIcon={<span aria-hidden="true">🤖</span>}>
         {t.aiInvestReview}
       </Button>
-      <Button variant="secondary" onClick={close}>
-        {isEditing ? t.cancel : t.close}
-      </Button>
-      {isEditing && (
-        <Button onClick={onSave} loading={saving}>
-          {t.update}
-        </Button>
+      {props.isEditing ? (
+        <>
+          <Button variant="secondary" onClick={() => void cancelEdit()}>
+            {t.cancel}
+          </Button>
+          <Button onClick={props.onSave} loading={props.saving} disabled={props.generating}>
+            {t.update}
+          </Button>
+        </>
+      ) : (
+        <>
+          <Button variant="ghost" onClick={props.onCopyLink} disabled={!props.canInvest} leftIcon={<Link2 className="h-4 w-4" />}>
+            {t.backlogCopyLink}
+          </Button>
+          <Button variant="secondary" onClick={close}>
+            {t.close}
+          </Button>
+          {props.canEdit && (
+            <Button onClick={props.onEdit} leftIcon={<Pencil className="h-4 w-4" />}>
+              {t.edit}
+            </Button>
+          )}
+        </>
       )}
     </>
-  )
-}
-
-function EditBody({ form, setForm }: { form: PbiForm; setForm: (f: PbiForm) => void }) {
-  const { t, pt } = useLanguage()
-  const set = <K extends keyof PbiForm>(key: K) => (e: { target: { value: string } }) => setForm({ ...form, [key]: e.target.value })
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <Field label={pt.backlogInitiative}>
-          <Input value={form.initiative} onChange={set("initiative")} />
-        </Field>
-        <Field label={pt.backlogEpic}>
-          <Input value={form.epic} onChange={set("epic")} />
-        </Field>
-      </div>
-      <Field label={pt.backlogUserStory}>
-        <Textarea value={form.userStory} onChange={set("userStory")} rows={5} className="resize-y" />
-      </Field>
-      <GlossaryHint />
-      <Field label={pt.backlogAcceptanceCriteria}>
-        <Textarea
-          value={form.acceptanceCriteria}
-          onChange={set("acceptanceCriteria")}
-          rows={7}
-          placeholder={t.backlogAcceptanceCriteriaPlaceholder}
-          className="min-h-[160px] resize-y"
-        />
-      </Field>
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <Field label={pt.backlogWorkloadScore}>
-          <Input type="number" min={0} step={1} value={form.workloadScore} onChange={set("workloadScore")} />
-        </Field>
-        <Field label={pt.rolePO}>
-          <Input value={form.assignedPo} onChange={set("assignedPo")} />
-        </Field>
-        <Field label={t.sprintStatus}>
-          <Select value={form.status} onChange={set("status")}>
-            <option value="not_ready">{t.backlogStatusNotReady}</option>
-            <option value="ready">{t.backlogStatusReady}</option>
-            <option value="completed">{t.backlogStatusCompleted}</option>
-          </Select>
-        </Field>
-      </div>
-      <Field label={t.backlogPoNote}>
-        <Textarea value={form.poNote} onChange={set("poNote")} rows={2} />
-      </Field>
-      {form.status === "not_ready" && (
-        <Field label={t.backlogNotReadyReason}>
-          <Textarea value={form.notReadyReason} onChange={set("notReadyReason")} rows={2} />
-        </Field>
-      )}
-      <Field label={t.backlogReferenceDoc}>
-        <Textarea value={form.referenceDoc} onChange={set("referenceDoc")} rows={2} />
-      </Field>
-    </div>
-  )
-}
-
-function ReadBody({ item }: { item: PbiDetail }) {
-  const { t, pt } = useLanguage()
-  const headIcebox = useI18nText(item.iceboxItem?.i18n, "request", item.iceboxItem?.request)
-  return (
-    <div className="space-y-5">
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <ReadField label={pt.backlogInitiative} value={item.initiative} i18n={item.i18n} field="initiative" entityId={item.id} />
-        <ReadField label={pt.backlogEpic} value={item.epic} i18n={item.i18n} field="epic" entityId={item.id} />
-      </div>
-      <ReadField label={pt.backlogUserStory} value={item.userStory} multiline i18n={item.i18n} field="userStory" entityId={item.id} />
-      <ReadField label={pt.backlogAcceptanceCriteria} value={item.acceptanceCriteria} multiline i18n={item.i18n} field="acceptanceCriteria" entityId={item.id} />
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <ReadField label={pt.backlogWorkloadScore} value={item.workloadScore != null ? String(item.workloadScore) : null} />
-        <ReadField label={pt.rolePO} value={item.assignedPo} />
-        {item.iceboxItem && <ReadField label={pt.iceboxTitle} value={`#${item.iceboxItem.displayId} ${headIcebox.text}`} />}
-      </div>
-      <ReadField label={t.backlogPoNote} value={item.poNote} multiline i18n={item.i18n} field="poNote" entityId={item.id} />
-      {item.status === "not_ready" && item.notReadyReason && (
-        <ReadField label={t.backlogNotReadyReason} value={item.notReadyReason} multiline i18n={item.i18n} field="notReadyReason" entityId={item.id} />
-      )}
-      <ReadField label={t.backlogReferenceDoc} value={item.referenceDoc} multiline />
-    </div>
-  )
-}
-
-interface ReadFieldProps {
-  label: string
-  value: string | null
-  multiline?: boolean
-  /** When given, the viewer-locale side is shown (with a pending badge until translated). */
-  i18n?: EntityI18n
-  field?: string
-  entityId?: string
-}
-
-function ReadField({ label, value, multiline, i18n, field, entityId }: ReadFieldProps) {
-  const hasValue = !!(value && value.trim())
-  const cls = `text-body text-fg ${multiline ? "whitespace-pre-wrap leading-relaxed" : ""} bg-surface-muted rounded-ui-md px-3 py-2 min-h-[38px] break-words`
-  return (
-    <div>
-      <p className="mb-1 text-caption font-medium text-fg-muted">{label}</p>
-      <div>
-        {!hasValue ? (
-          <p className="min-h-[38px] rounded-ui-md bg-surface-muted px-3 py-2 text-body text-fg-subtle">—</p>
-        ) : field ? (
-          <I18nText
-            as="p"
-            i18n={i18n}
-            field={field}
-            original={value}
-            entity={entityId ? { type: "backlog_item", id: entityId } : undefined}
-            className={cls}
-          />
-        ) : (
-          <p className={cls}>{value}</p>
-        )}
-      </div>
-    </div>
   )
 }

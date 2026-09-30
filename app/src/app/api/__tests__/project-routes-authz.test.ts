@@ -79,6 +79,7 @@ vi.mock("@/lib/logger", () => ({ logger: h.noopLog }))
 // Services
 vi.mock("@/services/projects/projects.service", () => h.inertModule("projects.service"))
 vi.mock("@/services/backlog/backlog.service", () => h.inertModule("backlog.service"))
+vi.mock("@/services/backlog/backlog.bulk", () => h.inertModule("backlog.bulk"))
 vi.mock("@/services/sprints/sprints.service", () => h.inertModule("sprints.service"))
 vi.mock("@/services/sprint-backlog/sprint-backlog.service", () => h.inertModule("sprint-backlog.service"))
 vi.mock("@/services/releases/releases.service", () => h.inertModule("releases.service"))
@@ -132,6 +133,7 @@ const ROUTES: RouteCase[] = [
   { file: "attachments/[attachmentId]/editor-config/route.ts", load: () => import("@/app/api/projects/[projectId]/attachments/[attachmentId]/editor-config/route"), params: { attachmentId: "att-1" } },
   { file: "backlog/route.ts", load: () => import("@/app/api/projects/[projectId]/backlog/route"), params: {} },
   { file: "backlog/reorder/route.ts", load: () => import("@/app/api/projects/[projectId]/backlog/reorder/route"), params: {} },
+  { file: "backlog/bulk/route.ts", load: () => import("@/app/api/projects/[projectId]/backlog/bulk/route"), params: {} },
   { file: "backlog/[itemId]/route.ts", load: () => import("@/app/api/projects/[projectId]/backlog/[itemId]/route"), params: { itemId: "pbi-1" } },
   { file: "backlog/[itemId]/ai/invest-review/route.ts", load: () => import("@/app/api/projects/[projectId]/backlog/[itemId]/ai/invest-review/route"), params: { itemId: "pbi-1" } },
   { file: "burndown/route.ts", load: () => import("@/app/api/projects/[projectId]/burndown/route"), params: {} },
@@ -167,6 +169,7 @@ const ROUTES: RouteCase[] = [
   { file: "trash/route.ts", load: () => import("@/app/api/projects/[projectId]/trash/route"), params: {} },
   { file: "trash/[entityType]/[id]/route.ts", load: () => import("@/app/api/projects/[projectId]/trash/[entityType]/[id]/route"), params: { entityType: "backlog_item", id: "pbi-1" } },
   { file: "trash/[entityType]/[id]/restore/route.ts", load: () => import("@/app/api/projects/[projectId]/trash/[entityType]/[id]/restore/route"), params: { entityType: "backlog_item", id: "pbi-1" } },
+  { file: "velocity/route.ts", load: () => import("@/app/api/projects/[projectId]/velocity/route"), params: {} },
 ]
 
 const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const

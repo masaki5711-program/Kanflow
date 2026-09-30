@@ -159,6 +159,43 @@ describe("IceboxPage", () => {
     expect(screen.queryByText("Dark mode please")).not.toBeInTheDocument()
   })
 
+  it("offers an undo toast that restores the trashed item", async () => {
+    const fetchMock = setup()
+    const restore = vi.fn(() => jsonResponse({ ok: true }))
+    const base = fetchMock.getMockImplementation()!
+    fetchMock.mockImplementation(async (input, init) =>
+      String(input) === "/api/projects/p1/trash/icebox_item/u1/restore" && init?.method === "POST" ? restore() : base(input, init),
+    )
+    renderPage()
+    await screen.findByText("Dark mode please")
+    await userEvent.click(within(section(t.iceboxStatusUnreviewed)).getByRole("button", { name: t.delete }))
+    await userEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: t.trashMoveToTrash }))
+    await screen.findByText(t.iceboxDeleted)
+    const getsBefore = fetchMock.mock.calls.filter(([u, i]) => u === URL_BASE && (i?.method ?? "GET") === "GET").length
+    await userEvent.click(screen.getByRole("button", { name: t.iceboxUndo }))
+    await waitFor(() => expect(restore).toHaveBeenCalledTimes(1))
+    expect(await screen.findByText(t.trashRestored)).toBeInTheDocument()
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.filter(([u, i]) => u === URL_BASE && (i?.method ?? "GET") === "GET").length).toBeGreaterThan(getsBefore),
+    )
+    expect(screen.queryByRole("button", { name: t.iceboxUndo })).not.toBeInTheDocument()
+  })
+
+  it("reports a failed undo", async () => {
+    const fetchMock = setup()
+    const base = fetchMock.getMockImplementation()!
+    fetchMock.mockImplementation(async (input, init) =>
+      String(input).endsWith("/restore") ? jsonResponse({ error: "forbidden" }, 403) : base(input, init),
+    )
+    renderPage()
+    await screen.findByText("Dark mode please")
+    await userEvent.click(within(section(t.iceboxStatusUnreviewed)).getByRole("button", { name: t.delete }))
+    await userEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: t.trashMoveToTrash }))
+    await userEvent.click(await screen.findByRole("button", { name: t.iceboxUndo }))
+    expect(await screen.findByText("forbidden")).toBeInTheDocument()
+    expect(screen.getByText(t.trashRestoreFailed)).toBeInTheDocument()
+  })
+
   it("restores the item when delete fails", async () => {
     setup({ deleteStatus: 409 })
     renderPage()

@@ -36,8 +36,6 @@ export interface BacklogTranslations {
   backlogIceboxReuseAnyway: string
   backlogSectionReadyTitle: string
   backlogSectionNotReadyTitle: string
-  backlogMoveUp: string
-  backlogMoveDown: string
   backlogMovedAnnounce: string
   backlogReorderFailed: string
   backlogStatusChangeFailed: string
@@ -45,7 +43,6 @@ export interface BacklogTranslations {
   backlogSaved: string
   backlogDeleteConfirm: string
   backlogDeleteFailed: string
-  backlogDeleted: string
   backlogLoadFailed: string
   backlogRoleLoadFailed: string
   backlogRetry: string
@@ -102,8 +99,6 @@ export const ja: BacklogTranslations = {
   backlogIceboxReuseAnyway: "それでも使用する",
   backlogSectionReadyTitle: "Ready（着手可能）",
   backlogSectionNotReadyTitle: "Not Ready（未準備）",
-  backlogMoveUp: "#{id} を上へ移動",
-  backlogMoveDown: "#{id} を下へ移動",
   backlogMovedAnnounce: "#{id} を {pos} 番目に移動しました",
   backlogReorderFailed: "並び替えを保存できませんでした。元の順序に戻しました。",
   backlogStatusChangeFailed: "ステータスを変更できませんでした",
@@ -111,7 +106,6 @@ export const ja: BacklogTranslations = {
   backlogSaved: "PBI を保存しました",
   backlogDeleteConfirm: "この PBI をゴミ箱に移動しますか？ゴミ箱から復元できます。",
   backlogDeleteFailed: "PBI を削除できませんでした",
-  backlogDeleted: "PBI を削除しました",
   backlogLoadFailed: "プロダクトバックログを読み込めませんでした",
   backlogRoleLoadFailed: "あなたの権限を確認できなかったため、編集操作を一時的に無効にしています。",
   backlogRetry: "再試行",
@@ -168,8 +162,6 @@ export const en: BacklogTranslations = {
   backlogIceboxReuseAnyway: "Use anyway",
   backlogSectionReadyTitle: "Ready",
   backlogSectionNotReadyTitle: "Not Ready",
-  backlogMoveUp: "Move #{id} up",
-  backlogMoveDown: "Move #{id} down",
   backlogMovedAnnounce: "Moved #{id} to position {pos}",
   backlogReorderFailed: "Could not save the new order. The previous order was restored.",
   backlogStatusChangeFailed: "Could not change the status",
@@ -177,7 +169,6 @@ export const en: BacklogTranslations = {
   backlogSaved: "PBI saved",
   backlogDeleteConfirm: "Move this PBI to the trash? You can restore it from the trash.",
   backlogDeleteFailed: "Could not delete the PBI",
-  backlogDeleted: "PBI deleted",
   backlogLoadFailed: "Could not load the product backlog",
   backlogRoleLoadFailed: "Your permissions could not be verified, so editing is temporarily disabled.",
   backlogRetry: "Retry",
@@ -234,8 +225,6 @@ export const id: BacklogTranslations = {
   backlogIceboxReuseAnyway: "Tetap gunakan",
   backlogSectionReadyTitle: "Ready (Siap)",
   backlogSectionNotReadyTitle: "Not Ready (Belum Siap)",
-  backlogMoveUp: "Pindahkan #{id} ke atas",
-  backlogMoveDown: "Pindahkan #{id} ke bawah",
   backlogMovedAnnounce: "#{id} dipindahkan ke posisi {pos}",
   backlogReorderFailed: "Urutan baru tidak dapat disimpan. Urutan sebelumnya dikembalikan.",
   backlogStatusChangeFailed: "Status tidak dapat diubah",
@@ -243,7 +232,6 @@ export const id: BacklogTranslations = {
   backlogSaved: "PBI disimpan",
   backlogDeleteConfirm: "Pindahkan PBI ini ke tempat sampah? Anda dapat memulihkannya dari tempat sampah.",
   backlogDeleteFailed: "PBI tidak dapat dihapus",
-  backlogDeleted: "PBI dihapus",
   backlogLoadFailed: "Backlog produk tidak dapat dimuat",
   backlogRoleLoadFailed: "Hak akses Anda tidak dapat diverifikasi, sehingga pengeditan dinonaktifkan sementara.",
   backlogRetry: "Coba lagi",

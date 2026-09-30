@@ -138,7 +138,7 @@ interface AssignedPbi {
 }
 
 /** "assigned" notification for the users newly set as the PBI's PO (same transaction). */
-async function notifyPbiAssigned(tx: Db, projectId: string, item: AssignedPbi, userIds: readonly string[], actor: Actor) {
+export async function notifyPbiAssigned(tx: Db, projectId: string, item: AssignedPbi, userIds: readonly string[], actor: Actor) {
   if (userIds.length === 0) return
   await notify(tx, {
     recipientIds: userIds,
@@ -151,12 +151,21 @@ async function notifyPbiAssigned(tx: Db, projectId: string, item: AssignedPbi, u
   })
 }
 
+/** "" for a link field means "unlink" (stored as NULL); other values pass through (new object). */
+export function emptyLinksToNull<T extends { productGoalId?: string | null; iceboxItemId?: string | null }>(data: T): T {
+  return {
+    ...data,
+    ...(data.productGoalId === "" ? { productGoalId: null } : {}),
+    ...(data.iceboxItemId === "" ? { iceboxItemId: null } : {}),
+  }
+}
+
 /** `input.version` (optional) = the version the client loaded; stale → 409 VERSION_CONFLICT with `current`. */
 export async function updateBacklogItem(projectId: string, itemId: string, input: UpdateBacklogItemInput, actor: Actor) {
   const { version, data: fields } = takeVersion(input)
   noteUnversionedWrite("pbi", itemId, version)
   const cleaned = await prepareText(fields, actor.userId)
-  const data = cleaned.productGoalId === "" ? { ...cleaned, productGoalId: null } : cleaned
+  const data = emptyLinksToNull(cleaned)
   const item = await withTransaction(async (tx) => {
     await assertLinksInProject(tx, projectId, data)
     const before = await loadSnapshot(tx, "pbi", itemId)
@@ -175,7 +184,7 @@ export async function updateBacklogItem(projectId: string, itemId: string, input
 }
 
 /** Re-score every sprint holding tasks of the PBI (after it enters / leaves the trash or is purged). */
-async function rescoreSprintsOf(tx: Db, tasks: ReadonlyArray<{ sprintId: string }>): Promise<void> {
+export async function rescoreSprintsOf(tx: Db, tasks: ReadonlyArray<{ sprintId: string }>): Promise<void> {
   for (const sprintId of new Set(tasks.map((t) => t.sprintId))) {
     await recalcSprintActualScore(sprintId, tx)
   }

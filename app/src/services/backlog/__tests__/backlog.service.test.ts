@@ -113,6 +113,20 @@ describe("backlog.service", () => {
     expect(tr.enqueueIn).toHaveBeenCalledWith(TX, "backlog_item", "a", { status: "ready", productGoalId: null })
   })
 
+  it("unlinks the IceBox request when iceboxItemId is empty (and skips the cross-project check)", async () => {
+    vi.mocked(repo.updateBacklogItem).mockResolvedValue({ id: "a" } as never)
+    await svc.updateBacklogItem("p1", "a", { iceboxItemId: "" }, ACTOR)
+    expect(repo.findProjectIceboxItemId).not.toHaveBeenCalled()
+    expect(repo.updateBacklogItem).toHaveBeenCalledWith(TX, "p1", "a", { iceboxItemId: null }, undefined)
+  })
+
+  it("emptyLinksToNull returns a new object and leaves real ids alone", () => {
+    const input = { productGoalId: "g1", iceboxItemId: "" }
+    const out = svc.emptyLinksToNull(input)
+    expect(out).toEqual({ productGoalId: "g1", iceboxItemId: null })
+    expect(input.iceboxItemId).toBe("")
+  })
+
   // delete (trash) / restore / purge: see backlog.trash.test.ts
 
   it("create rejects an icebox item of another project before inserting", async () => {

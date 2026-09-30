@@ -113,4 +113,12 @@ describe("sprints.repository", () => {
     expect(arg.orderBy).toEqual({ startDate: "desc" })
     expect(arg.select.items.where).toEqual({ pbItem: { deletedAt: null } })
   })
+
+  it("findBurndownSprint scopes one non-planning, non-archived sprint to the project", async () => {
+    const db = fakeDb()
+    await repo.findBurndownSprint(db.client, "p1", "s1")
+    const arg = db.fn("sprint.findFirst").mock.calls[0][0]
+    expect(arg.where).toEqual({ id: "s1", projectId: "p1", status: { in: ["active", "review", "done"] } })
+    expect(arg.select.items).toEqual({ where: { pbItem: { deletedAt: null } }, select: { taskName: true, status: true, completedAt: true } })
+  })
 })

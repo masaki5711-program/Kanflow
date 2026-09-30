@@ -9,6 +9,8 @@ const m = vi.hoisted(() => ({
     projectMember: { findFirst: vi.fn() },
     project: { findUnique: vi.fn() },
     userSection: { findFirst: vi.fn() },
+    sprintBacklogItem: { findMany: vi.fn() },
+    planItem: { findMany: vi.fn() },
   },
 }))
 
@@ -57,6 +59,8 @@ async function renderPage() {
 describe("ProjectDashboard (server)", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    m.prisma.sprintBacklogItem.findMany.mockResolvedValue([])
+    m.prisma.planItem.findMany.mockResolvedValue([])
     m.getI18nFor.mockImplementation(async (_type: string, ids: string[]) => new Map(ids.map((id) => [id, { name: { en: `en-${id}` } }])))
   })
 
@@ -86,6 +90,48 @@ describe("ProjectDashboard (server)", () => {
     expect((props.productGoals as { i18n: unknown }[])[0].i18n).toEqual({ name: { en: "en-g1" } })
   })
 
+  it("adds my open tasks here, upcoming due items and the sprint sparkline", async () => {
+    m.auth.mockResolvedValue({ user: { id: "u1", name: "Taro", role: "user" } })
+    m.prisma.projectMember.findFirst.mockResolvedValue({ role: "developer" })
+    m.prisma.project.findUnique.mockResolvedValue({
+      ...fullProject,
+      sprints: [{
+        ...fullProject.sprints[0],
+        items: [
+          { taskName: "a", status: "done", completedAt: d("2026-09-02T03:00:00Z") },
+          { taskName: "b", status: "todo", completedAt: null },
+        ],
+      }],
+    })
+    m.prisma.sprintBacklogItem.findMany.mockResolvedValue([
+      { id: "t1", taskName: "Mine", status: "todo", assignee: null, assignees: [{ userId: "u1" }], pbItem: { id: "pb1", displayId: 4, userStory: "S" } },
+      { id: "t2", taskName: "Substring only", status: "todo", assignee: "Taro Yamada", assignees: [], pbItem: { id: "pb2", displayId: 5, userStory: null } },
+    ])
+    const soon = new Date(Date.now() + 3 * 86_400_000)
+    m.prisma.planItem.findMany.mockResolvedValue([
+      { id: "pl1", name: "Launch", plannedEnd: new Date(Date.UTC(soon.getFullYear(), soon.getMonth(), soon.getDate())), status: "in_progress", isMilestone: true },
+    ])
+    const props = await renderPage()
+
+    const taskArgs = m.prisma.sprintBacklogItem.findMany.mock.calls[0][0]
+    expect(taskArgs.where.sprint).toEqual({ projectId: "p1", status: { in: ["planning", "active"] } })
+    expect(taskArgs.where.status).toEqual({ not: "done" })
+    expect(taskArgs.where.pbItem).toEqual({ deletedAt: null })
+    expect(props.myTasks).toEqual([
+      { id: "t1", taskName: "Mine", status: "todo", pbDisplayId: 4, pbUserStory: "S", i18n: { name: { en: "en-t1" } }, pbI18n: { name: { en: "en-pb1" } } },
+    ])
+
+    const planArgs = m.prisma.planItem.findMany.mock.calls[0][0]
+    expect(planArgs.where).toMatchObject({ projectId: "p1", status: { not: "done" } })
+    const due = props.upcomingDue as { id: string; kind: string; days: number }[]
+    expect(due.map((i) => [i.id, i.kind])).toEqual([["s1", "sprint_end"], ["pl1", "milestone"]])
+    expect(due[1].days).toBe(3)
+
+    const sprint = props.activeSprint as { sparkline: { total: number; remaining: number; ideal: number[] } }
+    expect(sprint.sparkline).toMatchObject({ total: 2, remaining: 1 })
+    expect(sprint.sparkline.ideal.length).toBeGreaterThan(1)
+  })
+
   it("gives admins PO access without membership and handles no active sprint / null progress", async () => {
     m.auth.mockResolvedValue({ user: { id: "u1", role: "admin" } })
     m.prisma.projectMember.findFirst.mockResolvedValue(null)
@@ -96,6 +142,8 @@ describe("ProjectDashboard (server)", () => {
     expect(props.projectProgressPct).toBe(0)
     expect(props.activeSprint).toBeNull()
     expect(props.projectI18n).toEqual({})
+    expect(props.myTasks).toEqual([])
+    expect(props.upcomingDue).toEqual([])
   })
 
   it("lets a section manager in when sections overlap", async () => {

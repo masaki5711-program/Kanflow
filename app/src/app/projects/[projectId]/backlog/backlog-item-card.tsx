@@ -1,28 +1,56 @@
 "use client"
 
-import { memo } from "react"
+import { memo, type KeyboardEvent, type PointerEvent } from "react"
 import { Badge, Button, IconButton, cn } from "@/components/ui"
 import { I18nText } from "@/components/i18n-text"
 import { useLanguage } from "@/lib/language-context"
 import { pickText } from "@/lib/translation/pick-text"
+import { CardMenu } from "./card-menu"
 import type { BacklogItem, BacklogStatus } from "./types"
-import { ArrowLeft, Calendar, ChevronDown, ChevronUp, CircleCheck, Eye, Lightbulb, Pencil, Scale, Tag, Target, Trash2 } from "lucide-react"
+import { DND_HANDLE_ATTR, DND_ROW_ATTR } from "./use-reorder-dnd"
+import {
+  ArrowDownToLine,
+  ArrowLeft,
+  ArrowUpToLine,
+  Calendar,
+  CircleCheck,
+  Eye,
+  GripVertical,
+  Lightbulb,
+  Pencil,
+  Scale,
+  Tag,
+  Target,
+  Trash2,
+} from "lucide-react"
+
+/** Id of the hidden keyboard help that every drag handle is described by. */
+export const DND_HELP_ID = "backlog-dnd-help"
 
 export interface CardActions {
-  onMove: (item: BacklogItem, direction: -1 | 1) => void
+  onOpen: (item: BacklogItem, mode: "read" | "edit") => void
   onStatusChange: (item: BacklogItem, to: BacklogStatus) => void
-  onEdit: (item: BacklogItem) => void
   onDelete: (item: BacklogItem) => void
-  onView: (item: BacklogItem) => void
   onInvest: (item: BacklogItem) => void
+  onToggleSelect: (item: BacklogItem, shift: boolean) => void
+  onMoveToEdge: (item: BacklogItem, edge: "top" | "bottom") => void
+  onHandleKeyDown: (e: KeyboardEvent<HTMLElement>, item: BacklogItem) => void
+  onHandlePointerDown: (e: PointerEvent<HTMLElement>, item: BacklogItem) => void
+  onHandleBlur: () => void
 }
 
-interface Props extends CardActions {
+export interface CardPermissions {
+  canEdit: boolean
+  canReorder: boolean
+  canDelete: boolean
+}
+
+interface Props extends CardActions, CardPermissions {
   item: BacklogItem
   section: BacklogStatus
-  canEdit: boolean
-  isFirst: boolean
-  isLast: boolean
+  selectMode: boolean
+  isSelected: boolean
+  isDragging: boolean
 }
 
 const SECTION_BORDER: Record<BacklogStatus, string> = {
@@ -39,9 +67,7 @@ function activeSprints(item: BacklogItem) {
 
 function Chips({ item, inSprintNames }: { item: BacklogItem; inSprintNames: string[] }) {
   const { t, language } = useLanguage()
-  const iceboxText = item.iceboxItem
-    ? pickText(item.iceboxItem.i18n, "request", item.iceboxItem.request, language).text
-    : ""
+  const iceboxText = item.iceboxItem ? pickText(item.iceboxItem.i18n, "request", item.iceboxItem.request, language).text : ""
   return (
     <div className="mb-2 flex flex-wrap items-center gap-1.5">
       {inSprintNames.length > 0 && (
@@ -91,63 +117,71 @@ function StatusActions({ item, section, onStatusChange }: Pick<Props, "item" | "
   return <IconButton label={t.backlogReturnToReady} size="sm" icon={<ArrowLeft className="h-4 w-4 text-primary" />} onClick={() => onStatusChange(item, "ready")} />
 }
 
+function DragHandle(props: Pick<Props, "item" | "isDragging" | "onHandleKeyDown" | "onHandlePointerDown" | "onHandleBlur">) {
+  const { t } = useLanguage()
+  const { item } = props
+  return (
+    <button
+      type="button"
+      {...{ [DND_HANDLE_ATTR]: item.id }}
+      aria-label={t.backlogDragHandle.replace("{id}", String(item.displayId))}
+      aria-describedby={DND_HELP_ID}
+      aria-pressed={props.isDragging}
+      onKeyDown={(e) => props.onHandleKeyDown(e, item)}
+      onPointerDown={(e) => props.onHandlePointerDown(e, item)}
+      onBlur={props.onHandleBlur}
+      className="-my-1 inline-flex h-8 w-6 shrink-0 cursor-grab touch-none items-center justify-center rounded-ui-sm text-fg-subtle hover:bg-surface-sunken hover:text-fg active:cursor-grabbing"
+    >
+      <GripVertical className="h-4 w-4" aria-hidden="true" />
+    </button>
+  )
+}
+
 /** Memoized: the backlog page passes stable handlers (useStableHandlers). */
 export const BacklogItemCard = memo(function BacklogItemCard(props: Props) {
-  const { item, section, canEdit, isFirst, isLast } = props
+  const { item, section, canEdit, canReorder, canDelete, selectMode, isSelected, isDragging } = props
   const { t } = useLanguage()
   const isCompleted = section === "completed"
   const sprints = section === "ready" ? activeSprints(item) : []
   const isInSprint = sprints.length > 0
   const idLabel = String(item.displayId)
+  const reorderable = canReorder && !isCompleted
 
   return (
     <li
+      {...{ [DND_ROW_ATTR]: item.id }}
       className={cn(
         "rounded-ui-md border border-l-4 p-4 hover:shadow-ui-md",
         isInSprint
           ? "border-primary/30 border-l-primary bg-primary-soft/40"
           : isCompleted
-            ? "border-border bg-surface-muted border-l-slate-400"
+            ? "border-border border-l-slate-400 bg-surface-muted"
             : cn("border-border bg-surface", SECTION_BORDER[section]),
+        isSelected && "ring-2 ring-primary",
+        isDragging && "opacity-60 shadow-ui-lg ring-2 ring-primary/60",
       )}
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
-        <div className="flex min-w-0 flex-1 items-start gap-3">
-          {canEdit && !isCompleted && (
-            <div className="-my-1 flex flex-col">
-              <IconButton
-                label={t.backlogMoveUp.replace("{id}", idLabel)}
-                size="sm"
-                icon={<ChevronUp className="h-4 w-4" />}
-                disabled={isFirst}
-                data-reorder={`${item.id}:up`}
-                onClick={() => props.onMove(item, -1)}
-              />
-              <IconButton
-                label={t.backlogMoveDown.replace("{id}", idLabel)}
-                size="sm"
-                icon={<ChevronDown className="h-4 w-4" />}
-                disabled={isLast}
-                data-reorder={`${item.id}:down`}
-                onClick={() => props.onMove(item, 1)}
-              />
-            </div>
+        <div className="flex min-w-0 flex-1 items-start gap-2">
+          {reorderable && <DragHandle {...props} />}
+          {selectMode && (
+            <input
+              type="checkbox"
+              className="mt-1 h-4 w-4 shrink-0 accent-primary"
+              aria-label={t.backlogSelectItem.replace("{id}", idLabel)}
+              checked={isSelected}
+              onChange={() => {}}
+              onClick={(e) => props.onToggleSelect(item, e.shiftKey)}
+            />
           )}
-
-          <span className="mt-0.5 shrink-0 rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-caption text-fg-muted">
-            #{item.displayId}
-          </span>
+          <span className="mt-0.5 shrink-0 rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-caption text-fg-muted">#{item.displayId}</span>
 
           <div className="min-w-0 flex-1">
             <div className="mb-1 flex flex-wrap items-center gap-2">
               <h3 className={cn("text-body font-semibold", isCompleted ? "text-fg-muted" : "text-fg")}>
-                <I18nText
-                  i18n={item.i18n}
-                  field="initiative"
-                  original={item.initiative}
-                  entity={{ type: "backlog_item", id: item.id }}
-                  fallback={t.sprintNotEntered}
-                />
+                <button type="button" onClick={() => props.onOpen(item, "read")} className="text-left hover:text-primary-strong hover:underline">
+                  <I18nText i18n={item.i18n} field="initiative" original={item.initiative} entity={{ type: "backlog_item", id: item.id }} fallback={t.sprintNotEntered} />
+                </button>
               </h3>
               {isCompleted && (
                 <Badge tone="success" size="sm">
@@ -192,15 +226,22 @@ export const BacklogItemCard = memo(function BacklogItemCard(props: Props) {
           {canEdit ? (
             <>
               <StatusActions item={item} section={section} onStatusChange={props.onStatusChange} />
-              {!isCompleted && (
-                <>
-                  <IconButton label={t.edit} size="sm" icon={<Pencil className="h-4 w-4" />} onClick={() => props.onEdit(item)} />
-                  <IconButton label={t.delete} size="sm" icon={<Trash2 className="h-4 w-4 text-danger" />} onClick={() => props.onDelete(item)} />
-                </>
-              )}
+              {!isCompleted && <IconButton label={t.edit} size="sm" icon={<Pencil className="h-4 w-4" />} onClick={() => props.onOpen(item, "edit")} />}
             </>
           ) : (
-            <IconButton label={t.view} size="sm" icon={<Eye className="h-4 w-4" />} onClick={() => props.onView(item)} />
+            <IconButton label={t.view} size="sm" icon={<Eye className="h-4 w-4" />} onClick={() => props.onOpen(item, "read")} />
+          )}
+          {canDelete && !isCompleted && (
+            <IconButton label={t.delete} size="sm" icon={<Trash2 className="h-4 w-4 text-danger" />} onClick={() => props.onDelete(item)} />
+          )}
+          {reorderable && (
+            <CardMenu
+              label={t.backlogMoreActions.replace("{id}", idLabel)}
+              items={[
+                { key: "top", label: t.backlogMoveToTop, icon: <ArrowUpToLine className="h-4 w-4" />, onSelect: () => props.onMoveToEdge(item, "top") },
+                { key: "bottom", label: t.backlogMoveToBottom, icon: <ArrowDownToLine className="h-4 w-4" />, onSelect: () => props.onMoveToEdge(item, "bottom") },
+              ]}
+            />
           )}
         </div>
       </div>

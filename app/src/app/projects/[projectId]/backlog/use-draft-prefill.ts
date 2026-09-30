@@ -1,12 +1,15 @@
 "use client"
 
 import { useEffect, useRef } from "react"
-import type { BacklogForm } from "./types"
-
-type DraftFields = Pick<
-  BacklogForm,
-  "initiative" | "epic" | "userStory" | "acceptanceCriteria" | "workloadScore" | "iceboxItemId"
->
+/** PBI fields an IceBox AI draft pre-fills. */
+export interface DraftFields {
+  initiative: string
+  epic: string
+  userStory: string
+  acceptanceCriteria: string
+  workloadScore: number
+  iceboxItemId: string
+}
 
 function readDraft(raw: string): DraftFields | null {
   try {

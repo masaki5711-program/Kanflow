@@ -4,7 +4,7 @@ import { useId } from "react"
 import { Button, Textarea } from "@/components/ui"
 import { GlossaryHint } from "@/components/i18n-text"
 import { useLanguage } from "@/lib/language-context"
-import type { GeneratedField } from "./types"
+import type { GeneratedField } from "./use-ai-field-generator"
 import { ListChecks, User } from "lucide-react"
 
 interface AiButtonProps {

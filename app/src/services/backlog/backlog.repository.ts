@@ -66,6 +66,47 @@ export async function updateBacklogItem(
   return db.productBacklogItem.findFirst({ where: { id: itemId, projectId } })
 }
 
+// === bulk ===
+
+/** Live PBIs of the project among `ids` (full rows: the "before" of a bulk diff). */
+export function findLiveBacklogItemsByIds(db: Db, projectId: string, ids: readonly string[]) {
+  return db.productBacklogItem.findMany({ where: notDeleted({ projectId, id: { in: [...ids] } }) })
+}
+
+/** One UPDATE for many live PBIs of the project (bumps every version). Returns the row count. */
+export async function updateBacklogItemsMany(
+  db: Db,
+  projectId: string,
+  ids: readonly string[],
+  data: Prisma.ProductBacklogItemUncheckedUpdateManyInput
+): Promise<number> {
+  const res = await db.productBacklogItem.updateMany({
+    where: notDeleted({ projectId, id: { in: [...ids] } }),
+    data: { ...data, ...BUMP_VERSION },
+  })
+  return res.count
+}
+
+/** Move many live PBIs of the project to the trash in one UPDATE. Returns the row count. */
+export async function softDeleteBacklogItemsMany(
+  db: Db,
+  projectId: string,
+  ids: readonly string[],
+  actorUserId: string,
+  now: Date = new Date()
+): Promise<number> {
+  const res = await db.productBacklogItem.updateMany({
+    where: notDeleted({ projectId, id: { in: [...ids] } }),
+    data: softDeleteData(actorUserId, now),
+  })
+  return res.count
+}
+
+/** Sprint tasks (incl. placeholders) of several PBIs. */
+export function findTasksOfBacklogItems(db: Db, itemIds: readonly string[]) {
+  return db.sprintBacklogItem.findMany({ where: { pbItemId: { in: [...itemIds] } }, select: { id: true, sprintId: true } })
+}
+
 /** Sprint tasks (incl. placeholders) that cascade with the PBI. */
 export function findTasksOfBacklogItem(db: Db, itemId: string) {
   return db.sprintBacklogItem.findMany({ where: { pbItemId: itemId }, select: { id: true, sprintId: true } })

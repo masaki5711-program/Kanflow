@@ -10,11 +10,13 @@ import * as projects from "./projects"
 import * as dashboard from "./dashboard"
 import * as icebox from "./icebox"
 import * as backlog from "./backlog"
+import * as backlogOps from "./backlog-ops"
 import * as plan from "./plan"
 import * as releases from "./releases"
 import * as sprintReview from "./sprint-review"
 import * as sprintTasks from "./sprint-tasks"
 import * as sprints from "./sprints"
+import * as sprintBoard from "./sprint-board"
 import * as calendar from "./calendar"
 import * as gantt from "./gantt"
 import * as report from "./report"
@@ -24,6 +26,9 @@ import * as settings from "./settings"
 import * as apiErrors from "./api-errors"
 import * as trash from "./trash"
 import * as comments from "./comments"
+import * as search from "./search"
+import * as notifications from "./notifications"
+import * as insights from "./insights"
 
 export * from "./languages"
 export * from "./point-units"
@@ -44,11 +49,13 @@ export interface Translations
     dashboard.DashboardTranslations,
     icebox.IceboxTranslations,
     backlog.BacklogTranslations,
+    backlogOps.BacklogOpsTranslations,
     plan.PlanTranslations,
     releases.ReleasesTranslations,
     sprintReview.SprintReviewTranslations,
     sprintTasks.SprintTasksTranslations,
     sprints.SprintsTranslations,
+    sprintBoard.SprintBoardTranslations,
     calendar.CalendarTranslations,
     gantt.GanttTranslations,
     report.ReportTranslations,
@@ -57,7 +64,10 @@ export interface Translations
     settings.SettingsTranslations,
     apiErrors.ApiErrorsTranslations,
     trash.TrashTranslations,
-    comments.CommentsTranslations {}
+    comments.CommentsTranslations,
+    search.SearchTranslations,
+    notifications.NotificationsTranslations,
+    insights.InsightsTranslations {}
 
 /** All domain modules, exported for tests (key-set / completeness checks). */
 export const domains = {
@@ -72,11 +82,13 @@ export const domains = {
   "dashboard": dashboard,
   "icebox": icebox,
   "backlog": backlog,
+  "backlog-ops": backlogOps,
   "plan": plan,
   "releases": releases,
   "sprint-review": sprintReview,
   "sprint-tasks": sprintTasks,
   "sprints": sprints,
+  "sprint-board": sprintBoard,
   "calendar": calendar,
   "gantt": gantt,
   "report": report,
@@ -86,6 +98,9 @@ export const domains = {
   "api-errors": apiErrors,
   "trash": trash,
   "comments": comments,
+  "search": search,
+  "notifications": notifications,
+  "insights": insights,
 } as const
 
 const ja: Translations = {
@@ -100,11 +115,13 @@ const ja: Translations = {
   ...dashboard.ja,
   ...icebox.ja,
   ...backlog.ja,
+  ...backlogOps.ja,
   ...plan.ja,
   ...releases.ja,
   ...sprintReview.ja,
   ...sprintTasks.ja,
   ...sprints.ja,
+  ...sprintBoard.ja,
   ...calendar.ja,
   ...gantt.ja,
   ...report.ja,
@@ -114,6 +131,9 @@ const ja: Translations = {
   ...apiErrors.ja,
   ...trash.ja,
   ...comments.ja,
+  ...search.ja,
+  ...notifications.ja,
+  ...insights.ja,
 }
 
 const en: Translations = {
@@ -128,11 +148,13 @@ const en: Translations = {
   ...dashboard.en,
   ...icebox.en,
   ...backlog.en,
+  ...backlogOps.en,
   ...plan.en,
   ...releases.en,
   ...sprintReview.en,
   ...sprintTasks.en,
   ...sprints.en,
+  ...sprintBoard.en,
   ...calendar.en,
   ...gantt.en,
   ...report.en,
@@ -142,6 +164,9 @@ const en: Translations = {
   ...apiErrors.en,
   ...trash.en,
   ...comments.en,
+  ...search.en,
+  ...notifications.en,
+  ...insights.en,
 }
 
 const id: Translations = {
@@ -156,11 +181,13 @@ const id: Translations = {
   ...dashboard.id,
   ...icebox.id,
   ...backlog.id,
+  ...backlogOps.id,
   ...plan.id,
   ...releases.id,
   ...sprintReview.id,
   ...sprintTasks.id,
   ...sprints.id,
+  ...sprintBoard.id,
   ...calendar.id,
   ...gantt.id,
   ...report.id,
@@ -170,6 +197,9 @@ const id: Translations = {
   ...apiErrors.id,
   ...trash.id,
   ...comments.id,
+  ...search.id,
+  ...notifications.id,
+  ...insights.id,
 }
 
 const translations: Record<Language, Translations> = { ja, en, id }

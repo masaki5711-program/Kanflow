@@ -25,61 +25,14 @@ export interface IceboxResponse {
   reviewed: IceboxOption[]
 }
 
-/** Only the role and user id are read (permission checks). */
-export type ProjectMember = Pick<ProjectMemberDto, "role"> & { user: Pick<ProjectMemberDto["user"], "id"> }
-
-export interface BacklogForm {
-  initiative: string
-  epic: string
-  userStory: string
-  acceptanceCriteria: string
-  workloadScore: number
-  status: BacklogStatus
-  iceboxItemId: string
-  productGoalId: string
-}
-
-export type GeneratedField = "userStory" | "acceptanceCriteria"
-
-export const EMPTY_FORM: BacklogForm = {
-  initiative: "",
-  epic: "",
-  userStory: "",
-  acceptanceCriteria: "",
-  workloadScore: 0,
-  status: "not_ready",
-  iceboxItemId: "",
-  productGoalId: "",
-}
+/** Role + user id (permission checks) and name (PO assignment picker). */
+export type ProjectMember = Pick<ProjectMemberDto, "role"> & { user: Pick<ProjectMemberDto["user"], "id"> & { name?: string | null } }
 
 /** Maps a section status to the list key of the GET /backlog response. */
 export const LIST_KEY: Record<BacklogStatus, "readyItems" | "notReadyItems" | "completedItems"> = {
   ready: "readyItems",
   not_ready: "notReadyItems",
   completed: "completedItems",
-}
-
-/** The PBI fields the form edits (list rows and the GET /backlog/:id detail both have them). */
-export type BacklogFormSource = Pick<
-  BacklogItem,
-  "initiative" | "epic" | "userStory" | "acceptanceCriteria" | "workloadScore" | "status" | "iceboxItemId" | "productGoalId"
->
-
-export function formFromItem(item: BacklogFormSource): BacklogForm {
-  return {
-    initiative: item.initiative ?? "",
-    epic: item.epic ?? "",
-    userStory: item.userStory ?? "",
-    acceptanceCriteria: item.acceptanceCriteria ?? "",
-    workloadScore: item.workloadScore,
-    status: item.status as BacklogStatus,
-    iceboxItemId: item.iceboxItemId ?? "",
-    productGoalId: item.productGoalId ?? "",
-  }
-}
-
-export function isFormEqual(a: BacklogForm, b: BacklogForm): boolean {
-  return (Object.keys(a) as (keyof BacklogForm)[]).every((k) => a[k] === b[k])
 }
 
 /** Case-insensitive search across the text fields of a PBI. */
@@ -92,13 +45,4 @@ export function matchesQuery(item: BacklogItem, q: string): boolean {
     (item.acceptanceCriteria ?? "").toLowerCase().includes(q) ||
     String(item.displayId).includes(q)
   )
-}
-
-/** Returns a new array with the elements at `from` and `to` swapped. */
-export function swapped<T>(list: readonly T[], from: number, to: number): T[] {
-  if (to < 0 || to >= list.length) return [...list]
-  const next = [...list]
-  next[from] = list[to]
-  next[to] = list[from]
-  return next
 }

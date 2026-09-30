@@ -4,9 +4,10 @@ import { useState, type ReactNode } from "react"
 import { LanguageProvider } from "@/lib/language-context"
 import { ToastProvider } from "@/components/ui/toast"
 import { tr } from "@/app/__tests__/test-utils"
-import { useAiFieldGenerator } from "../use-ai-field-generator"
+import { useAiFieldGenerator } from "@/components/pbi-form/use-ai-field-generator"
+import { EMPTY_PBI_FORM, type PbiForm } from "@/components/pbi-form/pbi-form-state"
 import { useDraftPrefill } from "../use-draft-prefill"
-import { EMPTY_FORM, formFromItem, isFormEqual, matchesQuery, swapped, type BacklogForm } from "../types"
+import { matchesQuery } from "../types"
 import { pbi } from "./fixtures"
 
 const t = tr("ja")
@@ -30,8 +31,8 @@ function streamResponse(chunks: string[], status = 200): Response {
   return new Response(body, { status })
 }
 
-function useHarness(initial: Partial<BacklogForm>) {
-  const [form, setForm] = useState<BacklogForm>({ ...EMPTY_FORM, ...initial })
+function useHarness(initial: Partial<PbiForm>) {
+  const [form, setForm] = useState<PbiForm>({ ...EMPTY_PBI_FORM, ...initial })
   const ai = useAiFieldGenerator("p1", form, setForm)
   return { form, ai }
 }
@@ -151,13 +152,6 @@ describe("useDraftPrefill", () => {
 })
 
 describe("backlog type helpers", () => {
-  it("maps items to forms and compares them", () => {
-    const f = formFromItem(pbi("a", 1, { userStory: null, iceboxItemId: "ib", productGoalId: "g" }))
-    expect(f).toMatchObject({ userStory: "", iceboxItemId: "ib", productGoalId: "g", status: "ready" })
-    expect(isFormEqual(f, { ...f })).toBe(true)
-    expect(isFormEqual(f, { ...f, epic: "x" })).toBe(false)
-  })
-
   it("matches queries across fields and display id", () => {
     const item = pbi("a", 42, { epic: "Payments", acceptanceCriteria: "Must PASS" })
     expect(matchesQuery(item, "")).toBe(true)
@@ -165,13 +159,5 @@ describe("backlog type helpers", () => {
     expect(matchesQuery(item, "pass")).toBe(true)
     expect(matchesQuery(item, "42")).toBe(true)
     expect(matchesQuery(pbi("b", 1, { initiative: null, userStory: null }), "zzz")).toBe(false)
-  })
-
-  it("swaps without mutating and ignores out-of-range targets", () => {
-    const list = [1, 2, 3]
-    expect(swapped(list, 0, 2)).toEqual([3, 2, 1])
-    expect(swapped(list, 0, -1)).toEqual([1, 2, 3])
-    expect(swapped(list, 2, 3)).toEqual([1, 2, 3])
-    expect(list).toEqual([1, 2, 3])
   })
 })

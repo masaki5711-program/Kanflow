@@ -11,6 +11,7 @@ import { Truncate, cn } from "@/components/ui"
 import { useSidebarDrawer } from "@/components/app-shell/sidebar-drawer"
 import { AdminMenu } from "@/components/app-shell/admin-menu"
 import { LanguageMenu } from "@/components/language-switcher"
+import { HeaderTools } from "@/components/app-shell/header-tools"
 
 interface HeaderProps {
   projectName?: string
@@ -75,6 +76,7 @@ export function Header({ projectName, projectI18n, projectId }: HeaderProps = {}
 
       {session?.user && (
         <nav aria-label={t.navPrimary} className="flex shrink-0 items-center gap-1">
+          <HeaderTools />
           <Link href="/" className={navLinkClass(pathname === "/")} aria-current={pathname === "/" ? "page" : undefined}>
             <FolderOpen aria-hidden className="h-4 w-4" />
             <span className="hidden md:inline">{t.projectListTitle}</span>

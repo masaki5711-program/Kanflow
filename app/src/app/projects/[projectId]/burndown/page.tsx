@@ -2,6 +2,8 @@ import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { notFound, redirect } from "next/navigation"
 import { BurndownPageContent } from "./burndown-content"
+import { BURNDOWN_SELECTABLE_STATUSES } from "@/services/sprints/sprints.repository"
+import { LIST_LIMITS } from "@/services/_shared/limits"
 import { buildPageMetadata } from "@/app/page-metadata"
 
 export async function generateMetadata({ params }: { params: Promise<{ projectId: string }> }) {
@@ -49,5 +51,18 @@ export default async function BurndownPage({
   })
   if (!project) notFound()
 
-  return <BurndownPageContent projectId={projectId} />
+  // Sprints selectable in the per-sprint burndown (planning has no burn yet).
+  const sprints = await prisma.sprint.findMany({
+    where: { projectId, status: { in: [...BURNDOWN_SELECTABLE_STATUSES] } },
+    select: { id: true, sprintName: true, status: true },
+    orderBy: [{ startDate: "desc" }, { createdAt: "desc" }],
+    take: LIST_LIMITS.burndownSprints,
+  })
+
+  return (
+    <BurndownPageContent
+      projectId={projectId}
+      sprints={sprints.map((s) => ({ id: s.id, name: s.sprintName, status: s.status }))}
+    />
+  )
 }

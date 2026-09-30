@@ -96,4 +96,23 @@ describe("sprints.service", () => {
     const out = await svc.getBurndown("p1")
     expect(out.days).toEqual([])
   })
+
+  it("burndown of one sprint covers only that sprint's days and tasks", async () => {
+    vi.mocked(repo.findBurndownSprint).mockResolvedValue({
+      id: "s2", sprintName: "S2", status: "active",
+      startDate: new Date(2026, 8, 1), endDate: new Date(2026, 8, 3),
+      items: [{ taskName: "a", status: "done", completedAt: new Date(2026, 8, 2) }, { taskName: "b", status: "todo", completedAt: null }],
+    } as never)
+    const out = await svc.getBurndown("p1", "s2", new Date(2026, 8, 2))
+    expect(repo.findBurndownSprint).toHaveBeenCalledWith(expect.anything(), "p1", "s2")
+    expect(repo.findBurndownSprints).not.toHaveBeenCalled()
+    expect(out.days).toEqual(["2026-09-01", "2026-09-02", "2026-09-03"])
+    expect(out.totalTasks).toBe(2)
+    expect(out.sprintMarkers.map((m) => m.id)).toEqual(["s2"])
+  })
+
+  it("burndown of an unknown (or planning) sprint 404s", async () => {
+    vi.mocked(repo.findBurndownSprint).mockResolvedValue(null)
+    await expect(svc.getBurndown("p1", "nope")).rejects.toMatchObject({ status: 404 })
+  })
 })

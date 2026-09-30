@@ -11,7 +11,7 @@ const auth = vi.hoisted(() => ({
   signOut: vi.fn(),
 }))
 
-vi.mock("next/navigation", () => ({ usePathname: () => nav.pathname }))
+vi.mock("next/navigation", () => ({ usePathname: () => nav.pathname, useRouter: () => ({ push: vi.fn() }) }))
 vi.mock("next/link", () => ({
   // Client-side navigation stub: run the caller's onClick but never let jsdom navigate.
   default: ({ href, children, onClick, ...rest }: { href: string; children: ReactNode; onClick?: (e: unknown) => void }) => (
@@ -41,6 +41,7 @@ const { Header } = await import("@/components/header")
 const { AdminMenu } = await import("./admin-menu")
 const { SidebarDrawerProvider, useSidebarDrawer, SIDEBAR_DRAWER_ID } = await import("./sidebar-drawer")
 const { buildSidebarGroups, isNavItemActive } = await import("./sidebar-nav")
+const { resetSidebarCollapseStore, SIDEBAR_COLLAPSE_KEY, parseCollapsed } = await import("./sidebar-collapse")
 const { LanguageProvider } = await import("@/lib/language-context")
 
 stubLayout()
@@ -50,11 +51,29 @@ const t = getTranslations("en")
 const rx = (s: string) => (name: string) => name === s || name === `${s} ${s}`
 let desktop = false
 
+function memoryStorage(): Storage {
+  const data = new Map<string, string>()
+  return {
+    get length() {
+      return data.size
+    },
+    clear: () => data.clear(),
+    getItem: (k: string) => data.get(k) ?? null,
+    key: (i: number) => [...data.keys()][i] ?? null,
+    removeItem: (k: string) => void data.delete(k),
+    setItem: (k: string, v: string) => void data.set(k, String(v)),
+  }
+}
+
 beforeEach(() => {
   nav.pathname = "/projects/p1/backlog"
   auth.session = null
   auth.signOut.mockClear()
   desktop = false
+  Object.defineProperty(window, "localStorage", { value: memoryStorage(), configurable: true, writable: true })
+  resetSidebarCollapseStore()
+  // The signed-in header polls the bell's unread count.
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ unreadCount: 0 }), { status: 200 })))
   vi.stubGlobal(
     "matchMedia",
     vi.fn((q: string) => ({
@@ -80,14 +99,26 @@ function Shell({ children }: { children: ReactNode }) {
 }
 
 describe("sidebar-nav", () => {
-  it("builds grouped links for the project and matches active items", () => {
+  it("builds four labelled sections (plan / execute / review / manage) keeping every route", () => {
+    const groups = buildSidebarGroups("p9", t, { navIcebox: "I", navBacklog: "B", navSprints: "S", navReleases: "R" } as never, { showTrash: true })
+    expect(groups.map((g) => g.id)).toEqual(["plan", "execute", "review", "manage"])
+    expect(groups.map((g) => g.label)).toEqual([t.navGroupPlan, t.navGroupExecute, t.navGroupReview, t.navGroupManage])
+    const paths = groups.map((g) => g.items.map((i) => i.href.replace("/projects/p9", "") || "/"))
+    expect(paths).toEqual([
+      ["/", "/plan", "/gantt", "/calendar", "/releases"],
+      ["/backlog", "/icebox", "/sprints", "/burndown"],
+      ["/report", "/chat"],
+      ["/settings", "/trash", "/guide"],
+    ])
+  })
+
+  it("matches active items", () => {
     const groups = buildSidebarGroups("p9", t, { navIcebox: "I", navBacklog: "B", navSprints: "S", navReleases: "R" } as never)
-    expect(groups.map((g) => g.id)).toEqual(["home", "flow", "plan", "insights", "other"])
     const dash = groups[0].items[0]
     expect(dash.href).toBe("/projects/p9")
     expect(isNavItemActive("/projects/p9", dash)).toBe(true)
     expect(isNavItemActive("/projects/p9/backlog", dash)).toBe(false)
-    const backlog = groups[1].items[1]
+    const backlog = groups[1].items[0]
     expect(isNavItemActive("/projects/p9/backlog/123", backlog)).toBe(true)
     expect(isNavItemActive("/projects/p9/backlogx", backlog)).toBe(false)
   })
@@ -97,8 +128,8 @@ describe("sidebar-nav", () => {
     const hrefs = (groups: ReturnType<typeof buildSidebarGroups>) => groups.flatMap((g) => g.items.map((i) => i.href))
     expect(hrefs(buildSidebarGroups("p9", t, pt))).not.toContain("/projects/p9/trash")
     const withTrash = buildSidebarGroups("p9", t, pt, { showTrash: true })
-    const other = withTrash[withTrash.length - 1]
-    expect(other.items[other.items.length - 1]).toMatchObject({ href: "/projects/p9/trash", label: t.trashTitle })
+    const manage = withTrash[withTrash.length - 1]
+    expect(manage.items.find((i) => i.href === "/projects/p9/trash")).toMatchObject({ label: t.trashTitle })
   })
 })
 
@@ -139,6 +170,72 @@ describe("Sidebar", () => {
     expect(active).not.toHaveAttribute("title")
     expect(active).toHaveAccessibleDescription(t.navDescBacklog)
     expect(active.textContent).not.toContain(t.navDescBacklog)
+  })
+
+  it("collapses a section, remembers it in localStorage and keeps the current page visible", async () => {
+    desktop = true
+    render(
+      <Shell>
+        <Sidebar projectId="p1" />
+      </Shell>,
+    )
+    const navEl = screen.getByRole("navigation", { name: t.navProjectMenu })
+    const planToggle = within(navEl).getByRole("button", { name: t.navGroupPlan })
+    expect(planToggle).toHaveAttribute("aria-expanded", "true")
+    expect(planToggle).toHaveAttribute("aria-controls", within(navEl).getByRole("list", { name: t.navGroupPlan }).id)
+    await userEvent.click(planToggle)
+    expect(planToggle).toHaveAttribute("aria-expanded", "false")
+    expect(within(navEl).queryByRole("link", { name: t.ganttTitle })).not.toBeInTheDocument()
+    expect(JSON.parse(window.localStorage.getItem(SIDEBAR_COLLAPSE_KEY)!)).toEqual(["plan"])
+
+    // The section holding the current page (backlog) only shows that link when collapsed.
+    const execToggle = within(navEl).getByRole("button", { name: t.navGroupExecute })
+    await userEvent.click(execToggle)
+    const execList = within(navEl).getByRole("list", { name: t.navGroupExecute })
+    expect(within(execList).getAllByRole("link")).toHaveLength(1)
+    expect(within(execList).getByRole("link")).toHaveAttribute("aria-current", "page")
+
+    await userEvent.click(planToggle)
+    expect(within(navEl).getByRole("link", { name: t.ganttTitle })).toBeInTheDocument()
+    expect(JSON.parse(window.localStorage.getItem(SIDEBAR_COLLAPSE_KEY)!)).toEqual(["execute"])
+  })
+
+  it("restores collapsed sections from localStorage and ignores malformed data", () => {
+    desktop = true
+    window.localStorage.setItem(SIDEBAR_COLLAPSE_KEY, JSON.stringify(["review"]))
+    const { unmount } = render(
+      <Shell>
+        <Sidebar projectId="p1" />
+      </Shell>,
+    )
+    expect(screen.getByRole("button", { name: t.navGroupReview })).toHaveAttribute("aria-expanded", "false")
+    expect(screen.queryByRole("link", { name: t.chatTitle })).not.toBeInTheDocument()
+    unmount()
+    expect(parseCollapsed("{nope")).toEqual([])
+    expect(parseCollapsed('{"a":1}')).toEqual([])
+    expect(parseCollapsed('["a",2]')).toEqual(["a"])
+  })
+
+  it("still toggles when localStorage is unavailable", async () => {
+    desktop = true
+    const blocked = () => {
+      throw new Error("blocked")
+    }
+    Object.defineProperty(window, "localStorage", {
+      value: { ...memoryStorage(), getItem: blocked, setItem: blocked },
+      configurable: true,
+      writable: true,
+    })
+    render(
+      <Shell>
+        <Sidebar projectId="p1" />
+      </Shell>,
+    )
+    const toggle = screen.getByRole("button", { name: t.navGroupManage })
+    await userEvent.click(toggle)
+    expect(toggle).toHaveAttribute("aria-expanded", "false")
+    await userEvent.click(toggle)
+    expect(toggle).toHaveAttribute("aria-expanded", "true")
   })
 
   it("closes the drawer immediately when reduced motion is preferred", async () => {

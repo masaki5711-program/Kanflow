@@ -11,10 +11,10 @@ export interface NavTranslations {
   navReleases: string
   navSettings: string
   // Sidebar groups
-  navGroupFlow: string
   navGroupPlan: string
-  navGroupInsights: string
-  navGroupOther: string
+  navGroupExecute: string
+  navGroupReview: string
+  navGroupManage: string
   // One-line descriptions of each sidebar destination
   navDescDashboard: string
   navDescBacklog: string
@@ -52,10 +52,10 @@ export const ja: NavTranslations = {
   navSprints: "スプリント",
   navReleases: "リリース",
   navSettings: "チーム設定",
-  navGroupFlow: "アイデア→実行",
   navGroupPlan: "計画",
-  navGroupInsights: "分析",
-  navGroupOther: "その他",
+  navGroupExecute: "実行",
+  navGroupReview: "振り返り・AI",
+  navGroupManage: "管理",
   navDescDashboard: "プロジェクトの概況と進捗",
   navDescBacklog: "優先順位を付けたやること一覧（PBI）",
   navDescSprints: "期間を区切って実行・タスク管理",
@@ -89,10 +89,10 @@ export const en: NavTranslations = {
   navSprints: "Sprints",
   navReleases: "Releases",
   navSettings: "Settings",
-  navGroupFlow: "Idea → Delivery",
   navGroupPlan: "Planning",
-  navGroupInsights: "Insights",
-  navGroupOther: "More",
+  navGroupExecute: "Delivery",
+  navGroupReview: "Review & AI",
+  navGroupManage: "Manage",
   navDescDashboard: "Project overview and progress",
   navDescBacklog: "Prioritized list of work (PBIs)",
   navDescSprints: "Time-boxed delivery and tasks",
@@ -126,10 +126,10 @@ export const id: NavTranslations = {
   navSprints: "Sprint",
   navReleases: "Rilis",
   navSettings: "Pengaturan",
-  navGroupFlow: "Ide → Pelaksanaan",
   navGroupPlan: "Perencanaan",
-  navGroupInsights: "Analisis",
-  navGroupOther: "Lainnya",
+  navGroupExecute: "Pelaksanaan",
+  navGroupReview: "Retrospeksi & AI",
+  navGroupManage: "Kelola",
   navDescDashboard: "Ringkasan dan progres proyek",
   navDescBacklog: "Daftar pekerjaan berprioritas (PBI)",
   navDescSprints: "Pelaksanaan berbatas waktu dan tugas",

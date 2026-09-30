@@ -4,6 +4,9 @@ import { notFound, redirect } from "next/navigation"
 import { getI18nFor } from "@/lib/translation/hooks"
 import { DashboardContent } from "./dashboard-content"
 import { buildPageMetadata } from "@/app/page-metadata"
+import { computeBurndown } from "@/services/sprints/burndown"
+import { loadDuePlanItems, loadMyProjectTasks } from "./dashboard/dashboard-data"
+import { buildUpcomingDue, sparklineOf } from "./dashboard/dashboard-summary"
 
 export async function generateMetadata({ params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params
@@ -79,13 +82,27 @@ export default async function ProjectDashboard({
   const projectProgressPct = project.progressPct ?? 0
 
   const activeSprint = project.sprints[0] ?? null
+  const now = new Date()
 
-  // Both-language text for the project, its goals and the active sprint.
-  const [projectI18n, goalI18n, sprintI18n] = await Promise.all([
+  const [myTasks, duePlanItems] = await Promise.all([
+    loadMyProjectTasks(projectId, session.user.id, session.user.name),
+    loadDuePlanItems(projectId, now),
+  ])
+
+  // Both-language text for the project, its goals, the active sprint and my tasks.
+  const [projectI18n, goalI18n, sprintI18n, taskI18n, pbI18n] = await Promise.all([
     getI18nFor("project", [project.id]),
     getI18nFor("product_goal", project.productGoals.map((g) => g.id)),
     getI18nFor("sprint", activeSprint ? [activeSprint.id] : []),
+    getI18nFor("sprint_task", myTasks.map((t) => t.id)),
+    getI18nFor("backlog_item", myTasks.map((t) => t.pbItem.id)),
   ])
+  const sparkline = activeSprint ? sparklineOf(computeBurndown([activeSprint], now)) : undefined
+  const upcomingDue = buildUpcomingDue(
+    duePlanItems,
+    activeSprint ? { id: activeSprint.id, name: activeSprint.sprintName, endDate: activeSprint.endDate.toISOString() } : null,
+    now,
+  )
   const sprintTaskCounts = activeSprint
     ? {
         todo: activeSprint.items.filter((i) => i.status === "todo").length,
@@ -148,9 +165,20 @@ export default async function ProjectDashboard({
               endDate: activeSprint.endDate.toISOString(),
               capacity: activeSprint.capacity,
               taskCounts: sprintTaskCounts!,
+              sparkline,
             }
           : null
       }
+      myTasks={myTasks.map((t) => ({
+        id: t.id,
+        taskName: t.taskName,
+        status: t.status,
+        pbDisplayId: t.pbItem.displayId,
+        pbUserStory: t.pbItem.userStory,
+        i18n: taskI18n.get(t.id) ?? {},
+        pbI18n: pbI18n.get(t.pbItem.id) ?? {},
+      }))}
+      upcomingDue={upcomingDue}
     />
   )
 }

@@ -5,10 +5,7 @@ import { deferred, json, pb, renderWithProviders, sprint, stubFetch, t, task, ty
 
 const session = vi.hoisted(() => ({ current: { user: { id: "u1", role: "admin" } } as unknown }))
 
-vi.mock("next/navigation", () => ({
-  useParams: () => ({ projectId: "p1" }),
-  useRouter: () => ({ push: vi.fn(), refresh: vi.fn(), replace: vi.fn() }),
-}))
+vi.mock("next/navigation", async () => (await import("./nav-mock")).navigationMock)
 vi.mock("next-auth/react", () => ({ useSession: () => ({ data: session.current }) }))
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} {...rest}>{children}</a>,

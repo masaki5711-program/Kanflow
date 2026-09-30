@@ -28,10 +28,13 @@ export interface SidebarNavItem {
 }
 
 export interface SidebarNavGroup {
-  id: string
-  label: string | null
+  id: SidebarGroupId
+  label: string
   items: SidebarNavItem[]
 }
+
+export const SIDEBAR_GROUP_IDS = ["plan", "execute", "review", "manage"] as const
+export type SidebarGroupId = (typeof SIDEBAR_GROUP_IDS)[number]
 
 export interface SidebarNavOptions {
   /** Add the project trash entry (only for users with the "trash.manage" permission). */
@@ -39,8 +42,9 @@ export interface SidebarNavOptions {
 }
 
 /**
- * Sidebar information architecture. Groups follow the work flow:
- * idea → backlog → sprint, then planning views, analysis, and the rest.
+ * Sidebar information architecture, four collapsible sections:
+ * 計画 (overview and schedule) → 実行 (backlog, sprints) → 振り返り・AI → 管理.
+ * Every project route stays reachable; only the trash is permission-gated.
  */
 export function buildSidebarGroups(
   projectId: string,
@@ -54,47 +58,41 @@ export function buildSidebarGroups(
     : []
   return [
     {
-      id: "home",
-      label: null,
-      items: [
-        { href: base, label: t.navDashboard, description: t.navDescDashboard, Icon: LayoutDashboard, exact: true },
-      ],
-    },
-    {
-      id: "flow",
-      label: t.navGroupFlow,
-      items: [
-        { href: `${base}/icebox`, label: pt.navIcebox, description: t.iceboxDescription, Icon: Lightbulb },
-        { href: `${base}/backlog`, label: pt.navBacklog, description: t.navDescBacklog, Icon: ListOrdered },
-        { href: `${base}/sprints`, label: pt.navSprints, description: t.navDescSprints, Icon: Zap },
-      ],
-    },
-    {
       id: "plan",
       label: t.navGroupPlan,
       items: [
+        { href: base, label: t.navDashboard, description: t.navDescDashboard, Icon: LayoutDashboard, exact: true },
         { href: `${base}/plan`, label: t.planTitle, description: t.navDescPlan, Icon: MapIcon },
-        { href: `${base}/releases`, label: pt.navReleases, description: t.navDescReleases, Icon: Rocket },
         { href: `${base}/gantt`, label: t.ganttTitle, description: t.navDescGantt, Icon: ChartGantt },
         { href: `${base}/calendar`, label: t.calendarTitle, description: t.navDescCalendar, Icon: CalendarDays },
+        { href: `${base}/releases`, label: pt.navReleases, description: t.navDescReleases, Icon: Rocket },
       ],
     },
     {
-      id: "insights",
-      label: t.navGroupInsights,
+      id: "execute",
+      label: t.navGroupExecute,
       items: [
+        { href: `${base}/backlog`, label: pt.navBacklog, description: t.navDescBacklog, Icon: ListOrdered },
+        { href: `${base}/icebox`, label: pt.navIcebox, description: t.iceboxDescription, Icon: Lightbulb },
+        { href: `${base}/sprints`, label: pt.navSprints, description: t.navDescSprints, Icon: Zap },
         { href: `${base}/burndown`, label: t.burndownPageTitle, description: t.navDescBurndown, Icon: TrendingDown },
+      ],
+    },
+    {
+      id: "review",
+      label: t.navGroupReview,
+      items: [
         { href: `${base}/report`, label: t.reportTitle, description: t.navDescReport, Icon: FileText },
         { href: `${base}/chat`, label: t.chatTitle, description: t.navDescChat, Icon: MessageSquare },
       ],
     },
     {
-      id: "other",
-      label: t.navGroupOther,
+      id: "manage",
+      label: t.navGroupManage,
       items: [
-        { href: `${base}/guide`, label: t.guideTitle, description: t.navDescGuide, Icon: BookOpen },
         { href: `${base}/settings`, label: t.navSettings, description: t.navDescSettings, Icon: Settings },
         ...trash,
+        { href: `${base}/guide`, label: t.guideTitle, description: t.navDescGuide, Icon: BookOpen },
       ],
     },
   ]

@@ -9,7 +9,7 @@ const m = vi.hoisted(() => ({
   topPageProps: null as Record<string, unknown> | null,
   prisma: {
     userSection: { findMany: vi.fn() },
-    project: { findMany: vi.fn() },
+    project: { findMany: vi.fn(), count: vi.fn() },
     userProjectCategory: { findMany: vi.fn() },
     sprintBacklogItem: { findMany: vi.fn() },
   },
@@ -46,6 +46,7 @@ const rawTask = {
   assignee: "Taro",
   assignees: [] as { userId: string }[],
   status: "todo",
+  version: 4,
   estimatedHours: 2,
   actualHours: null,
   pbItem: { id: "pb1", displayId: 3, userStory: "story" },
@@ -65,9 +66,8 @@ describe("HomePage (server)", () => {
     vi.clearAllMocks()
     m.topPageProps = null
     m.prisma.userSection.findMany.mockResolvedValue([{ sectionId: "sec1" }])
-    m.prisma.project.findMany.mockImplementation(async ({ where }: { where: { status: string } }) =>
-      where.status === "active" ? [rawProject("p1", true)] : [rawProject("p9", false)],
-    )
+    m.prisma.project.findMany.mockResolvedValue([rawProject("p1", true)])
+    m.prisma.project.count.mockResolvedValue(2)
     m.prisma.userProjectCategory.findMany.mockResolvedValue([{ id: "c1" }])
     m.prisma.sprintBacklogItem.findMany.mockResolvedValue([rawTask])
     m.getI18nFor.mockImplementation(async (type: string) => new Map(type === "project" ? [["p1", { name: { ja: "x" } }]] : []))
@@ -94,11 +94,16 @@ describe("HomePage (server)", () => {
     const props = m.topPageProps as Record<string, never>
     const active = props.activeProjects as unknown as Array<Record<string, unknown>>
     expect(active[0]).toMatchObject({ id: "p1", isFavorite: true, sections: [{ id: "s1", name: "Sec" }], i18n: { name: { ja: "x" } } })
-    expect((props.archivedProjects as unknown as Array<Record<string, unknown>>)[0]).toMatchObject({ isFavorite: false, i18n: {} })
+    // Archived projects are only counted (loaded lazily by the list).
+    expect(props.archivedCount).toBe(2)
+    expect(m.prisma.project.findMany).toHaveBeenCalledTimes(1)
+    expect(m.prisma.project.count).toHaveBeenCalledWith({ where: { members: { some: { userId: "u1" } }, status: "archived", deletedAt: null } })
+    expect(m.getI18nFor).toHaveBeenCalledWith("project", ["p1"])
     expect(props.isAdmin).toBe(false)
     expect(props.userName).toBe("Taro")
     expect((props.myTasks as unknown as Array<Record<string, unknown>>)[0]).toMatchObject({
       id: "t1",
+      version: 4,
       pbDisplayId: 3,
       sprintStartDate: "2026-09-01T00:00:00.000Z",
       projectName: "P1",

@@ -38,11 +38,13 @@ Rules:
 | `dashboard.ts` | `projects/[id]` dashboard, attachments, folders | `dashboard*`, `folder*` |
 | `icebox.ts` | `projects/[id]/icebox` | `icebox*` |
 | `backlog.ts` | `projects/[id]/backlog` | `backlog*` |
+| `backlog-ops.ts` | Backlog daily operations: PBI modal link, URL filters, drag & drop, bulk actions, undo, done paging | `backlog*` (ops keys) |
 | `plan.ts` | `projects/[id]/plan` (master plan) | `plan*` |
 | `releases.ts` | `projects/[id]/releases` | `release*` |
 | `sprints.ts` | `projects/[id]/sprints` list/create/edit, PBI import | `sprint*` (not below) |
 | `sprint-tasks.ts` | Sprint tasks, task modal, daily scrum, burndown (`burndown/`) | `task*`, `sprintTask*`, `sprintDailyScrum*`, `burndown*`, `completionToIcebox*` |
 | `sprint-review.ts` | Sprint review dialog, retrospective/KPT, archive | `sprintReview*`, `sprintRetrospective*`, `sprintKpt*`, `sprint*Archive*` |
+| `sprint-board.ts` | Sprint kanban board + view/filter toolbar (`sprints/components/board/`) | `sprintBoard*` |
 | `calendar.ts` | `projects/[id]/calendar`, event modals | `calendar*`, `event*` |
 | `gantt.ts` | `projects/[id]/gantt` | `gantt*` |
 | `report.ts` | `projects/[id]/report`, AI report documents | `report*`, `aiReport*` |
@@ -54,6 +56,9 @@ Rules:
 | `admin-glossary.ts` | Admin glossary + translation queue | `glossary*`, `translations*` |
 | `trash.ts` | Project trash, admin project trash, "move to trash" wording | `trash*` |
 | `comments.ts` | Comment thread / composer (`components/comments/`), PBI detail tabs, change history | `comments*`, `history*` |
+| `insights.ts` | Dashboard top rows (sprint pulse, my tasks, coming up, activity feed), home KPIs / inline task status / lazy archived list, burndown sprint selector, velocity chart, IceBox undo | `dashboardPulse*`, `dashboardMyTasks*`, `dashboardDue*`, `dashboardFeed*`, `top{Kpi,Task,Archived,Retry}*`, `burndownSprint*`, `velocity*`, `iceboxUndo` |
+| `search.ts` | Global search / command palette (`components/search/`), keyboard shortcuts help (`components/shortcuts/`) | `search*`, `shortcuts*` |
+| `notifications.ts` | Header notification bell / panel, notification settings on `/me` (`components/notifications/`) | `notif*` |
 
 Keep each file under ~400 lines; if a domain grows past that, split it (e.g. `backlog-detail.ts`)
 and register the new file in `index.ts`.

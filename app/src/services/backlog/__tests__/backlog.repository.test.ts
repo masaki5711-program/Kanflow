@@ -167,4 +167,33 @@ describe("backlog.repository", () => {
       select: { id: true, sprintId: true },
     })
   })
+
+  it("bulk reads / writes are scoped to live PBIs of the project", async () => {
+    const db = fakeDb({
+      "productBacklogItem.findMany": [],
+      "productBacklogItem.updateMany": { count: 2 },
+      "sprintBacklogItem.findMany": [],
+    })
+    await repo.findLiveBacklogItemsByIds(db.client, "p1", ["a", "b"])
+    expect(db.fn("productBacklogItem.findMany").mock.calls[0][0].where).toEqual({ projectId: "p1", id: { in: ["a", "b"] }, deletedAt: null })
+
+    expect(await repo.updateBacklogItemsMany(db.client, "p1", ["a", "b"], { status: "ready" })).toBe(2)
+    expect(db.fn("productBacklogItem.updateMany").mock.calls[0][0]).toEqual({
+      where: { projectId: "p1", id: { in: ["a", "b"] }, deletedAt: null },
+      data: { status: "ready", version: { increment: 1 } },
+    })
+
+    const now = new Date("2026-09-30T00:00:00Z")
+    expect(await repo.softDeleteBacklogItemsMany(db.client, "p1", ["a"], "u1", now)).toBe(2)
+    expect(db.fn("productBacklogItem.updateMany").mock.calls[1][0]).toEqual({
+      where: { projectId: "p1", id: { in: ["a"] }, deletedAt: null },
+      data: { deletedAt: now, deletedById: "u1" },
+    })
+
+    await repo.findTasksOfBacklogItems(db.client, ["a", "b"])
+    expect(db.fn("sprintBacklogItem.findMany").mock.calls[0][0]).toEqual({
+      where: { pbItemId: { in: ["a", "b"] } },
+      select: { id: true, sprintId: true },
+    })
+  })
 })

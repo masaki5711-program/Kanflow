@@ -31,6 +31,8 @@ export const updateBacklogItemSchema = z.object({
   notReadyReason: z.string().optional(),
   sortOrder: z.number().int().optional(),
   productGoalId: z.string().nullable().optional(),
+  /** Source IceBox request ("" / null = unlink). */
+  iceboxItemId: z.string().nullable().optional(),
   /** Optimistic lock: the version the client loaded (omitted = unchecked, legacy). */
   version: versionField,
 })
@@ -38,6 +40,25 @@ export const updateBacklogItemSchema = z.object({
 export const reorderBacklogSchema = z.object({
   orderedIds: z.array(z.string()).min(1),
 })
+
+/** Upper bound of PBIs one bulk request may touch. */
+export const BULK_MAX_IDS = 200
+
+const bulkIds = z.array(z.string().min(1).max(64)).min(1).max(BULK_MAX_IDS)
+
+/**
+ * POST /backlog/bulk. Each action has its own payload; the route checks the
+ * action's permission (status / assignPo: backlog.write, trash: backlog.delete,
+ * addToSprint: sprint.manage).
+ */
+export const bulkBacklogSchema = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("status"), ids: bulkIds, payload: z.object({ status: z.enum(PBI_STATUSES) }) }),
+  z.object({ action: z.literal("assignPo"), ids: bulkIds, payload: z.object({ assignedPo: z.string().max(200).nullable() }) }),
+  z.object({ action: z.literal("addToSprint"), ids: bulkIds, payload: z.object({ sprintId: z.string().min(1) }) }),
+  z.object({ action: z.literal("trash"), ids: bulkIds, payload: z.object({}).optional() }),
+])
+export type BulkBacklogInput = z.infer<typeof bulkBacklogSchema>
+export type BulkBacklogAction = BulkBacklogInput["action"]
 
 export type CreateBacklogItemInput = z.infer<typeof createBacklogItemSchema>
 export type UpdateBacklogItemInput = z.infer<typeof updateBacklogItemSchema>

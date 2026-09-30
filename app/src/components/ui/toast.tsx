@@ -3,12 +3,24 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from "react"
 import { cn } from "./cn"
 import { useUiLabels } from "./labels"
-import { DEFAULT_DURATION, MAX_TOASTS, toastReducer, type ToastItem, type ToastKind } from "./toast-state"
+import {
+  ACTION_DURATION,
+  DEFAULT_DURATION,
+  MAX_TOASTS,
+  toastReducer,
+  type ToastActionButton,
+  type ToastItem,
+  type ToastKind,
+} from "./toast-state"
+
+export type { ToastActionButton }
 
 export interface ToastOptions {
   title?: string
-  /** Override auto-dismiss delay (ms). 0 = sticky until dismissed. */
+  /** Override auto-dismiss delay (ms). 0 = sticky until dismissed. Default with an `action`: 8s. */
   duration?: number
+  /** Inline button (e.g. "Undo"); clicking runs `onClick` once and dismisses the toast. */
+  action?: ToastActionButton
 }
 
 export interface ToastApi {
@@ -43,7 +55,14 @@ export function ToastProvider({ children, max = MAX_TOASTS }: { children: ReactN
       dispatch({
         type: "add",
         max,
-        toast: { id, kind, message, title: options.title, duration: options.duration ?? DEFAULT_DURATION[kind] },
+        toast: {
+          id,
+          kind,
+          message,
+          title: options.title,
+          action: options.action,
+          duration: options.duration ?? (options.action ? Math.max(ACTION_DURATION, DEFAULT_DURATION[kind]) : DEFAULT_DURATION[kind]),
+        },
       })
       return id
     },
@@ -212,6 +231,18 @@ function Toast({
         {toast.title && <p className="font-semibold text-fg">{toast.title}</p>}
         <p className="break-words text-fg-muted">{toast.message}</p>
       </div>
+      {toast.action && (
+        <button
+          type="button"
+          onClick={() => {
+            onDismiss(toast.id)
+            toast.action?.onClick()
+          }}
+          className="inline-flex min-h-8 shrink-0 items-center rounded-ui-sm px-2 text-body font-semibold text-primary-strong hover:bg-primary-soft"
+        >
+          {toast.action.label}
+        </button>
+      )}
       <button
         type="button"
         onClick={() => onDismiss(toast.id)}

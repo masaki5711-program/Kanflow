@@ -59,6 +59,8 @@ export function useSprintsData(projectId: string) {
     refetchReady: backlogQuery.refetch,
     events: eventsQuery.data ?? EMPTY_EVENTS,
     members,
+    /** Signed-in user (the "me" assignee filter, per-user view preference). */
+    userId: userId ?? null,
     settings,
     canEditPbi: isAdmin || myRole === "po" || myRole === "sm",
   }

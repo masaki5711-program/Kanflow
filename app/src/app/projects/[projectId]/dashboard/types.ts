@@ -1,5 +1,6 @@
 import type { EntityI18n } from "@/lib/translation/types"
 import type { ProductGoalDto } from "@/types/api"
+import type { Sparkline } from "./dashboard-summary"
 
 export type ProductGoal = ProductGoalDto
 
@@ -30,6 +31,19 @@ export interface ActiveSprint {
   endDate: string
   capacity: number
   taskCounts: { todo: number; inProgress: number; done: number }
+  /** Burndown of this sprint (ideal vs actual remaining tasks). */
+  sparkline?: Sparkline
+}
+
+/** One of my open tasks in this project (planning / active sprints). */
+export interface DashboardMyTask {
+  id: string
+  taskName: string | null
+  status: string
+  pbDisplayId: number
+  pbUserStory: string | null
+  i18n?: EntityI18n
+  pbI18n?: EntityI18n
 }
 
 /** Where a folder drop lands relative to the target folder header. */

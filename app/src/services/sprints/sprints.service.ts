@@ -178,7 +178,16 @@ export async function deleteSprint(projectId: string, sprintId: string, actor: A
   })
 }
 
-export async function getBurndown(projectId: string): Promise<BurndownData> {
+/**
+ * Project-wide burndown (all non-archived sprints), or — with `sprintId` — the
+ * burndown of that one sprint (active / review / done; anything else 404s).
+ */
+export async function getBurndown(projectId: string, sprintId?: string, now: Date = new Date()): Promise<BurndownData> {
+  if (sprintId) {
+    const sprint = await repo.findBurndownSprint(defaultDb, projectId, sprintId)
+    if (!sprint) throw new NotFoundError()
+    return computeBurndown([sprint], now)
+  }
   const newestFirst = await repo.findBurndownSprints(defaultDb, projectId)
-  return computeBurndown([...newestFirst].reverse())
+  return computeBurndown([...newestFirst].reverse(), now)
 }

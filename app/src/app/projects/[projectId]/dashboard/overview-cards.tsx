@@ -3,7 +3,8 @@
 import Link from "next/link"
 import type { ReactNode } from "react"
 import { useLanguage } from "@/lib/language-context"
-import { ClipboardList, Lightbulb, Zap } from "lucide-react"
+import { ChevronRight, ClipboardList, Lightbulb, Zap } from "lucide-react"
+
 interface OverviewCardsProps {
   projectId: string
   iceboxCount: number
@@ -11,40 +12,37 @@ interface OverviewCardsProps {
   sprintCount: number
 }
 
-interface Card {
+interface Row {
   path: string
   label: string
   count: number
   icon: ReactNode
-  border: string
-  ring: string
 }
 
-/** IceBox / Backlog / Sprints counters, each linking to its page. */
+/** IceBox / Backlog / Sprints counters as a compact linked list (secondary to the sprint pulse and feed). */
 export function OverviewCards({ projectId, iceboxCount, backlogCount, sprintCount }: OverviewCardsProps) {
   const { t, pt } = useLanguage()
-  const cards: Card[] = [
-    { path: "icebox", label: pt.navIcebox, count: iceboxCount, icon: <Lightbulb className="w-6 h-6 text-amber-600" />, border: "border-b-amber-400", ring: "bg-amber-100" },
-    { path: "backlog", label: pt.navBacklog, count: backlogCount, icon: <ClipboardList className="w-6 h-6 text-primary" />, border: "border-b-primary", ring: "bg-primary-soft" },
-    { path: "sprints", label: pt.navSprints, count: sprintCount, icon: <Zap className="w-6 h-6 text-violet-600" />, border: "border-b-violet-400", ring: "bg-violet-100" },
+  const rows: Row[] = [
+    { path: "icebox", label: pt.navIcebox, count: iceboxCount, icon: <Lightbulb className="h-4 w-4 text-warning" /> },
+    { path: "backlog", label: pt.navBacklog, count: backlogCount, icon: <ClipboardList className="h-4 w-4 text-primary" /> },
+    { path: "sprints", label: pt.navSprints, count: sprintCount, icon: <Zap className="h-4 w-4 text-info" /> },
   ]
   return (
-    <section aria-labelledby="dashboard-overview-heading">
-      <h2 id="dashboard-overview-heading" className="text-caption font-semibold mb-4 text-fg-muted uppercase tracking-wider">
+    <section aria-labelledby="dashboard-overview-heading" className="rounded-ui-lg border border-border bg-surface p-4 shadow-ui-sm">
+      <h2 id="dashboard-overview-heading" className="mb-1 text-caption font-semibold uppercase tracking-wider text-fg-muted">
         {t.dashboardOverview}
       </h2>
-      <ul className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {cards.map((card) => (
-          <li key={card.path}>
+      <ul className="divide-y divide-border">
+        {rows.map((row) => (
+          <li key={row.path}>
             <Link
-              href={`/projects/${projectId}/${card.path}`}
-              className={`block bg-surface rounded-ui-lg border border-border border-b-[3px] ${card.border} shadow-ui-sm p-5 hover:shadow-ui-md hover:-translate-y-0.5 transition-[box-shadow,transform]`}
+              href={`/projects/${projectId}/${row.path}`}
+              className="group flex items-center gap-3 rounded-ui-sm px-1 py-2 hover:bg-surface-muted"
             >
-              <div className="flex items-center gap-3 mb-3">
-                <div className={`${card.ring} p-2.5 rounded-full`}>{card.icon}</div>
-                <div className="text-caption font-semibold text-fg-muted uppercase tracking-wide">{card.label}</div>
-              </div>
-              <div className="text-3xl font-bold text-fg">{card.count}</div>
+              <span aria-hidden="true" className="flex h-8 w-8 items-center justify-center rounded-full bg-surface-sunken">{row.icon}</span>
+              <span className="flex-1 text-body text-fg">{row.label}</span>
+              <span className="text-title font-bold tabular-nums text-fg">{row.count}</span>
+              <ChevronRight aria-hidden="true" className="h-4 w-4 text-fg-subtle group-hover:text-fg-muted" />
             </Link>
           </li>
         ))}

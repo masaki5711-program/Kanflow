@@ -42,7 +42,7 @@ const categories: Category[] = [
 
 function renderList(props: Partial<Parameters<typeof ProjectList>[0]> = {}, language: "ja" | "en" | "id" = "ja") {
   return renderWithProviders(
-    <ProjectList activeProjects={active} archivedProjects={archived} categories={categories} isAdmin={false} {...props} />,
+    <ProjectList activeProjects={active} archivedCount={archived.length} categories={categories} isAdmin={false} {...props} />,
     { language },
   )
 }
@@ -80,7 +80,7 @@ afterEach(() => {
 
 describe("ProjectList rendering", () => {
   it("shows an empty state with a create action when there are no projects", () => {
-    renderList({ activeProjects: [], archivedProjects: [], categories: [] })
+    renderList({ activeProjects: [], archivedCount: 0, categories: [] })
     expect(screen.getByText(t.projectListEmpty)).toBeInTheDocument()
     expect(screen.getByRole("button", { name: t.projectCreateButton })).toBeInTheDocument()
     expect(screen.queryByRole("searchbox")).not.toBeInTheDocument()
@@ -166,14 +166,44 @@ describe("ProjectList rendering", () => {
     expect(screen.getByText(t.projectNoMatch)).toBeInTheDocument()
   })
 
-  it("expands the archived section", async () => {
+  it("loads the archived projects only when the section is first expanded", async () => {
     const user = userEvent.setup()
+    const fetchMock = stubFetch([{ match: "/api/projects/archived", method: "GET", respond: () => jsonResponse({ items: archived }) }])
     renderList()
     expect(screen.queryByRole("link", { name: "Old" })).not.toBeInTheDocument()
+    expect(fetchMock).not.toHaveBeenCalled()
     const toggle = screen.getByRole("button", { name: `${t.sprintStatusArchived} (1)` })
     await user.click(toggle)
     expect(toggle).toHaveAttribute("aria-expanded", "true")
+    expect(await screen.findByRole("link", { name: "Old" })).toBeInTheDocument()
+    // Collapse + expand again reuses the loaded list.
+    await user.click(toggle)
+    expect(screen.queryByRole("link", { name: "Old" })).not.toBeInTheDocument()
+    await user.click(toggle)
     expect(screen.getByRole("link", { name: "Old" })).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("shows an error with retry when the archived projects fail to load", async () => {
+    const user = userEvent.setup()
+    let calls = 0
+    stubFetch([
+      {
+        match: "/api/projects/archived",
+        method: "GET",
+        respond: () => (++calls === 1 ? jsonResponse({ error: "boom" }, 500) : jsonResponse({ items: archived })),
+      },
+    ])
+    renderList()
+    await user.click(screen.getByRole("button", { name: `${t.sprintStatusArchived} (1)` }))
+    expect(await screen.findByText(t.topArchivedLoadFailed)).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: t.topRetry }))
+    expect(await screen.findByRole("link", { name: "Old" })).toBeInTheDocument()
+  })
+
+  it("hides the archived section when there are none", () => {
+    renderList({ archivedCount: 0 })
+    expect(screen.queryByRole("button", { name: new RegExp(t.sprintStatusArchived) })).not.toBeInTheDocument()
   })
 
   it.each(["en", "id"] as const)("renders localized toolbar labels in %s", (lang) => {

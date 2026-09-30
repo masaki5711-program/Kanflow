@@ -2,10 +2,12 @@
 
 import Link from "next/link"
 import { useState, type ReactNode } from "react"
-import { CalendarDays, CheckCheck, FolderOpen, ListChecks, Tag, UserRound } from "lucide-react"
-import { Badge, EmptyState } from "@/components/ui"
+import { CalendarDays, CheckCheck, FolderOpen, ListChecks, Tag } from "lucide-react"
+import { Button, EmptyState, buttonClasses, cn } from "@/components/ui"
 import { ProjectList } from "./project-list"
 import { MySprintTasks, type MyTask } from "./my-sprint-tasks"
+import { summarizeMyTasks } from "./_my-tasks/task-urgency"
+import { useMyTaskStatuses } from "./_my-tasks/use-my-task-statuses"
 import FixedTasksModal from "@/components/fixed-tasks-modal"
 import { useLanguage } from "@/lib/language-context"
 import { useDocumentTitle } from "@/hooks/use-document-title"
@@ -13,83 +15,55 @@ import type { Category, Project } from "./_project-list/types"
 
 interface Props {
   activeProjects: Project[]
-  archivedProjects: Project[]
+  /** Archived projects are loaded on demand when their section is expanded. */
+  archivedCount: number
   categories: Category[]
   isAdmin: boolean
   myTasks: MyTask[]
   userName: string | null
 }
 
-const HERO_CHIP =
-  "inline-flex min-h-8 items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 text-caption text-white backdrop-blur transition-colors hover:bg-white/25"
-
-export function TopPage({ activeProjects, archivedProjects, categories, isAdmin, myTasks, userName }: Props) {
+export function TopPage({ activeProjects, archivedCount, categories, isAdmin, myTasks, userName }: Props) {
   const { t } = useLanguage()
   useDocumentTitle([t.projectListTitle])
   const [fixedTasksOpen, setFixedTasksOpen] = useState(false)
-
-  const inProgressCount = myTasks.filter((m) => m.status === "in_progress").length
-  const todoCount = myTasks.filter((m) => m.status === "todo").length
-  const doneCount = myTasks.filter((m) => m.status === "done").length
-  const activeProjectCount = activeProjects.length
+  // One "now" per page view: urgency, KPIs and sorting agree with each other.
+  const [now] = useState(() => new Date())
+  const statuses = useMyTaskStatuses(myTasks)
+  const kpi = summarizeMyTasks(statuses.tasks, now)
   const greeting = userName ? t.topGreetingWithName.replace("{name}", userName) : t.topGreeting
 
   return (
     <div className="space-y-8">
-      {/* Hero / Welcome */}
-      <section className="rounded-3xl bg-gradient-to-br from-primary-active via-primary to-sky-600 px-6 py-7 text-white shadow-ui-lg md:px-8 md:py-8">
-        <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
+      {/* Hero: greeting + the three numbers that matter today */}
+      <section
+        aria-labelledby="top-greeting"
+        className="rounded-3xl bg-gradient-to-br from-primary-active via-primary to-sky-600 px-6 py-6 text-white shadow-ui-lg md:px-8"
+      >
+        <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
           <div className="min-w-0">
             <p className="text-caption font-medium uppercase tracking-widest text-white/80">{t.appTitle}</p>
-            <h1 className="mt-1 text-2xl font-bold leading-tight md:text-3xl">{greeting}</h1>
-            <p className="mt-1 text-body text-white/90">{t.topMyTasksDesc}</p>
+            <h1 id="top-greeting" className="mt-1 text-2xl font-bold leading-tight md:text-3xl">{greeting}</h1>
           </div>
-
           <dl className="grid shrink-0 grid-cols-3 gap-2 md:gap-3">
-            <StatTile label={t.taskInProgress} value={inProgressCount} />
-            <StatTile label={t.taskTodo} value={todoCount} />
-            <StatTile label={t.topStatActiveProjects} value={activeProjectCount} />
+            <Kpi label={t.topKpiOpen} value={kpi.open} />
+            <Kpi label={t.topKpiOverdue} value={kpi.overdue} alert={kpi.overdue > 0} />
+            <Kpi label={t.topKpiDueThisWeek} value={kpi.dueThisWeek} />
           </dl>
-        </div>
-
-        {/* Toolbar inside hero */}
-        <div className="mt-6 flex flex-wrap items-center gap-2">
-          <Link href="/settings/categories" className={HERO_CHIP}>
-            <Tag aria-hidden="true" className="h-3.5 w-3.5" />
-            {t.categorySettingsTitle}
-          </Link>
-          <Link href="/me" className={HERO_CHIP}>
-            <UserRound aria-hidden="true" className="h-3.5 w-3.5" />
-            {t.myProfileMenu}
-          </Link>
-          <button type="button" onClick={() => setFixedTasksOpen(true)} className={HERO_CHIP}>
-            <ListChecks aria-hidden="true" className="h-3.5 w-3.5" />
-            {t.fixedTasksManage}
-          </button>
         </div>
       </section>
 
       <FixedTasksModal open={fixedTasksOpen} onClose={() => setFixedTasksOpen(false)} />
 
-      {/* My Tasks section */}
       <section id="my-tasks" aria-labelledby="my-tasks-heading">
-        <div className="mb-3 flex items-center justify-between">
-          <SectionTitle
-            id="my-tasks-heading"
-            icon={<CalendarDays className="h-4 w-4" />}
-            title={t.topMyTasksHeading}
-            subtitle={t.topMyTasksDesc}
-          />
-          {myTasks.length > 0 && (
-            <div className="hidden items-center gap-1.5 sm:flex">
-              {inProgressCount > 0 && <Badge tone="primary">{t.taskInProgress} {inProgressCount}</Badge>}
-              {todoCount > 0 && <Badge tone="neutral">{t.taskTodo} {todoCount}</Badge>}
-              {doneCount > 0 && <Badge tone="success">{t.taskDone} {doneCount}</Badge>}
-            </div>
-          )}
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <SectionTitle id="my-tasks-heading" icon={<CalendarDays className="h-4 w-4" />} title={t.topMyTasksHeading} subtitle={t.topMyTasksDesc} />
+          <Button variant="ghost" size="sm" leftIcon={<ListChecks aria-hidden="true" className="h-4 w-4" />} onClick={() => setFixedTasksOpen(true)}>
+            {t.fixedTasksManage}
+          </Button>
         </div>
         {myTasks.length > 0 ? (
-          <MySprintTasks tasks={myTasks} />
+          <MySprintTasks tasks={myTasks} statuses={statuses} now={now} />
         ) : (
           <EmptyState
             compact
@@ -100,22 +74,20 @@ export function TopPage({ activeProjects, archivedProjects, categories, isAdmin,
         )}
       </section>
 
-      {/* Projects section */}
       <section id="projects" aria-labelledby="projects-heading">
-        <div className="mb-3">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <SectionTitle
             id="projects-heading"
             icon={<FolderOpen className="h-4 w-4" />}
             title={t.projectListTitle}
-            subtitle={`${activeProjectCount} ${t.projectListCount}`}
+            subtitle={`${activeProjects.length} ${t.projectListCount}`}
           />
+          <Link href="/settings/categories" className={buttonClasses({ variant: "ghost", size: "sm" })}>
+            <Tag aria-hidden="true" className="h-4 w-4" />
+            {t.categorySettingsTitle}
+          </Link>
         </div>
-        <ProjectList
-          activeProjects={activeProjects}
-          archivedProjects={archivedProjects}
-          categories={categories}
-          isAdmin={isAdmin}
-        />
+        <ProjectList activeProjects={activeProjects} archivedCount={archivedCount} categories={categories} isAdmin={isAdmin} />
       </section>
     </div>
   )
@@ -137,13 +109,18 @@ function SectionTitle({ id, icon, title, subtitle }: { id: string; icon: ReactNo
   )
 }
 
-function StatTile({ label, value }: { label: string; value: number }) {
+function Kpi({ label, value, alert = false }: { label: string; value: number; alert?: boolean }) {
   return (
-    <div className="flex min-w-[72px] flex-col-reverse rounded-2xl bg-white/15 px-3 py-2 text-center backdrop-blur md:px-4 md:py-3">
-      <dt className="mt-1 truncate text-caption text-white/90" title={label}>
+    <div
+      className={cn(
+        "flex min-w-[88px] flex-col-reverse rounded-2xl px-3 py-2 text-center backdrop-blur md:px-4 md:py-3",
+        alert ? "bg-white text-danger-strong shadow-ui-md" : "bg-white/15",
+      )}
+    >
+      <dt className={cn("mt-1 truncate text-caption", alert ? "font-semibold" : "text-white/90")} title={label}>
         {label}
       </dt>
-      <dd className="text-xl font-bold leading-none md:text-2xl">{value}</dd>
+      <dd className="text-2xl font-bold leading-none md:text-3xl">{value}</dd>
     </div>
   )
 }
