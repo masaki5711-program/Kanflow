@@ -22,9 +22,9 @@ test("A3-01 burndown actual line stops at today (no future points)", async ({ br
   expect(res.status()).toBe(200)
   const body = await res.json()
   const data = body.data ?? body
-  const today = new Date()
-  const key = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`
-  const idx = (data.days as string[]).indexOf(key)
+  // "Today" is the server's Asia/Tokyo day (data.todayIndex), not the browser
+  // clock: the eval host is UTC+7, so the two differ from 22:00 to 24:00 local.
+  const idx = data.todayIndex as number
   const future = (data.actualLine as (number | null)[]).slice(idx + 1).filter((v) => v !== null)
   s.log(`A3-01 days=${data.days.length} todayIdx=${idx} futureActualPoints=${future.length}`)
   await s.page.goto(`${ACC}/burndown`)

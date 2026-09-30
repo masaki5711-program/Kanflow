@@ -9,7 +9,7 @@ import { contextFor, PILOT, ZEVA, type Role } from "./platform-helpers"
  * per page. POSTs that could reach Ollama are aborted so the sweep never
  * spends the shared AI budget.
  */
-const OUT = "D:/APP/Kanflow-e2e/reports/c5-logs/console-sweep.json"
+const OUT = process.env.E2E_SWEEP_OUT ?? "D:/APP/Kanflow-e2e/reports/c5-logs/console-sweep.json"
 const LOADS_PER_PAGE = 2
 const AI_POST = /\/(ai|chat|report|generate|summar|surveil)/i
 

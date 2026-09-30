@@ -21,8 +21,14 @@ test("dev: home, mention notification, burndown", async ({ browser }) => {
   s.log(`bell: ${await bell.getAttribute("aria-label")}`)
   await bell.click()
   const dlg = page.getByRole("dialog", { name: "Notifikasi" })
-  await dlg.getByRole("button", { name: /Tampilkan lebih banyak/ }).click()
   const mention = dlg.getByRole("button", { name: /menyebut Anda/ }).first()
+  // Page through the list: repeated regression runs add many assignment
+  // notifications for the dev account, which push the mention down (cycle 6).
+  const more = dlg.getByRole("button", { name: /Tampilkan lebih banyak/ })
+  for (let i = 0; i < 10 && !(await mention.isVisible()) && (await more.isVisible()); i++) {
+    await more.click()
+    await page.waitForTimeout(500)
+  }
   await expect(mention).toBeVisible()
   const items = await dlg.getByRole("listitem").allInnerTexts()
   const pos = items.findIndex((t) => /menyebut Anda/.test(t))
