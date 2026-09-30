@@ -47,6 +47,8 @@ export const API_ERROR_CODES = [
   "PRODUCT_GOAL_NOT_FOUND",
   "RELEASE_NO_PBI",
   "PROJECT_IN_TRASH",
+  /** A new PBI needs a user story or an initiative (the text the backlog list shows as its title). */
+  "PBI_CONTENT_REQUIRED",
   // Sprints
   "SPRINT_NOT_FOUND",
   "SPRINT_ACTIVE_EXISTS",

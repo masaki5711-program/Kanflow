@@ -4,6 +4,7 @@ const authMock = vi.fn()
 const userFind = vi.fn()
 const projectFind = vi.fn()
 const getI18nFor = vi.fn()
+const loadProjectActor = vi.fn()
 
 vi.mock("@/lib/auth", () => ({ auth: () => authMock() }))
 vi.mock("@/lib/prisma", () => ({
@@ -13,6 +14,12 @@ vi.mock("@/lib/prisma", () => ({
   },
 }))
 vi.mock("@/lib/translation/hooks", () => ({ getI18nFor: (...a: unknown[]) => getI18nFor(...a) }))
+vi.mock("@/lib/authz", async () => ({
+  ...(await vi.importActual<typeof import("@/lib/authz/policy")>("@/lib/authz/policy")),
+  loadProjectActor: (...a: unknown[]) => loadProjectActor(...a),
+}))
+
+const actor = (projectRole: string | null, systemRole = "member") => ({ userId: "u1", systemRole, projectRole, isSectionManagerOfProject: false })
 
 import { buildPageMetadata } from "./page-metadata"
 
@@ -23,6 +30,21 @@ describe("buildPageMetadata", () => {
     userFind.mockResolvedValue({ language: "en" })
     projectFind.mockResolvedValue({ name: "アルファ", projectType: "software" })
     getI18nFor.mockResolvedValue(new Map())
+    loadProjectActor.mockResolvedValue(actor("dev"))
+  })
+
+  it("never puts the name of a project the viewer cannot see into the title (P-01)", async () => {
+    authMock.mockResolvedValue({ user: { id: "u1", role: "member" } })
+    loadProjectActor.mockResolvedValue(actor(null))
+    const hidden = await buildPageMetadata(({ t }) => t.dashboardTitle, "p1")
+    expect(hidden.title).not.toMatch(/アルファ/)
+    expect(loadProjectActor).toHaveBeenCalledWith("u1", "member", "p1")
+    expect(projectFind).not.toHaveBeenCalled()
+    // Identical to an unknown id.
+    loadProjectActor.mockResolvedValue(actor("dev"))
+    projectFind.mockResolvedValue(null)
+    const unknown = await buildPageMetadata(({ t }) => t.dashboardTitle, "nope")
+    expect(hidden.title).toBe(unknown.title)
   })
 
   it("builds '<Page> · Kanflow' in the viewer's language for top-level pages", async () => {

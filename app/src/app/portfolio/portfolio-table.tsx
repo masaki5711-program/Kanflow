@@ -110,7 +110,10 @@ export function PortfolioTable({ rows, view, onSort, now }: Props) {
   const { t } = useLanguage()
   const header = (label: string, key: SortKey, className?: string) => <SortHeader label={label} sortKey={key} view={view} onSort={onSort} className={className} />
   return (
-    <div className="overflow-x-auto rounded-ui-lg border border-border bg-surface shadow-ui-sm">
+    // `relative` makes this scroll box the containing block of the sr-only
+    // (position:absolute) cell texts; otherwise they escape the overflow clip
+    // and widen the whole page on phones (P-03: 679px horizontal scroll).
+    <div data-portfolio-scroll="" className="relative max-w-full overflow-x-auto rounded-ui-lg border border-border bg-surface shadow-ui-sm">
       <table className="w-full min-w-[74rem] border-collapse text-left">
         <caption className="sr-only">{t.portfolioTableCaption}</caption>
         <thead className="bg-surface-muted">

@@ -7,6 +7,11 @@ export interface ApiTokensTranslations {
   apiTokenSectionTitle: string
   apiTokenSectionHint: string
   apiTokenDocsLink: string
+  /** /me API usage help (base URL + example request). */
+  apiTokenUsageBaseUrl: string
+  apiTokenUsageAuth: string
+  apiTokenUsageExample: string
+  apiTokenUsageEndpoints: string
   apiTokenDisabled: string
   apiTokenName: string
   apiTokenNamePlaceholder: string
@@ -49,7 +54,11 @@ export interface ApiTokensTranslations {
 export const ja: ApiTokensTranslations = {
   apiTokenSectionTitle: "個人アクセストークン",
   apiTokenSectionHint: "読み取り専用 REST API（/api/v1）を外部ツールから呼び出すためのトークンです。あなたと同じ閲覧権限を持つので、第三者に渡さないでください。",
-  apiTokenDocsLink: "API の使い方: docs/api-v1.md",
+  apiTokenDocsLink: "API の使い方",
+  apiTokenUsageBaseUrl: "ベース URL",
+  apiTokenUsageAuth: "発行したトークンを Authorization ヘッダーに付けて呼び出します（読み取り専用・JSON）。",
+  apiTokenUsageExample: "例: 閲覧できるプロジェクトの一覧を取得",
+  apiTokenUsageEndpoints: "主なエンドポイント: /me、/projects、/projects/{id}/backlog、/projects/{id}/sprints、/projects/{id}/plan",
   apiTokenDisabled: "このサーバーではアクセストークンが無効になっています（管理者にお問い合わせください）。",
   apiTokenName: "名前",
   apiTokenNamePlaceholder: "例: 週次レポート用スクリプト",
@@ -92,7 +101,11 @@ export const ja: ApiTokensTranslations = {
 export const en: ApiTokensTranslations = {
   apiTokenSectionTitle: "Personal access tokens",
   apiTokenSectionHint: "Tokens let external tools call the read-only REST API (/api/v1). A token can read everything you can, so never share it.",
-  apiTokenDocsLink: "API guide: docs/api-v1.md",
+  apiTokenDocsLink: "How to use the API",
+  apiTokenUsageBaseUrl: "Base URL",
+  apiTokenUsageAuth: "Send the token in the Authorization header (read-only, JSON responses).",
+  apiTokenUsageExample: "Example: list the projects you can see",
+  apiTokenUsageEndpoints: "Main endpoints: /me, /projects, /projects/{id}/backlog, /projects/{id}/sprints, /projects/{id}/plan",
   apiTokenDisabled: "Access tokens are disabled on this server (ask an administrator).",
   apiTokenName: "Name",
   apiTokenNamePlaceholder: "e.g. weekly report script",
@@ -135,7 +148,11 @@ export const en: ApiTokensTranslations = {
 export const id: ApiTokensTranslations = {
   apiTokenSectionTitle: "Token akses pribadi",
   apiTokenSectionHint: "Token dipakai alat eksternal untuk memanggil REST API baca-saja (/api/v1). Token dapat membaca semua yang bisa Anda baca, jadi jangan dibagikan.",
-  apiTokenDocsLink: "Panduan API: docs/api-v1.md",
+  apiTokenDocsLink: "Cara menggunakan API",
+  apiTokenUsageBaseUrl: "URL dasar",
+  apiTokenUsageAuth: "Kirim token di header Authorization (hanya baca, respons JSON).",
+  apiTokenUsageExample: "Contoh: ambil daftar proyek yang dapat Anda lihat",
+  apiTokenUsageEndpoints: "Endpoint utama: /me, /projects, /projects/{id}/backlog, /projects/{id}/sprints, /projects/{id}/plan",
   apiTokenDisabled: "Token akses dinonaktifkan di server ini (hubungi administrator).",
   apiTokenName: "Nama",
   apiTokenNamePlaceholder: "mis. skrip laporan mingguan",

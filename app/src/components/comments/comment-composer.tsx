@@ -1,10 +1,11 @@
 "use client"
 
-import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react"
+import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react"
 import { Send } from "lucide-react"
 import { useLanguage } from "@/lib/language-context"
 import { activeMentionQuery, mentionToken } from "@/lib/mentions"
-import { Button, Field, Textarea, cn } from "@/components/ui"
+import { Button, Field, Textarea } from "@/components/ui"
+import { MentionListbox } from "./mention-listbox"
 import { COMMENT_BODY_MAX, type MentionMember } from "./types"
 
 /** Suggestions shown at once. */
@@ -12,6 +13,8 @@ const MAX_SUGGESTIONS = 8
 
 interface Props {
   members: readonly MentionMember[]
+  /** The member list is still loading: Enter on an @token waits for it instead of typing a newline. */
+  membersLoading?: boolean
   /** Resolve true when saved (the composer then clears unless `initialValue` is set). */
   onSubmit: (body: string) => Promise<boolean>
   /** Accessible label of the text area (visually hidden). */
@@ -38,9 +41,11 @@ export function filterMembers(members: readonly MentionMember[], query: string):
  * Comment text area with @mention autocomplete. Typing `@` lists project
  * members (filtered as you type); ↑/↓ move, Enter or Tab inserts `@[Name]`,
  * Escape closes the list (without closing a surrounding modal).
- * Ctrl/⌘ + Enter submits.
+ * Ctrl/⌘ + Enter submits. While the members are still loading, Enter (or
+ * Ctrl+Enter) on an @token neither types a newline nor posts: the first
+ * match is inserted once the list arrives.
  */
-export function CommentComposer({ members, onSubmit, label, submitLabel, initialValue = "", onCancel, autoFocus }: Props) {
+export function CommentComposer({ members, membersLoading = false, onSubmit, label, submitLabel, initialValue = "", onCancel, autoFocus }: Props) {
   const { t } = useLanguage()
   const [value, setValue] = useState(initialValue)
   const [caret, setCaret] = useState(initialValue.length)
@@ -48,6 +53,8 @@ export function CommentComposer({ members, onSubmit, label, submitLabel, initial
   // Start index of a query the user dismissed with Escape (stays closed until a new @).
   const [dismissedAt, setDismissedAt] = useState<number | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  // Start index of the @token whose Enter came before the members loaded.
+  const [pendingPickAt, setPendingPickAt] = useState<number | null>(null)
   const ref = useRef<HTMLTextAreaElement>(null)
   const pendingCaret = useRef<number | null>(null)
   const listId = useId()
@@ -58,6 +65,15 @@ export function CommentComposer({ members, onSubmit, label, submitLabel, initial
   const active = suggestions.length > 0 ? Math.min(activeIndex, suggestions.length - 1) : -1
   const tooLong = value.length > COMMENT_BODY_MAX
   const canSubmit = value.trim().length > 0 && !tooLong && !submitting && value !== initialValue
+
+  // The members arrived after an early Enter: insert the first match (or give up when none matches).
+  const firstMatch = pendingPickAt !== null && mention?.start === pendingPickAt && !membersLoading ? (suggestions[0] ?? null) : undefined
+  useEffect(() => {
+    if (firstMatch === undefined) return
+    setPendingPickAt(null)
+    if (firstMatch) insert(firstMatch)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once per resolved pending pick
+  }, [firstMatch])
 
   useLayoutEffect(() => {
     if (pendingCaret.current === null || !ref.current) return
@@ -92,6 +108,13 @@ export function CommentComposer({ members, onSubmit, label, submitLabel, initial
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    // An @token typed before the members loaded: keep the composer as it is and pick once they arrive.
+    if (e.key === "Enter" && isOpen && membersLoading && mention) {
+      e.preventDefault()
+      e.stopPropagation()
+      setPendingPickAt(mention.start)
+      return
+    }
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
       e.preventDefault()
       void submit()
@@ -142,21 +165,8 @@ export function CommentComposer({ members, onSubmit, label, submitLabel, initial
           />
         </Field>
         {isOpen && (
-          <ul id={listId} role="listbox" aria-label={t.commentsMentionListLabel}
-            className="absolute left-0 right-0 z-20 mt-1 max-h-60 overflow-auto rounded-ui-md border border-border bg-surface py-1 shadow-ui-lg">
-            {suggestions.length === 0 ? (
-              <li role="presentation" className="px-3 py-2 text-caption text-fg-muted">{t.commentsMentionNoMatch}</li>
-            ) : (
-              suggestions.map((m, i) => (
-                <li key={m.id} id={optionId(i)} role="option" aria-selected={i === active}
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => insert(m)}
-                  className={cn("cursor-pointer px-3 py-1.5 text-body", i === active ? "bg-primary-soft text-primary-strong" : "text-fg hover:bg-surface-muted")}>
-                  @{m.name}
-                </li>
-              ))
-            )}
-          </ul>
+          <MentionListbox id={listId} anchorRef={ref} suggestions={suggestions} active={active} optionId={optionId}
+            loading={membersLoading} onPick={insert} />
         )}
       </div>
       <div className="flex justify-end gap-2">

@@ -14,6 +14,7 @@ vi.mock("@/services/_shared/db", () => ({
 vi.mock("@/services/_shared/translations", () => ({ getI18nFor: i18n.getI18nFor }))
 
 const { buildBacklogWorkbook, exportBacklog, hasBilingualText } = await import("../backlog.export")
+const { NO_EXPORT_FILTERS } = await import("../backlog.export-filters")
 const { loadWorkbook } = await import("../excel.shared")
 type Row = import("../backlog.export").BacklogExportRow
 
@@ -122,7 +123,7 @@ describe("exportBacklog", () => {
     db.current = fake.client
     i18n.getI18nFor.mockResolvedValue(new Map())
 
-    const out = await exportBacklog("proj", "en", new Date("2026-09-30T16:00:00Z"))
+    const out = await exportBacklog("proj", "en", undefined, new Date("2026-09-30T16:00:00Z"))
 
     expect(out.fileName).toBe("backlog-案件_A-2026-10-01.xlsx")
     expect(fake.fn("productBacklogItem.findMany").mock.calls[0][0].where).toEqual({ projectId: "proj", deletedAt: null })
@@ -132,6 +133,21 @@ describe("exportBacklog", () => {
     const byHeader = Object.fromEntries(headerRow(ws).map((h, i) => [h, ws.getRow(2).getCell(i + 1).value]))
     expect(byHeader).toMatchObject({ ID: 5, "Product goal": "Goal", Sprint: "Early, Late" })
     expect(byHeader["Master plan item"] ?? null).toBeNull()
+  })
+
+  it("exports only the rows matching the page's filters (F-09)", async () => {
+    const fake = fakeDb({
+      "project.findFirst": { name: "P", projectType: "software" },
+      "productBacklogItem.findMany": [
+        { ...row({ id: "a", displayId: 1, status: "ready", initiative: "Login" }), productGoalId: null, productGoal: null, planItem: null, sprintItems: [] },
+        { ...row({ id: "b", displayId: 2, status: "not_ready", initiative: "Login later" }), productGoalId: null, productGoal: null, planItem: null, sprintItems: [] },
+        { ...row({ id: "c", displayId: 3, status: "ready", initiative: "Billing" }), productGoalId: null, productGoal: null, planItem: null, sprintItems: [] },
+      ],
+    })
+    db.current = fake.client
+    i18n.getI18nFor.mockResolvedValue(new Map())
+    await exportBacklog("proj", "en", { ...NO_EXPORT_FILTERS, status: "ready", q: "login" })
+    expect(i18n.getI18nFor).toHaveBeenCalledWith("backlog_item", ["a"])
   })
 
   it("404s for a missing / trashed project", async () => {

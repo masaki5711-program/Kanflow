@@ -260,7 +260,7 @@ describe("PbiDetailModal (edit mode)", () => {
   it("quick-pick point buttons set the workload", async () => {
     renderModal({ editable: true })
     await enterEditMode()
-    const group = screen.getByRole("group", { name: t.backlogWorkloadQuickPick })
+    const group = screen.getByRole("group", { name: t.backlogWorkloadQuickPick.replace("{label}", pt.backlogWorkloadScore) })
     await userEvent.click(within(group).getByRole("button", { name: "13" }))
     expect(screen.getByLabelText(pt.backlogWorkloadScore)).toHaveValue(13)
     await userEvent.click(screen.getByRole("button", { name: t.update }))
@@ -280,7 +280,7 @@ describe("PbiDetailModal (edit mode)", () => {
     expect(screen.getByLabelText(pt.backlogWorkloadScore)).toBeInTheDocument()
   })
 
-  it("sends the loaded version; a VERSION_CONFLICT drops the edits, reloads the PBI and stays in edit mode", async () => {
+  it("sends the loaded version; a VERSION_CONFLICT loads the server's version into the form, lists the lost input and stays in edit mode", async () => {
     let gets = 0
     const bodies: unknown[] = []
     vi.stubGlobal(
@@ -304,7 +304,14 @@ describe("PbiDetailModal (edit mode)", () => {
     expect(await screen.findByDisplayValue("Theirs")).toBeInTheDocument()
     expect(screen.queryByText(new RegExp(t.backlogSaveFailed))).not.toBeInTheDocument()
     expect(onClose).not.toHaveBeenCalled()
-    expect(gets).toBe(2)
+    // `current` from the 409 body replaced the stale copy (no extra GET).
+    expect(gets).toBe(1)
+    const notice = screen.getByText(t.apiErrVersionConflictReenter).closest("[role=alert]") as HTMLElement
+    expect(within(notice).getByText("Mine")).toBeInTheDocument()
+    // A second save sends the new version, so it can never silently overwrite.
+    await userEvent.type(screen.getByDisplayValue("Theirs"), "!")
+    await userEvent.click(screen.getByRole("button", { name: t.update }))
+    await waitFor(() => expect(bodies).toEqual([{ epic: "Mine", version: 3 }, { epic: "Theirs!", version: 4 }]))
   })
 
   it("unlinks the IceBox request and the goal (sent as null)", async () => {

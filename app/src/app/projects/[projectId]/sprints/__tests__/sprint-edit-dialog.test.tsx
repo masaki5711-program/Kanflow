@@ -51,4 +51,40 @@ describe("SprintEditDialog", () => {
     expect(screen.getByText(t.sprintUpdateFailed)).toBeInTheDocument()
     expect(onClose).not.toHaveBeenCalled()
   })
+
+  it("after a 409 shows the other user's values and saves them with the new version", async () => {
+    const current = { ...sprintLite, sprintName: "Sprint 1 (SM edit)", capacity: 12, version: 7 }
+    let conflicted = false
+    const { calls } = stubFetch({
+      "PATCH /api/projects/p1/sprints/s1": () => {
+        if (conflicted) return json({})
+        conflicted = true
+        return json({ error: "stale", code: "VERSION_CONFLICT", current }, 409)
+      },
+    })
+    const onClose = vi.fn()
+    const onSaved = vi.fn()
+    renderWithProviders(<SprintEditDialog projectId="p1" sprint={{ ...sprintLite, version: 6 }} onClose={onClose} onSaved={onSaved} />)
+    await userEvent.type(screen.getByDisplayValue("Sprint 1"), " (PO edit)")
+    await userEvent.click(screen.getByRole("button", { name: t.save }))
+
+    expect(await screen.findByText(t.sprintEditConflictNotice)).toBeInTheDocument()
+    expect(screen.getByDisplayValue("Sprint 1 (SM edit)")).toBeInTheDocument()
+    expect(screen.getByDisplayValue("12")).toBeInTheDocument()
+    expect(onClose).not.toHaveBeenCalled()
+    expect(onSaved).toHaveBeenCalled()
+
+    await userEvent.click(screen.getByRole("button", { name: t.save }))
+    await waitFor(() => expect(onClose).toHaveBeenCalled())
+    expect(calls[0].body).toMatchObject({ sprintName: "Sprint 1 (PO edit)", version: 6 })
+    expect(calls[1].body).toMatchObject({ sprintName: "Sprint 1 (SM edit)", capacity: 12, version: 7 })
+  })
+
+  it("closes after a 409 without the current row", async () => {
+    stubFetch({ "PATCH /api/projects/p1/sprints/s1": () => json({ error: "stale", code: "VERSION_CONFLICT" }, 409) })
+    const onClose = vi.fn()
+    renderWithProviders(<SprintEditDialog projectId="p1" sprint={{ ...sprintLite, version: 1 }} onClose={onClose} />)
+    await userEvent.click(screen.getByRole("button", { name: t.save }))
+    await waitFor(() => expect(onClose).toHaveBeenCalled())
+  })
 })

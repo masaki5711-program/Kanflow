@@ -20,7 +20,6 @@ interface Props {
   tasks: readonly SprintItem[]
   swimlane: SwimlaneMode
   members: readonly Member[]
-  pointUnit: string
   actions: Pick<SprintTaskActions, "onRequestComplete" | "onQuickUpdateTaskStatus" | "onStartEditTask">
 }
 
@@ -50,7 +49,7 @@ function LaneHeading({ lane }: { lane: Swimlane }) {
 }
 
 /** Sprint kanban board: status columns × optional swimlanes, drag & drop between columns. */
-export default function Board({ sprintId, sprintName, tasks, swimlane, members, pointUnit, actions }: Props) {
+export default function Board({ sprintId, sprintName, tasks, swimlane, members, actions }: Props) {
   const { t, language } = useLanguage()
   const rootRef = useRef<HTMLDivElement>(null)
   const pendingFocusRef = useRef<string | null>(null)
@@ -125,7 +124,7 @@ export default function Board({ sprintId, sprintName, tasks, swimlane, members, 
         <div className={GRID}>
           {BOARD_STATUSES.map((status) => (
             <BoardColumnHeader key={status} summary={summaries[status]} label={columnLabels[status]}
-              pointUnit={pointUnit} isDropTarget={overStatus === status} />
+              isDropTarget={overStatus === status} />
           ))}
           {lanes.map((lane) => (
             <Fragment key={lane.key}>
@@ -133,7 +132,7 @@ export default function Board({ sprintId, sprintName, tasks, swimlane, members, 
               {BOARD_STATUSES.map((status) => (
                 <BoardCell key={status} status={status} laneKey={lane.key} tasks={lane.cells[status]}
                   label={lane.kind === "all" ? columnLabels[status] : `${columnLabels[status]} — ${lane.kind === "unassigned" ? t.sprintUnassigned : lane.title ?? `#${lane.pbItem?.displayId ?? ""}`}`}
-                  pointUnit={pointUnit} columnLabels={columnLabels} hintId={hintId} dnd={dnd.state} handlers={handlers} />
+                  columnLabels={columnLabels} hintId={hintId} dnd={dnd.state} handlers={handlers} />
               ))}
             </Fragment>
           ))}

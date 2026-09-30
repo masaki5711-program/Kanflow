@@ -20,12 +20,18 @@ import {
   toDateStr,
 } from "./calendar-types"
 import type { SprintPhase } from "./use-calendar-data"
+import { useMonthGridFocus } from "./use-month-grid-focus"
 
 const MAX_VISIBLE_EVENTS = 3
 
 export interface MonthGridProps {
   calendarDays: Date[]
+  currentYear: number
   currentMonth: number
+  /** Accessible name of the grid (the period label, e.g. "2026年10月"). */
+  label: string
+  /** Show the month containing `date` (keyboard navigation past the shown weeks). */
+  onShowMonth: (date: Date) => void
   today: Date
   locale: string
   events: CalendarEvent[]
@@ -59,6 +65,15 @@ export default function MonthGrid(props: MonthGridProps) {
   const { t } = useLanguage()
   const weekdays = t.calendarWeekdays
   const { calendarDays, currentMonth, today, expandedDay, dragStart, isMultiDayDrag, isDayInDragRange } = props
+  const { gridRef, tabStop, onKeyDown, onDayFocus } = useMonthGridFocus({
+    calendarDays,
+    currentYear: props.currentYear,
+    currentMonth,
+    today,
+    onShowMonth: props.onShowMonth,
+  })
+  const gridStart = calendarDays.length > 0 ? toDateStr(calendarDays[0]) : ""
+  const weeks = Array.from({ length: Math.ceil(calendarDays.length / 7) }, (_, w) => calendarDays.slice(w * 7, w * 7 + 7))
   // Stable handler identities + per-cell primitive props let the memoized
   // DayCell skip re-rendering: a drag only re-renders cells entering/leaving the range.
   const handlers = useStableHandlers<DayHandlers>({
@@ -88,30 +103,44 @@ export default function MonthGrid(props: MonthGridProps) {
         ))}
       </div>
 
-      <div className="grid grid-cols-7 flex-1 min-h-0 overflow-auto">
-        {calendarDays.map((day, idx) => {
-          const dayStr = toDateStr(day)
-          const inDragRange = isDayInDragRange(dayStr)
-          return (
-            <DayCell
-              key={dayStr}
-              day={day}
-              dayStr={dayStr}
-              isRowStart={idx % 7 === 0}
-              isCurrentMonth={day.getMonth() === currentMonth}
-              isToday={isSameDay(day, today)}
-              locale={props.locale}
-              events={props.events}
-              sprintPhases={props.sprintPhases}
-              deadlineEntries={props.taskDeadlinesByDate[dayStr]}
-              isExpanded={expandedDay === dayStr}
-              isDragging={dragStart !== null}
-              inDragRange={inDragRange}
-              showDragBar={inDragRange && isMultiDayDrag}
-              handlers={handlers}
-            />
-          )
-        })}
+      {/* One Tab stop (roving tabindex); arrows / Home / End / PageUp / PageDown move the focused day. */}
+      <div
+        ref={gridRef}
+        role="grid"
+        aria-label={props.label}
+        onKeyDown={onKeyDown}
+        className="grid grid-cols-7 flex-1 min-h-0 overflow-auto"
+      >
+        {weeks.map((week) => (
+          <div key={toDateStr(week[0])} role="row" className="contents">
+            {week.map((day, col) => {
+              const dayStr = toDateStr(day)
+              const inDragRange = isDayInDragRange(dayStr)
+              return (
+                <DayCell
+                  key={dayStr}
+                  day={day}
+                  dayStr={dayStr}
+                  gridStart={gridStart}
+                  isTabStop={dayStr === tabStop}
+                  onDayFocus={onDayFocus}
+                  isRowStart={col === 0}
+                  isCurrentMonth={day.getMonth() === currentMonth}
+                  isToday={isSameDay(day, today)}
+                  locale={props.locale}
+                  events={props.events}
+                  sprintPhases={props.sprintPhases}
+                  deadlineEntries={props.taskDeadlinesByDate[dayStr]}
+                  isExpanded={expandedDay === dayStr}
+                  isDragging={dragStart !== null}
+                  inDragRange={inDragRange}
+                  showDragBar={inDragRange && isMultiDayDrag}
+                  handlers={handlers}
+                />
+              )
+            })}
+          </div>
+        ))}
       </div>
     </>
   )
@@ -120,6 +149,10 @@ export default function MonthGrid(props: MonthGridProps) {
 interface DayCellProps {
   day: Date
   dayStr: string
+  /** First day shown in the grid (a sprint that started earlier is focusable there). */
+  gridStart: string
+  isTabStop: boolean
+  onDayFocus: (dayStr: string) => void
   isRowStart: boolean
   isCurrentMonth: boolean
   isToday: boolean
@@ -137,6 +170,9 @@ interface DayCellProps {
 const DayCell = memo(function DayCell({
   day,
   dayStr,
+  gridStart,
+  isTabStop,
+  onDayFocus,
   isRowStart,
   isCurrentMonth,
   isToday,
@@ -164,6 +200,7 @@ const DayCell = memo(function DayCell({
 
   return (
     <div
+      role="gridcell"
       className={cn(
         "border-b border-r border-border min-h-[120px] flex flex-col cursor-pointer select-none",
         isRowStart && "border-l",
@@ -185,6 +222,7 @@ const DayCell = memo(function DayCell({
               sprint={sp}
               dayStr={dayStr}
               showLabel={isRowStart || datePart(sp.startDate) === dayStr}
+              focusable={datePart(sp.startDate) === dayStr || (dayStr === gridStart && datePart(sp.startDate) < dayStr)}
               onClick={() => onSprintBarClick(sp.id)}
             />
           ))}
@@ -194,12 +232,16 @@ const DayCell = memo(function DayCell({
       <div className="flex items-center justify-between px-1.5 pt-1">
         <button
           type="button"
+          data-cal-day={dayStr}
+          tabIndex={isTabStop ? 0 : -1}
+          onFocus={() => onDayFocus(dayStr)}
           onMouseDown={(e) => e.stopPropagation()}
           onClick={(e) => {
             e.stopPropagation()
             onDayClick(dayStr)
           }}
           aria-label={fmt(t.calendarAddOnDate, { date: fullDate })}
+          aria-current={isToday ? "date" : undefined}
           className={cn(
             "text-caption font-semibold leading-none w-7 h-7 flex items-center justify-center rounded-full",
             isToday
@@ -271,15 +313,21 @@ const DayCell = memo(function DayCell({
   )
 })
 
+/**
+ * One day's segment of a sprint bar. Only one segment per bar (its first day in
+ * the grid) is focusable and announced; the others are mouse targets only.
+ */
 function SprintBar({
   sprint,
   dayStr,
   showLabel,
+  focusable,
   onClick,
 }: {
   sprint: SprintPhase
   dayStr: string
   showLabel: boolean
+  focusable: boolean
   onClick: () => void
 }) {
   const { t, language } = useLanguage()
@@ -305,7 +353,9 @@ function SprintBar({
         isEnd && "mr-0.5",
       )}
       title={label}
-      aria-label={label}
+      aria-label={focusable ? label : undefined}
+      aria-hidden={focusable ? undefined : true}
+      tabIndex={focusable ? undefined : -1}
     >
       <span
         className={cn(

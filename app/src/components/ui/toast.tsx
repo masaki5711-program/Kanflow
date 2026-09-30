@@ -87,6 +87,9 @@ export function ToastProvider({ children, max = MAX_TOASTS }: { children: ReactN
   )
 }
 
+/** Top offset of the toast stack: app header (h-14 = 56px) + 8px gap. */
+export const TOAST_TOP_OFFSET = "top-16"
+
 /** Key that jumps keyboard focus to the newest toast (and back again). */
 export const TOAST_FOCUS_KEY = "F6"
 
@@ -141,15 +144,16 @@ function ToastViewport({ toasts, onDismiss }: { toasts: readonly ToastItem[]; on
   )
 
   // Live regions must exist before content is injected, so both are always rendered.
-  // Placed at the TOP (below the 56px app header on desktop, top edge on mobile)
-  // so toasts never cover modal footers / sticky action bars at the bottom.
+  // Placed at the TOP, below the sticky 56px app header at every width (so the
+  // ☰ / search / bell stay usable), and never over modal footers / sticky
+  // action bars at the bottom. Keep TOAST_TOP_OFFSET in sync with the header height.
   return (
     <section
       ref={regionRef}
       aria-label={labels.notifications}
       aria-keyshortcuts={TOAST_FOCUS_KEY}
       data-toast-region=""
-      className="pointer-events-none fixed inset-x-4 top-4 z-[200] flex flex-col items-stretch gap-2 sm:inset-x-auto sm:right-4 sm:top-16 sm:w-96"
+      className={cn("pointer-events-none fixed inset-x-4 z-[200] flex flex-col items-stretch gap-2 sm:inset-x-auto sm:right-4 sm:w-96", TOAST_TOP_OFFSET)}
     >
       <div role="alert" aria-live="assertive" aria-atomic="false" className="flex flex-col gap-2">
         {assertive.map((t) => (

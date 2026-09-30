@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { SearchX } from "lucide-react"
+import { SearchX, ShieldAlert } from "lucide-react"
 import { Skeleton, SkeletonCard, SkeletonTable, buttonClasses, cn } from "@/components/ui"
 import { useLanguage } from "@/lib/language-context"
 
@@ -118,6 +118,38 @@ export function NotFoundView({ variant = "page", className }: NotFoundViewProps)
         <p className="mb-6 text-body text-fg-muted">{message}</p>
         <Link href="/" className={buttonClasses({ variant: "primary" })}>
           {t.notFoundBackToProjects}
+        </Link>
+      </div>
+    </div>
+  )
+}
+
+interface ForbiddenViewProps {
+  /** Inside a project: the "back" link goes to its dashboard instead of the project list. */
+  projectId?: string
+  className?: string
+}
+
+/**
+ * Localized 403 body for a page the user may not use although they can see
+ * the project (e.g. the project trash for a Developer). Unlike NotFoundView it
+ * does not pretend the page is missing.
+ */
+export function ForbiddenView({ projectId, className }: ForbiddenViewProps) {
+  const { t } = useLanguage()
+  const backHref = projectId ? `/projects/${projectId}` : "/"
+  const backLabel = projectId ? t.forbiddenBackToProject : t.notFoundBackToProjects
+  return (
+    <div className={cn("flex items-center justify-center", className)}>
+      <div className="mx-auto max-w-md px-6 text-center">
+        <div aria-hidden="true" className="mb-4 inline-flex h-14 w-14 items-center justify-center rounded-ui-lg bg-warning-soft">
+          <ShieldAlert className="h-7 w-7 text-warning-strong" />
+        </div>
+        <p className="mb-1 text-caption font-semibold uppercase tracking-widest text-fg-subtle">403</p>
+        <h1 className="mb-2 text-title font-bold text-fg">{t.forbiddenTitle}</h1>
+        <p className="mb-6 text-body text-fg-muted">{t.forbiddenMessage}</p>
+        <Link href={backHref} className={buttonClasses({ variant: "primary" })}>
+          {backLabel}
         </Link>
       </div>
     </div>

@@ -7,7 +7,7 @@ import { Button, EmptyState, IconButton, SkeletonLines, useConfirm, useToast } f
 import { CommentBody } from "./comment-body"
 import { CommentComposer } from "./comment-composer"
 import { formatFullDateTime, formatRelativeTime } from "./relative-time"
-import { useCommentThread, useMentionMembers } from "./use-comment-thread"
+import { useCommentThread, useMentionMembersState } from "./use-comment-thread"
 import type { CommentDto, CommentEntityType, MentionMember } from "./types"
 
 interface Props {
@@ -31,7 +31,7 @@ export function CommentThread({ projectId, entityType, entityId, onCountDelta }:
   const { t } = useLanguage()
   const toast = useToast()
   const thread = useCommentThread(projectId, entityType, entityId)
-  const members = useMentionMembers(projectId)
+  const { members, isLoading: membersLoading } = useMentionMembersState(projectId)
 
   async function post(body: string): Promise<boolean> {
     try {
@@ -65,7 +65,7 @@ export function CommentThread({ projectId, entityType, entityId, onCountDelta }:
       ) : (
         <ol className="space-y-3">
           {thread.items.map((c) => (
-            <CommentItem key={c.id} comment={c} members={members} onUpdate={thread.update} onRemove={thread.remove}
+            <CommentItem key={c.id} comment={c} members={members} membersLoading={membersLoading} onUpdate={thread.update} onRemove={thread.remove}
               onRemoved={() => onCountDelta?.(-1)} />
           ))}
         </ol>
@@ -77,7 +77,7 @@ export function CommentThread({ projectId, entityType, entityId, onCountDelta }:
           </Button>
         </div>
       )}
-      <CommentComposer members={members} onSubmit={post} label={t.commentsBodyLabel} submitLabel={t.commentsSend} />
+      <CommentComposer members={members} membersLoading={membersLoading} onSubmit={post} label={t.commentsBodyLabel} submitLabel={t.commentsSend} />
     </section>
   )
 }
@@ -85,12 +85,13 @@ export function CommentThread({ projectId, entityType, entityId, onCountDelta }:
 interface ItemProps {
   comment: CommentDto
   members: readonly MentionMember[]
+  membersLoading: boolean
   onUpdate: (id: string, body: string) => Promise<unknown>
   onRemove: (id: string) => Promise<void>
   onRemoved: () => void
 }
 
-function CommentItem({ comment, members, onUpdate, onRemove, onRemoved }: ItemProps) {
+function CommentItem({ comment, members, membersLoading, onUpdate, onRemove, onRemoved }: ItemProps) {
   const { t, language } = useLanguage()
   const toast = useToast()
   const confirm = useConfirm()
@@ -154,7 +155,7 @@ function CommentItem({ comment, members, onUpdate, onRemove, onRemoved }: ItemPr
       {comment.deleted || comment.body === null ? (
         <p className="text-body italic text-fg-muted">{t.commentsDeletedBody}</p>
       ) : editing ? (
-        <CommentComposer members={members} initialValue={comment.body} onSubmit={save} autoFocus
+        <CommentComposer members={members} membersLoading={membersLoading} initialValue={comment.body} onSubmit={save} autoFocus
           label={t.commentsEditBodyLabel} submitLabel={t.commentsSave} onCancel={() => setEditing(false)} />
       ) : (
         <CommentBody body={comment.body} mentions={comment.mentions} />

@@ -24,18 +24,21 @@ export default async function ProjectLayout({
 
   const { projectId } = await params
 
-  const [project, i18nMap] = await Promise.all([
+  // Existence and access are checked BEFORE anything project-specific is
+  // loaded or rendered: a non-viewer gets exactly the same generic 404 as an
+  // unknown id (no name / type in the header, sidebar or <title>).
+  const [project, actor] = await Promise.all([
     prisma.project.findUnique({
       where: { id: projectId },
       select: { name: true, projectType: true, deletedAt: true },
     }),
-    getI18nFor("project", [projectId]),
+    loadProjectActor(session.user.id, session.user.role ?? "member", projectId),
   ])
   // A trashed project is "not found" for everyone (admins restore it from /admin/trash).
-  if (!project || project.deletedAt) notFound()
+  if (!project || project.deletedAt || !can(actor, "project.view")) notFound()
 
+  const i18nMap = await getI18nFor("project", [projectId])
   // The trash entry is shown only to users who may manage the project trash.
-  const actor = await loadProjectActor(session.user.id, session.user.role ?? "member", projectId)
   const showTrash = can(actor, "trash.manage")
 
   const projectType = (project.projectType as ProjectType) ?? "software"

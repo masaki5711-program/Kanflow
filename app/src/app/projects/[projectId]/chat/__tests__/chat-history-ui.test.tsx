@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { getTranslations } from "@/lib/i18n"
+import { encodeChatEvent, type ChatProposal } from "@/lib/chat-proposals"
 import { jsonResponse, renderWithProviders } from "../../gantt/__tests__/providers"
 
 vi.mock("next/navigation", () => ({ useParams: () => ({ projectId: "p1" }), useRouter: () => ({ push: vi.fn() }) }))
@@ -157,6 +158,33 @@ describe("chat history", () => {
     renderWithProviders(<ChatPage />)
     expect(await screen.findByText(t.chatThreadLoadFailed)).toBeInTheDocument()
     await waitFor(() => expect(window.location.search).toBe(""))
+  })
+
+  it("a re-opened thread keeps an applied proposal applied (P-02: no second approve)", async () => {
+    const proposal: ChatProposal = {
+      kind: "create_pbi", proposalId: "prop_x", title: "SSO", userStory: "", acceptanceCriteria: "",
+      storyPoints: null, epic: null, reason: "", possibleDuplicates: [],
+    }
+    const outcome = { status: "applied", appliedEntityId: "pb-98", at: "2026-10-01T00:00:00.000Z", by: "u1" }
+    window.history.replaceState(null, "", "/projects/p1/chat?thread=t2")
+    stub((url, init) =>
+      url === "/api/projects/p1/chat/threads/t2" && (init?.method ?? "GET") === "GET"
+        ? jsonResponse({
+            thread: T2,
+            messages: [
+              {
+                id: "a1", role: "assistant", content: `Proposed${encodeChatEvent({ type: "proposal", proposal })}`,
+                partial: false, createdAt: "", toolEvents: [{ type: "proposal", proposal, outcome }],
+              },
+            ],
+          })
+        : undefined,
+    )
+    renderWithProviders(<ChatPage />)
+    const card = (await screen.findByRole("heading", { name: t.chatProposalCreatePbiTitle })).closest("section") as HTMLElement
+    expect(within(card).getByText(t.chatProposalApplied)).toBeInTheDocument()
+    expect(within(card).queryByRole("button", { name: t.chatProposalApproveCreate })).not.toBeInTheDocument()
+    expect(within(card).getByRole("link", { name: t.chatProposalOpen })).toHaveAttribute("href", "/projects/p1/backlog?pbi=pb-98")
   })
 
   it("shows the empty-history hint", async () => {

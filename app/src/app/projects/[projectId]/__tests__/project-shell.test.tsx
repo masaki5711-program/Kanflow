@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { render, screen, within } from "@testing-library/react"
+import { cleanup, render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type { ReactElement } from "react"
 import { LanguageProvider, useLanguage } from "@/lib/language-context"
@@ -101,6 +101,43 @@ describe("ProjectLayout (server)", () => {
     await expect(ProjectLayout({ children: null, params: Promise.resolve({ projectId: "p1" }) })).rejects.toThrow("NOT_FOUND")
     m.findUnique.mockResolvedValue({ name: "Old", projectType: "software", deletedAt: new Date() })
     await expect(ProjectLayout({ children: null, params: Promise.resolve({ projectId: "p1" }) })).rejects.toThrow("NOT_FOUND")
+  })
+})
+
+describe("ProjectLayout access (P-01)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    m.auth.mockResolvedValue({ user: { id: "u9", role: "member" } })
+    m.findUnique.mockResolvedValue({ name: "ZEVA-Link secret", projectType: "software", deletedAt: null })
+    m.getI18nFor.mockResolvedValue(new Map([["p1", { name: { en: "ZEVA-Link secret EN" } }]]))
+  })
+
+  it("404s a non-member exactly like an unknown id, before loading or rendering the name", async () => {
+    m.loadProjectActor.mockResolvedValue(actorOf(null))
+    await expect(ProjectLayout({ children: null, params: Promise.resolve({ projectId: "p1" }) })).rejects.toThrow("NOT_FOUND")
+    // The project's translated name is never even fetched.
+    expect(m.getI18nFor).not.toHaveBeenCalled()
+  })
+
+  it("lets a section manager of the project and a system admin in", async () => {
+    m.auth.mockResolvedValue({ user: { id: "u9", role: "section_manager" } })
+    m.loadProjectActor.mockResolvedValue({ userId: "u9", systemRole: "section_manager", projectRole: null, isSectionManagerOfProject: true })
+    const el = (await ProjectLayout({ children: null, params: Promise.resolve({ projectId: "p1" }) })) as ReactElement
+    render(<LanguageProvider>{el}</LanguageProvider>)
+    expect(screen.getByRole("banner")).toHaveTextContent("ZEVA-Link secret")
+    cleanup()
+
+    m.auth.mockResolvedValue({ user: { id: "a1", role: "admin" } })
+    m.loadProjectActor.mockResolvedValue({ userId: "a1", systemRole: "admin", projectRole: null, isSectionManagerOfProject: false })
+    await expect(ProjectLayout({ children: null, params: Promise.resolve({ projectId: "p1" }) })).resolves.toBeTruthy()
+  })
+
+  it("keeps the layout's notFound() outside any root Suspense boundary (real HTTP 404)", async () => {
+    const { existsSync } = await import("node:fs")
+    const { resolve } = await import("node:path")
+    // A root app/loading.tsx would wrap this layout, so notFound() would stream with status 200.
+    expect(existsSync(resolve(__dirname, "../../../loading.tsx"))).toBe(false)
+    expect(existsSync(resolve(__dirname, "../../loading.tsx"))).toBe(false)
   })
 })
 

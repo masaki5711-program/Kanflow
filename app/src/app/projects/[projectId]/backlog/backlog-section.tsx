@@ -32,6 +32,8 @@ interface Props extends CardPermissions {
   onAdd?: () => void
   /** Rendered below the list (e.g. "show more"). */
   footer?: ReactNode
+  /** A search / facet filter is active (the empty state then says "no match"). */
+  isFiltered?: boolean
 }
 
 function DropIndicator() {
@@ -71,7 +73,7 @@ export function BacklogSection(props: Props) {
               {props.totalCount !== undefined && props.totalCount !== items.length ? `${items.length} / ${props.totalCount}` : items.length}
               {t.items}
             </span>
-            <HelpTooltip content={hint} ariaLabel={title} side="right" />
+            <HelpTooltip content={hint} ariaLabel={t.backlogHelpAbout.replace("{field}", title)} side="right" />
           </div>
           {showWorkloadTotal && (
             <span className="inline-flex items-center gap-1 rounded-full bg-primary-soft px-3 py-1 text-caption font-medium text-primary-active">
@@ -85,7 +87,7 @@ export function BacklogSection(props: Props) {
         {items.length === 0 ? (
           <EmptyState
             compact
-            title={t.iceboxNoItems}
+            title={props.isFiltered ? t.backlogNoFilterMatch : t.iceboxNoItems}
             action={
               props.canEdit && onAdd && status === "not_ready" ? (
                 <Button size="sm" variant="secondary" onClick={onAdd}>
@@ -107,6 +109,7 @@ export function BacklogSection(props: Props) {
                     canEdit={props.canEdit}
                     canReorder={props.canReorder}
                     canDelete={props.canDelete}
+                    canInvest={props.canInvest}
                     selectMode={selectMode}
                     isSelected={selectedIds.has(item.id)}
                     isDragging={isDragged}

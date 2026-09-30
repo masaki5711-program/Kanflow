@@ -82,6 +82,13 @@ describe("PortfolioView", () => {
     expect(screen.getByText(t.portfolioSeverityCritical)).toBeInTheDocument()
   })
 
+  it("scrolls the wide table inside its own positioned box, so the page never overflows on phones", () => {
+    renderWithProviders(<PortfolioView data={DATA} />)
+    const box = screen.getByRole("table").parentElement!
+    // `relative` keeps the sr-only (absolute) cell texts inside the scroll box.
+    expect(box.className.split(" ")).toEqual(expect.arrayContaining(["relative", "max-w-full", "overflow-x-auto"]))
+  })
+
   it("sorts by a column header and reflects it in aria-sort and the URL", async () => {
     renderWithProviders(<PortfolioView data={DATA} />)
     const header = screen.getByRole("columnheader", { name: new RegExp(t.portfolioColProject) })

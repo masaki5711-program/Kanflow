@@ -198,8 +198,19 @@ describe("searchEverything (FULLTEXT path)", () => {
       { id: "b12", displayId: 12, initiative: "target", userStory: null, status: "ready", project: P1 },
     ])
     const out = await searchEverything(MEMBER, { q: "PBI 12", limit: 2 })
-    expect(vi.mocked(repo.findPbis).mock.calls[0][2]).toMatchObject({ displayId: 12, take: 3 })
+    expect(vi.mocked(repo.findPbis).mock.calls[0][2]).toMatchObject({ displayId: 12, take: 4 })
     expect(out.groups[0].items.map((p) => p.id)).toEqual(["b12", "b1"])
+  })
+
+  it("a bare number matches the PBI displayId and ranks it first (F-04)", async () => {
+    vi.mocked(ft.findFulltextCandidates).mockResolvedValue({ ...noCandidates(), pbi: [{ id: "b46", score: 9 }] })
+    vi.mocked(repo.findPbis).mockResolvedValue([
+      { id: "b46", displayId: 46, initiative: "Line 0938", userStory: null, status: "ready", project: P1 },
+      { id: "b38", displayId: 38, initiative: "OLE table", userStory: null, status: "ready", project: P1 },
+    ])
+    const out = await searchEverything(MEMBER, { q: "38", limit: 5 })
+    expect(vi.mocked(repo.findPbis).mock.calls[0][2]).toMatchObject({ displayId: 38 })
+    expect(out.groups[0].items.map((p) => p.id)).toEqual(["b38", "b46"])
   })
 
   it("falls back to LIKE when FULLTEXT finds no candidate at all", async () => {

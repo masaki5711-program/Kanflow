@@ -4,6 +4,7 @@ import { createContext, useContext, useState, useCallback, useEffect, type React
 import { type Language, type Translations, getTranslations } from "./i18n"
 import { type ProjectType, type ProjectTypeLabels, getProjectTypeLabels } from "./project-type-labels"
 import { apiFetch } from "@/hooks/api-client"
+import { rememberLastLanguage } from "./last-language"
 
 interface LanguageContextValue {
   language: Language
@@ -68,6 +69,8 @@ export function LanguageProvider({
   const setLanguage = useCallback((lang: Language) => {
     setLanguageState(lang)
     if (persistToUser) {
+      // The next login page starts in the language the user chose last.
+      rememberLastLanguage(lang)
       // Best-effort: the UI already switched; a failed save must not surface.
       apiFetch("/api/user/language", { method: "PATCH", json: { language: lang } }).catch(() => {})
     }

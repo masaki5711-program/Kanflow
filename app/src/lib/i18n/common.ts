@@ -77,6 +77,10 @@ export interface CommonTranslations {
   notFoundProjectTitle: string
   notFoundProjectMessage: string
   notFoundBackToProjects: string
+  /** 403 view: the page exists but the user's role may not use it. */
+  forbiddenTitle: string
+  forbiddenMessage: string
+  forbiddenBackToProject: string
 }
 
 export const ja: CommonTranslations = {
@@ -145,6 +149,9 @@ export const ja: CommonTranslations = {
   notFoundProjectTitle: "プロジェクトが見つかりません",
   notFoundProjectMessage: "このプロジェクトは存在しないか、閲覧する権限がありません。",
   notFoundBackToProjects: "プロジェクト一覧へ戻る",
+  forbiddenTitle: "権限がありません",
+  forbiddenMessage: "このページを表示する権限がありません。必要な場合はプロジェクトの PO または SM に依頼してください。",
+  forbiddenBackToProject: "プロジェクトのダッシュボードへ戻る",
 }
 
 export const en: CommonTranslations = {
@@ -213,6 +220,9 @@ export const en: CommonTranslations = {
   notFoundProjectTitle: "Project not found",
   notFoundProjectMessage: "This project does not exist or you do not have access to it.",
   notFoundBackToProjects: "Back to projects",
+  forbiddenTitle: "No permission",
+  forbiddenMessage: "You do not have permission to view this page. Ask the project's PO or SM if you need access.",
+  forbiddenBackToProject: "Back to the project dashboard",
 }
 
 export const id: CommonTranslations = {
@@ -281,4 +291,7 @@ export const id: CommonTranslations = {
   notFoundProjectTitle: "Proyek tidak ditemukan",
   notFoundProjectMessage: "Proyek ini tidak ada atau Anda tidak memiliki akses ke proyek ini.",
   notFoundBackToProjects: "Kembali ke daftar proyek",
+  forbiddenTitle: "Tidak ada izin",
+  forbiddenMessage: "Anda tidak memiliki izin untuk melihat halaman ini. Mintalah kepada PO atau SM proyek jika Anda memerlukan akses.",
+  forbiddenBackToProject: "Kembali ke dasbor proyek",
 }

@@ -70,6 +70,37 @@ export function entityHref(projectId: string, entry: Pick<FeedEntry, "entityType
   }
 }
 
+/** Fields that name an entity when the entry carries no label (first found wins). */
+const NAME_FIELDS = ["initiative", "userStory", "taskName", "sprintName", "name", "title", "request"] as const
+
+function nameFromChanges(changes: FeedEntry["changes"]): string | null {
+  for (const field of NAME_FIELDS) {
+    const change = changes?.[field]
+    if (!change || !("to" in change)) continue
+    const value = [change.to, change.from].find((v): v is string => typeof v === "string" && v.trim().length > 0)
+    if (value) return value.trim().split(/\r?\n/)[0]
+  }
+  return null
+}
+
+function nameFromMeta(meta: FeedEntry["meta"]): string | null {
+  const text = [meta?.label, meta?.entityLabel, meta?.name, meta?.title].find((v): v is string => typeof v === "string" && v.trim().length > 0)
+  if (text) return text.trim()
+  const displayId = meta?.displayId
+  return typeof displayId === "number" || (typeof displayId === "string" && displayId) ? `#${displayId}` : null
+}
+
+/**
+ * Readable name of the entry's entity: the logged label (the API fills it in
+ * from the entity for entries logged without one), else a name in the diff or
+ * meta ("#12" for a PBI). Member labels are user ids — never shown.
+ */
+export function entityLabel(entry: Pick<FeedEntry, "entityType" | "label" | "changes" | "meta">): string | null {
+  if (entry.entityType === "member") return null
+  if (entry.label?.trim()) return entry.label.trim()
+  return nameFromChanges(entry.changes) ?? nameFromMeta(entry.meta)
+}
+
 function quote(label: string, language: Language): string {
   return language === "ja" ? `「${label}」` : ` “${label}”`
 }
@@ -79,8 +110,7 @@ export function feedSentence(entry: FeedEntry, projectId: string, t: Translation
   const template = (t[ACTION_KEY[entry.action] ?? "dashboardFeedUpdate"] as string).replace("{actor}", actor)
   const [before, after = ""] = template.split("{entity}")
   const word = ENTITY_KEY[entry.entityType] ? (t[ENTITY_KEY[entry.entityType]] as string) : entry.entityType
-  // Member labels are user ids — not meaningful to read.
-  const label = entry.entityType === "member" ? null : entry.label
+  const label = entityLabel(entry)
   const change = entry.changes?.status
   const to = entry.action === "status_change" && change && "to" in change && change.to !== null ? String(change.to) : null
   return {

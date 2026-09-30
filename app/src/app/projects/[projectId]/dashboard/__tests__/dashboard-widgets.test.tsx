@@ -122,10 +122,18 @@ describe("DescriptionEditor", () => {
 describe("ProductGoals + GoalFormModal", () => {
   const goals = [{ id: "g1", title: "Ship v1", description: "desc one" }, { id: "g2", title: "Grow", description: null }]
 
+  it("is read-only without goal.write (no add / edit / delete)", () => {
+    renderWithProviders(<ProductGoals projectId="p1" initialGoals={goals} canEdit={false} />)
+    expect(screen.getByText("Ship v1")).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: ja.dashboardAddGoal })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: ja.edit })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: ja.delete })).not.toBeInTheDocument()
+  })
+
   it("shows empty state and adds a goal", async () => {
     const user = userEvent.setup()
     const fetchMock = stubFetch([{ match: "/api/projects/p1/goals", method: "POST", respond: () => jsonResponse({ id: "g9", title: "New goal", description: "" }) }])
-    renderWithProviders(<ProductGoals projectId="p1" initialGoals={[]} />)
+    renderWithProviders(<ProductGoals projectId="p1" initialGoals={[]} canEdit />)
     expect(screen.getByText(ja.dashboardNoGoals)).toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: ja.dashboardAddGoal }))
     const dialog = screen.getByRole("dialog")
@@ -139,7 +147,7 @@ describe("ProductGoals + GoalFormModal", () => {
   it("edits a goal via PATCH", async () => {
     const user = userEvent.setup()
     stubFetch([{ match: "/api/projects/p1/goals/g1", method: "PATCH", respond: () => jsonResponse({ id: "g1", title: "Ship v2", description: "d" }) }])
-    renderWithProviders(<ProductGoals projectId="p1" initialGoals={goals} />)
+    renderWithProviders(<ProductGoals projectId="p1" initialGoals={goals} canEdit />)
     expect(screen.getByText("desc one")).toBeInTheDocument()
     await user.click(screen.getAllByRole("button", { name: ja.edit })[0])
     const dialog = screen.getByRole("dialog")
@@ -155,7 +163,7 @@ describe("ProductGoals + GoalFormModal", () => {
   it("toasts when saving the goal fails and keeps the modal open", async () => {
     const user = userEvent.setup()
     stubFetch([{ match: "/api/projects/p1/goals", method: "POST", respond: () => jsonResponse({ error: "invalid" }, 400) }])
-    renderWithProviders(<ProductGoals projectId="p1" initialGoals={[]} />)
+    renderWithProviders(<ProductGoals projectId="p1" initialGoals={[]} canEdit />)
     await user.click(screen.getByRole("button", { name: ja.dashboardAddGoal }))
     const dialog = screen.getByRole("dialog")
     await user.type(within(dialog).getByRole("textbox", { name: new RegExp(ja.dashboardProductGoals) }), "x")
@@ -166,7 +174,7 @@ describe("ProductGoals + GoalFormModal", () => {
 
   it("asks to discard unsaved changes when cancelling a dirty goal form", async () => {
     const user = userEvent.setup()
-    renderWithProviders(<ProductGoals projectId="p1" initialGoals={[]} />)
+    renderWithProviders(<ProductGoals projectId="p1" initialGoals={[]} canEdit />)
     await user.click(screen.getByRole("button", { name: ja.dashboardAddGoal }))
     const dialog = screen.getByRole("dialog")
     await user.type(within(dialog).getByRole("textbox", { name: new RegExp(ja.dashboardProductGoals) }), "draft")
@@ -180,7 +188,7 @@ describe("ProductGoals + GoalFormModal", () => {
     const user = userEvent.setup()
     let failing = true
     stubFetch([{ match: /goals\/g1$/, method: "DELETE", respond: () => (failing ? jsonResponse({ error: "locked" }, 409) : jsonResponse({})) }])
-    renderWithProviders(<ProductGoals projectId="p1" initialGoals={goals} />)
+    renderWithProviders(<ProductGoals projectId="p1" initialGoals={goals} canEdit />)
 
     await user.click(screen.getAllByRole("button", { name: ja.delete })[0])
     let confirm = await screen.findByRole("alertdialog")

@@ -5,6 +5,7 @@ import { getTranslations, type Language } from "@/lib/i18n"
 import {
   AppPageSkeleton,
   ChartPageSkeleton,
+  ForbiddenView,
   NotFoundView,
   ProjectPageSkeleton,
   ReportPageSkeleton,
@@ -18,7 +19,11 @@ vi.mock("next/link", () => ({
   ),
 }))
 
-const RootLoading = (await import("@/app/loading")).default
+const RootLoading = (await import("@/app/(home)/loading")).default
+const MeLoading = (await import("@/app/me/loading")).default
+const AdminLoading = (await import("@/app/admin/loading")).default
+const PortfolioLoading = (await import("@/app/portfolio/loading")).default
+const SettingsLoading = (await import("@/app/settings/loading")).default
 const RootNotFound = (await import("@/app/not-found")).default
 const ProjectLoading = (await import("@/app/projects/[projectId]/loading")).default
 const ProjectNotFound = (await import("@/app/projects/[projectId]/not-found")).default
@@ -43,7 +48,11 @@ describe("page skeletons", () => {
   })
 
   it.each([
-    ["root", RootLoading],
+    ["home", RootLoading],
+    ["me", MeLoading],
+    ["admin", AdminLoading],
+    ["portfolio", PortfolioLoading],
+    ["settings", SettingsLoading],
     ["project", ProjectLoading],
     ["burndown", BurndownLoading],
     ["report", ReportLoading],
@@ -79,6 +88,26 @@ describe("NotFoundView", () => {
     renderIn(<ProjectNotFound />, "id")
     expect(screen.getByRole("heading", { name: t.notFoundProjectTitle })).toBeInTheDocument()
     expect(screen.getByText(t.notFoundProjectMessage)).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: t.notFoundBackToProjects })).toHaveAttribute("href", "/")
+  })
+})
+
+describe("ForbiddenView", () => {
+  it.each(["ja", "en", "id"] as const)("renders a localized 403 (%s) with a link back to the project", (lang) => {
+    const t = getTranslations(lang)
+    renderIn(<ForbiddenView projectId="p1" />, lang)
+    expect(screen.getByText("403")).toBeInTheDocument()
+    expect(screen.getByRole("heading", { level: 1, name: t.forbiddenTitle })).toBeInTheDocument()
+    expect(screen.getByText(t.forbiddenMessage)).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: t.forbiddenBackToProject })).toHaveAttribute("href", "/projects/p1")
+    // Not the misleading "project not found" text.
+    expect(screen.queryByText(t.notFoundProjectTitle)).not.toBeInTheDocument()
+  })
+
+  it("links to the project list outside a project", () => {
+    const t = getTranslations("ja")
+    renderIn(<ForbiddenView />)
+    expect(screen.getByRole("heading", { name: "権限がありません" })).toBeInTheDocument()
     expect(screen.getByRole("link", { name: t.notFoundBackToProjects })).toHaveAttribute("href", "/")
   })
 })

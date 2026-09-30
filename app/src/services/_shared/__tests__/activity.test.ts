@@ -66,6 +66,8 @@ describe("classifyUpdate", () => {
 describe("labelOf / serializeDiff", () => {
   it("takes the first line of the label field, cut", () => {
     expect(act.labelOf("pbi", { userStory: "  As a user\nmore" })).toBe("As a user")
+    expect(act.labelOf("pbi", { initiative: "Login page", userStory: "As a user" })).toBe("Login page")
+    expect(act.labelOf("pbi", { initiative: "  ", userStory: "As a user" })).toBe("As a user")
     expect(act.labelOf("sprint", { sprintName: "" })).toBeUndefined()
     expect(act.labelOf("goal", null)).toBeUndefined()
     const label = act.labelOf("plan_item", { name: "n".repeat(500) })

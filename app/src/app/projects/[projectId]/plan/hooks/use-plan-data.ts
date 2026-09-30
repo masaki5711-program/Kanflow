@@ -10,13 +10,20 @@ import { applyUpdates } from "../lib/tree"
 
 const EMPTY: PlanData = { items: [], dependencies: [], today: "" }
 
+export interface PatchOptions {
+  notify?: boolean
+  /** 409 VERSION_CONFLICT: the item as it is on the server now (null when the body had none). */
+  onConflict?: (current: PlanItem | null) => void
+}
+
 const errMessage = (err: unknown, fallback: string) => (err instanceof Error && err.message ? err.message : fallback)
 
 /**
  * Master-plan data + writes. Reads go through useApiQuery; every write
  * refetches afterwards because the server derives parent dates/progress,
  * schedule states and baselines. Edits send the loaded `version`; a 409
- * loads the other user's copy. Errors surface as toasts.
+ * hands the server's copy to `onConflict` (the editor reloads its form).
+ * Errors surface as toasts.
  */
 export function usePlanData(projectId: string) {
   const { t } = useLanguage()
@@ -52,15 +59,21 @@ export function usePlanData(projectId: string) {
     [base, fail, refetch, t, toast],
   )
 
-  /** PATCH with optimistic locking. Inline edits are silent; the editor passes `notify`. */
+  /**
+   * PATCH with optimistic locking. Inline edits are silent; the editor passes
+   * `notify` and `onConflict` (receives the server's current item, or null).
+   */
   const patchItem = useCallback(
-    async (item: PlanItem, patch: PlanItemPatch, options?: { notify?: boolean }): Promise<boolean> => {
+    async (item: PlanItem, patch: PlanItemPatch, options?: PatchOptions): Promise<boolean> => {
       try {
         await apiFetch(`${base}/${item.id}`, { method: "PATCH", json: withVersion(patch, item.version) })
         if (options?.notify) toast.success(t.planSavedJustNow)
         return true
       } catch (err) {
-        if (!onVersionConflict(err, () => undefined)) fail(err)
+        const handled = onVersionConflict<Record<string, unknown>>(err, (current) =>
+          options?.onConflict?.(current && typeof current === "object" ? normalizeItem(current, item.plannedStart) : null),
+        )
+        if (!handled) fail(err)
         return false
       } finally {
         refetch()
@@ -131,13 +144,13 @@ export function usePlanData(projectId: string) {
 
   /** Fire-and-refetch write with a success toast (baseline, dependencies). */
   const simpleWrite = useCallback(
-    async (url: string, method: "POST" | "DELETE", success: string, json?: unknown): Promise<boolean> => {
+    async (url: string, method: "POST" | "DELETE", success: string, json?: unknown, failTitle?: string): Promise<boolean> => {
       try {
         await apiFetch(url, { method, json })
         toast.success(success)
         return true
       } catch (err) {
-        fail(err)
+        fail(err, failTitle)
         return false
       } finally {
         refetch()
@@ -151,7 +164,7 @@ export function usePlanData(projectId: string) {
       saveBaseline: () => simpleWrite(`${base}/baseline`, "POST", t.planBaselineSaved, {}),
       clearBaseline: () => simpleWrite(`${base}/baseline`, "DELETE", t.planBaselineCleared),
       addDependency: (predecessorId: string, successorId: string) =>
-        simpleWrite(`${base}/dependencies`, "POST", t.planDependencyAdded, { predecessorId, successorId }),
+        simpleWrite(`${base}/dependencies`, "POST", t.planDependencyAdded, { predecessorId, successorId }, t.planDependencyAddFailed),
       removeDependency: (id: string) => simpleWrite(`${base}/dependencies/${id}`, "DELETE", t.planDependencyRemoved),
     }),
     [base, simpleWrite, t],

@@ -84,7 +84,7 @@ export function ProjectListToolbar(props: Props) {
             onClick={() => props.onTypeFilterChange(type)}
             label={type === "all" ? undefined : projectTypeLabel(type, language)}
           >
-            {type === "all" ? t.userFilterRoleAll : <ProjectTypeMark type={type} />}
+            {type === "all" ? t.projectTypeFilterAll : <ProjectTypeMark type={type} />}
           </SegmentButton>
         ))}
       </Segmented>

@@ -1,12 +1,13 @@
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/lib/auth"
+import { can } from "@/lib/authz"
 import { notFound, redirect } from "next/navigation"
 import { getI18nFor } from "@/lib/translation/hooks"
 import { DashboardContent } from "./dashboard-content"
 import { buildPageMetadata } from "@/app/page-metadata"
 import { computeBurndown } from "@/services/sprints/burndown"
 import { loadDuePlanItems, loadMyProjectTasks } from "./dashboard/dashboard-data"
-import { buildUpcomingDue, sparklineOf } from "./dashboard/dashboard-summary"
+import { buildUpcomingDue, countSprintTasks, sparklineOf } from "./dashboard/dashboard-summary"
 
 export async function generateMetadata({ params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params
@@ -47,6 +48,13 @@ export default async function ProjectDashboard({
       }
     }
     if (!effectiveRole) notFound()
+  }
+
+  const actor = {
+    userId: session.user.id,
+    systemRole: session.user.role ?? "member",
+    projectRole: membership?.role ?? null,
+    isSectionManagerOfProject: effectiveRole === "section_manager",
   }
 
   const project = await prisma.project.findUnique({
@@ -103,13 +111,7 @@ export default async function ProjectDashboard({
     activeSprint ? { id: activeSprint.id, name: activeSprint.sprintName, endDate: activeSprint.endDate.toISOString() } : null,
     now,
   )
-  const sprintTaskCounts = activeSprint
-    ? {
-        todo: activeSprint.items.filter((i) => i.status === "todo").length,
-        inProgress: activeSprint.items.filter((i) => i.status === "in_progress").length,
-        done: activeSprint.items.filter((i) => i.status === "done").length,
-      }
-    : null
+  const sprintTaskCounts = activeSprint ? countSprintTasks(activeSprint.items) : null
 
   return (
     <DashboardContent
@@ -154,6 +156,7 @@ export default async function ProjectDashboard({
       sprintCount={project._count.sprints}
       projectProgressPct={projectProgressPct}
       currentUserRole={effectiveRole ?? "member"}
+      canEditGoals={can(actor, "goal.write")}
       activeSprint={
         activeSprint
           ? {

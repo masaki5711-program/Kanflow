@@ -46,3 +46,24 @@ describe("chat-threads repository", () => {
     expect(chatMessage.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { threadId: "t1" }, take: 2 }))
   })
 })
+
+describe("proposal outcome storage", () => {
+  it("finds the thread's assistant messages mentioning the proposal, oldest first", async () => {
+    const { db, chatMessage } = fakeDb()
+    await repo.findProposalMessages(db, "t1", "prop_1")
+    expect(chatMessage.findMany).toHaveBeenCalledWith({
+      where: { threadId: "t1", role: "assistant", toolEvents: { contains: "prop_1" } },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      select: { id: true, toolEvents: true },
+    })
+  })
+
+  it("swaps the events only while the row still holds the expected JSON", async () => {
+    const updateMany = vi.fn(async () => ({ count: 1 }))
+    const db = { chatMessage: { updateMany } } as unknown as Db
+    expect(await repo.swapToolEvents(db, "m1", "old", "new")).toBe(true)
+    expect(updateMany).toHaveBeenCalledWith({ where: { id: "m1", toolEvents: "old" }, data: { toolEvents: "new" } })
+    updateMany.mockResolvedValueOnce({ count: 0 })
+    expect(await repo.swapToolEvents(db, "m1", "old", "new")).toBe(false)
+  })
+})

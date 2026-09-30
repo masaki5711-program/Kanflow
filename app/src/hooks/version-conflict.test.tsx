@@ -82,3 +82,49 @@ describe("useVersionConflict", () => {
     vi.doUnmock("@/lib/language-context")
   })
 })
+
+describe("edit-form rebase (lostEdits / reapplyEdits / useConflictRebase)", () => {
+  const base = { title: "A", note: "n", points: "3" }
+
+  it("lists only the user's edits that the server's version does not already have", async () => {
+    const { lostEdits } = await import("./version-conflict")
+    const mine = { title: "Mine", note: "same", points: "3" }
+    const latest = { title: "Theirs", note: "same", points: "5" }
+    expect(lostEdits(base, mine, latest)).toEqual([{ field: "title", mine: "Mine", theirs: "Theirs" }])
+    expect(lostEdits(base, base, latest)).toEqual([])
+  })
+
+  it("reapplyEdits puts the user's values back onto the latest form (new object)", async () => {
+    const { reapplyEdits } = await import("./version-conflict")
+    const latest = { title: "Theirs", note: "x", points: "5" }
+    const out = reapplyEdits(latest, [{ field: "title", mine: "Mine", theirs: "Theirs" }])
+    expect(out).toEqual({ title: "Mine", note: "x", points: "5" })
+    expect(latest.title).toBe("Theirs")
+  })
+
+  it("useConflictRebase hands `current` to onConflict, keeps the lost input, ignores other errors", async () => {
+    const { act } = await import("@testing-library/react")
+    const mod = await import("./version-conflict")
+    const { ApiError: FreshApiError } = await import("./api-client")
+    const { result } = renderHook(() => mod.useConflictRebase<typeof base>())
+    const onConflict = vi.fn((cur: { title: string } | null) => (cur ? { ...base, title: cur.title } : null))
+    const err = new FreshApiError("m", 409, { current: { title: "Theirs" } }, "VERSION_CONFLICT")
+    let handled = false
+    act(() => {
+      handled = result.current.rebase(err, { base, mine: { ...base, title: "Mine" }, onConflict })
+    })
+    expect(handled).toBe(true)
+    expect(onConflict).toHaveBeenCalledWith({ title: "Theirs" })
+    expect(result.current.lost).toEqual([{ field: "title", mine: "Mine", theirs: "Theirs" }])
+
+    // Unknown latest (refetching): every edit stays visible.
+    act(() => {
+      result.current.rebase(new FreshApiError("m", 409, {}, "VERSION_CONFLICT"), { base, mine: { ...base, note: "N2" }, onConflict })
+    })
+    expect(result.current.lost).toEqual([{ field: "note", mine: "N2", theirs: "n" }])
+
+    act(() => result.current.dismiss())
+    expect(result.current.lost).toBeNull()
+    expect(result.current.rebase(new Error("x"), { base, mine: base, onConflict })).toBe(false)
+  })
+})

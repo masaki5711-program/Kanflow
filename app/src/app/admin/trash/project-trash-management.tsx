@@ -4,7 +4,7 @@ import { FolderX, RotateCcw, Trash2 } from "lucide-react"
 import { I18nText, type EntityI18n } from "@/components/i18n-text"
 import { deletedByLabel, formatTrashDate, type TrashUserRef } from "@/components/trash/trash-format"
 import { Button, EmptyState, PageHeader, SkeletonCard, useConfirm } from "@/components/ui"
-import { apiFetch, useApiMutation, useApiQuery } from "@/hooks"
+import { apiFetch, isApiError, useApiMutation, useApiQuery } from "@/hooks"
 import { useLanguage } from "@/lib/language-context"
 
 export interface TrashedProject {
@@ -30,24 +30,27 @@ export function ProjectTrashManagement() {
   const { t } = useLanguage()
   const confirm = useConfirm()
   const query = useApiQuery<AdminProjectTrash>(URL_BASE, { toastOnError: (e) => `${t.trashLoadFailed}: ${e.message}` })
-  const { data, mutate: setData } = query
+  const { data, mutate: setData, refetch } = query
 
-  const dropProject = (p: TrashedProject) => {
-    const prev = data
+  // Not optimistic (P-07): the row leaves the list only once the server
+  // confirmed. A 404 means the other operation (restore vs purge) won the
+  // race — the list is reloaded to show the real state.
+  const dropProject = (_result: unknown, p: TrashedProject) =>
     setData((d) => (d ? { ...d, projects: d.projects.filter((x) => x.id !== p.id) } : d))
-    return prev
+  const reloadOnGone = (e: Error) => {
+    if (isApiError(e) && e.status === 404) refetch()
   }
 
   const restore = useApiMutation((p: TrashedProject) => apiFetch(`${URL_BASE}/${p.id}/restore`, { method: "POST" }), {
-    onMutate: dropProject,
-    rollback: (prev) => setData(prev),
+    onSuccess: dropProject,
+    onError: reloadOnGone,
     toastOnSuccess: t.trashRestored,
     toastOnError: (e) => `${t.trashRestoreFailed}: ${e.message}`,
   })
 
   const purge = useApiMutation((p: TrashedProject) => apiFetch(`${URL_BASE}/${p.id}`, { method: "DELETE" }), {
-    onMutate: dropProject,
-    rollback: (prev) => setData(prev),
+    onSuccess: dropProject,
+    onError: reloadOnGone,
     toastOnSuccess: t.trashPurged,
     toastOnError: (e) => `${t.trashPurgeFailed}: ${e.message}`,
   })

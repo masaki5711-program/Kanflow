@@ -126,3 +126,42 @@ describe("CommentComposer submit", () => {
     expect(onCancel).toHaveBeenCalled()
   })
 })
+
+describe("mention list placement and early Enter (F-08)", () => {
+  it("renders the list inside the surrounding dialog, outside the scrolling body", async () => {
+    renderWithProviders(
+      <Modal open onClose={vi.fn()} title="Dialog">
+        <CommentComposer members={MEMBERS} onSubmit={vi.fn(async () => true)} label="New comment" submitLabel="Send" />
+      </Modal>,
+    )
+    await userEvent.type(screen.getByLabelText("New comment"), "@Ta")
+    const list = screen.getByRole("listbox", { name: t.commentsMentionListLabel })
+    expect(list.parentElement).toBe(screen.getByRole("dialog"))
+    expect(list.style.position).toBe("fixed")
+  })
+
+  it("mentionListStyle opens below when there is room, above near the bottom, clamped to the viewport", async () => {
+    const { mentionListStyle } = await import("../mention-listbox")
+    const viewport = { width: 1280, height: 720 }
+    expect(mentionListStyle({ top: 100, bottom: 180, left: 40, width: 600 }, viewport)).toMatchObject({ top: 184, left: 40, width: 600, maxHeight: 240 })
+    const above = mentionListStyle({ top: 560, bottom: 640, left: 900, width: 600 }, viewport)
+    expect(above).toMatchObject({ bottom: 164, maxHeight: 240, left: 672 })
+    expect(above.top).toBeUndefined()
+  })
+
+  it("Enter on an @token before the members load keeps the text and inserts the first match once they arrive", async () => {
+    const onSubmit = vi.fn(async () => true)
+    const { rerender } = renderWithProviders(
+      <CommentComposer members={[]} membersLoading onSubmit={onSubmit} label="New comment" submitLabel="Send" />,
+    )
+    const box = screen.getByLabelText("New comment")
+    await userEvent.type(box, "Hi @Han")
+    expect(screen.getByRole("listbox")).toHaveTextContent(t.loading)
+    await userEvent.keyboard("{Enter}")
+    await userEvent.keyboard("{Control>}{Enter}{/Control}")
+    expect(box).toHaveValue("Hi @Han")
+    expect(onSubmit).not.toHaveBeenCalled()
+    rerender(<CommentComposer members={MEMBERS} onSubmit={onSubmit} label="New comment" submitLabel="Send" />)
+    await waitFor(() => expect(box).toHaveValue("Hi @[Hanako] "))
+  })
+})

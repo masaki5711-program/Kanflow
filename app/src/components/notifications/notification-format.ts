@@ -1,13 +1,17 @@
 import type { Translations } from "@/lib/i18n"
 import { fillTemplate } from "@/lib/fill-template"
 import { localeOf } from "@/components/comments/relative-time"
+import { COMMENTS_TAB, TAB_PARAM } from "@/components/comments/comments-deep-link"
+import { pickText } from "@/lib/translation/pick-text"
+import type { EntityI18n } from "@/lib/translation/types"
 
 /** GET /api/notifications item (see services/notifications NotificationDto). */
 export interface NotificationItem {
   id: string
   type: string
   projectId: string | null
-  project: { id: string; name: string } | null
+  /** `i18n`: the translated project name (shown in the viewer's language when available). */
+  project: { id: string; name: string; i18n?: EntityI18n } | null
   entityType: string | null
   entityId: string | null
   payload: Record<string, unknown>
@@ -77,11 +81,17 @@ export function aiJobKindLabel(kind: string | null, t: Translations): string {
   return kind ?? t.notifUntitled
 }
 
-/** Where clicking the notification goes (null without a project). */
+/** Entities whose deep link can open straight on their comment thread (`&tab=comments`). */
+const COMMENTABLE = new Set(["pbi", "sprint_task", "icebox"])
+
+/** Where clicking the notification goes (null without a project). Comment / mention links open the comments. */
 export function notificationHref(n: NotificationItem): string | null {
   if (!n.projectId) return null
   if (n.type === "mentioned" || n.type === "comment") {
-    return entityHref(n.projectId, str(n.payload, "entityType") ?? n.entityType, str(n.payload, "entityId") ?? n.entityId)
+    const entityType = str(n.payload, "entityType") ?? n.entityType
+    const entityId = str(n.payload, "entityId") ?? n.entityId
+    const href = entityHref(n.projectId, entityType, entityId)
+    return entityId && entityType && COMMENTABLE.has(entityType) ? `${href}&${TAB_PARAM}=${COMMENTS_TAB}` : href
   }
   if (n.type === "surveillance_critical") return `/projects/${encodeURIComponent(n.projectId)}`
   if (n.type === "ai_report_ready" || n.type === "ai_report_failed") {
@@ -93,11 +103,29 @@ export function notificationHref(n: NotificationItem): string | null {
   return entityHref(n.projectId, n.entityType, n.entityId)
 }
 
+/**
+ * The item's name in the sentence. PBIs are always "#displayId title" (older
+ * assignment notifications stored the bare user story; the number is added).
+ */
+function entityLabelOf(n: NotificationItem): string | null {
+  const label = firstLine(str(n.payload, "entityLabel"))
+  const isPbi = (str(n.payload, "entityType") ?? n.entityType) === "pbi"
+  const displayId = str(n.payload, "displayId")
+  if (!isPbi || !displayId || label?.startsWith("#")) return label
+  return label ? `#${displayId} ${label}` : `#${displayId}`
+}
+
+/** Project name in the viewer's language (translation when available, else the original). */
+function projectNameOf(n: NotificationItem, language: string): string | null {
+  if (!n.project) return str(n.payload, "projectName")
+  return pickText(n.project.i18n, "name", n.project.name, language).text || n.project.name
+}
+
 /** Localized sentence + project + link for one notification (pure). */
 export function describeNotification(n: NotificationItem, t: Translations, language: string): DescribedNotification {
   const p = n.payload
   const actor = str(p, "actorName") ?? t.notifSomeone
-  const label = firstLine(str(p, "entityLabel")) ?? t.notifUntitled
+  const label = entityLabelOf(n) ?? t.notifUntitled
   const sprint = str(p, "sprintName") ?? t.notifUntitled
   const date = formatShortDate(str(p, "dueDate"), language)
   let text: string
@@ -139,7 +167,7 @@ export function describeNotification(n: NotificationItem, t: Translations, langu
     default:
       text = t.notifUnknown
   }
-  return { text, projectName: n.project?.name ?? str(p, "projectName"), href: notificationHref(n) }
+  return { text, projectName: projectNameOf(n, language), href: notificationHref(n) }
 }
 
 /** Badge text: 1..99, then "99+". */

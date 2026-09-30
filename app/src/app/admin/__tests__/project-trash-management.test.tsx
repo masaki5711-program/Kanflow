@@ -25,13 +25,22 @@ function list(): AdminProjectTrash {
   }
 }
 
-function setup(opts: { empty?: boolean; restoreStatus?: number } = {}) {
+function setup(opts: { empty?: boolean; restoreStatus?: number; afterRestore?: AdminProjectTrash } = {}) {
+  let restored = false
   return stubFetch([
-    { match: URL_BASE, method: "GET", respond: () => jsonResponse(opts.empty ? { retentionDays: 30, projects: [] } : list()) },
+    {
+      match: URL_BASE,
+      method: "GET",
+      respond: () =>
+        jsonResponse(opts.empty ? { retentionDays: 30, projects: [] } : restored && opts.afterRestore ? opts.afterRestore : list()),
+    },
     {
       match: /\/trash\/projects\/p9\/restore$/,
       method: "POST",
-      respond: () => jsonResponse(opts.restoreStatus ? { error: "x" } : { success: true }, opts.restoreStatus ?? 200),
+      respond: () => {
+        restored = true
+        return jsonResponse(opts.restoreStatus ? { error: "x" } : { success: true }, opts.restoreStatus ?? 200)
+      },
     },
     { match: /\/trash\/projects\/p9$/, method: "DELETE", respond: () => jsonResponse({ success: true }) },
   ])
@@ -84,5 +93,29 @@ describe("ProjectTrashManagement", () => {
     await userEvent.click(screen.getByRole("button", { name: `${t.trashDeleteForever}: 旧プロジェクト` }))
     await userEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: t.trashDeleteForever }))
     await waitFor(() => expect(calls(fetchMock, "DELETE")).toEqual(["/api/admin/trash/projects/p9"]))
+  })
+
+  it("keeps the row until the server confirmed (not optimistic)", async () => {
+    let release: (r: Response) => void = () => undefined
+    stubFetch([
+      { match: URL_BASE, method: "GET", respond: () => jsonResponse(list()) },
+      { match: /\/trash\/projects\/p9\/restore$/, method: "POST", respond: () => new Promise<Response>((r) => (release = r)) },
+    ])
+    renderWithProviders(<ProjectTrashManagement />)
+    await userEvent.click(await screen.findByRole("button", { name: `${t.trashRestore}: 旧プロジェクト` }))
+    await userEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: t.trashRestore }))
+    await waitFor(() => expect(screen.getByRole("button", { name: `${t.trashRestore}: 旧プロジェクト` })).toBeDisabled())
+    expect(screen.getByText("旧プロジェクト")).toBeInTheDocument()
+    release(jsonResponse({ success: true }))
+    await waitFor(() => expect(screen.queryByText("旧プロジェクト")).not.toBeInTheDocument())
+  })
+
+  it("reloads the list when the other operation already won (404)", async () => {
+    const fetchMock = setup({ restoreStatus: 404, afterRestore: { retentionDays: 30, projects: [] } })
+    renderWithProviders(<ProjectTrashManagement />)
+    await userEvent.click(await screen.findByRole("button", { name: `${t.trashRestore}: 旧プロジェクト` }))
+    await userEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: t.trashRestore }))
+    await waitFor(() => expect(calls(fetchMock, "GET").filter((u) => u === URL_BASE)).toHaveLength(2))
+    expect(await screen.findByRole("heading", { name: t.trashAdminEmptyTitle })).toBeInTheDocument()
   })
 })

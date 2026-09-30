@@ -101,7 +101,7 @@ export function PlanEditFields({ form, set, flags, item, parentOptions, members,
         {flags.statusDerived ? (
           <Derived label={t.planStatus}>{item ? itemBadge(t, item).label : statusLabel(t, form.status)}</Derived>
         ) : (
-          <Field label={t.planStatus}>
+          <Field label={t.planStatus} hint={flags.statusManualUntilLinked ? t.planStatusManualHint : undefined}>
             <Select value={form.status} onChange={(e) => set("status", e.target.value as PlanForm["status"])}>
               {PLAN_STATUSES.map((s) => (
                 <option key={s} value={s}>{statusLabel(t, s)}</option>

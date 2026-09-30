@@ -73,6 +73,20 @@ describe("CommentsProvider / CommentsButton", () => {
     ).toBeInTheDocument()
   })
 
+  it("opens the thread of the ?task=<id>&tab=comments deep link once and drops ?tab= (F-05)", async () => {
+    window.history.replaceState(null, "", "/projects/p1/sprints?task=t2&tab=comments")
+    renderWithProviders(
+      <CommentsProvider projectId="p1" entityType="sprint_task" entityIds={["t2", "t1"]}>
+        <CommentsButton entityId="t1" name="Task 1" />
+        <CommentsButton entityId="t2" name="Task 2" />
+      </CommentsProvider>,
+    )
+    const dialog = await screen.findByRole("dialog", { name: openLabel("Task 2") })
+    await within(dialog).findByText(t.commentsEmptyTitle)
+    expect(window.location.search).toBe("?task=t2")
+    window.history.replaceState(null, "", "/")
+  })
+
   it("renders nothing outside a provider", () => {
     renderWithProviders(<CommentsButton entityId="t1" name="x" />)
     expect(screen.queryByRole("button", { name: openLabel("x") })).not.toBeInTheDocument()

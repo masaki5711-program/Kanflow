@@ -2,6 +2,8 @@ import { toPage, type Page } from "@/services/_shared/cursor"
 import { defaultDb, withTransaction } from "@/services/_shared/db"
 import { NotFoundError } from "@/services/_shared/errors"
 import { NOTIFICATION_TYPES, type NotificationType } from "@/services/_shared/notifications"
+import { getI18nFor } from "@/services/_shared/translations"
+import type { EntityI18n } from "@/lib/translation/types"
 import * as repo from "./notifications.repository"
 import type { ListNotificationsQuery, UpdatePreferencesInput } from "./notifications.schemas"
 
@@ -21,7 +23,8 @@ export interface NotificationDto {
   id: string
   type: string
   projectId: string | null
-  project: { id: string; name: string } | null
+  /** `i18n` carries the translated project name (shown in the viewer's language). */
+  project: { id: string; name: string; i18n?: EntityI18n } | null
   entityType: string | null
   entityId: string | null
   payload: Record<string, unknown>
@@ -67,7 +70,16 @@ export async function listMyNotifications(
     repo.findNotifications(defaultDb, userId, query),
     repo.countUnread(defaultDb, userId),
   ])
-  return { ...toPage(rows, query.limit, toNotificationDto), unreadCount }
+  const page = toPage(rows, query.limit, toNotificationDto)
+  return { ...page, items: await withProjectI18n(page.items), unreadCount }
+}
+
+/** Attach the translations of the project names (so the panel can show them in the UI language). */
+async function withProjectI18n(items: NotificationDto[]): Promise<NotificationDto[]> {
+  const ids = items.map((i) => i.project?.id ?? "").filter(Boolean)
+  if (ids.length === 0) return items
+  const i18n = await getI18nFor("project", ids)
+  return items.map((i) => (i.project ? { ...i, project: { ...i.project, i18n: i18n.get(i.project.id) ?? {} } } : i))
 }
 
 export async function getUnreadCount(userId: string): Promise<{ unreadCount: number }> {

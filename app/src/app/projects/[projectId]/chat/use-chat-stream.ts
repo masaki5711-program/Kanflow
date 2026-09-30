@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useToast } from "@/components/ui"
 import { emitActivity, isAbortError, parseErrorMessage } from "@/hooks"
-import { decodeChatStream, proposalsOf, type ChatProposal } from "@/lib/chat-proposals"
+import { decodeChatStream, proposalsOf, type ChatProposal, type ProposalOutcome } from "@/lib/chat-proposals"
 import { toRequestHistory } from "./chat-history"
 
 export interface ChatMessage {
@@ -16,6 +16,8 @@ export interface ChatMessage {
   stopped?: boolean
   /** Approval-based write proposals the server sent with this answer (P3). */
   proposals?: ChatProposal[]
+  /** Outcomes stored with a re-opened thread, by proposalId (P-02). */
+  proposalOutcomes?: Readonly<Record<string, ProposalOutcome>>
 }
 
 /** Visible text + proposals of the raw stream (frames never reach the markdown). */

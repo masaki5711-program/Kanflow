@@ -149,6 +149,22 @@ describe("MySprintTasks", () => {
     expect(within(articles[1]).getByText(t.topTaskDueSoonBadge)).toBeInTheDocument()
   })
 
+  it("shows the due date localized per UI language, not a hard-coded M/D (S-05)", () => {
+    const due = new Date(2026, 8, 8, 12).toISOString()
+    const list = [task({ id: "d1", taskName: "Due task", sprintEndDate: due })]
+    const cases = [
+      ["ja", "9/8(火)"],
+      ["en", "Sep 8"],
+      ["id", "8 Sep"],
+    ] as const
+    for (const [language, expected] of cases) {
+      const { unmount } = renderWithProviders(<Harness list={list} />, { language })
+      const dueText = tr(language).topTaskDueOn.replace("{date}", expected)
+      expect(screen.getByText(dueText)).toBeInTheDocument()
+      unmount()
+    }
+  })
+
   it("keeps an unknown status selectable and shows translated task text", () => {
     const i18n = { taskName: { ja: "コードを書く", id: "Tulis kode", source: "ja", status: "done" } } as MyTask["i18n"]
     renderWithProviders(<Harness list={[task({ id: "x", taskName: "コードを書く", i18n }), task({ id: "y", taskName: "R", status: "review" })]} />, {

@@ -2,6 +2,7 @@
  * Backlog view state that lives in the URL (shareable, survives reload):
  *
  *   ?pbi=<id | displayId>   open PBI modal (deep link target of notifications / search / activity)
+ *   ?tab=comments           …on its Comments tab (mention / comment notifications)
  *   ?q=                     text search
  *   ?status= ?goal= ?epic= ?points= ?po=   facet filters (FILTER_NONE = "not set")
  *   ?plan=<planItemId>      PBIs linked to a master-plan item (from the plan page)
@@ -80,12 +81,25 @@ export function filtersToParams(current: ParamsLike, patch: Partial<BacklogFilte
   return next
 }
 
-/** New params with `?pbi=` set (ref) or removed (null). */
+/** New params with `?pbi=` set (ref) or removed (null). The modal's `?tab=` never carries over. */
 export function withPbiParam(current: ParamsLike, ref: string | null): URLSearchParams {
   const next = new URLSearchParams(current.toString())
+  next.delete("tab")
   if (ref) next.set("pbi", ref)
   else next.delete("pbi")
   return next
+}
+
+/** Tab the PBI modal opens on (`?tab=comments`), else null (Details). */
+export function pbiTabOf(sp: Pick<URLSearchParams, "get">): "comments" | null {
+  return sp.get("pbi") && sp.get("tab") === "comments" ? "comments" : null
+}
+
+/** Filter params for the Excel export (only the set ones), so it exports what the page shows. */
+export function exportFilterParams(f: BacklogFilters): Record<string, string | undefined> {
+  const out: Record<string, string | undefined> = {}
+  for (const key of TEXT_KEYS) if (f[key]) out[key] = f[key]
+  return out
 }
 
 /** True when a text / facet filter narrows the list (showDone is a view toggle, not a filter). */

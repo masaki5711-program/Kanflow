@@ -16,8 +16,8 @@ export const BASE = "/api/projects/p1"
 export const t = tr("ja")
 
 export const detailModalMock = {
-  default: ({ pbiId, initialMode, editable, onClose }: { pbiId: string; initialMode?: string; editable?: boolean; onClose: () => void }) => (
-    <div data-testid="pbi-detail" data-mode={initialMode} data-editable={String(!!editable)}>
+  default: ({ pbiId, initialMode, initialTab, editable, onClose }: { pbiId: string; initialMode?: string; initialTab?: string; editable?: boolean; onClose: () => void }) => (
+    <div data-testid="pbi-detail" data-mode={initialMode} data-tab={initialTab} data-editable={String(!!editable)}>
       detail {pbiId}
       <button type="button" onClick={onClose}>
         close-detail
@@ -38,6 +38,8 @@ export interface SetupOptions {
   saveStatus?: number
   bulk?: (body: unknown) => Response
   restoreStatus?: number
+  /** GET /plan body (master plan items for the bulk "link plan" picker). */
+  plan?: unknown
 }
 
 export function setupBacklog(opts: SetupOptions = {}) {
@@ -75,6 +77,7 @@ export function setupBacklog(opts: SetupOptions = {}) {
           { id: "s0", sprintName: "Old sprint", status: "completed" },
         ]),
     },
+    { match: `${BASE}/plan`, respond: () => jsonResponse(opts.plan ?? { items: [], dependencies: [] }) },
     { match: BASE, respond: () => jsonResponse({ pointUnit: "SP" }) },
     { match: `${BASE}/backlog/reorder`, method: "PUT", respond: () => jsonResponse({ ok: true }, opts.reorderStatus ?? 200) },
     { match: `${BASE}/backlog/bulk`, method: "POST", respond: (_u, init) => (opts.bulk ? opts.bulk(JSON.parse(String(init?.body))) : jsonResponse({})) },

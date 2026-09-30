@@ -122,6 +122,11 @@ describe("planImport", () => {
     expect(p.create).toEqual({ userStory: "New", workloadScore: 2, status: "completed", productGoalId: "g1" })
   })
 
+  it("labels a preview row by its initiative first, like the backlog list (F-13)", () => {
+    const [p] = planImport([row(2, { initiative: "Login", userStory: "As a user" })], ctx())
+    expect(p).toMatchObject({ action: "create", label: "Login" })
+  })
+
   it("updates only filled, changed fields of an existing PBI; unchanged rows are skipped", () => {
     const [upd, skip] = planImport(
       [row(2, { displayId: "#12", userStory: "New story", epic: "Epic", workloadScore: "3" }), row(3, { displayId: "PBI-12", epic: "Epic" })],

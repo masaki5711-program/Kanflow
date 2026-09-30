@@ -25,16 +25,19 @@ interface Props {
   onGenerate: (field: GeneratedField) => void
   /** Edit mode of an existing PBI: offers the master-plan item picker. */
   projectId?: string
+  /** Inline "user story or initiative required" message (create modal), shown under the user story. */
+  contentError?: string
 }
 
 /**
  * Every editable field of a PBI — the one form used by the detail modal's
  * edit mode and by the create modal.
  */
-export function PbiEditFields({ form, setForm, options, selfId, disabled, generating, onGenerate, projectId }: Props) {
+export function PbiEditFields({ form, setForm, options, selfId, disabled, generating, onGenerate, projectId, contentError }: Props) {
   const { t, pt } = useLanguage()
   const set = <K extends keyof PbiForm>(key: K) => (value: PbiForm[K]) => setForm((prev) => ({ ...prev, [key]: value }))
   const text = (key: keyof PbiForm) => (e: { target: { value: string } }) => set(key)(e.target.value as never)
+  const helpAbout = (field: string) => t.backlogHelpAbout.replace("{field}", field)
 
   return (
     // NOTE: `generating` is intentionally NOT part of the disabled state — a
@@ -49,7 +52,7 @@ export function PbiEditFields({ form, setForm, options, selfId, disabled, genera
               <Input value={form.initiative} onChange={text("initiative")} />
             </Field>
             <div className="absolute right-0 top-0">
-              <HelpTooltip content={pt.backlogInitiativeHelp} ariaLabel={pt.backlogInitiative} side="left" />
+              <HelpTooltip content={pt.backlogInitiativeHelp} ariaLabel={helpAbout(pt.backlogInitiative)} side="left" />
             </div>
           </div>
           <div className="relative">
@@ -57,11 +60,18 @@ export function PbiEditFields({ form, setForm, options, selfId, disabled, genera
               <Input value={form.epic} onChange={text("epic")} />
             </Field>
             <div className="absolute right-0 top-0">
-              <HelpTooltip content={pt.backlogEpicHelp} ariaLabel={pt.backlogEpic} side="left" />
+              <HelpTooltip content={pt.backlogEpicHelp} ariaLabel={helpAbout(pt.backlogEpic)} side="left" />
             </div>
           </div>
         </div>
-        <UserStoryField field="userStory" value={form.userStory} onChange={set("userStory")} generating={generating} onGenerate={onGenerate} />
+        <UserStoryField
+          field="userStory"
+          value={form.userStory}
+          onChange={set("userStory")}
+          generating={generating}
+          onGenerate={onGenerate}
+          error={contentError}
+        />
         <AcceptanceCriteriaField
           field="acceptanceCriteria"
           value={form.acceptanceCriteria}
@@ -116,7 +126,7 @@ function WorkloadField({ value, onChange, pointUnit }: WorkloadProps) {
       </Field>
       <div role="group" aria-labelledby={groupId} className="mt-1.5 flex flex-wrap gap-1">
         <span id={groupId} className="sr-only">
-          {t.backlogWorkloadQuickPick}
+          {t.backlogWorkloadQuickPick.replace("{label}", pt.backlogWorkloadScore)}
         </span>
         {getPointScale(pointUnit).map((v) => {
           const selected = value.trim() === String(v)

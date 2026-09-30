@@ -134,6 +134,7 @@ Paths are relative to `/api/projects/[projectId]`.
 | `/chat` | | ai.use (+ `threadId`: owner only, 404) | | |
 | `/chat/threads` | ai.use — the caller's own threads only | | | |
 | `/chat/threads/[threadId]` | ai.use + owner (404) | | PATCH: ai.use + owner (404) | ai.use + owner (404) |
+| `/chat/threads/[threadId]/proposals/[proposalId]` | | ai.use + owner (404); records the proposal outcome (reserve / confirm / release / reject, 409 when already handled). The REST calls that apply it keep their own gates | | |
 | `/trash` | trash.manage | | | |
 | `/trash/[entityType]/[id]/restore` | | trash.manage | | |
 | `/trash/[entityType]/[id]` | | | | trash.purge |

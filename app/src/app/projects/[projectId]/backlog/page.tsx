@@ -19,7 +19,7 @@ import { DND_HELP_ID, type CardActions } from "./backlog-item-card"
 import { DoneSection } from "./done-section"
 import { applyVisibleMove, moveItem } from "./reorder"
 import type { BacklogItem, BacklogStatus } from "./types"
-import { pbiIdForRef } from "./url-state"
+import { exportFilterParams, hasActiveFilters, pbiIdForRef } from "./url-state"
 import { useBacklogData } from "./use-backlog-data"
 import { useBacklogUrlState } from "./use-backlog-url-state"
 import { DONE_PAGE_SIZE, useBacklogView } from "./use-backlog-view"
@@ -57,7 +57,7 @@ function BacklogPageContent() {
   const toast = useToast()
   const url = useBacklogUrlState()
   const data = useBacklogData(projectId)
-  const { backlog, canEdit, canReorder, canDelete } = data
+  const { backlog, canEdit, canReorder, canDelete, canInvest } = data
   const [doneLimit, setDoneLimit] = useState(DONE_PAGE_SIZE)
   const view = useBacklogView(backlog.data, url.filters, doneLimit)
   const selection = useBacklogSelection(view.orderedIds)
@@ -137,8 +137,8 @@ function BacklogPageContent() {
     onHandleBlur: () => dnd.onHandleBlur(),
   })
 
-  const perms = { canEdit, canReorder, canDelete }
-  const sectionProps = { ...perms, actions: cardActions, selectMode: selection.selectMode, selectedIds: selection.selectedSet, drag: dnd.drag }
+  const perms = { canEdit, canReorder, canDelete, canInvest }
+  const sectionProps = { ...perms, isFiltered: hasActiveFilters(url.filters), actions: cardActions, selectMode: selection.selectMode, selectedIds: selection.selectedSet, drag: dnd.drag }
   const status = url.filters.status
   const loaded = backlog.data
 
@@ -161,7 +161,7 @@ function BacklogPageContent() {
         }
         actions={
           <>
-            <BacklogExcelActions projectId={projectId} canImport={canEdit} onImported={backlog.refetch} />
+            <BacklogExcelActions projectId={projectId} canImport={canEdit} onImported={backlog.refetch} filters={exportFilterParams(url.filters)} />
             {canEdit && (
               <Button onClick={() => setCreateDraft({})} leftIcon={<Plus className="h-4 w-4" />}>
                 {t.backlogAddItem}
@@ -244,7 +244,9 @@ function BacklogPageContent() {
           projectId={projectId}
           pbiId={detailId}
           editable={canEdit}
+          canInvest={canInvest}
           initialMode={editIntent === detailId ? "edit" : "read"}
+          initialTab={url.pbiTab ?? undefined}
           formOptions={formOptions}
           onSaved={backlog.refetch}
           onClose={() => {

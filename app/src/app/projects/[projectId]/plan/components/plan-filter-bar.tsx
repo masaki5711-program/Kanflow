@@ -13,7 +13,8 @@ interface Props {
   filter: PlanFilter
   onFilter: (f: PlanFilter) => void
   owners: readonly { id: string; name: string }[]
-  hiddenColumns: readonly PlanColumn[]
+  /** Visible grid columns. */
+  shownColumns: readonly PlanColumn[]
   onToggleColumn: (c: PlanColumn) => void
   columnsDisabled: boolean
   onExpandAll: () => void
@@ -23,7 +24,7 @@ interface Props {
 }
 
 /** Column visibility popover (checkbox list). */
-function ColumnsMenu({ hidden, onToggle, disabled }: { hidden: readonly PlanColumn[]; onToggle: (c: PlanColumn) => void; disabled: boolean }) {
+function ColumnsMenu({ shown, onToggle, disabled }: { shown: readonly PlanColumn[]; onToggle: (c: PlanColumn) => void; disabled: boolean }) {
   const { t } = useLanguage()
   const [open, setOpen] = useState(false)
   const id = useId()
@@ -37,6 +38,7 @@ function ColumnsMenu({ hidden, onToggle, disabled }: { hidden: readonly PlanColu
     return () => document.removeEventListener("mousedown", onDown)
   }, [open])
   const labels: Record<PlanColumn, string> = {
+    period: t.planColPeriod,
     start: t.planColStart,
     end: t.planColEnd,
     duration: t.planColDuration,
@@ -54,7 +56,7 @@ function ColumnsMenu({ hidden, onToggle, disabled }: { hidden: readonly PlanColu
           <legend className="sr-only">{t.planColumnsMenu}</legend>
           {PLAN_COLUMNS.map((c) => (
             <label key={c} className="flex min-h-8 cursor-pointer items-center gap-2 rounded-ui-sm px-2 text-body text-fg hover:bg-surface-muted">
-              <input type="checkbox" className="h-4 w-4" checked={!hidden.includes(c)} onChange={() => onToggle(c)} />
+              <input type="checkbox" className="h-4 w-4" checked={shown.includes(c)} onChange={() => onToggle(c)} />
               {labels[c]}
             </label>
           ))}
@@ -77,8 +79,8 @@ export function PlanFilterBar(props: Props) {
         <Search aria-hidden="true" className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-subtle" />
         <Input type="search" inputSize="sm" value={filter.q} placeholder={t.planSearch} onChange={(e) => onFilter({ ...filter, q: e.target.value })} className="pl-8" />
       </label>
-      <label className="flex items-center gap-1.5 text-caption text-fg-muted">
-        {t.planFilterState}
+      <label className="flex shrink-0 items-center gap-1.5 text-caption text-fg-muted">
+        <span className="shrink-0 whitespace-nowrap">{t.planFilterState}</span>
         <Select selectSize="sm" value={filter.state} onChange={(e) => onFilter({ ...filter, state: e.target.value as PlanFilter["state"] })}>
           <option value="">{t.planFilterAll}</option>
           {states.map((s) => (
@@ -88,8 +90,8 @@ export function PlanFilterBar(props: Props) {
           ))}
         </Select>
       </label>
-      <label className="flex items-center gap-1.5 text-caption text-fg-muted">
-        {t.planFilterOwner}
+      <label className="flex shrink-0 items-center gap-1.5 text-caption text-fg-muted">
+        <span className="shrink-0 whitespace-nowrap">{t.planFilterOwner}</span>
         <Select selectSize="sm" value={filter.owner} onChange={(e) => onFilter({ ...filter, owner: e.target.value })}>
           <option value="">{t.planFilterAll}</option>
           <option value={OWNER_NONE}>{t.planOwnerNone}</option>
@@ -115,7 +117,7 @@ export function PlanFilterBar(props: Props) {
         <Button variant="ghost" size="sm" leftIcon={<ChevronsDownUp className="h-4 w-4" />} onClick={props.onCollapseAll}>
           {t.planCollapseAll}
         </Button>
-        <ColumnsMenu hidden={props.hiddenColumns} onToggle={props.onToggleColumn} disabled={props.columnsDisabled} />
+        <ColumnsMenu shown={props.shownColumns} onToggle={props.onToggleColumn} disabled={props.columnsDisabled} />
       </div>
     </div>
   )

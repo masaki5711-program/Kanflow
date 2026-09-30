@@ -25,21 +25,35 @@ function toDateInput(iso: string): string {
   return iso ? iso.slice(0, 10) : ""
 }
 
+type SprintForm = { sprintName: string; startDate: string; endDate: string; sprintGoal: string; capacity: number }
+
+/** Editable fields of a sprint row (always the original, source-language text). */
+export function sprintFormOf(s: Pick<SprintLite, "sprintName" | "startDate" | "endDate" | "sprintGoal" | "capacity">): SprintForm {
+  return {
+    sprintName: s.sprintName,
+    startDate: toDateInput(s.startDate),
+    endDate: toDateInput(s.endDate),
+    sprintGoal: s.sprintGoal ?? "",
+    capacity: s.capacity,
+  }
+}
+
+function isSprintRow(value: unknown): value is SprintLite {
+  return typeof value === "object" && value !== null && typeof (value as SprintLite).sprintName === "string"
+}
+
 export default function SprintEditDialog({ projectId, sprint, onClose, onSaved }: Props) {
   const { t } = useLanguage()
   const toast = useToast()
   const router = useRouter()
   const onVersionConflict = useVersionConflict()
   // Always edit the original (source-language) text, never the translation.
-  const [initial] = useState(() => ({
-    sprintName: sprint.sprintName,
-    startDate: toDateInput(sprint.startDate),
-    endDate: toDateInput(sprint.endDate),
-    sprintGoal: sprint.sprintGoal ?? "",
-    capacity: sprint.capacity,
-  }))
+  const [initial, setInitial] = useState(() => sprintFormOf(sprint))
   const [form, setForm] = useState(initial)
   const [saving, setSaving] = useState(false)
+  // Version the form's values belong to (replaced by the server's row after a 409).
+  const [version, setVersion] = useState(sprint.version)
+  const [hasConflict, setHasConflict] = useState(false)
   const formId = `${FORM_ID_PREFIX}${sprint.id}`
   const isDirty = (Object.keys(initial) as (keyof typeof initial)[]).some((k) => form[k] !== initial[k])
   const isValid = !!form.sprintName.trim() && !!form.startDate && !!form.endDate
@@ -57,19 +71,32 @@ export default function SprintEditDialog({ projectId, sprint, onClose, onSaved }
           endDate: form.endDate,
           sprintGoal: form.sprintGoal.trim() || null,
           capacity: Number(form.capacity) || 0,
-        }, sprint.version),
+        }, version),
       })
       toast.success(t.sprintSaved)
       onSaved?.()
       router.refresh()
       onClose()
     } catch (err) {
-      // Stale edit: reload the sprints and close; the user re-opens on the latest values.
-      if (onVersionConflict(err, () => { onSaved?.(); onClose() })) return
+      if (onVersionConflict(err, handleConflict)) return
       toast.error(messageOf(err, t.error), { title: t.sprintUpdateFailed })
     } finally {
       setSaving(false)
     }
+  }
+
+  /** Stale edit: show the other user's values (a second save then applies to them), or close when unknown. */
+  function handleConflict(current: unknown) {
+    onSaved?.()
+    if (!isSprintRow(current)) {
+      onClose()
+      return
+    }
+    const next = sprintFormOf(current)
+    setInitial(next)
+    setForm(next)
+    setVersion(current.version)
+    setHasConflict(true)
   }
 
   return (
@@ -80,6 +107,11 @@ export default function SprintEditDialog({ projectId, sprint, onClose, onSaved }
           <Button type="submit" form={formId} loading={saving} disabled={!isValid}>{t.save}</Button>
         </>
       }>
+      {hasConflict && (
+        <p role="alert" className="bg-warning-soft border border-warning/30 rounded-ui-sm px-3 py-2 text-body text-warning-strong mb-4">
+          {t.sprintEditConflictNotice}
+        </p>
+      )}
       <form id={formId} onSubmit={handleSubmit} className="space-y-4">
         <Field label={t.sprintName} required>
           <Input value={form.sprintName} maxLength={200} required

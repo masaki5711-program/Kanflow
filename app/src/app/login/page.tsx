@@ -9,13 +9,19 @@ import { useLanguage } from "@/lib/language-context"
 import { Button, Field, Input, cn } from "@/components/ui"
 import { useDocumentTitle } from "@/hooks/use-document-title"
 import { apiFetch } from "@/hooks/api-client"
+import { loginLanguageToPersist, rememberLastLanguage } from "@/lib/last-language"
 
 const LOGIN_LANGUAGES = Object.keys(languageLabels) as Language[]
 
 export default function LoginPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const [language, setLanguage] = useState<Language>("ja")
+  // Starts in the language the root layout resolved for this browser (last
+  // used language cookie → Accept-Language), not a hard-coded "ja".
+  const { language: resolvedLanguage, setLanguageLocal } = useLanguage()
+  const [language, setLanguage] = useState<Language>(resolvedLanguage)
+  // Only an explicit choice here is saved to the profile (S-02 / F-12).
+  const [languageTouched, setLanguageTouched] = useState(false)
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   // Store the error *kind* rather than its text so the message follows the
@@ -25,7 +31,6 @@ export default function LoginPage() {
   // Once the user submits, the idle notice from the URL is no longer relevant.
   const [idleNoticeDismissed, setIdleNoticeDismissed] = useState(false)
   const errorId = useId()
-  const { setLanguageLocal } = useLanguage()
 
   const t = getTranslations(language)
   useDocumentTitle([t.loginTitle])
@@ -37,6 +42,8 @@ export default function LoginPage() {
 
   function changeLanguage(lang: Language) {
     setLanguage(lang)
+    setLanguageTouched(true)
+    rememberLastLanguage(lang)
     // keep the shared context (kit labels, toasts) in the same language
     setLanguageLocal(lang)
   }
@@ -69,9 +76,15 @@ export default function LoginPage() {
         return
       }
 
-      // Save the selected language as the user's default. Best-effort: login
-      // already succeeded, so a failure here must not block navigation.
-      await apiFetch("/api/user/language", { method: "PATCH", json: { language } }).catch((err: unknown) => console.warn("[login] could not save default language", err))
+      // Save the language as the user's default only when it was explicitly
+      // chosen on this page; an untouched selector keeps the saved preference.
+      // Best-effort: login already succeeded, so a failure must not block navigation.
+      const toPersist = loginLanguageToPersist(language, languageTouched)
+      if (toPersist) {
+        await apiFetch("/api/user/language", { method: "PATCH", json: { language: toPersist } }).catch((err: unknown) =>
+          console.warn("[login] could not save default language", err),
+        )
+      }
 
       router.push("/")
       router.refresh()

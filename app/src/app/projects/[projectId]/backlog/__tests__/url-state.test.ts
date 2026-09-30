@@ -7,7 +7,9 @@ import {
   hasActiveFilters,
   matchesFilters,
   parseFilters,
+  exportFilterParams,
   pbiIdForRef,
+  pbiTabOf,
   withPbiParam,
 } from "../url-state"
 import { pbiDeepLink } from "@/components/pbi-form/use-copy-link"
@@ -60,6 +62,30 @@ describe("withPbiParam", () => {
     const base = new URLSearchParams("q=x")
     expect(withPbiParam(base, "12").toString()).toBe("q=x&pbi=12")
     expect(withPbiParam(new URLSearchParams("q=x&pbi=12"), null).toString()).toBe("q=x")
+  })
+
+  it("drops the modal's ?tab= when closing or switching PBIs (F-05)", () => {
+    expect(withPbiParam(new URLSearchParams("pbi=12&tab=comments"), null).toString()).toBe("")
+    expect(withPbiParam(new URLSearchParams("pbi=12&tab=comments"), "13").toString()).toBe("pbi=13")
+  })
+})
+
+describe("pbiTabOf", () => {
+  it("is 'comments' only with a PBI and tab=comments", () => {
+    expect(pbiTabOf(new URLSearchParams("pbi=1&tab=comments"))).toBe("comments")
+    expect(pbiTabOf(new URLSearchParams("pbi=1&tab=history"))).toBeNull()
+    expect(pbiTabOf(new URLSearchParams("tab=comments"))).toBeNull()
+  })
+})
+
+describe("exportFilterParams (F-09)", () => {
+  it("passes only the set text / facet filters (showDone is a view toggle)", () => {
+    expect(exportFilterParams({ ...EMPTY_FILTERS, q: "login", status: "ready", po: FILTER_NONE, showDone: true })).toEqual({
+      q: "login",
+      status: "ready",
+      po: FILTER_NONE,
+    })
+    expect(exportFilterParams(EMPTY_FILTERS)).toEqual({})
   })
 })
 

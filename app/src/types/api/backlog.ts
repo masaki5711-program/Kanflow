@@ -34,7 +34,7 @@ export interface BacklogItemDto extends PbiWithStatusDto {
   /** Optimistic-lock version (send it back on PATCH / DELETE; stale → 409 VERSION_CONFLICT). */
   version?: number
   /** Planning/active sprints already working on this PBI (one row per sprint task). */
-  sprintItems?: { sprint: { id: string; sprintName: string; status: string } }[]
+  sprintItems?: { sprint: { id: string; sprintName: string; status: string; i18n?: EntityI18n } }[]
 }
 
 /** GET /api/projects/:id/backlog/:itemId — the list row plus the PO-only text fields. */

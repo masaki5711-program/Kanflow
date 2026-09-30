@@ -33,8 +33,26 @@ describe("describeNotification", () => {
   it("assigned (PBI) links to the backlog deep link; missing actor / label fall back", () => {
     const n = item("assigned", { displayId: 3 }, { entityType: "pbi", entityId: "b1" })
     const d = describeNotification(n, t, "en")
-    expect(d.text).toBe(`${t.notifSomeone} assigned you to “${t.notifUntitled}”`)
+    // No title: the PBI is still named by its number.
+    expect(d.text).toBe(`${t.notifSomeone} assigned you to “#3”`)
     expect(d.href).toBe("/projects/p1/backlog?pbi=b1")
+  })
+
+  it("names a PBI '#displayId title' even in older assignment rows (F-06)", () => {
+    const legacy = item("assigned", { entityLabel: "As a user", displayId: 73, actorName: "Ann" }, { entityType: "pbi", entityId: "b1" })
+    expect(describeNotification(legacy, t, "en").text).toBe("Ann assigned you to “#73 As a user”")
+    const current = item("assigned", { entityLabel: "#73 Login", displayId: 73, actorName: "Ann" }, { entityType: "pbi", entityId: "b1" })
+    expect(describeNotification(current, t, "en").text).toBe("Ann assigned you to “#73 Login”")
+    const task = item("assigned", { entityLabel: "Write", displayId: 5 }, { entityType: "sprint_task", entityId: "t1" })
+    expect(describeNotification(task, t, "en").text).toContain("“Write”")
+  })
+
+  it("shows the project name in the viewer's language when translated (F-06)", () => {
+    const i18n = { name: { ja: "IoT パイロット", id: "Pilot IoT", source: "id" as const, status: "done" as const } }
+    const n = item("sprint_end", { sprintName: "S" }, { project: { id: "p1", name: "Pilot IoT", i18n } as never })
+    expect(describeNotification(n, t, "ja").projectName).toBe("IoT パイロット")
+    expect(describeNotification(n, t, "id").projectName).toBe("Pilot IoT")
+    expect(describeNotification(item("sprint_end", {}), t, "ja").projectName).toBe("Apollo")
   })
 
   it("sprint_start / sprint_end", () => {
@@ -70,10 +88,10 @@ describe("describeNotification", () => {
   })
 
   it.each([
-    ["pbi", "b1", "/projects/p1/backlog?pbi=b1"],
-    ["sprint_task", "t1", "/projects/p1/sprints?task=t1"],
-    ["icebox", "i1", "/projects/p1/icebox?item=i1"],
-  ])("mentioned / comment on %s link to its deep link", (entityType, entityId, href) => {
+    ["pbi", "b1", "/projects/p1/backlog?pbi=b1&tab=comments"],
+    ["sprint_task", "t1", "/projects/p1/sprints?task=t1&tab=comments"],
+    ["icebox", "i1", "/projects/p1/icebox?item=i1&tab=comments"],
+  ])("mentioned / comment on %s open its comment thread (F-05)", (entityType, entityId, href) => {
     const payload = { entityLabel: "#12 Login", actorName: "Carol", excerpt: "hi", entityType, entityId, commentId: "c1" }
     const mention = item("mentioned", payload, { entityType, entityId })
     expect(describeNotification(mention, t, "en")).toMatchObject({ text: "Carol mentioned you in a comment on “#12 Login”", href })
@@ -119,7 +137,7 @@ describe("notificationHref deep links (param names the target pages read)", () =
 
   it("comments and mentions link to the commented entity from the payload", () => {
     const n = item("mentioned", { entityType: "icebox", entityId: "i1" })
-    expect(notificationHref(n)).toBe("/projects/p1/icebox?item=i1")
+    expect(notificationHref(n)).toBe("/projects/p1/icebox?item=i1&tab=comments")
   })
 
   it("surveillance alerts link to the project dashboard", () => {

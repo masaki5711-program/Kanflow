@@ -41,7 +41,18 @@ export function PlanLegend() {
         <Item swatch={<span className="block h-2.5 w-2.5 rotate-45 bg-plan-milestone" />}>{t.planIsMilestone}</Item>
         <Item swatch={<span className="block h-[3px] w-5 rounded-full bg-fg-muted" />}>{t.planLegendActual}</Item>
         <Item swatch={<span className="block h-[3px] w-5 rounded-full bg-border-strong" />}>{t.planBaseline}</Item>
-        <Item swatch={<span className="block h-1 w-5 rounded-full bg-chart-2" />}>{t.planLegendSprint}</Item>
+        <Item
+          swatch={
+            // Bands take one palette colour per sprint (see status.ts sprintBandClass).
+            <span className="flex h-1 w-5 gap-px">
+              <span className="block h-full flex-1 rounded-full bg-chart-1" />
+              <span className="block h-full flex-1 rounded-full bg-chart-2" />
+              <span className="block h-full flex-1 rounded-full bg-chart-3" />
+            </span>
+          }
+        >
+          {t.planLegendSprint}
+        </Item>
         <Item
           swatch={
             <svg viewBox="0 0 20 10" className="h-3 w-5">

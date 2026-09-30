@@ -22,12 +22,11 @@ const STATUS_ICON: Record<BoardStatus, string> = {
 interface HeaderProps {
   summary: ColumnSummary
   label: string
-  pointUnit: string
   isDropTarget: boolean
 }
 
 /** Column heading with task count and estimate / actual sums. */
-export function BoardColumnHeader({ summary, label, pointUnit, isDropTarget }: HeaderProps) {
+export function BoardColumnHeader({ summary, label, isDropTarget }: HeaderProps) {
   const { t } = useLanguage()
   return (
     <div className={cn(
@@ -43,7 +42,7 @@ export function BoardColumnHeader({ summary, label, pointUnit, isDropTarget }: H
         </span>
       </h4>
       <p className="mt-0.5 text-caption text-fg-muted">
-        {t.sprintEstimatedHoursShort} {summary.estimatedHours} · {t.sprintActualHoursShort} {summary.actualHours} {pointUnit}
+        {t.sprintEstimatedHoursShort} {summary.estimatedHours} · {t.sprintActualHoursShort} {summary.actualHours} {t.sprintHoursUnit}
       </p>
     </div>
   )
@@ -55,7 +54,6 @@ interface CellProps {
   /** Accessible name of the cell ("進行中" or "進行中 — Alice"). */
   label: string
   tasks: readonly SprintItem[]
-  pointUnit: string
   columnLabels: Record<BoardStatus, string>
   hintId: string
   dnd: DndState
@@ -63,7 +61,7 @@ interface CellProps {
 }
 
 /** One drop cell (column × lane) holding its cards. */
-export function BoardCell({ status, laneKey, label, tasks, pointUnit, columnLabels, hintId, dnd, handlers }: CellProps) {
+export function BoardCell({ status, laneKey, label, tasks, columnLabels, hintId, dnd, handlers }: CellProps) {
   const { t } = useLanguage()
   const isDragging = dnd.phase === "dragging"
   const isOverColumn = isDragging && dnd.over === status && dnd.over !== dnd.from
@@ -84,7 +82,7 @@ export function BoardCell({ status, laneKey, label, tasks, pointUnit, columnLabe
       {tasks.length > 0 && (
         <ul className="flex flex-col gap-2">
           {tasks.map((task) => (
-            <BoardCard key={task.id} task={task} status={status} laneKey={laneKey} pointUnit={pointUnit}
+            <BoardCard key={task.id} task={task} status={status} laneKey={laneKey}
               columnLabels={columnLabels} hintId={hintId} handlers={handlers}
               dragOffset={isDragging && dnd.source === "pointer" && dnd.taskId === task.id ? { dx: dnd.dx, dy: dnd.dy } : null}
               isLifted={isDragging && dnd.source === "keyboard" && dnd.taskId === task.id} />

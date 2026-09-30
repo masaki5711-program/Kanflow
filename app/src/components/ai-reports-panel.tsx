@@ -11,6 +11,8 @@ import { AiJobChip } from "@/components/ai-jobs/ai-job-chip"
 import { AI_REPORTS_CHANGED_EVENT, type AiJobView } from "@/components/ai-jobs/ai-job-client"
 import { useActiveAiJobs } from "@/components/ai-jobs/use-active-ai-jobs"
 import { aiJobKindLabel } from "@/components/notifications/notification-format"
+import { languageLabels, type Language } from "@/lib/i18n"
+import { detectReportLang, localizeStructuredReport, pickBilingualLines, pickReportTitle } from "./ai-report-language"
 
 interface AiReport {
   id: string
@@ -49,11 +51,18 @@ interface ReportRowProps {
   onToggle: () => void
   triggerLabel: string
   locale: string
+  language: Language
   t: Translations
 }
 
-function ReportRow({ report: r, isOpen, isLatest, onToggle, triggerLabel, locale, t }: ReportRowProps) {
-  const structured = isOpen ? parseStructured(r.structured) : null
+function ReportRow({ report: r, isOpen, isLatest, onToggle, triggerLabel, locale, language, t }: ReportRowProps) {
+  const parsed = isOpen ? parseStructured(r.structured) : null
+  // Bilingual (JA/ID) reports show the viewer's side; single-language ones say which language they are in.
+  const structured = parsed ? localizeStructuredReport(parsed, language) : null
+  const sourceLang = detectReportLang(r.summary || r.body || "")
+  const otherLanguage = sourceLang !== "bilingual" && sourceLang !== language ? sourceLang : null
+  const title = pickReportTitle(r.title, language)
+  const summary = r.summary ? pickBilingualLines(r.summary, language) : null
   const panelId = `ai-report-${r.id}`
   const hasBody = Boolean(r.structured || r.body)
   return (
@@ -74,10 +83,10 @@ function ReportRow({ report: r, isOpen, isLatest, onToggle, triggerLabel, locale
         <div className="flex-1 min-w-0">
           <div className="flex items-start gap-2">
             {isLatest && <Badge tone="primary" className="flex-shrink-0 mt-0.5">{t.aiReportLatest}</Badge>}
-            <Truncate text={r.title} lines={2} className="text-body font-medium text-fg" />
+            <Truncate text={title} lines={2} className="text-body font-medium text-fg" />
           </div>
-          {r.summary && !isOpen && (
-            <Truncate text={r.summary} lines={1} className="text-caption text-fg-muted mt-0.5" />
+          {summary && !isOpen && (
+            <Truncate text={summary} lines={1} className="text-caption text-fg-muted mt-0.5" />
           )}
         </div>
         <Badge tone="neutral" className="flex-shrink-0">{triggerLabel}</Badge>
@@ -87,6 +96,11 @@ function ReportRow({ report: r, isOpen, isLatest, onToggle, triggerLabel, locale
       </button>
       {isOpen && hasBody && (
         <div id={panelId} className="px-4 sm:px-6 pb-5 sm:pl-[52px]">
+          {otherLanguage && (
+            <p className="mb-2 text-caption text-fg-muted" data-testid="ai-report-language-note">
+              {t.aiReportWrittenIn.replace("{language}", languageLabels[otherLanguage])}
+            </p>
+          )}
           {structured ? (
             <ReportDocument
               report={structured}
@@ -96,7 +110,7 @@ function ReportRow({ report: r, isOpen, isLatest, onToggle, triggerLabel, locale
             />
           ) : (
             <div className="bg-violet-50/40 border border-violet-100 rounded-ui-sm px-4 py-3 text-body text-fg leading-relaxed [&_h2]:text-body [&_h2]:font-bold [&_h2]:mt-3 [&_h2]:mb-1 [&_h2]:first:mt-0 [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:my-1 [&_p]:my-1">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{r.body}</ReactMarkdown>
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{pickBilingualLines(r.body ?? "", language)}</ReactMarkdown>
             </div>
           )}
         </div>
@@ -170,6 +184,7 @@ export default function AiReportsPanel({ projectId }: { projectId: string }) {
       onToggle={() => setOpenId(openId === r.id ? null : r.id)}
       triggerLabel={triggerLabel[r.trigger] ?? r.trigger}
       locale={locale}
+      language={language}
       t={t}
     />
   )

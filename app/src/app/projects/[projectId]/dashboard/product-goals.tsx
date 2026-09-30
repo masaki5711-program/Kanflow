@@ -13,10 +13,12 @@ import { Star, Target } from "lucide-react"
 interface ProductGoalsProps {
   projectId: string
   initialGoals: ProductGoal[]
+  /** goal.write — without it the list is read-only. */
+  canEdit: boolean
 }
 
-/** Product goal list with add / edit / delete. */
-export function ProductGoals({ projectId, initialGoals }: ProductGoalsProps) {
+/** Product goal list with add / edit / delete (for roles with goal.write). */
+export function ProductGoals({ projectId, initialGoals, canEdit }: ProductGoalsProps) {
   const { t } = useLanguage()
   const toast = useToast()
   const confirm = useConfirm()
@@ -48,7 +50,7 @@ export function ProductGoals({ projectId, initialGoals }: ProductGoalsProps) {
           <Target className="w-5 h-5 text-primary" />
           <h3 className="text-body font-semibold text-fg">{t.dashboardProductGoals}</h3>
         </div>
-        <Button size="sm" onClick={() => setEditing(null)}>{t.dashboardAddGoal}</Button>
+        {canEdit && <Button size="sm" onClick={() => setEditing(null)}>{t.dashboardAddGoal}</Button>}
       </div>
       {goals.length > 0 ? (
         <ul className="space-y-2">
@@ -61,17 +63,19 @@ export function ProductGoals({ projectId, initialGoals }: ProductGoalsProps) {
                   <I18nText as="p" className="text-caption text-fg-muted mt-0.5 whitespace-pre-wrap leading-relaxed" i18n={goal.i18n} field="description" original={goal.description} entity={{ type: "product_goal", id: goal.id }} />
                 )}
               </div>
-              <div className={cn("flex gap-1 shrink-0", ROW_ACTIONS_VISIBILITY)}>
-                <Button variant="ghost" size="sm" onClick={() => setEditing(goal)}>{t.edit}</Button>
-                <Button variant="ghost" size="sm" className="text-danger hover:text-danger" onClick={() => void handleDelete(goal)}>{t.delete}</Button>
-              </div>
+              {canEdit && (
+                <div className={cn("flex gap-1 shrink-0", ROW_ACTIONS_VISIBILITY)}>
+                  <Button variant="ghost" size="sm" onClick={() => setEditing(goal)}>{t.edit}</Button>
+                  <Button variant="ghost" size="sm" className="text-danger hover:text-danger" onClick={() => void handleDelete(goal)}>{t.delete}</Button>
+                </div>
+              )}
             </li>
           ))}
         </ul>
       ) : (
         <EmptyState compact icon={<Target className="w-6 h-6" />} title={t.dashboardNoGoals} headingLevel={4} />
       )}
-      {editing !== undefined && (
+      {canEdit && editing !== undefined && (
         <GoalFormModal projectId={projectId} goal={editing} onClose={() => setEditing(undefined)} onSaved={handleSaved} />
       )}
     </div>

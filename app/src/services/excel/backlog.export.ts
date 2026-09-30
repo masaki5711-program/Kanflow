@@ -20,6 +20,7 @@ import {
   type BacklogField,
   type BilingualField,
 } from "./backlog.columns"
+import { NO_EXPORT_FILTERS, matchesExportFilters, type BacklogExportFilters, type FilterableBacklogRow } from "./backlog.export-filters"
 import { findExportProject } from "./excel.project"
 import { addTableSheet, excelCellText, excelDate, excelFileName, workbookBuffer, type ExcelCell, type ExcelColumn } from "./excel.shared"
 
@@ -146,8 +147,9 @@ export function findBacklogForExport(db: Db, projectId: string) {
       notReadyReason: true,
       createdAt: true,
       updatedAt: true,
+      productGoalId: true,
       productGoal: { select: { title: true } },
-      planItem: { select: { name: true, deletedAt: true } },
+      planItem: { select: { id: true, name: true, deletedAt: true } },
       sprintItems: { select: { sprint: { select: { id: true, sprintName: true, startDate: true } } } },
     },
     orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
@@ -186,8 +188,21 @@ export function toExportRow(r: ExportDbRow, i18n: EntityI18n): BacklogExportRow 
   }
 }
 
-export async function exportBacklog(projectId: string, lang: Language, now: Date = new Date()): Promise<{ buffer: Buffer; fileName: string }> {
-  const [project, raw] = await Promise.all([findExportProject(defaultDb, projectId), findBacklogForExport(defaultDb, projectId)])
+/** The DB row in the shape the page's filters read (a trashed plan item counts as none). */
+function filterable(r: ExportDbRow): FilterableBacklogRow {
+  const planItemId = r.planItem && r.planItem.deletedAt === null ? r.planItem.id : null
+  return { ...r, productGoalId: r.productGoalId ?? null, planItemId }
+}
+
+/** `filters`: the backlog page's search / facets (default: every live PBI). */
+export async function exportBacklog(
+  projectId: string,
+  lang: Language,
+  filters: BacklogExportFilters = NO_EXPORT_FILTERS,
+  now: Date = new Date()
+): Promise<{ buffer: Buffer; fileName: string }> {
+  const [project, all] = await Promise.all([findExportProject(defaultDb, projectId), findBacklogForExport(defaultDb, projectId)])
+  const raw = all.filter((r) => matchesExportFilters(filterable(r), filters))
   const i18n = await getI18nFor("backlog_item", raw.map((r) => r.id))
   const rows = raw.map((r) => toExportRow(r, i18n.get(r.id) ?? {}))
   const wb = buildBacklogWorkbook(rows, { lang, projectType: project.projectType, bilingual: hasBilingualText(i18n) })

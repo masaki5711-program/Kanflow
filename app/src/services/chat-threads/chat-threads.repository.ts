@@ -96,3 +96,27 @@ export async function findLatestMessages(db: Db, threadId: string, take: number)
   })
   return [...rows].reverse()
 }
+
+export type ProposalMessageRow = { id: string; toolEvents: string | null }
+
+/** Assistant messages of the thread whose stored events mention `proposalId`, oldest first. */
+export function findProposalMessages(db: Db, threadId: string, proposalId: string): Promise<ProposalMessageRow[]> {
+  return db.chatMessage.findMany({
+    where: { threadId, role: "assistant", toolEvents: { contains: proposalId } },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    select: { id: true, toolEvents: true },
+  })
+}
+
+/**
+ * Compare-and-set of a message's stored events: writes `next` only while the
+ * row still holds `expected` (one atomic UPDATE … WHERE toolEvents = ?).
+ * Returns false when another request changed it first.
+ */
+export async function swapToolEvents(db: Db, messageId: string, expected: string | null, next: string | null): Promise<boolean> {
+  const { count } = await db.chatMessage.updateMany({
+    where: { id: messageId, toolEvents: expected },
+    data: { toolEvents: next },
+  })
+  return count === 1
+}

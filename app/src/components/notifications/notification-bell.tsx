@@ -5,11 +5,14 @@ import { useRouter } from "next/navigation"
 import { Bell } from "lucide-react"
 import { useLanguage } from "@/lib/language-context"
 import { fillTemplate } from "@/lib/fill-template"
-import { cn } from "@/components/ui"
 import { isModalOpen } from "@/hooks/use-shortcuts"
 import { badgeText } from "./notification-format"
 import { NotificationPanel } from "./notification-panel"
 import { useUnreadCount } from "./use-unread-count"
+import { useAnchoredPopover } from "@/components/app-shell/anchored-popover"
+
+/** Preferred panel width (px, = w-96); shrinks to the viewport on phones. */
+const PANEL_WIDTH = 384
 
 /**
  * Header bell: unread badge (polled while the tab is visible) and a
@@ -26,6 +29,8 @@ export function NotificationBell() {
   const uid = useId().replace(/:/g, "")
   const panelId = `${uid}-panel`
   const headingId = `${uid}-heading`
+  // Fixed + clamped to the viewport, so the panel is never cut off at an edge.
+  const panelStyle = useAnchoredPopover(buttonRef, open, PANEL_WIDTH)
 
   const close = useCallback((restoreFocus: boolean) => {
     setOpen(false)
@@ -99,10 +104,8 @@ export function NotificationBell() {
           role="dialog"
           aria-labelledby={headingId}
           tabIndex={-1}
-          className={cn(
-            "fixed inset-x-2 top-14 z-50 overflow-hidden rounded-ui-lg border border-border bg-surface shadow-ui-overlay outline-none",
-            "sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:w-96",
-          )}
+          style={panelStyle}
+          className="fixed right-2 top-14 z-50 max-w-[calc(100vw-1rem)] overflow-hidden rounded-ui-lg border border-border bg-surface shadow-ui-overlay outline-none"
         >
           <NotificationPanel headingId={headingId} onUnreadCount={setCount} onNavigate={onNavigate} />
         </div>

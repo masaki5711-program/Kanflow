@@ -3,12 +3,16 @@ import { prisma } from "@/lib/prisma"
 import { readHeartbeatStatus, resolveHeartbeatFile, type WorkerLiveness } from "@/lib/ai-gate/worker-heartbeat"
 import { parseWorkerMode, type TranslationWorkerMode } from "@/lib/translation/worker-mode"
 import { readBuildId } from "./build-id"
+import { mayReadHealthDetails } from "./access"
 
 /**
  * GET /api/health — liveness/readiness probe for the watchdog and operators.
  *
  * - Unauthenticated on purpose (the watchdog calls it from 127.0.0.1). Any
  *   auth middleware/proxy MUST exclude /api/health.
+ * - Anonymous remote callers get only `{ status, db }` (no component probes
+ *   run). The full body below is for loopback callers (the ops scripts) or
+ *   a caller sending INTERNAL_API_TOKEN as `x-internal-token` (see ./access.ts).
  * - Never returns secrets, connection strings or raw error messages.
  * - 200 when the database answers `SELECT 1` within DB_TIMEOUT_MS, else 503.
  *   Everything else is informational and never changes the status code:
@@ -154,7 +158,13 @@ function checkWorker(nowMs: number): WorkerHealth {
   return { status: hb.status, heartbeatAgeSec: hb.ageSec, expected: mode === "external", mode }
 }
 
-export async function GET(): Promise<NextResponse> {
+export async function GET(request: Request): Promise<NextResponse> {
+  const headers = { "Cache-Control": "no-store" }
+  if (!mayReadHealthDetails(request.headers, process.env.INTERNAL_API_TOKEN)) {
+    const db = await checkDb()
+    return NextResponse.json({ status: db === "ok" ? "ok" : "error", db }, { status: db === "ok" ? 200 : 503, headers })
+  }
+
   const nowMs = Date.now()
   const [db, ollama, collabora, translation] = await Promise.all([
     checkDb(),
@@ -175,9 +185,6 @@ export async function GET(): Promise<NextResponse> {
       uptime: Math.round(process.uptime()),
       buildId: readBuildId(),
     },
-    {
-      status: healthy ? 200 : 503,
-      headers: { "Cache-Control": "no-store" },
-    },
+    { status: healthy ? 200 : 503, headers },
   )
 }

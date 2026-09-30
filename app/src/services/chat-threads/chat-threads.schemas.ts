@@ -24,3 +24,19 @@ export const renameThreadSchema = z.object({
 
 export type ListThreadsQuery = z.infer<typeof listThreadsQuerySchema>
 export type RenameThreadInput = z.infer<typeof renameThreadSchema>
+
+/** Stable proposal ids (`prop_<hex>`, lib/proposal-tools.ts). */
+export const proposalIdSchema = z.string().min(1).max(64).regex(/^[A-Za-z0-9_-]+$/)
+
+/**
+ * POST /api/projects/:id/chat/threads/:threadId/proposals/:proposalId
+ * reserve → (REST calls) → confirm, or release on failure; reject.
+ */
+export const proposalOutcomeActionSchema = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("reserve") }),
+  z.object({ action: z.literal("confirm"), appliedEntityId: z.string().min(1).max(64).nullable().default(null) }),
+  z.object({ action: z.literal("release") }),
+  z.object({ action: z.literal("reject") }),
+])
+
+export type ProposalOutcomeAction = z.infer<typeof proposalOutcomeActionSchema>

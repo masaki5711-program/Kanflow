@@ -15,6 +15,17 @@ const fetchMock = vi.fn()
 let tmp: string
 const savedEnv = { ...process.env }
 
+/** A request as the ops scripts send it (http://127.0.0.1:3000, socket address filled in by Next). */
+function local(): Request {
+  return new Request("http://127.0.0.1:3000/api/health", { headers: { host: "127.0.0.1:3000", "x-forwarded-for": "::ffff:127.0.0.1" } })
+}
+
+function remote(extra: Record<string, string> = {}): Request {
+  return new Request("http://kanflow.example.local/api/health", {
+    headers: { host: "kanflow.example.local:3000", "x-forwarded-for": "10.1.2.3", ...extra },
+  })
+}
+
 /** $queryRaw is a tagged template: the first argument is the strings array. */
 function sqlOf(call: unknown[]): string {
   return (call[0] as TemplateStringsArray).join("?")
@@ -62,7 +73,7 @@ describe("GET /api/health", () => {
     answer()
     fetchMock.mockResolvedValue(new Response("{}", { status: 200 }))
 
-    const res = await GET()
+    const res = await GET(local())
     const body = await res.json()
 
     expect(res.status).toBe(200)
@@ -78,7 +89,7 @@ describe("GET /api/health", () => {
     answer()
     fetchMock.mockRejectedValue(new Error("ECONNREFUSED"))
 
-    const res = await GET()
+    const res = await GET(local())
     const body = await res.json()
 
     expect(res.status).toBe(200)
@@ -89,7 +100,7 @@ describe("GET /api/health", () => {
     answer()
     fetchMock.mockResolvedValue(new Response("", { status: 500 }))
 
-    const body = await (await GET()).json()
+    const body = await (await GET(local())).json()
 
     expect(body.ollama).toBe("unreachable")
   })
@@ -98,7 +109,7 @@ describe("GET /api/health", () => {
     answer({ db: "fail", backlog: "fail" })
     fetchMock.mockResolvedValue(new Response("{}", { status: 200 }))
 
-    const res = await GET()
+    const res = await GET(local())
     const text = await res.text()
     const body = JSON.parse(text)
 
@@ -116,7 +127,7 @@ describe("GET /api/health", () => {
     answer({ db: "hang" })
     fetchMock.mockResolvedValue(new Response("{}", { status: 200 }))
 
-    const pending = GET()
+    const pending = GET(local())
     await vi.advanceTimersByTimeAsync(3001)
     const res = await pending
 
@@ -137,7 +148,7 @@ describe("GET /api/health", () => {
       })
       fetchMock.mockResolvedValue(new Response("{}", { status: 200 }))
 
-      const body = await (await GET()).json()
+      const body = await (await GET(local())).json()
 
       expect(body.translation).toEqual({ pending: 12, oldestPendingAgeSec: 300, running: 1, failed: 4 })
       const backlogCall = queryRaw.mock.calls.map(sqlOf).find((s) => s.includes("field_translation"))
@@ -147,14 +158,14 @@ describe("GET /api/health", () => {
     it("an empty queue is zeros with no age", async () => {
       answer({ backlog: [] })
       fetchMock.mockResolvedValue(new Response("{}", { status: 200 }))
-      const body = await (await GET()).json()
+      const body = await (await GET(local())).json()
       expect(body.translation).toEqual({ pending: 0, oldestPendingAgeSec: null, running: 0, failed: 0 })
     })
 
     it("a failing backlog query is non-fatal (translation: null, still 200)", async () => {
       answer({ backlog: "fail" })
       fetchMock.mockResolvedValue(new Response("{}", { status: 200 }))
-      const res = await GET()
+      const res = await GET(local())
       expect(res.status).toBe(200)
       expect((await res.json()).translation).toBeNull()
     })
@@ -171,7 +182,7 @@ describe("GET /api/health", () => {
     it("absent when the worker never wrote a heartbeat; expected by default (external mode)", async () => {
       answer()
       fetchMock.mockResolvedValue(new Response("{}", { status: 200 }))
-      const res = await GET()
+      const res = await GET(local())
       expect(res.status).toBe(200)
       expect((await res.json()).worker).toEqual({ status: "absent", heartbeatAgeSec: null, expected: true, mode: "external" })
     })
@@ -180,7 +191,7 @@ describe("GET /api/health", () => {
       writeHeartbeat(20_000)
       answer()
       fetchMock.mockResolvedValue(new Response("{}", { status: 200 }))
-      const body = await (await GET()).json()
+      const body = await (await GET(local())).json()
       expect(body.worker.status).toBe("ok")
       expect(body.worker.heartbeatAgeSec).toBeGreaterThanOrEqual(19)
     })
@@ -189,7 +200,7 @@ describe("GET /api/health", () => {
       writeHeartbeat(10 * 60_000)
       answer()
       fetchMock.mockResolvedValue(new Response("{}", { status: 200 }))
-      const res = await GET()
+      const res = await GET(local())
       expect(res.status).toBe(200)
       expect((await res.json()).worker.status).toBe("stale")
     })
@@ -198,7 +209,7 @@ describe("GET /api/health", () => {
       process.env.AI_TRANSLATION_WORKER = "inprocess"
       answer()
       fetchMock.mockResolvedValue(new Response("{}", { status: 200 }))
-      expect((await (await GET()).json()).worker).toMatchObject({ expected: false, mode: "inprocess" })
+      expect((await (await GET(local())).json()).worker).toMatchObject({ expected: false, mode: "inprocess" })
     })
   })
 
@@ -219,7 +230,7 @@ describe("GET /api/health", () => {
     it("is disabled (and not probed) when no Collabora URL is configured", async () => {
       answer()
       routeFetch("ok")
-      const body = await (await GET()).json()
+      const body = await (await GET(local())).json()
       expect(body.collabora).toBe("disabled")
       expect(collaboraCalls()).toHaveLength(0)
     })
@@ -229,7 +240,7 @@ describe("GET /api/health", () => {
       process.env.NEXT_PUBLIC_COLLABORA_URL = "http://public.example:9980"
       answer()
       routeFetch("ok")
-      const body = await (await GET()).json()
+      const body = await (await GET(local())).json()
       expect(body.collabora).toBe("ok")
       expect(collaboraCalls()).toEqual(["http://127.0.0.1:9980/hosting/discovery"])
     })
@@ -238,7 +249,7 @@ describe("GET /api/health", () => {
       process.env.NEXT_PUBLIC_COLLABORA_URL = "http://public.example:9980"
       answer()
       routeFetch("ok")
-      await GET()
+      await GET(local())
       expect(collaboraCalls()).toEqual(["http://public.example:9980/hosting/discovery"])
     })
 
@@ -246,7 +257,7 @@ describe("GET /api/health", () => {
       process.env.COLLABORA_INTERNAL_URL = "http://127.0.0.1:9980"
       answer()
       routeFetch("down")
-      const res = await GET()
+      const res = await GET(local())
       const body = await res.json()
       expect(res.status).toBe(200)
       expect(body.status).toBe("ok")
@@ -257,7 +268,7 @@ describe("GET /api/health", () => {
       process.env.COLLABORA_INTERNAL_URL = "http://127.0.0.1:9980"
       answer()
       routeFetch("500")
-      expect((await (await GET()).json()).collabora).toBe("unreachable")
+      expect((await (await GET(local())).json()).collabora).toBe("unreachable")
     })
 
     it("disabled by COLLABORA_MONITOR=off even when a URL is set", async () => {
@@ -265,7 +276,7 @@ describe("GET /api/health", () => {
       process.env.COLLABORA_MONITOR = "off"
       answer()
       routeFetch("ok")
-      expect((await (await GET()).json()).collabora).toBe("disabled")
+      expect((await (await GET(local())).json()).collabora).toBe("disabled")
       expect(collaboraCalls()).toHaveLength(0)
     })
 
@@ -273,7 +284,7 @@ describe("GET /api/health", () => {
       process.env.COLLABORA_INTERNAL_URL = "http://127.0.0.1:9980"
       answer({ db: "fail", backlog: "fail" })
       routeFetch("ok")
-      const res = await GET()
+      const res = await GET(local())
       expect(res.status).toBe(503)
       expect((await res.json()).collabora).toBe("ok")
     })
@@ -287,14 +298,57 @@ describe("GET /api/health", () => {
       process.env.NEXT_DIST_DIR = ".next-x"
       answer()
       fetchMock.mockResolvedValue(new Response("{}", { status: 200 }))
-      expect((await (await GET()).json()).buildId).toBe("abc123")
+      expect((await (await GET(local())).json()).buildId).toBe("abc123")
     })
 
     it("is null when there is no BUILD_ID (e.g. next dev)", async () => {
       vi.spyOn(process, "cwd").mockReturnValue(tmp)
       answer()
       fetchMock.mockResolvedValue(new Response("{}", { status: 200 }))
-      expect((await (await GET()).json()).buildId).toBeNull()
+      expect((await (await GET(local())).json()).buildId).toBeNull()
+    })
+  })
+
+  describe("anonymous remote callers (S-2)", () => {
+    it("get only { status, db } and no component probe runs", async () => {
+      answer()
+      const res = await GET(remote())
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({ status: "ok", db: "ok" })
+      expect(res.headers.get("cache-control")).toBe("no-store")
+      expect(fetchMock).not.toHaveBeenCalled()
+      expect(queryRaw.mock.calls.some((c) => sqlOf(c).includes("field_translation"))).toBe(false)
+    })
+
+    it("still get 503 when the database is down", async () => {
+      answer({ db: "fail" })
+      const res = await GET(remote())
+      expect(res.status).toBe(503)
+      expect(await res.json()).toEqual({ status: "error", db: "error" })
+    })
+
+    it("cannot pass as local with a loopback Host but a remote X-Forwarded-For hop", async () => {
+      answer()
+      const res = await GET(remote({ host: "localhost:3000", "x-forwarded-for": "10.1.2.3, 127.0.0.1" }))
+      expect(Object.keys(await res.json())).toEqual(["status", "db"])
+    })
+
+    it("get the full body with the INTERNAL_API_TOKEN header (wrong token: minimal)", async () => {
+      answer()
+      fetchMock.mockResolvedValue(new Response("{}", { status: 200 }))
+      process.env.INTERNAL_API_TOKEN = "s3cret-token"
+      const ok = await (await GET(remote({ "x-internal-token": "s3cret-token" }))).json()
+      expect(ok).toHaveProperty("buildId")
+      expect(ok).toHaveProperty("worker")
+      const bad = await (await GET(remote({ "x-internal-token": "nope" }))).json()
+      expect(bad).toEqual({ status: "ok", db: "ok" })
+    })
+
+    it("loopback over IPv6 gets the full body", async () => {
+      answer()
+      fetchMock.mockResolvedValue(new Response("{}", { status: 200 }))
+      const req = new Request("http://[::1]:3000/api/health", { headers: { host: "[::1]:3000", "x-forwarded-for": "::1" } })
+      expect(await (await GET(req)).json()).toHaveProperty("translation")
     })
   })
 })

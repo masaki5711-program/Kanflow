@@ -5,6 +5,8 @@
 export interface ReportTranslations {
   aiReportsTitle: string
   aiReportLatest: string
+  /** Notice on a report written in another language than the UI ({language} = its name). */
+  aiReportWrittenIn: string
   aiReportOlderShow: string
   aiReportOlderHide: string
   aiReportsEmpty: string
@@ -73,6 +75,7 @@ export interface ReportTranslations {
 export const ja: ReportTranslations = {
   aiReportsTitle: "AIからの報告",
   aiReportLatest: "最新",
+  aiReportWrittenIn: "このレポートは{language}で作成されています。「進捗レポート生成」で表示言語のレポートを作成できます。",
   aiReportOlderShow: "過去のレポートを表示（{count}件）",
   aiReportOlderHide: "過去のレポートを隠す",
   aiReportsEmpty: "まだ報告はありません。AIが異常検知やスプリント完了時に自動で調査レポートを作成します。",
@@ -139,6 +142,7 @@ export const ja: ReportTranslations = {
 export const en: ReportTranslations = {
   aiReportsTitle: "AI Reports",
   aiReportLatest: "Latest",
+  aiReportWrittenIn: "This report was written in {language}. Use “Progress Report” to create one in your language.",
   aiReportOlderShow: "Show older reports ({count})",
   aiReportOlderHide: "Hide older reports",
   aiReportsEmpty: "No reports yet. The AI automatically investigates anomalies and completed sprints.",
@@ -205,6 +209,7 @@ export const en: ReportTranslations = {
 export const id: ReportTranslations = {
   aiReportsTitle: "Laporan dari AI",
   aiReportLatest: "Terbaru",
+  aiReportWrittenIn: "Laporan ini ditulis dalam {language}. Gunakan “Laporan Progres” untuk membuatnya dalam bahasa Anda.",
   aiReportOlderShow: "Tampilkan laporan lama ({count})",
   aiReportOlderHide: "Sembunyikan laporan lama",
   aiReportsEmpty: "Belum ada laporan. AI otomatis menyelidiki anomali dan sprint yang selesai.",

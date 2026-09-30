@@ -84,6 +84,19 @@ describe("chat route — history persistence", () => {
     await vi.waitFor(() => expect(recorder.finish).toHaveBeenCalledWith({ partial: false }))
   })
 
+  it("stores the answer before the stream ends (an approvable proposal is already persisted)", async () => {
+    let stored = false
+    recorder.finish.mockImplementation(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      stored = true
+      return true
+    })
+    streamWithTools.mockReturnValueOnce(turn([{ type: "text", chunk: "done" }]))
+    const res = await POST(req({ messages: [{ role: "user", content: "Hi" }] }), ctx)
+    expect(await res.text()).toBe("done")
+    expect(stored).toBe(true)
+  })
+
   it("continues an owned thread", async () => {
     recorder = fakeRecorder("t1")
     beginChatRecording.mockResolvedValue(recorder)

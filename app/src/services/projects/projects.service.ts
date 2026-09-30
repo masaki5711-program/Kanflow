@@ -145,7 +145,8 @@ export async function unfavoriteProject(userId: string, projectId: string): Prom
 export async function restoreProject(projectId: string, actor: Actor): Promise<void> {
   await withTransaction(async (tx) => {
     if (!(await repo.findTrashedProject(tx, projectId))) throw new NotFoundError()
-    await repo.restoreProjectRow(tx, projectId)
+    // Conditional UPDATE (row-locking current read): a purge that won the race → 404, not "restored".
+    if (!(await repo.restoreProjectRow(tx, projectId))) throw new NotFoundError()
     await logActivity(tx, { projectId, entityType: "project", entityId: projectId, action: "restore", actor })
   })
 }
@@ -155,14 +156,16 @@ export async function restoreProject(projectId: string, actor: Actor): Promise<v
  * the same transaction, the translation rows of the project AND every
  * cascaded child (goals, icebox, PBIs, sprints, tasks, daily scrums,
  * releases, events, plan). Its upload directory is removed after commit.
- * 404 for a live project: only trashed projects can be purged.
+ * 404 for a live project: only trashed projects can be purged. The final
+ * DELETE is conditional on `deletedAt` still being set, so a restore that
+ * committed first wins cleanly (404 here, the whole purge rolled back).
  */
 export async function purgeProject(projectId: string): Promise<void> {
   await withTransaction(async (tx) => {
     if (!(await repo.findTrashedProject(tx, projectId))) throw new NotFoundError()
     const tree = await repo.collectProjectTranslationTree(tx, projectId)
     await purgeIn(tx, tree)
-    await repo.deleteProject(tx, projectId)
+    if (!(await repo.deleteTrashedProject(tx, projectId))) throw new NotFoundError()
   })
   log.info("project purged from trash", { projectId })
   await cleanupProjectUploads(projectId)

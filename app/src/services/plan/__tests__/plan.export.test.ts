@@ -63,7 +63,7 @@ describe("plan.export", () => {
       }),
     ]
     const wb = exp.buildPlanWorkbook(items, "en")
-    const ws = wb.getWorksheet("Master plan") as ExcelJS.Worksheet
+    const ws = wb.getWorksheet("Master Plan") as ExcelJS.Worksheet
     expect(ws.getRow(1).getCell(1).value).toBe("WBS")
     expect(ws.getRow(1).getCell(2).value).toBe("Item")
     const child = ws.getRow(3)
@@ -73,7 +73,7 @@ describe("plan.export", () => {
     expect(child.getCell("schedule").value).toBe("At risk")
     const held = exp.buildPlanWorkbook([dto("h", null, 1, { status: "on_hold", scheduleState: "on_hold" })], "ja")
     expect((held.getWorksheet("全体計画") as ExcelJS.Worksheet).getRow(2).getCell("schedule").value).toBe("保留")
-    expect(child.getCell("mode").value).toBe("Linked PBIs")
+    expect(child.getCell("mode").value).toBe("From PBIs")
     expect(child.getCell("pbis").value).toBe("2/5")
     expect(child.getCell("points").value).toBe("4/10")
     expect(ws.getRow(2).getCell("owner").value).toBe("Alice")
@@ -84,12 +84,56 @@ describe("plan.export", () => {
     const buf = await wb.xlsx.writeBuffer()
     const back = new ExcelJS.Workbook()
     await back.xlsx.load(buf)
-    expect(back.getWorksheet("Master plan")?.rowCount).toBe(3)
+    expect(back.getWorksheet("Master Plan")?.rowCount).toBe(3)
+  })
+
+  it("F-13: uses the screen's terms (基準線, 遅延リスク, PBI連動 / Tonggak, Garis dasar)", () => {
+    const items = [dto("a", null, 1, { scheduleState: "at_risk", progressMode: "linked", isMilestone: false })]
+    const ja = exp.buildPlanWorkbook(items, "ja").getWorksheet("全体計画") as ExcelJS.Worksheet
+    const jaHeader = (ja.getRow(1).values as unknown[]).slice(1)
+    expect(jaHeader).toEqual(expect.arrayContaining(["基準線（開始）", "基準線（終了）", "項目", "計画開始", "ステータス"]))
+    expect(jaHeader.some((h) => String(h).includes("ベースライン"))).toBe(false)
+    expect(ja.getRow(2).getCell("schedule").value).toBe("遅延リスク")
+    expect(ja.getRow(2).getCell("mode").value).toBe("PBI連動")
+    const id = exp.buildPlanWorkbook(items, "id").getWorksheet("Rencana Induk") as ExcelJS.Worksheet
+    const idHeader = (id.getRow(1).values as unknown[]).slice(1)
+    expect(idHeader).toEqual(expect.arrayContaining(["Tonggak", "Garis dasar (mulai)"]))
+    expect(id.getRow(2).getCell("schedule").value).toBe("Berisiko terlambat")
+  })
+
+  it("F-13: dates are real Excel dates with a date format; empty dates stay empty", async () => {
+    const wb = exp.buildPlanWorkbook([dto("a", null, 1, { baselineStart: "2026-09-28" })], "ja")
+    const ws = wb.getWorksheet("全体計画") as ExcelJS.Worksheet
+    const cell = ws.getRow(2).getCell("plannedStart")
+    expect(cell.value).toEqual(new Date(Date.UTC(2026, 9, 1)))
+    expect(cell.numFmt).toBe("yyyy-mm-dd")
+    expect(ws.getRow(2).getCell("baselineStart").value).toEqual(new Date(Date.UTC(2026, 8, 28)))
+    expect(ws.getRow(2).getCell("actualStart").value).toBeNull()
+    // round trip: Excel serial 46296 = 2026-10-01
+    const back = new ExcelJS.Workbook()
+    await back.xlsx.load(await wb.xlsx.writeBuffer())
+    const read = back.getWorksheet("全体計画")!.getRow(2).getCell(5).value as Date
+    expect(read.toISOString().slice(0, 10)).toBe("2026-10-01")
+    expect(exp.excelDate("bad")).toBeNull()
+  })
+
+  it("F-13: names follow the export language like the screen", () => {
+    const items = [dto("a", null, 1, { name: "Pemasangan sensor", i18n: { name: { source: "id", ja: "センサー設置", id: "Pemasangan sensor", status: "done" } } as Dto["i18n"] })]
+    const ja = exp.buildPlanWorkbook(items, "ja").getWorksheet("全体計画") as ExcelJS.Worksheet
+    expect(ja.getRow(2).getCell("name").value).toBe("センサー設置")
+    const id = exp.buildPlanWorkbook(items, "id").getWorksheet("Rencana Induk") as ExcelJS.Worksheet
+    expect(id.getRow(2).getCell("name").value).toBe("Pemasangan sensor")
   })
 
   it("file name and Content-Disposition are safe", () => {
-    expect(exp.exportFileName('A/B: "x" 計画', "2026-10-05")).toBe("plan-A_B___x__計画-2026-10-05.xlsx")
+    expect(exp.exportFileName('A/B: "x" 計画', "2026-10-05")).toBe("plan-A_B_x_計画-2026-10-05.xlsx")
     expect(exp.exportFileName("", "2026-10-05")).toBe("plan-project-2026-10-05.xlsx")
+    // F-13: a long name is cut before an unclosed bracket, never inside it
+    const long = "IoT Platform Pilot Project - OEE (Overall Equipment Effectiveness) NL4 dan OLE (Overall Line Effectiveness) Line 3"
+    const name = exp.exportFileName(long, "2026-09-30")
+    expect(name).toBe("plan-IoT_Platform_Pilot_Project_-_OEE_(Overall_Equipment_Effectiveness)_NL4_dan_OLE-2026-09-30.xlsx")
+    expect(exp.truncateFileStem("abc", 80)).toBe("abc")
+    expect(exp.truncateFileStem("計画（第1期）と（第2期の追加", 10)).toBe("計画（第1期）と")
     const cd = exp.contentDisposition("plan-計画-2026-10-05.xlsx")
     expect(cd).toBe(`attachment; filename="plan-__-2026-10-05.xlsx"; filename*=UTF-8''${encodeURIComponent("plan-計画-2026-10-05.xlsx")}`)
   })

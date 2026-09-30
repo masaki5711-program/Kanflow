@@ -90,6 +90,14 @@ describe("projects.repository trash", () => {
     })
   })
 
+  it("deleteTrashedProject deletes only while the project is still trashed", async () => {
+    const db = fakeDb({ "project.deleteMany": { count: 1 } })
+    await expect(repo.deleteTrashedProject(db.client, "p1")).resolves.toBe(true)
+    expect(db.fn("project.deleteMany")).toHaveBeenCalledWith({ where: { id: "p1", deletedAt: { not: null } } })
+    const restored = fakeDb({ "project.deleteMany": { count: 0 } })
+    await expect(repo.deleteTrashedProject(restored.client, "p1")).resolves.toBe(false)
+  })
+
   it("findTrashedProject / findTrashedProjects see the trash only, newest first", async () => {
     const db = fakeDb({ "project.findMany": [] })
     await repo.findTrashedProject(db.client, "p1")

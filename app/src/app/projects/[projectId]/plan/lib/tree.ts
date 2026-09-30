@@ -5,10 +5,25 @@
  */
 import type { PlanItem, ReorderUpdate } from "./plan-types"
 
+/** Which structural moves apply to a row (mirrors moveSibling / indentItem / outdentItem). */
+export interface RowMoves {
+  up: boolean
+  down: boolean
+  indent: boolean
+  outdent: boolean
+}
+
 export interface FlatRow {
   item: PlanItem
   depth: number
   hasChildren: boolean
+  moves: RowMoves
+}
+
+function movesOf(siblings: readonly PlanItem[], idx: number): RowMoves {
+  const me = siblings[idx]
+  const prev = siblings[idx - 1]
+  return { up: idx > 0, down: idx < siblings.length - 1, indent: !!prev && !prev.isMilestone, outdent: !!me.parentId }
 }
 
 export function childrenByParent(items: readonly PlanItem[]): Map<string | null, PlanItem[]> {
@@ -34,12 +49,13 @@ export function buildFlatTree(
   const byParent = childrenByParent(items)
   const rows: FlatRow[] = []
   const walk = (parentId: string | null, depth: number) => {
-    for (const it of byParent.get(parentId) ?? []) {
-      if (visible && !visible.has(it.id)) continue
+    const siblings = byParent.get(parentId) ?? []
+    siblings.forEach((it, idx) => {
+      if (visible && !visible.has(it.id)) return
       const hasChildren = (byParent.get(it.id)?.length ?? 0) > 0
-      rows.push({ item: it, depth, hasChildren })
+      rows.push({ item: it, depth, hasChildren, moves: movesOf(siblings, idx) })
       if (hasChildren && !collapsed.has(it.id)) walk(it.id, depth + 1)
-    }
+    })
   }
   walk(null, 0)
   return rows

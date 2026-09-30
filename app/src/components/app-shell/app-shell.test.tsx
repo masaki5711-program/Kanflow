@@ -369,7 +369,9 @@ describe("Header", () => {
     expect(within(crumb).getByRole("link")).toHaveAttribute("aria-current", "page")
     expect(screen.getByText("TA")).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: rx(t.navAdminMenu) })).not.toBeInTheDocument()
-    await userEvent.click(screen.getByRole("button", { name: rx(t.logout) }))
+    // Logout lives in the user menu (avatar button).
+    await userEvent.click(screen.getByRole("button", { name: `${t.navUserMenu}: taro yamada` }))
+    await userEvent.click(screen.getByRole("button", { name: t.logout }))
     expect(auth.signOut).toHaveBeenCalled()
   })
 

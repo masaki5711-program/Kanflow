@@ -23,6 +23,7 @@ export interface ChatProposalsTranslations {
   chatProposalTasksPartial: string
   chatProposalStatusChanged: string
   chatProposalFailed: string
+  chatProposalAlreadyHandled: string
   chatProposalStoryPoints: string
   chatProposalEpic: string
   chatProposalUserStory: string
@@ -56,6 +57,7 @@ export const ja: ChatProposalsTranslations = {
   chatProposalTasksPartial: "タスクを {done} / {total} 件作成したところで失敗しました",
   chatProposalStatusChanged: "ステータスを変更しました",
   chatProposalFailed: "提案の反映に失敗しました",
+  chatProposalAlreadyHandled: "この提案は既に反映済みか、別の画面で処理中です",
   chatProposalStoryPoints: "見積",
   chatProposalEpic: "エピック",
   chatProposalUserStory: "ユーザーストーリー",
@@ -89,6 +91,7 @@ export const en: ChatProposalsTranslations = {
   chatProposalTasksPartial: "Stopped after creating {done} of {total} tasks",
   chatProposalStatusChanged: "Status changed",
   chatProposalFailed: "Could not apply the proposal",
+  chatProposalAlreadyHandled: "This proposal has already been applied or is being applied elsewhere",
   chatProposalStoryPoints: "Estimate",
   chatProposalEpic: "Epic",
   chatProposalUserStory: "User story",
@@ -122,6 +125,7 @@ export const id: ChatProposalsTranslations = {
   chatProposalTasksPartial: "Berhenti setelah membuat {done} dari {total} tugas",
   chatProposalStatusChanged: "Status berhasil diubah",
   chatProposalFailed: "Gagal menerapkan usulan",
+  chatProposalAlreadyHandled: "Usulan ini sudah diterapkan atau sedang diproses di tempat lain",
   chatProposalStoryPoints: "Estimasi",
   chatProposalEpic: "Epik",
   chatProposalUserStory: "Cerita pengguna",

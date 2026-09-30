@@ -3,7 +3,7 @@ import { recalcSprintActualScore } from "@/lib/sprint-score"
 import type { Actor } from "@/services/_shared/actor"
 import { loadSnapshot, logActivity, logCreate, logUpdate } from "@/services/_shared/activity"
 import { defaultDb, withTransaction, type Db } from "@/services/_shared/db"
-import { NotFoundError, rethrowPrisma } from "@/services/_shared/errors"
+import { NotFoundError, ValidationError, rethrowPrisma } from "@/services/_shared/errors"
 import { newlyAssignedUserIds, notify } from "@/services/_shared/notifications"
 import { assertProjectLive } from "@/services/_shared/soft-delete"
 import { DISPLAY_ID_CONFLICT, retryOnUniqueViolation } from "@/services/_shared/unique-retry"
@@ -11,13 +11,14 @@ import { noteUnversionedWrite, staleOrMissing, takeVersion } from "@/services/_s
 import { attachI18n, attachI18nOne, enqueueIn, getI18nFor, prepareText, purgeIn } from "@/services/_shared/translations"
 import { assertLinkablePlanItem } from "@/services/plan/plan.links"
 import * as repo from "./backlog.repository"
-import type { CreateBacklogItemInput, ListBacklogQuery, UpdateBacklogItemInput } from "./backlog.schemas"
+import { PBI_CONTENT_REQUIRED_MESSAGE, hasPbiContent, type CreateBacklogItemInput, type ListBacklogQuery, type UpdateBacklogItemInput } from "./backlog.schemas"
 
 type Linked = { id: string; deletedAt?: Date | null } | null
 interface LinkedRow {
   iceboxItem: Linked
   productGoal: Linked
   planItem?: { id: string; name: string; deletedAt: Date | null } | null
+  sprintItems?: { sprint: { id: string } }[]
 }
 
 /** The PBI's plan item as the DTO shows it: `{ id, name }`, null when unlinked or in the trash. */
@@ -27,12 +28,15 @@ export function planItemRef(p: LinkedRow["planItem"]): { id: string; name: strin
 
 /** Attach i18n to the nested icebox request / product goal the backlog UI renders inline. */
 async function withLinkedI18n<T extends LinkedRow>(rows: readonly T[]) {
-  const [iceboxI18n, goalI18n] = await Promise.all([
+  const [iceboxI18n, goalI18n, sprintI18n] = await Promise.all([
     getI18nFor("icebox_item", rows.map((i) => i.iceboxItem?.id ?? "").filter(Boolean)),
     getI18nFor("product_goal", rows.map((i) => i.productGoal?.id ?? "").filter(Boolean)),
+    getI18nFor("sprint", [...new Set(rows.flatMap((i) => (i.sprintItems ?? []).map((si) => si.sprint.id)))]),
   ])
   return rows.map((i) => ({
     ...i,
+    // The card's "in sprint" chip shows the sprint name in the viewer's language.
+    ...(i.sprintItems ? { sprintItems: i.sprintItems.map((si) => ({ ...si, sprint: { ...si.sprint, i18n: sprintI18n.get(si.sprint.id) ?? {} } })) } : {}),
     // A trashed Icebox request is not shown as the PBI's source.
     iceboxItem: i.iceboxItem && !i.iceboxItem.deletedAt ? { ...i.iceboxItem, i18n: iceboxI18n.get(i.iceboxItem.id) ?? {} } : null,
     productGoal: i.productGoal ? { ...i.productGoal, i18n: goalI18n.get(i.productGoal.id) ?? {} } : null,
@@ -105,9 +109,11 @@ async function pbiWriteMiss(tx: Db, projectId: string, itemId: string) {
 /**
  * displayId / sortOrder are max + 1 under a unique (projectId, displayId)
  * index: a concurrent create makes the insert fail with P2002, and the whole
- * transaction is retried with fresh numbers.
+ * transaction is retried with fresh numbers. A PBI without an initiative and
+ * a user story is refused (400 PBI_CONTENT_REQUIRED) — it would be untitled.
  */
 export async function createBacklogItem(projectId: string, input: CreateBacklogItemInput, actor: Actor) {
+  if (!hasPbiContent(input)) throw new ValidationError(PBI_CONTENT_REQUIRED_MESSAGE, {}, "PBI_CONTENT_REQUIRED")
   const data = await prepareText(input, actor.userId)
   return retryOnUniqueViolation(() => insertBacklogItemTx(projectId, data, actor)).catch((err: unknown) =>
     rethrowPrisma(err, { conflict: DISPLAY_ID_CONFLICT })
@@ -151,7 +157,18 @@ export async function insertBacklogItemIn(tx: Db, projectId: string, data: Creat
 interface AssignedPbi {
   id: string
   displayId: number
+  initiative?: string | null
   userStory: string | null
+}
+
+/**
+ * "#12 <title>" — how notifications name a PBI (title = the initiative the
+ * backlog list shows, else the user story; first line only). Same format as
+ * the comment / mention notifications.
+ */
+export function pbiNotificationLabel(item: Pick<AssignedPbi, "displayId" | "initiative" | "userStory">): string {
+  const head = (item.initiative?.trim() || item.userStory?.trim() || "").split(/\r?\n/, 1)[0].trim()
+  return head ? `#${item.displayId} ${head}` : `#${item.displayId}`
 }
 
 /** "assigned" notification for the users newly set as the PBI's PO (same transaction). */
@@ -164,7 +181,7 @@ export async function notifyPbiAssigned(tx: Db, projectId: string, item: Assigne
     projectId,
     entityType: "pbi",
     entityId: item.id,
-    payload: { entityLabel: item.userStory, displayId: item.displayId, actorName: actor.userName },
+    payload: { entityLabel: pbiNotificationLabel(item), displayId: item.displayId, actorName: actor.userName },
   })
 }
 

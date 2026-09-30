@@ -156,6 +156,74 @@ describe("chat proposal cards", () => {
     expect(within(card).queryByText(t.chatProposalApplied)).not.toBeInTheDocument()
   })
 
+  describe("in a stored thread (P-02: outcome persisted, duplicate-proof)", () => {
+    const OUTCOME_URL = "/api/projects/p1/chat/threads/t1/proposals/prop_create"
+    const threadStream = (url: string) =>
+      url === "/api/projects/p1/chat"
+        ? new Response(`提案します。${encodeChatEvent({ type: "proposal", proposal: CREATE })}`, {
+            status: 200,
+            headers: { "content-type": "text/plain", "X-Chat-Thread-Id": "t1" },
+          })
+        : undefined
+
+    it("reserves, creates, then confirms with the created id", async () => {
+      stub([CREATE], (url, init) => {
+        if (url === OUTCOME_URL) return jsonResponse({ outcome: null })
+        if (url === "/api/projects/p1/backlog" && init?.method === "POST") return jsonResponse({ id: "pb-new" }, 201)
+        return threadStream(url)
+      })
+      const { user, card } = await askAndGetCard(t.chatProposalCreatePbiTitle)
+      const approve = within(card).getByRole("button", { name: t.chatProposalApproveCreate })
+      await waitFor(() => expect(approve).toBeEnabled())
+      await user.click(approve)
+      await waitFor(() => expect(within(card).getByText(t.chatProposalApplied)).toBeInTheDocument())
+      const order = fetchMock.mock.calls
+        .map(([u, i]) => `${(i as RequestInit | undefined)?.method ?? "GET"} ${String(u)}`)
+        .filter((s) => s.startsWith("POST") && !s.endsWith("/chat"))
+      expect(order).toEqual([`POST ${OUTCOME_URL}`, "POST /api/projects/p1/backlog", `POST ${OUTCOME_URL}`])
+      const outcomeBodies = calls((u) => u === OUTCOME_URL).map((c) => bodyOf(c[1] as RequestInit))
+      expect(outcomeBodies).toEqual([{ action: "reserve" }, { action: "confirm", appliedEntityId: "pb-new" }])
+    })
+
+    it("an already-applied proposal (409) creates nothing and shows the stored state", async () => {
+      const applied = { status: "applied", appliedEntityId: "pb-98", at: "2026-10-01T00:00:00.000Z", by: "u1" }
+      stub([CREATE], (url) =>
+        url === OUTCOME_URL ? jsonResponse({ error: "handled", code: "CONFLICT", outcome: applied }, 409) : threadStream(url),
+      )
+      const { user, card } = await askAndGetCard(t.chatProposalCreatePbiTitle)
+      const approve = within(card).getByRole("button", { name: t.chatProposalApproveCreate })
+      await waitFor(() => expect(approve).toBeEnabled())
+      await user.click(approve)
+      expect(await screen.findByText(t.chatProposalAlreadyHandled)).toBeInTheDocument()
+      expect(within(card).getByRole("link", { name: t.chatProposalOpen })).toHaveAttribute("href", "/projects/p1/backlog?pbi=pb-98")
+      expect(calls((u) => u === "/api/projects/p1/backlog")).toHaveLength(0)
+    })
+
+    it("releases the reservation when creating fails, so the user can retry", async () => {
+      stub([CREATE], (url, init) => {
+        if (url === OUTCOME_URL) return jsonResponse({ outcome: null })
+        if (url === "/api/projects/p1/backlog" && init?.method === "POST") return jsonResponse({ error: "boom" }, 500)
+        return threadStream(url)
+      })
+      const { user, card } = await askAndGetCard(t.chatProposalCreatePbiTitle)
+      const approve = within(card).getByRole("button", { name: t.chatProposalApproveCreate })
+      await waitFor(() => expect(approve).toBeEnabled())
+      await user.click(approve)
+      await waitFor(() => expect(calls((u) => u === OUTCOME_URL)).toHaveLength(2))
+      expect(bodyOf(calls((u) => u === OUTCOME_URL)[1][1] as RequestInit)).toEqual({ action: "release" })
+      await waitFor(() => expect(within(card).getByRole("button", { name: t.chatProposalApproveCreate })).toBeEnabled())
+    })
+
+    it("records a rejection", async () => {
+      stub([CREATE], (url) => (url === OUTCOME_URL ? jsonResponse({ outcome: null }) : threadStream(url)))
+      const { user, card } = await askAndGetCard(t.chatProposalCreatePbiTitle)
+      await user.click(within(card).getByRole("button", { name: t.chatProposalReject }))
+      await waitFor(() => expect(calls((u) => u === OUTCOME_URL)).toHaveLength(1))
+      expect(bodyOf(calls((u) => u === OUTCOME_URL)[0][1] as RequestInit)).toEqual({ action: "reject" })
+      expect(within(card).getByText(t.chatProposalRejected)).toBeInTheDocument()
+    })
+  })
+
   it("does not fetch members when the answer has no proposals", async () => {
     stub([])
     const user = userEvent.setup()

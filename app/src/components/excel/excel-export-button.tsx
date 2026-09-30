@@ -11,6 +11,8 @@ interface Props {
   params?: Record<string, string | undefined>
   size?: ButtonSize
   className?: string
+  /** Tooltip (default: the generic export hint). */
+  title?: string
 }
 
 /** Pure: export URL with the UI language (sheet / header names) and extra params. */
@@ -24,10 +26,10 @@ export function exportHref(href: string, language: string, params: Record<string
  * "Excel 出力": a plain download link — the browser streams the .xlsx with
  * the server's file name (Content-Disposition), no client-side buffering.
  */
-export function ExcelExportButton({ href, params, size = "md", className }: Props) {
+export function ExcelExportButton({ href, params, size = "md", className, title }: Props) {
   const { t, language } = useLanguage()
   return (
-    <a href={exportHref(href, language, params)} download title={t.excelExportHint} className={buttonClasses({ variant: "secondary", size, className })}>
+    <a href={exportHref(href, language, params)} download title={title ?? t.excelExportHint} className={buttonClasses({ variant: "secondary", size, className })}>
       <FileSpreadsheet aria-hidden className="h-4 w-4" />
       {t.excelExport}
     </a>

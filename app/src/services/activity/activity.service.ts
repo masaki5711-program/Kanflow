@@ -1,4 +1,4 @@
-import type { ActivityDiff } from "@/services/_shared/activity"
+import { labelOf, type ActivityDiff } from "@/services/_shared/activity"
 import { toPage, type Page } from "@/services/_shared/cursor"
 import { defaultDb } from "@/services/_shared/db"
 import * as repo from "./activity.repository"
@@ -65,9 +65,40 @@ export function toActivityDto(row: ActivityRow): ActivityDto {
   }
 }
 
+const LOOKUP_TYPES = ["pbi", "sprint_task", "sprint", "plan_item"] as const
+type LookupType = (typeof LOOKUP_TYPES)[number]
+
+function isLookupType(type: string): type is LookupType {
+  return (LOOKUP_TYPES as readonly string[]).includes(type)
+}
+
+/**
+ * Entries logged without a label (e.g. a PBI moved into a sprint) get the
+ * entity's current name, or "#12" for a PBI without a title. One query per type.
+ */
+export async function withEntityLabels(projectId: string, items: readonly ActivityDto[]): Promise<ActivityDto[]> {
+  const ids: Record<LookupType, string[]> = { pbi: [], sprint_task: [], sprint: [], plan_item: [] }
+  for (const item of items) {
+    if (!item.label && isLookupType(item.entityType) && !ids[item.entityType].includes(item.entityId)) ids[item.entityType].push(item.entityId)
+  }
+  if (LOOKUP_TYPES.every((type) => ids[type].length === 0)) return [...items]
+  const rows = await repo.findEntityLabelRows(defaultDb, projectId, ids)
+  const labels = new Map<string, string>()
+  for (const p of rows.pbis) labels.set(`pbi:${p.id}`, labelOf("pbi", p) ?? `#${p.displayId}`)
+  for (const task of rows.tasks) setLabel(labels, "sprint_task", task.id, labelOf("sprint_task", task))
+  for (const s of rows.sprints) setLabel(labels, "sprint", s.id, labelOf("sprint", s))
+  for (const p of rows.planItems) setLabel(labels, "plan_item", p.id, labelOf("plan_item", p))
+  return items.map((item) => (item.label ? item : { ...item, label: labels.get(`${item.entityType}:${item.entityId}`) ?? null }))
+}
+
+function setLabel(labels: Map<string, string>, type: LookupType, id: string, label: string | undefined) {
+  if (label) labels.set(`${type}:${id}`, label)
+}
+
 export async function listProjectActivity(projectId: string, query: ProjectActivityQuery): Promise<Page<ActivityDto>> {
   const rows = await repo.findProjectActivity(defaultDb, projectId, query)
-  return toPage(rows, query.limit, toActivityDto)
+  const page = toPage(rows, query.limit, toActivityDto)
+  return { ...page, items: await withEntityLabels(projectId, page.items) }
 }
 
 export async function listEntityActivity(projectId: string, ref: EntityRef, query: PageQuery): Promise<Page<ActivityDto>> {

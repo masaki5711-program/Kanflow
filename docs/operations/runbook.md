@@ -54,6 +54,14 @@ GET http://127.0.0.1:3000/api/health
 ```
 
 - 認証不要・秘密情報なし。DB は `SELECT 1`（3 秒タイムアウト）、Ollama は `/api/tags`（2 秒、失敗しても 200 のまま）。
+- **詳細（上記の全項目）はローカル呼び出し専用**です。サーバー自身からの呼び出し（Host が `127.0.0.1` / `localhost` / `[::1]`
+  かつ `X-Forwarded-For` の全ホップがループバック）か、ヘッダー `x-internal-token: <INTERNAL_API_TOKEN>` 付きの呼び出しだけが
+  全項目を受け取ります。watchdog / `ops\status.ps1` / deploy / restore は `http://127.0.0.1:3000/api/health` を呼ぶので変更不要です。
+- それ以外（社内 LAN の他 PC など）の匿名呼び出しは `{"status":"ok","db":"ok"}`（DB 異常時は 503 `{"status":"error","db":"error"}`）
+  だけを返し、Ollama / Collabora / 翻訳キューの確認も行いません。別 PC の監視ツールから詳細を見る場合は `x-internal-token` を付けてください
+  （例: `Invoke-RestMethod -Headers @{ "x-internal-token" = $env:INTERNAL_API_TOKEN } http://<host>:3000/api/health`）。
+- リバースプロキシを前段に置く場合は、実クライアントの IP を `X-Forwarded-For` に**追記**する設定にしてください（ループバックのみになると詳細が外部に見えます）。
+  Host / X-Forwarded-For はクライアントが偽装できるため、この制限は内部情報を気軽に見せないための目隠しです（詳細にも秘密情報は含みません）。
 - `collabora` は `COLLABORA_INTERNAL_URL`（無ければ `NEXT_PUBLIC_COLLABORA_URL`）の `/hosting/discovery`（2 秒）。
   Collabora は任意機能のため**情報のみ**（`unreachable` でも 200）。URL 未設定または `COLLABORA_MONITOR=off` なら `disabled`。
 - `worker` / `translation` は情報のみ（ステータスコードに影響しない）。`worker.expected=true`（`AI_TRANSLATION_WORKER=external`）で

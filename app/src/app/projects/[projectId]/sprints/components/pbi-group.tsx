@@ -12,6 +12,8 @@ import { CirclePlus, ClipboardList, Eye, Scale, SquarePen, Trash2 } from "lucide
 interface PbiGroupProps {
   sprintId: string
   sprintStatus: string
+  /** sprint.manage — removing a PBI from the sprint. */
+  canManageSprint: boolean
   pbItem: SprintPbItem
   tasks: SprintItem[]
   pointUnit: string
@@ -27,7 +29,7 @@ interface PbiGroupProps {
 const WARN_PERCENT = 80
 
 export default function PbiGroup({
-  sprintId, sprintStatus, pbItem, tasks, pointUnit, canEditPbi,
+  sprintId, sprintStatus, canManageSprint, pbItem, tasks, pointUnit, canEditPbi,
   editingCommentTaskId, onOpenCommentEditor, onCloseCommentEditor, actions,
 }: PbiGroupProps) {
   const { t, pt, language } = useLanguage()
@@ -42,7 +44,7 @@ export default function PbiGroup({
   const pbCapacity = pbItem.workloadScore
   const pbProgress = pbCapacity > 0 ? Math.round((taskEffortSum / pbCapacity) * 100) : 0
   const pbIsOver = taskEffortSum > pbCapacity && pbCapacity > 0
-  const canEditMembership = sprintStatus !== "archived" && sprintStatus !== "done"
+  const canEditMembership = canManageSprint && sprintStatus !== "archived" && sprintStatus !== "done"
   // Left accent bar: all done = success, started = primary, untouched = neutral.
   const groupAllDone = realPbTasks.length > 0 && realPbTasks.every((tsk) => tsk.status === "done")
   const groupStarted = realPbTasks.some((tsk) => tsk.status !== "todo")
@@ -109,7 +111,7 @@ export default function PbiGroup({
         ) : (
           <ul className="divide-y divide-border">
             {realPbTasks.map((task) => (
-              <SprintTaskRow key={task.id} sprintId={sprintId} task={task} pointUnit={pointUnit}
+              <SprintTaskRow key={task.id} sprintId={sprintId} task={task}
                 isCommentEditorOpen={editingCommentTaskId === task.id}
                 onOpenCommentEditor={onOpenCommentEditor} onCloseCommentEditor={onCloseCommentEditor}
                 actions={actions} />

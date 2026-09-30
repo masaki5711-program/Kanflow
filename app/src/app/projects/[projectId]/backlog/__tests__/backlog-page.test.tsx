@@ -3,10 +3,12 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { jsonResponse, renderWithProviders, tr } from "@/app/__tests__/test-utils"
 import type { Language } from "@/lib/i18n"
+import { getProjectTypeLabels } from "@/lib/project-type-labels"
 import { backlogResponse, pbi } from "./fixtures"
 import { resetUrl } from "./nav-mock"
 import { BASE, bodyOf, callsOf, installPointerEvent, readySection, sectionByTitle, setupBacklog as setup, t, titles } from "./page-harness"
 
+const pt = getProjectTypeLabels("software", "ja")
 const session = vi.hoisted(() => ({ value: { user: { id: "u1", role: "user" } } as { user: { id: string; role: string } } | null }))
 
 vi.mock("next/navigation", async () => (await import("./nav-mock")).navigationModule({ projectId: "p1" }))
@@ -308,9 +310,12 @@ describe("BacklogPage — create / edit / INVEST", () => {
     const dialog = screen.getByRole("dialog", { name: t.backlogAddItem })
     const goalSelect = within(dialog).getAllByRole("combobox")[1]
     await user.selectOptions(goalSelect, "g1")
+    // Untitled: "Add" stays disabled until an initiative or a user story is entered (F-01).
+    expect(within(dialog).getByRole("button", { name: t.add })).toBeDisabled()
+    await user.type(within(dialog).getByRole("textbox", { name: new RegExp(pt.backlogInitiative) }), "New PBI")
     await user.click(within(dialog).getByRole("button", { name: t.add }))
     expect(await screen.findByText(t.backlogSaved)).toBeInTheDocument()
-    expect(bodyOf(fetchMock, "POST", "/backlog")).toMatchObject({ productGoalId: "g1", workloadScore: 0, status: "not_ready" })
+    expect(bodyOf(fetchMock, "POST", "/backlog")).toMatchObject({ initiative: "New PBI", productGoalId: "g1", workloadScore: 0, status: "not_ready" })
     await waitFor(() => expect(screen.queryByRole("dialog", { name: t.backlogAddItem })).not.toBeInTheDocument())
   })
 

@@ -46,7 +46,11 @@ const fullProject = {
   sprints: [{
     id: "s1", sprintName: "S1", sprintGoal: "G", capacity: 10,
     startDate: d("2026-09-01T00:00:00Z"), endDate: d("2026-09-14T00:00:00Z"),
-    items: [{ status: "todo" }, { status: "in_progress" }, { status: "done" }, { status: "done" }],
+    // PBI membership placeholders (taskName null) are not tasks.
+    items: [
+      { taskName: null, status: "todo" }, { taskName: null, status: "todo" },
+      { taskName: "a", status: "todo" }, { taskName: "b", status: "in_progress" }, { taskName: "c", status: "done" }, { taskName: "d", status: "done" },
+    ],
   }],
 }
 
@@ -88,6 +92,14 @@ describe("ProjectDashboard (server)", () => {
     expect((props.folders as { attachments: { createdAt: string }[] }[])[0].attachments[0].createdAt).toBe("2026-01-01T00:00:00.000Z")
     expect(props.activeSprint).toMatchObject({ id: "s1", name: "S1", taskCounts: { todo: 1, inProgress: 1, done: 2 }, i18n: { name: { en: "en-s1" } } })
     expect((props.productGoals as { i18n: unknown }[])[0].i18n).toEqual({ name: { en: "en-g1" } })
+    expect(props.canEditGoals).toBe(false)
+  })
+
+  it("lets PO / SM edit goals (goal.write)", async () => {
+    m.auth.mockResolvedValue({ user: { id: "u1", role: "member" } })
+    m.prisma.projectMember.findFirst.mockResolvedValue({ role: "sm" })
+    m.prisma.project.findUnique.mockResolvedValue(fullProject)
+    expect((await renderPage()).canEditGoals).toBe(true)
   })
 
   it("adds my open tasks here, upcoming due items and the sprint sparkline", async () => {
@@ -139,6 +151,7 @@ describe("ProjectDashboard (server)", () => {
     m.getI18nFor.mockResolvedValue(new Map())
     const props = await renderPage()
     expect(props.currentUserRole).toBe("po")
+    expect(props.canEditGoals).toBe(true)
     expect(props.projectProgressPct).toBe(0)
     expect(props.activeSprint).toBeNull()
     expect(props.projectI18n).toEqual({})
@@ -155,6 +168,7 @@ describe("ProjectDashboard (server)", () => {
     m.prisma.userSection.findFirst.mockResolvedValue({ sectionId: "sec1" })
     const props = await renderPage()
     expect(props.currentUserRole).toBe("section_manager")
+    expect(props.canEditGoals).toBe(false)
     expect(m.prisma.userSection.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { userId: "u1", sectionId: { in: ["sec1"] } } }))
   })
 

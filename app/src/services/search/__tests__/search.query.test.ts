@@ -43,11 +43,13 @@ describe("parseDisplayId", () => {
     ["# 5", 5],
     ["ＰＢＩ－１２", 12],
     ["＃８", 8],
+    ["38", 38],
+    ["１２", 12],
   ])("%s → %d", (q, n) => {
     expect(parseDisplayId(q)).toBe(n)
   })
 
-  it.each(["12", "PBI-", "#", "PBI-12a", "abc #12", "#0", "PBI-1234567890"])("%s → null", (q) => {
+  it.each(["PBI-", "#", "PBI-12a", "abc #12", "#0", "PBI-1234567890", "1234567890", "0", "12 34"])("%s → null", (q) => {
     expect(parseDisplayId(q)).toBeNull()
   })
 })

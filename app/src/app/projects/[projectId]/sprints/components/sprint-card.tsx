@@ -28,6 +28,8 @@ interface SprintCardProps {
   onToggleExpand: () => void
   /** When true, the PBI button opens the modal in editable mode. */
   canEditPbi?: boolean
+  /** sprint.manage — status changes, sprint edit/delete and PBI membership. */
+  canManageSprint: boolean
   pointUnit: string
   actions: SprintCardActions
   /** List / board view and task filters (URL state, shared by every card). */
@@ -37,7 +39,7 @@ interface SprintCardProps {
 }
 
 export default function SprintCard({
-  projectId, sprint, events, isExpanded, onToggleExpand, canEditPbi, pointUnit, actions, viewState, members, currentUserId,
+  projectId, sprint, events, isExpanded, onToggleExpand, canEditPbi, canManageSprint, pointUnit, actions, viewState, members, currentUserId,
 }: SprintCardProps) {
   const { language, t } = useLanguage()
   // Completing a task opens a dialog for an optional completion comment; the
@@ -60,7 +62,7 @@ export default function SprintCard({
   return (
     <article className="bg-surface rounded-ui-md shadow-ui-sm border border-border overflow-hidden">
       <SprintCardHeader sprint={sprint} isExpanded={isExpanded} onToggleExpand={onToggleExpand}
-        onEdit={() => setShowSprintEdit(true)} actions={actions} />
+        onEdit={() => setShowSprintEdit(true)} actions={actions} canManage={canManageSprint} />
 
       {sprint.sprintGoal && (
         <div className="px-6 pb-2">
@@ -91,7 +93,7 @@ export default function SprintCard({
             </div>
 
             <SprintTasksView sprint={sprint} sprintName={pickText(sprint.i18n, "sprintName", sprint.sprintName, language).text || sprint.sprintName}
-              pointUnit={pointUnit} canEditPbi={canEditPbi} viewState={viewState} members={members}
+              pointUnit={pointUnit} canEditPbi={canEditPbi} canManageSprint={canManageSprint} viewState={viewState} members={members}
               currentUserId={currentUserId} editingCommentTaskId={editingCommentTaskId}
               onOpenCommentEditor={setEditingCommentTaskId} onCloseCommentEditor={closeCommentEditor}
               actions={taskActions} onAddPbi={() => actions.onAddPbi(sprint.id)} />
@@ -124,7 +126,7 @@ export default function SprintCard({
           }} />
       )}
 
-      {showSprintEdit && (
+      {showSprintEdit && canManageSprint && (
         <SprintEditDialog projectId={projectId} sprint={sprint} onClose={() => setShowSprintEdit(false)}
           onSaved={actions.onSprintUpdated} />
       )}

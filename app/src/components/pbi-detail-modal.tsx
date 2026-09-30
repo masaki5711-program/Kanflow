@@ -3,17 +3,20 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react"
 import { useLanguage } from "@/lib/language-context"
 import { AIResultModal } from "@/components/ai-result-modal"
-import { PbiDetailTabs } from "@/components/pbi-detail-tabs"
+import { PbiDetailTabs, formatPbiValue, pbiFieldLabels, type PbiTabKey } from "@/components/pbi-detail-tabs"
 import { useI18nText } from "@/components/i18n-text"
-import { Badge, Button, EmptyState, Modal, SkeletonLines, useConfirm, useModalClose, useUiLabels, type BadgeTone } from "@/components/ui"
-import { apiFetch, conflictAwareToast, useApiMutation, useApiQuery, useUnsavedChangesGuard, versionConflictOf, withVersion } from "@/hooks"
+import { Badge, Button, EmptyState, Modal, SkeletonLines, useConfirm, useToast, useUiLabels, type BadgeTone } from "@/components/ui"
+import { apiFetch, useApiMutation, useApiQuery, useUnsavedChangesGuard, withVersion } from "@/hooks"
+import { useBackNavigationGuard } from "@/hooks/use-back-navigation-guard"
+import { reapplyEdits, useConflictRebase } from "@/hooks/version-conflict"
+import { VersionConflictNotice } from "@/components/version-conflict-notice"
+import { PbiDetailFooter } from "@/components/pbi-form/pbi-detail-footer"
 import { PbiEditFields } from "@/components/pbi-form/pbi-edit-fields"
 import { EMPTY_PBI_FORM, buildPbiPatch, isSamePbiForm, toPbiForm, type PbiForm } from "@/components/pbi-form/pbi-form-state"
 import { PbiReadBody, type PbiDetail } from "@/components/pbi-form/pbi-read-body"
 import { useAiFieldGenerator } from "@/components/pbi-form/use-ai-field-generator"
 import { pbiDeepLink, useCopyLink } from "@/components/pbi-form/use-copy-link"
 import { usePbiFormOptions, type PbiFormOptions } from "@/components/pbi-form/use-pbi-form-options"
-import { Link2, Pencil } from "lucide-react"
 
 interface Props {
   projectId: string
@@ -21,10 +24,14 @@ interface Props {
   onClose: () => void
   /** When true (viewer is PO/SM/admin — the API rejects others), the read view offers "Edit". */
   editable?: boolean
+  /** ai.use: offer the INVEST review (default true; the backlog page passes the viewer's permission). */
+  canInvest?: boolean
   /** Called after a successful save so the caller can refresh its data. */
   onSaved?: () => void
   /** Start in edit mode (e.g. the card's pencil). Ignored unless `editable`. Default: read. */
   initialMode?: "read" | "edit"
+  /** Tab to open on (`?tab=comments` from mention / comment notifications). Default: details. */
+  initialTab?: PbiTabKey
   /** Form choices the caller already holds (else they are fetched when editing starts). */
   formOptions?: PbiFormOptions
 }
@@ -47,13 +54,18 @@ function statusLabel(status: string, t: T): string {
 /**
  * The one place a PBI is viewed and edited. Opens read-only (Details /
  * Comments / History tabs); "Edit" switches the Details tab to the form.
- * Leaving edit mode, closing, or navigating away with unsaved changes asks
- * first. Saves send the loaded version; a 409 loads the other user's version.
+ * Leaving edit mode, closing, browser Back or leaving the page with unsaved
+ * changes asks first. Saves send the loaded version; a 409 loads the other
+ * user's version into the form and lists the user's overwritten input.
  */
-export default function PbiDetailModal({ projectId, pbiId, onClose, editable, onSaved, initialMode, formOptions }: Props) {
-  const { t, language } = useLanguage()
+export default function PbiDetailModal(props: Props) {
+  const { projectId, pbiId, onClose, editable, canInvest = true, onSaved, initialMode, initialTab, formOptions } = props
+  const { t, pt, language } = useLanguage()
+  const ui = useUiLabels()
+  const confirm = useConfirm()
+  const toast = useToast()
   const url = `/api/projects/${projectId}/backlog/${pbiId}`
-  const { data: item, error, isLoading, refetch } = useApiQuery<PbiDetail>(url)
+  const { data: item, error, isLoading, refetch, mutate } = useApiQuery<PbiDetail>(url)
   const [showInvest, setShowInvest] = useState(false)
   const [mode, setMode] = useState<"read" | "edit">(initialMode === "edit" ? "edit" : "read")
   const isEditing = !!editable && mode === "edit" && !!item
@@ -61,9 +73,15 @@ export default function PbiDetailModal({ projectId, pbiId, onClose, editable, on
   const form = edit.form
   const isDirty = isEditing && !!form && edit.isDirty
   useUnsavedChangesGuard(isDirty)
+  useBackNavigationGuard(isDirty, () =>
+    confirm({ title: ui.unsavedTitle, message: ui.unsavedMessage, confirmLabel: ui.discard, cancelLabel: t.cancel, variant: "warning" }),
+  )
   const options = usePbiFormOptions(projectId, isEditing, formOptions)
   const ai = useAiFieldGenerator(projectId, form ?? EMPTY_PBI_FORM, edit.setForm)
   const copyLink = useCopyLink()
+  const conflict = useConflictRebase<PbiForm>()
+  // What the pending save started from (for the conflict's "your input" list).
+  const savingRef = useRef<{ base: PbiForm; mine: PbiForm } | null>(null)
 
   const headInitiative = useI18nText(item?.i18n, "initiative", item?.initiative)
   const headUserStory = useI18nText(item?.i18n, "userStory", item?.userStory)
@@ -73,16 +91,30 @@ export default function PbiDetailModal({ projectId, pbiId, onClose, editable, on
     onSuccess: () => {
       onSaved?.()
       edit.reset()
+      conflict.dismiss()
       setMode("read")
       refetch()
     },
-    // Someone else saved the PBI first: drop the local edits and load theirs.
+    // Someone else saved first: load their version into the form (a second
+    // save then sends the new version) and keep the user's input visible.
     onError: (e) => {
-      if (!versionConflictOf(e)) return
-      edit.reset()
-      refetch()
+      const pending = savingRef.current
+      const handled =
+        !!pending &&
+        conflict.rebase<PbiDetail>(e, {
+          ...pending,
+          onConflict: (current) => {
+            edit.reset()
+            if (!current) {
+              refetch()
+              return null
+            }
+            mutate(current)
+            return toPbiForm(current)
+          },
+        })
+      if (!handled) toast.error(`${t.backlogSaveFailed}: ${e.message}`)
     },
-    toastOnError: conflictAwareToast((e) => `${t.backlogSaveFailed}: ${e.message}`),
     toastOnSuccess: t.backlogSaved,
   })
 
@@ -93,11 +125,22 @@ export default function PbiDetailModal({ projectId, pbiId, onClose, editable, on
     // Raw text is saved as typed; the background worker translates it.
     if (Object.keys(patch).length === 0) {
       edit.reset()
+      conflict.dismiss()
       setMode("read")
-    } else void save.mutate(withVersion(patch, item.version))
+      return
+    }
+    savingRef.current = { base: toPbiForm(item), mine: form }
+    void save.mutate(withVersion(patch, item.version))
+  }
+
+  function restoreMine() {
+    if (!item || !conflict.lost) return
+    edit.setForm(reapplyEdits(toPbiForm(item), conflict.lost))
+    conflict.dismiss()
   }
 
   const title = headInitiative.text || headUserStory.text || t.backlogDetailTitle
+  const labels = { ...pbiFieldLabels(t, pt), planItemId: t.planPbiField }
 
   return (
     <>
@@ -121,11 +164,12 @@ export default function PbiDetailModal({ projectId, pbiId, onClose, editable, on
         }
         isDirty={isDirty && !save.isPending}
         footer={
-          <Footer
+          <PbiDetailFooter
             isEditing={isEditing}
             canEdit={!!editable && !!item}
             isDirty={isDirty}
-            canInvest={!!item}
+            isLoaded={!!item}
+            canInvest={canInvest}
             saving={save.isPending}
             generating={ai.generating !== null}
             onInvest={() => setShowInvest(true)}
@@ -133,6 +177,7 @@ export default function PbiDetailModal({ projectId, pbiId, onClose, editable, on
             onEdit={() => setMode("edit")}
             onCancelEdit={() => {
               edit.reset()
+              conflict.dismiss()
               setMode("read")
             }}
             onSave={handleSave}
@@ -152,18 +197,30 @@ export default function PbiDetailModal({ projectId, pbiId, onClose, editable, on
           <PbiDetailTabs
             projectId={projectId}
             pbiId={item.id}
+            initialTab={initialTab}
             details={
               isEditing && form ? (
-                <PbiEditFields
-                  form={form}
-                  setForm={edit.setForm}
-                  options={options}
-                  selfId={item.id}
-                  projectId={projectId}
-                  disabled={save.isPending}
-                  generating={ai.generating}
-                  onGenerate={ai.generate}
-                />
+                <div className="space-y-4">
+                  {conflict.lost && (
+                    <VersionConflictNotice
+                      lost={conflict.lost}
+                      labels={labels}
+                      formatValue={(f, v) => (f === "planItemId" ? (v ? t.historyChanged : "") : formatPbiValue(t, f, v as string))}
+                      onRestore={restoreMine}
+                      onDismiss={conflict.dismiss}
+                    />
+                  )}
+                  <PbiEditFields
+                    form={form}
+                    setForm={edit.setForm}
+                    options={options}
+                    selfId={item.id}
+                    projectId={projectId}
+                    disabled={save.isPending}
+                    generating={ai.generating}
+                    onGenerate={ai.generate}
+                  />
+                </div>
               ) : (
                 <PbiReadBody item={item} projectId={projectId} />
               )
@@ -201,66 +258,4 @@ function usePbiEditState(item: PbiDetail | null | undefined) {
   }, [])
   const reset = useCallback(() => setDraft(null), [])
   return { form, setForm, reset, isDirty: !!form && !!baseline && !isSamePbiForm(form, baseline) }
-}
-
-interface FooterProps {
-  isEditing: boolean
-  canEdit: boolean
-  isDirty: boolean
-  canInvest: boolean
-  saving: boolean
-  generating: boolean
-  onInvest: () => void
-  onCopyLink: () => void
-  onEdit: () => void
-  onCancelEdit: () => void
-  onSave: () => void
-}
-
-function Footer(props: FooterProps) {
-  const { t } = useLanguage()
-  const ui = useUiLabels()
-  const close = useModalClose()
-  const confirm = useConfirm()
-
-  // Cancel returns to the read view (not closing the modal); unsaved edits ask first.
-  async function cancelEdit() {
-    if (props.isDirty) {
-      const ok = await confirm({ title: ui.unsavedTitle, message: ui.unsavedMessage, confirmLabel: ui.discard, cancelLabel: t.cancel, variant: "warning" })
-      if (!ok) return
-    }
-    props.onCancelEdit()
-  }
-
-  return (
-    <>
-      <Button variant="secondary" onClick={props.onInvest} disabled={!props.canInvest} className="mr-auto" leftIcon={<span aria-hidden="true">🤖</span>}>
-        {t.aiInvestReview}
-      </Button>
-      {props.isEditing ? (
-        <>
-          <Button variant="secondary" onClick={() => void cancelEdit()}>
-            {t.cancel}
-          </Button>
-          <Button onClick={props.onSave} loading={props.saving} disabled={props.generating}>
-            {t.update}
-          </Button>
-        </>
-      ) : (
-        <>
-          <Button variant="ghost" onClick={props.onCopyLink} disabled={!props.canInvest} leftIcon={<Link2 className="h-4 w-4" />}>
-            {t.backlogCopyLink}
-          </Button>
-          <Button variant="secondary" onClick={close}>
-            {t.close}
-          </Button>
-          {props.canEdit && (
-            <Button onClick={props.onEdit} leftIcon={<Pencil className="h-4 w-4" />}>
-              {t.edit}
-            </Button>
-          )}
-        </>
-      )}
-    </>
-  )
 }

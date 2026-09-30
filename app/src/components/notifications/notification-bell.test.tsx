@@ -149,7 +149,7 @@ describe("NotificationBell panel", () => {
     const { panel, user, fetchMock } = await openPanel({ unread: 3 })
     await user.click(await within(panel).findByText("Bob mentioned you in a comment on “#7 Login”"))
     expect(fetchMock).toHaveBeenCalledWith("/api/notifications/n7/read", expect.objectContaining({ method: "POST" }))
-    expect(router.push).toHaveBeenCalledWith("/projects/p1/backlog?pbi=b7")
+    expect(router.push).toHaveBeenCalledWith("/projects/p1/backlog?pbi=b7&tab=comments")
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
     expect(screen.getByTestId("notification-badge")).toHaveTextContent("2")
   })

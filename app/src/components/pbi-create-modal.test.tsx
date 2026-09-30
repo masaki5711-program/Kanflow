@@ -56,7 +56,7 @@ describe("PbiCreateModal", () => {
     const [iceboxSelect, goalSelect] = within(dialog).getAllByRole("combobox")
     await userEvent.selectOptions(goalSelect, "g1")
     await userEvent.selectOptions(iceboxSelect, "ib1")
-    await userEvent.click(within(within(dialog).getByRole("group", { name: t.backlogWorkloadQuickPick })).getByRole("button", { name: "5" }))
+    await userEvent.click(within(within(dialog).getByRole("group", { name: t.backlogWorkloadQuickPick.replace("{label}", pt.backlogWorkloadScore) })).getByRole("button", { name: "5" }))
     await userEvent.click(screen.getByRole("button", { name: t.add }))
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith({ id: "new", displayId: 42 }))
     expect(onClose).toHaveBeenCalled()
@@ -69,9 +69,39 @@ describe("PbiCreateModal", () => {
   it("stays open and toasts when saving fails", async () => {
     postStatus = 422
     const { onClose } = renderCreate()
+    await userEvent.type(screen.getByLabelText(pt.backlogInitiative, { selector: "input" }), "Login")
     await userEvent.click(screen.getByRole("button", { name: t.add }))
     expect(await screen.findByText(new RegExp(t.backlogSaveFailed))).toBeInTheDocument()
     expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it("keeps Add disabled until an initiative or a user story is entered (F-01)", async () => {
+    renderCreate()
+    const add = screen.getByRole("button", { name: t.add })
+    const message = t.backlogContentRequired.replace("{story}", pt.backlogUserStory).replace("{initiative}", pt.backlogInitiative)
+    expect(add).toBeDisabled()
+    expect(add).toHaveAccessibleDescription(message)
+    // Started filling in other fields only: inline error on the user story.
+    await userEvent.type(screen.getByLabelText(pt.backlogEpic, { selector: "input" }), "Auth")
+    expect(screen.getByText(message)).toHaveAttribute("role", "alert")
+    expect(screen.getByLabelText(pt.backlogUserStory)).toHaveAttribute("aria-invalid", "true")
+    expect(add).toBeDisabled()
+    // Whitespace does not count.
+    await userEvent.type(screen.getByLabelText(pt.backlogUserStory), "   ")
+    expect(add).toBeDisabled()
+    await userEvent.type(screen.getByLabelText(pt.backlogUserStory), "As a user")
+    expect(add).toBeEnabled()
+    expect(screen.queryByText(message)).not.toBeInTheDocument()
+    await userEvent.click(add)
+    await waitFor(() => expect(posted).toHaveLength(1))
+  })
+
+  it("names the help buttons and the two AI buttons after their fields (F-13)", () => {
+    renderCreate()
+    expect(screen.getByRole("button", { name: t.backlogHelpAbout.replace("{field}", pt.backlogInitiative) })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: t.backlogHelpAbout.replace("{field}", pt.backlogEpic) })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: `${t.aiGenerate} (${pt.backlogUserStory})` })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: `${t.aiGenerate} (${pt.backlogAcceptanceCriteria})` })).toBeInTheDocument()
   })
 
   it("closes without asking when nothing was entered", async () => {

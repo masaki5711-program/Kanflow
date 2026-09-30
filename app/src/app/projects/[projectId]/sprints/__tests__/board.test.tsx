@@ -115,7 +115,9 @@ describe("sprint view state", () => {
     expect(within(cellOf(t.taskDone)).getByText("Task t3")).toBeInTheDocument()
     expect(within(cellOf(t.taskInProgress)).getByText("Bob")).toBeInTheDocument()
     expect(screen.getByRole("heading", { name: new RegExp(`^${t.taskDone}`) }).nextElementSibling)
-      .toHaveTextContent(`${t.sprintEstimatedHoursShort} 3 · ${t.sprintActualHoursShort} 2`)
+      .toHaveTextContent(`${t.sprintEstimatedHoursShort} 3 · ${t.sprintActualHoursShort} 2 ${t.sprintHoursUnit}`)
+    // Task hours are hours, never the project's point unit.
+    expect(screen.queryByText(/SP/)).not.toBeInTheDocument()
     // Parent PBI reference on the card.
     expect(within(cellOf(t.taskTodo)).getByText("#12")).toBeInTheDocument()
   })

@@ -246,8 +246,9 @@ export function changedFields(existing: ExistingPbi, data: CreateBacklogItemInpu
   return out as UpdateBacklogItemInput
 }
 
+/** Preview label: the PBI title as the backlog list shows it (initiative, else the user story). */
 function labelOf(cells: ParsedRow["cells"], existing?: ExistingPbi): string {
-  const text = cells.userStory ?? cells.initiative ?? existing?.userStory ?? existing?.initiative ?? ""
+  const text = cells.initiative || cells.userStory || existing?.initiative || existing?.userStory || ""
   return text.length > 80 ? `${text.slice(0, 80)}…` : text
 }
 

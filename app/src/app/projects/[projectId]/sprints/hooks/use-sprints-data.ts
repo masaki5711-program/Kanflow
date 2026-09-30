@@ -3,6 +3,7 @@
 import { useMemo } from "react"
 import { useSession } from "next-auth/react"
 import { useApiQuery } from "@/hooks"
+import { can, type ProjectAction, type ProjectActor } from "@/lib/authz/policy"
 import type { CalendarEvent, Member, ProjectSettings, ReadyPbItem, Sprint } from "../components/types"
 import type { BacklogListResponse, ProjectDetailDto } from "@/types/api"
 
@@ -30,11 +31,16 @@ export function useSprintsData(projectId: string) {
   const { data: session } = useSession()
   const members = membersQuery.data ?? EMPTY_MEMBERS
   const userId = session?.user?.id
-  const isAdmin = (session?.user as { role?: string } | undefined)?.role === "admin"
+  const systemRole = (session?.user as { role?: string } | undefined)?.role ?? "member"
   const myRole = useMemo(
     () => (userId ? members.find((m) => m.user.id === userId)?.role ?? null : null),
     [members, userId],
   )
+  // UI hints from the shared authz policy; the API enforces the same rules.
+  const allows = (action: ProjectAction) => {
+    const actor: ProjectActor = { userId: userId ?? "", systemRole, projectRole: myRole, isSectionManagerOfProject: false }
+    return can(actor, action)
+  }
 
   const project = projectQuery.data
   const settings = useMemo<ProjectSettings | null>(
@@ -62,7 +68,9 @@ export function useSprintsData(projectId: string) {
     /** Signed-in user (the "me" assignee filter, per-user view preference). */
     userId: userId ?? null,
     settings,
-    canEditPbi: isAdmin || myRole === "po" || myRole === "sm",
+    canEditPbi: allows("backlog.write"),
+    /** Create / edit / delete sprints, change their status and PBI membership. */
+    canManageSprint: allows("sprint.manage"),
   }
 }
 

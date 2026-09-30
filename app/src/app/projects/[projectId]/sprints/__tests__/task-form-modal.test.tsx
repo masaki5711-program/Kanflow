@@ -31,7 +31,7 @@ function renderModal(o: Opts = {}) {
   const onPbiSaved = vi.fn()
   renderWithProviders(
     <TaskFormModal projectId="p1" sprint={o.sprint ?? sprint("s1", { items: [task("t1", pb1), task("t2", pb2)] })}
-      task={o.task ?? null} initialPbItemId={o.initialPbItemId} members={members} pointUnit="SP"
+      task={o.task ?? null} initialPbItemId={o.initialPbItemId} members={members}
       canEditPbi={o.canEditPbi} onSave={onSave} onBulkAdd={o.onBulkAdd} onPbiSaved={onPbiSaved} onClose={onClose} />,
   )
   return { onClose, onSave, onPbiSaved }
@@ -61,6 +61,14 @@ describe("TaskFormModal", () => {
     expect(add).toHaveAttribute("form", "sprint-task-form")
   })
 
+  it("labels task hours in hours, not in the project point unit", () => {
+    stubFetch({ "/api/projects/p1/backlog/pb1": pbiDetail })
+    renderModal({ task: task("t1", pb1, { estimatedHours: 1, actualHours: 2 }) })
+    expect(screen.getByLabelText(`${t.sprintEstimatedHoursShort} (${t.sprintHoursUnit})`)).toHaveValue(1)
+    expect(screen.getByLabelText(`${t.sprintActualHoursShort} (${t.sprintHoursUnit})`)).toHaveValue(2)
+    expect(t.sprintEstimatedHoursShort).toBe("見積時間")
+  })
+
   it("blocks submission until a PBI and a task name are provided", async () => {
     stubFetch({ "/api/projects/p1/backlog/pb2": { ...pbiDetail, id: "pb2" } })
     const { onSave, onClose } = renderModal()
@@ -76,7 +84,7 @@ describe("TaskFormModal", () => {
     await userEvent.click(add)
     await waitFor(() => expect(onSave).toHaveBeenCalledWith({
       pbItemId: "pb2", taskName: "Build", assigneeIds: ["u2"], loadedAssigneeIds: null, estimatedHours: "2.5", actualHours: "", status: "todo",
-    }))
+    }, expect.any(Function)))
     expect(onClose).toHaveBeenCalled()
   })
 
@@ -218,14 +226,14 @@ describe("TaskFormModal", () => {
     expect(screen.getByRole("button", { name: "Alice" })).toHaveAttribute("aria-pressed", "false")
     await userEvent.click(screen.getByRole("button", { name: "Alice" }))
     await userEvent.click(screen.getByRole("button", { name: t.update }))
-    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ assigneeIds: ["u1"] })))
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ assigneeIds: ["u1"] }), expect.any(Function)))
   })
 
   it("shows the empty assignee hint when there are no members", () => {
     stubFetch({})
     renderWithProviders(
       <TaskFormModal projectId="p1" sprint={sprint("s1", { items: [task("t1", pb1)] })} task={null} members={[]}
-        pointUnit="SP" onSave={async () => true} onClose={() => {}} />,
+        onSave={async () => true} onClose={() => {}} />,
     )
     expect(screen.getByText(t.sprintUnassigned)).toBeInTheDocument()
   })

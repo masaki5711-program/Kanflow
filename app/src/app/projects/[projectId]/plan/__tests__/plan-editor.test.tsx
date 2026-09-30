@@ -131,9 +131,65 @@ describe("editor: derived fields, save, conflicts", () => {
     state.fail.conflict = true
     dialog = await openEditor(user, "Beta")
     await user.type(within(dialog).getByLabelText(lbl(t.planNamePlaceholder)), "!")
+    // meanwhile another user renamed it (server version 2)
+    state.items = state.items.map((i) => (i.id === "B" ? { ...i, name: "Beta by Suzuki", version: 2 } : i))
     await user.click(within(dialog).getByRole("button", { name: t.save }))
     expect(await screen.findByText(t.apiErrVersionConflict)).toBeInTheDocument()
     expect(screen.getByRole("dialog", { name: t.planEditTitle })).toBeInTheDocument()
+  })
+
+  it("F-03: after a 409 the editor shows the server copy; a second Save never overwrites silently", async () => {
+    const user = userEvent.setup()
+    const fetchMock = await renderPlan()
+    state.fail.conflict = true
+    const dialog = await openEditor(user, "Beta")
+    const name = within(dialog).getByLabelText(lbl(t.planNamePlaceholder))
+    await user.type(name, " (stale)")
+    state.items = state.items.map((i) => (i.id === "B" ? { ...i, name: "Beta by Suzuki", version: 2 } : i))
+    await user.click(within(dialog).getByRole("button", { name: t.save }))
+    const notice = await within(dialog).findByRole("alert")
+    expect(notice).toHaveTextContent(t.apiErrVersionConflictReenter)
+    // the unsaved input is listed so it can be re-entered
+    expect(notice).toHaveTextContent("Beta (stale)")
+    expect(name).toHaveValue("Beta by Suzuki")
+    state.fail.conflict = false
+    // saving the reloaded form unchanged sends nothing (the other user's edit is kept)
+    await user.click(within(dialog).getByRole("button", { name: t.save }))
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
+    expect(callsTo(fetchMock, "PATCH", `${BASE}/B`)).toHaveLength(1)
+  })
+
+  it("F-03: an edit made after the conflict is sent with the server's new version", async () => {
+    const user = userEvent.setup()
+    const fetchMock = await renderPlan()
+    state.fail.conflict = true
+    const dialog = await openEditor(user, "Beta")
+    await user.type(within(dialog).getByLabelText(t.planDescription), "mine")
+    state.items = state.items.map((i) => (i.id === "B" ? { ...i, description: "theirs", version: 2 } : i))
+    await user.click(within(dialog).getByRole("button", { name: t.save }))
+    const description = await within(dialog).findByDisplayValue("theirs")
+    state.fail.conflict = false
+    await user.type(description, " + mine")
+    await user.click(within(dialog).getByRole("button", { name: t.save }))
+    await waitFor(() => expect(callsTo(fetchMock, "PATCH", `${BASE}/B`)).toHaveLength(2))
+    expect(bodyOf(callsTo(fetchMock, "PATCH", `${BASE}/B`)[1])).toEqual({ description: "theirs + mine", version: 2 })
+  })
+
+  it("F-03: 'restore my input' puts the lost values back on top of the new version", async () => {
+    const user = userEvent.setup()
+    const fetchMock = await renderPlan()
+    state.fail.conflict = true
+    const dialog = await openEditor(user, "Beta")
+    await user.type(within(dialog).getByLabelText(t.planDescription), "mine")
+    state.items = state.items.map((i) => (i.id === "B" ? { ...i, description: "theirs", version: 2 } : i))
+    await user.click(within(dialog).getByRole("button", { name: t.save }))
+    await user.click(await within(dialog).findByRole("button", { name: t.apiErrVersionConflictRestore }))
+    expect(within(dialog).getByLabelText(t.planDescription)).toHaveValue("mine")
+    expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument()
+    state.fail.conflict = false
+    await user.click(within(dialog).getByRole("button", { name: t.save }))
+    await waitFor(() => expect(callsTo(fetchMock, "PATCH", `${BASE}/B`)).toHaveLength(2))
+    expect(bodyOf(callsTo(fetchMock, "PATCH", `${BASE}/B`)[1])).toEqual({ description: "mine", version: 2 })
   })
 })
 
@@ -201,11 +257,30 @@ describe("dependencies and baseline", () => {
     const fetchMock = await renderPlan()
     await openMenu(user, "Alpha-1", t.planAddSuccessor)
     const picker = await screen.findByRole("dialog", { name: t.planPickSuccessorTitle })
-    // existing successor (Alpha-2) and ancestors (Alpha) are not offered
-    expect(within(picker).queryByRole("button", { name: /Alpha-2/ })).not.toBeInTheDocument()
+    // existing successor (Alpha-2) and the parent (Alpha) are listed but disabled with the reason; itself is not listed
+    expect(within(picker).getByRole("button", { name: /Alpha-2/ })).toBeDisabled()
+    expect(within(picker).getByRole("button", { name: /Alpha-2/ })).toHaveTextContent(t.planSuccessorBlockedExisting)
+    expect(within(picker).getByRole("button", { name: /^Alpha / })).toHaveTextContent(t.planSuccessorBlockedHierarchy)
+    expect(within(picker).queryByRole("button", { name: /Alpha-1/ })).not.toBeInTheDocument()
     await user.click(within(picker).getByRole("button", { name: /Launch/ }))
     await waitFor(() => expect(callsTo(fetchMock, "POST", `${BASE}/dependencies`)).toHaveLength(1))
     expect(bodyOf(callsTo(fetchMock, "POST", `${BASE}/dependencies`)[0])).toEqual({ predecessorId: "A1", successorId: "M" })
+  })
+
+  it("F-11: items upstream of the predecessor are disabled as a cycle", async () => {
+    const user = userEvent.setup()
+    const fetchMock = await renderPlan()
+    await openMenu(user, "Alpha-2", t.planAddSuccessor)
+    const picker = await screen.findByRole("dialog", { name: t.planPickSuccessorTitle })
+    // A1 → A2 and B → A2 exist: A2 → A1 / A2 → B would close a loop
+    for (const name of [/Alpha-1/, /Beta/]) {
+      const option = within(picker).getByRole("button", { name })
+      expect(option).toBeDisabled()
+      expect(option).toHaveTextContent(t.planSuccessorBlockedCycle)
+    }
+    await user.click(within(picker).getByRole("button", { name: /Beta/ }))
+    expect(callsTo(fetchMock, "POST", `${BASE}/dependencies`)).toHaveLength(0)
+    expect(within(picker).getByRole("button", { name: /Launch/ })).toBeEnabled()
   })
 
   it("saving the baseline asks first", async () => {

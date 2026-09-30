@@ -161,17 +161,18 @@ export const TRACKED_FIELDS: Readonly<Record<ActivityEntityType, readonly string
   ],
 }
 
-/** The field whose value labels an entity in a feed. */
-const LABEL_FIELD: Readonly<Record<ActivityEntityType, string>> = {
-  pbi: "userStory",
-  sprint_task: "taskName",
-  sprint: "sprintName",
-  icebox: "request",
-  goal: "title",
-  release: "userStory",
-  plan_item: "name",
-  member: "userId",
-  project: "name",
+/** The fields (first non-empty wins) whose value labels an entity in a feed. */
+const LABEL_FIELDS: Readonly<Record<ActivityEntityType, readonly string[]>> = {
+  // The initiative is the PBI title shown everywhere else; old PBIs may only have a story.
+  pbi: ["initiative", "userStory"],
+  sprint_task: ["taskName"],
+  sprint: ["sprintName"],
+  icebox: ["request"],
+  goal: ["title"],
+  release: ["userStory"],
+  plan_item: ["name"],
+  member: ["userId"],
+  project: ["name"],
 }
 
 /** Fields that make an update a "status_change" when nothing else changed. */
@@ -221,8 +222,8 @@ export function classifyUpdate(changes: ActivityChanges): ActivityAction {
 
 /** Pure: short label of a row (first line of the label field, cut to LABEL_MAX). */
 export function labelOf(entityType: ActivityEntityType, row: Row | null | undefined): string | undefined {
-  const raw = row?.[LABEL_FIELD[entityType]]
-  if (typeof raw !== "string" || !raw.trim()) return undefined
+  const raw = (LABEL_FIELDS[entityType] ?? []).map((f) => row?.[f]).find((v) => typeof v === "string" && v.trim())
+  if (typeof raw !== "string") return undefined
   const firstLine = raw.trim().split(/\r?\n/)[0]
   return firstLine.length > LABEL_MAX ? `${firstLine.slice(0, LABEL_MAX - 1)}…` : firstLine
 }

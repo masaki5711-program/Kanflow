@@ -65,7 +65,7 @@ export function PbiLinkFields({ form, setForm, options, selfId }: Props) {
   return (
     <>
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <Field label={<LabelWithIcon icon={<Lightbulb className="h-3.5 w-3.5 text-purple-600" />} text={`${pt.navIcebox} (${pt.iceboxRequest})`} />}>
+        <Field label={<LabelWithIcon icon={<Lightbulb className="h-3.5 w-3.5 text-purple-600" />} text={pt.iceboxTitle} />}>
           <Select value={form.iceboxItemId} onChange={(e) => void selectIcebox(e.target.value)}>
             <option value="">{t.backlogIceboxNoneOption}</option>
             {options.iceboxOptions.map((item) => {

@@ -203,7 +203,7 @@ export interface ScheduleInput {
  * done: status done. on_hold: status on_hold (a paused item is never
  * reported delayed / at_risk). delayed: plannedEnd before today. at_risk: the window
  * has started and progress < elapsedPct − 15 (elapsedPct = days elapsed
- * INCLUDING today / planned days). not_started: no progress and not marked in
+ * INCLUDING today / planned days; a one-day item due today is exempt). not_started: no progress and not marked in
  * progress. on_track: otherwise. `todayKey` = Asia/Tokyo "YYYY-MM-DD".
  */
 export function computeScheduleState(item: ScheduleInput, todayKey: string): ScheduleState {
@@ -215,7 +215,8 @@ export function computeScheduleState(item: ScheduleInput, todayKey: string): Sch
   const s = dayIndex(item.plannedStart)
   const e = dayIndex(item.plannedEnd)
   if (t > e) return "delayed"
-  if (t >= s) {
+  // A one-day item (a milestone) due today is not "at risk" before its day has passed.
+  if (t >= s && !(s === e && t === e)) {
     const elapsedPct = ((t - s + 1) / Math.max(1, e - s + 1)) * 100
     if (item.progressPct < elapsedPct - AT_RISK_MARGIN_PCT) return "at_risk"
   }

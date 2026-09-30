@@ -1,4 +1,4 @@
-import { decodeChatStream, proposalsOf } from "@/lib/chat-proposals"
+import { decodeChatStream, parseProposalOutcome, proposalsOf, type ProposalOutcome } from "@/lib/chat-proposals"
 import type { ChatMessage } from "./use-chat-stream"
 
 /**
@@ -26,6 +26,8 @@ export interface StoredChatMessage {
   content: string
   partial: boolean
   createdAt: string
+  /** Stored tool calls / proposal events; a proposal event may carry its `outcome` (P-02). */
+  toolEvents?: unknown
 }
 
 export interface StoredChatThread {
@@ -47,17 +49,39 @@ export function threadUrl(projectId: string, threadId: string): string {
   return `${threadsUrl(projectId)}/${encodeURIComponent(threadId)}`
 }
 
+/**
+ * Outcomes (applied / rejected / applying) stored with the thread's proposal
+ * events, by proposalId. Thread-wide: a repeated proposal shares one outcome.
+ */
+export function storedProposalOutcomes(stored: readonly StoredChatMessage[]): Record<string, ProposalOutcome> {
+  const out: Record<string, ProposalOutcome> = {}
+  for (const m of stored) {
+    if (!Array.isArray(m.toolEvents)) continue
+    for (const e of m.toolEvents as unknown[]) {
+      if (!e || typeof e !== "object") continue
+      const { type, proposal, outcome } = e as { type?: unknown; proposal?: { proposalId?: unknown }; outcome?: unknown }
+      const id = type === "proposal" && typeof proposal?.proposalId === "string" ? proposal.proposalId : null
+      const parsed = id && !(id in out) ? parseProposalOutcome(outcome) : null
+      if (id && parsed) out[id] = parsed
+    }
+  }
+  return out
+}
+
 /** Stored messages → chat state (proposal frames decoded; a partial answer shows as stopped). */
 export function toChatMessages(stored: readonly StoredChatMessage[]): ChatMessage[] {
+  const outcomes = storedProposalOutcomes(stored)
   return stored.map((m) => {
     if (m.role === "user") return { id: m.id, role: "user", content: m.content }
     const { text, events } = decodeChatStream(m.content)
     const proposals = proposalsOf(events)
+    const own = Object.fromEntries(proposals.filter((p) => outcomes[p.proposalId]).map((p) => [p.proposalId, outcomes[p.proposalId]]))
     return {
       id: m.id,
       role: "assistant",
       content: text,
       ...(proposals.length > 0 ? { proposals } : {}),
+      ...(Object.keys(own).length > 0 ? { proposalOutcomes: own } : {}),
       ...(m.partial ? { stopped: true } : {}),
     }
   })

@@ -2,6 +2,7 @@
  * Pure helpers of the dashboard's top row: sprint time left, the burndown
  * sparkline and the "coming up" list (plan items + sprint end).
  */
+
 const DAY_MS = 86_400_000
 
 /** Upcoming items are listed up to this many days ahead. */
@@ -99,4 +100,21 @@ export function buildUpcomingDue(planItems: readonly DuePlanItem[], sprint: DueS
     .filter((i): i is DueItem => i.days !== null && i.days <= DUE_HORIZON_DAYS)
     .sort((a, b) => a.days - b.days)
     .slice(0, DUE_MAX_ITEMS)
+}
+
+export interface SprintTaskCounts {
+  todo: number
+  inProgress: number
+  done: number
+}
+
+/**
+ * Task counts of the active sprint. PBI membership placeholder rows (no task
+ * name) are not tasks — the same definition as the sprint board and burndown.
+ */
+export function countSprintTasks(items: readonly { taskName: string | null; status: string }[]): SprintTaskCounts {
+  const real = items.filter((i) => (i.taskName ?? "").trim().length > 0)
+  const done = real.filter((i) => i.status === "done").length
+  const inProgress = real.filter((i) => i.status === "in_progress").length
+  return { todo: real.length - done - inProgress, inProgress, done }
 }

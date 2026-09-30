@@ -21,7 +21,7 @@ function makeActions(): CardActions {
   }
 }
 
-const PERMS = { canEdit: true, canReorder: true, canDelete: true }
+const PERMS = { canEdit: true, canReorder: true, canDelete: true, canInvest: true }
 const STATE = { selectMode: false, isSelected: false, isDragging: false }
 
 describe("BacklogItemCard", () => {
@@ -79,7 +79,7 @@ describe("BacklogItemCard", () => {
   it("hides reorder and delete controls without the PO rights (SM)", () => {
     renderWithProviders(
       <ul>
-        <BacklogItemCard item={pbi("a", 1)} section="ready" canEdit canReorder={false} canDelete={false} {...STATE} {...makeActions()} />
+        <BacklogItemCard item={pbi("a", 1)} section="ready" canEdit canReorder={false} canDelete={false} canInvest {...STATE} {...makeActions()} />
       </ul>,
     )
     expect(screen.queryByRole("button", { name: t.backlogDragHandle.replace("{id}", "1") })).not.toBeInTheDocument()
@@ -142,5 +142,29 @@ describe("BacklogItemCard", () => {
     expect(box).toBeChecked()
     fireEvent.click(box, { shiftKey: true })
     expect(actions.onToggleSelect).toHaveBeenCalledWith(item, true)
+  })
+
+  it("hides INVEST without ai.use and shows the translated sprint name (F-07, F-13)", async () => {
+    const actions = makeActions()
+    const item = pbi("a", 1, {
+      sprintItems: [
+        { sprint: { id: "s1", sprintName: "Sprint Minggu ke 9", status: "active", i18n: { sprintName: { ja: "第9週スプリント", id: "Sprint Minggu ke 9", source: "id", status: "done" } } } },
+      ],
+    })
+    const { unmount } = renderWithProviders(
+      <ul>
+        <BacklogItemCard item={item} section="ready" {...PERMS} canInvest={false} {...STATE} {...actions} />
+      </ul>,
+    )
+    expect(screen.queryByRole("button", { name: new RegExp(t.aiInvestReview) })).not.toBeInTheDocument()
+    expect(screen.getByText("(第9週スプリント)")).toBeInTheDocument()
+    unmount()
+    renderWithProviders(
+      <ul>
+        <BacklogItemCard item={item} section="ready" {...PERMS} {...STATE} {...actions} />
+      </ul>,
+    )
+    await userEvent.click(screen.getByRole("button", { name: new RegExp(t.aiInvestReview) }))
+    expect(actions.onInvest).toHaveBeenCalledWith(item)
   })
 })

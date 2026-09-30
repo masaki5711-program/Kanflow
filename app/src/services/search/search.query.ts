@@ -52,9 +52,13 @@ export function escapeLike(text: string): string {
   return text.replace(/[\\%_]/g, (c) => `\\${c}`)
 }
 
-const DISPLAY_ID = /^(?:pbi[\s-]*|#\s*)(\d{1,9})$/i
+const DISPLAY_ID = /^(?:pbi[\s-]*|#\s*)?(\d{1,9})$/i
 
-/** "PBI-12" / "pbi 12" / "#12" (full-width too) → 12; anything else → null. */
+/**
+ * "PBI-12" / "pbi 12" / "#12" / a bare "12" (full-width too) → 12; anything
+ * else → null. A bare number still matches text too — the exact displayId is
+ * only ranked first.
+ */
 export function parseDisplayId(query: string): number | null {
   const m = DISPLAY_ID.exec(normalizeQuery(query.normalize("NFKC")))
   if (!m) return null

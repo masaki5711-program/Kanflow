@@ -28,12 +28,23 @@ export interface DerivedFlags {
   /** Summary row: dates come from children. */
   datesDerived: boolean
   statusDerived: boolean
+  /** "From PBIs" chosen but no PBI linked yet: the status stays manual until one is. */
+  statusManualUntilLinked: boolean
 }
 
-export function derivedFlags(item: Pick<PlanItem, "hasChildren"> | null, form: Pick<PlanForm, "progressMode">): DerivedFlags {
+/**
+ * Which fields the server derives. A linked leaf only derives its status once
+ * it has PBIs (plan-progress: a linked leaf without PBIs behaves as manual);
+ * `linkedCount` overrides the saved count while the editor changes the links.
+ */
+export function derivedFlags(
+  item: (Pick<PlanItem, "hasChildren"> & Partial<Pick<PlanItem, "linked">>) | null,
+  form: Pick<PlanForm, "progressMode">,
+  linkedCount: number = item?.linked?.pbiCount ?? 0,
+): DerivedFlags {
   const isParent = !!item?.hasChildren
   const linked = !isParent && form.progressMode === "linked"
-  return { datesDerived: isParent, statusDerived: isParent || linked }
+  return { datesDerived: isParent, statusDerived: isParent || (linked && linkedCount > 0), statusManualUntilLinked: linked && linkedCount === 0 }
 }
 
 export function formFromItem(item: PlanItem): PlanForm {
@@ -125,8 +136,8 @@ function dropDerived<T extends PlanItemPatch>(body: T, flags: DerivedFlags): T {
 }
 
 /** PATCH body: changed, non-derived fields only. */
-export function buildPatch(item: PlanItem, form: PlanForm): PlanItemPatch {
-  const flags = derivedFlags(item, form)
+export function buildPatch(item: PlanItem, form: PlanForm, linkedCount?: number): PlanItemPatch {
+  const flags = derivedFlags(item, form, linkedCount)
   const before = dropDerived(fullBody(formFromItem(item)), flags) as Record<string, unknown>
   const after = dropDerived(fullBody(form), flags) as Record<string, unknown>
   const patch: Record<string, unknown> = {}

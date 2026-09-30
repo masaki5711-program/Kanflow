@@ -70,6 +70,20 @@ describe("backlog.service", () => {
     expect(tr.enqueueIn).toHaveBeenCalledTimes(1)
   })
 
+  it.each([{}, { initiative: "  ", userStory: " \t" }, { epic: "E", acceptanceCriteria: "AC" }])(
+    "refuses an untitled PBI (no initiative / user story) with 400 PBI_CONTENT_REQUIRED: %o",
+    async (input) => {
+      await expect(svc.createBacklogItem("p1", input, ACTOR)).rejects.toMatchObject({ status: 400, code: "PBI_CONTENT_REQUIRED" })
+      expect(repo.insertBacklogItem).not.toHaveBeenCalled()
+    },
+  )
+
+  it("accepts an initiative alone as the PBI title", async () => {
+    vi.mocked(repo.nextBacklogNumbers).mockResolvedValue({ displayId: 1, sortOrder: 1 })
+    vi.mocked(repo.insertBacklogItem).mockResolvedValue({ id: "n" } as never)
+    await expect(svc.createBacklogItem("p1", { initiative: "Login" }, ACTOR)).resolves.toEqual({ id: "n" })
+  })
+
   it("surfaces a 409 when the displayId keeps colliding", async () => {
     vi.mocked(repo.nextBacklogNumbers).mockResolvedValue({ displayId: 7, sortOrder: 4 })
     vi.mocked(repo.insertBacklogItem)

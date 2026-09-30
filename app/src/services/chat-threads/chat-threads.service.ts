@@ -2,7 +2,14 @@ import { defaultDb, withTransaction } from "@/services/_shared/db"
 import { NotFoundError } from "@/services/_shared/errors"
 import { encodeCursor, type Page } from "@/services/_shared/cursor"
 import { logger } from "@/lib/logger"
-import { decodeChatStream, encodeChatEvent, parseChatProposal, type ChatUiEvent } from "@/lib/chat-proposals"
+import {
+  decodeChatStream,
+  encodeChatEvent,
+  parseChatProposal,
+  parseProposalOutcome,
+  type ChatUiEvent,
+  type ProposalOutcome,
+} from "@/lib/chat-proposals"
 import * as repo from "./chat-threads.repository"
 import {
   CHAT_AUTO_TITLE_CHARS,
@@ -35,8 +42,11 @@ export interface ChatThreadDto {
   updatedAt: string
 }
 
+/** A stored proposal event; `outcome` records approve / reject (see chat-proposal-outcomes.service). */
+export type StoredProposalEvent = ChatUiEvent & { outcome?: ProposalOutcome }
+
 /** One stored tool call or out-of-band event of an assistant turn. */
-export type ChatToolEvent = { type: "tool"; name: string; ms: number } | ChatUiEvent
+export type ChatToolEvent = { type: "tool"; name: string; ms: number } | StoredProposalEvent
 
 export interface ChatMessageDto {
   id: string
@@ -90,10 +100,11 @@ export function parseToolEvents(raw: string | null): ChatToolEvent[] {
       out.push({ type: "tool", name: item.name, ms: item.ms })
       continue
     }
-    const proposal = item && typeof item === "object" && (item as { type?: unknown }).type === "proposal"
-      ? parseChatProposal((item as { proposal?: unknown }).proposal)
-      : null
-    if (proposal) out.push({ type: "proposal", proposal })
+    const isProposal = item && typeof item === "object" && (item as { type?: unknown }).type === "proposal"
+    const proposal = isProposal ? parseChatProposal((item as { proposal?: unknown }).proposal) : null
+    if (!proposal) continue
+    const outcome = parseProposalOutcome((item as { outcome?: unknown }).outcome)
+    out.push(outcome ? { type: "proposal", proposal, outcome } : { type: "proposal", proposal })
   }
   return out
 }
@@ -111,7 +122,9 @@ export function serializeToolEvents(events: readonly ChatToolEvent[]): string | 
 
 /** Stored message → client text: decoded text + its UI events re-encoded as frames. */
 export function toClientContent(content: string, events: readonly ChatToolEvent[]): string {
-  const frames = events.filter((e): e is ChatUiEvent => e.type !== "tool").map(encodeChatEvent)
+  const frames = events
+    .filter((e): e is StoredProposalEvent => e.type !== "tool")
+    .map((e) => encodeChatEvent({ type: e.type, proposal: e.proposal }))
   return frames.length > 0 ? `${content}${frames.join("")}` : content
 }
 

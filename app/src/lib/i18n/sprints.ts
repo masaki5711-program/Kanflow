@@ -55,6 +55,14 @@ export interface SprintsTranslations {
   sprintMoveToStatus: string
   sprintToggleDetails: string
   sprintDeleteNamed: string
+  sprintEditConflictNotice: string
+  sprintCompleteCheckTitle: string
+  sprintCompleteUnfinished: string
+  sprintCompleteAllDone: string
+  sprintCompleteArchiveNote: string
+  sprintCompleteCarryOverNote: string
+  sprintProgressLoadPct: string
+  sprintProgressDoneTasks: string
 }
 
 export const ja: SprintsTranslations = {
@@ -107,6 +115,14 @@ export const ja: SprintsTranslations = {
   sprintMoveToStatus: "「{status}」へ移行",
   sprintToggleDetails: "「{name}」の詳細を開閉",
   sprintDeleteNamed: "スプリント「{name}」を削除",
+  sprintEditConflictNotice: "他のユーザーが先に更新したため、最新の内容を読み込みました。内容を確認し、必要なら変更し直してから保存してください。",
+  sprintCompleteCheckTitle: "完了前の確認",
+  sprintCompleteUnfinished: "未完了のタスクが {tasks} 件、未完了のPBIが {pbis} 件あります。",
+  sprintCompleteAllDone: "すべてのタスクが完了しています。",
+  sprintCompleteArchiveNote: "完了するとスプリントはアーカイブされ、AIによるスプリントレビューが自動で作成されます。",
+  sprintCompleteCarryOverNote: "未完了のPBIはバックログに「Ready」のまま残り、次のスプリントに取り込めます。未完了のタスクはアーカイブされたスプリントに残ります。",
+  sprintProgressLoadPct: "（容量の{pct}%）",
+  sprintProgressDoneTasks: "完了タスク {done}/{total}（{pct}%）",
 }
 
 export const en: SprintsTranslations = {
@@ -159,6 +175,14 @@ export const en: SprintsTranslations = {
   sprintMoveToStatus: "Move to {status}",
   sprintToggleDetails: "Show or hide details of {name}",
   sprintDeleteNamed: "Delete sprint {name}",
+  sprintEditConflictNotice: "Someone else saved this first, so the latest values were loaded. Review them, re-apply your changes if needed, then save again.",
+  sprintCompleteCheckTitle: "Before you complete",
+  sprintCompleteUnfinished: "{tasks} unfinished task(s) and {pbis} unfinished PBI(s) remain.",
+  sprintCompleteAllDone: "All tasks are done.",
+  sprintCompleteArchiveNote: "Completing archives the sprint and starts an automatic AI sprint review.",
+  sprintCompleteCarryOverNote: "Unfinished PBIs stay in the backlog as Ready and can be pulled into the next sprint. Unfinished tasks stay in the archived sprint.",
+  sprintProgressLoadPct: "({pct}% of capacity)",
+  sprintProgressDoneTasks: "Tasks done {done}/{total} ({pct}%)",
 }
 
 export const id: SprintsTranslations = {
@@ -211,4 +235,12 @@ export const id: SprintsTranslations = {
   sprintMoveToStatus: "Pindahkan ke {status}",
   sprintToggleDetails: "Tampilkan atau sembunyikan detail {name}",
   sprintDeleteNamed: "Hapus sprint {name}",
+  sprintEditConflictNotice: "Pengguna lain menyimpan lebih dulu, jadi nilai terbaru telah dimuat. Periksa, terapkan kembali perubahan Anda bila perlu, lalu simpan lagi.",
+  sprintCompleteCheckTitle: "Sebelum menyelesaikan",
+  sprintCompleteUnfinished: "Masih ada {tasks} tugas dan {pbis} PBI yang belum selesai.",
+  sprintCompleteAllDone: "Semua tugas sudah selesai.",
+  sprintCompleteArchiveNote: "Menyelesaikan akan mengarsipkan sprint dan memulai tinjauan sprint AI secara otomatis.",
+  sprintCompleteCarryOverNote: "PBI yang belum selesai tetap di backlog sebagai Siap dan dapat dimasukkan ke sprint berikutnya. Tugas yang belum selesai tetap di sprint yang diarsipkan.",
+  sprintProgressLoadPct: "({pct}% dari kapasitas)",
+  sprintProgressDoneTasks: "Tugas selesai {done}/{total} ({pct}%)",
 }

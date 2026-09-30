@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("@/services/_shared/db", async () => (await import("@/services/__tests__/support")).dbMock())
 vi.mock("../notifications.repository")
+vi.mock("@/services/_shared/translations", async () => (await import("@/services/__tests__/support")).translationMock())
 
 const repo = await import("../notifications.repository")
 const svc = await import("../notifications.service")
@@ -9,6 +10,7 @@ const realRepo = await vi.importActual<typeof import("../notifications.repositor
 const { DEFAULT_DB, TX } = await import("@/services/__tests__/support")
 const { fakeDb } = await import("@/services/__tests__/fake-db")
 const { NOTIFICATION_TYPES } = await import("@/services/_shared/notifications")
+const tr = await import("@/services/_shared/translations")
 
 const AT = new Date("2026-10-01T09:00:00.000Z")
 const NOW = new Date("2026-10-02T00:00:00.000Z")
@@ -56,6 +58,17 @@ describe("notifications.service", () => {
     expect(out.nextCursor).not.toBeNull()
     expect(out.unreadCount).toBe(5)
     expect(await svc.getUnreadCount("u1")).toEqual({ unreadCount: 5 })
+  })
+
+  it("attaches the project name translations to the listed items (F-06)", async () => {
+    vi.mocked(repo.findNotifications).mockResolvedValue([row("a"), row("s", { projectId: null, project: null })] as never)
+    vi.mocked(repo.countUnread).mockResolvedValue(0)
+    const i18n = { name: { ja: "IoT パイロット", id: "Pilot IoT", source: "id", status: "done" } }
+    vi.mocked(tr.getI18nFor).mockResolvedValueOnce(new Map([["p1", i18n]]) as never)
+    const out = await svc.listMyNotifications("u1", { limit: 5, unreadOnly: false })
+    expect(tr.getI18nFor).toHaveBeenCalledWith("project", ["p1"])
+    expect(out.items[0].project).toEqual({ id: "p1", name: "P", i18n })
+    expect(out.items[1].project).toBeNull()
   })
 
   it("markNotificationRead: success, already read (idempotent), foreign → 404", async () => {

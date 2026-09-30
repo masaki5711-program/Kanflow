@@ -11,7 +11,7 @@
  *   const onVersionConflict = useVersionConflict()
  *   catch (err) { if (onVersionConflict(err, (current) => current ? replace(current) : refetch())) return }
  */
-import { useCallback } from "react"
+import { useCallback, useState } from "react"
 import { useToast, type ToastApi } from "@/components/ui/toast"
 import { useLanguage } from "@/lib/language-context"
 import { isApiError } from "./api-client"
@@ -74,4 +74,72 @@ export function useVersionConflict() {
       handleVersionConflict<T>(err, { toast, message: t.apiErrVersionConflict, onConflict }),
     [toast, t],
   )
+}
+
+// === Edit forms: rebase on the server's version (stale-editor protection) ===
+
+/** One field the user had changed that a conflict replaced with the server's value. */
+export interface LostEdit<K extends string = string> {
+  field: K
+  /** What the user had typed (not saved). */
+  mine: unknown
+  /** The value now on the server. */
+  theirs: unknown
+}
+
+/**
+ * The user's edits (`mine` vs the `base` they started from) that differ from
+ * the server's `latest` — i.e. what a conflict would silently drop. Fields the
+ * other user changed to the same value are not "lost". Pure.
+ */
+export function lostEdits<F extends object>(base: F, mine: F, latest: F): LostEdit<Extract<keyof F, string>>[] {
+  const keys = Object.keys(mine) as Extract<keyof F, string>[]
+  return keys
+    .filter((k) => !Object.is(mine[k], base[k]) && !Object.is(mine[k], latest[k]))
+    .map((k) => ({ field: k, mine: mine[k], theirs: latest[k] }))
+}
+
+/** `latest` with the lost edits put back (the "restore my input" action). Pure, new object. */
+export function reapplyEdits<F extends object>(latest: F, lost: readonly LostEdit<Extract<keyof F, string>>[]): F {
+  return lost.reduce<F>((acc, e) => ({ ...acc, [e.field]: e.mine }), { ...latest })
+}
+
+export interface RebaseArgs<F, T> {
+  /** The form as it was loaded (before the user's edits). */
+  base: F
+  /** The form as the user has it now. */
+  mine: F
+  /**
+   * Load the server's row into the editor (replace the local copy with
+   * `current`, or refetch when it is null) and return the new base form
+   * (null when it is not known yet, e.g. refetching).
+   */
+  onConflict: (current: T | null) => F | null
+}
+
+/**
+ * Editor side of a 409 VERSION_CONFLICT. The editor must not keep the stale
+ * values (a second save would silently overwrite the other user), so
+ * `rebase(err, { base, mine, onConflict })` hands `current` to the caller,
+ * which loads it into the form; the user's overwritten values are kept in
+ * `lost` for <VersionConflictNotice> until `dismiss()`.
+ *
+ *   const conflict = useConflictRebase<MyForm>()
+ *   onError: (e) => { if (!conflict.rebase<MyRow>(e, { base, mine: form, onConflict: (cur) => { … return cur ? toForm(cur) : null } })) toast.error(…) }
+ *   {conflict.lost && <VersionConflictNotice lost={conflict.lost} labels={…} onRestore={…} onDismiss={conflict.dismiss} />}
+ *
+ * Returns true when `err` was a version conflict (the caller skips its own error toast).
+ */
+export function useConflictRebase<F extends object>() {
+  const [lost, setLost] = useState<readonly LostEdit<Extract<keyof F, string>>[] | null>(null)
+  const rebase = useCallback(<T,>(err: unknown, args: RebaseArgs<F, T>): boolean => {
+    const conflict = versionConflictOf<T>(err)
+    if (!conflict) return false
+    const latest = args.onConflict(conflict.current)
+    // Unknown latest (refetching): keep every edit visible so nothing is lost.
+    setLost(lostEdits(args.base, args.mine, latest ?? args.base))
+    return true
+  }, [])
+  const dismiss = useCallback(() => setLost(null), [])
+  return { rebase, lost, dismiss }
 }

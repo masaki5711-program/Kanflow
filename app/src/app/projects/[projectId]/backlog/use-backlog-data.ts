@@ -56,6 +56,8 @@ export function useBacklogData(projectId: string) {
   // Reorder and trash are PO-only on the server (backlog.reorder / backlog.delete).
   const canReorder = isAdmin || myRole === "po"
   const canDelete = canReorder
+  // ai.use: any project member (the section manager without membership may not run INVEST).
+  const canInvest = isAdmin || myRole !== null
   // A failed member lookup must not silently look like "no permission".
   const roleError = !isAdmin && !members.data && members.error !== null
 
@@ -150,6 +152,7 @@ export function useBacklogData(projectId: string) {
     canEdit,
     canReorder,
     canDelete,
+    canInvest,
     members: members.data ?? NO_MEMBERS,
     roleError,
     retryRole: members.refetch,

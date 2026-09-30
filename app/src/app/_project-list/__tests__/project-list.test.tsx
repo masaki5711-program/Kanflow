@@ -115,7 +115,8 @@ describe("ProjectList rendering", () => {
     await user.click(buttons[1]) // software
     expect(buttons[1]).toHaveAttribute("aria-pressed", "true")
     expect(screen.queryByRole("link", { name: "Beta" })).not.toBeInTheDocument()
-    await user.click(within(typeGroup).getByRole("button", { name: t.userFilterRoleAll }))
+    await user.click(within(typeGroup).getByRole("button", { name: t.projectTypeFilterAll }))
+    expect(t.projectTypeFilterAll).not.toBe(t.userFilterRoleAll)
     expect(screen.getByRole("link", { name: "Beta" })).toBeInTheDocument()
   })
 

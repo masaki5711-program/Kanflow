@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { getTranslations } from "@/lib/i18n"
-import { entityHref, feedSentence, type FeedEntry } from "../activity-sentence"
+import { entityHref, entityLabel, feedSentence, type FeedEntry } from "../activity-sentence"
 
 const ja = getTranslations("ja")
 const en = getTranslations("en")
@@ -59,6 +59,17 @@ describe("feedSentence", () => {
     expect(full(feedSentence(entry({ actor: null, label: null }), "p1", en, "en"))).toBe(`${en.historySystem} created PBI`)
     expect(feedSentence(entry({ entityType: "member", label: "user-cuid" }), "p1", en, "en").entity).toBe("member")
     expect(feedSentence(entry({ entityType: "widget" }), "p1", en, "en").entity).toBe("widget “Login page”")
+  })
+
+  it("names entities logged without a label from the diff or meta (S-12)", () => {
+    const moved = entry({ action: "move", label: null, changes: { sprintId: { from: null, to: "s1" } }, meta: { displayId: 12 } })
+    expect(full(feedSentence(moved, "p1", en, "en"))).toBe("Alice moved PBI “#12”")
+    const renamed = entry({ entityType: "sprint", action: "update", label: null, changes: { sprintName: { from: "Old", to: "New\nsecond" } } })
+    expect(feedSentence(renamed, "p1", ja, "ja").entity).toBe(`${ja.dashboardFeedEntitySprint}「New」`)
+    const deleted = entry({ entityType: "sprint_task", action: "delete", label: "  ", changes: { taskName: { from: "Docs", to: null } } })
+    expect(feedSentence(deleted, "p1", en, "en").entity).toBe(`${en.dashboardFeedEntitySprintTask} “Docs”`)
+    expect(feedSentence(entry({ label: null, meta: { entityLabel: "From meta" } }), "p1", en, "en").entity).toBe("PBI “From meta”")
+    expect(entityLabel({ entityType: "pbi", label: null, changes: { status: { changed: true } }, meta: null })).toBeNull()
   })
 })
 

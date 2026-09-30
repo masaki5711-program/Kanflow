@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef } from "react"
 import { usePathname, useSearchParams } from "next/navigation"
-import { filtersToParams, parseFilters, withPbiParam, type BacklogFilters } from "./url-state"
+import { filtersToParams, parseFilters, pbiTabOf, withPbiParam, type BacklogFilters } from "./url-state"
 
 function href(pathname: string, params: URLSearchParams): string {
   const qs = params.toString()
@@ -13,6 +13,8 @@ export interface BacklogUrlState {
   filters: BacklogFilters
   /** Raw `?pbi=` value (id or displayId), or null. */
   pbiRef: string | null
+  /** `?tab=comments`: the modal opens on its Comments tab. */
+  pbiTab: "comments" | null
   /** Replace filter values in the URL (no new history entry). */
   setFilters: (patch: Partial<BacklogFilters>) => void
   /** Open a PBI: a new history entry, so Back closes the modal. */
@@ -31,6 +33,7 @@ export function useBacklogUrlState(): BacklogUrlState {
   const searchParams = useSearchParams()
   const filters = useMemo(() => parseFilters(searchParams), [searchParams])
   const pbiRef = searchParams.get("pbi")
+  const pbiTab = pbiTabOf(searchParams)
   // True while the open modal was opened by openPbi (its history entry is ours to pop).
   const pushedRef = useRef(false)
 
@@ -70,5 +73,5 @@ export function useBacklogUrlState(): BacklogUrlState {
     window.history.replaceState(null, "", href(pathname, withPbiParam(current(), null)))
   }, [pathname, current])
 
-  return { filters, pbiRef, setFilters, openPbi, closePbi }
+  return { filters, pbiRef, pbiTab, setFilters, openPbi, closePbi }
 }

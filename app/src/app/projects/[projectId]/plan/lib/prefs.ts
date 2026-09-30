@@ -1,22 +1,30 @@
 /**
- * Per-viewer plan preferences in localStorage (collapsed rows, grid columns).
- * Every access is guarded: private mode / blocked storage just means defaults.
+ * Per-viewer plan preferences in localStorage (collapsed rows, grid columns,
+ * name column width). Every access is guarded: private mode / blocked storage
+ * just means defaults.
  */
-export type PlanColumn = "start" | "end" | "duration" | "progress" | "owner" | "status"
-export const PLAN_COLUMNS: readonly PlanColumn[] = ["start", "end", "duration", "progress", "owner", "status"]
+export type PlanColumn = "period" | "start" | "end" | "duration" | "progress" | "owner" | "status"
+/** Canonical column order (the grid always shows visible columns in this order). */
+export const PLAN_COLUMNS: readonly PlanColumn[] = ["period", "start", "end", "duration", "progress", "owner", "status"]
+/** Shown until the viewer picks columns: compact period + progress keep the timeline wide. */
+export const DEFAULT_COLUMNS: readonly PlanColumn[] = ["period", "progress"]
 
 export interface PlanPrefs {
   collapsed: string[]
-  hiddenColumns: PlanColumn[]
+  /** Visible grid columns (null = DEFAULT_COLUMNS). */
+  columns: PlanColumn[] | null
   /** Grid collapsed to the name column only (null = decide by viewport width). */
   gridCollapsed: boolean | null
+  /** Name column width in px set with the splitter (null = default). */
+  nameWidth: number | null
 }
 
-export const DEFAULT_PREFS: PlanPrefs = Object.freeze({ collapsed: [], hiddenColumns: [], gridCollapsed: null }) as PlanPrefs
+export const DEFAULT_PREFS: PlanPrefs = Object.freeze({ collapsed: [], columns: null, gridCollapsed: null, nameWidth: null }) as PlanPrefs
 
 export const prefsKey = (projectId: string) => `kanflow:plan:${projectId}`
 
 const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [])
+const isColumn = (c: string): c is PlanColumn => (PLAN_COLUMNS as readonly string[]).includes(c)
 
 export function parsePrefs(raw: string | null): PlanPrefs {
   if (!raw) return DEFAULT_PREFS
@@ -24,12 +32,25 @@ export function parsePrefs(raw: string | null): PlanPrefs {
     const obj = JSON.parse(raw) as Record<string, unknown>
     return {
       collapsed: strings(obj.collapsed),
-      hiddenColumns: strings(obj.hiddenColumns).filter((c): c is PlanColumn => (PLAN_COLUMNS as readonly string[]).includes(c)),
+      // The pre-2026-10 `hiddenColumns` key is ignored on purpose: the new compact default applies.
+      columns: Array.isArray(obj.columns) ? [...new Set(strings(obj.columns).filter(isColumn))] : null,
       gridCollapsed: typeof obj.gridCollapsed === "boolean" ? obj.gridCollapsed : null,
+      nameWidth: typeof obj.nameWidth === "number" && Number.isFinite(obj.nameWidth) ? Math.round(obj.nameWidth) : null,
     }
   } catch {
     return DEFAULT_PREFS
   }
+}
+
+/** The visible columns a preference selects (defaults when unset). */
+export function shownColumns(prefs: Pick<PlanPrefs, "columns">): readonly PlanColumn[] {
+  return prefs.columns ?? DEFAULT_COLUMNS
+}
+
+/** Toggle one column on / off (result in canonical order). */
+export function toggleColumnIn(shown: readonly PlanColumn[], col: PlanColumn): PlanColumn[] {
+  const next = shown.includes(col) ? shown.filter((c) => c !== col) : [...shown, col]
+  return PLAN_COLUMNS.filter((c) => next.includes(c))
 }
 
 /** Fallback used only while storage is blocked: preferences still work for this page session. */

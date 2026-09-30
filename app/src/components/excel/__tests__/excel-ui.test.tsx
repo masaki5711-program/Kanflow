@@ -78,6 +78,13 @@ describe("BacklogExcelActions", () => {
     expect(screen.getByRole("dialog", { name: t.excelImportTitle })).toBeInTheDocument()
     expect(screen.getByRole("link", { name: t.excelImportTemplate })).toHaveAttribute("href", "/api/projects/p1/backlog/import/template?lang=en")
   })
+
+  it("exports with the page's filters and says so in the tooltip (F-09)", () => {
+    renderWithProviders(<BacklogExcelActions projectId="p1" canImport={false} onImported={vi.fn()} filters={{ status: "ready", q: "login" }} />)
+    const link = screen.getByRole("link", { name: t.excelExport })
+    expect(link).toHaveAttribute("href", "/api/projects/p1/backlog/export?lang=en&status=ready&q=login")
+    expect(link).toHaveAttribute("title", t.backlogExportFilteredHint)
+  })
 })
 
 describe("BacklogImportDialog", () => {
@@ -143,6 +150,8 @@ describe("message helpers", () => {
   it("localizes row errors with the workbook's column names", () => {
     expect(rowErrorText({ code: "TOO_LONG", field: "initiative" }, t, pt)).toBe(`"${pt.backlogInitiative}" is too long`)
     expect(rowErrorText({ code: "INVALID_STATUS", field: "status", value: "doing" }, t, pt)).toContain('"doing"')
+    // The points error names the column as the workbook header does (project-type wording, F-13).
+    expect(rowErrorText({ code: "INVALID_POINTS", field: "workloadScore", value: "-1" }, t, pt)).toBe(`${pt.backlogWorkloadScore} "-1" must be a whole number of 0 or more`)
   })
 
   it("maps upload reasons and falls back to the API message", () => {

@@ -105,10 +105,11 @@ export const rowTint: Record<string, string> = {
   pink: "border-l-4 border-l-pink-400",
 }
 
+/** Member chips on project cards: kit tokens, AA contrast (≥ 6:1) at caption size. */
 export const roleStyle: Record<string, string> = {
-  po: "bg-amber-50 text-amber-800 ring-amber-200",
-  sm: "bg-emerald-50 text-emerald-800 ring-emerald-200",
-  dev: "bg-slate-50 text-slate-700 ring-slate-200",
+  po: "bg-warning-soft text-warning-strong ring-warning/30",
+  sm: "bg-success-soft text-success-strong ring-success/30",
+  dev: "bg-surface-sunken text-fg-muted ring-border",
 }
 export const roleLabel: Record<string, string> = { po: "PO", sm: "SM", dev: "Dev" }
 

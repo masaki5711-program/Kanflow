@@ -24,6 +24,10 @@ export interface ApiErrorsTranslations {
   apiErrUpstreamFailed: string
   apiErrServiceUnavailable: string
   apiErrVersionConflict: string
+  apiErrVersionConflictReenter: string
+  apiErrVersionConflictYourInput: string
+  apiErrVersionConflictRestore: string
+  apiErrVersionConflictEmpty: string
   apiErrAdminRequired: string
   apiErrWrongPassword: string
   apiErrPasswordTooShort: string
@@ -45,6 +49,7 @@ export interface ApiErrorsTranslations {
   apiErrProductGoalNotFound: string
   apiErrReleaseNoPbi: string
   apiErrProjectInTrash: string
+  apiErrPbiContentRequired: string
   apiErrSprintNotFound: string
   apiErrSprintActiveExists: string
   apiErrPlanItemNotFound: string
@@ -118,6 +123,7 @@ export const API_ERROR_MESSAGE_KEYS: Readonly<Record<ApiErrorCode, ApiErrorMessa
   PRODUCT_GOAL_NOT_FOUND: "apiErrProductGoalNotFound",
   RELEASE_NO_PBI: "apiErrReleaseNoPbi",
   PROJECT_IN_TRASH: "apiErrProjectInTrash",
+  PBI_CONTENT_REQUIRED: "apiErrPbiContentRequired",
   SPRINT_NOT_FOUND: "apiErrSprintNotFound",
   SPRINT_ACTIVE_EXISTS: "apiErrSprintActiveExists",
   PLAN_ITEM_NOT_FOUND: "apiErrPlanItemNotFound",
@@ -173,6 +179,10 @@ export const ja: ApiErrorsTranslations = {
   apiErrUpstreamFailed: "外部サービスとの通信に失敗しました",
   apiErrServiceUnavailable: "サービスが一時的に利用できません",
   apiErrVersionConflict: "他のユーザーが先に更新しました。最新の内容を読み込みました",
+  apiErrVersionConflictReenter: "他のユーザーが先に更新したため、最新の内容に更新しました。変更を再入力してください",
+  apiErrVersionConflictYourInput: "保存されなかったあなたの入力",
+  apiErrVersionConflictRestore: "自分の入力に戻す",
+  apiErrVersionConflictEmpty: "（空欄）",
   apiErrAdminRequired: "管理者権限が必要です",
   apiErrWrongPassword: "現在のパスワードが間違っています",
   apiErrPasswordTooShort: "パスワードは 6〜200 文字で入力してください",
@@ -194,6 +204,7 @@ export const ja: ApiErrorsTranslations = {
   apiErrProductGoalNotFound: "プロダクトゴールが見つかりません",
   apiErrReleaseNoPbi: "該当するPBIがありません",
   apiErrProjectInTrash: "プロジェクトがゴミ箱にあります。先にプロジェクトを復元してください",
+  apiErrPbiContentRequired: "ユーザーストーリーかイニシアティブを入力してください",
   apiErrSprintNotFound: "スプリントが見つかりません",
   apiErrSprintActiveExists: "進行中または計画中のスプリントが既にあります",
   apiErrPlanItemNotFound: "対象の項目が見つかりません",
@@ -243,6 +254,10 @@ export const en: ApiErrorsTranslations = {
   apiErrUpstreamFailed: "Communication with an external service failed",
   apiErrServiceUnavailable: "The service is temporarily unavailable",
   apiErrVersionConflict: "Someone else updated this first. The latest version has been loaded",
+  apiErrVersionConflictReenter: "Someone else saved first, so the latest version was loaded. Please enter your changes again",
+  apiErrVersionConflictYourInput: "Your unsaved input",
+  apiErrVersionConflictRestore: "Restore my input",
+  apiErrVersionConflictEmpty: "(empty)",
   apiErrAdminRequired: "Administrator permission is required",
   apiErrWrongPassword: "The current password is incorrect",
   apiErrPasswordTooShort: "The password must be 6-200 characters",
@@ -264,6 +279,7 @@ export const en: ApiErrorsTranslations = {
   apiErrProductGoalNotFound: "Product goal not found",
   apiErrReleaseNoPbi: "No matching PBIs",
   apiErrProjectInTrash: "The project is in the trash. Restore the project first",
+  apiErrPbiContentRequired: "Enter a user story or an initiative",
   apiErrSprintNotFound: "Sprint not found",
   apiErrSprintActiveExists: "An active or planned sprint already exists",
   apiErrPlanItemNotFound: "Some items were not found",
@@ -313,6 +329,10 @@ export const id: ApiErrorsTranslations = {
   apiErrUpstreamFailed: "Komunikasi dengan layanan eksternal gagal",
   apiErrServiceUnavailable: "Layanan sementara tidak tersedia",
   apiErrVersionConflict: "Pengguna lain sudah memperbarui lebih dulu. Versi terbaru telah dimuat",
+  apiErrVersionConflictReenter: "Pengguna lain menyimpan lebih dulu, jadi versi terbaru dimuat. Masukkan kembali perubahan Anda",
+  apiErrVersionConflictYourInput: "Masukan Anda yang belum tersimpan",
+  apiErrVersionConflictRestore: "Pulihkan masukan saya",
+  apiErrVersionConflictEmpty: "(kosong)",
   apiErrAdminRequired: "Diperlukan hak akses administrator",
   apiErrWrongPassword: "Kata sandi saat ini salah",
   apiErrPasswordTooShort: "Kata sandi harus 6-200 karakter",
@@ -334,6 +354,7 @@ export const id: ApiErrorsTranslations = {
   apiErrProductGoalNotFound: "Tujuan produk tidak ditemukan",
   apiErrReleaseNoPbi: "Tidak ada PBI yang sesuai",
   apiErrProjectInTrash: "Proyek ada di tempat sampah. Pulihkan proyek terlebih dahulu",
+  apiErrPbiContentRequired: "Isi user story atau inisiatif",
   apiErrSprintNotFound: "Sprint tidak ditemukan",
   apiErrSprintActiveExists: "Sudah ada Sprint yang sedang berjalan atau direncanakan",
   apiErrPlanItemNotFound: "Beberapa item tidak ditemukan",

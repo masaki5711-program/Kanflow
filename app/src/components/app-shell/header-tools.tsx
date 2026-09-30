@@ -13,6 +13,13 @@ import { ShortcutsHelp } from "@/components/shortcuts/shortcuts-help"
 type Overlay = "search" | "help" | null
 
 /**
+ * Icon-only round button below `xl` (so the bar fits a phone and a crowded
+ * admin header); the "Search" label appears from `xl`, the Ctrl K hint from `2xl`.
+ */
+export const SEARCH_BUTTON_CLASS =
+  "inline-flex h-9 min-w-9 shrink-0 items-center justify-center gap-2 rounded-full border border-border px-2 text-body text-fg-muted transition-colors hover:bg-surface-muted hover:text-fg xl:px-3"
+
+/**
  * Signed-in header tools: search button (+ palette), notification bell, and
  * the global keyboard shortcuts (`?`, `/`, Ctrl+K / ⌘K, `g` sequences).
  * The current project comes from the URL, so it works on every page.
@@ -40,13 +47,13 @@ export function HeaderTools() {
         title={t.searchButtonHint}
         aria-label={t.searchButton}
         aria-keyshortcuts="Control+K Meta+K /"
-        className="inline-flex min-h-9 items-center gap-2 rounded-full border border-border px-3 py-1.5 text-body text-fg-muted transition-colors hover:bg-surface-muted hover:text-fg"
+        className={SEARCH_BUTTON_CLASS}
       >
         <Search aria-hidden className="h-4 w-4" />
-        <span aria-hidden="true" className="hidden lg:inline">
+        <span aria-hidden="true" className="hidden xl:inline">
           {t.searchButton}
         </span>
-        <kbd aria-hidden="true" className="hidden rounded-ui-sm bg-surface-sunken px-1.5 font-mono text-caption text-fg-muted xl:inline">
+        <kbd aria-hidden="true" className="hidden rounded-ui-sm bg-surface-sunken px-1.5 font-mono text-caption text-fg-muted 2xl:inline">
           Ctrl K
         </kbd>
       </button>

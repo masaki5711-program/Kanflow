@@ -33,6 +33,8 @@ interface DashboardContentProps {
   sprintCount: number
   projectProgressPct: number
   currentUserRole: string
+  /** goal.write from the authz policy (the API enforces the same rule). */
+  canEditGoals?: boolean
   activeSprint: ActiveSprint | null
   /** My open tasks in this project's planning / active sprints. */
   myTasks?: DashboardMyTask[]
@@ -59,6 +61,7 @@ export function DashboardContent({
   sprintCount,
   projectProgressPct,
   currentUserRole,
+  canEditGoals = false,
   activeSprint,
   myTasks = [],
   upcomingDue = [],
@@ -106,7 +109,7 @@ export function DashboardContent({
         <aside className="space-y-4 lg:col-span-4" aria-label={projectName}>
           <OverviewCards projectId={projectId} iceboxCount={iceboxCount} backlogCount={backlogCount} sprintCount={sprintCount} />
           <div className="rounded-ui-lg border border-border bg-surface p-4 shadow-ui-sm">
-            <ProductGoals projectId={projectId} initialGoals={productGoals} />
+            <ProductGoals projectId={projectId} initialGoals={productGoals} canEdit={canEditGoals} />
           </div>
         </aside>
       </div>

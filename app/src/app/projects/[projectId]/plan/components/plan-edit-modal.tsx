@@ -1,7 +1,8 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react"
 import { Button, Modal, useModalClose, useToast } from "@/components/ui"
+import { lostEdits, reapplyEdits } from "@/hooks/version-conflict"
 import { useLanguage } from "@/lib/language-context"
 import {
   buildCreateInput,
@@ -17,6 +18,7 @@ import {
 import type { PlanDependency, PlanDraft, PlanItem, PlanItemInput, PlanItemPatch } from "../lib/plan-types"
 import { descendantIds } from "../lib/tree"
 import { usePlanLinks } from "../hooks/use-plan-links"
+import { PlanConflictNotice, type PlanLostEdit } from "./plan-conflict-notice"
 import { PlanDependencySection } from "./plan-dependency-section"
 import { PlanEditFields } from "./plan-edit-fields"
 import { PlanLinkSection } from "./plan-link-section"
@@ -35,7 +37,8 @@ interface Props {
   nameOf: (item: PlanItem) => string
   onClose: () => void
   onCreate: (input: PlanItemInput) => Promise<boolean>
-  onSave: (item: PlanItem, patch: PlanItemPatch) => Promise<boolean>
+  /** PATCH; `onConflict` receives the server's copy on a 409 (the form reloads from it). */
+  onSave: (item: PlanItem, patch: PlanItemPatch, onConflict: (current: PlanItem | null) => void) => Promise<boolean>
   /** Confirms and deletes; resolves true when the item was removed. */
   onDelete: (item: PlanItem) => Promise<boolean>
   onRemoveDependency: (id: string) => void
@@ -58,6 +61,12 @@ function Footer({ saving, readOnly, onDelete }: { saving: boolean; readOnly: boo
       {!readOnly && <Button type="submit" form={FORM_ID} loading={saving}>{t.save}</Button>}
     </>
   )
+}
+
+/** The newer of the loaded item and the copy a 409 returned. */
+function pickBase(loaded: PlanItem | null, fromConflict: PlanItem | null): PlanItem | null {
+  if (!loaded || !fromConflict || fromConflict.id !== loaded.id) return loaded
+  return (fromConflict.version ?? 0) > (loaded.version ?? 0) ? fromConflict : loaded
 }
 
 /** Parent choices: every item except the edited one, its subtree and milestones, in tree order. */
@@ -86,17 +95,49 @@ export default function PlanEditModal(props: Props) {
   const { target, readOnly, nameOf } = props
   const { t } = useLanguage()
   const toast = useToast()
-  const item = target.kind === "edit" ? target.item : null
-  const [initial] = useState<PlanForm>(() => (item ? formFromItem(item) : formFromDraft((target as { draft: PlanDraft }).draft)))
+  const loaded = target.kind === "edit" ? target.item : null
+  // After a 409 the server's copy (newer version) is the base of the next save.
+  const [conflictItem, setConflictItem] = useState<PlanItem | null>(null)
+  const item = pickBase(loaded, conflictItem)
+  const [initial, setInitial] = useState<PlanForm>(() => (loaded ? formFromItem(loaded) : formFromDraft((target as { draft: PlanDraft }).draft)))
   const [form, setForm] = useState<PlanForm>(initial)
   const [errors, setErrors] = useState<Partial<Record<FormErrorKey, true>>>({})
   const [saving, setSaving] = useState(false)
-  const flags = derivedFlags(item, form)
+  // After a 409: the edits the reload replaced (shown with a "restore my input" action).
+  const [lost, setLost] = useState<readonly PlanLostEdit[] | null>(null)
+  // A 409 without a body copy: reload the form once the refetched item (new version) arrives.
+  const [reloadAfter, setReloadAfter] = useState<number | null>(null)
   const canLink = !!item && !item.hasChildren && !form.isMilestone
   const links = usePlanLinks(props.apiBase, item?.id ?? null, canLink)
+  const linkedCount = canLink && !links.isLoading ? links.selectedIds.length : (item?.linked?.pbiCount ?? 0)
+  const flags = derivedFlags(item, form, linkedCount)
   const isDirty = !readOnly && (!isSameForm(form, initial) || links.isDirty)
   const byId = useMemo(() => new Map(props.items.map((i) => [i.id, i])), [props.items])
   const parents = useMemo(() => parentChoices(props.items, item?.id ?? null, nameOf), [props.items, item?.id, nameOf])
+
+  const reloadForm = useCallback((fresh: PlanItem) => {
+    const next = formFromItem(fresh)
+    setInitial(next)
+    setForm(next)
+    setErrors({})
+  }, [])
+
+  useEffect(() => {
+    if (reloadAfter === null || !loaded || (loaded.version ?? 0) <= reloadAfter) return
+    setReloadAfter(null)
+    reloadForm(loaded)
+  }, [loaded, reloadAfter, reloadForm])
+
+  const onConflict = (current: PlanItem | null) => {
+    // Unknown latest (refetching): every edit stays listed so nothing is lost.
+    setLost(lostEdits(initial, form, current ? formFromItem(current) : initial))
+    if (current) {
+      setConflictItem(current)
+      reloadForm(current)
+    } else if (item) {
+      setReloadAfter(item.version ?? 0)
+    }
+  }
 
   const linkRef = useRef<HTMLElement>(null)
   const focusLinks = target.kind === "edit" && target.focusLinks
@@ -123,8 +164,8 @@ export default function PlanEditModal(props: Props) {
         if (await props.onCreate(buildCreateInput(form))) props.onClose()
         return
       }
-      const patch = buildPatch(item, form)
-      if (Object.keys(patch).length > 0 && !(await props.onSave(item, patch))) return
+      const patch = buildPatch(item, form, linkedCount)
+      if (Object.keys(patch).length > 0 && !(await props.onSave(item, patch, onConflict))) return
       if (canLink && links.isDirty) {
         try {
           await links.save()
@@ -157,6 +198,18 @@ export default function PlanEditModal(props: Props) {
       footer={<Footer saving={saving} readOnly={readOnly} onDelete={item && !readOnly ? () => void handleDelete() : undefined} />}
     >
       <form id={FORM_ID} noValidate onSubmit={handleSubmit} className="space-y-5">
+        {lost && (
+          <PlanConflictNotice
+            lost={lost}
+            members={props.members}
+            parentOptions={parents}
+            onRestore={() => {
+              setForm((f) => reapplyEdits(f, lost))
+              setLost(null)
+            }}
+            onDismiss={() => setLost(null)}
+          />
+        )}
         <fieldset disabled={readOnly} className="min-w-0">
           <PlanEditFields form={form} set={set} flags={flags} item={item} parentOptions={parents} members={props.members} errors={errors} />
         </fieldset>

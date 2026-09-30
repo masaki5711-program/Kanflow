@@ -77,6 +77,30 @@ describe("activity.service pages", () => {
   })
 })
 
+describe("withEntityLabels", () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it("looks up names of entries logged without a label, once per type", async () => {
+    vi.mocked(repo.findEntityLabelRows).mockResolvedValue({
+      pbis: [{ id: "b1", displayId: 12, initiative: "Login", userStory: "As a user" }, { id: "b2", displayId: 13, initiative: null, userStory: "" }],
+      tasks: [{ id: "t1", taskName: "Write docs" }],
+      sprints: [],
+      planItems: [],
+    } as never)
+    const bare = (id: string, entityType: string, entityId: string) => svc.toActivityDto(row(id, { entityType, entityId, action: "move", diff: null }))
+    const items = [bare("a", "pbi", "b1"), bare("b", "pbi", "b1"), bare("c", "pbi", "b2"), bare("d", "sprint_task", "t1"), bare("e", "sprint", "gone"), svc.toActivityDto(row("f"))]
+    const out = await svc.withEntityLabels("p1", items)
+    expect(out.map((i) => i.label)).toEqual(["Login", "Login", "#13", "Write docs", null, "Story"])
+    expect(repo.findEntityLabelRows).toHaveBeenCalledWith(DEFAULT_DB, "p1", { pbi: ["b1", "b2"], sprint_task: ["t1"], sprint: ["gone"], plan_item: [] })
+  })
+
+  it("skips the lookup when every entry has a label", async () => {
+    const items = [svc.toActivityDto(row("a"))]
+    expect(await svc.withEntityLabels("p1", items)).toEqual(items)
+    expect(repo.findEntityLabelRows).not.toHaveBeenCalled()
+  })
+})
+
 describe("activity.repository", () => {
   const cursor = encodeCursor({ createdAt: AT, id: "x" })
   const keyset = { OR: [{ createdAt: { lt: AT } }, { createdAt: AT, id: { lt: "x" } }] }

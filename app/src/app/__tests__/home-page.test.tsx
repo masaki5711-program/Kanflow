@@ -28,7 +28,7 @@ vi.mock("../top-page", () => ({
   },
 }))
 
-const { default: HomePage } = await import("../page")
+const { default: HomePage } = await import("../(home)/page")
 
 const rawProject = (id: string, fav: boolean) => ({
   id,

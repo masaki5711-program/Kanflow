@@ -55,7 +55,7 @@ Errors: `{ "error": "<message>", "code": "<CODE>" }`
 | Status | code | When |
 |---|---|---|
 | 400 | `VALIDATION` | Bad query parameter (unknown `status`, `limit` out of range, malformed `cursor`) |
-| 401 | `UNAUTHORIZED` | Missing / malformed / unknown / revoked / expired token, or the owner is deactivated or had their sessions revoked. Always the same body; `WWW-Authenticate: Bearer` |
+| 401 | `UNAUTHORIZED` | Missing / malformed / unknown / revoked / expired token, or the owner is deactivated or had their sessions revoked. Always the same body; `WWW-Authenticate: Bearer realm="kanflow"` |
 | 403 | `FORBIDDEN` | The API is disabled (`API_TOKENS_ENABLED=off`), or the token lacks the `read` scope |
 | 404 | `NOT_FOUND` / `SPRINT_NOT_FOUND` | The project does not exist, is in the trash, or the token owner has no access to it (existence is not revealed); unknown sprint of the project |
 | 429 | `RATE_LIMITED` | Rate limit exceeded; see `Retry-After` |
@@ -100,14 +100,14 @@ All `GET`. `:projectId` / `:sprintId` are the ids returned by the list endpoints
 | Endpoint | Returns | Query |
 |---|---|---|
 | `/api/v1/me` | The token owner: `id, name, email, role, language, department` | |
-| `/api/v1/projects` | Projects the owner can access (admin: all; section manager: member projects + projects of their sections; others: member projects). Trashed projects never appear | `status=active` (default) \| `archived` |
-| `/api/v1/projects/:projectId` | Project + `sections[] {id,name}` + `members[] {userId,name,role}` | |
+| `/api/v1/projects` | Projects the owner can access (admin: all; section manager: member projects + projects of their sections; others: member projects), most recently updated first, at most 1000 (not paginated). Trashed projects never appear. Fields: `id, name, description, status, projectType, progressPct, pointUnit, language, sprintDurationDays, createdAt, updatedAt` | `status=active` (default) \| `archived` |
+| `/api/v1/projects/:projectId` | The same project fields as the list, plus `sections[] {id,name}` and `members[] {userId,name,role}` | |
 | `/api/v1/projects/:projectId/backlog` | PBIs (not trashed), oldest first: `id, displayId, status, initiative, epic, userStory, acceptanceCriteria, workloadScore, assignedPo, sortOrder, productGoalId, planItemId, completedAt, createdAt, updatedAt`. Paginated | `status=ready\|not_ready\|completed`, `limit`, `cursor` |
 | `/api/v1/projects/:projectId/sprints` | Sprints, newest first: `id, name, status, startDate, endDate, sprintGoal, capacity, actualScore, createdAt, updatedAt` | |
 | `/api/v1/projects/:projectId/sprints/:sprintId/tasks` | Tasks of the sprint (tasks of trashed PBIs hidden): `id, taskName, status, estimatedHours, actualHours, completedAt, pbi {id, displayId}, assignees [{id, name}], createdAt, updatedAt` | |
 | `/api/v1/projects/:projectId/plan` | Master-plan items (not trashed), flat — build the tree from `parentId`: `id, parentId, name, status, progressPct, plannedStart, plannedEnd, actualStart, actualEnd, isMilestone, sortOrder, createdAt, updatedAt` | |
 | `/api/v1/projects/:projectId/releases` | Release items: `id, planVersion, releaseVersion, releaseDate, status, initiative, epic, userStory, pbi {id, displayId} \| null` (null when the source PBI is trashed), `createdAt, updatedAt` | |
-| `/api/v1/projects/:projectId/activity` | Change history, newest first (same entries as the dashboard feed): `id, entityType, entityId, action, actor {id,name}, changes, label, meta, createdAt`. Paginated | `entityType` (project, pbi, sprint, sprint_task, icebox, ...), `limit`, `cursor` |
+| `/api/v1/projects/:projectId/activity` | Change history, newest first (same entries as the dashboard feed): `id, projectId, entityType, entityId, action, actor {id,name} \| null, changes, label, meta, createdAt`. Paginated | `entityType` (project, pbi, sprint, sprint_task, icebox, ...), `limit`, `cursor` |
 
 Free-text fields are returned as stored (original language); translations are
 not part of v1.

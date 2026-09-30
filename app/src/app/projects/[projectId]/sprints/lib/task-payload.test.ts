@@ -8,6 +8,7 @@ import {
   EMPTY_TASK_FORM,
   isTaskFormDirty,
   needsRetroDialog,
+  taskFormFromConflict,
   taskFormFromItem,
 } from "./task-payload"
 import type { Member, SprintItem } from "../components/types"
@@ -87,5 +88,19 @@ describe("task payload builders", () => {
     expect(needsRetroDialog("review")).toBe(true)
     expect(needsRetroDialog("done")).toBe(true)
     expect(needsRetroDialog("active")).toBe(false)
+  })
+})
+
+describe("taskFormFromConflict", () => {
+  it("builds the form from the server's row, keeping the loaded PBI when the row has none", () => {
+    const loaded = taskWith({ taskName: "Mine", estimatedHours: 1 })
+    const current = { taskName: "Theirs", estimatedHours: 3, assignees: [{ id: "u2", name: "Bob" }], version: 9 }
+    expect(taskFormFromConflict(loaded, current as Partial<SprintItem>, MEMBERS)).toMatchObject({
+      pbItemId: "pb1", taskName: "Theirs", estimatedHours: "3", assigneeIds: ["u2"], loadedAssigneeIds: ["u2"],
+    })
+  })
+
+  it("returns null without a current row", () => {
+    expect(taskFormFromConflict(taskWith({}), null)).toBeNull()
   })
 })

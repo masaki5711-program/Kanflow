@@ -6,6 +6,7 @@ import { AIResultModal } from "@/components/ai-result-modal"
 import { GlossaryHint, I18nText } from "@/components/i18n-text"
 import { Badge, Button, Field, Modal, Textarea } from "@/components/ui"
 import ModalCancelButton from "./modal-cancel-button"
+import SprintCompletionSummary from "./sprint-completion-summary"
 import type { RetroFields, Sprint, StatusDialogState } from "./types"
 
 type KptField = "retrospectiveKeep" | "retrospectiveProblem" | "retrospectiveTry"
@@ -89,6 +90,8 @@ export default function SprintStatusDialog({ projectId, sprint, initial, onSubmi
           </>
         }>
         <div className="space-y-6">
+          {initial.nextStatus === "done" && !isEditOnly && sprint && <SprintCompletionSummary items={sprint.items} />}
+
           {hasLegacyReview && (
             <div className="bg-warning-soft border border-warning/30 rounded-ui-md px-4 py-3">
               <p className="text-caption font-semibold text-warning mb-1">

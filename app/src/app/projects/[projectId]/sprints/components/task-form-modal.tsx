@@ -6,7 +6,7 @@ import { GlossaryHint } from "@/components/i18n-text"
 import { pickText } from "@/lib/translation/pick-text"
 import { Button, Field, Input, Modal, Select } from "@/components/ui"
 import { usePbiDetail } from "../hooks/use-pbi-detail"
-import { EMPTY_TASK_FORM, isTaskFormDirty, taskFormFromItem } from "../lib/task-payload"
+import { EMPTY_TASK_FORM, isTaskFormDirty, taskFormFromConflict, taskFormFromItem } from "../lib/task-payload"
 import FixedTaskBulkAdd from "./fixed-task-bulk-add"
 import ModalCancelButton from "./modal-cancel-button"
 import TaskAssigneePicker from "./task-assignee-picker"
@@ -21,10 +21,12 @@ interface TaskFormModalProps {
   /** Pre-selected PBI when adding from a PBI group. */
   initialPbItemId?: string
   members: Member[]
-  pointUnit: string
   canEditPbi?: boolean
-  /** Resolves true when saved (errors are toasted by the caller). */
-  onSave: (form: TaskFormState) => Promise<boolean>
+  /**
+   * Resolves true when saved (errors are toasted by the caller). On a 409
+   * version conflict the caller hands the server's row to `onConflict`.
+   */
+  onSave: (form: TaskFormState, onConflict: (current: SprintItem | null) => void) => Promise<boolean>
   onBulkAdd?: (pbItemId: string, assigneeIds: string[], taskNames: string[]) => Promise<boolean>
   onPbiSaved?: () => void
   onClose: () => void
@@ -33,16 +35,18 @@ interface TaskFormModalProps {
 const FORM_ID = "sprint-task-form"
 
 export default function TaskFormModal({
-  projectId, sprint, task, initialPbItemId, members, pointUnit, canEditPbi = false,
+  projectId, sprint, task, initialPbItemId, members, canEditPbi = false,
   onSave, onBulkAdd, onPbiSaved, onClose,
 }: TaskFormModalProps) {
   const { t, language } = useLanguage()
   const isEdit = task !== null
-  const [initial] = useState<TaskFormState>(() =>
+  const [initial, setInitial] = useState<TaskFormState>(() =>
     task ? taskFormFromItem(task, members) : { ...EMPTY_TASK_FORM, pbItemId: initialPbItemId ?? "" },
   )
   const [form, setForm] = useState<TaskFormState>(initial)
   const [saving, setSaving] = useState(false)
+  // Set after a 409: the form now shows the other user's values.
+  const [hasConflict, setHasConflict] = useState(false)
   const pbi = usePbiDetail(projectId, form.pbItemId, canEditPbi, onPbiSaved)
 
   const sprintPbItems: SprintPbItem[] = [...new Map(sprint.items.map((i) => [i.pbItem.id, i.pbItem])).values()]
@@ -66,10 +70,22 @@ export default function TaskFormModal({
     try {
       // Save PBI edits first so the task submit sees the latest PBI state.
       if (!(await pbi.saveIfDirty())) return
-      if (await onSave(form)) onClose()
+      if (await onSave(form, handleConflict)) onClose()
     } finally {
       setSaving(false)
     }
+  }
+
+  /** Someone else saved first: show their values so a second save cannot silently overwrite them. */
+  function handleConflict(current: SprintItem | null) {
+    const next = task ? taskFormFromConflict(task, current, members) : null
+    if (!next) {
+      onClose()
+      return
+    }
+    setInitial(next)
+    setForm(next)
+    setHasConflict(true)
   }
 
   async function handleBulkAdd(taskNames: string[]) {
@@ -92,6 +108,12 @@ export default function TaskFormModal({
       {!isEdit && !hasPbItems && (
         <p role="alert" className="bg-warning-soft border border-warning/30 rounded-ui-sm px-3 py-2 text-body text-warning-strong mb-4">
           {t.sprintTaskNeedsPbiFirst}
+        </p>
+      )}
+
+      {hasConflict && (
+        <p role="alert" className="bg-warning-soft border border-warning/30 rounded-ui-sm px-3 py-2 text-body text-warning-strong mb-4">
+          {t.sprintEditConflictNotice}
         </p>
       )}
 
@@ -121,14 +143,14 @@ export default function TaskFormModal({
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <TaskAssigneePicker members={members} value={form.assigneeIds} onChange={(assigneeIds) => setForm({ ...form, assigneeIds })} />
-          <Field label={`${t.sprintEstimatedHoursShort} (${pointUnit})`}>
+          <Field label={`${t.sprintEstimatedHoursShort} (${t.sprintHoursUnit})`}>
             <Input type="number" step="0.5" min="0" value={form.estimatedHours} placeholder={t.taskHoursPlaceholder}
               onChange={(e) => setForm({ ...form, estimatedHours: e.target.value })} />
           </Field>
         </div>
         {isEdit && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Field label={`${t.sprintActualHoursShort} (${pointUnit})`}>
+            <Field label={`${t.sprintActualHoursShort} (${t.sprintHoursUnit})`}>
               <Input type="number" step="0.5" min="0" value={form.actualHours}
                 onChange={(e) => setForm({ ...form, actualHours: e.target.value })} />
             </Field>

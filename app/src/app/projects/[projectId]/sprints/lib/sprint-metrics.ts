@@ -112,3 +112,21 @@ export function patchTask(sprints: readonly Sprint[], sprintId: string, taskId: 
 export function removeTask(sprints: readonly Sprint[], sprintId: string, taskId: string): Sprint[] {
   return sprints.map((s) => (s.id !== sprintId ? s : { ...s, items: s.items.filter((i) => i.id !== taskId) }))
 }
+
+export interface UnfinishedWork {
+  /** Real tasks that are not done. */
+  tasks: number
+  /** PBIs that are not complete (some real task open, or no task at all). */
+  pbis: number
+}
+
+/** What a sprint completion leaves unfinished (shown in the completion dialog). */
+export function unfinishedWork(items: readonly SprintItem[]): UnfinishedWork {
+  const groups = groupTasksByPb(items)
+  const pbis = groups.filter(({ tasks }) => {
+    const real = tasks.filter(isRealTask)
+    return real.length === 0 || real.some((i) => i.status !== "done")
+  }).length
+  const tasks = items.filter((i) => isRealTask(i) && i.status !== "done").length
+  return { tasks, pbis }
+}

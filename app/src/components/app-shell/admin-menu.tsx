@@ -6,29 +6,21 @@ import { usePathname } from "next/navigation"
 import { Activity, Building2, ChevronDown, KeyRound, Languages, ListChecks, ShieldCheck, Tags, Trash2, Users } from "lucide-react"
 import { useLanguage } from "@/lib/language-context"
 import { cn } from "@/components/ui"
+import type { Translations } from "@/lib/i18n"
+import { useAnchoredPopover } from "./anchored-popover"
 
-interface AdminLink {
+export interface AdminLink {
   href: string
   label: string
   Icon: typeof Users
 }
 
-/**
- * "管理" dropdown in the header (admin only). WAI-ARIA menu button:
- * Enter/Space/ArrowDown open and focus the first item, ArrowUp opens on the
- * last one, arrows/Home/End move, Esc closes and returns focus to the button,
- * Tab or an outside click closes.
- */
-export function AdminMenu() {
-  const { t } = useLanguage()
-  const pathname = usePathname()
-  const [open, setOpen] = useState(false)
-  const [focusIndex, setFocusIndex] = useState(0)
-  const buttonRef = useRef<HTMLButtonElement>(null)
-  const menuRef = useRef<HTMLUListElement>(null)
-  const menuId = useId()
+/** Preferred menu width (px, = w-60). */
+const MENU_WIDTH = 240
 
-  const links: AdminLink[] = [
+/** Admin destinations (header "管理" menu and the compact user menu). */
+export function adminLinks(t: Translations): AdminLink[] {
+  return [
     { href: "/admin/users", label: t.userManagementTitle, Icon: Users },
     { href: "/admin/sections", label: t.sectionAdminTitle, Icon: Building2 },
     { href: "/admin/categories", label: t.navCategoryAdmin, Icon: Tags },
@@ -38,6 +30,25 @@ export function AdminMenu() {
     { href: "/admin/api-tokens", label: t.apiTokenAdminMenu, Icon: KeyRound },
     { href: "/admin/metrics", label: t.metricsAdminMenu, Icon: Activity },
   ]
+}
+
+/**
+ * "管理" dropdown in the header (admin only). WAI-ARIA menu button:
+ * Enter/Space/ArrowDown open and focus the first item, ArrowUp opens on the
+ * last one, arrows/Home/End move, Esc closes and returns focus to the button,
+ * Tab or an outside click closes.
+ */
+export function AdminMenu({ className }: { className?: string } = {}) {
+  const { t } = useLanguage()
+  const pathname = usePathname()
+  const [open, setOpen] = useState(false)
+  const [focusIndex, setFocusIndex] = useState(0)
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  const menuRef = useRef<HTMLUListElement>(null)
+  const menuId = useId()
+  const menuStyle = useAnchoredPopover(buttonRef, open, MENU_WIDTH)
+
+  const links = adminLinks(t)
   const isAdminPage = pathname.startsWith("/admin")
 
   // Move DOM focus to the requested item whenever the menu is open.
@@ -110,7 +121,7 @@ export function AdminMenu() {
   }
 
   return (
-    <div className="relative">
+    <div className={cn("relative", className)}>
       <button
         ref={buttonRef}
         type="button"
@@ -125,8 +136,8 @@ export function AdminMenu() {
         )}
       >
         <ShieldCheck aria-hidden className="h-4 w-4" />
-        <span className="hidden md:inline">{t.navAdminMenu}</span>
-        <span className="sr-only md:hidden">{t.navAdminMenu}</span>
+        <span className="hidden xl:inline">{t.navAdminMenu}</span>
+        <span className="sr-only xl:hidden">{t.navAdminMenu}</span>
         <ChevronDown aria-hidden className={cn("h-4 w-4 transition-transform", open && "rotate-180")} />
       </button>
       {open && (
@@ -136,7 +147,8 @@ export function AdminMenu() {
           role="menu"
           aria-label={t.navAdminMenu}
           onKeyDown={onMenuKeyDown}
-          className="absolute right-0 z-50 mt-2 w-60 rounded-ui-md border border-border bg-surface py-1.5 shadow-ui-lg"
+          style={menuStyle}
+          className="fixed z-50 w-60 max-w-[calc(100vw-1rem)] rounded-ui-md border border-border bg-surface py-1.5 shadow-ui-lg"
         >
           {links.map(({ href, label, Icon }, index) => {
             const active = pathname === href || pathname.startsWith(`${href}/`)

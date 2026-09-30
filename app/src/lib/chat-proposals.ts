@@ -173,3 +173,33 @@ export function proposalFromToolResult(toolName: string, result: string): ChatPr
     return null
   }
 }
+
+// ── Proposal outcome (persisted with the stored thread) ─────────────────────
+
+/**
+ * What happened to a proposal, stored next to it in the thread (ChatMessage
+ * toolEvents) so a re-opened thread shows the card as applied / rejected
+ * instead of approvable again. `applying` is a short-lived reservation taken
+ * before the REST calls run (two-phase: reserve → create → confirm; release
+ * on failure) — a second approval of the same proposal gets 409 meanwhile.
+ */
+export const PROPOSAL_OUTCOME_STATUSES = ["applying", "applied", "rejected"] as const
+export type ProposalOutcomeStatus = (typeof PROPOSAL_OUTCOME_STATUSES)[number]
+
+export const proposalOutcomeSchema = z.object({
+  status: z.enum(PROPOSAL_OUTCOME_STATUSES),
+  /** Created PBI / first created task / changed target; null while applying or when rejected. */
+  appliedEntityId: id.nullable(),
+  /** ISO time of the last transition. */
+  at: z.string().max(40),
+  /** User id who made the transition. */
+  by: id,
+})
+
+export type ProposalOutcome = z.infer<typeof proposalOutcomeSchema>
+
+/** Validate an unknown value as an outcome (null when malformed). */
+export function parseProposalOutcome(value: unknown): ProposalOutcome | null {
+  const parsed = proposalOutcomeSchema.safeParse(value)
+  return parsed.success ? parsed.data : null
+}

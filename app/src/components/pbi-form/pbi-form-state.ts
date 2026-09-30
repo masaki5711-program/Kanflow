@@ -124,3 +124,11 @@ export function buildPbiCreateBody(form: PbiForm): Record<string, unknown> {
   body.status = form.status
   return body
 }
+
+/**
+ * A PBI needs the text the backlog list shows as its title: an initiative or
+ * a user story. Mirrors `hasPbiContent` of the create API (400 PBI_CONTENT_REQUIRED).
+ */
+export function hasPbiFormContent(form: Pick<PbiForm, "initiative" | "userStory">): boolean {
+  return !!(form.initiative.trim() || form.userStory.trim())
+}

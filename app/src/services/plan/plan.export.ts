@@ -1,10 +1,14 @@
 /**
  * GET /plan/export: the master plan as an .xlsx (exceljs). One row per live
  * item in tree order (WBS number + indented name), planned / baseline /
- * actual dates, progress, status, schedule state, owner and linked PBI counts.
+ * actual dates (real Excel dates), progress, status, schedule state, owner
+ * and linked PBI counts. Headers and values use the page's own wording
+ * (i18n plan domain) and names are shown in the export language like on screen.
  */
 import ExcelJS from "exceljs"
+import { getTranslations, type Translations } from "@/lib/i18n"
 import { tokyoDateKey, type ScheduleState } from "@/lib/plan-progress"
+import { pickText } from "@/lib/translation/pick-text"
 import type { PlanItemDto } from "./plan.dto"
 import * as repo from "./plan.repository"
 import type { ExportLang } from "./plan.schemas"
@@ -34,6 +38,9 @@ const COLUMNS = [
 ] as const
 type Column = (typeof COLUMNS)[number]
 
+const DATE_COLUMNS: ReadonlySet<Column> = new Set(["plannedStart", "plannedEnd", "baselineStart", "baselineEnd", "actualStart", "actualEnd"])
+const DATE_FORMAT = "yyyy-mm-dd"
+
 interface Labels {
   sheet: string
   columns: Record<Column, string>
@@ -43,46 +50,47 @@ interface Labels {
   yes: string
 }
 
-const LABELS: Record<ExportLang, Labels> = {
-  ja: {
-    sheet: "全体計画",
+/** Export wording = the screen's wording (plan i18n domain), so the sheet reads like the page. */
+export function exportLabels(t: Translations): Labels {
+  return {
+    sheet: t.planTitle,
     columns: {
-      wbs: "WBS", name: "項目", milestone: "マイルストーン", owner: "担当者", plannedStart: "計画開始", plannedEnd: "計画終了",
-      baselineStart: "ベースライン開始", baselineEnd: "ベースライン終了", varianceDays: "差異（日）", actualStart: "実績開始",
-      actualEnd: "実績終了", progress: "進捗（%）", status: "ステータス", schedule: "スケジュール", mode: "進捗の算出",
-      pbis: "PBI（完了/全体）", points: "ポイント（完了/全体）",
+      wbs: t.planExportWbs,
+      name: t.planColName,
+      milestone: t.planIsMilestone,
+      owner: t.planOwner,
+      plannedStart: t.planPlannedStart,
+      plannedEnd: t.planPlannedEnd,
+      baselineStart: t.planExportBaselineStart,
+      baselineEnd: t.planExportBaselineEnd,
+      varianceDays: t.planExportVariance,
+      actualStart: t.planActualStart,
+      actualEnd: t.planActualEnd,
+      progress: t.planProgressPct,
+      status: t.planStatus,
+      schedule: t.planExportSchedule,
+      mode: t.planProgressMode,
+      pbis: t.planExportPbis,
+      points: t.planExportPoints,
     },
-    status: { not_started: "未着手", in_progress: "進行中", done: "完了", on_hold: "保留" },
-    schedule: { done: "完了", delayed: "遅延", at_risk: "要注意", not_started: "未着手", on_track: "順調", on_hold: "保留" },
-    mode: { manual: "手動", linked: "PBI 連動" },
-    yes: "◆",
-  },
-  en: {
-    sheet: "Master plan",
-    columns: {
-      wbs: "WBS", name: "Item", milestone: "Milestone", owner: "Owner", plannedStart: "Planned start", plannedEnd: "Planned end",
-      baselineStart: "Baseline start", baselineEnd: "Baseline end", varianceDays: "Variance (days)", actualStart: "Actual start",
-      actualEnd: "Actual end", progress: "Progress (%)", status: "Status", schedule: "Schedule", mode: "Progress source",
-      pbis: "PBIs (done/total)", points: "Points (done/total)",
+    status: { not_started: t.planStatusNotStarted, in_progress: t.planStatusInProgress, done: t.planStatusDone, on_hold: t.planStatusOnHold },
+    schedule: {
+      done: t.planStatusDone,
+      delayed: t.planStatusDelayed,
+      at_risk: t.planScheduleAtRisk,
+      not_started: t.planStatusNotStarted,
+      on_track: t.planScheduleOnTrack,
+      on_hold: t.planStatusOnHold,
     },
-    status: { not_started: "Not started", in_progress: "In progress", done: "Done", on_hold: "On hold" },
-    schedule: { done: "Done", delayed: "Delayed", at_risk: "At risk", not_started: "Not started", on_track: "On track", on_hold: "On hold" },
-    mode: { manual: "Manual", linked: "Linked PBIs" },
+    mode: { manual: t.planProgressManual, linked: t.planProgressLinked },
     yes: "◆",
-  },
-  id: {
-    sheet: "Rencana induk",
-    columns: {
-      wbs: "WBS", name: "Item", milestone: "Milestone", owner: "Penanggung jawab", plannedStart: "Rencana mulai", plannedEnd: "Rencana selesai",
-      baselineStart: "Baseline mulai", baselineEnd: "Baseline selesai", varianceDays: "Selisih (hari)", actualStart: "Aktual mulai",
-      actualEnd: "Aktual selesai", progress: "Progres (%)", status: "Status", schedule: "Jadwal", mode: "Sumber progres",
-      pbis: "PBI (selesai/total)", points: "Poin (selesai/total)",
-    },
-    status: { not_started: "Belum mulai", in_progress: "Berjalan", done: "Selesai", on_hold: "Ditunda" },
-    schedule: { done: "Selesai", delayed: "Terlambat", at_risk: "Berisiko", not_started: "Belum mulai", on_track: "Sesuai jadwal", on_hold: "Ditunda" },
-    mode: { manual: "Manual", linked: "PBI tertaut" },
-    yes: "◆",
-  },
+  }
+}
+
+/** "YYYY-MM-DD" → a UTC-midnight Date (exceljs stores it as the matching Excel serial day). */
+export function excelDate(ymd: string | null): Date | null {
+  const m = ymd ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd) : null
+  return m ? new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))) : null
 }
 
 export interface OrderedPlanRow {
@@ -115,20 +123,20 @@ export function orderPlanTree(items: readonly PlanItemDto[]): OrderedPlanRow[] {
   return out
 }
 
-function rowValues(r: OrderedPlanRow, l: Labels): Record<Column, string | number | null> {
+function rowValues(r: OrderedPlanRow, l: Labels, lang: ExportLang): Record<Column, string | number | Date | null> {
   const i = r.item
   return {
     wbs: r.wbs,
-    name: i.name,
+    name: pickText(i.i18n, "name", i.name, lang).text,
     milestone: i.isMilestone ? l.yes : "",
     owner: i.owner?.name ?? "",
-    plannedStart: i.plannedStart,
-    plannedEnd: i.plannedEnd,
-    baselineStart: i.baselineStart ?? "",
-    baselineEnd: i.baselineEnd ?? "",
+    plannedStart: excelDate(i.plannedStart),
+    plannedEnd: excelDate(i.plannedEnd),
+    baselineStart: excelDate(i.baselineStart),
+    baselineEnd: excelDate(i.baselineEnd),
     varianceDays: i.baselineVarianceDays,
-    actualStart: i.actualStart ?? "",
-    actualEnd: i.actualEnd ?? "",
+    actualStart: excelDate(i.actualStart),
+    actualEnd: excelDate(i.actualEnd),
     progress: i.progressPct,
     status: l.status[i.status] ?? i.status,
     schedule: l.schedule[i.scheduleState] ?? i.scheduleState,
@@ -140,13 +148,18 @@ function rowValues(r: OrderedPlanRow, l: Labels): Record<Column, string | number
 
 /** Pure-ish: the workbook of the given items (no I/O). */
 export function buildPlanWorkbook(items: readonly PlanItemDto[], lang: ExportLang): ExcelJS.Workbook {
-  const l = LABELS[lang]
+  const l = exportLabels(getTranslations(lang))
   const wb = new ExcelJS.Workbook()
   const ws = wb.addWorksheet(l.sheet, { views: [{ state: "frozen", ySplit: 1, xSplit: 2 }] })
-  ws.columns = COLUMNS.map((key) => ({ header: l.columns[key], key, width: key === "name" ? 48 : key === "wbs" ? 10 : 16 }))
+  ws.columns = COLUMNS.map((key) => ({
+    header: l.columns[key],
+    key,
+    width: key === "name" ? 48 : key === "wbs" ? 10 : 16,
+    ...(DATE_COLUMNS.has(key) && { style: { numFmt: DATE_FORMAT } }),
+  }))
   ws.getRow(1).font = { bold: true }
   for (const r of orderPlanTree(items)) {
-    const row = ws.addRow(rowValues(r, l))
+    const row = ws.addRow(rowValues(r, l, lang))
     row.getCell("name").alignment = { indent: Math.min(r.depth, 15) }
     if (r.item.hasChildren) row.font = { bold: true }
   }
@@ -154,9 +167,28 @@ export function buildPlanWorkbook(items: readonly PlanItemDto[], lang: ExportLan
   return wb
 }
 
-/** Pure: "plan-<project>-<YYYY-MM-DD>.xlsx" with characters unsafe in file names replaced. */
+const MAX_NAME_CHARS = 80
+const OPENERS = "([{（［｛「『【"
+const CLOSERS = ")]}）］｝」』】"
+
+/** Cut `name` to `max` characters without leaving a bracket open or a trailing separator. */
+export function truncateFileStem(name: string, max: number = MAX_NAME_CHARS): string {
+  const chars = [...name]
+  if (chars.length <= max) return name
+  let cut = chars.slice(0, max)
+  const depth: number[] = []
+  cut.forEach((ch, idx) => {
+    if (OPENERS.includes(ch)) depth.push(idx)
+    else if (CLOSERS.includes(ch)) depth.pop()
+  })
+  if (depth.length > 0) cut = cut.slice(0, depth[0])
+  return cut.join("").replace(/[_\-.\s]+$/u, "")
+}
+
+/** Pure: "plan-<project>-<YYYY-MM-DD>.xlsx" with characters unsafe in file names replaced (one "_" per run). */
 export function exportFileName(projectName: string, today: string): string {
-  const safe = projectName.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, "_").replace(/\s+/g, "_").slice(0, 80) || "project"
+  const replaced = projectName.replace(/[\\/:*?"<>|\u0000-\u001f\s]+/g, "_").replace(/_+/g, "_").replace(/^_+|_+$/g, "")
+  const safe = truncateFileStem(replaced) || "project"
   return `plan-${safe}-${today}.xlsx`
 }
 

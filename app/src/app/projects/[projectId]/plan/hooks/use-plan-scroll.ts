@@ -30,12 +30,25 @@ export function revealItem(container: HTMLElement | null, id: string, x: number,
   row?.scrollIntoView?.({ block: "nearest" })
 }
 
-/** On first load and on every zoom change, scroll so today sits ~1/3 from the left. */
-export function useScrollToToday(ref: RefObject<HTMLElement | null>, ready: boolean, todayX: number, gridWidth: number, zoom: string, skip: boolean): void {
+/**
+ * scrollLeft of the first view: `anchorDay` (see lib/viewport initialAnchorDay)
+ * at the left edge of the timeline, or today at 1/3 when nothing is unfinished.
+ */
+export function initialScrollLeft(
+  anchorDay: number | null,
+  geometry: { startDay: number; dayWidth: number; todayX: number; clientWidth: number; gridWidth: number },
+): number {
+  if (anchorDay === null) return scrollLeftFor(geometry.todayX, geometry.clientWidth, geometry.gridWidth)
+  return Math.max(0, Math.round((anchorDay - geometry.startDay) * geometry.dayWidth))
+}
+
+/** On first load and on every zoom change, scroll to `computeLeft(clientWidth)` (the latest geometry). */
+export function useInitialScroll(ref: RefObject<HTMLElement | null>, ready: boolean, computeLeft: (clientWidth: number) => number, zoom: string, skip: boolean): void {
   useEffect(() => {
-    if (!ready || skip) return
-    scrollTimelineTo(ref.current, todayX, gridWidth)
-    // gridWidth / todayX follow zoom; re-running on their own changes would fight the user's scrolling.
+    const el = ref.current
+    if (!ready || skip || !el) return
+    el.scrollLeft = computeLeft(el.clientWidth)
+    // computeLeft reads the latest items / geometry; re-running on their own changes would fight the user's scrolling.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, zoom, skip])
 }

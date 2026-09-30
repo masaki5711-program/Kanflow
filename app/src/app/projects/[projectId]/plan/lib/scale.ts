@@ -22,6 +22,8 @@ export const PLAN_ZOOMS: readonly PlanZoom[] = ["day", "week", "month", "quarter
 export const ZOOM_DAY_WIDTH: Record<PlanZoom, number> = { day: 32, week: 14, month: 5, quarter: 2 }
 const PAD_DAYS: Record<PlanZoom, number> = { day: 7, week: 14, month: 31, quarter: 92 }
 const MIN_SPAN_DAYS: Record<PlanZoom, number> = { day: 42, week: 120, month: 400, quarter: 800 }
+/** Extra room right of the last date so chips / milestone names / drag tooltips are never clipped. */
+export const TRAILING_GUTTER_PX = 200
 
 export function isPlanZoom(value: unknown): value is PlanZoom {
   return typeof value === "string" && (PLAN_ZOOMS as readonly string[]).includes(value)
@@ -52,7 +54,8 @@ export function chartRange(items: readonly PlanItem[], today: Ymd, zoom: PlanZoo
     }
   }
   const startDay = alignStart(min - PAD_DAYS[zoom], zoom)
-  const endDay = Math.max(max + PAD_DAYS[zoom] + 1, startDay + MIN_SPAN_DAYS[zoom])
+  const gutterDays = Math.ceil(TRAILING_GUTTER_PX / ZOOM_DAY_WIDTH[zoom])
+  const endDay = Math.max(max + Math.max(PAD_DAYS[zoom], gutterDays) + 1, startDay + MIN_SPAN_DAYS[zoom])
   return { startDay, days: endDay - startDay }
 }
 
@@ -98,8 +101,17 @@ const nextYear = (day: number) => {
   return d
 }
 
-export function buildScale(range: ChartRange, zoom: PlanZoom, language: Language): TimeScale {
-  const dw = ZOOM_DAY_WIDTH[zoom]
+/** The zoom whose header tiers read well at `dayWidth` px per day (print fit-to-page uses any width). */
+export function zoomForDayWidth(dayWidth: number): PlanZoom {
+  if (dayWidth >= 20) return "day"
+  if (dayWidth >= 7) return "week"
+  if (dayWidth >= 2.5) return "month"
+  return "quarter"
+}
+
+/** Header tiers of `range` at `zoom`; `dayWidth` defaults to the zoom's width (print passes a fitted one). */
+export function buildScale(range: ChartRange, zoom: PlanZoom, language: Language, dayWidth: number = ZOOM_DAY_WIDTH[zoom]): TimeScale {
+  const dw = dayWidth
   const { startDay } = range
   const endDay = startDay + range.days
   const cell = (key: string, [a, b]: [number, number], label: string, extra?: Partial<ScaleCell>): ScaleCell => ({

@@ -14,11 +14,13 @@ interface Props {
   onToggleArchived: () => void
   /** True while an active/planning sprint exists — creating another is blocked. */
   isCreateBlocked: boolean
+  /** sprint.manage — without it the create button is hidden. */
+  canCreate: boolean
   onCreate: () => void
 }
 
 export default function SprintsHeader({
-  projectId, avgActual, doneSprintCount, archivedCount, showArchived, onToggleArchived, isCreateBlocked, onCreate,
+  projectId, avgActual, doneSprintCount, archivedCount, showArchived, onToggleArchived, isCreateBlocked, canCreate, onCreate,
 }: Props) {
   const { t, pt } = useLanguage()
   return (
@@ -49,15 +51,15 @@ export default function SprintsHeader({
             {t.sprintArchivedSprints}
             {archivedCount > 0 && <Badge tone="neutral" size="sm">{archivedCount}</Badge>}
           </Button>
-          <Button onClick={onCreate} disabled={isCreateBlocked} leftIcon={<Plus className="w-4 h-4" />}
+          {canCreate && <Button onClick={onCreate} disabled={isCreateBlocked} leftIcon={<Plus className="w-4 h-4" />}
             title={isCreateBlocked ? t.sprintCreateBlocked : undefined}
             aria-describedby={isCreateBlocked ? "sprint-create-blocked-hint" : undefined}>
             {t.sprintCreate}
-          </Button>
+          </Button>}
         </div>
       }
     >
-      {isCreateBlocked && (
+      {canCreate && isCreateBlocked && (
         <p id="sprint-create-blocked-hint" className="w-full text-right text-caption text-fg-muted">
           {t.sprintCreateBlocked}
         </p>

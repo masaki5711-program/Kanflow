@@ -152,6 +152,7 @@ const ROUTES: RouteCase[] = [
   { file: "chat/route.ts", load: () => import("@/app/api/projects/[projectId]/chat/route"), params: {} },
   { file: "chat/threads/route.ts", load: () => import("@/app/api/projects/[projectId]/chat/threads/route"), params: {} },
   { file: "chat/threads/[threadId]/route.ts", load: () => import("@/app/api/projects/[projectId]/chat/threads/[threadId]/route"), params: { threadId: "th-1" } },
+  { file: "chat/threads/[threadId]/proposals/[proposalId]/route.ts", load: () => import("@/app/api/projects/[projectId]/chat/threads/[threadId]/proposals/[proposalId]/route"), params: { threadId: "th-1", proposalId: "prop_1" } },
   { file: "events/route.ts", load: () => import("@/app/api/projects/[projectId]/events/route"), params: {} },
   { file: "events/[eventId]/route.ts", load: () => import("@/app/api/projects/[projectId]/events/[eventId]/route"), params: { eventId: "ev-1" } },
   { file: "favorite/route.ts", load: () => import("@/app/api/projects/[projectId]/favorite/route"), params: {} },

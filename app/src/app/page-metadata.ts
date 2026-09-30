@@ -16,12 +16,26 @@ function toLanguage(value: string | null | undefined): Language {
  * Server-only modules are imported lazily so that page modules which export
  * `generateMetadata` stay importable in component tests (no DB client at load).
  */
-async function viewerLanguage(): Promise<Language> {
+interface Viewer {
+  userId: string | null
+  systemRole: string
+  language: Language
+}
+
+async function loadViewer(): Promise<Viewer> {
   const [{ auth }, { prisma }] = await Promise.all([import("@/lib/auth"), import("@/lib/prisma")])
   const session = await auth()
-  if (!session?.user?.id) return "ja"
+  if (!session?.user?.id) return { userId: null, systemRole: "member", language: "ja" }
   const user = await prisma.user.findUnique({ where: { id: session.user.id }, select: { language: true } })
-  return toLanguage(user?.language)
+  return { userId: session.user.id, systemRole: session.user.role ?? "member", language: toLanguage(user?.language) }
+}
+
+/** Only viewers of the project may see its name (same rule as the project layout). */
+async function mayViewProject(viewer: Viewer, projectId: string): Promise<boolean> {
+  if (!viewer.userId) return false
+  const { can, loadProjectActor } = await import("@/lib/authz")
+  const actor = await loadProjectActor(viewer.userId, viewer.systemRole, projectId)
+  return can(actor, "project.view")
 }
 
 /**
@@ -32,12 +46,17 @@ async function viewerLanguage(): Promise<Language> {
  */
 export async function buildPageMetadata(pick: PageTitlePicker, projectId?: string): Promise<Metadata> {
   try {
-    const language = await viewerLanguage()
+    const viewer = await loadViewer()
+    const { language } = viewer
     const t = getTranslations(language)
     if (!projectId) {
       return { title: formatDocumentTitle([pick({ t, pt: getProjectTypeLabels("software", language) })]) }
     }
     const [{ prisma }, { getI18nFor }] = await Promise.all([import("@/lib/prisma"), import("@/lib/translation/hooks")])
+    // A project the viewer cannot see is titled exactly like an unknown id.
+    if (!(await mayViewProject(viewer, projectId))) {
+      return { title: formatDocumentTitle([pick({ t, pt: getProjectTypeLabels("software", language) }), null]) }
+    }
     const [project, i18nMap] = await Promise.all([
       prisma.project.findUnique({ where: { id: projectId, deletedAt: null }, select: { name: true, projectType: true } }),
       getI18nFor("project", [projectId]),

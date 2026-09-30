@@ -7,7 +7,8 @@ import { CommentThread } from "@/components/comments/comment-thread"
 import { useCommentCounts } from "@/components/comments/use-comment-thread"
 import { EntityHistory } from "@/components/activity/entity-history"
 
-type TabKey = "details" | "comments" | "history"
+export type PbiTabKey = "details" | "comments" | "history"
+type TabKey = PbiTabKey
 const TABS: readonly TabKey[] = ["details", "comments", "history"]
 
 interface Props {
@@ -15,6 +16,8 @@ interface Props {
   pbiId: string
   /** The read or edit body of the PBI. */
   details: ReactNode
+  /** Tab selected on open (e.g. "comments" from a mention notification). Default: details. */
+  initialTab?: TabKey
 }
 
 type T = ReturnType<typeof useLanguage>["t"]
@@ -54,10 +57,10 @@ export function formatPbiValue(t: T, field: string, value: string | number | boo
  * ←/→/Home/End move between tabs). Comments and history load on first open
  * and stay mounted afterwards so switching back keeps their state.
  */
-export function PbiDetailTabs({ projectId, pbiId, details }: Props) {
+export function PbiDetailTabs({ projectId, pbiId, details, initialTab = "details" }: Props) {
   const { t, pt } = useLanguage()
-  const [active, setActive] = useState<TabKey>("details")
-  const [visited, setVisited] = useState<ReadonlySet<TabKey>>(() => new Set<TabKey>(["details"]))
+  const [active, setActive] = useState<TabKey>(initialTab)
+  const [visited, setVisited] = useState<ReadonlySet<TabKey>>(() => new Set<TabKey>(["details", initialTab]))
   const { counts, adjustCount } = useCommentCounts(projectId, "pbi", [pbiId])
   const count = counts[pbiId]
   const baseId = useId()

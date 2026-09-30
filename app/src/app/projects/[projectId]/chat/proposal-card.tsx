@@ -2,32 +2,56 @@
 
 import type { ReactNode } from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
 import { Check, ListChecks, PlusSquare, RefreshCw, X } from "lucide-react"
-import { Badge, Button, useToast } from "@/components/ui"
-import { versionConflictOf } from "@/hooks"
+import { Badge, Button } from "@/components/ui"
 import { useLanguage } from "@/lib/language-context"
-import type { ChatProposal, CreatePbiProposal, StatusChangeProposal, TaskSplitProposal } from "@/lib/chat-proposals"
-import { PartialApplyError, applyProposal, requiredAction } from "./proposal-actions"
+import type {
+  ChatProposal,
+  CreatePbiProposal,
+  ProposalOutcome,
+  StatusChangeProposal,
+  TaskSplitProposal,
+} from "@/lib/chat-proposals"
+import { requiredAction } from "./proposal-actions"
 import { useProposalContext } from "./proposal-context"
+import { useProposalApproval } from "./use-proposal-approval"
 
 type T = ReturnType<typeof useLanguage>["t"]
 
 interface ProposalListProps {
   projectId: string
+  /** Stored thread the proposals belong to (null: unsaved chat). */
+  threadId: string | null
   proposals: readonly ChatProposal[]
+  /** Outcomes stored with the thread, by proposalId (a re-opened thread). */
+  outcomes?: Readonly<Record<string, ProposalOutcome>>
   /** The assistant message is still streaming. */
   pending?: boolean
 }
 
-export function ProposalList({ projectId, proposals, pending }: ProposalListProps) {
+export function ProposalList({ projectId, threadId, proposals, outcomes, pending }: ProposalListProps) {
   return (
     <div className="mt-3 space-y-2">
       {proposals.map((p) => (
-        <ProposalCard key={p.proposalId} projectId={projectId} proposal={p} pending={pending} />
+        <ProposalCard
+          key={p.proposalId}
+          projectId={projectId}
+          threadId={threadId}
+          proposal={p}
+          storedOutcome={outcomes?.[p.proposalId]}
+          pending={pending}
+        />
       ))}
     </div>
   )
+}
+
+interface CardProps {
+  projectId: string
+  threadId: string | null
+  proposal: ChatProposal
+  storedOutcome?: ProposalOutcome
+  pending?: boolean
 }
 
 const TITLE_KEY = {
@@ -38,41 +62,14 @@ const TITLE_KEY = {
 
 const ICON = { create_pbi: PlusSquare, task_split: ListChecks, status_change: RefreshCw } as const
 
-function ProposalCard({ projectId, proposal, pending }: { projectId: string; proposal: ChatProposal; pending?: boolean }) {
+function ProposalCard({ projectId, threadId, proposal, storedOutcome, pending }: CardProps) {
   const { t } = useLanguage()
-  const toast = useToast()
-  const router = useRouter()
-  const { stateOf, setState, permissions } = useProposalContext()
-  const state = stateOf(proposal.proposalId)
+  const { permissions } = useProposalContext()
+  const { state, approve, reject } = useProposalApproval({ projectId, threadId, proposal, storedOutcome })
   const allowed = permissions ? permissions(requiredAction(proposal)) : false
   const idle = state.status === "idle"
   const headingId = `proposal-${proposal.proposalId}`
   const Icon = ICON[proposal.kind]
-
-  async function approve() {
-    setState(proposal.proposalId, { status: "applying" })
-    try {
-      const result = await applyProposal(projectId, proposal)
-      setState(proposal.proposalId, { status: "applied", href: result.href })
-      toast.success(successMessage(t, proposal, result.ids.length), {
-        action: { label: t.chatProposalOpen, onClick: () => router.push(result.href) },
-      })
-    } catch (err) {
-      if (err instanceof PartialApplyError) {
-        const href = `/projects/${encodeURIComponent(projectId)}/sprints?task=${encodeURIComponent(err.ids[0])}`
-        setState(proposal.proposalId, { status: "applied", href })
-        toast.error(t.chatProposalTasksPartial.replace("{done}", String(err.done)).replace("{total}", String(err.total)), {
-          title: t.chatProposalFailed,
-        })
-        return
-      }
-      setState(proposal.proposalId, { status: "idle" })
-      const message = versionConflictOf(err)
-        ? t.apiErrVersionConflict
-        : err instanceof Error && err.message ? err.message : t.chatProposalFailed
-      toast.error(message, { title: t.chatProposalFailed })
-    }
-  }
 
   return (
     <section
@@ -122,7 +119,7 @@ function ProposalCard({ projectId, proposal, pending }: { projectId: string; pro
               variant="secondary"
               leftIcon={<X className="h-3.5 w-3.5" />}
               disabled={!idle || pending}
-              onClick={() => setState(proposal.proposalId, { status: "rejected" })}
+              onClick={() => void reject()}
             >
               {t.chatProposalReject}
             </Button>
@@ -136,17 +133,6 @@ function ProposalCard({ projectId, proposal, pending }: { projectId: string; pro
       )}
     </section>
   )
-}
-
-function successMessage(t: T, proposal: ChatProposal, count: number): string {
-  switch (proposal.kind) {
-    case "create_pbi":
-      return t.chatProposalPbiCreated
-    case "task_split":
-      return t.chatProposalTasksCreated.replace("{count}", String(count))
-    case "status_change":
-      return t.chatProposalStatusChanged
-  }
 }
 
 function Row({ label, children }: { label: string; children: ReactNode }) {

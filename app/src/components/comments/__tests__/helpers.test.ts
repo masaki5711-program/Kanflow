@@ -71,3 +71,16 @@ describe("parsers", () => {
     expect(filterMembers(members, "")).toHaveLength(8)
   })
 })
+
+describe("comments deep link", () => {
+  it("targets the item of ?task= / ?item= only with tab=comments", async () => {
+    const { commentsDeepLinkTarget, withoutTabParam } = await import("../comments-deep-link")
+    expect(commentsDeepLinkTarget("?task=t1&tab=comments", "sprint_task")).toBe("t1")
+    expect(commentsDeepLinkTarget("?item=i1&tab=comments", "icebox")).toBe("i1")
+    expect(commentsDeepLinkTarget("?task=t1", "sprint_task")).toBeNull()
+    expect(commentsDeepLinkTarget("?tab=comments", "sprint_task")).toBeNull()
+    expect(commentsDeepLinkTarget("?pbi=1&tab=comments", "pbi")).toBeNull()
+    expect(withoutTabParam("?task=t1&tab=comments")).toBe("?task=t1")
+    expect(withoutTabParam("?tab=comments")).toBe("")
+  })
+})

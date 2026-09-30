@@ -5,6 +5,7 @@ import { Badge, Select } from "@/components/ui"
 import { I18nText } from "@/components/i18n-text"
 import { useLanguage } from "@/lib/language-context"
 import { pickText } from "@/lib/translation/pick-text"
+import { formatShortDate } from "@/lib/format-date"
 import type { Translations } from "@/lib/i18n"
 import type { EntityI18n } from "@/lib/translation/types"
 import type { Urgency } from "./task-urgency"
@@ -38,11 +39,6 @@ const EDITABLE_STATUSES = ["todo", "in_progress", "done"] as const
 function statusLabel(status: string, t: Translations): string {
   const labels: Record<string, string> = { todo: t.taskTodo, in_progress: t.taskInProgress, review: t.topTaskReview, done: t.taskDone }
   return labels[status] ?? status
-}
-
-function formatDate(iso: string): string {
-  const d = new Date(iso)
-  return isNaN(d.getTime()) ? "" : `${d.getMonth() + 1}/${d.getDate()}`
 }
 
 /** Deep link into the sprint board (the sprints page may highlight `?task=`). */
@@ -105,7 +101,7 @@ export function MyTaskRow({ task, urgency, pending, onStatusChange }: Props) {
           </span>
           <span aria-hidden="true">·</span>
           <span className={urgency === "overdue" ? "font-semibold text-danger-strong" : undefined}>
-            {t.topTaskDueOn.replace("{date}", formatDate(task.sprintEndDate))}
+            {t.topTaskDueOn.replace("{date}", formatShortDate(task.sprintEndDate, language))}
           </span>
           {task.estimatedHours != null && (
             <>

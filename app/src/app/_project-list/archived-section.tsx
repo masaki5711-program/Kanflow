@@ -58,7 +58,7 @@ export function ArchivedSection({ count, expanded, onToggle, projects, isLoading
             />
           ) : (
             (projects ?? []).map((project) => (
-              <div key={project.id} className="opacity-70">
+              <div key={project.id} className="grayscale">
                 {renderItem(project)}
               </div>
             ))

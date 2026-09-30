@@ -34,6 +34,17 @@ export function taskFormFromItem(task: SprintItem, members: readonly Member[] = 
   }
 }
 
+/**
+ * Form values after a 409 VERSION_CONFLICT: the server's `current` row over
+ * the loaded task (null when the body had no row → the caller closes instead).
+ */
+export function taskFormFromConflict(
+  loaded: SprintItem, current: Partial<SprintItem> | null, members: readonly Member[] = [],
+): TaskFormState | null {
+  if (!current || typeof current !== "object") return null
+  return taskFormFromItem({ ...loaded, ...current, pbItem: current.pbItem ?? loaded.pbItem }, members)
+}
+
 function hours(value: string): number | null {
   if (!value) return null
   const n = parseFloat(value)

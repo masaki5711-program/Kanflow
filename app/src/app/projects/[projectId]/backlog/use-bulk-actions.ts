@@ -11,6 +11,7 @@ export type BulkRequest =
   | { action: "status"; payload: { status: BacklogStatus } }
   | { action: "assignPo"; payload: { assignedPo: string | null } }
   | { action: "addToSprint"; payload: { sprintId: string } }
+  | { action: "linkPlan"; payload: { planItemId: string | null } }
   | { action: "trash" }
 
 interface BulkResponse {

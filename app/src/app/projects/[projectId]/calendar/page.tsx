@@ -147,7 +147,10 @@ export default function CalendarPage() {
             <div className="flex-1 flex flex-col min-h-0">
               <MonthGrid
                 calendarDays={calendarDays}
+                currentYear={nav.currentYear}
                 currentMonth={nav.currentMonth}
+                label={nav.periodLabel}
+                onShowMonth={nav.showMonthOf}
                 today={today}
                 locale={nav.locale}
                 events={data.events}

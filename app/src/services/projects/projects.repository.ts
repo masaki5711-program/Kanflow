@@ -129,6 +129,16 @@ export async function restoreProjectRow(db: Db, projectId: string): Promise<bool
   return res.count > 0
 }
 
+/**
+ * Permanently delete the project only while it is still in the trash (one
+ * conditional DELETE: a concurrent restore that committed first makes this a
+ * no-op). Returns whether the row was deleted.
+ */
+export async function deleteTrashedProject(db: Db, projectId: string): Promise<boolean> {
+  const res = await db.project.deleteMany({ where: { id: projectId, ...TRASHED } })
+  return res.count > 0
+}
+
 export function findTrashedProject(db: Db, projectId: string) {
   return db.project.findFirst({ where: { id: projectId, ...TRASHED }, select: { id: true, name: true } })
 }

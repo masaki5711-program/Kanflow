@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { getTranslations } from "@/lib/i18n"
 import { normalizePlanData } from "../lib/normalize"
-import { DEFAULT_PREFS, loadPrefs, parsePrefs, prefsKey, savePrefs } from "../lib/prefs"
+import { DEFAULT_PREFS, loadPrefs, parsePrefs, prefsKey, savePrefs, shownColumns } from "../lib/prefs"
 import { barFillClass, itemBadge, milestoneClass, scheduleLabel, sprintBandClass, statusLabel } from "../lib/status"
 import { installMemoryStorage, mkItem } from "./fixtures"
 
@@ -64,15 +64,21 @@ describe("prefs (localStorage)", () => {
   it("parses defensively", () => {
     expect(parsePrefs(null)).toBe(DEFAULT_PREFS)
     expect(parsePrefs("{bad")).toBe(DEFAULT_PREFS)
-    expect(parsePrefs(JSON.stringify({ collapsed: ["a", 1], hiddenColumns: ["owner", "nope"], gridCollapsed: true }))).toEqual({
+    expect(parsePrefs(JSON.stringify({ collapsed: ["a", 1], columns: ["owner", "nope", "owner"], gridCollapsed: true, nameWidth: 301.6 }))).toEqual({
       collapsed: ["a"],
-      hiddenColumns: ["owner"],
+      columns: ["owner"],
       gridCollapsed: true,
+      nameWidth: 302,
     })
+    // pre-2026-10 prefs (hiddenColumns) fall back to the compact default columns
+    const legacy = parsePrefs(JSON.stringify({ collapsed: [], hiddenColumns: [] }))
+    expect(legacy.columns).toBeNull()
+    expect(shownColumns(legacy)).toEqual(["period", "progress"])
+    expect(parsePrefs(JSON.stringify({ nameWidth: "wide" })).nameWidth).toBeNull()
   })
 
   it("round-trips and survives storage failures", () => {
-    savePrefs("p1", { collapsed: ["x"], hiddenColumns: [], gridCollapsed: false })
+    savePrefs("p1", { collapsed: ["x"], columns: ["period"], gridCollapsed: false, nameWidth: 280 })
     expect(window.localStorage.getItem(prefsKey("p1"))).toContain("x")
     expect(loadPrefs("p1").collapsed).toEqual(["x"])
     vi.spyOn(storage, "getItem").mockImplementation(() => {

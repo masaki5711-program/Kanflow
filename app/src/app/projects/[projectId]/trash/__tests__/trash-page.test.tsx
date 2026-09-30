@@ -18,9 +18,11 @@ vi.mock("next/navigation", () => ({
   },
 }))
 vi.mock("../trash-content", () => ({ TrashContent: () => null }))
+vi.mock("@/components/app-shell/route-states", () => ({ ForbiddenView: () => null }))
 
 const { default: TrashPage } = await import("../page")
 const { TrashContent } = await import("../trash-content")
+const { ForbiddenView } = await import("@/components/app-shell/route-states")
 
 const params = Promise.resolve({ projectId: "p1" })
 const actor = (projectRole: string | null, systemRole = "member") => ({
@@ -55,9 +57,17 @@ describe("TrashPage access gate", () => {
     expect(el.props.canPurge).toBe(false)
   })
 
-  it("404s for a Dev and for a non-member", async () => {
+  it("shows the 403 view (not 'project not found') to a Dev and a section manager", async () => {
     mocks.loadProjectActor.mockResolvedValue(actor("dev"))
-    await expect(TrashPage({ params })).rejects.toThrow("NOT_FOUND")
+    const dev = (await TrashPage({ params })) as ReactElement<{ projectId: string }>
+    expect(dev.type).toBe(ForbiddenView)
+    expect(dev.props.projectId).toBe("p1")
+    mocks.loadProjectActor.mockResolvedValue({ ...actor(null, "section_manager"), isSectionManagerOfProject: true })
+    const sec = (await TrashPage({ params })) as ReactElement
+    expect(sec.type).toBe(ForbiddenView)
+  })
+
+  it("404s for a non-member", async () => {
     mocks.loadProjectActor.mockResolvedValue(actor(null))
     await expect(TrashPage({ params })).rejects.toThrow("NOT_FOUND")
   })

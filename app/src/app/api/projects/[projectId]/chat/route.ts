@@ -331,6 +331,10 @@ export async function POST(
         send(`\n\n[error] ${ollamaErrorMessage(err)}`)
       } finally {
         deadline.clear()
+        // Stopped / failed / cut off answers are stored too, flagged partial.
+        // Stored BEFORE the stream ends, so a proposal the client can approve
+        // is already in the thread (its outcome is recorded there, P-02).
+        await recorder?.finish({ partial: !completed })
         if (!closed) {
           closed = true
           try {
@@ -339,8 +343,6 @@ export async function POST(
             // already cancelled
           }
         }
-        // Stopped / failed / cut off answers are stored too, flagged partial.
-        await recorder?.finish({ partial: !completed })
       }
     },
     cancel() {

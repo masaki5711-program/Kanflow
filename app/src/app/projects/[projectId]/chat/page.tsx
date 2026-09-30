@@ -202,7 +202,13 @@ export default function ChatPage() {
                   labels={labels}
                   footer={
                     m.proposals && m.proposals.length > 0 ? (
-                      <ProposalList projectId={projectId} proposals={m.proposals} pending={m.pending} />
+                      <ProposalList
+                        projectId={projectId}
+                        threadId={shownThreadId}
+                        proposals={m.proposals}
+                        outcomes={m.proposalOutcomes}
+                        pending={m.pending}
+                      />
                     ) : undefined
                   }
                 />

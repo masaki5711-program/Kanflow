@@ -43,6 +43,20 @@ describe("PageHeader", () => {
     expect(screen.getByText("tabs")).toBeInTheDocument()
   })
 
+  it("wraps actions under the title instead of squeezing the title (narrow screens)", () => {
+    const { container } = render(<PageHeader title="全体計画" description="説明" actions={<button type="button">今日へ</button>} />)
+    const row = container.querySelector("header > div")!
+    expect(row.className.split(" ")).toContain("flex-wrap")
+    const title = container.querySelector("[data-page-header-title]")!
+    const titleClasses = title.className.split(" ")
+    // A real flex-basis (not flex-1 = basis 0) forces the wrap; min-w-0 still allows truncation.
+    expect(titleClasses).toEqual(expect.arrayContaining(["min-w-0", "flex-[1_1_14rem]"]))
+    expect(titleClasses).not.toContain("flex-1")
+    const actions = container.querySelector("[data-page-header-actions]")!
+    // Full width on phones (own row), natural width from sm.
+    expect(actions.className.split(" ")).toEqual(expect.arrayContaining(["w-full", "sm:w-auto", "flex-wrap"]))
+  })
+
   it("is exported from the ui barrel", () => {
     expect(barrel.PageHeader).toBe(PageHeader)
   })

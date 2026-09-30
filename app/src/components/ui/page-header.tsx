@@ -40,13 +40,16 @@ export function PageHeader({
   return (
     <header className={cn("mb-6", className)}>
       <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
-        <div className="flex min-w-0 flex-1 items-start gap-3">
+        {/* flex-basis 14rem: when title + actions do not fit, the row wraps
+            instead of squeezing the title to a 0px column (min-w-0 still lets
+            it shrink on screens narrower than 14rem). */}
+        <div data-page-header-title="" className="flex min-w-0 flex-[1_1_14rem] items-start gap-3">
           {icon && (
             <span aria-hidden="true" className="mt-0.5 shrink-0">
               {icon}
             </span>
           )}
-          <div className="min-w-0">
+          <div className="min-w-0 break-words">
             {eyebrow && <div className="mb-0.5 text-caption font-medium text-fg-muted">{eyebrow}</div>}
             <h1 id={headingId} className={cn("text-heading font-semibold tracking-tight text-fg", titleClassName)}>
               {title}
@@ -54,7 +57,11 @@ export function PageHeader({
             {description && <div className="mt-1 text-body text-fg-muted">{description}</div>}
           </div>
         </div>
-        {actions && <div className="flex flex-wrap items-center gap-2 sm:justify-end">{actions}</div>}
+        {actions && (
+          <div data-page-header-actions="" className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:max-w-full sm:justify-end">
+            {actions}
+          </div>
+        )}
       </div>
       {children && <div className="mt-4">{children}</div>}
     </header>

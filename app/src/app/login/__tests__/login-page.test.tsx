@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { getTranslations } from "@/lib/i18n"
+import { LanguageProvider } from "@/lib/language-context"
 
 const mocks = vi.hoisted(() => ({
   signIn: vi.fn(),
@@ -84,12 +85,43 @@ describe("LoginPage", () => {
     expect(mocks.refresh).toHaveBeenCalled()
   })
 
+  it("starts in the language resolved for this browser (cookie / Accept-Language), not always ja", () => {
+    render(
+      <LanguageProvider initialLanguage="id">
+        <LoginPage />
+      </LanguageProvider>,
+    )
+    expect(screen.getByRole("heading", { name: id.loginTitle })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /^ID/ })).toHaveAttribute("aria-pressed", "true")
+  })
+
+  it("does not overwrite the saved profile language when the selector was not touched (S-02)", async () => {
+    mocks.signIn.mockResolvedValue({ ok: true })
+    render(
+      <LanguageProvider initialLanguage="id">
+        <LoginPage />
+      </LanguageProvider>,
+    )
+    await fillAndSubmit(id)
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/"))
+    expect(vi.mocked(fetch)).not.toHaveBeenCalledWith("/api/user/language", expect.anything())
+  })
+
+  it("remembers an explicit choice in the last-language cookie", async () => {
+    const user = userEvent.setup()
+    render(<LoginPage />)
+    await user.click(screen.getByRole("button", { name: /english/i }))
+    expect(document.cookie).toContain("kanflow_lang=en")
+  })
+
   it("still navigates when saving the language fails", async () => {
     mocks.signIn.mockResolvedValue({ ok: true })
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
     vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("offline") }))
+    const user = userEvent.setup()
     render(<LoginPage />)
-    await fillAndSubmit()
+    await user.click(screen.getByRole("button", { name: /english/i }))
+    await fillAndSubmit(en)
     await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/"))
     expect(warn).toHaveBeenCalled()
     warn.mockRestore()

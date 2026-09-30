@@ -45,6 +45,8 @@ export interface ProjectsTranslations {
   projectCardColorFailed: string
   projectCategoryAssignFailed: string
   projectTypeFilterLabel: string
+  /** "All types" button of the project-type filter. */
+  projectTypeFilterAll: string
   projectSortLabel: string
   projectDensityLabel: string
   projectViewModeLabel: string
@@ -109,6 +111,7 @@ export const ja: ProjectsTranslations = {
   projectCardColorFailed: "カードの色を変更できませんでした",
   projectCategoryAssignFailed: "カテゴリの割り当てを変更できませんでした",
   projectTypeFilterLabel: "プロジェクトタイプで絞り込み",
+  projectTypeFilterAll: "すべてのタイプ",
   projectSortLabel: "並び替え",
   projectDensityLabel: "表示密度",
   projectViewModeLabel: "表示方法",
@@ -173,6 +176,7 @@ export const en: ProjectsTranslations = {
   projectCardColorFailed: "Failed to change the card color",
   projectCategoryAssignFailed: "Failed to update the category assignment",
   projectTypeFilterLabel: "Filter by project type",
+  projectTypeFilterAll: "All types",
   projectSortLabel: "Sort by",
   projectDensityLabel: "Display density",
   projectViewModeLabel: "View mode",
@@ -237,6 +241,7 @@ export const id: ProjectsTranslations = {
   projectCardColorFailed: "Gagal mengubah warna kartu",
   projectCategoryAssignFailed: "Gagal memperbarui penetapan kategori",
   projectTypeFilterLabel: "Saring menurut tipe proyek",
+  projectTypeFilterAll: "Semua tipe",
   projectSortLabel: "Urutkan",
   projectDensityLabel: "Kepadatan tampilan",
   projectViewModeLabel: "Mode tampilan",

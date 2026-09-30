@@ -45,6 +45,8 @@ export interface SprintTasksTranslations {
   sprintNoTasksYet: string
   sprintEstimatedHoursShort: string
   sprintActualHoursShort: string
+  /** Unit of task estimate / actual hours (not the project point unit). */
+  sprintHoursUnit: string
   sprintTaskEstimateTotal: string
   sprintNoTaskName: string
   sprintAddTaskShort: string
@@ -115,8 +117,9 @@ export const ja: SprintTasksTranslations = {
   sprintDailyScrumUnarchive: "復元",
   sprintDailyScrumArchived: "アーカイブ済み",
   sprintNoTasksYet: "タスクがまだありません",
-  sprintEstimatedHoursShort: "見積工数",
-  sprintActualHoursShort: "実績工数",
+  sprintEstimatedHoursShort: "見積時間",
+  sprintActualHoursShort: "実績時間",
+  sprintHoursUnit: "h",
   sprintTaskEstimateTotal: "タスク見積合計",
   sprintNoTaskName: "(タスク名なし)",
   sprintAddTaskShort: "+ タスク",
@@ -189,6 +192,7 @@ export const en: SprintTasksTranslations = {
   sprintNoTasksYet: "No tasks yet",
   sprintEstimatedHoursShort: "Estimated",
   sprintActualHoursShort: "Actual",
+  sprintHoursUnit: "h",
   sprintTaskEstimateTotal: "Task est. total",
   sprintNoTaskName: "(No task name)",
   sprintAddTaskShort: "+ Task",
@@ -261,6 +265,7 @@ export const id: SprintTasksTranslations = {
   sprintNoTasksYet: "Belum ada tugas",
   sprintEstimatedHoursShort: "Estimasi",
   sprintActualHoursShort: "Aktual",
+  sprintHoursUnit: "jam",
   sprintTaskEstimateTotal: "Total estimasi tugas",
   sprintNoTaskName: "(Tanpa nama tugas)",
   sprintAddTaskShort: "+ Tugas",

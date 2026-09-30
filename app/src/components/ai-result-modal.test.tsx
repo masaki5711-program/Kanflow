@@ -79,6 +79,17 @@ describe("AIResultModal", () => {
     expect(alert).toHaveTextContent(t.aiFailed)
   })
 
+  it("403: one localized 'no permission' message, no retry (F-07)", async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ error: "Forbidden", code: "FORBIDDEN" }), { status: 403 }))
+    renderModal()
+    const dialog = screen.getByRole("dialog")
+    const alert = await within(dialog).findByRole("alert")
+    expect(alert).toHaveTextContent(t.apiErrForbidden)
+    expect(within(dialog).queryByText(t.aiFailed)).not.toBeInTheDocument()
+    expect(within(dialog).getAllByText(t.apiErrForbidden)).toHaveLength(1)
+    expect(within(dialog).queryByRole("button", { name: t.errorRetry })).not.toBeInTheDocument()
+  })
+
   it("copies the text and toasts success; toasts failure when clipboard rejects", async () => {
     fetchMock.mockResolvedValue(streamResponse(["copy me"]))
     const writeText = vi.fn().mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error("x"))

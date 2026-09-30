@@ -30,9 +30,16 @@ export function useTaskActions(projectId: string, { sprints, refetchSprints, mut
   const versionOf = (sprintId: string, taskId: string) => taskVersion(sprints, sprintId, taskId)
   // Someone else changed the task first: toast, then reload the sprints (the
   // task DTO in `current` lacks the sprint-level i18n, so a refetch is simplest).
-  const conflictReloads = (err: unknown) => onVersionConflict(err, () => refetchSprints())
+  const conflictReloads = (err: unknown, onConflict?: (current: SprintItem | null) => void) =>
+    onVersionConflict<SprintItem>(err, (current) => {
+      refetchSprints()
+      onConflict?.(current)
+    })
 
-  async function saveTask(sprintId: string, taskId: string | null, form: TaskFormState): Promise<boolean> {
+  /** `onConflict` receives the server's row on a 409 so an open editor can show it. */
+  async function saveTask(
+    sprintId: string, taskId: string | null, form: TaskFormState, onConflict?: (current: SprintItem | null) => void,
+  ): Promise<boolean> {
     try {
       if (taskId) {
         await apiFetch(`${tasksUrl(sprintId)}/${taskId}`, {
@@ -45,7 +52,7 @@ export function useTaskActions(projectId: string, { sprints, refetchSprints, mut
       refetchSprints()
       return true
     } catch (err) {
-      if (conflictReloads(err)) return false
+      if (conflictReloads(err, onConflict)) return false
       toast.error(messageOf(err, t.error), { title: taskId ? t.sprintUpdateFailed : t.sprintAddFailed })
       return false
     }

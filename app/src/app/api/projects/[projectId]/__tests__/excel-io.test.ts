@@ -56,7 +56,21 @@ describe("GET exports", () => {
     expect(res.headers.get("content-disposition")).toContain(`filename*=UTF-8''${encodeURIComponent(FILE.fileName)}`)
     expect(res.headers.get("cache-control")).toBe("no-store")
     expect(Buffer.from(await res.arrayBuffer()).toString()).toBe("xlsx-bytes")
-    expect(backlogExport.exportBacklog).toHaveBeenCalledWith(PROJECT_ID, "id")
+    expect(backlogExport.exportBacklog).toHaveBeenCalledWith(PROJECT_ID, "id", expect.objectContaining({ q: "", status: "" }))
+  })
+
+  it("passes the backlog page's filters to the export (F-09)", async () => {
+    asRole("dev")
+    await backlogRoute.GET(new Request(`${BASE}/backlog/export?lang=ja&status=ready&q=Login&po=__none&points=x`), ctx())
+    expect(backlogExport.exportBacklog).toHaveBeenCalledWith(PROJECT_ID, "ja", {
+      q: "login",
+      status: "ready",
+      goal: "",
+      epic: "",
+      points: "",
+      po: "__none",
+      plan: "",
+    })
   })
 
   it("passes ?sprintId= through and exports IceBox for section managers too", async () => {

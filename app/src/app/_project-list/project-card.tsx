@@ -187,7 +187,8 @@ export const ProjectCard = memo(function ProjectCard(props: ProjectItemProps) {
             )}
           >
             {m.user.name}
-            <span className="opacity-75">{roleLabel[m.role] ?? m.role}</span>
+            {/* No opacity on the role label: faded text fails WCAG contrast (P-10). */}
+            <span className="font-semibold">{roleLabel[m.role] ?? m.role}</span>
           </li>
         ))}
       </ul>

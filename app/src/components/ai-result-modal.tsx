@@ -57,6 +57,8 @@ interface StreamState {
   generatedAt: Date | null
   done: boolean
   failed: boolean
+  /** HTTP status of a refused request (e.g. 403 = no permission), null otherwise. */
+  failedStatus: number | null
   /** Stopped by the user (Cancel). */
   cancelled: boolean
   /** No token yet after MODEL_LOAD_HINT_MS — the model is most likely still loading. */
@@ -69,8 +71,16 @@ const INITIAL: StreamState = {
   generatedAt: null,
   done: false,
   failed: false,
+  failedStatus: null,
   cancelled: false,
   slowStart: false,
+}
+
+/** Thrown for a non-OK response so the modal can tell "no permission" from other failures. */
+class StreamHttpError extends Error {
+  constructor(readonly status: number) {
+    super(`HTTP ${status}`)
+  }
 }
 
 /**
@@ -108,7 +118,7 @@ function useAiStream(fetchUrl: string, bodyJson: string, structured: boolean): A
           body: bodyJson,
           signal: ac.signal,
         })
-        if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
+        if (!res.ok || !res.body) throw new StreamHttpError(res.status)
         const reader = res.body.getReader()
         const decoder = new TextDecoder()
         let acc = ""
@@ -146,7 +156,8 @@ function useAiStream(fetchUrl: string, bodyJson: string, structured: boolean): A
         }))
       } catch (err) {
         if (ac.signal.aborted || (err instanceof DOMException && err.name === "AbortError")) return
-        setState((s) => ({ ...s, failed: true, slowStart: false }))
+        const failedStatus = err instanceof StreamHttpError ? err.status : null
+        setState((s) => ({ ...s, failed: true, failedStatus, slowStart: false }))
       } finally {
         clearTimeout(slowTimer)
       }
@@ -192,7 +203,7 @@ function CloseButton() {
 function AIResultStream({ title, fetchUrl, bodyJson, onClose, structured, triggerLabel, footer }: Omit<Props, "fetchBody"> & { bodyJson: string; structured: boolean }) {
   const { t, language } = useLanguage()
   const toast = useToast()
-  const { text, report, generatedAt, done, failed, cancelled, slowStart, cancel, retry } = useAiStream(
+  const { text, report, generatedAt, done, failed, failedStatus, cancelled, slowStart, cancel, retry } = useAiStream(
     fetchUrl,
     bodyJson,
     structured,
@@ -220,8 +231,10 @@ function AIResultStream({ title, fetchUrl, bodyJson, onClose, structured, trigge
 
   const locale = language === "ja" ? "ja-JP" : language === "id" ? "id-ID" : "en-US"
   const waitingLabel = slowStart ? t.aiLoadingModel : t.aiThinking
+  const isForbidden = failedStatus === 403
+  // A failure is announced once, by the visible role="alert" below (not also by the status region).
   const status = failed
-    ? t.aiFailed
+    ? ""
     : cancelled
       ? t.aiCancelled
       : done
@@ -233,12 +246,13 @@ function AIResultStream({ title, fetchUrl, bodyJson, onClose, structured, trigge
     body = (
       <div className="space-y-3">
         {failed ? (
-          <p role="alert" className="text-body text-danger">{t.aiFailed}</p>
+          <p role="alert" className="text-body text-danger">{isForbidden ? t.apiErrForbidden : t.aiFailed}</p>
         ) : (
           <p className="text-body text-fg-muted">{t.aiCancelled}</p>
         )}
         {text && !report && <div className="text-body text-fg whitespace-pre-wrap leading-relaxed">{text}</div>}
-        <Button variant="primary" size="sm" onClick={retry}>{t.errorRetry}</Button>
+        {/* Retrying cannot help without the permission. */}
+        {!isForbidden && <Button variant="primary" size="sm" onClick={retry}>{t.errorRetry}</Button>}
       </div>
     )
   } else if (report) {

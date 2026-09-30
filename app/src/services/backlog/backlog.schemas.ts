@@ -18,6 +18,17 @@ export const createBacklogItemSchema = z.object({
   notReadyReason: z.string().max(5000).optional(),
 })
 
+/**
+ * A PBI must have the text the backlog list shows as its title: an initiative
+ * or a user story (whitespace only does not count). Same rule as the Excel
+ * import's "new row needs a user story or an initiative".
+ */
+export function hasPbiContent(input: { initiative?: string | null; userStory?: string | null }): boolean {
+  return !!(input.initiative?.trim() || input.userStory?.trim())
+}
+
+export const PBI_CONTENT_REQUIRED_MESSAGE = "ユーザーストーリーかイニシアティブを入力してください"
+
 export const updateBacklogItemSchema = z.object({
   initiative: z.string().optional(),
   epic: z.string().optional(),

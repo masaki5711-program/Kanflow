@@ -4,7 +4,8 @@ import { forwardRef, memo, useCallback, useId, useMemo, useRef, type KeyboardEve
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react"
 import { IconButton } from "@/components/ui"
 import { ymdToDay } from "../lib/date"
-import { COLUMN_WIDTH, NAME_COLUMN_WIDTH, NAME_COLUMN_WIDTH_COMPACT } from "../lib/filter"
+import { COLUMN_WIDTH } from "../lib/filter"
+import type { PlanColumn } from "../lib/prefs"
 import { ROW_HEIGHT, buildArrows, dayCenterX } from "../lib/geometry"
 import type { PlanDependency, PlanItem } from "../lib/plan-types"
 import type { TimeScale } from "../lib/scale"
@@ -38,7 +39,8 @@ const NAV_KEYS = new Set(["ArrowUp", "ArrowDown", "Home", "End"])
 
 function GridHeader({ env, onToggleGrid }: Pick<Props, "env" | "onToggleGrid">) {
   const { t } = env
-  const labels: Record<string, string> = {
+  const labels: Record<PlanColumn, string> = {
+    period: t.planColPeriod,
     start: t.planColStart,
     end: t.planColEnd,
     duration: t.planColDuration,
@@ -48,7 +50,7 @@ function GridHeader({ env, onToggleGrid }: Pick<Props, "env" | "onToggleGrid">) 
   }
   return (
     <div role="none" className="sticky left-0 z-30 flex shrink-0 border-b border-r border-border bg-surface-muted" style={{ width: env.gridWidth, height: HEADER_HEIGHT }}>
-      <div role="columnheader" className="flex items-center gap-1 px-2 text-caption font-semibold text-fg-muted" style={{ width: env.gridCollapsed ? NAME_COLUMN_WIDTH_COMPACT : NAME_COLUMN_WIDTH }}>
+      <div role="columnheader" className="flex items-center gap-1 px-2 text-caption font-semibold text-fg-muted" style={{ width: env.nameWidth }}>
         <span className="flex-1 truncate">{t.planColName}</span>
         <IconButton
           size="sm"
@@ -60,8 +62,8 @@ function GridHeader({ env, onToggleGrid }: Pick<Props, "env" | "onToggleGrid">) 
         />
       </div>
       {env.columns.map((c) => (
-        <div key={c} role="columnheader" className="flex items-center px-2 text-caption font-semibold text-fg-muted" style={{ width: COLUMN_WIDTH[c] }}>
-          {labels[c]}
+        <div key={c} role="columnheader" title={labels[c]} className="flex items-center overflow-hidden whitespace-nowrap px-2 text-caption font-semibold text-fg-muted" style={{ width: COLUMN_WIDTH[c] }}>
+          <span className="truncate">{labels[c]}</span>
         </div>
       ))}
     </div>
@@ -125,7 +127,7 @@ export const PlanChart = forwardRef<HTMLDivElement, Props>(function PlanChart(pr
     <div
       ref={ref}
       data-plan-chart=""
-      className="relative max-h-[calc(100dvh-15rem)] min-h-72 overflow-auto rounded-ui-lg border border-border bg-surface shadow-ui-sm print:rounded-none print:shadow-none"
+      className="relative max-h-[calc(100dvh-15rem)] min-h-72 overflow-auto rounded-ui-lg border border-border bg-surface shadow-ui-sm print:min-h-0 print:rounded-none print:shadow-none"
     >
       <p id={gridHintId} className="sr-only">{t.planGridKeyboardHint}</p>
       <p id={barHintId} className="sr-only">{t.planBarKeyboardHint}</p>

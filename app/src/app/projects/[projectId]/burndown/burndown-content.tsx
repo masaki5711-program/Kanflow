@@ -1,6 +1,7 @@
 "use client"
 
-import { useId, useState } from "react"
+import { useId } from "react"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { BarChart3 } from "lucide-react"
 import { useLanguage } from "@/lib/language-context"
 import BurndownChart from "@/components/burndown-chart"
@@ -23,16 +24,41 @@ interface Props {
 /** "" = the whole project (all non-archived sprints). */
 const ALL = ""
 
+/** `?sprint=all` keeps the whole-project choice across reloads. */
+export const SPRINT_PARAM = "sprint"
+const ALL_PARAM = "all"
+
 /** Default selection: the active sprint, else the whole project. */
 export function defaultSprintSelection(sprints: readonly BurndownSprintOption[]): string {
   return sprints.find((s) => s.status === "active")?.id ?? ALL
+}
+
+/** Selection from `?sprint=` ("all" or a listed sprint id); anything else → the default. */
+export function sprintSelectionFromParam(param: string | null, sprints: readonly BurndownSprintOption[]): string {
+  if (param === ALL_PARAM) return ALL
+  if (param && sprints.some((s) => s.id === param)) return param
+  return defaultSprintSelection(sprints)
+}
+
+/** `?sprint=` value of a selection. */
+export function sprintParamOf(selection: string): string {
+  return selection === ALL ? ALL_PARAM : selection
 }
 
 export function BurndownPageContent({ projectId, sprints }: Props) {
   const { t } = useLanguage()
   useProjectDocumentTitle(t.burndownPageTitle)
   const selectId = useId()
-  const [selected, setSelected] = useState(() => defaultSprintSelection(sprints))
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const selected = sprintSelectionFromParam(searchParams.get(SPRINT_PARAM), sprints)
+
+  function select(next: string) {
+    const params = new URLSearchParams(searchParams.toString())
+    params.set(SPRINT_PARAM, sprintParamOf(next))
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false })
+  }
 
   const statusLabel: Record<string, string> = {
     active: t.sprintStatusActive,
@@ -55,7 +81,7 @@ export function BurndownPageContent({ projectId, sprints }: Props) {
             <label htmlFor={selectId} className="text-body font-medium text-fg-muted">
               {t.burndownSprintSelect}
             </label>
-            <Select id={selectId} selectSize="sm" value={selected} onChange={(e) => setSelected(e.target.value)} className="min-w-[14rem]">
+            <Select id={selectId} selectSize="sm" value={selected} onChange={(e) => select(e.target.value)} className="min-w-[14rem]">
               <option value={ALL}>{t.burndownSprintAll}</option>
               {sprints.map((s) => (
                 <option key={s.id} value={s.id}>

@@ -63,10 +63,10 @@ function menuItems(row: FlatRow, env: ChartEnv, handlers: RowHandlers): CardMenu
   const items: CardMenuItem[] = [{ key: "edit", label: t.planMenuEdit, onSelect: () => handlers.open(item) }]
   if (!env.canEdit) return items
   items.push(
-    { key: "up", label: t.planMoveUp, onSelect: () => handlers.move(item.id, "moveUp") },
-    { key: "down", label: t.planMoveDown, onSelect: () => handlers.move(item.id, "moveDown") },
-    { key: "indent", label: t.planIndent, onSelect: () => handlers.move(item.id, "indent") },
-    { key: "outdent", label: t.planOutdent, disabled: !item.parentId, onSelect: () => handlers.move(item.id, "outdent") },
+    { key: "up", label: t.planMoveUp, disabled: !row.moves.up, onSelect: () => handlers.move(item.id, "moveUp") },
+    { key: "down", label: t.planMoveDown, disabled: !row.moves.down, onSelect: () => handlers.move(item.id, "moveDown") },
+    { key: "indent", label: t.planIndent, disabled: !row.moves.indent, onSelect: () => handlers.move(item.id, "indent") },
+    { key: "outdent", label: t.planOutdent, disabled: !row.moves.outdent, onSelect: () => handlers.move(item.id, "outdent") },
   )
   if (!item.isMilestone) items.push({ key: "child", label: t.planAddChild, onSelect: () => handlers.addChild(item.id) })
   items.push({ key: "successor", label: t.planAddSuccessor, onSelect: () => handlers.addSuccessor(item) })

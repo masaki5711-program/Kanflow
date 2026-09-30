@@ -11,6 +11,7 @@ import {
 } from "@/components/api-tokens/api-token-types"
 import { apiFetch, useApiMutation, useApiQuery } from "@/hooks"
 import { useLanguage } from "@/lib/language-context"
+import { ApiUsageHelp } from "./api-usage-help"
 
 const URL_BASE = "/api/user/api-tokens"
 const NO_EXPIRY = "none"
@@ -69,7 +70,7 @@ export function ApiTokensSection() {
           {t.apiTokenSectionTitle}
         </h2>
         <p className="mt-2 text-caption text-fg-muted">{t.apiTokenSectionHint}</p>
-        <p className="mt-1 text-caption text-fg-subtle">{t.apiTokenDocsLink}</p>
+        <ApiUsageHelp />
       </div>
 
       {query.isLoading || !data ? (

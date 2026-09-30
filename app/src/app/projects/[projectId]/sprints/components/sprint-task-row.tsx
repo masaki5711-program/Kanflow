@@ -16,7 +16,6 @@ import { Clock, Pencil, Trash2, User } from "lucide-react"
 interface SprintTaskRowProps {
   sprintId: string
   task: SprintItem
-  pointUnit: string
   /** Only one completion-comment editor is open per sprint card. */
   isCommentEditorOpen: boolean
   onOpenCommentEditor: (taskId: string) => void
@@ -32,7 +31,7 @@ const STATUS_COLOR: Record<string, string> = {
 
 /** Memoized row; parents pass stable `actions` / editor callbacks. */
 const SprintTaskRow = memo(function SprintTaskRow({
-  sprintId, task, pointUnit, isCommentEditorOpen, onOpenCommentEditor, onCloseCommentEditor, actions,
+  sprintId, task, isCommentEditorOpen, onOpenCommentEditor, onCloseCommentEditor, actions,
 }: SprintTaskRowProps) {
   const { t, language } = useLanguage()
   const taskStatusLabels: Record<string, string> = { todo: t.taskTodo, in_progress: t.taskInProgress, done: t.taskDone }
@@ -74,9 +73,9 @@ const SprintTaskRow = memo(function SprintTaskRow({
 
         {(task.estimatedHours || task.actualHours) ? (
           <span className="inline-flex items-center gap-1 text-caption text-fg-muted whitespace-nowrap"
-            title={`${t.sprintEstimatedHoursShort} / ${t.sprintActualHoursShort} (${pointUnit})`}>
+            title={`${t.sprintEstimatedHoursShort} / ${t.sprintActualHoursShort} (${t.sprintHoursUnit})`}>
             <Clock className="w-3.5 h-3.5" />
-            {t.sprintEstimatedHoursShort} {task.estimatedHours ?? "-"} · {t.sprintActualHoursShort} {task.actualHours ?? "-"} {pointUnit}
+            {t.sprintEstimatedHoursShort} {task.estimatedHours ?? "-"} · {t.sprintActualHoursShort} {task.actualHours ?? "-"} {t.sprintHoursUnit}
           </span>
         ) : null}
 

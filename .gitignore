@@ -72,3 +72,5 @@ app/logs/
 app/private.pre-restore-*/
 app/.env.pre-restore-*
 app/prisma.ci.config.ts
+app/test-results-*/
+app/e2e/eval/**/platform-data/

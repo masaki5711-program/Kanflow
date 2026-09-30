@@ -8,25 +8,31 @@ import { useLanguage } from "@/lib/language-context"
 import { pickText } from "@/lib/translation/pick-text"
 import type { ProjectMemberDto } from "@/types/api"
 import { useProjectDocumentTitle } from "@/components/app-shell/project-title-context"
-import { addDays, localTodayYmd } from "./lib/date"
+import { addDays, dayToYmd, localTodayYmd } from "./lib/date"
 import { formatShortDate } from "./lib/date-format"
-import { EMPTY_FILTER, gridWidth, isFilterActive, matchesFilter, visibleColumns, type PlanFilter } from "./lib/filter"
+import { EMPTY_FILTER, isFilterActive, matchesFilter, type PlanFilter } from "./lib/filter"
 import { dayCenterX, spanGeometry } from "./lib/geometry"
 import type { PlanItem } from "./lib/plan-types"
-import { PLAN_COLUMNS } from "./lib/prefs"
-import { ZOOM_DAY_WIDTH, buildScale, chartRange } from "./lib/scale"
+import { fullPlanRange, visibleRange, type PrintScope } from "./lib/print"
+import type { ChartRange } from "./lib/scale"
 import { fillTemplate } from "./lib/template"
 import { ancestorIds, buildFlatTree, descendantIds, dropItem, filterVisibleIds, indentItem, moveSibling, outdentItem, parentIds } from "./lib/tree"
+import { initialAnchorDay } from "./lib/viewport"
 import { useBarDrag } from "./hooks/use-bar-drag"
 import { usePlanData } from "./hooks/use-plan-data"
-import { revealItem, scrollTimelineTo, useScrollToToday } from "./hooks/use-plan-scroll"
+import { usePlanLayout } from "./hooks/use-plan-layout"
+import { usePlanPrint } from "./hooks/use-plan-print"
+import { initialScrollLeft, revealItem, scrollTimelineTo, useInitialScroll } from "./hooks/use-plan-scroll"
 import { usePlanViewState } from "./hooks/use-plan-view-state"
 import { useRowDrag } from "./hooks/use-row-drag"
+import { useTimelineViewport } from "./hooks/use-timeline-viewport"
 import type { ChartEnv, RowHandlers } from "./components/chart-types"
 import { PlanChart, chartBodyOf } from "./components/plan-chart"
+import { PlanChartFrame } from "./components/plan-chart-frame"
 import PlanEditModal, { type EditorTarget } from "./components/plan-edit-modal"
 import { PlanFilterBar } from "./components/plan-filter-bar"
 import { PlanLegend } from "./components/plan-legend"
+import { PlanPrintDialog } from "./components/plan-print-dialog"
 import { PlanSuccessorPicker } from "./components/plan-successor-picker"
 import { PlanToolbar } from "./components/plan-toolbar"
 
@@ -37,6 +43,15 @@ interface Props {
 
 const NO_MEMBERS: ProjectMemberDto[] = []
 const DRAFT_DAYS = 7
+/** A4 landscape page for the plan printout (see lib/print.ts PRINT_WIDTH). */
+const PRINT_PAGE_CSS = "@page { size: A4 landscape; margin: 8mm; }"
+
+function rangeLabel(range: ChartRange, language: Parameters<typeof formatShortDate>[1], template: string): string {
+  return fillTemplate(template, {
+    start: formatShortDate(dayToYmd(range.startDay), language),
+    end: formatShortDate(dayToYmd(range.startDay + range.days - 1), language),
+  })
+}
 
 /** Master plan page (client). useSearchParams needs the Suspense boundary. */
 export function PlanContent(props: Props) {
@@ -72,6 +87,7 @@ function PlanPage({ projectId, canEdit }: Props) {
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [editor, setEditor] = useState<EditorTarget | null>(null)
   const [successorFor, setSuccessorFor] = useState<PlanItem | null>(null)
+  const [printOpen, setPrintOpen] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const nameOf = useCallback((item: PlanItem) => pickText(item.i18n, "name", item.name, language).text, [language])
@@ -86,19 +102,37 @@ function PlanPage({ projectId, canEdit }: Props) {
   const rowIds = useMemo(() => rows.map((r) => r.item.id), [rows])
 
   const { zoom } = view
-  const dayWidth = ZOOM_DAY_WIDTH[zoom]
-  const range = useMemo(() => chartRange(items, today, zoom), [items, today, zoom])
-  const scale = useMemo(() => buildScale(range, zoom, language), [range, zoom, language])
-  const gridCollapsed = view.prefs.gridCollapsed ?? isNarrow
-  const columns = useMemo(() => visibleColumns(view.prefs.hiddenColumns, gridCollapsed, PLAN_COLUMNS), [view.prefs.hiddenColumns, gridCollapsed])
-  const gw = gridWidth(columns, gridCollapsed)
+  const ready = !api.isLoading && items.length > 0
+  const viewport = useTimelineViewport(scrollRef, ready && rows.length > 0)
+  // Called on a print click (after this render), so the screen layout below is initialised.
+  const currentVisibleRange = () => visibleRange(range.startDay, dayWidth, viewport.scrollLeft, viewport.clientWidth - gw)
+  const printFlow = usePlanPrint(currentVisibleRange)
+  const layout = usePlanLayout({
+    items,
+    today,
+    zoom,
+    language,
+    prefs: view.prefs,
+    shown: view.columns,
+    isNarrow,
+    containerWidth: viewport.clientWidth,
+    print: printFlow.request,
+  })
+  const { range, dayWidth, scale, columns, gridCollapsed, nameWidth } = layout
+  const gw = layout.gridWidth
   const env = useMemo<ChartEnv>(
-    () => ({ t, language, startDay: range.startDay, dayWidth, today, canEdit, columns, gridWidth: gw, gridCollapsed, nameOf }),
-    [t, language, range.startDay, dayWidth, today, canEdit, columns, gw, gridCollapsed, nameOf],
+    () => ({ t, language, startDay: range.startDay, dayWidth, today, canEdit, columns, gridWidth: gw, nameWidth, gridCollapsed, nameOf }),
+    [t, language, range.startDay, dayWidth, today, canEdit, columns, gw, nameWidth, gridCollapsed, nameOf],
   )
   const todayX = dayCenterX(today, range.startDay, dayWidth)
-  const ready = !api.isLoading && items.length > 0
-  useScrollToToday(scrollRef, ready, todayX, gw, zoom, !!view.itemParam)
+  // First view: the earliest unfinished / overdue work (or today) is on screen.
+  useInitialScroll(
+    scrollRef,
+    ready,
+    (clientWidth) => initialScrollLeft(initialAnchorDay(items, today), { startDay: range.startDay, dayWidth, todayX, clientWidth, gridWidth: gw }),
+    zoom,
+    !!view.itemParam,
+  )
 
   const drag = useBarDrag({
     dayWidth,
@@ -214,8 +248,9 @@ function PlanPage({ projectId, canEdit }: Props) {
         onClearBaseline={() => void confirmBaseline(true)}
         hasBaseline={hasBaseline}
         exportUrl={`${api.base}/export?lang=${language}`}
-        onPrint={() => window.print()}
+        onPrint={() => setPrintOpen(true)}
       />
+      {layout.printing && <style>{PRINT_PAGE_CSS}</style>}
 
       {api.isLoading ? (
         <SkeletonTable rows={6} columns={4} label={t.loading} />
@@ -234,7 +269,7 @@ function PlanPage({ projectId, canEdit }: Props) {
             filter={filter}
             onFilter={setFilter}
             owners={members}
-            hiddenColumns={view.prefs.hiddenColumns}
+            shownColumns={view.columns}
             onToggleColumn={view.toggleColumn}
             columnsDisabled={gridCollapsed}
             onExpandAll={() => view.setCollapsed(() => [])}
@@ -247,24 +282,38 @@ function PlanPage({ projectId, canEdit }: Props) {
               <EmptyState compact title={t.planNoMatches} action={<Button variant="secondary" onClick={() => setFilter(EMPTY_FILTER)}>{t.planClearFilters}</Button>} />
             </div>
           ) : (
-            <PlanChart
-              ref={scrollRef}
+            <PlanChartFrame
+              t={t}
+              scrollRef={scrollRef}
+              viewport={viewport}
               rows={rows}
-              byId={byId}
-              dependencies={dependencies}
-              scale={scale}
-              env={env}
-              handlers={handlers}
-              drag={drag.handlers}
-              live={drag.live}
-              selectedId={selectedId}
-              collapsed={filterOn ? new Set() : collapsed}
-              renamingId={renamingId}
-              todayLabel={fillTemplate(t.planTodayLabel, { date: formatShortDate(today, language) })}
-              onToggleGrid={() => view.setGridCollapsed(!gridCollapsed)}
-              rowDrop={rowDrag.target}
-              onHandlePointerDown={rowDrag.onHandlePointerDown}
-            />
+              startDay={range.startDay}
+              dayWidth={dayWidth}
+              gridWidth={gw}
+              nameWidth={nameWidth}
+              nameBounds={layout.nameBounds}
+              onNameWidth={view.setNameWidth}
+              printing={layout.printing}
+            >
+              <PlanChart
+                ref={scrollRef}
+                rows={rows}
+                byId={byId}
+                dependencies={dependencies}
+                scale={scale}
+                env={env}
+                handlers={handlers}
+                drag={drag.handlers}
+                live={drag.live}
+                selectedId={selectedId}
+                collapsed={filterOn ? new Set() : collapsed}
+                renamingId={renamingId}
+                todayLabel={fillTemplate(t.planTodayLabel, { date: formatShortDate(today, language) })}
+                onToggleGrid={() => view.setGridCollapsed(!gridCollapsed)}
+                rowDrop={rowDrag.target}
+                onHandlePointerDown={rowDrag.onHandlePointerDown}
+              />
+            </PlanChartFrame>
           )}
           <PlanLegend />
         </>
@@ -287,10 +336,23 @@ function PlanPage({ projectId, canEdit }: Props) {
             if (created) setSelectedId(created.id)
             return !!created
           }}
-          onSave={(item, patch) => api.patchItem(item, patch, { notify: true })}
+          onSave={(item, patch, onConflict) => api.patchItem(item, patch, { notify: true, onConflict })}
           onDelete={requestDelete}
           onRemoveDependency={(id) => void api.removeDependency(id)}
           onLinksSaved={api.refetch}
+        />
+      )}
+      {printOpen && (
+        <PlanPrintDialog
+          ranges={{
+            visible: rangeLabel(currentVisibleRange(), language, t.planPrintRange),
+            all: rangeLabel(fullPlanRange(items, today), language, t.planPrintRange),
+          }}
+          onClose={() => setPrintOpen(false)}
+          onPrint={(scope: PrintScope) => {
+            setPrintOpen(false)
+            printFlow.print(scope)
+          }}
         />
       )}
       {successorFor && (

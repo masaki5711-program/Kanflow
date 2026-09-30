@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { DUE_MAX_ITEMS, buildUpcomingDue, daysFromToday, sparklineOf, sprintTimeline } from "../dashboard-summary"
+import { DUE_MAX_ITEMS, buildUpcomingDue, countSprintTasks, daysFromToday, sparklineOf, sprintTimeline } from "../dashboard-summary"
 
 // Stored dates are UTC midnight; "today" is the viewer's local day.
 const now = new Date(2026, 8, 30, 18, 30) // local 2026-09-30 18:30
@@ -55,5 +55,21 @@ describe("buildUpcomingDue", () => {
     const many = Array.from({ length: 10 }, (_, i) => plan(`p${i}`, `2026-10-0${1 + (i % 9)}`))
     expect(buildUpcomingDue([...many, plan("bad", "x")], null, now)).toHaveLength(DUE_MAX_ITEMS)
     expect(buildUpcomingDue([], null, now)).toEqual([])
+  })
+})
+
+describe("countSprintTasks", () => {
+  it("ignores PBI placeholder rows (no task name) like the board and sparkline", () => {
+    const placeholder = (status = "todo") => ({ taskName: null, status })
+    const task = (status: string) => ({ taskName: "t", status })
+    const items = [
+      placeholder(), placeholder(), placeholder(), { taskName: "  ", status: "todo" },
+      task("done"), task("done"), task("in_progress"), task("todo"), task("todo"), task("todo"),
+    ]
+    expect(countSprintTasks(items)).toEqual({ todo: 3, inProgress: 1, done: 2 })
+  })
+
+  it("returns zeros for a sprint with only placeholders", () => {
+    expect(countSprintTasks([{ taskName: null, status: "todo" }])).toEqual({ todo: 0, inProgress: 0, done: 0 })
   })
 })

@@ -43,6 +43,8 @@ export interface CardPermissions {
   canEdit: boolean
   canReorder: boolean
   canDelete: boolean
+  /** ai.use (any project member): offers the INVEST review. */
+  canInvest: boolean
 }
 
 interface Props extends CardActions, CardPermissions {
@@ -139,8 +141,8 @@ function DragHandle(props: Pick<Props, "item" | "isDragging" | "onHandleKeyDown"
 
 /** Memoized: the backlog page passes stable handlers (useStableHandlers). */
 export const BacklogItemCard = memo(function BacklogItemCard(props: Props) {
-  const { item, section, canEdit, canReorder, canDelete, selectMode, isSelected, isDragging } = props
-  const { t } = useLanguage()
+  const { item, section, canEdit, canReorder, canDelete, canInvest, selectMode, isSelected, isDragging } = props
+  const { t, language } = useLanguage()
   const isCompleted = section === "completed"
   const sprints = section === "ready" ? activeSprints(item) : []
   const isInSprint = sprints.length > 0
@@ -190,7 +192,7 @@ export const BacklogItemCard = memo(function BacklogItemCard(props: Props) {
               )}
             </div>
 
-            <Chips item={item} inSprintNames={sprints.map((s) => s.sprintName)} />
+            <Chips item={item} inSprintNames={sprints.map((s) => pickText(s.i18n, "sprintName", s.sprintName, language).text || s.sprintName)} />
 
             {item.userStory ? (
               <I18nText
@@ -220,9 +222,11 @@ export const BacklogItemCard = memo(function BacklogItemCard(props: Props) {
             <span className="sr-only">{t.backlogWorkloadScore}:</span>
             {item.workloadScore}
           </span>
-          <Button variant="secondary" size="sm" onClick={() => props.onInvest(item)} leftIcon={<span aria-hidden="true">🤖</span>}>
-            {t.aiInvestReview}
-          </Button>
+          {canInvest && (
+            <Button variant="secondary" size="sm" onClick={() => props.onInvest(item)} leftIcon={<span aria-hidden="true">🤖</span>}>
+              {t.aiInvestReview}
+            </Button>
+          )}
           {canEdit ? (
             <>
               <StatusActions item={item} section={section} onStatusChange={props.onStatusChange} />

@@ -38,28 +38,52 @@ export function PbiPlanLink({ projectId, planItem }: { projectId: string; planIt
   )
 }
 
-/** Edit view: pick a leaf plan item (loaded from GET /plan when the picker is shown). */
-export function PbiPlanPicker({ projectId, value, onChange }: { projectId: string; value: string; onChange: (id: string) => void }) {
-  const { t, language } = useLanguage()
-  const plan = useApiQuery<PlanData>(`/api/projects/${projectId}/plan`, { parse: (raw) => normalizePlanData(raw) })
+export interface PlanLeafOption {
+  id: string
+  /** Indented name in the viewer's language. */
+  label: string
+  /** Leaf, non-milestone items only (parents are shown for context, disabled). */
+  selectable: boolean
+}
+
+/** The master plan as picker options (loaded from GET /plan while `enabled`). */
+export function usePlanLeafOptions(projectId: string, enabled = true): { options: PlanLeafOption[]; isLoading: boolean } {
+  const { language } = useLanguage()
+  const plan = useApiQuery<PlanData>(enabled ? `/api/projects/${projectId}/plan` : null, { parse: (raw) => normalizePlanData(raw) })
   const options = useMemo(
     () =>
       buildFlatTree(plan.data?.items ?? [], new Set()).map((r) => ({
         id: r.item.id,
-        label: `${"  ".repeat(r.depth)}${pickText(r.item.i18n, "name", r.item.name, language).text}`,
+        label: `${"  ".repeat(r.depth)}${pickText(r.item.i18n, "name", r.item.name, language).text}`,
         selectable: !r.hasChildren && !r.item.isMilestone,
       })),
     [plan.data, language],
   )
+  return { options, isLoading: plan.isLoading }
+}
+
+/** `<option>`s of the plan items (non-leaves disabled). */
+export function PlanLeafOptionList({ options }: { options: readonly PlanLeafOption[] }) {
+  return (
+    <>
+      {options.map((o) => (
+        <option key={o.id} value={o.id} disabled={!o.selectable}>
+          {o.label}
+        </option>
+      ))}
+    </>
+  )
+}
+
+/** Edit view: pick a leaf plan item (loaded from GET /plan when the picker is shown). */
+export function PbiPlanPicker({ projectId, value, onChange }: { projectId: string; value: string; onChange: (id: string) => void }) {
+  const { t } = useLanguage()
+  const plan = usePlanLeafOptions(projectId)
   return (
     <Field label={<LabelWithIcon icon={<CalendarRange className="h-3.5 w-3.5 text-fg-muted" />} text={t.planPbiField} />} hint={t.planPbiPickerHint}>
       <Select value={value} onChange={(e) => onChange(e.target.value)} aria-busy={plan.isLoading}>
         <option value="">{t.planPbiNone}</option>
-        {options.map((o) => (
-          <option key={o.id} value={o.id} disabled={!o.selectable}>
-            {o.label}
-          </option>
-        ))}
+        <PlanLeafOptionList options={plan.options} />
       </Select>
     </Field>
   )

@@ -20,6 +20,7 @@ interface Props extends CardPermissions {
   selectMode: boolean
   selectedIds: ReadonlySet<string>
   drag: DragState
+  isFiltered?: boolean
 }
 
 /** Collapsible completed section: newest first, paged ("show more"). State of the toggle lives in `?showDone=1`. */

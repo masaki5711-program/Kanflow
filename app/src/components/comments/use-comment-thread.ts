@@ -86,13 +86,16 @@ export function toMentionMembers(raw: unknown): MentionMember[] {
   )
 }
 
-/** Project members for the mention autocomplete. */
-export function useMentionMembers(projectId: string): MentionMember[] {
-  const { data } = useApiQuery<MentionMember[]>(`/api/projects/${encodeURIComponent(projectId)}/members`, {
+const NO_MEMBERS: MentionMember[] = []
+
+/** Project members for the mention autocomplete (`isLoading` until the first list arrived). */
+export function useMentionMembersState(projectId: string): { members: MentionMember[]; isLoading: boolean } {
+  const { data, isLoading } = useApiQuery<MentionMember[]>(`/api/projects/${encodeURIComponent(projectId)}/members`, {
     parse: toMentionMembers,
   })
-  return data ?? []
+  return { members: data ?? NO_MEMBERS, isLoading }
 }
+
 
 /**
  * Comment counts for badges (`GET /comments/counts`). Silent on failure

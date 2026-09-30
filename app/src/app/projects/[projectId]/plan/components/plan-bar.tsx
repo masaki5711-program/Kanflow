@@ -145,7 +145,7 @@ export const PlanBar = memo(function PlanBar({ item, kind, env, drag, live, sele
       <SprintBands item={item} env={env} />
       {main}
       <BarChips item={item} env={env} left={chipLeft} name={kind === "milestone" ? env.nameOf(item) : undefined} />
-      {live && <DragTooltip edit={live} env={env} x={kind === "milestone" ? center : g.x + g.width / 2} />}
+      {live && <DragTooltip edit={live} env={env} x={kind === "milestone" ? center : g.x + g.width / 2} single={kind === "milestone"} />}
     </>
   )
 })

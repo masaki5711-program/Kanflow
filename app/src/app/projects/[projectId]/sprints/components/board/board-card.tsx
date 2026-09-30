@@ -28,7 +28,6 @@ interface Props {
   task: SprintItem
   status: BoardStatus
   laneKey: string
-  pointUnit: string
   columnLabels: Record<BoardStatus, string>
   /** Id of the visually hidden keyboard instructions. */
   hintId: string
@@ -43,7 +42,7 @@ const stopPropagation = (e: { stopPropagation: () => void }) => e.stopPropagatio
 
 /** One task card (memoized; `handlers` must be stable). */
 const BoardCard = memo(function BoardCard({
-  task, status, laneKey, pointUnit, columnLabels, hintId, dragOffset, isLifted, handlers,
+  task, status, laneKey, columnLabels, hintId, dragOffset, isLifted, handlers,
 }: Props) {
   const { t, language } = useLanguage()
   const name = pickText(task.i18n, "taskName", task.taskName, language).text || t.sprintNoTaskName
@@ -116,9 +115,9 @@ const BoardCard = memo(function BoardCard({
         )}
         {hasHours && (
           <span className="inline-flex items-center gap-1 whitespace-nowrap text-caption text-fg-muted"
-            title={`${t.sprintEstimatedHoursShort} / ${t.sprintActualHoursShort} (${pointUnit})`}>
+            title={`${t.sprintEstimatedHoursShort} / ${t.sprintActualHoursShort} (${t.sprintHoursUnit})`}>
             <Clock className="h-3.5 w-3.5" aria-hidden="true" />
-            {task.estimatedHours ?? "-"} / {task.actualHours ?? "-"} {pointUnit}
+            {task.estimatedHours ?? "-"} / {task.actualHours ?? "-"} {t.sprintHoursUnit}
           </span>
         )}
         <div data-card-control onClick={stopPropagation} onKeyDown={stopPropagation} className="ml-auto">

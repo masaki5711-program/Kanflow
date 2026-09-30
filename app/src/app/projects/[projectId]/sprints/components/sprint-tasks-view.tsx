@@ -18,6 +18,7 @@ interface Props {
   sprintName: string
   pointUnit: string
   canEditPbi?: boolean
+  canManageSprint: boolean
   viewState: BoardViewState
   members: readonly Member[]
   currentUserId: string | null
@@ -30,12 +31,12 @@ interface Props {
 
 /** Task area of an expanded sprint: view / filter toolbar + list (PBI groups) or kanban board. */
 export default function SprintTasksView({
-  sprint, sprintName, pointUnit, canEditPbi, viewState, members, currentUserId,
+  sprint, sprintName, pointUnit, canEditPbi, canManageSprint, viewState, members, currentUserId,
   editingCommentTaskId, onOpenCommentEditor, onCloseCommentEditor, actions, onAddPbi,
 }: Props) {
   const { t, language } = useLanguage()
   const { view, swimlane, filter } = viewState
-  const canEditMembership = sprint.status !== "archived" && sprint.status !== "done"
+  const canEditMembership = canManageSprint && sprint.status !== "archived" && sprint.status !== "done"
 
   const realTasks = useMemo(() => sprint.items.filter(isRealTask), [sprint.items])
   const filterCtx = useMemo<FilterContext>(() => ({
@@ -70,11 +71,11 @@ export default function SprintTasksView({
     if (view === "board") {
       return (
         <Board sprintId={sprint.id} sprintName={sprintName} tasks={shownTasks} swimlane={swimlane} members={members}
-          pointUnit={pointUnit} actions={actions} />
+          actions={actions} />
       )
     }
     return pbGroups.map(({ pbItem, tasks }) => (
-      <PbiGroup key={pbItem.id} sprintId={sprint.id} sprintStatus={sprint.status} pbItem={pbItem} tasks={tasks}
+      <PbiGroup key={pbItem.id} sprintId={sprint.id} sprintStatus={sprint.status} canManageSprint={canManageSprint} pbItem={pbItem} tasks={tasks}
         pointUnit={pointUnit} canEditPbi={canEditPbi} editingCommentTaskId={editingCommentTaskId}
         onOpenCommentEditor={onOpenCommentEditor} onCloseCommentEditor={onCloseCommentEditor} actions={actions} />
     ))

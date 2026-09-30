@@ -152,6 +152,12 @@ describe("computeScheduleState", () => {
     expect(pp.computeScheduleState(item("2026-01-01", "2026-01-10", 35), "2026-01-05")).toBe("on_track")
   })
 
+  it("a one-day item (milestone) due today is not at risk until the day has passed", () => {
+    expect(pp.computeScheduleState(item("2026-01-05", "2026-01-05", 0, "not_started"), "2026-01-05")).toBe("not_started")
+    expect(pp.computeScheduleState(item("2026-01-05", "2026-01-05", 0, "in_progress"), "2026-01-05")).toBe("on_track")
+    expect(pp.computeScheduleState(item("2026-01-05", "2026-01-05", 0, "not_started"), "2026-01-06")).toBe("delayed")
+  })
+
   it("not_started before the window when nothing happened; on_track when already worked on", () => {
     expect(pp.computeScheduleState(item("2026-02-01", "2026-02-10", 0, "not_started"), "2026-01-15")).toBe("not_started")
     expect(pp.computeScheduleState(item("2026-02-01", "2026-02-10", 0, "in_progress"), "2026-01-15")).toBe("on_track")
@@ -169,8 +175,7 @@ describe("computeScheduleState", () => {
     expect(pp.computeScheduleState(item("2026-01-01", "2026-01-10", 0, "not_started"), "2026-01-02")).toBe("at_risk")
   })
 
-  it("milestone on its day is at risk until done", () => {
-    expect(pp.computeScheduleState(item("2026-01-05", "2026-01-05", 0, "not_started"), "2026-01-05")).toBe("at_risk")
+  it("milestone before its day is not started", () => {
     expect(pp.computeScheduleState(item("2026-01-05", "2026-01-05", 0, "not_started"), "2026-01-04")).toBe("not_started")
   })
 

@@ -94,8 +94,8 @@ export function BarChips({ item, env, left, name }: { item: PlanItem; env: Chart
   )
 }
 
-/** Live "10/03(金) → 10/12(日) 10日" tooltip while dragging / nudging. */
-export function DragTooltip({ edit, env, x }: { edit: LiveEdit; env: ChartEnv; x: number }) {
+/** Live "10/03(金) → 10/12(日) 10日" tooltip while dragging / nudging; a milestone shows its one date. */
+export function DragTooltip({ edit, env, x, single = false }: { edit: LiveEdit; env: ChartEnv; x: number; single?: boolean }) {
   const days = fill(env.t.planDaysCount, { n: spanDays(edit.start, edit.end) })
   return (
     <div
@@ -103,7 +103,13 @@ export function DragTooltip({ edit, env, x }: { edit: LiveEdit; env: ChartEnv; x
       className="pointer-events-none absolute z-30 -translate-x-1/2 whitespace-nowrap rounded-ui-sm bg-fg px-2 py-1 text-caption font-medium text-white shadow-ui-md"
       style={{ left: x, bottom: `calc(100% - ${ROW_LAYOUT.bar.top - 4}px)` }}
     >
-      {formatShortDate(edit.start, env.language)} → {formatShortDate(edit.end, env.language)} <span className="tabular-nums">{days}</span>
+      {single ? (
+        formatShortDate(edit.end, env.language)
+      ) : (
+        <>
+          {formatShortDate(edit.start, env.language)} → {formatShortDate(edit.end, env.language)} <span className="tabular-nums">{days}</span>
+        </>
+      )}
     </div>
   )
 }

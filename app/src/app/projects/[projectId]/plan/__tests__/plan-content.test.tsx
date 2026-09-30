@@ -5,7 +5,8 @@ import { renderWithProviders, tr } from "@/app/__tests__/test-utils"
 import { stubLayout } from "@/components/__tests__/helpers"
 import { resetUrl } from "@/app/projects/[projectId]/backlog/__tests__/nav-mock"
 import { PlanContent } from "../plan-content"
-import { formatShortDate } from "../lib/date-format"
+import { formatCompactRange, formatShortDate } from "../lib/date-format"
+import { PLAN_COLUMNS, prefsKey } from "../lib/prefs"
 import { BASE, TODAY, bodyOf, callsTo, freshState, planServer, stubMatchMedia, type ServerState } from "./plan-server"
 import { installMemoryStorage } from "./fixtures"
 
@@ -24,6 +25,7 @@ function renderPlan(canEdit = true) {
 const names = () => Array.from(document.querySelectorAll<HTMLElement>("[data-plan-name]")).map((b) => b.title)
 const bar = (id: string) => document.querySelector<HTMLElement>(`[data-plan-bar="${id}"]`)!
 const nameButton = (id: string) => document.querySelector<HTMLElement>(`[data-plan-name="${id}"]`)!
+const showAllColumns = () => window.localStorage.setItem(prefsKey("p1"), JSON.stringify({ columns: PLAN_COLUMNS }))
 
 beforeEach(() => {
   state = freshState()
@@ -39,13 +41,24 @@ describe("PlanContent — rendering", () => {
     expect(screen.getByRole("status", { busy: true })).toBeInTheDocument()
     await screen.findByTitle("Alpha")
     expect(names()).toEqual(["Alpha", "Alpha-1", "Alpha-2", "Beta", "Launch"])
+    // default grid: name + compact period + progress (F-01)
     const row = document.querySelector<HTMLElement>('[data-plan-row="A1"]')!
-    expect(within(row).getByText(formatShortDate("2026-10-01", "en"))).toBeInTheDocument()
+    expect(within(row).getAllByRole("cell").map((c) => c.textContent?.trim()).slice(0, 2)).toEqual([formatCompactRange("2026-10-01", "2026-10-05", "en"), "0%"])
+    expect(within(row).queryByText("Sato")).not.toBeInTheDocument()
+    expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual(expect.arrayContaining([t.planColPeriod, t.planColProgress]))
+    expect(screen.getByText(`Today ${formatShortDate(TODAY, "en")}`)).toBeInTheDocument()
+    expect(screen.getAllByText("October 2026").length).toBeGreaterThan(0)
+  })
+
+  it("all columns: compact grid dates (no weekday in en), days, owner and status badge", async () => {
+    showAllColumns()
+    renderPlan()
+    await screen.findByTitle("Alpha")
+    const row = document.querySelector<HTMLElement>('[data-plan-row="A1"]')!
+    expect(within(row).getByText("Oct 1")).toHaveAttribute("title", expect.stringContaining("October 1, 2026"))
     expect(within(row).getByText("5d")).toBeInTheDocument()
     expect(within(row).getByText("Sato")).toBeInTheDocument()
     expect(within(document.querySelector<HTMLElement>('[data-plan-row="A"]')!).getByText(t.planScheduleAtRisk)).toBeInTheDocument()
-    expect(screen.getByText(`Today ${formatShortDate(TODAY, "en")}`)).toBeInTheDocument()
-    expect(screen.getAllByText("October 2026").length).toBeGreaterThan(0)
   })
 
   it("draws summary, milestone, chips, sprint bands, baseline, actual and dependency arrows", async () => {
@@ -85,6 +98,7 @@ describe("PlanContent — rendering", () => {
   })
 
   it("accepts the legacy array response", async () => {
+    showAllColumns()
     const fetchMock = planServer(state)
     fetchMock.mockImplementationOnce(async () => new Response(JSON.stringify([{ id: "X", name: "Old", plannedStart: "2026-03-10T00:00:00.000Z", plannedEnd: "2026-03-12T00:00:00.000Z", status: "delayed" }]), { status: 200, headers: { "content-type": "application/json" } }))
     renderWithProviders(<PlanContent projectId="p1" canEdit />, { language: "en" })

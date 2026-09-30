@@ -54,6 +54,19 @@ export interface BacklogOpsTranslations {
   // Done items
   backlogShowMoreDone: string
   backlogDoneShowing: string
+  backlogContentRequired: string
+  backlogBulkLinkPlan: string
+  backlogBulkChoosePlan: string
+  backlogBulkUnlinkPlan: string
+  backlogBulkUnlinkPlanConfirm: string
+  backlogBulkChoosePo: string
+  backlogBulkClearPo: string
+  backlogBulkClearPoConfirm: string
+  backlogBulkClearConfirmLabel: string
+  backlogHelpAbout: string
+  backlogExportFilteredHint: string
+  backlogNoFilterMatch: string
+  backlogInvestForbidden: string
 }
 
 export const ja: BacklogOpsTranslations = {
@@ -61,7 +74,7 @@ export const ja: BacklogOpsTranslations = {
   backlogLinkCopied: "リンクをコピーしました",
   backlogLinkCopyFailed: "リンクをコピーできませんでした",
   backlogPbiNotFound: "PBI {ref} が見つかりません（ゴミ箱に移動された可能性があります）",
-  backlogWorkloadQuickPick: "ポイントを選ぶ",
+  backlogWorkloadQuickPick: "{label}を選ぶ",
   backlogFiltersLabel: "絞り込み",
   backlogFilterStatus: "状態",
   backlogFilterGoal: "プロダクトゴール",
@@ -101,6 +114,19 @@ export const ja: BacklogOpsTranslations = {
   backlogRestoreFailed: "元に戻せませんでした。ゴミ箱から復元してください。",
   backlogShowMoreDone: "もっと見る（残り {count} 件）",
   backlogDoneShowing: "新しい順に {shown} / {total} 件を表示",
+  backlogContentRequired: "{story}か{initiative}を入力すると追加できます",
+  backlogBulkLinkPlan: "全体計画にリンク",
+  backlogBulkChoosePlan: "全体計画の項目を選択",
+  backlogBulkUnlinkPlan: "（全体計画へのリンクを解除）",
+  backlogBulkUnlinkPlanConfirm: "選択した {count} 件の全体計画へのリンクを解除しますか？",
+  backlogBulkChoosePo: "{po} を選択",
+  backlogBulkClearPo: "（{po} を解除）",
+  backlogBulkClearPoConfirm: "選択した {count} 件の {po} を解除しますか？",
+  backlogBulkClearConfirmLabel: "解除する",
+  backlogHelpAbout: "{field}の説明",
+  backlogExportFilteredHint: "表示中の条件（検索・絞り込み）に一致する PBI を Excel ファイル（.xlsx）でダウンロードします",
+  backlogNoFilterMatch: "条件に一致する項目はありません",
+  backlogInvestForbidden: "INVEST 評価を実行する権限がありません",
 }
 
 export const en: BacklogOpsTranslations = {
@@ -108,7 +134,7 @@ export const en: BacklogOpsTranslations = {
   backlogLinkCopied: "Link copied",
   backlogLinkCopyFailed: "Could not copy the link",
   backlogPbiNotFound: "PBI {ref} was not found (it may have been moved to the trash)",
-  backlogWorkloadQuickPick: "Pick points",
+  backlogWorkloadQuickPick: "Pick {label}",
   backlogFiltersLabel: "Filters",
   backlogFilterStatus: "Status",
   backlogFilterGoal: "Product goal",
@@ -148,6 +174,19 @@ export const en: BacklogOpsTranslations = {
   backlogRestoreFailed: "Could not undo. Restore the items from the trash.",
   backlogShowMoreDone: "Show more ({count} left)",
   backlogDoneShowing: "Newest first: {shown} of {total}",
+  backlogContentRequired: "Enter a {story} or an {initiative} to add the PBI",
+  backlogBulkLinkPlan: "Link to master plan",
+  backlogBulkChoosePlan: "Choose a master plan item",
+  backlogBulkUnlinkPlan: "(Unlink from the master plan)",
+  backlogBulkUnlinkPlanConfirm: "Unlink the {count} selected items from the master plan?",
+  backlogBulkChoosePo: "Choose a {po}",
+  backlogBulkClearPo: "(Clear {po})",
+  backlogBulkClearPoConfirm: "Clear the {po} of the {count} selected items?",
+  backlogBulkClearConfirmLabel: "Clear",
+  backlogHelpAbout: "About {field}",
+  backlogExportFilteredHint: "Download the PBIs matching the current search and filters as an Excel file (.xlsx)",
+  backlogNoFilterMatch: "No items match the filters",
+  backlogInvestForbidden: "You do not have permission to run the INVEST review",
 }
 
 export const id: BacklogOpsTranslations = {
@@ -155,7 +194,7 @@ export const id: BacklogOpsTranslations = {
   backlogLinkCopied: "Tautan disalin",
   backlogLinkCopyFailed: "Tautan tidak dapat disalin",
   backlogPbiNotFound: "PBI {ref} tidak ditemukan (mungkin sudah dipindahkan ke tempat sampah)",
-  backlogWorkloadQuickPick: "Pilih poin",
+  backlogWorkloadQuickPick: "Pilih {label}",
   backlogFiltersLabel: "Filter",
   backlogFilterStatus: "Status",
   backlogFilterGoal: "Tujuan produk",
@@ -195,4 +234,17 @@ export const id: BacklogOpsTranslations = {
   backlogRestoreFailed: "Tidak dapat diurungkan. Pulihkan item dari tempat sampah.",
   backlogShowMoreDone: "Tampilkan lagi ({count} tersisa)",
   backlogDoneShowing: "Terbaru dahulu: {shown} dari {total}",
+  backlogContentRequired: "Isi {story} atau {initiative} untuk menambahkan PBI",
+  backlogBulkLinkPlan: "Tautkan ke rencana induk",
+  backlogBulkChoosePlan: "Pilih item rencana induk",
+  backlogBulkUnlinkPlan: "(Lepas tautan dari rencana induk)",
+  backlogBulkUnlinkPlanConfirm: "Lepas tautan {count} item terpilih dari rencana induk?",
+  backlogBulkChoosePo: "Pilih {po}",
+  backlogBulkClearPo: "(Kosongkan {po})",
+  backlogBulkClearPoConfirm: "Kosongkan {po} dari {count} item terpilih?",
+  backlogBulkClearConfirmLabel: "Kosongkan",
+  backlogHelpAbout: "Penjelasan {field}",
+  backlogExportFilteredHint: "Unduh PBI yang sesuai dengan pencarian dan filter saat ini sebagai file Excel (.xlsx)",
+  backlogNoFilterMatch: "Tidak ada item yang sesuai dengan filter",
+  backlogInvestForbidden: "Anda tidak memiliki izin untuk menjalankan tinjauan INVEST",
 }

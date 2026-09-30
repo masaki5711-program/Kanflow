@@ -50,6 +50,10 @@ $fallbackUrl = "http://127.0.0.1:$Port/api/auth/csrf"
 function Log([string]$msg, [string]$level = "INFO") { Write-RotatingLog -Path $LogFile -Message ("[wrapper-migration] " + $msg) -Level $level }
 
 function Invoke-Node([string[]]$ScriptArgs) {
+    # node-windows writes to stderr (e.g. an fs error while deleting the old
+    # daemon dir after the service is already removed). Under "Stop" PS 5.1
+    # turns that into a terminating error; callers check the outcome instead.
+    $ErrorActionPreference = "Continue"
     Push-Location $paths.App
     try {
         & node.exe @ScriptArgs 2>&1 | ForEach-Object { Log ("  node: " + $_) }

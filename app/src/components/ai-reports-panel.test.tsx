@@ -113,4 +113,23 @@ describe("AiReportsPanel", () => {
     rerender(<AiReportsPanel projectId="p1" />)
     expect(q.refetchReports).toHaveBeenCalledTimes(1)
   })
+
+  it("shows the viewer's side of a bilingual report and says when a report is in another language (S-14)", async () => {
+    const pairs = "Kecepatan tim stabil dan semua tugas selesai.\nチームの速度は安定しています。"
+    q.reports = [
+      { id: "b1", trigger: "sprint_completed", status: "done", title: "🏁 スプリント完了レビュー / Tinjauan penyelesaian sprint: S-9", summary: pairs, body: pairs, structured: null, createdAt: "2026-09-23T06:30:00Z" },
+      { id: "p1", trigger: "manual", status: "done", title: "📊 Laporan progres", summary: "Progres proyek sudah sesuai rencana", body: "Progres proyek sudah sesuai rencana", structured: null, createdAt: "2026-09-22T06:30:00Z" },
+    ]
+    render(<AiReportsPanel projectId="p1" />)
+    expect(screen.getByText("🏁 スプリント完了レビュー: S-9")).toBeInTheDocument()
+    await userEvent.click(screen.getByText("🏁 スプリント完了レビュー: S-9"))
+    const bilingual = screen.getByText("🏁 スプリント完了レビュー: S-9").closest("li") as HTMLElement
+    expect(within(bilingual).getByText("チームの速度は安定しています。")).toBeInTheDocument()
+    expect(within(bilingual).queryByText(/Kecepatan tim/)).not.toBeInTheDocument()
+    expect(within(bilingual).queryByTestId("ai-report-language-note")).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole("button", { name: t.aiReportOlderShow.replace("{count}", "1") }))
+    await userEvent.click(screen.getByText("📊 進捗レポート"))
+    expect(screen.getByTestId("ai-report-language-note")).toHaveTextContent(t.aiReportWrittenIn.replace("{language}", "Bahasa Indonesia"))
+  })
 })

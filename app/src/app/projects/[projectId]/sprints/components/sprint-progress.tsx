@@ -12,6 +12,10 @@ interface Props {
 /** Capacity gauge (committed band + done band) and task status counts. */
 export default function SprintProgress({ capacity, metrics: m }: Props) {
   const { t } = useLanguage()
+  // The load % (workload / capacity) sits next to the workload it describes, never
+  // next to the consumed score, so it cannot be read as "% done".
+  const loadPct = t.sprintProgressLoadPct.replace("{pct}", String(m.progress))
+  const donePct = m.totalTasks > 0 ? Math.round((m.doneTasks / m.totalTasks) * 100) : 0
   return (
     <div className="px-6 pb-4 space-y-3">
       <div>
@@ -19,12 +23,10 @@ export default function SprintProgress({ capacity, metrics: m }: Props) {
           <span className="inline-flex items-center gap-1.5">
             <Gauge className="w-4 h-4 text-fg-subtle" />
             {t.sprintWorkload}: {m.currentWorkload} / {capacity}
+            <span className={cn("font-medium", m.isOver ? "text-danger" : "text-fg-muted")}>{loadPct}</span>
           </span>
-          <span className="flex items-center gap-3">
-            <span className="text-success font-medium">
-              {t.sprintActualScore}: {Math.round(m.completedWorkload * 10) / 10}
-            </span>
-            <span className={cn("font-medium", m.isOver ? "text-danger" : "text-fg-muted")}>{m.progress}%</span>
+          <span className="text-success font-medium">
+            {t.sprintActualScore}: {Math.round(m.completedWorkload * 10) / 10} / {m.currentWorkload}
           </span>
         </div>
         <div className="w-full bg-surface-sunken rounded-full h-2 relative overflow-hidden" aria-hidden="true">
@@ -38,8 +40,9 @@ export default function SprintProgress({ capacity, metrics: m }: Props) {
         <span className="text-fg-muted">{t.sprintTasks}: {m.totalTasks}</span>
         {m.totalTasks > 0 && (
           <>
-            <span className="inline-flex items-center gap-1 text-success">
-              <TaskStatusIcon status="done" className="w-4 h-4" /> {t.taskDone}: {m.doneTasks}
+            <span className="inline-flex items-center gap-1 text-success font-medium">
+              <TaskStatusIcon status="done" className="w-4 h-4" />
+              {t.sprintProgressDoneTasks.replace("{done}", String(m.doneTasks)).replace("{total}", String(m.totalTasks)).replace("{pct}", String(donePct))}
             </span>
             <span className="inline-flex items-center gap-1 text-primary">
               <TaskStatusIcon status="in_progress" className="w-4 h-4" /> {t.taskInProgress}: {m.inProgressTasks}

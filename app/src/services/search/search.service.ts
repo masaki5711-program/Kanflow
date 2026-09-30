@@ -190,10 +190,10 @@ async function loadRanked<R extends { id: string }>(
   return orderByRank(rows, ids).slice(0, limit)
 }
 
-/** PBIs additionally match an exact displayId ("PBI-12"), which is kept first. */
+/** PBIs additionally match an exact displayId ("PBI-12", "#12", "12" — one per project), which is kept first. */
 async function loadRankedPbis(ids: string[], { scope, limit, displayId }: SearchInput) {
   if (ids.length === 0 && displayId === null) return []
-  const rows = await repo.findPbis(defaultDb, scope, { pattern: null, ids, take: ids.length + (displayId === null ? 0 : 1), displayId })
+  const rows = await repo.findPbis(defaultDb, scope, { pattern: null, ids, take: ids.length + (displayId === null ? 0 : limit), displayId })
   const exactFirst = (r: { displayId: number }) => Number(r.displayId !== displayId)
   return orderByRank(rows, ids).toSorted((a, b) => exactFirst(a) - exactFirst(b)).slice(0, limit)
 }

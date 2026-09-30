@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { Sprint, SprintItem } from "../components/types"
-import { computeSprintMetrics, groupTasksByPb, nextTaskStatus, patchTask, removeTask } from "./sprint-metrics"
+import { computeSprintMetrics, groupTasksByPb, nextTaskStatus, patchTask, removeTask, unfinishedWork } from "./sprint-metrics"
 
 function pb(id: string, workloadScore: number) {
   return { id, displayId: 1, initiative: null, epic: null, userStory: null, workloadScore }
@@ -68,5 +68,20 @@ describe("task helpers", () => {
     const removed = removeTask(list, "s1", "b")
     expect(removed[0].items.map((i) => i.id)).toEqual(["a"])
     expect(list[0].items).toHaveLength(2)
+  })
+})
+
+describe("unfinishedWork", () => {
+  it("counts open real tasks and PBIs that are not complete (placeholders are not tasks)", () => {
+    const items = [
+      task("a1", "A", 3, "done"), task("a2", "A", 3, "done"),
+      task("b1", "B", 2, "done"), task("b2", "B", 2, "todo"), task("b3", "B", 2, "in_progress"),
+      task("c0", "C", 1, "todo", null),
+    ]
+    expect(unfinishedWork(items)).toEqual({ tasks: 2, pbis: 2 })
+  })
+
+  it("is empty when everything is done", () => {
+    expect(unfinishedWork([task("a1", "A", 3, "done")])).toEqual({ tasks: 0, pbis: 0 })
   })
 })

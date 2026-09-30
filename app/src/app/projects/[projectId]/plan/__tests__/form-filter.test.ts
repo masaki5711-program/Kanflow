@@ -1,5 +1,22 @@
 import { describe, expect, it } from "vitest"
-import { EMPTY_FILTER, OWNER_NONE, dropTargetAt, gridWidth, isFilterActive, matchesFilter, visibleColumns, COLUMN_WIDTH, NAME_COLUMN_WIDTH, NAME_COLUMN_WIDTH_COMPACT } from "../lib/filter"
+import {
+  COLUMN_WIDTH,
+  EMPTY_FILTER,
+  MIN_TIMELINE_WIDTH,
+  NAME_COLUMN_WIDTH,
+  NAME_COLUMN_WIDTH_COMPACT,
+  NAME_WIDTH_MAX,
+  NAME_WIDTH_MIN,
+  OWNER_NONE,
+  columnsWidth,
+  dropTargetAt,
+  gridWidth,
+  isFilterActive,
+  matchesFilter,
+  nameWidthBounds,
+  resolveNameWidth,
+  visibleColumns,
+} from "../lib/filter"
 import {
   buildCreateInput,
   buildPatch,
@@ -9,14 +26,23 @@ import {
   isSameForm,
   validateForm,
 } from "../lib/plan-form"
-import { PLAN_COLUMNS } from "../lib/prefs"
+import { DEFAULT_COLUMNS, PLAN_COLUMNS, toggleColumnIn } from "../lib/prefs"
 import { mkItem } from "./fixtures"
 
 describe("plan form", () => {
-  it("derived flags: parent → dates/status, linked leaf → status, manual leaf → nothing", () => {
-    expect(derivedFlags(mkItem({ id: "p", hasChildren: true }), { progressMode: "manual" })).toEqual({ datesDerived: true, statusDerived: true })
-    expect(derivedFlags(mkItem({ id: "l" }), { progressMode: "linked" })).toEqual({ datesDerived: false, statusDerived: true })
-    expect(derivedFlags(null, { progressMode: "manual" })).toEqual({ datesDerived: false, statusDerived: false })
+  it("derived flags: parent → dates/status, linked leaf with PBIs → status, manual leaf → nothing", () => {
+    const linked = { pbiCount: 2, pbiDone: 1, pointsTotal: 5, pointsDone: 2, sprints: [] }
+    expect(derivedFlags(mkItem({ id: "p", hasChildren: true }), { progressMode: "manual" })).toEqual({ datesDerived: true, statusDerived: true, statusManualUntilLinked: false })
+    expect(derivedFlags(mkItem({ id: "l", linked }), { progressMode: "linked" })).toEqual({ datesDerived: false, statusDerived: true, statusManualUntilLinked: false })
+    expect(derivedFlags(null, { progressMode: "manual" })).toEqual({ datesDerived: false, statusDerived: false, statusManualUntilLinked: false })
+  })
+
+  it("F-12: a linked leaf without PBIs keeps a manual (editable) status until PBIs are linked", () => {
+    expect(derivedFlags(mkItem({ id: "l" }), { progressMode: "linked" })).toEqual({ datesDerived: false, statusDerived: false, statusManualUntilLinked: true })
+    // the editor's current selection overrides the saved count
+    expect(derivedFlags(mkItem({ id: "l" }), { progressMode: "linked" }, 1).statusDerived).toBe(true)
+    const leaf = mkItem({ id: "l", progressMode: "linked" })
+    expect(buildPatch(leaf, { ...formFromItem(leaf), status: "in_progress" })).toEqual({ status: "in_progress" })
   })
 
   it("buildPatch sends only changed fields and never derived ones (parent)", () => {
@@ -26,7 +52,7 @@ describe("plan form", () => {
   })
 
   it("buildPatch for a linked leaf drops progress/status but keeps dates", () => {
-    const leaf = mkItem({ id: "l", progressMode: "linked" })
+    const leaf = mkItem({ id: "l", progressMode: "linked", linked: { pbiCount: 1, pbiDone: 0, pointsTotal: 3, pointsDone: 0, sprints: [] } })
     const form = { ...formFromItem(leaf), plannedEnd: "2026-10-12", status: "done" as const, ownerId: "u1" }
     expect(buildPatch(leaf, form)).toEqual({ plannedEnd: "2026-10-12", ownerId: "u1" })
   })
@@ -34,7 +60,8 @@ describe("plan form", () => {
   it("buildPatch for a manual leaf: status/mode/nulls (progress is never sent)", () => {
     const leaf = mkItem({ id: "l", description: "d", owner: { id: "u1", name: "U" } })
     const form = { ...formFromItem(leaf), status: "done" as const, description: " ", ownerId: "", progressMode: "linked" as const }
-    expect(buildPatch(leaf, form)).toEqual({ description: null, ownerId: null, progressMode: "linked" })
+    // switching to "From PBIs" with no PBI yet: the status stays manual and is sent
+    expect(buildPatch(leaf, form)).toEqual({ description: null, ownerId: null, progressMode: "linked", status: "done" })
     expect(buildPatch(leaf, { ...formFromItem(leaf), status: "done", actualStart: "2026-10-02" })).toEqual({ status: "done", actualStart: "2026-10-02" })
     expect(isSameForm(formFromItem(leaf), formFromItem(leaf))).toBe(true)
   })
@@ -58,8 +85,9 @@ describe("plan form", () => {
       isMilestone: false,
       progressMode: "manual",
     })
+    // a draft has no PBIs yet: its status is manual even in "From PBIs" mode
     const linked = buildCreateInput({ ...form, progressMode: "linked", actualStart: "2026-10-02" })
-    expect(linked).not.toHaveProperty("status")
+    expect(linked).toMatchObject({ status: "not_started", progressMode: "linked" })
     expect(linked).not.toHaveProperty("actualStart")
   })
 
@@ -96,11 +124,35 @@ describe("filters and columns", () => {
     expect(matchesFilter(a, { ...EMPTY_FILTER, owner: OWNER_NONE }, "Design")).toBe(false)
   })
 
-  it("column visibility and grid width", () => {
-    expect(visibleColumns(["owner"], false, PLAN_COLUMNS)).toEqual(["start", "end", "duration", "progress", "status"])
-    expect(visibleColumns([], true, PLAN_COLUMNS)).toEqual([])
-    expect(gridWidth([], true)).toBe(NAME_COLUMN_WIDTH_COMPACT)
-    expect(gridWidth(["start", "end"], false)).toBe(NAME_COLUMN_WIDTH + COLUMN_WIDTH.start + COLUMN_WIDTH.end)
+  it("column visibility (canonical order) and grid width", () => {
+    expect(visibleColumns(["status", "period", "owner"], false, PLAN_COLUMNS)).toEqual(["period", "owner", "status"])
+    expect(visibleColumns(DEFAULT_COLUMNS, true, PLAN_COLUMNS)).toEqual([])
+    expect(DEFAULT_COLUMNS).toEqual(["period", "progress"])
+    expect(gridWidth([], 180)).toBe(180)
+    expect(gridWidth(["start", "end"], 200)).toBe(200 + COLUMN_WIDTH.start + COLUMN_WIDTH.end)
+    expect(toggleColumnIn(DEFAULT_COLUMNS, "owner")).toEqual(["period", "progress", "owner"])
+    expect(toggleColumnIn(["period", "progress"], "period")).toEqual(["progress"])
+  })
+
+  it("F-01: the default grid leaves most of a 1440px chart to the timeline", () => {
+    const chart = 1150 // chart box at a 1440px window (sidebar + page padding)
+    const grid = gridWidth(DEFAULT_COLUMNS, resolveNameWidth(null, { compact: false, containerWidth: chart, columns: DEFAULT_COLUMNS }))
+    expect(grid).toBe(NAME_COLUMN_WIDTH + columnsWidth(DEFAULT_COLUMNS))
+    expect(chart - grid).toBeGreaterThan(chart * 0.55)
+  })
+
+  it("name width: default / compact, splitter value clamped so the timeline keeps its minimum", () => {
+    const cols = DEFAULT_COLUMNS
+    expect(resolveNameWidth(null, { compact: true, containerWidth: 0, columns: [] })).toBe(NAME_COLUMN_WIDTH_COMPACT)
+    expect(resolveNameWidth(10, { compact: false, containerWidth: 0, columns: cols })).toBe(NAME_WIDTH_MIN)
+    expect(resolveNameWidth(5000, { compact: false, containerWidth: 0, columns: cols })).toBe(NAME_WIDTH_MAX)
+    expect(resolveNameWidth(600, { compact: false, containerWidth: 900, columns: cols })).toBe(900 - columnsWidth(cols) - MIN_TIMELINE_WIDTH)
+    // phone: the timeline keeps 40% so names get ~200px (F-07)
+    expect(nameWidthBounds(343, [])).toEqual({ min: NAME_WIDTH_MIN, max: 343 - Math.round(343 * 0.4) })
+    expect(resolveNameWidth(null, { compact: true, containerWidth: 343, columns: [] })).toBe(NAME_COLUMN_WIDTH_COMPACT)
+    expect(nameWidthBounds(180, [])).toEqual({ min: NAME_WIDTH_MIN, max: NAME_WIDTH_MIN })
+    expect(nameWidthBounds(900, cols).max).toBe(900 - columnsWidth(cols) - MIN_TIMELINE_WIDTH)
+    expect(nameWidthBounds(2000, cols).max).toBe(NAME_WIDTH_MAX)
   })
 
   it("dropTargetAt picks the row half under the pointer", () => {

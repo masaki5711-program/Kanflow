@@ -31,6 +31,26 @@ export function findProjectActivity(db: Db, projectId: string, args: PageArgs & 
   })
 }
 
+/** Ids per entity type whose feed label is looked up (entries logged without one). */
+export interface LabelLookup {
+  pbi: string[]
+  sprint_task: string[]
+  sprint: string[]
+  plan_item: string[]
+}
+
+/** Label source rows of the given entities in the project (trashed ones included — old entries still name them). */
+export async function findEntityLabelRows(db: Db, projectId: string, ids: LabelLookup) {
+  const none = Promise.resolve([])
+  const [pbis, tasks, sprints, planItems] = await Promise.all([
+    ids.pbi.length ? db.productBacklogItem.findMany({ where: { projectId, id: { in: ids.pbi } }, select: { id: true, displayId: true, initiative: true, userStory: true } }) : none,
+    ids.sprint_task.length ? db.sprintBacklogItem.findMany({ where: { sprint: { projectId }, id: { in: ids.sprint_task } }, select: { id: true, taskName: true } }) : none,
+    ids.sprint.length ? db.sprint.findMany({ where: { projectId, id: { in: ids.sprint } }, select: { id: true, sprintName: true } }) : none,
+    ids.plan_item.length ? db.planItem.findMany({ where: { projectId, id: { in: ids.plan_item } }, select: { id: true, name: true } }) : none,
+  ])
+  return { pbis, tasks, sprints, planItems }
+}
+
 /** History of one entity (scoped to the project), newest first. */
 export function findEntityActivity(db: Db, projectId: string, entityType: string, entityId: string, args: PageArgs) {
   return db.activityLog.findMany({

@@ -45,7 +45,7 @@ export default function SprintsPage() {
   useProjectDocumentTitle(pt.sprintTitle)
 
   const data = useSprintsData(projectId)
-  const { sprints, settings, canEditPbi } = data
+  const { sprints, settings, canEditPbi, canManageSprint } = data
   const sprintActions = useSprintActions(projectId, data)
   const taskActions = useTaskActions(projectId, data)
   const boardView = useBoardViewState(data.userId)
@@ -117,7 +117,7 @@ export default function SprintsPage() {
     return (
       <li key={sprint.id} id={sprintElementId(sprint.id)}>
         <SprintCard projectId={projectId} sprint={sprint} events={data.events} pointUnit={pointUnit}
-          canEditPbi={canEditPbi} isExpanded={isExpanded(sprint)} onToggleExpand={() => toggleExpanded(sprint)}
+          canEditPbi={canEditPbi} canManageSprint={canManageSprint} isExpanded={isExpanded(sprint)} onToggleExpand={() => toggleExpanded(sprint)}
           actions={cardActions} viewState={boardView} members={data.members} currentUserId={data.userId} />
       </li>
     )
@@ -131,8 +131,8 @@ export default function SprintsPage() {
     <div>
       {taskModal && taskSprint && (
         <TaskFormModal projectId={projectId} sprint={taskSprint} task={taskModal.task}
-          initialPbItemId={taskModal.pbItemId} members={data.members} pointUnit={pointUnit} canEditPbi={canEditPbi}
-          onSave={(form) => taskActions.saveTask(taskSprint.id, taskModal.task?.id ?? null, form)}
+          initialPbItemId={taskModal.pbItemId} members={data.members} canEditPbi={canEditPbi}
+          onSave={(form, onConflict) => taskActions.saveTask(taskSprint.id, taskModal.task?.id ?? null, form, onConflict)}
           onBulkAdd={(pbItemId, assigneeIds, names) => taskActions.bulkAddTasks(taskSprint.id, pbItemId, assigneeIds, names)}
           onPbiSaved={refreshAfterPbiChange} onClose={() => setTaskModal(null)} />
       )}
@@ -141,7 +141,7 @@ export default function SprintsPage() {
           onSubmit={(fields) => sprintActions.changeStatus(statusDialog.sprintId, statusDialog.nextStatus, fields)}
           onClose={() => setStatusDialog(null)} />
       )}
-      {addPbiSprint && (
+      {addPbiSprint && canManageSprint && (
         <AddPbiModal
           projectId={projectId}
           sprintId={addPbiSprint.id}
@@ -161,9 +161,9 @@ export default function SprintsPage() {
       <SprintsHeader projectId={projectId} avgActual={avgActual} doneSprintCount={doneSprints.length}
         archivedCount={archivedSprints.length} showArchived={showArchived}
         onToggleArchived={() => setShowArchived((v) => !v)}
-        isCreateBlocked={isCreateBlocked} onCreate={() => setShowForm(true)} />
+        isCreateBlocked={isCreateBlocked} canCreate={canManageSprint} onCreate={() => setShowForm(true)} />
 
-      {showForm && !isCreateBlocked && (
+      {showForm && canManageSprint && !isCreateBlocked && (
         <SprintCreateForm readyPbItems={data.readyPbItems} settings={settings} pointUnitLabel={pointUnit}
           avgActual={avgActual} doneSprintCount={doneSprints.length}
           onCreate={sprintActions.createSprint} onClose={() => setShowForm(false)} onViewPbi={setDetailPbiId} />
@@ -176,7 +176,7 @@ export default function SprintsPage() {
         </div>
       ) : liveSprints.length === 0 && archivedSprints.length === 0 ? (
         <EmptyState icon={<Zap className="w-6 h-6" />} title={t.sprintNoSprints} description={t.sprintNoSprintsHint}
-          action={!isCreateBlocked && !showForm ? (
+          action={canManageSprint && !isCreateBlocked && !showForm ? (
             <Button onClick={() => setShowForm(true)} leftIcon={<Plus className="w-4 h-4" />}>{t.sprintCreate}</Button>
           ) : undefined} />
       ) : (

@@ -1,9 +1,27 @@
-import { describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import { render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { getTranslations } from "@/lib/i18n"
 
 const chartProps = vi.fn()
+const nav = vi.hoisted(() => ({ search: "", replace: vi.fn() }))
+vi.mock("next/navigation", async () => {
+  const { useSyncExternalStore } = await import("react")
+  const listeners = new Set<() => void>()
+  nav.replace.mockImplementation((url: string) => {
+    nav.search = url.split("?")[1] ?? ""
+    listeners.forEach((l) => l())
+  })
+  const subscribe = (l: () => void) => {
+    listeners.add(l)
+    return () => listeners.delete(l)
+  }
+  return {
+    useRouter: () => ({ replace: nav.replace, push: vi.fn(), refresh: vi.fn() }),
+    usePathname: () => "/projects/p1/burndown",
+    useSearchParams: () => new URLSearchParams(useSyncExternalStore(subscribe, () => nav.search)),
+  }
+})
 vi.mock("@/components/burndown-chart", () => ({
   default: (props: { projectId: string; refreshable?: boolean; sprintId?: string | null }) => {
     chartProps(props)
@@ -14,7 +32,7 @@ vi.mock("@/components/burndown/velocity-chart", () => ({
   default: ({ projectId }: { projectId: string }) => <div data-testid="velocity">{projectId}</div>,
 }))
 
-const { BurndownPageContent, defaultSprintSelection } = await import("./burndown-content")
+const { BurndownPageContent, defaultSprintSelection, sprintSelectionFromParam } = await import("./burndown-content")
 const t = getTranslations("ja")
 
 const sprints = [
@@ -24,6 +42,11 @@ const sprints = [
 ]
 
 describe("BurndownPageContent", () => {
+  beforeEach(() => {
+    nav.search = ""
+    nav.replace.mockClear()
+  })
+
   it("defaults to the active sprint and renders velocity below", () => {
     render(<BurndownPageContent projectId="p1" sprints={sprints} />)
     expect(screen.getByRole("heading", { level: 1, name: t.burndownPageTitle })).toBeInTheDocument()
@@ -45,9 +68,25 @@ describe("BurndownPageContent", () => {
     const select = screen.getByRole("combobox", { name: t.burndownSprintSelect })
     await user.selectOptions(select, "s2")
     expect(screen.getByTestId("chart")).toHaveTextContent("s2")
+    expect(nav.replace).toHaveBeenLastCalledWith("/projects/p1/burndown?sprint=s2", { scroll: false })
     await user.selectOptions(select, "")
     expect(screen.getByTestId("chart")).toHaveTextContent("all")
     expect(chartProps).toHaveBeenLastCalledWith({ projectId: "p1", sprintId: null, refreshable: true })
+    expect(nav.replace).toHaveBeenLastCalledWith("/projects/p1/burndown?sprint=all", { scroll: false })
+  })
+
+  it("restores the whole-project choice from ?sprint=all after a reload", () => {
+    nav.search = "sprint=all"
+    render(<BurndownPageContent projectId="p1" sprints={sprints} />)
+    expect((screen.getByRole("combobox", { name: t.burndownSprintSelect }) as HTMLSelectElement).value).toBe("")
+    expect(chartProps).toHaveBeenLastCalledWith({ projectId: "p1", sprintId: null, refreshable: true })
+  })
+
+  it("reads a sprint id from the URL and ignores unknown ones", () => {
+    expect(sprintSelectionFromParam("s2", sprints)).toBe("s2")
+    expect(sprintSelectionFromParam("nope", sprints)).toBe("s3")
+    expect(sprintSelectionFromParam(null, sprints)).toBe("s3")
+    expect(sprintSelectionFromParam("all", sprints)).toBe("")
   })
 
   it("falls back to the whole project without an active sprint", () => {

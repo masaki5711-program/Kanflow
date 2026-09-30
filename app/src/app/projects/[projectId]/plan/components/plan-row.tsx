@@ -3,8 +3,8 @@
 import { memo, type KeyboardEvent, type PointerEvent } from "react"
 import { Badge, cn } from "@/components/ui"
 import { spanDays } from "../lib/date"
-import { formatFullDate, formatShortDate } from "../lib/date-format"
-import { COLUMN_WIDTH, NAME_COLUMN_WIDTH, NAME_COLUMN_WIDTH_COMPACT } from "../lib/filter"
+import { formatCompactRange, formatFullDate, formatGridDate } from "../lib/date-format"
+import { COLUMN_WIDTH } from "../lib/filter"
 import { ROW_HEIGHT } from "../lib/geometry"
 import type { BarKind } from "../lib/interaction"
 import type { PlanItem } from "../lib/plan-types"
@@ -41,15 +41,25 @@ export function barKindOf(row: FlatRow): BarKind {
 
 function ColumnCell({ column, item, env }: { column: PlanColumn; item: PlanItem; env: ChartEnv }) {
   const { t, language } = env
-  const base = "flex h-full shrink-0 items-center px-2 text-body text-fg-muted tabular-nums"
+  const base = "flex h-full shrink-0 items-center overflow-hidden whitespace-nowrap px-2 text-body text-fg-muted tabular-nums"
   const style = { width: COLUMN_WIDTH[column] }
   switch (column) {
+    case "period": {
+      const full = item.isMilestone
+        ? formatFullDate(item.plannedEnd, language)
+        : `${formatFullDate(item.plannedStart, language)} – ${formatFullDate(item.plannedEnd, language)}`
+      return (
+        <div role="cell" className={base} style={style} title={full}>
+          <span className="truncate">{item.isMilestone ? formatGridDate(item.plannedEnd, language) : formatCompactRange(item.plannedStart, item.plannedEnd, language)}</span>
+        </div>
+      )
+    }
     case "start":
     case "end": {
       const date = column === "start" ? item.plannedStart : item.plannedEnd
       return (
         <div role="cell" className={base} style={style} title={formatFullDate(date, language)}>
-          {formatShortDate(date, language)}
+          {formatGridDate(date, language)}
         </div>
       )
     }
@@ -62,7 +72,7 @@ function ColumnCell({ column, item, env }: { column: PlanColumn; item: PlanItem;
     case "progress":
       return (
         <div role="cell" className={cn(base, "gap-1.5")} style={style}>
-          <span aria-hidden="true" className="h-1.5 w-10 overflow-hidden rounded-full bg-surface-sunken ring-1 ring-inset ring-border">
+          <span aria-hidden="true" className="h-1.5 w-10 shrink-0 overflow-hidden rounded-full bg-surface-sunken ring-1 ring-inset ring-border">
             <span className="block h-full bg-primary" style={{ width: `${item.progressPct}%` }} />
           </span>
           <span className="text-caption text-fg">{item.progressPct}%</span>
@@ -77,9 +87,9 @@ function ColumnCell({ column, item, env }: { column: PlanColumn; item: PlanItem;
     case "status": {
       const badge = itemBadge(t, item)
       return (
-        <div role="cell" className={base} style={style}>
-          <Badge tone={badge.tone} dot>
-            {badge.label}
+        <div role="cell" className={base} style={style} title={badge.label}>
+          <Badge tone={badge.tone} dot className="max-w-full">
+            <span className="truncate">{badge.label}</span>
           </Badge>
         </div>
       )
@@ -99,7 +109,7 @@ export const PlanRow = memo(function PlanRow(props: Props) {
       role="row"
       data-plan-row={item.id}
       data-selected={selected ? "true" : "false"}
-      className={cn("group flex border-b border-border/70", selected ? "bg-primary-soft/50" : "hover:bg-surface-muted/60")}
+      className={cn("group flex break-inside-avoid border-b border-border", selected ? "bg-primary-soft/50" : "hover:bg-surface-muted/60")}
       style={{ height: ROW_HEIGHT }}
     >
       <div
@@ -116,7 +126,7 @@ export const PlanRow = memo(function PlanRow(props: Props) {
           handlers={handlers}
           collapsed={collapsed}
           renaming={renaming}
-          width={env.gridCollapsed ? NAME_COLUMN_WIDTH_COMPACT : NAME_COLUMN_WIDTH}
+          width={env.nameWidth}
           hintId={props.gridHintId}
           onHandlePointerDown={props.onHandlePointerDown}
         />
@@ -124,7 +134,7 @@ export const PlanRow = memo(function PlanRow(props: Props) {
           <ColumnCell key={c} column={c} item={item} env={env} />
         ))}
       </div>
-      <div role="cell" className="relative shrink-0" style={{ width: timelineWidth }}>
+      <div role="cell" className="relative shrink-0 print:overflow-hidden" style={{ width: timelineWidth }}>
         <PlanBar
           item={item}
           kind={barKindOf(row)}

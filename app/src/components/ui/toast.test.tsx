@@ -142,11 +142,13 @@ describe("ToastProvider", () => {
     expect(screen.getAllByRole("button", { name: "Dismiss notification" })).toHaveLength(2)
   })
 
-  it("is positioned at the top so it never covers modal footers", () => {
+  it("is positioned at the top, below the sticky app header, so it never covers modal footers", () => {
     renderToasts()
     const region = screen.getByRole("region", { name: "Notifications" })
     const classes = region.className.split(" ")
-    expect(classes).toContain("top-4")
+    // Same offset at every width (no mobile "top-4" over the header).
+    expect(classes).toContain("top-16")
+    expect(classes.some((c) => /^(\w+:)?top-(?!16$)/.test(c))).toBe(false)
     expect(classes.some((c) => c.startsWith("bottom-"))).toBe(false)
   })
 

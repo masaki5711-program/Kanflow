@@ -31,7 +31,7 @@ describe("backlog.service activity + notifications", () => {
       projectId: "p1",
       entityType: "pbi",
       entityId: "b1",
-      payload: { entityLabel: "Story", displayId: 7, actorName: "Alice" },
+      payload: { entityLabel: "#7 Story", displayId: 7, actorName: "Alice" },
     })
   })
 
@@ -61,5 +61,13 @@ describe("backlog.service activity + notifications", () => {
       actor: ACTOR,
       diff: { changes: { backlogOrder: { changed: true } }, meta: { count: 2 } },
     })
+  })
+})
+
+describe("pbiNotificationLabel (F-06)", () => {
+  it("names a PBI '#displayId title' with the initiative first, else the user story's first line", () => {
+    expect(svc.pbiNotificationLabel({ displayId: 7, initiative: "Login", userStory: "As a user" })).toBe("#7 Login")
+    expect(svc.pbiNotificationLabel({ displayId: 7, initiative: " ", userStory: "As a user\nI want" })).toBe("#7 As a user")
+    expect(svc.pbiNotificationLabel({ displayId: 7, initiative: null, userStory: null })).toBe("#7")
   })
 })

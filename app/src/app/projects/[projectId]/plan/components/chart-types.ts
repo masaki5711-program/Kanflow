@@ -15,6 +15,8 @@ export interface ChartEnv {
   canEdit: boolean
   columns: readonly PlanColumn[]
   gridWidth: number
+  /** Width of the name column (splitter / default). */
+  nameWidth: number
   gridCollapsed: boolean
   /** Localized display name of an item. */
   nameOf: (item: PlanItem) => string
