@@ -27,6 +27,7 @@ describe("parseFilters", () => {
       epic: "Auth",
       points: "5",
       po: "Hanako",
+      plan: "",
       showDone: true,
     })
   })
@@ -138,5 +139,18 @@ describe("pbiIdForRef", () => {
 describe("pbiDeepLink", () => {
   it("builds an absolute deep link by displayId", () => {
     expect(pbiDeepLink("http://host:3000", "p1", 12)).toBe("http://host:3000/projects/p1/backlog?pbi=12")
+  })
+})
+
+describe("?plan= filter (master-plan link)", () => {
+  it("parses, serialises, counts as active and matches the linked plan item", () => {
+    const f = parseFilters(new URLSearchParams("plan=pl1"))
+    expect(f.plan).toBe("pl1")
+    expect(hasActiveFilters(f)).toBe(true)
+    expect(filtersToParams(new URLSearchParams("plan=pl1&pbi=3"), { plan: "" }).toString()).toBe("pbi=3")
+    const linked = { ...pbi("a", 1), planItem: { id: "pl1", name: "Design" } }
+    expect(matchesFilters(linked, f)).toBe(true)
+    expect(matchesFilters(pbi("b", 2), f)).toBe(false)
+    expect(facetOptions([linked, pbi("b", 2)]).plans).toEqual([{ id: "pl1", name: "Design" }])
   })
 })

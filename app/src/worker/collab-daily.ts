@@ -2,20 +2,29 @@ import type { WorkerConfig } from "./config"
 import { DailyScheduler, type SchedulerLog } from "./scheduler"
 import { purgeCollaborationHistory, type RetentionResult } from "./jobs/activity-retention"
 import { runNotifyDue, type NotifyDueResult } from "./jobs/notify-due"
+import { purgeChatHistory, type ChatRetentionResult } from "./jobs/chat-retention"
+import {
+  DEFAULT_AI_JOB_RETENTION_DAYS,
+  DEFAULT_CHAT_DELETED_RETENTION_DAYS,
+  DEFAULT_CHAT_RETENTION_DAYS,
+} from "./jobs/retention-defaults"
 
 /**
  * Daily collaboration housekeeping (NOTIFY_DUE_SCHEDULE, default 07:45 —
  * before business hours so notifications are waiting at the start of the day):
  * 1. retention sweep of ActivityLog / read Notification rows
  * 2. due_soon / overdue notifications
- * Each step fails independently (logged; the other still runs).
+ * 3. retention of chat threads (deleted / idle) and finished AI jobs (P3)
+ * Each step fails independently (logged; the others still run).
  */
 
-type CollabConfig = Pick<WorkerConfig, "notifyDueTimes" | "notifyDueSoonDays" | "activityRetentionDays" | "notificationRetentionDays">
+type CollabConfig = Pick<WorkerConfig, "notifyDueTimes" | "notifyDueSoonDays" | "activityRetentionDays" | "notificationRetentionDays"> &
+  Partial<Pick<WorkerConfig, "chatRetentionDays" | "chatDeletedRetentionDays" | "aiJobRetentionDays">>
 
 export interface CollabDailyResult {
   retention: RetentionResult | null
   notifyDue: NotifyDueResult | null
+  chatRetention: ChatRetentionResult | null
 }
 
 function errorMessage(err: unknown): string {
@@ -40,7 +49,18 @@ export async function runCollabDaily(cfg: CollabConfig, log: SchedulerLog, signa
   } catch (err) {
     log.error("due-date notifications failed", { error: errorMessage(err) })
   }
-  return { retention, notifyDue }
+  let chatRetention: ChatRetentionResult | null = null
+  try {
+    chatRetention = await purgeChatHistory({
+      idleDays: cfg.chatRetentionDays ?? DEFAULT_CHAT_RETENTION_DAYS,
+      deletedDays: cfg.chatDeletedRetentionDays ?? DEFAULT_CHAT_DELETED_RETENTION_DAYS,
+      aiJobDays: cfg.aiJobRetentionDays ?? DEFAULT_AI_JOB_RETENTION_DAYS,
+    })
+    log.info("chat / ai job retention done", { ...chatRetention })
+  } catch (err) {
+    log.error("chat / ai job retention failed", { error: errorMessage(err) })
+  }
+  return { retention, notifyDue, chatRetention }
 }
 
 /** Start the daily scheduler, or null when NOTIFY_DUE_SCHEDULE=off. */

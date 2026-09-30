@@ -35,6 +35,10 @@ model User {
   comments          Comment[]
   commentMentions   CommentMention[]
   taskAssignments   TaskAssignee[]
+  chatThreads       ChatThread[]
+  aiJobs            AiJob[]
+  ownedPlanItems    PlanItem[]            @relation("PlanItemOwner")
+  apiTokens         ApiToken[]
 
   @@index([department])
 }
@@ -43,11 +47,12 @@ model User {
 /// display name (e.g. "設備購入"); children in `items` are the concrete sub-tasks
 /// that get bulk-inserted under a single PBI when the group is picked from
 /// the dropdown in the sprint task form.
-/// A row in the project's master plan ("全体計画") — independent of sprints
-/// and PBIs. Supports unlimited nesting via parentId. Progress on non-leaf
-/// items is auto-aggregated from children; leaf items take manual progress.
-/// `status="delayed"` is set manually by the user to surface a red bar
-/// regardless of actual dates.
+/// A row in the project's master plan ("全体計画"). Unlimited nesting via
+/// parentId. Leaves take progress from their status (progressMode "manual")
+/// or from the PBIs linked to them ("linked"); parents roll up progress,
+/// status and planned dates from their children (src/lib/plan-progress.ts).
+/// Delay is computed (scheduleState), not stored: "delayed" is no longer a
+/// status (migrated to "in_progress" in 20261004000000_plan_linkage).
 model PlanItem {
   id            String     @id @default(cuid())
   projectId     String
@@ -66,14 +71,47 @@ model PlanItem {
   notes         String?    @db.Text
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
+  /// "manual" (status → %) | "linked" (% from linked PBIs; leaves only).
+  progressMode  String     @default("manual") @db.VarChar(16)
+  /// Optimistic-lock counter: bumped on every user update; stale writes get 409.
+  version       Int        @default(0)
+  baselineStart DateTime?
+  baselineEnd   DateTime?
+  ownerId       String?
+  deletedAt     DateTime?
+  deletedById   String?
 
   project       Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
   parent        PlanItem?  @relation("PlanItemTree", fields: [parentId], references: [id], onDelete: Cascade)
   children      PlanItem[] @relation("PlanItemTree")
+  owner         User?      @relation("PlanItemOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  backlogItems  ProductBacklogItem[]
+  successorDeps   PlanItemDependency[] @relation("PlanDependencyPredecessor")
+  predecessorDeps PlanItemDependency[] @relation("PlanDependencySuccessor")
 
   @@index([projectId])
   @@index([parentId])
   @@index([projectId, sortOrder])
+  @@index([projectId, deletedAt])
+  @@index([ownerId])
+}
+
+/// Finish-to-start dependency between two plan items of one project
+/// (predecessor must finish before successor starts). Informational only:
+/// nothing is auto-scheduled.
+model PlanItemDependency {
+  id            String   @id @default(cuid())
+  projectId     String
+  predecessorId String
+  successorId   String
+  createdAt     DateTime @default(now())
+
+  predecessor   PlanItem @relation("PlanDependencyPredecessor", fields: [predecessorId], references: [id], onDelete: Cascade)
+  successor     PlanItem @relation("PlanDependencySuccessor", fields: [successorId], references: [id], onDelete: Cascade)
+
+  @@unique([predecessorId, successorId])
+  @@index([successorId])
+  @@index([projectId])
 }
 
 model UserFixedTask {
@@ -153,6 +191,9 @@ model Project {
   // like CalendarEvent.createdBy); ActivityLog holds the full audit trail.
   deletedAt           DateTime?
   deletedById         String?
+  /// P3: per-project AI surveillance thresholds as a JSON string (Text, like
+  /// the other JSON-in-Text columns). Null = defaults (lib/surveillance-settings.ts).
+  surveillanceSettings String?                        @db.Text
   attachmentFolders   AttachmentFolder[]
   calendarEvents      CalendarEvent[]
   iceboxItems         IceboxItem[]
@@ -171,8 +212,11 @@ model Project {
   activityLogs        ActivityLog[]
   notifications       Notification[]
   comments            Comment[]
+  chatThreads         ChatThread[]
+  aiJobs              AiJob[]
 
   @@index([deletedAt])
+  @@fulltext([name], map: "ft_project_name")
 }
 
 model AiReport {
@@ -297,6 +341,7 @@ model ProductGoal {
   project      Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@index([projectId])
+  @@fulltext([title, description], map: "ft_goal_text")
 }
 
 model IceboxItem {
@@ -330,6 +375,7 @@ model IceboxItem {
   @@unique([projectId, displayId])
   @@index([projectId])
   @@index([projectId, deletedAt])
+  @@fulltext([request, background, pbEpic], map: "ft_icebox_text")
 }
 
 model IceboxAttachment {
@@ -369,7 +415,10 @@ model ProductBacklogItem {
   version            Int                  @default(0)
   deletedAt          DateTime?
   deletedById        String?
+  /// Master-plan leaf this PBI contributes to (at most one).
+  planItemId         String?
   iceboxItem        IceboxItem?          @relation(fields: [iceboxItemId], references: [id])
+  planItem           PlanItem?            @relation(fields: [planItemId], references: [id], onDelete: SetNull)
   productGoal        ProductGoal?         @relation(fields: [productGoalId], references: [id])
   project            Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
   releaseItems       ReleaseBacklogItem[]
@@ -380,6 +429,8 @@ model ProductBacklogItem {
   @@index([projectId, deletedAt])
   @@index([iceboxItemId])
   @@index([productGoalId])
+  @@index([planItemId])
+  @@fulltext([initiative, epic, userStory, acceptanceCriteria], map: "ft_pbi_text")
 }
 
 model Sprint {
@@ -448,6 +499,7 @@ model SprintBacklogItem {
 
   @@index([sprintId])
   @@index([pbItemId])
+  @@fulltext([taskName], map: "ft_task_name")
 }
 
 model ReleaseBacklogItem {
@@ -585,6 +637,7 @@ model FieldTranslation {
   @@id([entityType, entityId, field])
   @@index([status, priority(sort: Desc), requestedAt])
   @@map("field_translation")
+  @@fulltext([textJa, textId], map: "ft_translation_text")
 }
 
 /// Shared translation glossary: a correction by one user is applied to every
@@ -699,6 +752,7 @@ model Comment {
   @@index([entityType, entityId, createdAt])
   @@index([projectId, createdAt])
   @@index([authorId])
+  @@fulltext([body], map: "ft_comment_body")
 }
 
 /// @mentions parsed from Comment.body (drives mention notifications).
@@ -723,4 +777,116 @@ model TaskAssignee {
 
   @@id([taskId, userId])
   @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// P3 AI extensions (migration 20261003000000_p3_ai)
+// ---------------------------------------------------------------------------
+
+/// Persisted project chat conversation. Private to its owner (userId):
+/// nobody else — system admins included — can list or read it. Soft delete
+/// (deletedAt); the worker purges deleted threads after 30 days and every
+/// thread idle longer than CHAT_RETENTION_DAYS (default 180).
+model ChatThread {
+  id        String        @id @default(cuid())
+  projectId String
+  userId    String
+  title     String        @db.VarChar(200)
+  createdAt DateTime      @default(now())
+  /// Last activity (bumped on every stored message); the list is ordered by it.
+  updatedAt DateTime      @updatedAt
+  deletedAt DateTime?
+  project   Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages  ChatMessage[]
+
+  @@index([projectId, userId, deletedAt, updatedAt])
+  @@index([deletedAt])
+  @@index([updatedAt])
+}
+
+/// One stored chat turn. role: user | assistant. toolEvents is a JSON string
+/// (tool calls, proposals) — Text like the other JSON-in-Text columns.
+/// partial = the answer was cut short (stopped by the user, error, timeout).
+model ChatMessage {
+  id         String     @id @default(cuid())
+  threadId   String
+  role       String     @db.VarChar(16)
+  content    String     @db.MediumText
+  toolEvents String?    @db.Text
+  partial    Boolean    @default(false)
+  createdAt  DateTime   @default(now())
+  thread     ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@index([threadId, createdAt])
+}
+
+/// Queue of long-running AI generations (progress report, sprint review).
+/// Run by the worker (AI_TRANSLATION_WORKER=external) or inside the web
+/// process (inprocess). status: queued | running | done | failed | cancelled.
+/// activeKey = "<projectId>:<kind>[:<scope>]" while queued/running and NULL
+/// afterwards: the unique index allows one active job per project + kind.
+/// params is a JSON string. resultReportId is a plain AiReport id (no FK:
+/// reports are pruned by retention independently).
+model AiJob {
+  id             String    @id @default(cuid())
+  projectId      String
+  userId         String?
+  kind           String    @db.VarChar(32)
+  params         String?   @db.Text
+  status         String    @default("queued") @db.VarChar(16)
+  progress       Int?
+  attempts       Int       @default(0)
+  activeKey      String?   @unique @db.VarChar(191)
+  resultReportId String?
+  error          String?   @db.Text
+  createdAt      DateTime  @default(now())
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  project        Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user           User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([projectId, createdAt])
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// P4 personal access tokens + metrics (migration 20261005000000_api_tokens_metrics)
+// ---------------------------------------------------------------------------
+
+/// Personal access token for the read-only REST API (/api/v1). Only the
+/// SHA-256 hex of the token is stored (tokenHash, unique → constant-time
+/// lookup by index); the plain token ("kfl_" + 32 random bytes base64url) is
+/// shown once at creation. prefix = the first 12 chars ("kfl_" + 8) for display.
+/// scopes is a JSON array string (only "read" today). userTokenVersion copies
+/// User.tokenVersion at creation: a later bump (deactivate / role change /
+/// password reset) invalidates the token even if the revoke hook missed it.
+model ApiToken {
+  id               String    @id @default(cuid())
+  userId           String
+  name             String    @db.VarChar(100)
+  tokenHash        String    @unique @db.Char(64)
+  prefix           String    @db.VarChar(16)
+  scopes           String    @db.VarChar(191)
+  userTokenVersion Int       @default(0)
+  expiresAt        DateTime?
+  lastUsedAt       DateTime?
+  createdAt        DateTime  @default(now())
+  revokedAt        DateTime?
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt])
+  @@index([createdAt])
+}
+
+/// Periodic snapshot of the in-process request / AI / queue metrics (web
+/// process timer, every 5 min). data is a JSON string (Text like the other
+/// JSON-in-Text columns). Pruned after METRICS_RETENTION_DAYS (default 14).
+model MetricSnapshot {
+  id      String   @id @default(cuid())
+  takenAt DateTime @default(now())
+  data    String   @db.Text
+
+  @@index([takenAt])
 }

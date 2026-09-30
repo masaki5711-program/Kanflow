@@ -1,11 +1,15 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("@/services/_shared/db", async () => (await import("@/services/__tests__/support")).dbMock())
 vi.mock("@/services/_shared/translations", async () => (await import("@/services/__tests__/support")).translationMock())
 vi.mock("../search.repository")
+vi.mock("../search.fulltext")
+vi.mock("@/lib/logger", () => ({ logger: { child: () => ({ warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() }) } }))
 
 const repo = await import("../search.repository")
+const ft = await import("../search.fulltext")
 const tr = await import("@/services/_shared/translations")
+const { resetFulltextFallback } = await import("@/lib/fulltext/fallback")
 const { searchEverything } = await import("../search.service")
 const { DEFAULT_DB } = await import("@/services/__tests__/support")
 
@@ -23,11 +27,15 @@ function emptyRepo() {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  resetFulltextFallback()
   emptyRepo()
   vi.mocked(tr.getI18nFor).mockResolvedValue(new Map())
 })
+afterEach(() => vi.unstubAllEnvs())
 
-describe("searchEverything", () => {
+describe("searchEverything (LIKE path, SEARCH_FULLTEXT=off)", () => {
+  beforeEach(() => vi.stubEnv("SEARCH_FULLTEXT", "off"))
+
   it("escapes LIKE wildcards before querying", async () => {
     await searchEverything(MEMBER, { q: "50%_off", limit: 5 })
     expect(repo.findTranslationMatches).toHaveBeenCalledWith(DEFAULT_DB, "50\\%\\_off")
@@ -123,5 +131,107 @@ describe("searchEverything", () => {
     const out = await searchEverything(MEMBER, { q: "zz", limit: 5 })
     expect(out.groups).toEqual([])
     expect(tr.getI18nFor).toHaveBeenCalledTimes(1)
+  })
+})
+
+function noCandidates() {
+  return { pbi: [], task: [], icebox: [], project: [], goal: [] }
+}
+
+describe("searchEverything (FULLTEXT path)", () => {
+  beforeEach(() => {
+    vi.mocked(ft.findAccessibleProjectIds).mockResolvedValue(["p1"])
+    vi.mocked(ft.findFulltextCandidates).mockResolvedValue(noCandidates())
+    vi.mocked(ft.findTranslationFulltext).mockResolvedValue([])
+  })
+
+  it("looks up candidates with the boolean query inside the viewer's accessible projects", async () => {
+    await searchEverything(MEMBER, { q: "login api", limit: 5 })
+    const scope = { deletedAt: null, members: { some: { userId: "u1" } } }
+    expect(ft.findAccessibleProjectIds).toHaveBeenCalledWith(DEFAULT_DB, scope)
+    expect(ft.findFulltextCandidates).toHaveBeenCalledWith(DEFAULT_DB, ["p1"], "+login* +api*")
+    expect(ft.findTranslationFulltext).toHaveBeenCalledWith(DEFAULT_DB, "+login* +api*")
+  })
+
+  it("loads ranked candidates through the scoped repository and orders them by relevance", async () => {
+    vi.mocked(ft.findFulltextCandidates).mockResolvedValue({
+      ...noCandidates(),
+      pbi: [{ id: "b1", score: 1 }, { id: "b2", score: 3 }],
+      goal: [{ id: "g1", score: 1 }],
+    })
+    vi.mocked(ft.findTranslationFulltext).mockResolvedValue([{ entityType: "backlog_item", entityId: "b3", score: 2 }])
+    vi.mocked(repo.findPbis).mockResolvedValue([
+      { id: "b1", displayId: 1, initiative: "one", userStory: null, status: "ready", project: P1 },
+      { id: "b3", displayId: 3, initiative: "three", userStory: null, status: "ready", project: P1 },
+      { id: "b2", displayId: 2, initiative: "two", userStory: null, status: "ready", project: P1 },
+    ])
+    vi.mocked(repo.findGoals).mockResolvedValue([{ id: "g1", title: "Goal", project: P1 }])
+
+    const out = await searchEverything(MEMBER, { q: "login", limit: 2 })
+
+    const scope = { deletedAt: null, members: { some: { userId: "u1" } } }
+    expect(repo.findPbis).toHaveBeenCalledWith(DEFAULT_DB, scope, { pattern: null, ids: ["b2", "b3", "b1"], take: 3, displayId: null })
+    expect(repo.findGoals).toHaveBeenCalledWith(DEFAULT_DB, scope, { pattern: null, ids: ["g1"], take: 1 })
+    // Types without candidates are not queried at all.
+    expect(repo.findTasks).not.toHaveBeenCalled()
+    expect(repo.findTranslationMatches).not.toHaveBeenCalled()
+    const pbis = out.groups.find((g) => g.type === "pbi")!.items
+    expect(pbis.map((p) => p.id)).toEqual(["b2", "b3"]) // relevance order, capped at limit
+  })
+
+  it("rows the scoped reload drops (other project / trashed) never appear", async () => {
+    vi.mocked(ft.findTranslationFulltext).mockResolvedValue([{ entityType: "sprint_task", entityId: "t-foreign", score: 9 }])
+    vi.mocked(repo.findTasks).mockResolvedValue([])
+    const out = await searchEverything(MEMBER, { q: "login", limit: 5 })
+    expect(repo.findTasks).toHaveBeenCalledWith(DEFAULT_DB, expect.anything(), { pattern: null, ids: ["t-foreign"], take: 1 })
+    expect(out.groups).toEqual([])
+  })
+
+  it("keeps the exact displayId hit first even when it ranks low", async () => {
+    vi.mocked(ft.findFulltextCandidates).mockResolvedValue({
+      ...noCandidates(),
+      pbi: [{ id: "b1", score: 5 }, { id: "b2", score: 4 }],
+    })
+    vi.mocked(repo.findPbis).mockResolvedValue([
+      { id: "b1", displayId: 120, initiative: "PBI 12 follow-up", userStory: null, status: "ready", project: P1 },
+      { id: "b2", displayId: 121, initiative: "PBI 12 again", userStory: null, status: "ready", project: P1 },
+      { id: "b12", displayId: 12, initiative: "target", userStory: null, status: "ready", project: P1 },
+    ])
+    const out = await searchEverything(MEMBER, { q: "PBI 12", limit: 2 })
+    expect(vi.mocked(repo.findPbis).mock.calls[0][2]).toMatchObject({ displayId: 12, take: 3 })
+    expect(out.groups[0].items.map((p) => p.id)).toEqual(["b12", "b1"])
+  })
+
+  it("falls back to LIKE when FULLTEXT finds no candidate at all", async () => {
+    await searchEverything(MEMBER, { q: "login", limit: 5 })
+    expect(repo.findTranslationMatches).toHaveBeenCalledWith(DEFAULT_DB, "login")
+    expect(vi.mocked(repo.findPbis).mock.calls[0][2]).toMatchObject({ pattern: "login" })
+  })
+
+  it("returns nothing (without LIKE) when the viewer can access no project", async () => {
+    vi.mocked(ft.findAccessibleProjectIds).mockResolvedValue([])
+    const out = await searchEverything(MEMBER, { q: "login", limit: 5 })
+    expect(out.groups).toEqual([])
+    expect(ft.findFulltextCandidates).not.toHaveBeenCalled()
+    expect(repo.findTranslationMatches).not.toHaveBeenCalled()
+  })
+
+  it("uses LIKE for a 1-character query term", async () => {
+    await searchEverything(MEMBER, { q: "機 能", limit: 5 })
+    expect(ft.findFulltextCandidates).not.toHaveBeenCalled()
+    expect(vi.mocked(repo.findPbis).mock.calls[0][2]).toMatchObject({ pattern: "機 能" })
+  })
+
+  it("falls back to LIKE when the FULLTEXT index is missing (MySQL 1191)", async () => {
+    vi.mocked(ft.findFulltextCandidates).mockRejectedValue(
+      Object.assign(new Error("Raw query failed. Code: `1191`."), { meta: { driverAdapterError: { cause: { code: 1191 } } } })
+    )
+    await searchEverything(MEMBER, { q: "login", limit: 5 })
+    expect(vi.mocked(repo.findPbis).mock.calls[0][2]).toMatchObject({ pattern: "login" })
+  })
+
+  it("propagates other database errors", async () => {
+    vi.mocked(ft.findFulltextCandidates).mockRejectedValue(new Error("pool timeout"))
+    await expect(searchEverything(MEMBER, { q: "login", limit: 5 })).rejects.toThrow("pool timeout")
   })
 })

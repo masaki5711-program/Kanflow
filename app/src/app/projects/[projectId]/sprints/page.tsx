@@ -19,6 +19,8 @@ import { useSprintsData } from "./hooks/use-sprints-data"
 import { useSprintActions } from "./hooks/use-sprint-actions"
 import { useTaskActions } from "./hooks/use-task-actions"
 import { useBoardViewState } from "./hooks/use-board-view-state"
+import { useSprintDeepLinks } from "./hooks/use-sprint-deep-links"
+import { sprintElementId } from "./lib/deep-link"
 import { needsRetroDialog, statusDialogFor } from "./lib/task-payload"
 import { useProjectDocumentTitle } from "@/components/app-shell/project-title-context"
 import { Archive, Plus, Zap } from "lucide-react"
@@ -74,6 +76,17 @@ export default function SprintsPage() {
     setExpandOverrides((prev) => new Map(prev).set(s.id, !isExpanded(s)))
   }
 
+  useSprintDeepLinks({
+    sprints,
+    isReady: !data.isLoadingSprints,
+    revealSprint: (s) => {
+      setExpandOverrides((prev) => new Map(prev).set(s.id, true))
+      if (s.status === "archived") setShowArchived(true)
+    },
+    filter: boardView.filter,
+    clearFilters: boardView.clearFilters,
+  })
+
   function refreshAfterPbiChange() {
     data.refetchSprints()
     data.refetchReady()
@@ -102,7 +115,7 @@ export default function SprintsPage() {
 
   function renderCard(sprint: Sprint) {
     return (
-      <li key={sprint.id} id={`sprint-card-${sprint.id}`}>
+      <li key={sprint.id} id={sprintElementId(sprint.id)}>
         <SprintCard projectId={projectId} sprint={sprint} events={data.events} pointUnit={pointUnit}
           canEditPbi={canEditPbi} isExpanded={isExpanded(sprint)} onToggleExpand={() => toggleExpanded(sprint)}
           actions={cardActions} viewState={boardView} members={data.members} currentUserId={data.userId} />

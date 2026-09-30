@@ -2,7 +2,7 @@
  * i18n domain: in-app notifications — header bell / panel
  * (`components/notifications/`) and the notification settings on /me.
  * Add a key to the interface AND to ja / en / id below (compile error otherwise).
- * Placeholders: {count} {actor} {label} {sprint} {start} {end} {date} {title}.
+ * Placeholders: {count} {actor} {label} {sprint} {start} {end} {date} {title} {kind}.
  */
 export interface NotificationsTranslations {
   notifBell: string
@@ -23,6 +23,8 @@ export interface NotificationsTranslations {
   notifDueSoon: string
   notifOverdue: string
   notifSurveillance: string
+  notifAiReportReady: string
+  notifAiReportFailed: string
   notifMentioned: string
   notifComment: string
   notifUnknown: string
@@ -37,6 +39,8 @@ export interface NotificationsTranslations {
   notifTypeSprintStart: string
   notifTypeSprintEnd: string
   notifTypeSurveillance: string
+  notifTypeAiReportReady: string
+  notifTypeAiReportFailed: string
 }
 
 export const ja: NotificationsTranslations = {
@@ -58,6 +62,8 @@ export const ja: NotificationsTranslations = {
   notifDueSoon: "「{label}」の期限が近づいています（{date}）",
   notifOverdue: "「{label}」の期限を過ぎています（{date}）",
   notifSurveillance: "AI 監視レポート「{title}」で重大な異常が {count} 件見つかりました",
+  notifAiReportReady: "AI レポート「{title}」ができました",
+  notifAiReportFailed: "AI レポート（{kind}）を生成できませんでした",
   notifMentioned: "{actor} さんが「{label}」のコメントであなたをメンションしました",
   notifComment: "{actor} さんが「{label}」にコメントしました",
   notifUnknown: "新しいお知らせがあります",
@@ -72,6 +78,8 @@ export const ja: NotificationsTranslations = {
   notifTypeSprintStart: "スプリントが始まったとき",
   notifTypeSprintEnd: "スプリントが終了したとき",
   notifTypeSurveillance: "AI 監視で重大な異常が見つかったとき（PO / SM）",
+  notifTypeAiReportReady: "依頼した AI レポートができたとき",
+  notifTypeAiReportFailed: "依頼した AI レポートの生成に失敗したとき",
 }
 
 export const en: NotificationsTranslations = {
@@ -93,6 +101,8 @@ export const en: NotificationsTranslations = {
   notifDueSoon: "“{label}” is due soon ({date})",
   notifOverdue: "“{label}” is overdue ({date})",
   notifSurveillance: "AI surveillance report “{title}” found {count} critical issue(s)",
+  notifAiReportReady: "Your AI report “{title}” is ready",
+  notifAiReportFailed: "Your AI report ({kind}) could not be generated",
   notifMentioned: "{actor} mentioned you in a comment on “{label}”",
   notifComment: "{actor} commented on “{label}”",
   notifUnknown: "You have a new notification",
@@ -107,6 +117,8 @@ export const en: NotificationsTranslations = {
   notifTypeSprintStart: "When a sprint starts",
   notifTypeSprintEnd: "When a sprint ends",
   notifTypeSurveillance: "When AI surveillance finds a critical issue (PO / SM)",
+  notifTypeAiReportReady: "When an AI report I requested is ready",
+  notifTypeAiReportFailed: "When an AI report I requested fails",
 }
 
 export const id: NotificationsTranslations = {
@@ -128,6 +140,8 @@ export const id: NotificationsTranslations = {
   notifDueSoon: "“{label}” segera jatuh tempo ({date})",
   notifOverdue: "“{label}” sudah lewat tenggat ({date})",
   notifSurveillance: "Laporan pemantauan AI “{title}” menemukan {count} masalah kritis",
+  notifAiReportReady: "Laporan AI “{title}” sudah siap",
+  notifAiReportFailed: "Laporan AI ({kind}) tidak dapat dibuat",
   notifMentioned: "{actor} menyebut Anda dalam komentar di “{label}”",
   notifComment: "{actor} mengomentari “{label}”",
   notifUnknown: "Ada notifikasi baru",
@@ -142,4 +156,6 @@ export const id: NotificationsTranslations = {
   notifTypeSprintStart: "Saat sprint dimulai",
   notifTypeSprintEnd: "Saat sprint selesai",
   notifTypeSurveillance: "Saat pemantauan AI menemukan masalah kritis (PO / SM)",
+  notifTypeAiReportReady: "Saat laporan AI yang saya minta sudah siap",
+  notifTypeAiReportFailed: "Saat laporan AI yang saya minta gagal dibuat",
 }

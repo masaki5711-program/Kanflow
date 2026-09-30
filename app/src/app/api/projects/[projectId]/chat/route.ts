@@ -1,3 +1,4 @@
+import { AI_CHAT_RATE_LIMIT, consumeRateLimit } from "@/lib/rate-limit"
 import { z } from "zod"
 import { NextResponse } from "next/server"
 import { requireProject } from "@/lib/authz"
@@ -10,6 +11,10 @@ import { buildProjectContext, CHAT_SYSTEM_PROMPT } from "@/lib/project-context"
 import { normalizeLang, type AILang } from "@/lib/ai-analysis"
 import { CHAT_TOOLS, runTool } from "@/lib/chat-tools"
 import { aiLog, aiLogTrunc } from "@/lib/ai-monitor"
+import { packGuide, packToolDefs, selectPacks } from "@/lib/chat-tool-packs"
+import { encodeChatEvent, proposalFromToolResult, sanitizeModelText } from "@/lib/chat-proposals"
+import { toHttpResponse } from "@/services/_shared/http"
+import { beginChatRecording, resolveChatThread } from "@/services/chat-threads/chat-threads.service"
 
 const LANG_LOCK: Record<AILang, string> = {
   ja:
@@ -120,6 +125,8 @@ const messageSchema = z.object({
 const bodySchema = z.object({
   messages: z.array(messageSchema).min(1).max(40),
   lang: z.enum(["ja", "en", "id"]).optional(),
+  /** P3 chat history: continue this stored thread (owner only); omitted = a new thread is created. */
+  threadId: z.string().min(1).max(191).optional(),
 })
 
 const MAX_TOOL_ITERATIONS = 4
@@ -131,6 +138,10 @@ export async function POST(
   const { projectId } = await params
   const auth = await requireProject(projectId, "ai.use")
   if ("error" in auth) return auth.error
+  const retryAfter = consumeRateLimit("ai-chat", AI_CHAT_RATE_LIMIT, auth.actor.userId)
+  if (retryAfter) {
+    return NextResponse.json({ error: "Too many requests", code: "RATE_LIMITED" }, { status: 429, headers: { "Retry-After": retryAfter } })
+  }
 
   let parsed
   try {
@@ -138,6 +149,15 @@ export async function POST(
     parsed = bodySchema.parse(json)
   } catch {
     return NextResponse.json({ error: "invalid_request", code: "VALIDATION" }, { status: 400 })
+  }
+
+  // Chat history: a thread id must be the caller's own (404 before the model runs).
+  const threadOwner = { projectId, userId: auth.actor.userId }
+  let threadId: string | null
+  try {
+    threadId = await resolveChatThread(threadOwner, parsed.threadId)
+  } catch (err) {
+    return toHttpResponse(err, { fallback: "チャット履歴を取得できませんでした", context: "Chat thread" })
   }
 
   const context = await buildProjectContext(projectId)
@@ -159,11 +179,16 @@ export async function POST(
   aiLog("CHAT_START", `lang=${replyLang} history=${parsed.messages.length} Q="${aiLogTrunc(lastUserMsg?.content, 90)}"`)
   aiLog("CONTEXT", `project snapshot ${context.length} chars injected into system prompt`)
 
+  // Optional P3 tool packs, chosen from the recent user messages (keeps the
+  // tool schemas + routing guide within the num_ctx budget).
+  const packs = selectPacks({ messages: parsed.messages, actor: auth.actor })
+  if (packs.length > 0) aiLog("TOOL_PACKS", packs.join(", "))
+
   const baseMessages: ChatMessage[] = [
     { role: "system", content: CHAT_SYSTEM_PROMPT },
     { role: "system", content: `# プロジェクト現状\n\n${context}` },
     { role: "system", content: LANG_LOCK[replyLang] },
-    { role: "system", content: TOOL_GUIDE[replyLang] },
+    { role: "system", content: TOOL_GUIDE[replyLang] + packGuide(packs, replyLang) },
     ...parsed.messages,
   ]
 
@@ -177,7 +202,7 @@ export async function POST(
     timeoutMs: OLLAMA_TIMEOUTS.chat,
     label: "chat",
     think: false,
-    tools: CHAT_TOOLS,
+    tools: [...CHAT_TOOLS, ...packToolDefs(packs)],
     numPredict: 4096,
   }
   const conversation = [...baseMessages]
@@ -195,11 +220,16 @@ export async function POST(
     return ollamaErrorResponse(err)
   }
 
+  // The model is answering: store the question now, the answer when the stream ends.
+  const recorder = await beginChatRecording(threadOwner, threadId, parsed.messages[parsed.messages.length - 1])
+  let completed = false
+
   const stream = new ReadableStream({
     async start(controller) {
       const encoder = new TextEncoder()
       let closed = false
       const send = (text: string) => {
+        recorder?.append(text)
         if (closed) return
         try {
           controller.enqueue(encoder.encode(text))
@@ -227,12 +257,14 @@ export async function POST(
 
           for await (const event of turn) {
             if (event.type === "text") {
+              // Model text can never open a server event frame (see chat-proposals.ts).
+              const chunk = sanitizeModelText(event.chunk)
               if (firstToken) {
                 firstToken = false
                 aiLog("LLM_FIRST_TOK", `first token after ${Date.now() - (i === 0 ? chatT0 : turnT0)}ms`)
               }
-              textBuf += event.chunk
-              send(event.chunk)
+              textBuf += chunk
+              send(chunk)
               if (!chartLogged && textBuf.includes("```chart")) {
                 chartLogged = true
                 aiLog("VIZ_CHART", "chart JSON を生成中 → 画面側で Recharts がグラフ描画（数値はツール結果から転記）")
@@ -252,6 +284,7 @@ export async function POST(
 
           if (toolCalls.length === 0) {
             aiLog("CHAT_DONE", `answer ${textBuf.length} chars, total ${Date.now() - chatT0}ms`)
+            completed = true
             return // streamed text was the final reply
           }
 
@@ -275,8 +308,13 @@ export async function POST(
             const result = await runTool(call.function.name, {
               projectId,
               args: (args ?? {}) as Record<string, unknown>,
+              actor: auth.actor,
             })
             aiLog("TOOL_RESULT", `${call.function.name} → ${result.length} chars in ${Date.now() - toolT0}ms (fed back to model)`)
+            recorder?.tool(call.function.name, Date.now() - toolT0)
+            // Approval-based write proposal → out-of-band frame for the card UI.
+            const proposal = proposalFromToolResult(call.function.name, result)
+            if (proposal) send(encodeChatEvent({ type: "proposal", proposal }))
             conversation.push({
               role: "tool",
               content: result + TOOL_RESULT_FOOTER[replyLang],
@@ -301,6 +339,8 @@ export async function POST(
             // already cancelled
           }
         }
+        // Stopped / failed / cut off answers are stored too, flagged partial.
+        await recorder?.finish({ partial: !completed })
       }
     },
     cancel() {
@@ -314,6 +354,8 @@ export async function POST(
       "Content-Type": "text/plain; charset=utf-8",
       "Cache-Control": "no-cache, no-transform",
       "X-Accel-Buffering": "no",
+      // The stored thread (new or continued) — the client puts it in the URL (?thread=).
+      ...(recorder ? { "X-Chat-Thread-Id": recorder.threadId } : {}),
     },
   })
 }

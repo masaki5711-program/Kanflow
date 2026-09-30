@@ -1,8 +1,9 @@
 /**
- * Trash views and actions. A project trash holds the project's trashed PBIs
- * and Icebox items (route: /api/projects/[projectId]/trash); trashed projects
+ * Trash views and actions. A project trash holds the project's trashed PBIs,
+ * Icebox items and master-plan items (one entry per deleted subtree; route:
+ * /api/projects/[projectId]/trash); trashed projects
  * are in the admin trash (/api/admin/trash/projects). Soft delete itself lives
- * in each domain service (deleteBacklogItem / deleteIceboxItem / deleteProject);
+ * in each domain service (deleteBacklogItem / deleteIceboxItem / deletePlanItem / deleteProject);
  * see src/services/_shared/soft-delete.ts.
  */
 import type { EntityI18n } from "@/lib/translation/types"
@@ -14,6 +15,7 @@ import * as backlogRepo from "@/services/backlog/backlog.repository"
 import { purgeBacklogItem, restoreBacklogItem } from "@/services/backlog/backlog.service"
 import * as iceboxRepo from "@/services/icebox/icebox.repository"
 import { purgeIceboxItem, restoreIceboxItem } from "@/services/icebox/icebox.service"
+import { listTrashedPlanRoots, purgePlanItem, restorePlanItem } from "@/services/plan/plan.trash"
 import * as projectsRepo from "@/services/projects/projects.repository"
 import * as repo from "./trash.repository"
 import type { TrashEntityType } from "./trash.schemas"
@@ -27,11 +29,14 @@ export interface TrashUserRef {
 export interface TrashEntryDto {
   entityType: TrashEntityType
   id: string
-  displayId: number
+  /** null for plan items (they have no display number). */
+  displayId: number | null
   /** Source text of the title (`titleField` names its i18n field). */
   title: string
-  titleField: "initiative" | "userStory" | "request"
+  titleField: "initiative" | "userStory" | "request" | "name"
   status: string
+  /** Plan items: how many items were trashed together (the item and its subtree). */
+  subtreeCount?: number
   deletedAt: string
   deletedBy: TrashUserRef | null
   /** When the purge-trash job deletes it permanently (approximate: the job runs daily). */
@@ -85,7 +90,7 @@ function deleterIds(rows: ReadonlyArray<{ deletedById: string | null }>): string
 
 interface TrashedRow {
   id: string
-  displayId: number
+  displayId: number | null
   status: string
   deletedAt: Date | null
   deletedById: string | null
@@ -122,33 +127,53 @@ function pbiTitle(p: { initiative: string | null; userStory: string | null }): {
   return p.initiative?.trim() ? { text: p.initiative, field: "initiative" } : { text: p.userStory ?? "", field: "userStory" }
 }
 
-/** The project's trashed PBIs and Icebox items, newest deletion first, with who / when. */
+/** The project's trashed PBIs, Icebox items and plan subtrees, newest deletion first, with who / when. */
 export async function listProjectTrash(projectId: string, opts: TrashClock = {}): Promise<ProjectTrashDto> {
   const retentionDays = retentionOf(opts)
-  const [pbis, icebox] = await Promise.all([
+  const [pbis, icebox, plan] = await Promise.all([
     backlogRepo.findTrashedBacklogItems(defaultDb, projectId),
     iceboxRepo.findTrashedIceboxItems(defaultDb, projectId),
+    listTrashedPlanRoots(projectId),
   ])
-  const [names, pbiI18n, iceboxI18n] = await Promise.all([
-    repo.findUserNames(defaultDb, deleterIds([...pbis, ...icebox])),
+  const [names, pbiI18n, iceboxI18n, planI18n] = await Promise.all([
+    repo.findUserNames(defaultDb, deleterIds([...pbis, ...icebox, ...plan])),
     getI18nFor("backlog_item", pbis.map((p) => p.id)),
     getI18nFor("icebox_item", icebox.map((i) => i.id)),
+    getI18nFor("plan_item", plan.map((p) => p.id)),
   ])
   const items = [
     ...pbis.map((p) => entryOf("backlog_item", p, pbiTitle(p), { names, i18n: pbiI18n, retentionDays })),
     ...icebox.map((i) => entryOf("icebox_item", i, { text: i.request, field: "request" }, { names, i18n: iceboxI18n, retentionDays })),
+    ...plan.map((p) => ({
+      ...entryOf("plan_item", { ...p, displayId: null }, { text: p.name, field: "name" }, { names, i18n: planI18n, retentionDays }),
+      subtreeCount: p.subtreeCount,
+    })),
   ]
   return { retentionDays, items: items.toSorted((a, b) => b.deletedAt.localeCompare(a.deletedAt)) }
 }
 
 /** 404 when the item is not in this project's trash; 409 PROJECT_IN_TRASH while the project is trashed. */
 export function restoreTrashItem(projectId: string, entityType: TrashEntityType, id: string, actor: Actor): Promise<void> {
-  return entityType === "backlog_item" ? restoreBacklogItem(projectId, id, actor) : restoreIceboxItem(projectId, id, actor)
+  switch (entityType) {
+    case "backlog_item":
+      return restoreBacklogItem(projectId, id, actor)
+    case "icebox_item":
+      return restoreIceboxItem(projectId, id, actor)
+    case "plan_item":
+      return restorePlanItem(projectId, id, actor)
+  }
 }
 
 /** Permanent delete of a trashed item (files and translations included). 404 when it is not in the trash. */
 export function purgeTrashItem(projectId: string, entityType: TrashEntityType, id: string, actor: Actor): Promise<void> {
-  return entityType === "backlog_item" ? purgeBacklogItem(projectId, id, actor) : purgeIceboxItem(projectId, id, actor)
+  switch (entityType) {
+    case "backlog_item":
+      return purgeBacklogItem(projectId, id, actor)
+    case "icebox_item":
+      return purgeIceboxItem(projectId, id, actor)
+    case "plan_item":
+      return purgePlanItem(projectId, id, actor)
+  }
 }
 
 /** Every trashed project for the admin trash, newest deletion first. */

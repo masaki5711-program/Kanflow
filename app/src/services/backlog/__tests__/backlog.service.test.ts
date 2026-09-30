@@ -39,7 +39,7 @@ describe("backlog.service", () => {
     ] as never)
     vi.mocked(tr.getI18nFor).mockResolvedValue(new Map() as never)
     const out = await svc.listBacklog("p1", { status: "ready" })
-    expect(repo.findBacklogItems).toHaveBeenCalledWith(expect.anything(), "p1", "ready")
+    expect(repo.findBacklogItems).toHaveBeenCalledWith(expect.anything(), "p1", "ready", undefined)
     expect(out.readyItems.map((i) => i.id)).toEqual(["a"])
     expect(out.notReadyItems).toEqual([])
     expect(out.totalWorkload).toBe(2)
@@ -49,7 +49,7 @@ describe("backlog.service", () => {
     vi.mocked(repo.findBacklogItems).mockResolvedValue([] as never)
     vi.mocked(tr.getI18nFor).mockResolvedValue(new Map() as never)
     await svc.listBacklog("p1")
-    expect(repo.findBacklogItems).toHaveBeenCalledWith(expect.anything(), "p1", undefined)
+    expect(repo.findBacklogItems).toHaveBeenCalledWith(expect.anything(), "p1", undefined, undefined)
   })
 
   it("getBacklogItem 404s and otherwise attaches i18n", async () => {

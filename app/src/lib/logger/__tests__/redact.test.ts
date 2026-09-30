@@ -49,6 +49,12 @@ describe("redactString", () => {
     expect(redactString("login password=hunter2 ok")).toBe(`login password=${REDACTED} ok`)
     expect(redactString('{"token":"abc"}')).toBe(`{"token":"${REDACTED}"}`)
   })
+
+  it("masks Kanflow personal access tokens but keeps their display prefix", () => {
+    const token = `kfl_${"A1b2".repeat(10)}xyz`
+    expect(redactString(`call with ${token} failed`)).toBe(`call with kfl_${REDACTED} failed`)
+    expect(redactString("prefix kfl_ABCDEFGH")).toBe("prefix kfl_ABCDEFGH")
+  })
 })
 
 describe("truncateText", () => {

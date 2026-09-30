@@ -69,6 +69,7 @@ System admins skip the membership lookup; every request (admins included) does o
 | `trash.purge` | Y | Y | - | - | - |
 | `comment.write` | Y | Y | Y | Y | - |
 | `comment.moderate` | Y | Y | - | - | - |
+| `surveillance.configure` | Y | Y | - | - | - |
 
 ## Route → action
 
@@ -83,16 +84,26 @@ Paths are relative to `/api/projects/[projectId]`.
 | `/backlog` | project.view | backlog.write | | |
 | `/backlog/[itemId]` | project.view | | backlog.write | backlog.delete |
 | `/backlog/reorder` | | | PUT: backlog.reorder | |
+| `/backlog/export` | project.view (xlsx) | | | |
+| `/backlog/import` | | backlog.write (multipart xlsx; `?dryRun=1` = preview only) | | |
+| `/backlog/import/template` | backlog.write (xlsx) | | | |
 | `/backlog/[itemId]/ai/invest-review` | | ai.use | | |
 | `/goals` | project.view | goal.write | | |
 | `/goals/[goalId]` | | | goal.write | goal.write |
 | `/plan` | project.view | plan.write | | |
 | `/plan/[itemId]` | | | plan.write | plan.write |
 | `/plan/reorder` | | plan.write | | |
+| `/plan/[itemId]/links` | project.view | | plan.write (PUT) | |
+| `/plan/linkable-pbis` | project.view | | | |
+| `/plan/baseline` | | plan.write | | plan.write |
+| `/plan/dependencies` | | plan.write | | |
+| `/plan/dependencies/[dependencyId]` | | | | plan.write |
+| `/plan/export` | project.view | | | |
 | `/releases` | project.view | | | |
 | `/releases/[id]` | | | release.manage | release.manage |
 | `/releases/import` | | release.manage | | |
 | `/sprints` | project.view | sprint.manage | | |
+| `/sprints/export` | project.view (xlsx, `?sprintId=`) | | | |
 | `/sprints/[sprintId]` | project.view | | sprint.manage | sprint.manage |
 | `/sprints/[sprintId]/pbis` | | sprint.manage | | sprint.manage |
 | `/sprints/[sprintId]/tasks` | | task.write | | |
@@ -108,15 +119,21 @@ Paths are relative to `/api/projects/[projectId]`.
 | `/folders` | | attachment.write | | |
 | `/folders/[folderId]` | | | attachment.write | attachment.write |
 | `/icebox` | project.view | icebox.write | | |
+| `/icebox/export` | project.view (xlsx) | | | |
 | `/icebox/[itemId]` | | | icebox.write | icebox.write |
 | `/icebox/[itemId]/attachments` | | icebox.write | | |
 | `/icebox/[itemId]/attachments/[attachmentId]` | project.view | | | icebox.write |
 | `/icebox/[itemId]/ai/generate-pbi-draft` | | ai.draftPbi | | |
 | `/ai/generate-pbi-field` | | ai.draftPbi | | |
 | `/ai/progress-report` | | ai.use | | |
+| `/ai/jobs` | project.view | ai.use (503 `ai_jobs_disabled` without a job runner) | | |
+| `/ai/jobs/[jobId]` | project.view | | | ai.use + requester, or project.update (403) |
+| `/surveillance-settings` | project.view | | PUT: surveillance.configure | |
 | `/ai-reports` | project.view | | | |
 | `/burndown` | project.view | | | |
-| `/chat` | | ai.use | | |
+| `/chat` | | ai.use (+ `threadId`: owner only, 404) | | |
+| `/chat/threads` | ai.use — the caller's own threads only | | | |
+| `/chat/threads/[threadId]` | ai.use + owner (404) | | PATCH: ai.use + owner (404) | ai.use + owner (404) |
 | `/trash` | trash.manage | | | |
 | `/trash/[entityType]/[id]/restore` | | trash.manage | | |
 | `/trash/[entityType]/[id]` | | | | trash.purge |
@@ -124,7 +141,29 @@ Paths are relative to `/api/projects/[projectId]`.
 | `/comments/counts` | project.view | | | |
 | `/comments/[commentId]` | | | PATCH: comment.write + author only (403) | comment.write + author, or comment.moderate (403) |
 
-Outside project scope: `/api/admin/**` uses `requireAdmin()`, and user-scoped routes use `requireAuth()`. `/api/wopi/**` uses its own signed-token auth (`src/app/api/wopi/_lib/wopi-auth.ts`, which re-checks admin or explicit membership, the same as `attachment.write` without the section-manager path).
+Outside project scope: `/api/admin/**` uses `requireAdmin()`, and user-scoped routes use `requireAuth()`. `/api/v1/**` uses bearer tokens only (see "Read-only REST API and access tokens" below). `/api/wopi/**` uses its own signed-token auth (`src/app/api/wopi/_lib/wopi-auth.ts`, which re-checks admin or explicit membership, the same as `attachment.write` without the section-manager path).
+
+**Department portfolio (P4)** — `GET /api/portfolio` and the `/portfolio` page use `requireAuth()` plus one rule (`src/services/portfolio/portfolio.scope.ts`, shared with the chat tool `portfolio_overview`): a system admin sees every live project, a section manager the live projects assigned to one of their sections (membership alone does not add a project), anyone else gets 403 (the page redirects to `/`). The header shows the link only to those two roles.
+
+## Read-only REST API and access tokens (P4, 2026-10)
+
+`/api/v1/**` (docs/api-v1.md) authenticates **only** with a personal access token (`Authorization: Bearer kfl_...`); session cookies are ignored there, and tokens are not accepted anywhere else. Wrapper: `src/app/api/v1/_lib/v1-route.ts`.
+
+- **Actor**: the token's owner, with `User.role` read from the database (never from the token). The token is refused (401, same body for every reason) when it is unknown, revoked, expired, the owner is deactivated or deleted, or the owner's `tokenVersion` differs from the one pinned on the token at creation (`ApiToken.userTokenVersion`, checked with `checkTokenAgainstUser` from `lib/authz/session-validity.ts`).
+- **Projects**: the same actor resolution as the UI (`loadProjectActor` + `isProjectLive`); every v1 endpoint needs `project.view`. No path into the project, a missing or trashed project → 404 (admins included for trashed ones). There is no 403 per project (every route is read-only).
+- **Scope**: tokens carry `scopes` (JSON array); v1 requires `read` (403 otherwise). Write scopes do not exist.
+- **Revocation**: `DELETE /api/user/api-tokens/:id` (owner; another user's token → 404) and `DELETE /api/admin/api-tokens/:id` (`requireAdmin()`). The users service revokes all of a user's tokens in the same transaction as a deactivation, a system-role change or an admin password reset.
+- **Management routes**: `GET/POST /api/user/api-tokens` (`requireAuth()`, own tokens only), `GET /api/admin/api-tokens` (`requireAdmin()`).
+- **Audit**: create / revoke are logged (`module: api-tokens`, `userId`, `patId`, `patPrefix`, `by`); tokens are user-level, so they are not in the project ActivityLog.
+- **Limits**: 120 requests / min per token (`API_V1_RATE_LIMIT_PER_MIN`), 30 failed authentications / min per client IP.
+
+Admin metrics (`GET /api/admin/metrics`, page `/admin/metrics`) use `requireAdmin()` like the other admin routes.
+
+## Chat history and AI jobs (P3, 2026-10)
+
+- **Chat threads are private to their owner.** Every lookup is scoped by (project, user); another user's thread — for a system admin too — is 404 (list, read, rename, delete, and continuing it via `POST /chat` with `threadId`). Access to the project still requires `ai.use`.
+- **AI report jobs** are project-visible: `project.view` may list active jobs and read a job's status (the reports panel shows who requested what). Queuing needs `ai.use`; cancelling needs `ai.use` and being the requester, or `project.update` (PO / SM / admin).
+- **Surveillance settings**: readable with `project.view`; changing them is `surveillance.configure` (PO / admin).
 
 ## Comments (2026-10)
 

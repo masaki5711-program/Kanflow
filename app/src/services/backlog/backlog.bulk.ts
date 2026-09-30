@@ -8,10 +8,12 @@
  * touched PBI gets its own activity row (`meta.bulk: true`) so its History
  * tab stays complete.
  */
+import { recalcPlanItems } from "@/lib/plan-progress"
 import type { Actor } from "@/services/_shared/actor"
 import { labelOf, logActivity, logUpdate } from "@/services/_shared/activity"
 import { withTransaction, type Db } from "@/services/_shared/db"
 import { resolveAssigneeUserIds } from "@/services/_shared/notifications"
+import { assertLinkablePlanItem } from "@/services/plan/plan.links"
 import { addPbisToSprint } from "@/services/sprint-backlog/sprint-backlog.service"
 import * as repo from "./backlog.repository"
 import type { BulkBacklogAction, BulkBacklogInput, PbiStatus } from "./backlog.schemas"
@@ -41,6 +43,8 @@ export async function bulkBacklog(projectId: string, input: BulkBacklogInput, ac
       return result("assignPo", ids, await bulkAssignPo(projectId, ids, input.payload.assignedPo, actor))
     case "trash":
       return result("trash", ids, await bulkTrash(projectId, ids, actor))
+    case "linkPlan":
+      return result("linkPlan", ids, await bulkLinkPlan(projectId, ids, input.payload.planItemId, actor))
     case "addToSprint": {
       const added = await addPbisToSprint(projectId, input.payload.sprintId, ids, actor)
       return result("addToSprint", ids, (added.items ?? []).map((i) => i.pbItemId))
@@ -75,6 +79,7 @@ function bulkStatus(projectId: string, ids: readonly string[], status: PbiStatus
   return withTransaction(async (tx) => {
     const rows = (await repo.findLiveBacklogItemsByIds(tx, projectId, ids)).filter((r) => r.status !== status)
     await updateRows(tx, projectId, rows, { status, ...completionPatch(status) }, actor)
+    await recalcPlanItems(rows.map((r) => r.planItemId), tx)
     return rows.map((r) => r.id)
   })
 }
@@ -112,6 +117,7 @@ function bulkTrash(projectId: string, ids: readonly string[], actor: Actor): Pro
     if (liveIds.length === 0) return []
     await repo.softDeleteBacklogItemsMany(tx, projectId, liveIds, actor.userId)
     await rescoreSprintsOf(tx, await repo.findTasksOfBacklogItems(tx, liveIds))
+    await recalcPlanItems(rows.map((r) => r.planItemId), tx)
     for (const row of rows) {
       await logActivity(tx, {
         projectId,
@@ -123,5 +129,20 @@ function bulkTrash(projectId: string, ids: readonly string[], actor: Actor): Pro
       })
     }
     return liveIds
+  })
+}
+
+/**
+ * Link every PBI to one master-plan leaf (or unlink with null). The plan item
+ * must be a live leaf of the project (404 PLAN_ITEM_NOT_FOUND / 400
+ * PLAN_LINK_REQUIRES_LEAF, 400 PLAN_LINK_MILESTONE); the old and new plan items are recalculated.
+ */
+function bulkLinkPlan(projectId: string, ids: readonly string[], planItemId: string | null, actor: Actor): Promise<string[]> {
+  return withTransaction(async (tx) => {
+    if (planItemId) await assertLinkablePlanItem(tx, projectId, planItemId)
+    const rows = (await repo.findLiveBacklogItemsByIds(tx, projectId, ids)).filter((r) => (r.planItemId ?? null) !== planItemId)
+    await updateRows(tx, projectId, rows, { planItemId }, actor)
+    await recalcPlanItems([planItemId, ...rows.map((r) => r.planItemId)], tx)
+    return rows.map((r) => r.id)
   })
 }

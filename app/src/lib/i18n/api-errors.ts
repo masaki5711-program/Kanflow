@@ -51,6 +51,15 @@ export interface ApiErrorsTranslations {
   apiErrPlanParentNotFound: string
   apiErrPlanSelfParent: string
   apiErrPlanCycle: string
+  apiErrPlanInvalidRange: string
+  apiErrPlanParentDatesDerived: string
+  apiErrPlanLinkRequiresLeaf: string
+  apiErrPlanLinkMilestone: string
+  apiErrPlanLinkInvalidPbi: string
+  apiErrPlanDependencyCycle: string
+  apiErrPlanDependencyInvalid: string
+  apiErrPlanDependencyExists: string
+  apiErrPlanOwnerNotMember: string
   apiErrFileRequired: string
   apiErrFileEmpty: string
   apiErrFileMissing: string
@@ -115,6 +124,15 @@ export const API_ERROR_MESSAGE_KEYS: Readonly<Record<ApiErrorCode, ApiErrorMessa
   PLAN_PARENT_NOT_FOUND: "apiErrPlanParentNotFound",
   PLAN_SELF_PARENT: "apiErrPlanSelfParent",
   PLAN_CYCLE: "apiErrPlanCycle",
+  PLAN_INVALID_RANGE: "apiErrPlanInvalidRange",
+  PLAN_PARENT_DATES_DERIVED: "apiErrPlanParentDatesDerived",
+  PLAN_LINK_REQUIRES_LEAF: "apiErrPlanLinkRequiresLeaf",
+  PLAN_LINK_MILESTONE: "apiErrPlanLinkMilestone",
+  PLAN_LINK_INVALID_PBI: "apiErrPlanLinkInvalidPbi",
+  PLAN_DEPENDENCY_CYCLE: "apiErrPlanDependencyCycle",
+  PLAN_DEPENDENCY_INVALID: "apiErrPlanDependencyInvalid",
+  PLAN_DEPENDENCY_EXISTS: "apiErrPlanDependencyExists",
+  PLAN_OWNER_NOT_MEMBER: "apiErrPlanOwnerNotMember",
   FILE_REQUIRED: "apiErrFileRequired",
   FILE_EMPTY: "apiErrFileEmpty",
   FILE_MISSING: "apiErrFileMissing",
@@ -182,6 +200,15 @@ export const ja: ApiErrorsTranslations = {
   apiErrPlanParentNotFound: "親項目が見つかりません",
   apiErrPlanSelfParent: "自分自身を親にできません",
   apiErrPlanCycle: "循環参照になります",
+  apiErrPlanInvalidRange: "開始日は終了日以前にしてください",
+  apiErrPlanParentDatesDerived: "子項目を持つ項目の期間は子項目から自動計算されます。子項目の日付を変更してください",
+  apiErrPlanLinkRequiresLeaf: "PBI は子項目を持たない項目にのみ紐付けられます",
+  apiErrPlanLinkMilestone: "マイルストーンには PBI を紐付けられません",
+  apiErrPlanLinkInvalidPbi: "紐付けできない PBI が含まれています（削除済みまたは別プロジェクト）",
+  apiErrPlanDependencyCycle: "依存関係が循環します",
+  apiErrPlanDependencyInvalid: "この 2 項目の間には依存関係を設定できません（同一項目または親子関係）",
+  apiErrPlanDependencyExists: "この依存関係は既に存在します",
+  apiErrPlanOwnerNotMember: "担当者はプロジェクトメンバーから選択してください",
   apiErrFileRequired: "ファイルがありません",
   apiErrFileEmpty: "ファイルが空です",
   apiErrFileMissing: "ファイルが見つかりません",
@@ -243,6 +270,15 @@ export const en: ApiErrorsTranslations = {
   apiErrPlanParentNotFound: "Parent item not found",
   apiErrPlanSelfParent: "An item cannot be its own parent",
   apiErrPlanCycle: "This would create a circular reference",
+  apiErrPlanInvalidRange: "The start date must be on or before the end date",
+  apiErrPlanParentDatesDerived: "The dates of an item with children are calculated from its children. Change the child items instead",
+  apiErrPlanLinkRequiresLeaf: "PBIs can only be linked to items without children",
+  apiErrPlanLinkMilestone: "PBIs cannot be linked to a milestone",
+  apiErrPlanLinkInvalidPbi: "Some PBIs cannot be linked (deleted or in another project)",
+  apiErrPlanDependencyCycle: "This dependency would create a cycle",
+  apiErrPlanDependencyInvalid: "A dependency cannot be set between these items (same item or parent/child)",
+  apiErrPlanDependencyExists: "This dependency already exists",
+  apiErrPlanOwnerNotMember: "The owner must be a member of the project",
   apiErrFileRequired: "No file was provided",
   apiErrFileEmpty: "The file is empty",
   apiErrFileMissing: "The file was not found",
@@ -304,6 +340,15 @@ export const id: ApiErrorsTranslations = {
   apiErrPlanParentNotFound: "Item induk tidak ditemukan",
   apiErrPlanSelfParent: "Item tidak dapat menjadi induk bagi dirinya sendiri",
   apiErrPlanCycle: "Tindakan ini akan membuat referensi melingkar",
+  apiErrPlanInvalidRange: "Tanggal mulai harus sama dengan atau sebelum tanggal selesai",
+  apiErrPlanParentDatesDerived: "Tanggal item yang memiliki sub-item dihitung dari sub-itemnya. Ubah tanggal sub-item",
+  apiErrPlanLinkRequiresLeaf: "PBI hanya dapat ditautkan ke item tanpa sub-item",
+  apiErrPlanLinkMilestone: "PBI tidak dapat ditautkan ke milestone",
+  apiErrPlanLinkInvalidPbi: "Beberapa PBI tidak dapat ditautkan (dihapus atau di proyek lain)",
+  apiErrPlanDependencyCycle: "Dependensi ini akan membuat siklus",
+  apiErrPlanDependencyInvalid: "Dependensi tidak dapat diatur antara item ini (item yang sama atau induk/anak)",
+  apiErrPlanDependencyExists: "Dependensi ini sudah ada",
+  apiErrPlanOwnerNotMember: "Penanggung jawab harus anggota proyek",
   apiErrFileRequired: "Tidak ada file yang dikirim",
   apiErrFileEmpty: "File kosong",
   apiErrFileMissing: "File tidak ditemukan",

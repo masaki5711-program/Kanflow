@@ -159,12 +159,13 @@ export default function PbiDetailModal({ projectId, pbiId, onClose, editable, on
                   setForm={edit.setForm}
                   options={options}
                   selfId={item.id}
+                  projectId={projectId}
                   disabled={save.isPending}
                   generating={ai.generating}
                   onGenerate={ai.generate}
                 />
               ) : (
-                <PbiReadBody item={item} />
+                <PbiReadBody item={item} projectId={projectId} />
               )
             }
           />

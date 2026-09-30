@@ -7,6 +7,14 @@ import { resolveHeartbeatFile } from "@/lib/ai-gate/worker-heartbeat"
 import { describeBusinessHours, parseBusinessHours, type BusinessHours } from "./business-hours"
 import { DEFAULT_ACTIVITY_RETENTION_DAYS, DEFAULT_NOTIFICATION_RETENTION_DAYS } from "./jobs/retention-defaults"
 import { resolvePurgeTrashAfterDays } from "@/services/_shared/soft-delete"
+import { resolveMaxInvestigations } from "./jobs/surveillance-limits"
+import {
+  DEFAULT_AI_JOB_RETENTION_DAYS,
+  DEFAULT_CHAT_DELETED_RETENTION_DAYS,
+  DEFAULT_CHAT_RETENTION_DAYS,
+} from "./jobs/retention-defaults"
+import { loadAiJobRunnerConfig, type AiJobRunnerEnvConfig } from "@/lib/ai-jobs/runner-config"
+import { resolveAiJobRunner, workerRunsAiJobs, type AiJobRunnerLocation } from "@/lib/ai-jobs/config"
 
 /**
  * Standalone worker configuration. Pure except `loadEnvFiles`; importing
@@ -45,6 +53,19 @@ export interface WorkerConfig {
   purgeTrashTimes: DailyTime[]
   /** PURGE_TRASH_AFTER_DAYS: trashed rows older than this are deleted permanently. */
   purgeTrashAfterDays: number
+  /** SURVEILLANCE_MAX_INVESTIGATIONS: agent investigations per surveillance run. */
+  surveillanceMaxInvestigations: number
+  /** Where background AI report jobs run (AI_JOB_RUNNER / AI_TRANSLATION_WORKER). */
+  aiJobRunner: AiJobRunnerLocation
+  /** Run the AI job loop in this process? (true when aiJobRunner = worker) */
+  runAiJobs: boolean
+  aiJobs: AiJobRunnerEnvConfig
+  /** CHAT_RETENTION_DAYS: chat threads idle longer than this are deleted by the collab job. */
+  chatRetentionDays: number
+  /** CHAT_DELETED_RETENTION_DAYS: deleted chat threads are purged this long after deletion. */
+  chatDeletedRetentionDays: number
+  /** AI_JOB_RETENTION_DAYS: finished AiJob rows older than this are deleted by the collab job. */
+  aiJobRetentionDays: number
 }
 
 export const DEFAULT_SURVEILLANCE_SCHEDULE = "06:30"
@@ -119,6 +140,13 @@ export function loadWorkerConfig(env: NodeJS.ProcessEnv): WorkerConfig {
     notificationRetentionDays: envPositiveInt(env.NOTIFICATION_RETENTION_DAYS, DEFAULT_NOTIFICATION_RETENTION_DAYS),
     purgeTrashTimes: parseSchedule(env.PURGE_TRASH_SCHEDULE, DEFAULT_PURGE_TRASH_SCHEDULE),
     purgeTrashAfterDays: resolvePurgeTrashAfterDays(env.PURGE_TRASH_AFTER_DAYS),
+    surveillanceMaxInvestigations: resolveMaxInvestigations(env),
+    aiJobRunner: resolveAiJobRunner(env),
+    runAiJobs: workerRunsAiJobs(env),
+    aiJobs: loadAiJobRunnerConfig(env),
+    chatRetentionDays: envPositiveInt(env.CHAT_RETENTION_DAYS, DEFAULT_CHAT_RETENTION_DAYS),
+    chatDeletedRetentionDays: envPositiveInt(env.CHAT_DELETED_RETENTION_DAYS, DEFAULT_CHAT_DELETED_RETENTION_DAYS),
+    aiJobRetentionDays: envPositiveInt(env.AI_JOB_RETENTION_DAYS, DEFAULT_AI_JOB_RETENTION_DAYS),
   }
 }
 
@@ -150,6 +178,13 @@ export function describeConfig(cfg: WorkerConfig): Record<string, unknown> {
     notificationRetentionDays: cfg.notificationRetentionDays,
     purgeTrashSchedule: formatDailyTimes(cfg.purgeTrashTimes),
     purgeTrashAfterDays: cfg.purgeTrashAfterDays,
+    surveillanceMaxInvestigations: cfg.surveillanceMaxInvestigations,
+    aiJobRunner: cfg.aiJobRunner,
+    runAiJobs: cfg.runAiJobs,
+    aiJobs: cfg.aiJobs,
+    chatRetentionDays: cfg.chatRetentionDays,
+    chatDeletedRetentionDays: cfg.chatDeletedRetentionDays,
+    aiJobRetentionDays: cfg.aiJobRetentionDays,
   }
 }
 

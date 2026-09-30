@@ -3,7 +3,7 @@
  * its sidebar entry, the admin project trash (`/admin/trash`) and the shared
  * "move to trash" wording of delete confirmations.
  * Add a key to the interface AND to ja / en / id below (compile error otherwise).
- * Placeholders: {days} {name} {pbi} {icebox} {sprints} {date}.
+ * Placeholders: {days} {name} {pbi} {icebox} {sprints} {date} {count}.
  */
 export interface TrashTranslations {
   trashTitle: string
@@ -17,6 +17,10 @@ export interface TrashTranslations {
   trashDeleteForever: string
   trashTypePbi: string
   trashTypeIcebox: string
+  /** Master-plan item (全体計画) entry. */
+  trashTypePlan: string
+  /** {count} = items trashed together with a plan item (itself included). */
+  trashPlanSubtree: string
   trashUntitled: string
   /** {name} = user who deleted it. */
   trashDeletedBy: string
@@ -51,15 +55,17 @@ export interface TrashTranslations {
 
 export const ja: TrashTranslations = {
   trashTitle: "ゴミ箱",
-  trashNavDescription: "削除した PBI・IceBox 項目の復元",
-  trashDescription: "削除した PBI と IceBox 項目は {days} 日間ここに保管され、その後完全に削除されます。それまでは復元できます。",
+  trashNavDescription: "削除した PBI・IceBox・全体計画の項目の復元",
+  trashDescription: "削除した PBI、IceBox 項目、全体計画の項目は {days} 日間ここに保管され、その後完全に削除されます。それまでは復元できます。",
   trashEmptyTitle: "ゴミ箱は空です",
-  trashEmptyDescription: "削除した PBI や IceBox 項目はここに表示され、復元できます。",
+  trashEmptyDescription: "削除した PBI・IceBox・全体計画の項目はここに表示され、復元できます。",
   trashMoveToTrash: "ゴミ箱に移動",
   trashRestore: "復元",
   trashDeleteForever: "完全に削除",
   trashTypePbi: "PBI",
   trashTypeIcebox: "IceBox",
+  trashTypePlan: "全体計画",
+  trashPlanSubtree: "配下を含め {count} 件",
   trashUntitled: "（無題）",
   trashDeletedBy: "削除した人: {name}",
   trashUnknownUser: "不明なユーザー",
@@ -86,15 +92,17 @@ export const ja: TrashTranslations = {
 
 export const en: TrashTranslations = {
   trashTitle: "Trash",
-  trashNavDescription: "Restore deleted PBIs and IceBox items",
-  trashDescription: "Deleted PBIs and IceBox items stay here for {days} days and are then deleted permanently. You can restore them until then.",
+  trashNavDescription: "Restore deleted PBIs, IceBox items and master-plan items",
+  trashDescription: "Deleted PBIs, IceBox items and master-plan items stay here for {days} days and are then deleted permanently. You can restore them until then.",
   trashEmptyTitle: "The trash is empty",
-  trashEmptyDescription: "Deleted PBIs and IceBox items appear here and can be restored.",
+  trashEmptyDescription: "Deleted PBIs, IceBox items and master-plan items appear here and can be restored.",
   trashMoveToTrash: "Move to trash",
   trashRestore: "Restore",
   trashDeleteForever: "Delete permanently",
   trashTypePbi: "PBI",
   trashTypeIcebox: "IceBox",
+  trashTypePlan: "Master plan",
+  trashPlanSubtree: "{count} items incl. sub-items",
   trashUntitled: "(untitled)",
   trashDeletedBy: "Deleted by {name}",
   trashUnknownUser: "unknown user",
@@ -121,15 +129,17 @@ export const en: TrashTranslations = {
 
 export const id: TrashTranslations = {
   trashTitle: "Tempat Sampah",
-  trashNavDescription: "Pulihkan PBI dan item IceBox yang dihapus",
-  trashDescription: "PBI dan item IceBox yang dihapus disimpan di sini selama {days} hari, lalu dihapus secara permanen. Sampai saat itu Anda dapat memulihkannya.",
+  trashNavDescription: "Pulihkan PBI, item IceBox, dan item rencana induk yang dihapus",
+  trashDescription: "PBI, item IceBox, dan item rencana induk yang dihapus disimpan di sini selama {days} hari, lalu dihapus secara permanen. Sampai saat itu Anda dapat memulihkannya.",
   trashEmptyTitle: "Tempat sampah kosong",
-  trashEmptyDescription: "PBI dan item IceBox yang dihapus muncul di sini dan dapat dipulihkan.",
+  trashEmptyDescription: "PBI, item IceBox, dan item rencana induk yang dihapus muncul di sini dan dapat dipulihkan.",
   trashMoveToTrash: "Pindahkan ke tempat sampah",
   trashRestore: "Pulihkan",
   trashDeleteForever: "Hapus permanen",
   trashTypePbi: "PBI",
   trashTypeIcebox: "IceBox",
+  trashTypePlan: "Rencana induk",
+  trashPlanSubtree: "{count} item termasuk sub-item",
   trashUntitled: "(tanpa judul)",
   trashDeletedBy: "Dihapus oleh {name}",
   trashUnknownUser: "pengguna tidak dikenal",

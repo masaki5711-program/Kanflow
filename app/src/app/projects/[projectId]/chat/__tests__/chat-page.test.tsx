@@ -61,7 +61,13 @@ function useStreamingFetch() {
     streams.push(s)
     return Promise.resolve(s.response)
   })
-  vi.stubGlobal("fetch", fetchMock)
+  // The chat-history sidebar (GET /chat/threads) answers an empty list;
+  // `fetchMock` only sees the chat requests.
+  vi.stubGlobal("fetch", (url: string, init?: RequestInit) =>
+    String(url).includes("/chat/threads")
+      ? Promise.resolve(jsonResponse({ items: [], nextCursor: null }))
+      : fetchMock(url, init),
+  )
 }
 
 beforeEach(() => useStreamingFetch())

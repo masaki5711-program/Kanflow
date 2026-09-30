@@ -267,7 +267,7 @@ describe("CalendarPage", () => {
     await renderPage()
     const bar = screen.getAllByRole("button", { name: fmt(t.calendarSprintProgress, { sprint: "Sprint A", progress: 50 }) })[0]
     await userEvent.click(bar)
-    expect(push).toHaveBeenCalledWith("/projects/p1/sprints?sprintId=s1")
+    expect(push).toHaveBeenCalledWith("/projects/p1/sprints?sprint=s1")
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
   })
 

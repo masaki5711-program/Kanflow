@@ -1,145 +1,309 @@
 "use client"
 
-import { useMemo, useRef, useState } from "react"
-import { Button, EmptyState, SkeletonTable } from "@/components/ui"
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { CalendarRange } from "lucide-react"
+import { Button, EmptyState, SkeletonTable, useConfirm, useToast } from "@/components/ui"
+import { useApiQuery, useMediaQuery, useStableHandlers } from "@/hooks"
 import { useLanguage } from "@/lib/language-context"
 import { pickText } from "@/lib/translation/pick-text"
-import PlanEditModal from "./plan-edit-modal"
-import { PlanLegend, PlanToolbar, type PlanZoom } from "./plan-toolbar"
-import { HEADER_HEIGHT, PlanTreePane, ROW_HEIGHT, i18nOf } from "./plan-tree-pane"
-import { PlanTimeline } from "./plan-timeline"
-import { useBarDrag } from "./use-bar-drag"
-import { usePlanItems } from "./use-plan-items"
-import {
-  type PlanItem,
-  buildFlatTree,
-  chartBounds,
-  daysBetween,
-  formatYmd,
-  startOfUtcDay,
-  ZOOM_DAY_WIDTH,
-} from "./lib/plan-utils"
+import type { ProjectMemberDto } from "@/types/api"
 import { useProjectDocumentTitle } from "@/components/app-shell/project-title-context"
+import { addDays, localTodayYmd } from "./lib/date"
+import { formatShortDate } from "./lib/date-format"
+import { EMPTY_FILTER, gridWidth, isFilterActive, matchesFilter, visibleColumns, type PlanFilter } from "./lib/filter"
+import { dayCenterX, spanGeometry } from "./lib/geometry"
+import type { PlanItem } from "./lib/plan-types"
+import { PLAN_COLUMNS } from "./lib/prefs"
+import { ZOOM_DAY_WIDTH, buildScale, chartRange } from "./lib/scale"
+import { fillTemplate } from "./lib/template"
+import { ancestorIds, buildFlatTree, descendantIds, dropItem, filterVisibleIds, indentItem, moveSibling, outdentItem, parentIds } from "./lib/tree"
+import { useBarDrag } from "./hooks/use-bar-drag"
+import { usePlanData } from "./hooks/use-plan-data"
+import { revealItem, scrollTimelineTo, useScrollToToday } from "./hooks/use-plan-scroll"
+import { usePlanViewState } from "./hooks/use-plan-view-state"
+import { useRowDrag } from "./hooks/use-row-drag"
+import type { ChartEnv, RowHandlers } from "./components/chart-types"
+import { PlanChart, chartBodyOf } from "./components/plan-chart"
+import PlanEditModal, { type EditorTarget } from "./components/plan-edit-modal"
+import { PlanFilterBar } from "./components/plan-filter-bar"
+import { PlanLegend } from "./components/plan-legend"
+import { PlanSuccessorPicker } from "./components/plan-successor-picker"
+import { PlanToolbar } from "./components/plan-toolbar"
 
 interface Props {
   projectId: string
   canEdit: boolean
 }
 
-export function PlanContent({ projectId, canEdit }: Props) {
+const NO_MEMBERS: ProjectMemberDto[] = []
+const DRAFT_DAYS = 7
+
+/** Master plan page (client). useSearchParams needs the Suspense boundary. */
+export function PlanContent(props: Props) {
+  return (
+    <Suspense fallback={<SkeletonTable rows={6} columns={3} />}>
+      <PlanPage {...props} />
+    </Suspense>
+  )
+}
+
+function focusName(id: string) {
+  requestAnimationFrame(() => {
+    const el = Array.from(document.querySelectorAll<HTMLElement>("[data-plan-name]")).find((b) => b.dataset.planName === id)
+    el?.focus()
+  })
+}
+
+function PlanPage({ projectId, canEdit }: Props) {
   const { t, language } = useLanguage()
   useProjectDocumentTitle(t.planTitle)
-  const api = usePlanItems(projectId)
-  const { items, isLoading } = api
-  const [zoom, setZoom] = useState<PlanZoom>("week")
-  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set())
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const toast = useToast()
+  const confirm = useConfirm()
+  const api = usePlanData(projectId)
+  const { items, dependencies } = api.data
+  const today = api.data.today || localTodayYmd()
+  const view = usePlanViewState(projectId)
+  const isNarrow = useMediaQuery("(max-width: 767px)")
+  const membersQuery = useApiQuery<ProjectMemberDto[]>(`/api/projects/${projectId}/members`)
+  const members = useMemo(() => (membersQuery.data ?? NO_MEMBERS).map((m) => ({ id: m.user.id, name: m.user.name })), [membersQuery.data])
 
-  const itemName = (item: PlanItem) => pickText(i18nOf(item), "name", item.name, language).text
-  const flatRows = useMemo(() => buildFlatTree(items, new Set(collapsed)), [items, collapsed])
-  const { min: chartMin, max: chartMax } = useMemo(() => chartBounds(items), [items])
-  const dayWidth = ZOOM_DAY_WIDTH[zoom]
-  const todayX = Math.max(0, daysBetween(chartMin, startOfUtcDay(new Date())) * dayWidth)
-  const editing = editingId ? items.find((i) => i.id === editingId) ?? null : null
+  const [filter, setFilter] = useState<PlanFilter>(EMPTY_FILTER)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [editor, setEditor] = useState<EditorTarget | null>(null)
+  const [successorFor, setSuccessorFor] = useState<PlanItem | null>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
 
-  // Parent dropdown in the modal — every item in visible order with depth.
-  const parentOptions = useMemo(
-    () =>
-      buildFlatTree(items, new Set()).map((r) => ({
-        id: r.item.id,
-        name: pickText(i18nOf(r.item), "name", r.item.name, language).text,
-        depth: r.depth,
-      })),
-    [items, language],
+  const nameOf = useCallback((item: PlanItem) => pickText(item.i18n, "name", item.name, language).text, [language])
+  const byId = useMemo(() => new Map(items.map((i) => [i.id, i])), [items])
+  const collapsed = useMemo(() => new Set(view.prefs.collapsed), [view.prefs.collapsed])
+  const filterOn = isFilterActive(filter)
+  const visible = useMemo(
+    () => (filterOn ? filterVisibleIds(items, (i) => matchesFilter(i, filter, nameOf(i))) : null),
+    [filter, filterOn, items, nameOf],
   )
+  const rows = useMemo(() => buildFlatTree(items, filterOn ? new Set() : collapsed, visible), [items, collapsed, filterOn, visible])
+  const rowIds = useMemo(() => rows.map((r) => r.item.id), [rows])
+
+  const { zoom } = view
+  const dayWidth = ZOOM_DAY_WIDTH[zoom]
+  const range = useMemo(() => chartRange(items, today, zoom), [items, today, zoom])
+  const scale = useMemo(() => buildScale(range, zoom, language), [range, zoom, language])
+  const gridCollapsed = view.prefs.gridCollapsed ?? isNarrow
+  const columns = useMemo(() => visibleColumns(view.prefs.hiddenColumns, gridCollapsed, PLAN_COLUMNS), [view.prefs.hiddenColumns, gridCollapsed])
+  const gw = gridWidth(columns, gridCollapsed)
+  const env = useMemo<ChartEnv>(
+    () => ({ t, language, startDay: range.startDay, dayWidth, today, canEdit, columns, gridWidth: gw, gridCollapsed, nameOf }),
+    [t, language, range.startDay, dayWidth, today, canEdit, columns, gw, gridCollapsed, nameOf],
+  )
+  const todayX = dayCenterX(today, range.startDay, dayWidth)
+  const ready = !api.isLoading && items.length > 0
+  useScrollToToday(scrollRef, ready, todayX, gw, zoom, !!view.itemParam)
 
   const drag = useBarDrag({
     dayWidth,
     canEdit,
     onPreview: api.previewDates,
-    onCommit: (id, plannedStart, plannedEnd) => void api.patchItem(id, { plannedStart, plannedEnd }),
+    onCommit: (item, plannedStart, plannedEnd) => void api.patchItem(item, { plannedStart, plannedEnd }),
+  })
+  const rowDrag = useRowDrag({
+    getBody: () => chartBodyOf(scrollRef.current),
+    rowIds,
+    onDrop: (dragId, target) => void api.reorder(dropItem(items, dragId, target.targetId, target.position)),
   })
 
-  async function create(initial?: Partial<PlanItem>) {
-    const created = await api.createItem(initial)
-    // Open the freshly created item for editing right away.
-    if (created) setEditingId(created.id)
+  function reveal(id: string) {
+    const it = byId.get(id)
+    if (!it) return
+    const g = spanGeometry(it.plannedStart, it.plannedEnd, range.startDay, dayWidth)
+    revealItem(scrollRef.current, id, g.x, g.width, gw)
   }
 
-  function toggle(id: string) {
-    setCollapsed((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
+  function openDraft(parentId: string | null, isMilestone: boolean) {
+    setEditor({ kind: "draft", draft: { parentId, isMilestone, plannedStart: today, plannedEnd: isMilestone ? today : addDays(today, DRAFT_DAYS - 1) } })
+  }
+
+  async function requestDelete(item: PlanItem): Promise<boolean> {
+    const name = nameOf(item)
+    const count = descendantIds(items, item.id).length
+    const message = [count > 0 ? fillTemplate(t.planConfirmDeleteDescendants, { count }) : "", t.planConfirmDeleteTrash].filter(Boolean).join("\n")
+    const ok = await confirm({ title: fillTemplate(t.planConfirmDelete, { name }), message, confirmLabel: t.delete, cancelLabel: t.cancel, variant: "danger" })
+    if (!ok) return false
+    const deleted = await api.deleteItem(item, name)
+    if (deleted && selectedId === item.id) setSelectedId(null)
+    return deleted
+  }
+
+  async function confirmBaseline(clear: boolean) {
+    const ok = await confirm({
+      message: clear ? t.planBaselineClearConfirm : t.planBaselineSaveConfirm,
+      confirmLabel: clear ? t.planBaselineClear : t.planBaselineSave,
+      cancelLabel: t.cancel,
+      variant: clear ? "warning" : "info",
     })
+    if (ok) void (clear ? api.clearBaseline() : api.saveBaseline())
   }
 
-  function jumpToToday() {
-    const el = scrollRef.current
-    if (el) el.scrollLeft = Math.max(0, todayX - el.clientWidth / 2)
-  }
+  const handlers = useStableHandlers<RowHandlers>({
+    select: (id, options) => {
+      setSelectedId(id)
+      if (options?.scrollBar) reveal(id)
+    },
+    open: (item) => setEditor({ kind: "edit", item }),
+    toggle: (id) => view.setCollapsed((prev) => (prev.has(id) ? [...prev].filter((x) => x !== id) : [...prev, id])),
+    startRename: (id) => setRenamingId(id),
+    commitRename: (item, name) => {
+      setRenamingId(null)
+      focusName(item.id)
+      void api.patchItem(item, { name })
+    },
+    cancelRename: () => {
+      if (renamingId) focusName(renamingId)
+      setRenamingId(null)
+    },
+    move: (id, action) => {
+      const updates =
+        action === "moveUp" ? moveSibling(items, id, "up")
+          : action === "moveDown" ? moveSibling(items, id, "down")
+            : action === "indent" ? indentItem(items, id)
+              : outdentItem(items, id)
+      if (action === "indent" && updates?.[0]?.parentId) view.setCollapsed((prev) => [...prev].filter((x) => x !== updates[0].parentId))
+      void api.reorder(updates).then(() => focusName(id))
+    },
+    addChild: (parentId) => openDraft(parentId, false),
+    addSuccessor: (item) => setSuccessorFor(item),
+    linkPbis: (item) => setEditor({ kind: "edit", item, focusLinks: true }),
+    remove: (item) => void requestDelete(item),
+  })
+
+  // ?item=<id>: reveal, select and open the item once the plan has loaded (notifications, PBI link).
+  const handledItemRef = useRef<string | null>(null)
+  const { itemParam, clearItemParam, setCollapsed } = view
+  useEffect(() => {
+    if (!itemParam || api.isLoading || handledItemRef.current === itemParam) return
+    handledItemRef.current = itemParam
+    const item = byId.get(itemParam)
+    clearItemParam()
+    if (!item) {
+      toast.error(t.planItemNotFound)
+      return
+    }
+    const ancestors = new Set(ancestorIds(items, item.id))
+    setCollapsed((prev) => [...prev].filter((x) => !ancestors.has(x)))
+    setFilter(EMPTY_FILTER)
+    setSelectedId(item.id)
+    setEditor({ kind: "edit", item })
+    requestAnimationFrame(() => reveal(item.id))
+    // reveal reads the latest geometry through closure; only the param / load state trigger this.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [itemParam, api.isLoading, byId])
+
+  const editorItem = editor?.kind === "edit" ? (byId.get(editor.item.id) ?? editor.item) : null
+  const hasBaseline = items.some((i) => i.baselineStart)
 
   return (
     <div className="space-y-4">
       <PlanToolbar
         zoom={zoom}
-        onZoom={setZoom}
-        onJumpToday={jumpToToday}
+        onZoom={view.setZoom}
+        onJumpToday={() => scrollTimelineTo(scrollRef.current, todayX, gw)}
         canEdit={canEdit}
-        onAddItem={() => void create()}
-        onAddMilestone={() => void create({ isMilestone: true, name: t.planAddMilestone, plannedEnd: formatYmd(new Date()) })}
+        onAddItem={() => openDraft(null, false)}
+        onAddMilestone={() => openDraft(null, true)}
+        onSaveBaseline={() => void confirmBaseline(false)}
+        onClearBaseline={() => void confirmBaseline(true)}
+        hasBaseline={hasBaseline}
+        exportUrl={`${api.base}/export?lang=${language}`}
+        onPrint={() => window.print()}
       />
-      <PlanLegend />
 
-      {isLoading ? (
-        <SkeletonTable rows={6} columns={3} label={t.loading} />
+      {api.isLoading ? (
+        <SkeletonTable rows={6} columns={4} label={t.loading} />
       ) : items.length === 0 ? (
-        <div className="rounded-ui-lg border border-dashed border-border bg-surface">
+        <div className="rounded-ui-lg border border-dashed border-border-strong bg-surface">
           <EmptyState
+            icon={<CalendarRange className="h-6 w-6" />}
             title={t.planEmpty}
-            action={canEdit ? <Button onClick={() => void create()}>+ {t.planAddItem}</Button> : undefined}
+            description={t.planEmptyHint}
+            action={canEdit ? <Button onClick={() => openDraft(null, false)}>{t.planAddItem}</Button> : undefined}
           />
         </div>
       ) : (
-        <div className="rounded-ui-lg border border-border bg-surface overflow-hidden">
-          <div className="flex overflow-x-auto" style={{ minHeight: HEADER_HEIGHT + flatRows.length * ROW_HEIGHT }}>
-            <PlanTreePane
-              rows={flatRows}
-              collapsed={collapsed}
-              onToggle={toggle}
-              onOpen={(item) => setEditingId(item.id)}
-              onAddChild={(parentId) => void create({ parentId })}
-              itemName={itemName}
-              canEdit={canEdit}
-              api={api}
-            />
-            <PlanTimeline
+        <>
+          <PlanFilterBar
+            filter={filter}
+            onFilter={setFilter}
+            owners={members}
+            hiddenColumns={view.prefs.hiddenColumns}
+            onToggleColumn={view.toggleColumn}
+            columnsDisabled={gridCollapsed}
+            onExpandAll={() => view.setCollapsed(() => [])}
+            onCollapseAll={() => view.setCollapsed(() => parentIds(items))}
+            shown={visible?.size ?? items.length}
+            total={items.length}
+          />
+          {rows.length === 0 ? (
+            <div className="rounded-ui-lg border border-border bg-surface">
+              <EmptyState compact title={t.planNoMatches} action={<Button variant="secondary" onClick={() => setFilter(EMPTY_FILTER)}>{t.planClearFilters}</Button>} />
+            </div>
+          ) : (
+            <PlanChart
               ref={scrollRef}
-              rows={flatRows}
-              chartMin={chartMin}
-              chartMax={chartMax}
-              dayWidth={dayWidth}
-              todayX={todayX}
-              canEdit={canEdit}
-              drag={drag}
-              onOpen={(item) => setEditingId(item.id)}
-              itemName={itemName}
+              rows={rows}
+              byId={byId}
+              dependencies={dependencies}
+              scale={scale}
+              env={env}
+              handlers={handlers}
+              drag={drag.handlers}
+              live={drag.live}
+              selectedId={selectedId}
+              collapsed={filterOn ? new Set() : collapsed}
+              renamingId={renamingId}
+              todayLabel={fillTemplate(t.planTodayLabel, { date: formatShortDate(today, language) })}
+              onToggleGrid={() => view.setGridCollapsed(!gridCollapsed)}
+              rowDrop={rowDrag.target}
+              onHandlePointerDown={rowDrag.onHandlePointerDown}
             />
-          </div>
-        </div>
+          )}
+          <PlanLegend />
+        </>
       )}
 
-      {editing && (
+      {editor && (
         <PlanEditModal
-          key={editing.id}
-          item={editing}
-          parentOptions={parentOptions}
+          key={editor.kind === "edit" ? editor.item.id : "draft"}
+          target={editorItem ? { kind: "edit", item: editorItem, focusLinks: editor.kind === "edit" && editor.focusLinks } : editor}
+          apiBase={api.base}
+          backlogPath={`/projects/${projectId}/backlog`}
+          items={items}
+          dependencies={dependencies}
+          members={members}
           readOnly={!canEdit}
-          onClose={() => setEditingId(null)}
-          onSave={(patch) => api.patchItem(editing.id, patch, { notifySuccess: true })}
-          onDelete={canEdit ? () => api.deleteItem(editing.id) : undefined}
+          nameOf={nameOf}
+          onClose={() => setEditor(null)}
+          onCreate={async (input) => {
+            const created = await api.createItem(input)
+            if (created) setSelectedId(created.id)
+            return !!created
+          }}
+          onSave={(item, patch) => api.patchItem(item, patch, { notify: true })}
+          onDelete={requestDelete}
+          onRemoveDependency={(id) => void api.removeDependency(id)}
+          onLinksSaved={api.refetch}
+        />
+      )}
+      {successorFor && (
+        <PlanSuccessorPicker
+          predecessor={successorFor}
+          items={items}
+          dependencies={dependencies}
+          nameOf={nameOf}
+          onClose={() => setSuccessorFor(null)}
+          onPick={(successorId) => {
+            setSuccessorFor(null)
+            void api.addDependency(successorFor.id, successorId)
+          }}
         />
       )}
     </div>

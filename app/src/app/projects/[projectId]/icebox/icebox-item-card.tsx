@@ -5,6 +5,7 @@ import { I18nText } from "@/components/i18n-text"
 import { CommentsButton } from "@/components/comments/comments-provider"
 import { useLanguage } from "@/lib/language-context"
 import { ArrowRight, CircleCheck, Clock, Eye, FileIcon, Info, MessageSquareText, Paperclip, Pencil, Snowflake, Trash2, User, type LucideIcon } from "lucide-react"
+import { iceboxItemElementId } from "./use-icebox-deep-link"
 import { attachmentUrl, formatFileSize, isImageType, type IceboxItem, type IceboxStatus } from "./types"
 
 export interface IceboxCardActions {
@@ -154,7 +155,7 @@ export function IceboxItemCard(props: Props) {
   const StatusIcon = STATUS_ICON[item.status] ?? Clock
 
   return (
-    <li className={cn("border-l-2 px-5 py-4 hover:bg-surface-muted", props.accentClass)}>
+    <li id={iceboxItemElementId(item.id)} className={cn("border-l-2 px-5 py-4 hover:bg-surface-muted", props.accentClass)}>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 flex-1">
           <div className="mb-1.5 flex flex-wrap items-center gap-2">

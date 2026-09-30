@@ -9,7 +9,11 @@ vi.mock("@/services/_shared/activity", async () => (await import("./support")).a
 vi.mock("@/services/_shared/notifications", async () => (await import("./support")).notificationsMock())
 vi.mock("@/services/_shared/db", async () => (await import("./support")).dbMock())
 vi.mock("@/services/_shared/translations", async () => (await import("./support")).translationMock())
-vi.mock("@/lib/plan-progress", () => ({ recalcPlanProgress: vi.fn(async () => undefined), statusToProgress: () => 0 }))
+vi.mock("@/lib/prisma", () => ({ prisma: {} }))
+vi.mock("@/lib/plan-progress", async () => ({
+  ...(await vi.importActual<typeof import("@/lib/plan-progress")>("@/lib/plan-progress")),
+  recalcPlanProgress: vi.fn(async () => []),
+}))
 vi.mock("@/lib/api-helpers", () => ({
   saveUploadedFile: vi.fn(),
   deleteUploadedFile: vi.fn(async () => undefined),
@@ -83,19 +87,24 @@ describe("releases", () => {
 
 describe("plan", () => {
   it("create / update / delete are logged", async () => {
+    const { planRow } = await import("@/services/plan/__tests__/plan-fixtures")
+    const row = planRow({ id: "n" })
     vi.mocked(planRepo.nextPlanSortOrder).mockResolvedValue(1)
-    vi.mocked(planRepo.insertPlanItem).mockResolvedValue({ id: "n", parentId: null } as never)
+    vi.mocked(planRepo.insertPlanItem).mockResolvedValue(row as never)
+    vi.mocked(planRepo.findPlanItem).mockResolvedValue(row as never)
+    vi.mocked(planRepo.countPlanChildren).mockResolvedValue(0)
+    vi.mocked(planRepo.findLinkedPbisOfItem).mockResolvedValue([])
     await plan.createPlanItem("p1", { name: "N", plannedStart: "2026-10-01", plannedEnd: "2026-10-02" } as never, ACTOR)
     expect(act.logCreate).toHaveBeenCalledWith(TX, withType("plan_item", { entityId: "n" }))
 
-    vi.mocked(planRepo.findPlanItem).mockResolvedValue({ id: "n", parentId: null })
-    vi.mocked(planRepo.updatePlanItem).mockResolvedValue({ id: "n" } as never)
+    vi.mocked(planRepo.updatePlanItemVersioned).mockResolvedValue(row as never)
     await plan.updatePlanItem("p1", "n", { name: "M" }, ACTOR)
     expect(act.logUpdate).toHaveBeenCalledWith(TX, withType("plan_item", { entityId: "n" }))
 
     vi.mocked(planRepo.findPlanTree).mockResolvedValue([{ id: "n", parentId: null }])
+    vi.mocked(planRepo.softDeletePlanItems).mockResolvedValue(1)
     await plan.deletePlanItem("p1", "n", ACTOR)
-    expect(act.logDelete).toHaveBeenCalledWith(TX, withType("plan_item", { entityId: "n", meta: { subtreeCount: 1 } }))
+    expect(act.logDelete).toHaveBeenCalledWith(TX, withType("plan_item", { entityId: "n", meta: { trashed: true, subtreeCount: 1 } }))
   })
 
   it("reorder logs one move per reparented item", async () => {

@@ -294,6 +294,10 @@ describe("get_member_workload", () => {
 })
 
 describe("search_work_items", () => {
+  // LIKE path (FULLTEXT is covered by analysis-tools-search.test.ts).
+  beforeEach(() => vi.stubEnv("SEARCH_FULLTEXT", "off"))
+  afterEach(() => vi.unstubAllEnvs())
+
   it("requires a keyword", async () => {
     expect(await run("search_work_items", "p1", { keyword: "  " })).toEqual({ error: "keyword is required" })
     expect(await run("search_work_items", "p1", {})).toEqual({ error: "keyword is required" })

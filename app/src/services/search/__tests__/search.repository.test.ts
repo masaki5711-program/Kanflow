@@ -50,6 +50,15 @@ describe("search.repository", () => {
     expect(or).toHaveLength(4)
   })
 
+  it("findPbis: pattern null (FULLTEXT candidates) matches only the ids and the displayId", async () => {
+    const db = fakeDb()
+    await repo.findPbis(db.client, SCOPE, { ...match({ pattern: null, ids: ["b1", "b2"] }), displayId: 3 })
+    const args = whereOf(db, "productBacklogItem.findMany")
+    expect(args.where.OR).toEqual([{ id: { in: ["b1", "b2"] } }, { displayId: 3 }])
+    expect(args.where.deletedAt).toBeNull()
+    expect(args.where.project).toBe(SCOPE)
+  })
+
   it("findTasks: parent PBI must be live and the sprint's project accessible", async () => {
     const db = fakeDb()
     await repo.findTasks(db.client, SCOPE, match({ ids: ["t1"] }))

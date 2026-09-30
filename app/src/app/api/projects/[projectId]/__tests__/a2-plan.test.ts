@@ -30,7 +30,7 @@ vi.mock("@/services/plan/plan.service", () => ({
 const { GET, POST } = await import("../plan/route")
 const item = await import("../plan/[itemId]/route")
 const reorder = await import("../plan/reorder/route")
-const { NotFoundError } = await import("@/services/_shared/errors")
+const { NotFoundError, VersionConflictError } = await import("@/services/_shared/errors")
 
 const P = ctx({ projectId: "p1" })
 const PI = ctx({ projectId: "p1", itemId: "i1" })
@@ -59,10 +59,11 @@ describe("plan routes", () => {
 
     it("returns the plan for a member", async () => {
       asRole(m, "dev")
-      m.listPlan.mockResolvedValue([{ id: "i1" }])
+      const body = { items: [{ id: "i1" }], dependencies: [], today: "2026-10-01" }
+      m.listPlan.mockResolvedValue(body)
       const res = await GET(getReq(), P)
       expect(res.status).toBe(200)
-      expect(await res.json()).toEqual([{ id: "i1" }])
+      expect(await res.json()).toEqual(body)
       expect(m.listPlan).toHaveBeenCalledWith("p1")
       expect(m.memberFindFirst).toHaveBeenCalledWith({ where: { projectId: "p1", userId: "user-1" }, select: { role: true } })
     })
@@ -150,13 +151,36 @@ describe("plan routes", () => {
       expect(m.deletePlanItem).not.toHaveBeenCalled()
     })
 
-    it("DELETE succeeds", async () => {
+    it("DELETE moves to the trash and reports the subtree size", async () => {
       asRole(m, "sm")
-      m.deletePlanItem.mockResolvedValue(undefined)
+      m.deletePlanItem.mockResolvedValue({ deletedCount: 3 })
       const res = await item.DELETE(getReq(), PI)
       expect(res.status).toBe(200)
-      expect(await res.json()).toEqual({ success: true })
-      expect(m.deletePlanItem).toHaveBeenCalledWith("p1", "i1", expect.objectContaining({ userId: expect.any(String) }))
+      expect(await res.json()).toEqual({ success: true, deletedCount: 3 })
+      expect(m.deletePlanItem).toHaveBeenCalledWith("p1", "i1", expect.objectContaining({ userId: expect.any(String) }), undefined)
+    })
+
+    it("DELETE passes ?version and rejects a malformed one", async () => {
+      asRole(m, "sm")
+      m.deletePlanItem.mockResolvedValue({ deletedCount: 1 })
+      await item.DELETE(getReq("http://localhost/api/projects/p1/plan/i1?version=4"), PI)
+      expect(m.deletePlanItem).toHaveBeenCalledWith("p1", "i1", expect.anything(), 4)
+      expect((await item.DELETE(getReq("http://localhost/api/projects/p1/plan/i1?version=x"), PI)).status).toBe(400)
+    })
+
+    it("PATCH passes version and maps the legacy 'delayed' status to in_progress", async () => {
+      asRole(m, "po")
+      m.updatePlanItem.mockResolvedValue({ id: "i1" })
+      await item.PATCH(jsonReq("PATCH", { status: "delayed", version: 2, progressMode: "linked", ownerId: null }), PI)
+      expect(m.updatePlanItem).toHaveBeenCalledWith("p1", "i1", { status: "in_progress", version: 2, progressMode: "linked", ownerId: null }, expect.anything())
+    })
+
+    it("PATCH 409 VERSION_CONFLICT carries the current item", async () => {
+      asRole(m, "po")
+      m.updatePlanItem.mockRejectedValue(new VersionConflictError({ id: "i1", version: 5 }))
+      const res = await item.PATCH(jsonReq("PATCH", { name: "x", version: 4 }), PI)
+      expect(res.status).toBe(409)
+      expect(await res.json()).toMatchObject({ code: "VERSION_CONFLICT", current: { id: "i1", version: 5 } })
     })
 
     it("DELETE maps Prisma P2025 to 404", async () => {

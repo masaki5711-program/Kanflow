@@ -9,6 +9,11 @@ const m = vi.hoisted(() => {
     setWorkerAdmission: vi.fn(),
     remote: { start: vi.fn(), admit: vi.fn(() => ({ allow: false })) },
     createRemoteGate: vi.fn(),
+    jobRunner: { start: vi.fn() },
+    createAiJobRunner: vi.fn(),
+    waitForLocalGate: vi.fn(async () => undefined),
+    gate: { isIdle: vi.fn(() => true) },
+    startMetrics: vi.fn(() => true),
   }
 })
 
@@ -19,12 +24,21 @@ vi.mock("@/lib/translation/worker", () => ({
   setWorkerAdmission: m.setWorkerAdmission,
 }))
 vi.mock("@/lib/ai-gate", () => ({ createRemoteGate: m.createRemoteGate }))
+vi.mock("@/lib/ai-jobs", () => ({
+  createAiJobRunner: m.createAiJobRunner,
+  loadAiJobRunnerConfig: () => ({ pollMs: 5000, staleMs: 1, yieldMaxMs: 777 }),
+  waitForLocalGate: m.waitForLocalGate,
+}))
+vi.mock("@/lib/translation/priority-gate", () => ({ gate: m.gate }))
+vi.mock("@/lib/metrics/runtime", () => ({ startMetrics: m.startMetrics }))
 
 const { register } = await import("@/instrumentation")
 
 beforeEach(() => {
   vi.clearAllMocks()
   m.createRemoteGate.mockReturnValue(m.remote)
+  m.createAiJobRunner.mockReturnValue(m.jobRunner)
+  m.decide.mockReturnValue({ start: false, mode: "external", reason: "external mode" })
   vi.stubEnv("NEXT_RUNTIME", "nodejs")
   vi.stubEnv("AI_GATE_PEERS", "")
 })
@@ -77,5 +91,55 @@ describe("register", () => {
     expect(m.remote.start).toHaveBeenCalled()
     const admission = m.setWorkerAdmission.mock.calls[0][0] as () => unknown
     expect(admission()).toEqual({ allow: false })
+  })
+})
+
+describe("register — AI job runner", () => {
+  it("starts the in-process job runner in web mode, waiting on the local gate", async () => {
+    vi.stubEnv("NODE_ENV", "production")
+    vi.stubEnv("AI_JOB_RUNNER", "web")
+    await register()
+    expect(m.jobRunner.start).toHaveBeenCalled()
+    expect(m.log.info).toHaveBeenCalledWith("in-process ai job runner started", expect.anything())
+    const { waitForTurn } = m.createAiJobRunner.mock.calls[0][0] as { waitForTurn: (s: AbortSignal) => Promise<void> }
+    const signal = new AbortController().signal
+    await waitForTurn(signal)
+    expect(m.waitForLocalGate).toHaveBeenCalledWith(expect.any(Function), signal, 777)
+    const isIdle = (m.waitForLocalGate.mock.calls as unknown as unknown[][])[0][0] as () => boolean
+    expect(isIdle()).toBe(true)
+    expect(m.gate.isIdle).toHaveBeenCalledWith(3000)
+  })
+
+  it("does not start it when the worker runs jobs", async () => {
+    vi.stubEnv("NODE_ENV", "production")
+    vi.stubEnv("AI_JOB_RUNNER", "worker")
+    await register()
+    expect(m.createAiJobRunner).not.toHaveBeenCalled()
+    expect(m.log.info).toHaveBeenCalledWith("ai job runner not started in this process", expect.anything())
+  })
+
+  it("logs a start failure without throwing", async () => {
+    vi.stubEnv("NODE_ENV", "production")
+    vi.stubEnv("AI_JOB_RUNNER", "web")
+    m.createAiJobRunner.mockImplementation(() => {
+      throw new Error("boom")
+    })
+    await expect(register()).resolves.toBeUndefined()
+    expect(m.log.error).toHaveBeenCalledWith("ai job runner failed to start", { error: "boom" })
+  })
+})
+
+describe("register — request metrics", () => {
+  it("starts the metrics runtime with the instrumentation logger", async () => {
+    await register()
+    expect(m.startMetrics).toHaveBeenCalledWith(m.log)
+  })
+
+  it("logs a metrics start failure without throwing", async () => {
+    m.startMetrics.mockImplementationOnce(() => {
+      throw new Error("dc")
+    })
+    await expect(register()).resolves.toBeUndefined()
+    expect(m.log.error).toHaveBeenCalledWith("metrics failed to start", { error: "dc" })
   })
 })

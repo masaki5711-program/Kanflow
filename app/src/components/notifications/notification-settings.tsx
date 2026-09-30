@@ -25,6 +25,8 @@ const TYPE_LABEL: Record<string, keyof Translations> = {
   sprint_start: "notifTypeSprintStart",
   sprint_end: "notifTypeSprintEnd",
   surveillance_critical: "notifTypeSurveillance",
+  ai_report_ready: "notifTypeAiReportReady",
+  ai_report_failed: "notifTypeAiReportFailed",
 }
 
 /**

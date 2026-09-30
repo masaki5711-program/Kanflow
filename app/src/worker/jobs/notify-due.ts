@@ -6,7 +6,11 @@
  *   (tasks have no own due date) → the task's assignees
  *   (TaskAssignee rows when present, else the legacy assignee name resolved
  *   against the project's members)
- * - plan items not done: due = plannedEnd → the project's PO / SM
+ * - plan items not done and not in the trash: due = plannedEnd → the project's PO / SM
+ *   (read from STORED columns, so every live project with plan items is
+ *   healed first — src/services/plan/plan.heal.ts — otherwise a project
+ *   nobody opened since the plan_linkage migration would be notified with
+ *   stale parent roll-ups; a failed heal is logged and that project skipped)
  *
  * due_soon: due date (local calendar day) within today .. today + soonDays.
  * overdue:  due date before today, at most OVERDUE_LOOKBACK_DAYS back (so a
@@ -17,9 +21,11 @@
  * runs (moving the due date re-arms it).
  */
 import { resolveAssignees, type AssigneeCandidate } from "@/lib/assignees"
+import { logger } from "@/lib/logger"
 import { defaultDb, type Db } from "@/services/_shared/db"
 import { notify, type NotificationType } from "@/services/_shared/notifications"
 import { NOT_DELETED } from "@/services/_shared/soft-delete"
+import { healProjectPlan } from "@/services/plan/plan.heal"
 import { DEFAULT_NOTIFY_DUE_SOON_DAYS } from "../config"
 
 export { DEFAULT_NOTIFY_DUE_SOON_DAYS }
@@ -28,6 +34,8 @@ export const OVERDUE_LOOKBACK_DAYS = 14
 const MAX_ROWS = 5000
 const PO_SM = ["po", "sm"] as const
 
+const log = logger.child({ module: "notify-due" })
+
 export interface NotifyDueOptions {
   soonDays?: number
   now?: () => Date
@@ -35,10 +43,22 @@ export interface NotifyDueOptions {
   signal?: AbortSignal
 }
 
+export interface PlanHealSummary {
+  /** Live projects with live plan items that were visited. */
+  projects: number
+  /** Plan rows whose derived values were rewritten. */
+  updated: number
+  /** Projects skipped because their plan hit LIST_LIMITS.planItems. */
+  capped: number
+  /** Projects whose heal failed (or 1 when listing the projects failed). */
+  failed: number
+}
+
 export interface NotifyDueResult {
   status: "done" | "aborted"
   candidates: { tasks: number; planItems: number }
   notified: number
+  planHeal: PlanHealSummary
 }
 
 /** Local calendar day "YYYY-MM-DD". */
@@ -101,10 +121,46 @@ function findDueTasks(db: Db, w: DueWindow) {
 
 function findDuePlanItems(db: Db, w: DueWindow) {
   return db.planItem.findMany({
-    where: { status: { not: "done" }, plannedEnd: { gte: w.overdueStart, lt: w.soonEnd }, project: LIVE_PROJECT_WHERE },
+    where: { status: { not: "done" }, ...NOT_DELETED, plannedEnd: { gte: w.overdueStart, lt: w.soonEnd }, project: LIVE_PROJECT_WHERE },
     select: { id: true, name: true, plannedEnd: true, projectId: true },
     take: MAX_ROWS,
   })
+}
+
+const errorMessage = (err: unknown) => (err instanceof Error ? err.message : String(err))
+
+/**
+ * Heal the stored plan roll-ups of every live project that has live plan
+ * items (one project at a time; each heal is bounded by LIST_LIMITS.planItems
+ * and skips a capped tree). Failures are logged and skipped, never thrown.
+ */
+async function healLivePlans(db: Db, signal: AbortSignal | undefined): Promise<PlanHealSummary> {
+  const sum: PlanHealSummary = { projects: 0, updated: 0, capped: 0, failed: 0 }
+  let projects: Array<{ id: string }>
+  try {
+    projects = await db.project.findMany({
+      where: { ...LIVE_PROJECT_WHERE, planItems: { some: NOT_DELETED } },
+      select: { id: true },
+      take: MAX_ROWS,
+    })
+  } catch (err) {
+    log.warn("plan heal: listing projects failed", { error: errorMessage(err) })
+    return { ...sum, failed: 1 }
+  }
+  for (const { id } of projects) {
+    if (signal?.aborted) break
+    sum.projects += 1
+    try {
+      const r = await healProjectPlan(id, { db })
+      sum.updated += r.applied ? r.updates.length : 0
+      if (r.capped) sum.capped += 1
+    } catch (err) {
+      sum.failed += 1
+      log.warn("plan heal failed; project skipped", { projectId: id, error: errorMessage(err) })
+    }
+  }
+  if (sum.updated > 0 || sum.failed > 0) log.info("plan heal", { ...sum })
+  return sum
 }
 
 /** Per-run memo of project lookups (members for name resolution, PO/SM ids). */
@@ -148,12 +204,16 @@ export async function runNotifyDue(opts: NotifyDueOptions = {}): Promise<NotifyD
   const db = opts.db ?? defaultDb
   const w = dueWindow((opts.now ?? (() => new Date()))(), opts.soonDays ?? DEFAULT_NOTIFY_DUE_SOON_DAYS)
   const cache = projectCache(db)
+  const noCandidates = { tasks: 0, planItems: 0 }
+  if (opts.signal?.aborted) return { status: "aborted", candidates: noCandidates, notified: 0, planHeal: { projects: 0, updated: 0, capped: 0, failed: 0 } }
+  const planHeal = await healLivePlans(db, opts.signal)
+  if (opts.signal?.aborted) return { status: "aborted", candidates: noCandidates, notified: 0, planHeal }
   const [tasks, planItems] = await Promise.all([findDueTasks(db, w), findDuePlanItems(db, w)])
   const candidates = { tasks: tasks.length, planItems: planItems.length }
   let notified = 0
 
   for (const task of tasks) {
-    if (opts.signal?.aborted) return { status: "aborted", candidates, notified }
+    if (opts.signal?.aborted) return { status: "aborted", candidates, notified, planHeal }
     const type = classifyDue(task.sprint.endDate, w)
     if (!type) continue
     notified += await notify(db, {
@@ -173,7 +233,7 @@ export async function runNotifyDue(opts: NotifyDueOptions = {}): Promise<NotifyD
   }
 
   for (const item of planItems) {
-    if (opts.signal?.aborted) return { status: "aborted", candidates, notified }
+    if (opts.signal?.aborted) return { status: "aborted", candidates, notified, planHeal }
     const type = classifyDue(item.plannedEnd, w)
     if (!type) continue
     notified += await notify(db, {
@@ -186,5 +246,5 @@ export async function runNotifyDue(opts: NotifyDueOptions = {}): Promise<NotifyD
       dedupeKey: dueDedupeKey(type, item.id, item.plannedEnd),
     })
   }
-  return { status: "done", candidates, notified }
+  return { status: "done", candidates, notified, planHeal }
 }

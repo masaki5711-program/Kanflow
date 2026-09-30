@@ -33,6 +33,8 @@ export const updateBacklogItemSchema = z.object({
   productGoalId: z.string().nullable().optional(),
   /** Source IceBox request ("" / null = unlink). */
   iceboxItemId: z.string().nullable().optional(),
+  /** Master-plan leaf item ("" / null = unlink; must be a live leaf of the project). */
+  planItemId: z.string().max(64).nullable().optional(),
   /** Optimistic lock: the version the client loaded (omitted = unchecked, legacy). */
   version: versionField,
 })
@@ -48,14 +50,15 @@ const bulkIds = z.array(z.string().min(1).max(64)).min(1).max(BULK_MAX_IDS)
 
 /**
  * POST /backlog/bulk. Each action has its own payload; the route checks the
- * action's permission (status / assignPo: backlog.write, trash: backlog.delete,
- * addToSprint: sprint.manage).
+ * action's permission (status / assignPo / linkPlan: backlog.write, trash:
+ * backlog.delete, addToSprint: sprint.manage).
  */
 export const bulkBacklogSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("status"), ids: bulkIds, payload: z.object({ status: z.enum(PBI_STATUSES) }) }),
   z.object({ action: z.literal("assignPo"), ids: bulkIds, payload: z.object({ assignedPo: z.string().max(200).nullable() }) }),
   z.object({ action: z.literal("addToSprint"), ids: bulkIds, payload: z.object({ sprintId: z.string().min(1) }) }),
   z.object({ action: z.literal("trash"), ids: bulkIds, payload: z.object({}).optional() }),
+  z.object({ action: z.literal("linkPlan"), ids: bulkIds, payload: z.object({ planItemId: z.string().min(1).max(64).nullable() }) }),
 ])
 export type BulkBacklogInput = z.infer<typeof bulkBacklogSchema>
 export type BulkBacklogAction = BulkBacklogInput["action"]
@@ -65,8 +68,9 @@ export type UpdateBacklogItemInput = z.infer<typeof updateBacklogItemSchema>
 
 export type PbiStatus = (typeof PBI_STATUSES)[number]
 
-/** GET /backlog query: optional `?status=` filter (unknown values are rejected with 400). */
+/** GET /backlog query: optional `?status=` (unknown values → 400) and `?planItemId=` filters. */
 export const listBacklogQuerySchema = z.object({
   status: z.enum(PBI_STATUSES).optional(),
+  planItemId: z.string().min(1).max(64).optional(),
 })
 export type ListBacklogQuery = z.infer<typeof listBacklogQuerySchema>

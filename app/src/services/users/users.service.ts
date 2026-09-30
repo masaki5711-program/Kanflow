@@ -1,5 +1,6 @@
 import bcrypt from "bcryptjs"
 import { invalidateUserAuthState } from "@/lib/authz/session-validity"
+import { revokeAllUserTokens } from "@/services/api-tokens/api-tokens.service"
 import { defaultDb, withTransaction } from "@/services/_shared/db"
 import { ConflictError, ValidationError } from "@/services/_shared/errors"
 import * as repo from "./users.repository"
@@ -88,6 +89,8 @@ export async function updateUser(actorId: string, id: string, input: UpdateUserI
       ...(revoke ? { tokenVersion: { increment: 1 } } : {}),
     })
     if (sectionIds !== undefined) await repo.replaceUserSections(tx, id, sectionIds)
+    // Personal access tokens follow the sessions (they would fail the tokenVersion check anyway).
+    if (revoke) await revokeAllUserTokens(tx, id, isActive === false ? "deactivated" : "sessions_revoked")
   })
   // Role / active changes apply on the user's next request, not after the cache TTL.
   invalidateUserAuthState(id)
@@ -95,8 +98,12 @@ export async function updateUser(actorId: string, id: string, input: UpdateUserI
   return { ...user, sections: user?.sections.map((s) => s.section) ?? [] }
 }
 
-/** Admin reset: also logs the user out everywhere (tokenVersion bump). */
+/** Admin reset: also logs the user out everywhere (tokenVersion bump) and revokes their API tokens. */
 export async function resetPassword(id: string, password: string): Promise<void> {
-  await repo.setPasswordAndRevokeSessions(defaultDb, id, await bcrypt.hash(password, PASSWORD_HASH_ROUNDS))
+  const hash = await bcrypt.hash(password, PASSWORD_HASH_ROUNDS)
+  await withTransaction(async (tx) => {
+    await repo.setPasswordAndRevokeSessions(tx, id, hash)
+    await revokeAllUserTokens(tx, id, "password_reset")
+  })
   invalidateUserAuthState(id)
 }

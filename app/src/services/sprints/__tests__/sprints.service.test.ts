@@ -69,7 +69,7 @@ describe("sprints.service", () => {
   it("completing a sprint launches the review after commit", async () => {
     vi.mocked(repo.updateSprint).mockResolvedValue({ id: "s1", sprintName: "S1" } as never)
     await svc.updateSprint("p1", "s1", { status: "done" }, ACTOR)
-    expect(launchSprintCompletionReview).toHaveBeenCalledWith("p1", "s1", "S1")
+    expect(launchSprintCompletionReview).toHaveBeenCalledWith("p1", "s1", "S1", ACTOR.userId)
     await svc.updateSprint("p1", "s1", { sprintGoal: "g" }, ACTOR)
     expect(launchSprintCompletionReview).toHaveBeenCalledTimes(1)
     expect(tr.enqueueIn).toHaveBeenLastCalledWith(TX, "sprint", "s1", { sprintGoal: "g" })

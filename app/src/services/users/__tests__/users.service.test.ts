@@ -9,6 +9,7 @@ vi.mock("bcryptjs", () => ({
 }))
 vi.mock("../users.repository")
 vi.mock("@/lib/authz/session-validity", () => ({ invalidateUserAuthState: vi.fn() }))
+vi.mock("@/services/api-tokens/api-tokens.service", () => ({ revokeAllUserTokens: vi.fn(async () => 0) }))
 
 const repo = await import("../users.repository")
 const { TX, DEFAULT_DB } = await import("@/services/__tests__/support")
@@ -16,6 +17,7 @@ const users = await import("../users.service")
 const account = await import("../account.service")
 const { normalizeOptional } = await import("../users.schemas")
 const { invalidateUserAuthState } = await import("@/lib/authz/session-validity")
+const { revokeAllUserTokens } = await import("@/services/api-tokens/api-tokens.service")
 
 const section = { section: { id: "s1", name: "S" } }
 
@@ -87,6 +89,7 @@ describe("users.service (admin)", () => {
     vi.mocked(repo.findUserForAdmin).mockResolvedValue({ id: "u2", sections: [] } as never)
     await users.updateUser("a", "u2", { role: "section_manager" })
     expect(repo.updateUser).toHaveBeenCalledWith(TX, "u2", { role: "section_manager", tokenVersion: { increment: 1 } })
+    expect(revokeAllUserTokens).toHaveBeenCalledWith(TX, "u2", "sessions_revoked")
   })
 
   it("does not bump tokenVersion when role / isActive are resent unchanged, but still drops the cache", async () => {
@@ -96,6 +99,7 @@ describe("users.service (admin)", () => {
     await users.updateUser("a", "u2", { name: "N", role: "member", isActive: true })
     expect(repo.updateUser).toHaveBeenCalledWith(TX, "u2", { name: "N", role: "member", isActive: true })
     expect(invalidateUserAuthState).toHaveBeenCalledWith("u2")
+    expect(revokeAllUserTokens).not.toHaveBeenCalled()
   })
 
   it("updates fields and sections in one tx, then returns the fresh row", async () => {
@@ -108,6 +112,14 @@ describe("users.service (admin)", () => {
     expect(out).toEqual({ id: "u2", sections: [{ id: "s1", name: "S" }] })
   })
 
+  it("revokes the API tokens of a deactivated user in the same tx", async () => {
+    vi.mocked(repo.findUserWith).mockResolvedValue(null)
+    vi.mocked(repo.findAuthFields).mockResolvedValue({ role: "member", isActive: true })
+    vi.mocked(repo.findUserForAdmin).mockResolvedValue({ id: "u2", sections: [] } as never)
+    await users.updateUser("a", "u2", { isActive: false })
+    expect(revokeAllUserTokens).toHaveBeenCalledWith(TX, "u2", "deactivated")
+  })
+
   it("update rejects taken email and self lockout", async () => {
     await expect(users.updateUser("a", "a", { isActive: false })).rejects.toMatchObject({ status: 400 })
     vi.mocked(repo.findUserWith).mockResolvedValueOnce({ id: "x" })
@@ -118,7 +130,8 @@ describe("users.service (admin)", () => {
 
   it("resets passwords with a hash and revokes the user's sessions", async () => {
     await users.resetPassword("u2", "newpass")
-    expect(repo.setPasswordAndRevokeSessions).toHaveBeenCalledWith(DEFAULT_DB, "u2", "hash(newpass)")
+    expect(repo.setPasswordAndRevokeSessions).toHaveBeenCalledWith(TX, "u2", "hash(newpass)")
+    expect(revokeAllUserTokens).toHaveBeenCalledWith(TX, "u2", "password_reset")
     expect(repo.setPassword).not.toHaveBeenCalled()
     expect(invalidateUserAuthState).toHaveBeenCalledWith("u2")
   })

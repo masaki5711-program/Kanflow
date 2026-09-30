@@ -38,10 +38,13 @@ describe("read-side service entry points", () => {
     expect(catRepo.findUserCategories).toHaveBeenCalledWith(DEFAULT_DB, "u1")
   })
 
-  it("listPlan attaches translations to the project's plan items", async () => {
-    vi.mocked(planRepo.findPlanItems).mockResolvedValue([{ id: "x" }] as never)
-    await expect(plan.listPlan("p1")).resolves.toEqual([{ id: "x", i18n: {} }])
+  it("listPlan reads the project's live plan (items, links, dependencies) on the default client", async () => {
+    vi.mocked(planRepo.findPlanItems).mockResolvedValue([])
+    vi.mocked(planRepo.findLinkedPbisOfProject).mockResolvedValue([])
+    vi.mocked(planRepo.findDependencies).mockResolvedValue([])
+    await expect(plan.listPlan("p1", new Date("2026-10-01T00:00:00Z"))).resolves.toEqual({ items: [], dependencies: [], today: "2026-10-01" })
     expect(planRepo.findPlanItems).toHaveBeenCalledWith(DEFAULT_DB, "p1")
+    expect(planRepo.findLinkedPbisOfProject).toHaveBeenCalledWith(DEFAULT_DB, "p1")
   })
 
   it("getSprint throws NotFound for a sprint outside the project", async () => {

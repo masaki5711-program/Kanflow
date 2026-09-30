@@ -10,6 +10,7 @@ import { useLanguage } from "@/lib/language-context"
 import { IceboxCreateForm } from "./icebox-create-form"
 import { IceboxEditModal } from "./icebox-edit-modal"
 import { IceboxSection } from "./icebox-section"
+import { useIceboxDeepLink } from "./use-icebox-deep-link"
 import { Inbox, Plus, Search } from "lucide-react"
 import {
   ICEBOX_STATUSES,
@@ -21,6 +22,7 @@ import {
   type IceboxStatus,
 } from "./types"
 import { useProjectDocumentTitle } from "@/components/app-shell/project-title-context"
+import { ExcelExportButton } from "@/components/excel/excel-export-button"
 
 interface StatusVars {
   item: IceboxItem
@@ -45,6 +47,7 @@ export default function IceboxPage() {
   const [editingItem, setEditingItem] = useState<IceboxItem | null>(null)
   const [draftPickerForId, setDraftPickerForId] = useState<string | null>(null)
   const [preview, setPreview] = useState<{ items: MediaItem[]; index: number } | null>(null)
+  useIceboxDeepLink({ lists, isReady: !query.isLoading, clearSearch: () => setSearchQuery("") })
 
   const statusLabels: Record<IceboxStatus, string> = {
     unreviewed: t.iceboxStatusUnreviewed,
@@ -149,9 +152,12 @@ export default function IceboxPage() {
           </span>
         }
         actions={
-          <Button onClick={() => setShowForm(true)} disabled={showForm} leftIcon={<Plus className="h-4 w-4" />}>
-            {t.iceboxAddRequest}
-          </Button>
+          <>
+            <ExcelExportButton href={`/api/projects/${projectId}/icebox/export`} />
+            <Button onClick={() => setShowForm(true)} disabled={showForm} leftIcon={<Plus className="h-4 w-4" />}>
+              {t.iceboxAddRequest}
+            </Button>
+          </>
         }
       />
 

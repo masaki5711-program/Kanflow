@@ -27,6 +27,7 @@ import { useBacklogSelection, useBulkActions } from "./use-bulk-actions"
 import { useDraftPrefill } from "./use-draft-prefill"
 import { useReorderDnd } from "./use-reorder-dnd"
 import { ClipboardList, Plus, Scale } from "lucide-react"
+import { BacklogExcelActions } from "@/components/excel/backlog-excel-actions"
 
 /** useSearchParams needs a Suspense boundary above it. */
 export default function BacklogPage() {
@@ -159,11 +160,14 @@ function BacklogPageContent() {
           )
         }
         actions={
-          canEdit && (
-            <Button onClick={() => setCreateDraft({})} leftIcon={<Plus className="h-4 w-4" />}>
-              {t.backlogAddItem}
-            </Button>
-          )
+          <>
+            <BacklogExcelActions projectId={projectId} canImport={canEdit} onImported={backlog.refetch} />
+            {canEdit && (
+              <Button onClick={() => setCreateDraft({})} leftIcon={<Plus className="h-4 w-4" />}>
+                {t.backlogAddItem}
+              </Button>
+            )}
+          </>
         }
       />
 

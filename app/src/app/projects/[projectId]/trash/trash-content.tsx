@@ -9,12 +9,15 @@ import { apiFetch, useApiMutation, useApiQuery } from "@/hooks"
 import { useLanguage } from "@/lib/language-context"
 
 export interface TrashEntry {
-  entityType: "backlog_item" | "icebox_item"
+  entityType: "backlog_item" | "icebox_item" | "plan_item"
   id: string
-  displayId: number
+  /** null for master-plan items (no display number). */
+  displayId: number | null
   title: string
-  titleField: "initiative" | "userStory" | "request"
+  titleField: "initiative" | "userStory" | "request" | "name"
   status: string
+  /** Plan items: items trashed together (itself included). */
+  subtreeCount?: number
   deletedAt: string
   deletedBy: TrashUserRef | null
   purgeAt: string
@@ -33,6 +36,14 @@ interface Props {
 }
 
 const sameEntry = (a: TrashEntry, b: TrashEntry) => a.id === b.id && a.entityType === b.entityType
+
+/** "#12" for numbered entries, "" for plan items. */
+const numberOf = (entry: TrashEntry) => (entry.displayId === null ? "" : `#${entry.displayId}`)
+
+/** Short label used in the purge confirmation and button labels. */
+function entryLabel(entry: TrashEntry, untitled: string): string {
+  return [numberOf(entry), entry.title || untitled].filter(Boolean).join(" ")
+}
 
 export function TrashContent({ projectId, canPurge }: Props) {
   const { t } = useLanguage()
@@ -71,7 +82,7 @@ export function TrashContent({ projectId, canPurge }: Props) {
   )
 
   async function handlePurge(entry: TrashEntry) {
-    const name = `#${entry.displayId} ${entry.title || t.trashUntitled}`
+    const name = entryLabel(entry, t.trashUntitled)
     const ok = await confirm({
       title: t.trashConfirmPurgeTitle,
       message: t.trashConfirmPurgeMessage.replace("{name}", name),
@@ -133,15 +144,19 @@ interface RowProps {
   onPurge: () => void
 }
 
+const TYPE_TONE = { backlog_item: "primary", icebox_item: "info", plan_item: "neutral" } as const
+
 function TrashRow({ entry, canPurge, busy, onRestore, onPurge }: RowProps) {
   const { t, language } = useLanguage()
-  const isPbi = entry.entityType === "backlog_item"
+  const typeLabel = { backlog_item: t.trashTypePbi, icebox_item: t.trashTypeIcebox, plan_item: t.trashTypePlan }[entry.entityType]
+  // Numbered entries keep "#12" as the accessible name; plan items use their title.
+  const label = numberOf(entry) || entry.title || t.trashUntitled
   return (
     <li className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
-          <Badge tone={isPbi ? "primary" : "info"}>{isPbi ? t.trashTypePbi : t.trashTypeIcebox}</Badge>
-          <span className="font-mono text-caption text-fg-muted">#{entry.displayId}</span>
+          <Badge tone={TYPE_TONE[entry.entityType]}>{typeLabel}</Badge>
+          {entry.displayId !== null && <span className="font-mono text-caption text-fg-muted">{numberOf(entry)}</span>}
           <I18nText
             i18n={entry.i18n}
             field={entry.titleField}
@@ -149,6 +164,9 @@ function TrashRow({ entry, canPurge, busy, onRestore, onPurge }: RowProps) {
             className="min-w-0 break-words text-body font-medium text-fg"
             fallback={<span className="text-body text-fg-muted">{t.trashUntitled}</span>}
           />
+          {entry.subtreeCount !== undefined && entry.subtreeCount > 1 && (
+            <span className="text-caption text-fg-muted">{t.trashPlanSubtree.replace("{count}", String(entry.subtreeCount))}</span>
+          )}
         </div>
         <p className="mt-1 text-caption text-fg-muted">
           {deletedByLabel(t, entry.deletedBy)}
@@ -165,7 +183,7 @@ function TrashRow({ entry, canPurge, busy, onRestore, onPurge }: RowProps) {
           variant="secondary"
           size="sm"
           leftIcon={<RotateCcw className="h-4 w-4" aria-hidden />}
-          aria-label={`${t.trashRestore}: #${entry.displayId}`}
+          aria-label={`${t.trashRestore}: ${label}`}
           disabled={busy}
           onClick={onRestore}
         >
@@ -176,7 +194,7 @@ function TrashRow({ entry, canPurge, busy, onRestore, onPurge }: RowProps) {
             variant="danger"
             size="sm"
             leftIcon={<Trash2 className="h-4 w-4" aria-hidden />}
-            aria-label={`${t.trashDeleteForever}: #${entry.displayId}`}
+            aria-label={`${t.trashDeleteForever}: ${label}`}
             disabled={busy}
             onClick={onPurge}
           >

@@ -285,7 +285,8 @@ describe("SprintWorkloadSection", () => {
     await user.selectOptions(screen.getByRole("combobox", { name: t.settingsSprintDuration }), "7")
     await user.selectOptions(screen.getByRole("combobox", { name: t.settingsPointUnit }), "人日")
     await user.type(screen.getByRole("textbox", { name: t.settingsPointDescription }), "half day")
-    await user.click(screen.getByRole("button", { name: t.settingsSaveButton }))
+    const workload = screen.getByRole("region", { name: t.settingsSprintWorkload })
+    await user.click(within(workload).getByRole("button", { name: t.settingsSaveButton }))
 
     await waitFor(() => expect(calls("PATCH", "/api/projects/p1")).toHaveLength(1))
     expect(bodyOf(calls("PATCH", "/api/projects/p1")[0])).toEqual({
@@ -301,7 +302,8 @@ describe("SprintWorkloadSection", () => {
     overrides["PATCH /api/projects/p1"] = () => jsonResponse({ error: "x" }, 500)
     const user = userEvent.setup()
     await renderLoaded()
-    const saveBtn = await screen.findByRole("button", { name: t.settingsSaveButton })
+    const workload = await screen.findByRole("region", { name: t.settingsSprintWorkload })
+    const saveBtn = within(workload).getByRole("button", { name: t.settingsSaveButton })
     expect(saveBtn).toBeDisabled()
     await user.type(screen.getByRole("spinbutton", { name: new RegExp(t.settingsDefaultCapacity) }), "5")
     expect(saveBtn).toBeEnabled()
@@ -404,5 +406,19 @@ describe("DangerZoneSection", () => {
     await user.click(within(dialog).getByRole("button", { name: t.trashMoveToTrash }))
     expect(await screen.findByText("forbidden-delete")).toBeInTheDocument()
     expect(mocks.push).not.toHaveBeenCalled()
+  })
+})
+
+describe("SurveillanceSection visibility", () => {
+  it("is shown to the PO", async () => {
+    await renderLoaded()
+    expect(await screen.findByRole("heading", { name: t.survTitle })).toBeInTheDocument()
+  })
+
+  it("is hidden from non-PO members", async () => {
+    mocks.session = { data: { user: { id: "u2", role: "user" } } }
+    await renderLoaded()
+    expect(screen.queryByRole("heading", { name: t.survTitle })).not.toBeInTheDocument()
+    expect(calls("GET", "/api/projects/p1/surveillance-settings")).toHaveLength(0)
   })
 })

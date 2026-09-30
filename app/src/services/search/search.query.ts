@@ -114,3 +114,43 @@ export function searchHref(type: SearchType, projectId: string, id: string): str
       return base
   }
 }
+
+/** An id with its FULLTEXT relevance (MATCH … AGAINST score). */
+export interface RankedId {
+  id: string
+  score: number
+}
+
+/**
+ * Merge ranked lists (direct column hits, translation hits) into one id list:
+ * each id keeps its best score; highest first, ties in first-seen order.
+ */
+export function rankIds(...lists: ReadonlyArray<readonly RankedId[]>): string[] {
+  const best = new Map<string, number>()
+  for (const { id, score } of lists.flat()) {
+    const prev = best.get(id)
+    if (prev === undefined || score > prev) best.set(id, score)
+  }
+  return [...best.entries()].toSorted((a, b) => b[1] - a[1]).map(([id]) => id)
+}
+
+/** Rows sorted by their position in `rankedIds`; rows not in the list keep their order at the end. */
+export function orderByRank<T extends { id: string }>(rows: readonly T[], rankedIds: readonly string[]): T[] {
+  const pos = new Map(rankedIds.map((id, i) => [id, i]))
+  const at = (r: T) => pos.get(r.id) ?? Number.MAX_SAFE_INTEGER
+  return rows.toSorted((a, b) => at(a) - at(b))
+}
+
+export type TranslationRanks = Record<SearchEntity, RankedId[]>
+
+/** Scored FieldTranslation hits → ranked ids per searched entity type (other entity types dropped). */
+export function groupTranslationRanks(
+  rows: ReadonlyArray<{ entityType: string; entityId: string; score: number }>
+): TranslationRanks {
+  const out = Object.fromEntries(Object.values(TRANSLATION_ENTITY).map((e) => [e, [] as RankedId[]])) as TranslationRanks
+  for (const row of rows) {
+    const bucket = out[row.entityType as keyof typeof out]
+    if (bucket) bucket.push({ id: row.entityId, score: row.score })
+  }
+  return out
+}

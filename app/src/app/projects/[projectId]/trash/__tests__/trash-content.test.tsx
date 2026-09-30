@@ -45,7 +45,7 @@ function setup(opts: { list?: ProjectTrash; restoreStatus?: number; purgeStatus?
   return stubFetch([
     { match: URL_BASE, method: "GET", respond: () => jsonResponse(opts.list ?? trash()) },
     {
-      match: /\/trash\/(backlog_item|icebox_item)\/[a-z0-9]+\/restore$/,
+      match: /\/trash\/(backlog_item|icebox_item|plan_item)\/[a-z0-9]+\/restore$/,
       method: "POST",
       respond: () => jsonResponse(opts.restoreStatus ? { error: "nope", code: "PROJECT_IN_TRASH" } : { success: true }, opts.restoreStatus ?? 200),
     },
@@ -119,5 +119,35 @@ describe("TrashContent", () => {
     await userEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: t.trashDeleteForever }))
     await waitFor(() => expect(calls(fetchMock, "DELETE")).toEqual(["/api/projects/p1/trash/icebox_item/i1"]))
     await waitFor(() => expect(screen.queryByText("要望A")).not.toBeInTheDocument())
+  })
+
+  it("shows a master-plan subtree without a number and restores it by title", async () => {
+    const plan: ProjectTrash = {
+      retentionDays: 30,
+      items: [
+        {
+          entityType: "plan_item",
+          id: "pl1",
+          displayId: null,
+          title: "フェーズ1",
+          titleField: "name",
+          status: "in_progress",
+          deletedAt: "2026-10-08T00:00:00.000Z",
+          deletedBy: { id: "u1", name: "Alice" },
+          purgeAt: "2026-11-07T00:00:00.000Z",
+          subtreeCount: 3,
+          i18n: {},
+        },
+      ],
+    }
+    const fetchMock = setup({ list: plan })
+    renderWithProviders(<TrashContent projectId="p1" canPurge />)
+    const list = await screen.findByRole("list", { name: t.trashListLabel })
+    const row = within(list).getByRole("listitem")
+    expect(row).toHaveTextContent(t.trashTypePlan)
+    expect(row).toHaveTextContent(t.trashPlanSubtree.replace("{count}", "3"))
+    expect(row).not.toHaveTextContent("#")
+    await userEvent.click(screen.getByRole("button", { name: `${t.trashRestore}: フェーズ1` }))
+    await waitFor(() => expect(calls(fetchMock, "POST")).toEqual(["/api/projects/p1/trash/plan_item/pl1/restore"]))
   })
 })

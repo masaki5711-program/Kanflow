@@ -1,31 +1,48 @@
 import { z } from "zod"
+import { PLAN_STATUSES, PROGRESS_MODES } from "@/lib/plan-progress"
+import { versionField } from "@/services/_shared/versioning"
 
-export const PLAN_STATUSES = ["not_started", "in_progress", "done", "on_hold", "delayed"] as const
+export { PLAN_STATUSES, PROGRESS_MODES }
+
+/** Legacy clients may still send "delayed" (retired: delay is computed) — read as in progress. */
+const planStatus = z.preprocess((v) => (v === "delayed" ? "in_progress" : v), z.enum(PLAN_STATUSES))
+
+/** "YYYY-MM-DD" (or an ISO date-time); normalized to date-only in the service. */
+const planDate = z.string().min(1).max(40)
+const optionalText = z.string().max(10000).nullable().optional()
+const id = z.string().min(1).max(64)
 
 export const createPlanItemSchema = z.object({
   name: z.string().min(1).max(255),
-  parentId: z.string().nullable().optional(),
-  plannedStart: z.string(),
-  plannedEnd: z.string(),
+  parentId: id.nullable().optional(),
+  plannedStart: planDate,
+  plannedEnd: planDate,
   isMilestone: z.boolean().optional(),
   color: z.string().max(32).nullable().optional(),
-  status: z.enum(PLAN_STATUSES).optional(),
-  description: z.string().max(10000).nullable().optional(),
+  status: planStatus.optional(),
+  description: optionalText,
+  notes: optionalText,
+  ownerId: id.nullable().optional(),
+  progressMode: z.enum(PROGRESS_MODES).optional(),
 })
 
 export const updatePlanItemSchema = z.object({
   name: z.string().min(1).max(255).optional(),
-  parentId: z.string().nullable().optional(),
-  plannedStart: z.string().optional(),
-  plannedEnd: z.string().optional(),
-  actualStart: z.string().nullable().optional(),
-  actualEnd: z.string().nullable().optional(),
+  parentId: id.nullable().optional(),
+  plannedStart: planDate.optional(),
+  plannedEnd: planDate.optional(),
+  actualStart: z.string().max(40).nullable().optional(),
+  actualEnd: z.string().max(40).nullable().optional(),
   isMilestone: z.boolean().optional(),
   color: z.string().max(32).nullable().optional(),
-  status: z.enum(PLAN_STATUSES).optional(),
+  status: planStatus.optional(),
   sortOrder: z.number().int().optional(),
-  description: z.string().max(10000).nullable().optional(),
-  notes: z.string().max(10000).nullable().optional(),
+  description: optionalText,
+  notes: optionalText,
+  ownerId: id.nullable().optional(),
+  progressMode: z.enum(PROGRESS_MODES).optional(),
+  /** Optimistic lock: the version the client loaded (omitted = unchecked, legacy). */
+  version: versionField,
 })
 
 export const reorderPlanSchema = z.object({
@@ -34,6 +51,25 @@ export const reorderPlanSchema = z.object({
     .min(1)
     .max(2000),
 })
+
+/** Upper bound of PBIs one PUT /plan/:id/links may set. */
+export const PLAN_LINKS_MAX = 500
+
+export const setPlanLinksSchema = z.object({
+  pbiIds: z.array(id).max(PLAN_LINKS_MAX),
+})
+
+export const baselineSchema = z.object({
+  itemIds: z.array(id).min(1).max(2000).optional(),
+})
+
+export const createDependencySchema = z.object({
+  predecessorId: id,
+  successorId: id,
+})
+
+export const EXPORT_LANGS = ["ja", "en", "id"] as const
+export type ExportLang = (typeof EXPORT_LANGS)[number]
 
 export type CreatePlanItemInput = z.infer<typeof createPlanItemSchema>
 export type UpdatePlanItemInput = z.infer<typeof updatePlanItemSchema>

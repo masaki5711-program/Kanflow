@@ -19,3 +19,10 @@ export {
   type VersionConflict,
 } from "./version-conflict"
 export { useShortcuts, projectGoHref, isTypingTarget, isModalOpen, GO_KEYS, type GoKey, type UseShortcutsOptions } from "./use-shortcuts"
+export {
+  useDeepLinkHighlight,
+  focusAndHighlight,
+  withoutParam,
+  HIGHLIGHT_ATTR,
+  type UseDeepLinkHighlightOptions,
+} from "./use-deep-link-highlight"

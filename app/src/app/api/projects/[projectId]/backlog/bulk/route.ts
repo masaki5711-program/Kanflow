@@ -11,10 +11,12 @@ const ACTION_PERMISSION: Readonly<Record<BulkBacklogAction, ProjectAction>> = {
   assignPo: "backlog.write",
   addToSprint: "sprint.manage",
   trash: "backlog.delete",
+  linkPlan: "backlog.write",
 }
 
 /**
- * POST { ids (≤ 200), action: "status" | "assignPo" | "addToSprint" | "trash", payload }
+ * POST { ids (≤ 200), action: "status" | "assignPo" | "addToSprint" | "trash" | "linkPlan", payload }
+ * (linkPlan payload: { planItemId: string | null } — a live leaf plan item, null = unlink)
  * → { action, affectedIds, skippedIds }. One transaction per request; every
  * touched PBI gets its own history row. Trashed PBIs are restorable through
  * POST /trash/backlog_item/:id/restore (the UI's "undo").

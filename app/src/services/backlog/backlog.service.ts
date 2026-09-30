@@ -1,3 +1,4 @@
+import { recalcPlanItems } from "@/lib/plan-progress"
 import { recalcSprintActualScore } from "@/lib/sprint-score"
 import type { Actor } from "@/services/_shared/actor"
 import { loadSnapshot, logActivity, logCreate, logUpdate } from "@/services/_shared/activity"
@@ -8,6 +9,7 @@ import { assertProjectLive } from "@/services/_shared/soft-delete"
 import { DISPLAY_ID_CONFLICT, retryOnUniqueViolation } from "@/services/_shared/unique-retry"
 import { noteUnversionedWrite, staleOrMissing, takeVersion } from "@/services/_shared/versioning"
 import { attachI18n, attachI18nOne, enqueueIn, getI18nFor, prepareText, purgeIn } from "@/services/_shared/translations"
+import { assertLinkablePlanItem } from "@/services/plan/plan.links"
 import * as repo from "./backlog.repository"
 import type { CreateBacklogItemInput, ListBacklogQuery, UpdateBacklogItemInput } from "./backlog.schemas"
 
@@ -15,6 +17,12 @@ type Linked = { id: string; deletedAt?: Date | null } | null
 interface LinkedRow {
   iceboxItem: Linked
   productGoal: Linked
+  planItem?: { id: string; name: string; deletedAt: Date | null } | null
+}
+
+/** The PBI's plan item as the DTO shows it: `{ id, name }`, null when unlinked or in the trash. */
+export function planItemRef(p: LinkedRow["planItem"]): { id: string; name: string } | null {
+  return p && p.deletedAt === null ? { id: p.id, name: p.name } : null
 }
 
 /** Attach i18n to the nested icebox request / product goal the backlog UI renders inline. */
@@ -28,6 +36,7 @@ async function withLinkedI18n<T extends LinkedRow>(rows: readonly T[]) {
     // A trashed Icebox request is not shown as the PBI's source.
     iceboxItem: i.iceboxItem && !i.iceboxItem.deletedAt ? { ...i.iceboxItem, i18n: iceboxI18n.get(i.iceboxItem.id) ?? {} } : null,
     productGoal: i.productGoal ? { ...i.productGoal, i18n: goalI18n.get(i.productGoal.id) ?? {} } : null,
+    planItem: planItemRef(i.planItem),
   }))
 }
 
@@ -39,7 +48,7 @@ async function withLinkedI18n<T extends LinkedRow>(rows: readonly T[]) {
 async function assertLinksInProject(
   db: Db,
   projectId: string,
-  links: { iceboxItemId?: string | null; productGoalId?: string | null }
+  links: { iceboxItemId?: string | null; productGoalId?: string | null; planItemId?: string | null }
 ): Promise<void> {
   if (links.iceboxItemId && !(await repo.findProjectIceboxItemId(db, projectId, links.iceboxItemId))) {
     throw new NotFoundError("IceBox item not found", {}, "ICEBOX_ITEM_NOT_FOUND")
@@ -47,6 +56,7 @@ async function assertLinksInProject(
   if (links.productGoalId && !(await repo.findProjectGoalId(db, projectId, links.productGoalId))) {
     throw new NotFoundError("Product goal not found", {}, "PRODUCT_GOAL_NOT_FOUND")
   }
+  if (links.planItemId) await assertLinkablePlanItem(db, projectId, links.planItemId)
 }
 
 /** `completedAt` follows status: set on "completed", cleared on any other explicit status. */
@@ -57,10 +67,11 @@ export function completionPatch(status: string | undefined): { completedAt?: Dat
 
 /**
  * Backlog grouped by status. With `query.status` only that status is loaded
- * (the other groups come back empty) — same response shape either way.
+ * (the other groups come back empty) and `query.planItemId` keeps only the
+ * PBIs linked to that plan item — same response shape either way.
  */
 export async function listBacklog(projectId: string, query: ListBacklogQuery = {}) {
-  const raw = await repo.findBacklogItems(defaultDb, projectId, query.status)
+  const raw = await repo.findBacklogItems(defaultDb, projectId, query.status, query.planItemId)
   const items = await withLinkedI18n(await attachI18n("backlog_item", raw))
   const readyItems = items.filter((i) => i.status === "ready")
   return {
@@ -104,31 +115,37 @@ export async function createBacklogItem(projectId: string, input: CreateBacklogI
 }
 
 function insertBacklogItemTx(projectId: string, data: CreateBacklogItemInput, actor: Actor) {
-  return withTransaction(async (tx) => {
-    await assertLinksInProject(tx, projectId, data)
-    const next = await repo.nextBacklogNumbers(tx, projectId)
-    const item = await repo.insertBacklogItem(tx, {
-      projectId,
-      displayId: next.displayId,
-      sortOrder: next.sortOrder,
-      initiative: data.initiative,
-      epic: data.epic,
-      userStory: data.userStory,
-      acceptanceCriteria: data.acceptanceCriteria,
-      referenceDoc: data.referenceDoc,
-      workloadScore: data.workloadScore ?? 0,
-      status: data.status ?? "not_ready",
-      iceboxItemId: data.iceboxItemId || null,
-      productGoalId: data.productGoalId || null,
-      assignedPo: data.assignedPo,
-      poNote: data.poNote,
-      notReadyReason: data.notReadyReason,
-    })
-    await enqueueIn(tx, "backlog_item", item.id, item)
-    await logCreate(tx, { projectId, entityType: "pbi", entityId: item.id, actor, row: item, meta: { displayId: item.displayId } })
-    await notifyPbiAssigned(tx, projectId, item, await newlyAssignedUserIds(tx, projectId, null, item.assignedPo), actor)
-    return item
+  return withTransaction((tx) => insertBacklogItemIn(tx, projectId, data, actor))
+}
+
+/**
+ * The create body inside the caller's transaction (the Excel import runs many
+ * in one). `data` must already have gone through `prepareText`.
+ */
+export async function insertBacklogItemIn(tx: Db, projectId: string, data: CreateBacklogItemInput, actor: Actor) {
+  await assertLinksInProject(tx, projectId, data)
+  const next = await repo.nextBacklogNumbers(tx, projectId)
+  const item = await repo.insertBacklogItem(tx, {
+    projectId,
+    displayId: next.displayId,
+    sortOrder: next.sortOrder,
+    initiative: data.initiative,
+    epic: data.epic,
+    userStory: data.userStory,
+    acceptanceCriteria: data.acceptanceCriteria,
+    referenceDoc: data.referenceDoc,
+    workloadScore: data.workloadScore ?? 0,
+    status: data.status ?? "not_ready",
+    iceboxItemId: data.iceboxItemId || null,
+    productGoalId: data.productGoalId || null,
+    assignedPo: data.assignedPo,
+    poNote: data.poNote,
+    notReadyReason: data.notReadyReason,
   })
+  await enqueueIn(tx, "backlog_item", item.id, item)
+  await logCreate(tx, { projectId, entityType: "pbi", entityId: item.id, actor, row: item, meta: { displayId: item.displayId } })
+  await notifyPbiAssigned(tx, projectId, item, await newlyAssignedUserIds(tx, projectId, null, item.assignedPo), actor)
+  return item
 }
 
 interface AssignedPbi {
@@ -152,12 +169,18 @@ export async function notifyPbiAssigned(tx: Db, projectId: string, item: Assigne
 }
 
 /** "" for a link field means "unlink" (stored as NULL); other values pass through (new object). */
-export function emptyLinksToNull<T extends { productGoalId?: string | null; iceboxItemId?: string | null }>(data: T): T {
+export function emptyLinksToNull<T extends { productGoalId?: string | null; iceboxItemId?: string | null; planItemId?: string | null }>(data: T): T {
   return {
     ...data,
     ...(data.productGoalId === "" ? { productGoalId: null } : {}),
     ...(data.iceboxItemId === "" ? { iceboxItemId: null } : {}),
+    ...(data.planItemId === "" ? { planItemId: null } : {}),
   }
+}
+
+/** A PBI write that can change plan progress (link, status or points). */
+export function touchesPlan(data: { planItemId?: unknown; status?: unknown; workloadScore?: unknown }): boolean {
+  return data.planItemId !== undefined || data.status !== undefined || data.workloadScore !== undefined
 }
 
 /** `input.version` (optional) = the version the client loaded; stale → 409 VERSION_CONFLICT with `current`. */
@@ -166,21 +189,37 @@ export async function updateBacklogItem(projectId: string, itemId: string, input
   noteUnversionedWrite("pbi", itemId, version)
   const cleaned = await prepareText(fields, actor.userId)
   const data = emptyLinksToNull(cleaned)
-  const item = await withTransaction(async (tx) => {
-    await assertLinksInProject(tx, projectId, data)
-    const before = await loadSnapshot(tx, "pbi", itemId)
-    const updated = await repo.updateBacklogItem(tx, projectId, itemId, { ...data, ...completionPatch(data.status) }, version)
-    if (!updated) throw await pbiWriteMiss(tx, projectId, itemId)
-    await enqueueIn(tx, "backlog_item", updated.id, data)
-    const meta = { displayId: updated.displayId }
-    const changes = await logUpdate(tx, { projectId, entityType: "pbi", entityId: itemId, actor, before, after: updated, meta })
-    if (changes.assignedPo) {
-      const userIds = await newlyAssignedUserIds(tx, projectId, before?.assignedPo as string | null | undefined, updated.assignedPo)
-      await notifyPbiAssigned(tx, projectId, updated, userIds, actor)
-    }
-    return updated
-  })
+  const item = await withTransaction((tx) => updateBacklogItemIn(tx, projectId, itemId, data, actor, version))
   return attachI18nOne("backlog_item", item)
+}
+
+/**
+ * The update body inside the caller's transaction (the Excel import runs many
+ * in one). `data` must already have gone through `prepareText` + `emptyLinksToNull`.
+ */
+export async function updateBacklogItemIn(
+  tx: Db,
+  projectId: string,
+  itemId: string,
+  data: Omit<UpdateBacklogItemInput, "version">,
+  actor: Actor,
+  version?: number
+) {
+  await assertLinksInProject(tx, projectId, data)
+  const before = await loadSnapshot(tx, "pbi", itemId)
+  const prevPlanItemId = touchesPlan(data) ? await repo.findPbiPlanItemId(tx, projectId, itemId) : null
+  const updated = await repo.updateBacklogItem(tx, projectId, itemId, { ...data, ...completionPatch(data.status) }, version)
+  if (!updated) throw await pbiWriteMiss(tx, projectId, itemId)
+  // Plan progress follows the PBI (old and new plan item when the link moved).
+  if (touchesPlan(data)) await recalcPlanItems([prevPlanItemId, updated.planItemId], tx)
+  await enqueueIn(tx, "backlog_item", updated.id, data)
+  const meta = { displayId: updated.displayId }
+  const changes = await logUpdate(tx, { projectId, entityType: "pbi", entityId: itemId, actor, before, after: updated, meta })
+  if (changes.assignedPo) {
+    const userIds = await newlyAssignedUserIds(tx, projectId, before?.assignedPo as string | null | undefined, updated.assignedPo)
+    await notifyPbiAssigned(tx, projectId, updated, userIds, actor)
+  }
+  return updated
 }
 
 /** Re-score every sprint holding tasks of the PBI (after it enters / leaves the trash or is purged). */
@@ -202,6 +241,7 @@ export async function deleteBacklogItem(projectId: string, itemId: string, actor
       throw version === undefined ? pbiNotFound() : await pbiWriteMiss(tx, projectId, itemId)
     }
     await rescoreSprintsOf(tx, await repo.findTasksOfBacklogItem(tx, itemId))
+    await recalcPlanItems([await repo.findPbiPlanItemId(tx, projectId, itemId)], tx)
     await logActivity(tx, { projectId, entityType: "pbi", entityId: itemId, action: "delete", actor, diff: { meta: { trashed: true } } })
   })
 }
@@ -237,6 +277,7 @@ export async function restoreBacklogItem(projectId: string, itemId: string, acto
     await assertProjectLive(tx, projectId)
     await repo.restoreBacklogItemRow(tx, projectId, itemId)
     await rescoreSprintsOf(tx, await repo.findTasksOfBacklogItem(tx, itemId))
+    await recalcPlanItems([await repo.findPbiPlanItemId(tx, projectId, itemId)], tx)
     await logActivity(tx, { projectId, entityType: "pbi", entityId: itemId, action: "restore", actor })
   })
 }
@@ -251,9 +292,11 @@ export async function purgeBacklogItem(projectId: string, itemId: string, actor:
   await withTransaction(async (tx) => {
     if (!(await repo.findTrashedBacklogItem(tx, projectId, itemId))) throw new NotFoundError("Not found", {}, "PBI_NOT_FOUND")
     const tasks = await repo.findTasksOfBacklogItem(tx, itemId)
+    const planItemId = await repo.findPbiPlanItemId(tx, projectId, itemId)
     await repo.deleteBacklogItem(tx, projectId, itemId)
     await purgeIn(tx, { backlog_item: [itemId], sprint_task: tasks.map((t) => t.id) })
     await rescoreSprintsOf(tx, tasks)
+    await recalcPlanItems([planItemId], tx)
     await logActivity(tx, { projectId, entityType: "pbi", entityId: itemId, action: "delete", actor, diff: { meta: { purged: true } } })
   })
 }

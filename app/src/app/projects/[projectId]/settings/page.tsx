@@ -10,6 +10,7 @@ import { ProjectTypeSection, TranslationInfoSection } from "./general-sections"
 import { MembersSection } from "./members-section"
 import { SectionAssignSection } from "./section-assign-section"
 import { SprintWorkloadSection } from "./sprint-workload-section"
+import { SurveillanceSection } from "./surveillance-section"
 import {
   toSectionIds,
   toSprintHistory,
@@ -85,6 +86,8 @@ export default function SettingsPage() {
       ) : (
         projectPlaceholder
       )}
+
+      {(isAdmin || isPO) && <SurveillanceSection key={`surveillance-${projectId}`} projectId={projectId} />}
 
       <MembersSection projectId={projectId} membersQuery={membersQuery} />
       <DangerZoneSection projectId={projectId} />

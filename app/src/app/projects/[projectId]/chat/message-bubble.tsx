@@ -1,5 +1,6 @@
 "use client"
 
+import type { ReactNode } from "react"
 import dynamic from "next/dynamic"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
@@ -20,9 +21,11 @@ const ChatChart = dynamic(() => import("./chat-chart"), {
 interface MessageBubbleProps {
   message: ChatMessage
   labels: { you: string; assistant: string; thinking: string; stopped: string }
+  /** Extra content under the answer (e.g. AI proposal cards). */
+  footer?: ReactNode
 }
 
-export function MessageBubble({ message, labels }: MessageBubbleProps) {
+export function MessageBubble({ message, labels, footer }: MessageBubbleProps) {
   const isUser = message.role === "user"
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
@@ -39,6 +42,7 @@ export function MessageBubble({ message, labels }: MessageBubbleProps) {
         ) : (
           message.pending && <TypingIndicator label={labels.thinking} />
         )}
+        {footer}
         {message.stopped && <p className="mt-1 text-caption text-fg-muted italic">{labels.stopped}</p>}
       </div>
     </div>

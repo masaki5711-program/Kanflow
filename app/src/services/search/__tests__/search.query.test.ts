@@ -4,6 +4,9 @@ import {
   containsAny,
   escapeLike,
   groupTranslationMatches,
+  groupTranslationRanks,
+  orderByRank,
+  rankIds,
   normalizeQuery,
   parseDisplayId,
   searchHref,
@@ -112,5 +115,39 @@ describe("searchHref", () => {
 
   it("encodes ids", () => {
     expect(searchHref("pbi", "p 1", "a&b")).toBe("/projects/p%201/backlog?pbi=a%26b")
+  })
+})
+
+describe("rankIds", () => {
+  it("merges lists keeping each id's best score, highest first", () => {
+    const direct = [{ id: "a", score: 1 }, { id: "b", score: 3 }]
+    const translated = [{ id: "a", score: 5 }, { id: "c", score: 2 }]
+    expect(rankIds(direct, translated)).toEqual(["a", "b", "c"])
+  })
+
+  it("keeps the first-seen order for equal scores and handles no input", () => {
+    expect(rankIds([{ id: "x", score: 1 }, { id: "y", score: 1 }])).toEqual(["x", "y"])
+    expect(rankIds()).toEqual([])
+  })
+})
+
+describe("orderByRank", () => {
+  it("orders rows by the ranked id list; unranked rows go last", () => {
+    const rows = [{ id: "c" }, { id: "z" }, { id: "a" }, { id: "b" }]
+    expect(orderByRank(rows, ["a", "b", "c"]).map((r) => r.id)).toEqual(["a", "b", "c", "z"])
+  })
+})
+
+describe("groupTranslationRanks", () => {
+  it("buckets scored translation hits per searched entity type, ignoring others", () => {
+    const out = groupTranslationRanks([
+      { entityType: "backlog_item", entityId: "b1", score: 2 },
+      { entityType: "project", entityId: "p1", score: 1 },
+      { entityType: "comment", entityId: "c1", score: 9 },
+    ])
+    expect(out.backlog_item).toEqual([{ id: "b1", score: 2 }])
+    expect(out.project).toEqual([{ id: "p1", score: 1 }])
+    expect(out.sprint_task).toEqual([])
+    expect(Object.keys(out)).not.toContain("comment")
   })
 })

@@ -1,10 +1,12 @@
 import { requireProject } from "@/lib/authz"
-import { actorFromSession, jsonResponse, successResponse, toHttpResponse } from "@/services/_shared"
+import { actorFromSession, jsonResponse, toHttpResponse } from "@/services/_shared"
+import { parseVersionParam } from "@/services/_shared/versioning"
 import { updatePlanItemSchema } from "@/services/plan/plan.schemas"
 import { deletePlanItem, updatePlanItem } from "@/services/plan/plan.service"
 
 type Params = { params: Promise<{ projectId: string; itemId: string }> }
 
+/** Body: any create field + actualStart / actualEnd + `version` (optimistic lock) → PlanItemDto. */
 export async function PATCH(request: Request, { params }: Params) {
   const { projectId, itemId } = await params
   const gate = await requireProject(projectId, "plan.write")
@@ -18,14 +20,15 @@ export async function PATCH(request: Request, { params }: Params) {
   }
 }
 
-export async function DELETE(_request: Request, { params }: Params) {
+/** Moves the item and its subtree to the trash. `?version=N` (optional) = optimistic lock. → { success, deletedCount } */
+export async function DELETE(request: Request, { params }: Params) {
   const { projectId, itemId } = await params
   const gate = await requireProject(projectId, "plan.write")
   if ("error" in gate) return gate.error
 
   try {
-    await deletePlanItem(projectId, itemId, actorFromSession(gate.session))
-    return successResponse()
+    const { deletedCount } = await deletePlanItem(projectId, itemId, actorFromSession(gate.session), parseVersionParam(request))
+    return jsonResponse({ success: true, deletedCount })
   } catch (error) {
     return toHttpResponse(error, { fallback: "削除に失敗しました", context: "PlanItem DELETE" })
   }

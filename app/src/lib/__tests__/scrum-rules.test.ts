@@ -4,7 +4,6 @@ vi.mock("@/lib/prisma", () => ({ prisma: {} }))
 
 const { derivePbiStatusChange, syncPbiStatusFromTasks, isRealTask } = await import("@/lib/pbi-status-sync")
 const { computeSprintActualScore, recalcSprintActualScore } = await import("@/lib/sprint-score")
-const { computePlanProgressUpdates, recalcPlanProgress, statusToProgress } = await import("@/lib/plan-progress")
 
 const NOW = new Date("2026-09-01T00:00:00Z")
 const task = (taskName: string | null, status: string) => ({ taskName, status })
@@ -75,6 +74,23 @@ describe("syncPbiStatusFromTasks", () => {
     await syncPbiStatusFromTasks("pb1", db as never)
     expect(db.productBacklogItem.update).not.toHaveBeenCalled()
   })
+
+  it("recalculates the linked plan item even without a status change (sprint membership counts)", async () => {
+    const withPlan = { ...db, planItem: { findMany: vi.fn().mockResolvedValue([]), update: vi.fn() } }
+    db.productBacklogItem.findUnique.mockResolvedValue({ id: "pb1", status: "ready", planItemId: "pl1" })
+    db.sprintBacklogItem.findMany.mockResolvedValue([task(null, "todo")])
+    await syncPbiStatusFromTasks("pb1", withPlan as never)
+    expect(db.productBacklogItem.update).not.toHaveBeenCalled()
+    expect(withPlan.planItem.findMany).toHaveBeenCalledWith({ where: { id: { in: ["pl1"] } }, select: { id: true, projectId: true } })
+  })
+
+  it("does not touch the plan for an unlinked PBI", async () => {
+    const withPlan = { ...db, planItem: { findMany: vi.fn(), update: vi.fn() } }
+    db.productBacklogItem.findUnique.mockResolvedValue({ id: "pb1", status: "ready", planItemId: null })
+    db.sprintBacklogItem.findMany.mockResolvedValue([task("a", "done")])
+    await syncPbiStatusFromTasks("pb1", withPlan as never)
+    expect(withPlan.planItem.findMany).not.toHaveBeenCalled()
+  })
 })
 
 describe("sprint score", () => {
@@ -116,50 +132,4 @@ describe("sprint score", () => {
   })
 })
 
-describe("plan progress", () => {
-  const node = (id: string, parentId: string | null, status: string, progressPct: number) => ({
-    id,
-    parentId,
-    status,
-    progressPct,
-  })
-
-  it("maps status to progress", () => {
-    expect([statusToProgress("done"), statusToProgress("delayed"), statusToProgress("on_hold"), statusToProgress("?")])
-      .toEqual([100, 50, 0, 0])
-  })
-
-  it("recomputes a leaf and its ancestors deepest-first", () => {
-    const nodes = [
-      node("root", null, "not_started", 0),
-      node("mid", "root", "not_started", 0),
-      node("leafA", "mid", "done", 0),
-      node("leafB", "mid", "not_started", 0),
-      node("other", "root", "done", 100),
-    ]
-    const updates = computePlanProgressUpdates(nodes, ["leafA", "root"])
-    expect(updates).toEqual([
-      { id: "leafA", progressPct: 100 },
-      { id: "mid", progressPct: 50 },
-      { id: "root", progressPct: 75 },
-    ])
-  })
-
-  it("ignores unknown start ids and returns nothing when up to date", () => {
-    expect(computePlanProgressUpdates([node("a", null, "done", 100)], ["a", "missing"])).toEqual([])
-  })
-
-  it("persists only changed rows with one tree read", async () => {
-    const db = {
-      planItem: {
-        findMany: vi.fn().mockResolvedValue([node("p", null, "x", 0), node("c", "p", "done", 100)]),
-        update: vi.fn(),
-      },
-    }
-    await recalcPlanProgress("proj", ["c"], db as never)
-    expect(db.planItem.findMany).toHaveBeenCalledTimes(1)
-    expect(db.planItem.update).toHaveBeenCalledWith({ where: { id: "p" }, data: { progressPct: 100 } })
-    await recalcPlanProgress("proj", [], db as never)
-    expect(db.planItem.findMany).toHaveBeenCalledTimes(1)
-  })
-})
+// Plan progress rules: src/lib/__tests__/plan-progress.test.ts

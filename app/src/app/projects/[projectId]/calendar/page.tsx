@@ -161,7 +161,7 @@ export default function CalendarPage() {
                 onDayMouseEnter={drag.onDayMouseEnter}
                 onDayClick={openCreateForm}
                 onEventClick={openEditForm}
-                onSprintBarClick={(sprintId) => router.push(`/projects/${projectId}/sprints?sprintId=${sprintId}`)}
+                onSprintBarClick={(sprintId) => router.push(`/projects/${projectId}/sprints?sprint=${encodeURIComponent(sprintId)}`)}
                 onDeadlineBadgeClick={handleDeadlineBadgeClick}
                 onExpandDay={setExpandedDay}
               />

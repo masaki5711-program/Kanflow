@@ -21,6 +21,8 @@ export interface PbiForm {
   poNote: string
   notReadyReason: string
   referenceDoc: string
+  /** Master-plan leaf item ("" = none). Edit only: the create API does not take it. */
+  planItemId: string
 }
 
 /** Fields of a PBI the form reads (the list row lacks the PO-only texts, the detail has them). */
@@ -30,7 +32,10 @@ export type PbiFormSource = Pick<BacklogItemDetailDto, "initiative" | "epic" | "
       BacklogItemDetailDto,
       "referenceDoc" | "notReadyReason" | "poNote" | "assignedPo" | "productGoalId" | "iceboxItemId" | "productGoal" | "iceboxItem"
     >
-  >
+  > & {
+    planItemId?: string | null
+    planItem?: { id: string; name: string } | null
+  }
 
 export const EMPTY_PBI_FORM: PbiForm = Object.freeze({
   initiative: "",
@@ -45,6 +50,7 @@ export const EMPTY_PBI_FORM: PbiForm = Object.freeze({
   poNote: "",
   notReadyReason: "",
   referenceDoc: "",
+  planItemId: "",
 }) as PbiForm
 
 /** Plain text fields: cleared → "" (the update schema takes strings, not null). */
@@ -60,7 +66,7 @@ const TEXT_FIELDS = [
 ] as const
 
 /** Link fields: cleared → null (unlink). */
-const LINK_FIELDS = ["productGoalId", "iceboxItemId"] as const
+const LINK_FIELDS = ["productGoalId", "iceboxItemId", "planItemId"] as const
 
 export function toPbiForm(p: PbiFormSource): PbiForm {
   return {
@@ -76,6 +82,7 @@ export function toPbiForm(p: PbiFormSource): PbiForm {
     poNote: p.poNote ?? "",
     notReadyReason: p.notReadyReason ?? "",
     referenceDoc: p.referenceDoc ?? "",
+    planItemId: p.planItemId ?? p.planItem?.id ?? "",
   }
 }
 

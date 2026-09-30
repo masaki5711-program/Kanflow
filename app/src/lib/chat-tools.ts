@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma"
 import { extractAttachment } from "@/lib/attachment-extractor"
 import { ANALYSIS_TOOL_DEFS, analysisHandlers } from "@/lib/analysis-tools"
+import { packHandlers } from "@/lib/chat-tool-packs"
 import type { ToolDefinition, ToolHandler, ToolHandlerArgs } from "@/lib/chat-tools-types"
 
 /**
@@ -111,8 +112,15 @@ const handlers: Record<string, ToolHandler> = {
   },
 }
 
+/**
+ * Dispatch a tool call. Covers the core pack above plus the optional P3 packs
+ * (chat-tool-packs.ts: planning / history / portfolio / proposals), which the
+ * chat route offers per request via selectPacks(). CHAT_TOOLS itself stays
+ * the core set — the autonomous agent (ai-agent.ts) uses it and must never
+ * see proposal tools (no human to approve).
+ */
 export async function runTool(name: string, ctx: ToolHandlerArgs): Promise<string> {
-  const handler = handlers[name] ?? analysisHandlers[name]
+  const handler = handlers[name] ?? analysisHandlers[name] ?? packHandlers[name]
   if (!handler) return `Error: unknown tool ${name}`
   try {
     return await handler(ctx)

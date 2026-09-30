@@ -30,6 +30,7 @@ export interface IceboxTranslations {
   iceboxAuthorHint: string
   iceboxSearchLabel: string
   iceboxLoadFailed: string
+  iceboxDeepLinkNotFound: string
   iceboxCreated: string
   iceboxSaved: string
   iceboxSaveFailed: string
@@ -71,6 +72,7 @@ export const ja: IceboxTranslations = {
   iceboxAuthorHint: "未入力の場合はあなたの名前が入ります",
   iceboxSearchLabel: "IceBox を検索",
   iceboxLoadFailed: "IceBox を読み込めませんでした",
+  iceboxDeepLinkNotFound: "リンク先の IceBox 項目が見つかりません（削除された可能性があります）",
   iceboxCreated: "要望を追加しました",
   iceboxSaved: "IceBox 項目を更新しました",
   iceboxSaveFailed: "IceBox 項目を保存できませんでした",
@@ -112,6 +114,7 @@ export const en: IceboxTranslations = {
   iceboxAuthorHint: "Leave blank to use your name",
   iceboxSearchLabel: "Search the IceBox",
   iceboxLoadFailed: "Could not load the IceBox",
+  iceboxDeepLinkNotFound: "The linked IceBox item was not found (it may have been deleted)",
   iceboxCreated: "Request added",
   iceboxSaved: "IceBox item updated",
   iceboxSaveFailed: "Could not save the IceBox item",
@@ -153,6 +156,7 @@ export const id: IceboxTranslations = {
   iceboxAuthorHint: "Kosongkan untuk memakai nama Anda",
   iceboxSearchLabel: "Cari di IceBox",
   iceboxLoadFailed: "IceBox tidak dapat dimuat",
+  iceboxDeepLinkNotFound: "Item IceBox yang ditautkan tidak ditemukan (mungkin sudah dihapus)",
   iceboxCreated: "Permintaan ditambahkan",
   iceboxSaved: "Item IceBox diperbarui",
   iceboxSaveFailed: "Item IceBox tidak dapat disimpan",

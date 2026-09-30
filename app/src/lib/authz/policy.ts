@@ -64,6 +64,8 @@ export const PROJECT_ACTIONS = [
   "comment.write",
   /** Delete anyone's comment (moderation). */
   "comment.moderate",
+  /** Change the project's AI surveillance thresholds (enable / thresholds / critical notifications). */
+  "surveillance.configure",
 ] as const
 export type ProjectAction = (typeof PROJECT_ACTIONS)[number]
 
@@ -103,6 +105,7 @@ const POLICY: Readonly<Record<ProjectAction, readonly Grantee[]>> = {
   "trash.purge": PO,
   "comment.write": MEMBER,
   "comment.moderate": PO,
+  "surveillance.configure": PO,
 }
 
 export function isSystemAdmin(actor: Pick<ProjectActor, "systemRole">): boolean {

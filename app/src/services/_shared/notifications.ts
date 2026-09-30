@@ -30,6 +30,10 @@ export const NOTIFICATION_TYPES = [
   "sprint_start",
   "sprint_end",
   "surveillance_critical",
+  /** A background AI report the user requested is ready (payload: reportId, title, kind). */
+  "ai_report_ready",
+  /** A background AI report the user requested failed (payload: kind, error). */
+  "ai_report_failed",
 ] as const
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number]
 

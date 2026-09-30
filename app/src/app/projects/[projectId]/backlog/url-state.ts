@@ -4,6 +4,7 @@
  *   ?pbi=<id | displayId>   open PBI modal (deep link target of notifications / search / activity)
  *   ?q=                     text search
  *   ?status= ?goal= ?epic= ?points= ?po=   facet filters (FILTER_NONE = "not set")
+ *   ?plan=<planItemId>      PBIs linked to a master-plan item (from the plan page)
  *   ?showDone=1             show the completed section
  *
  * Pure helpers only; the hook in use-backlog-url-state.ts wires them to the router.
@@ -23,6 +24,8 @@ export interface BacklogFilters {
   points: string
   /** Assigned PO name, FILTER_NONE, or "" (any). */
   po: string
+  /** Master-plan item id, or "" (any). */
+  plan: string
   showDone: boolean
 }
 
@@ -36,11 +39,12 @@ export const EMPTY_FILTERS: BacklogFilters = Object.freeze({
   epic: "",
   points: "",
   po: "",
+  plan: "",
   showDone: false,
 }) as BacklogFilters
 
 const STATUSES: readonly BacklogStatus[] = ["ready", "not_ready", "completed"]
-const TEXT_KEYS = ["q", "status", "goal", "epic", "points", "po"] as const
+const TEXT_KEYS = ["q", "status", "goal", "epic", "points", "po", "plan"] as const
 
 /** Anything with URLSearchParams' read API (Next's ReadonlyURLSearchParams included). */
 type ParamsLike = Pick<URLSearchParams, "get" | "toString">
@@ -55,6 +59,7 @@ export function parseFilters(sp: ParamsLike): BacklogFilters {
     epic: sp.get("epic") ?? "",
     points: /^\d+$/.test(points) ? points : "",
     po: sp.get("po") ?? "",
+    plan: sp.get("plan") ?? "",
     showDone: sp.get("showDone") === "1",
   }
 }
@@ -85,7 +90,7 @@ export function withPbiParam(current: ParamsLike, ref: string | null): URLSearch
 
 /** True when a text / facet filter narrows the list (showDone is a view toggle, not a filter). */
 export function hasActiveFilters(f: BacklogFilters): boolean {
-  return !!(f.q.trim() || f.status || f.goal || f.epic || f.points || f.po)
+  return !!(f.q.trim() || f.status || f.goal || f.epic || f.points || f.po || f.plan)
 }
 
 function matchesFacet(value: string | null | undefined, filter: string): boolean {
@@ -94,8 +99,14 @@ function matchesFacet(value: string | null | undefined, filter: string): boolean
   return value === filter
 }
 
+/** The PBI's master-plan item (the list DTO carries `planItem: { id, name } | null`). */
+export function planItemOf(item: BacklogItem): { id: string; name: string } | null {
+  return (item as BacklogItem & { planItem?: { id: string; name: string } | null }).planItem ?? null
+}
+
 export function matchesFilters(item: BacklogItem, f: BacklogFilters): boolean {
   return (
+    (!f.plan || planItemOf(item)?.id === f.plan) &&
     (!f.status || item.status === f.status) &&
     matchesFacet(item.productGoalId, f.goal) &&
     matchesFacet(item.epic, f.epic) &&
@@ -110,6 +121,8 @@ export interface FacetOptions {
   epics: string[]
   points: number[]
   pos: string[]
+  /** Master-plan items the PBIs are linked to (names for the ?plan= chip). */
+  plans: { id: string; name: string }[]
   /** Whether any item lacks the field (offer the "not set" option). */
   hasMissing: { goal: boolean; epic: boolean; po: boolean }
 }
@@ -122,6 +135,7 @@ export function facetOptions(items: readonly BacklogItem[]): FacetOptions {
   const epics = new Set<string>()
   const points = new Set<number>()
   const pos = new Set<string>()
+  const plans = new Map<string, { id: string; name: string }>()
   const hasMissing = { goal: false, epic: false, po: false }
   for (const item of items) {
     if (item.productGoal) goals.set(item.productGoal.id, item.productGoal)
@@ -131,12 +145,15 @@ export function facetOptions(items: readonly BacklogItem[]): FacetOptions {
     if (item.assignedPo) pos.add(item.assignedPo)
     else hasMissing.po = true
     points.add(item.workloadScore)
+    const plan = planItemOf(item)
+    if (plan) plans.set(plan.id, plan)
   }
   return {
     goals: [...goals.values()].sort((a, b) => byText(a.title, b.title)),
     epics: [...epics].sort(byText),
     points: [...points].sort((a, b) => a - b),
     pos: [...pos].sort(byText),
+    plans: [...plans.values()].sort((a, b) => byText(a.name, b.name)),
     hasMissing,
   }
 }

@@ -1,13 +1,19 @@
 import { defaultDb } from "@/services/_shared/db"
 import { getI18nFor } from "@/services/_shared/translations"
 import type { EntityI18n } from "@/lib/translation/types"
+import { withFulltext } from "@/lib/fulltext/fallback"
 import * as repo from "./search.repository"
+import * as ft from "./search.fulltext"
 import {
   accessibleProjectWhere,
   escapeLike,
   groupTranslationMatches,
+  groupTranslationRanks,
+  orderByRank,
   parseDisplayId,
+  rankIds,
   searchHref,
+  SEARCH_TYPES,
   TRANSLATION_ENTITY,
   type SearchType,
   type SearchViewer,
@@ -136,18 +142,28 @@ async function attachI18n(groups: RawHit[][]): Promise<SearchGroupDto[]> {
   return present.map((hits, i) => ({ type: hits[0].type, items: hits.map((h) => toDto(h, perGroup[i], projectI18n)) }))
 }
 
-/**
- * Global search over PBIs, sprint tasks, Icebox items, projects and product
- * goals of the projects the viewer can access (trashed rows excluded).
- * Text matches either language (source columns + FieldTranslation). At most
- * `limit` hits per type; empty groups are omitted.
- */
-export async function searchEverything(viewer: SearchViewer, query: SearchQuery): Promise<SearchResultDto> {
-  const pattern = escapeLike(query.q)
-  const displayId = parseDisplayId(query.q)
-  const scope = accessibleProjectWhere(viewer)
+interface Found {
+  pbis: Rows<typeof repo.findPbis>
+  tasks: Rows<typeof repo.findTasks>
+  icebox: Rows<typeof repo.findIceboxItems>
+  projects: Rows<typeof repo.findProjects>
+  goals: Rows<typeof repo.findGoals>
+}
+
+const NOTHING_FOUND: Found = { pbis: [], tasks: [], icebox: [], projects: [], goals: [] }
+
+interface SearchInput {
+  scope: repo.ProjectScope
+  q: string
+  limit: number
+  displayId: number | null
+}
+
+/** LIKE '%q%' on the source columns OR the other language's text (FieldTranslation). */
+async function likeSearch({ scope, q, limit, displayId }: SearchInput): Promise<Found> {
+  const pattern = escapeLike(q)
   const translated = groupTranslationMatches(await repo.findTranslationMatches(defaultDb, pattern))
-  const match = (type: SearchType) => ({ pattern, ids: translated[TRANSLATION_ENTITY[type]], take: query.limit })
+  const match = (type: SearchType) => ({ pattern, ids: translated[TRANSLATION_ENTITY[type]], take: limit })
 
   const [pbis, tasks, icebox, projects, goals] = await Promise.all([
     repo.findPbis(defaultDb, scope, { ...match("pbi"), displayId }),
@@ -156,13 +172,87 @@ export async function searchEverything(viewer: SearchViewer, query: SearchQuery)
     repo.findProjects(defaultDb, scope, match("project")),
     repo.findGoals(defaultDb, scope, match("goal")),
   ])
+  return { pbis, tasks, icebox, projects, goals }
+}
+
+/**
+ * Loads the ranked candidates of one type through its scoped repository query
+ * (so authz and soft-delete filters apply again — translation hits are not
+ * project scoped) and keeps the `limit` most relevant.
+ */
+async function loadRanked<R extends { id: string }>(
+  ids: string[],
+  limit: number,
+  find: (m: repo.EntityMatch) => Promise<R[]>
+): Promise<R[]> {
+  if (ids.length === 0) return []
+  const rows = await find({ pattern: null, ids, take: ids.length })
+  return orderByRank(rows, ids).slice(0, limit)
+}
+
+/** PBIs additionally match an exact displayId ("PBI-12"), which is kept first. */
+async function loadRankedPbis(ids: string[], { scope, limit, displayId }: SearchInput) {
+  if (ids.length === 0 && displayId === null) return []
+  const rows = await repo.findPbis(defaultDb, scope, { pattern: null, ids, take: ids.length + (displayId === null ? 0 : 1), displayId })
+  const exactFirst = (r: { displayId: number }) => Number(r.displayId !== displayId)
+  return orderByRank(rows, ids).toSorted((a, b) => exactFirst(a) - exactFirst(b)).slice(0, limit)
+}
+
+/**
+ * MATCH … AGAINST (ngram) candidates of the accessible projects, merged with
+ * translation hits and ordered by relevance. Returns null when there is no
+ * candidate at all, so the caller retries with LIKE.
+ */
+async function fulltextSearch(input: SearchInput, booleanQuery: string): Promise<Found | null> {
+  const projectIds = await ft.findAccessibleProjectIds(defaultDb, input.scope)
+  if (projectIds.length === 0) return NOTHING_FOUND
+  const [direct, translations] = await Promise.all([
+    ft.findFulltextCandidates(defaultDb, projectIds, booleanQuery),
+    ft.findTranslationFulltext(defaultDb, booleanQuery),
+  ])
+  const translated = groupTranslationRanks(translations)
+  const ranked = Object.fromEntries(
+    SEARCH_TYPES.map((type) => [type, rankIds(direct[type], translated[TRANSLATION_ENTITY[type]])])
+  ) as Record<SearchType, string[]>
+  if (SEARCH_TYPES.every((type) => ranked[type].length === 0)) return null
+
+  const { scope, limit } = input
+  const [pbis, tasks, icebox, projects, goals] = await Promise.all([
+    loadRankedPbis(ranked.pbi, input),
+    loadRanked(ranked.task, limit, (m) => repo.findTasks(defaultDb, scope, m)),
+    loadRanked(ranked.icebox, limit, (m) => repo.findIceboxItems(defaultDb, scope, m)),
+    loadRanked(ranked.project, limit, (m) => repo.findProjects(defaultDb, scope, m)),
+    loadRanked(ranked.goal, limit, (m) => repo.findGoals(defaultDb, scope, m)),
+  ])
+  return { pbis, tasks, icebox, projects, goals }
+}
+
+/**
+ * Global search over PBIs, sprint tasks, Icebox items, projects and product
+ * goals of the projects the viewer can access (trashed rows excluded).
+ * Text matches either language (source columns + FieldTranslation). FULLTEXT
+ * (ngram, relevance-ordered) when available, else LIKE — see withFulltext.
+ * At most `limit` hits per type; empty groups are omitted.
+ */
+export async function searchEverything(viewer: SearchViewer, query: SearchQuery): Promise<SearchResultDto> {
+  const input: SearchInput = {
+    scope: accessibleProjectWhere(viewer),
+    q: query.q,
+    limit: query.limit,
+    displayId: parseDisplayId(query.q),
+  }
+  const found = await withFulltext(
+    query.q,
+    (booleanQuery) => fulltextSearch(input, booleanQuery),
+    () => likeSearch(input)
+  )
 
   const groups = await attachI18n([
-    pbiHits(pbis, displayId),
-    taskHits(tasks),
-    iceboxHits(icebox),
-    projectHits(projects),
-    goalHits(goals),
+    pbiHits(found.pbis, input.displayId),
+    taskHits(found.tasks),
+    iceboxHits(found.icebox),
+    projectHits(found.projects),
+    goalHits(found.goals),
   ])
   return { query: query.q, groups }
 }

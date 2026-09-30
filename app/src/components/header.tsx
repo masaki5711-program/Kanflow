@@ -4,7 +4,7 @@ import { useSession, signOut } from "next-auth/react"
 import Link from "next/link"
 import Image from "next/image"
 import { usePathname } from "next/navigation"
-import { ChevronRight, FolderOpen, LogOut, Menu, UserRound } from "lucide-react"
+import { Briefcase, ChevronRight, FolderOpen, LogOut, Menu, UserRound } from "lucide-react"
 import { useLanguage } from "@/lib/language-context"
 import { useI18nText, type EntityI18n } from "@/components/i18n-text"
 import { Truncate, cn } from "@/components/ui"
@@ -12,6 +12,7 @@ import { useSidebarDrawer } from "@/components/app-shell/sidebar-drawer"
 import { AdminMenu } from "@/components/app-shell/admin-menu"
 import { LanguageMenu } from "@/components/language-switcher"
 import { HeaderTools } from "@/components/app-shell/header-tools"
+import { canViewPortfolio } from "@/services/portfolio/portfolio.scope"
 
 interface HeaderProps {
   projectName?: string
@@ -32,6 +33,7 @@ export function Header({ projectName, projectI18n, projectId }: HeaderProps = {}
 
   const initials = session?.user?.name ? session.user.name.slice(0, 2).toUpperCase() : "?"
   const isAdmin = session?.user?.role === "admin"
+  const showPortfolio = canViewPortfolio(session?.user ? { userId: session.user.id, systemRole: session.user.role ?? "member" } : null)
 
   function navLinkClass(active: boolean) {
     return cn(NAV_LINK, active ? "bg-primary-soft text-primary-active" : "text-fg-muted hover:bg-surface-muted hover:text-fg")
@@ -87,6 +89,14 @@ export function Header({ projectName, projectI18n, projectId }: HeaderProps = {}
             <span className="hidden md:inline">{t.myProfileMenu}</span>
             <span className="sr-only md:hidden">{t.myProfileMenu}</span>
           </Link>
+
+          {showPortfolio && (
+            <Link href="/portfolio" className={navLinkClass(pathname === "/portfolio")} aria-current={pathname === "/portfolio" ? "page" : undefined}>
+              <Briefcase aria-hidden className="h-4 w-4" />
+              <span className="hidden md:inline">{t.portfolioNav}</span>
+              <span className="sr-only md:hidden">{t.portfolioNav}</span>
+            </Link>
+          )}
 
           {isAdmin && <AdminMenu />}
 

@@ -8,7 +8,9 @@ import { containsAny, SEARCH_FIELDS, TRANSLATION_ENTITY, type SearchType } from 
  * (the viewer's accessible, live projects — see accessibleProjectWhere) and
  * excludes trashed rows. Matching is LIKE `%pattern%` on the listed columns
  * (the pattern is escaped by the caller) OR an id found in the other
- * language through FieldTranslation. FULLTEXT replaces this in P3.
+ * language through FieldTranslation. With FULLTEXT (search.fulltext.ts) the
+ * service passes `pattern: null` and the ranked candidate ids instead; the
+ * scope and soft-delete filters here still apply to those ids.
  */
 
 /** Cap of translation hits considered per search (all types together). */
@@ -18,8 +20,8 @@ export const TRANSLATION_MATCH_CAP = 300
 export type ProjectScope = Prisma.ProjectWhereInput
 
 export interface EntityMatch {
-  /** Escaped LIKE pattern (without the surrounding %). */
-  pattern: string
+  /** Escaped LIKE pattern (without the surrounding %); null = match `ids` only (FULLTEXT candidates). */
+  pattern: string | null
   /** Ids matched through the translated text. */
   ids: readonly string[]
   take: number
@@ -29,7 +31,7 @@ const PROJECT_REF = { select: { id: true, name: true } } as const
 
 /** OR list: any searched column contains the pattern, or the id matched in the other language. */
 function textOr<W>(type: SearchType, m: EntityMatch, extra: readonly W[] = []): W[] {
-  const byText = containsAny(SEARCH_FIELDS[type], m.pattern) as W[]
+  const byText = (m.pattern === null ? [] : containsAny(SEARCH_FIELDS[type], m.pattern)) as W[]
   const byTranslation = (m.ids.length > 0 ? [{ id: { in: [...m.ids] } }] : []) as W[]
   return [...byText, ...byTranslation, ...extra]
 }

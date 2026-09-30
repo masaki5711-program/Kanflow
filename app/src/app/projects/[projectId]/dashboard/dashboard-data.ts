@@ -47,7 +47,7 @@ export async function loadMyProjectTasks(projectId: string, userId: string, user
 /** Open plan items ending before the horizon (overdue ones included). */
 export async function loadDuePlanItems(projectId: string, now: Date): Promise<DuePlanItem[]> {
   const rows = await prisma.planItem.findMany({
-    where: { projectId, status: { not: "done" }, plannedEnd: { lte: new Date(now.getTime() + (DUE_HORIZON_DAYS + 1) * DAY_MS) } },
+    where: { projectId, deletedAt: null, status: { not: "done" }, plannedEnd: { lte: new Date(now.getTime() + (DUE_HORIZON_DAYS + 1) * DAY_MS) } },
     select: { id: true, name: true, plannedEnd: true, status: true, isMilestone: true },
     orderBy: { plannedEnd: "asc" },
     take: PLAN_ITEMS_TAKE,

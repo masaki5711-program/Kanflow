@@ -29,6 +29,12 @@ import * as comments from "./comments"
 import * as search from "./search"
 import * as notifications from "./notifications"
 import * as insights from "./insights"
+import * as aiExtensions from "./ai-extensions"
+import * as chatProposals from "./chat-proposals"
+import * as excelIo from "./excel-io"
+import * as portfolio from "./portfolio"
+import * as apiTokens from "./api-tokens"
+import * as adminMetrics from "./admin-metrics"
 
 export * from "./languages"
 export * from "./point-units"
@@ -67,7 +73,13 @@ export interface Translations
     comments.CommentsTranslations,
     search.SearchTranslations,
     notifications.NotificationsTranslations,
-    insights.InsightsTranslations {}
+    insights.InsightsTranslations,
+    aiExtensions.AiExtensionsTranslations,
+    chatProposals.ChatProposalsTranslations,
+    excelIo.ExcelIoTranslations,
+    portfolio.PortfolioTranslations,
+    apiTokens.ApiTokensTranslations,
+    adminMetrics.AdminMetricsTranslations {}
 
 /** All domain modules, exported for tests (key-set / completeness checks). */
 export const domains = {
@@ -101,6 +113,12 @@ export const domains = {
   "search": search,
   "notifications": notifications,
   "insights": insights,
+  "ai-extensions": aiExtensions,
+  "chat-proposals": chatProposals,
+  "excel-io": excelIo,
+  "portfolio": portfolio,
+  "api-tokens": apiTokens,
+  "admin-metrics": adminMetrics,
 } as const
 
 const ja: Translations = {
@@ -134,6 +152,12 @@ const ja: Translations = {
   ...search.ja,
   ...notifications.ja,
   ...insights.ja,
+  ...aiExtensions.ja,
+  ...chatProposals.ja,
+  ...excelIo.ja,
+  ...portfolio.ja,
+  ...apiTokens.ja,
+  ...adminMetrics.ja,
 }
 
 const en: Translations = {
@@ -167,6 +191,12 @@ const en: Translations = {
   ...search.en,
   ...notifications.en,
   ...insights.en,
+  ...aiExtensions.en,
+  ...chatProposals.en,
+  ...excelIo.en,
+  ...portfolio.en,
+  ...apiTokens.en,
+  ...adminMetrics.en,
 }
 
 const id: Translations = {
@@ -200,6 +230,12 @@ const id: Translations = {
   ...search.id,
   ...notifications.id,
   ...insights.id,
+  ...aiExtensions.id,
+  ...chatProposals.id,
+  ...excelIo.id,
+  ...portfolio.id,
+  ...apiTokens.id,
+  ...adminMetrics.id,
 }
 
 const translations: Record<Language, Translations> = { ja, en, id }

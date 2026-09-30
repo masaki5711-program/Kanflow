@@ -4,12 +4,17 @@ import { I18nText, useI18nText } from "@/components/i18n-text"
 import { useLanguage } from "@/lib/language-context"
 import type { EntityI18n } from "@/lib/translation/types"
 import type { BacklogItemDetailDto } from "@/types/api"
+import { PbiPlanLink } from "./pbi-plan-field"
 
 export type PbiDetail = Omit<BacklogItemDetailDto, "iceboxItemId" | "productGoalId"> &
-  Partial<Pick<BacklogItemDetailDto, "iceboxItemId" | "productGoalId">>
+  Partial<Pick<BacklogItemDetailDto, "iceboxItemId" | "productGoalId">> & {
+    /** Linked master-plan item (null = none / in the trash). */
+    planItem?: { id: string; name: string } | null
+    planItemId?: string | null
+  }
 
 /** Read-only view of every PBI field (viewer-locale text with translation badges). */
-export function PbiReadBody({ item }: { item: PbiDetail }) {
+export function PbiReadBody({ item, projectId }: { item: PbiDetail; projectId?: string }) {
   const { t, pt } = useLanguage()
   const headIcebox = useI18nText(item.iceboxItem?.i18n, "request", item.iceboxItem?.request)
   return (
@@ -24,6 +29,7 @@ export function PbiReadBody({ item }: { item: PbiDetail }) {
         <ReadField label={pt.backlogWorkloadScore} value={item.workloadScore != null ? String(item.workloadScore) : null} />
         <ReadField label={pt.rolePO} value={item.assignedPo} />
         {item.iceboxItem && <ReadField label={pt.iceboxTitle} value={`#${item.iceboxItem.displayId} ${headIcebox.text}`} />}
+        {projectId && <PbiPlanLink projectId={projectId} planItem={item.planItem} />}
       </div>
       <ReadField label={t.backlogPoNote} value={item.poNote} multiline i18n={item.i18n} field="poNote" entityId={item.id} />
       {item.status === "not_ready" && item.notReadyReason && (

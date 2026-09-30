@@ -5,6 +5,7 @@ vi.mock("@/services/_shared/notifications", async () => (await import("@/service
 vi.mock("@/services/_shared/db", async () => (await import("@/services/__tests__/support")).dbMock())
 vi.mock("@/services/_shared/translations", async () => (await import("@/services/__tests__/support")).translationMock())
 vi.mock("@/lib/pbi-status-sync", () => ({ syncPbiStatusFromTasks: vi.fn(async () => undefined) }))
+vi.mock("@/lib/plan-progress", () => ({ recalcPlanForPbis: vi.fn(async () => undefined) }))
 vi.mock("@/lib/sprint-score", () => ({ recalcSprintActualScore: vi.fn(async () => 0) }))
 vi.mock("../sprint-backlog.repository")
 

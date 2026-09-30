@@ -1,4 +1,5 @@
 import type { Prisma } from "@/generated/prisma/client"
+import { recalcPlanItems } from "@/lib/plan-progress"
 import { prisma } from "@/lib/prisma"
 
 type Db = Prisma.TransactionClient
@@ -42,11 +43,14 @@ export function derivePbiStatusChange(currentStatus: string, tasks: readonly Tas
  * removed from a sprint. Safe to call when the PBI no longer exists or is in
  * the trash (then nothing is written). Pass a
  * transaction client to run inside the caller's transaction.
+ *
+ * The PBI's master-plan item is recalculated afterwards EVEN WITHOUT a status
+ * change: sprint membership alone moves a linked plan leaf to "in_progress".
  */
 export async function syncPbiStatusFromTasks(pbItemId: string, db: Db = prisma): Promise<void> {
   const pbi = await db.productBacklogItem.findUnique({
     where: { id: pbItemId, deletedAt: null },
-    select: { id: true, status: true },
+    select: { id: true, status: true, planItemId: true },
   })
   if (!pbi) return
 
@@ -55,7 +59,7 @@ export async function syncPbiStatusFromTasks(pbItemId: string, db: Db = prisma):
     select: { taskName: true, status: true },
   })
   const change = derivePbiStatusChange(pbi.status, rows)
-  if (!change) return
   // A status change is a real edit: bump the optimistic-lock version (P2).
-  await db.productBacklogItem.update({ where: { id: pbItemId }, data: { ...change, version: { increment: 1 } } })
+  if (change) await db.productBacklogItem.update({ where: { id: pbItemId }, data: { ...change, version: { increment: 1 } } })
+  if (pbi.planItemId) await recalcPlanItems([pbi.planItemId], db)
 }

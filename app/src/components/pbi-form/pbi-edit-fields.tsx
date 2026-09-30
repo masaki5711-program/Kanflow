@@ -6,6 +6,7 @@ import { HelpTooltip } from "@/components/help-tooltip"
 import { formatPointUnit, getPointScale } from "@/lib/i18n"
 import { useLanguage } from "@/lib/language-context"
 import { LabelWithIcon, PbiLinkFields } from "./pbi-link-fields"
+import { PbiPlanPicker } from "./pbi-plan-field"
 import type { PbiForm, PbiStatusValue } from "./pbi-form-state"
 import { AcceptanceCriteriaField, UserStoryField } from "./story-fields"
 import type { GeneratedField } from "./use-ai-field-generator"
@@ -22,13 +23,15 @@ interface Props {
   disabled?: boolean
   generating: GeneratedField | null
   onGenerate: (field: GeneratedField) => void
+  /** Edit mode of an existing PBI: offers the master-plan item picker. */
+  projectId?: string
 }
 
 /**
  * Every editable field of a PBI — the one form used by the detail modal's
  * edit mode and by the create modal.
  */
-export function PbiEditFields({ form, setForm, options, selfId, disabled, generating, onGenerate }: Props) {
+export function PbiEditFields({ form, setForm, options, selfId, disabled, generating, onGenerate, projectId }: Props) {
   const { t, pt } = useLanguage()
   const set = <K extends keyof PbiForm>(key: K) => (value: PbiForm[K]) => setForm((prev) => ({ ...prev, [key]: value }))
   const text = (key: keyof PbiForm) => (e: { target: { value: string } }) => set(key)(e.target.value as never)
@@ -39,6 +42,7 @@ export function PbiEditFields({ form, setForm, options, selfId, disabled, genera
     <fieldset disabled={disabled} className="contents">
       <div className="space-y-4">
         <PbiLinkFields form={form} setForm={setForm} options={options} selfId={selfId} />
+        {projectId && selfId && <PbiPlanPicker projectId={projectId} value={form.planItemId} onChange={set("planItemId")} />}
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div className="relative">
             <Field label={<LabelWithIcon icon={<Tag className="h-3.5 w-3.5 text-fg-muted" />} text={pt.backlogInitiative} />}>

@@ -338,6 +338,27 @@ tr:last-child td {
   }
 }
 
+/*
+ * Deep-link target (?task= / ?sprint= / ?item=), set for ~2.4s by
+ * useDeepLinkHighlight. The outline + tint are static, so the highlight
+ * stays visible under reduced motion (where the pulse is suppressed below).
+ */
+[data-deep-link-highlight] {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+  background-color: var(--color-primary-soft);
+  animation: deepLinkPulse 1.2s var(--ease-ui) 2;
+}
+@keyframes deepLinkPulse {
+  0%,
+  100% {
+    outline-color: var(--color-primary);
+  }
+  50% {
+    outline-color: transparent;
+  }
+}
+
 /* Respect the OS "reduce motion" preference everywhere. */
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -356,5 +377,35 @@ tr:last-child td {
   [data-spinner] * {
     animation-duration: 1.5s !important;
     animation-iteration-count: infinite !important;
+  }
+}
+
+/*
+ * Master plan (全体計画) timeline. Non-text marks need >= 3:1 (WCAG 1.4.11):
+ *   plan-milestone violet-700 #6d28d9 7.1:1 on white
+ *   plan-today orange-700 #c2410c 5.2:1 on white (label text on white: 5.2:1)
+ * Bar fills reuse the kit tokens (see plan/lib/status.ts for contrast notes).
+ */
+@theme static {
+  --color-plan-milestone: #6d28d9;
+  --color-plan-today: #c2410c;
+}
+/* "On hold" bars: diagonal hatch on top of the fill (pattern + label, never colour alone). */
+.plan-hatch {
+  background-image: repeating-linear-gradient(135deg, rgb(255 255 255 / 0.28) 0 4px, transparent 4px 8px);
+}
+@media print {
+  /* The plan chart prints in full (no inner scroll box), without the app chrome. */
+  [data-plan-print-hide],
+  body:has([data-plan-chart]) :is(header, nav, aside):not(main *) {
+    display: none !important;
+  }
+  [data-plan-chart] {
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  [data-plan-chart] * {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
   }
 }

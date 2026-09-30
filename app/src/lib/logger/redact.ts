@@ -37,6 +37,8 @@ export function truncateText(s: string, max: number): string {
 export function redactString(s: string): string {
   return s
     .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/gi, `$1 ${REDACTED}`)
+    // Kanflow personal access tokens (kfl_ + 43 chars); the 12-char display prefix is not matched.
+    .replace(/\bkfl_[A-Za-z0-9_-]{20,}/g, `kfl_${REDACTED}`)
     .replace(
       /\b(password|passwd|pwd|secret|token|api[-_]?key|access[-_]?key)(["']?\s*[:=]\s*["']?)[^\s"'&,;]+/gi,
       `$1$2${REDACTED}`,

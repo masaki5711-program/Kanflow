@@ -62,8 +62,8 @@ export function entityHref(projectId: string, entry: Pick<FeedEntry, "entityType
   switch (entry.entityType) {
     case "pbi": return `${base}/backlog?pbi=${id}`
     case "sprint_task": return `${base}/sprints?task=${id}`
-    case "sprint": return `${base}/sprints`
-    case "icebox": return `${base}/icebox`
+    case "sprint": return `${base}/sprints?sprint=${id}`
+    case "icebox": return `${base}/icebox?item=${id}`
     case "release": return `${base}/releases`
     case "plan_item": return `${base}/plan`
     default: return null

@@ -252,6 +252,132 @@ node --import tsx scripts/migrate-assignees.ts --apply    # 確認後に投入�
 - `--apply` の前にバックアップがあること（`deploy.ps1` はビルド前に取得済み）。旧 `assignee` 列は変更しません。
 - ロールバック: ビルドを戻しても `TaskAssignee` 行は旧ビルドから参照されないだけで害はありません（削除不要）。
 
+## 5b. P3 FULLTEXT 検索（`20261003010000_fulltext_search`）
+
+横断検索（Ctrl+K / `GET /api/search`）とチャットツール `search_work_items` 用に、
+`WITH PARSER ngram` の FULLTEXT インデックスを 7 本追加します（PBI / タスク / Icebox / プロジェクト名 /
+プロダクトゴール / `field_translation`（JA↔ID の訳文）/ `Comment.body`）。データは変更しません。
+
+- **順序**: `20261002000000_p2_collab_foundation`（`Comment` テーブル・`deletedAt` 列）の後。通常の
+  `npx prisma migrate deploy` でまとめて適用されます。
+- **ロック・時間**: 各テーブルの最初の FULLTEXT 追加は隠し列 `FTS_DOC_ID` を足すためテーブル再構築
+  （`ALGORITHM=INPLACE, LOCK=SHARED`: 読み取り可、そのテーブルへの書き込みは完了まで待機）。
+  2026-09-30 時点の件数（`field_translation` 約 1.6k 行 / 1.5 MB、他は 400 行未満）なら各文 1 秒未満です。
+  メンテナンス時間内（サービス停止中）に流せば影響はありません。
+- **ストップワード**: SQL の先頭で `SET SESSION innodb_ft_enable_stopword = OFF` にしてから作成します
+  （ngram パーサーは既定リストの `a` / `i` を**含む** bigram をすべて捨てるため、インドネシア語・英語が
+  ほぼ検索できなくなる）。**手で `mysql` から流す場合もファイル全体を 1 セッションで実行**してください。
+  将来これらのテーブルを再構築する ALTER / `OPTIMIZE TABLE` も同じ SET SESSION を先に実行するのが安全です。
+- **サーバー設定**: `ngram_token_size = 2`（既定、読み取り専用）。変更すると MySQL 再起動 + 全 FULLTEXT 再作成が必要で、
+  アプリ側の `NGRAM_TOKEN_SIZE`（`app/src/lib/fulltext/boolean-query.ts`）も合わせる必要があります。
+- **ドリフトチェック**: `schema.prisma` に同じ列・同じ名前の `@@fulltext([...], map: "ft_...")` を宣言済み
+  （MySQL では GA、preview flag 不要）。Prisma はパーサーを扱わないので、適用後の
+  `npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code` は 0（差分なし）のはずです。
+  `DROP INDEX ft_...` を含む差分が出た場合はこのマイグレーションが未適用です。
+- **アプリの切り替え**: `SEARCH_FULLTEXT`（既定 `on`）。インデックスが無い状態で FULLTEXT を使うと MySQL 1191 になり、
+  アプリは自動で LIKE 検索に戻ります（ログ `search-fulltext` に 1 回だけ warn、10 分ごとに再試行）。
+  マイグレーション前に新ビルドを出す場合や、結果に問題がある場合は `app\.env` に `SEARCH_FULLTEXT=off` を書いて再起動。
+- **検索の挙動**: 語をスペース・記号で分割し全語 AND（`+語*`、BOOLEAN MODE、関連度順）。1 文字の語を含む検索、
+  または FULLTEXT で 1 件も見つからない検索は従来の LIKE 部分一致で再検索します。権限（アクセス可能なプロジェクト）と
+  ゴミ箱除外は従来どおり Prisma 側でも再適用します。
+- **確認**（適用後、読み取りのみ）:
+
+```powershell
+# インデックスが 7 本（ft_*）、パーサーが ngram
+mysql -u scrum_app -p scrum_tool -e "SELECT TABLE_NAME, INDEX_NAME FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND INDEX_TYPE='FULLTEXT' GROUP BY TABLE_NAME, INDEX_NAME"
+mysql -u scrum_app -p scrum_tool -e "SHOW CREATE TABLE ProductBacklogItem\G" | findstr ngram
+```
+
+- **ロールバック**: ビルドを戻すだけなら不要（旧ビルドはインデックスを使わないだけ）。インデックスを消す場合は
+  `migration.sql` 冒頭コメントの `DROP INDEX` 7 文。消したら schema.prisma の `@@fulltext` も外さないとドリフトチェックが差分を出します。
+
+## 5c. P3 AI 拡張（`20261003000000_p3_ai`）
+
+チャット履歴の保存、長時間 AI レポートのジョブ化、AI 監視しきい値のプロジェクト設定のためのマイグレーションです。
+**純粋な追加**のみで、既存行は書き換えません。
+
+| 追加 | 内容 |
+|---|---|
+| `Project.surveillanceSettings` | TEXT NULL（JSON）。NULL = 既定値（従来の固定しきい値と同じ）。MySQL 8.0.29+ では `ALGORITHM=INSTANT` |
+| `ChatThread` / `ChatMessage` | チャット履歴。スレッドは作成者本人のみ閲覧可（管理者も不可）。論理削除 → 30 日後にワーカーが物理削除 |
+| `AiJob` | バックグラウンド AI レポートのキュー。`activeKey` の UNIQUE で「プロジェクト×種類ごとに実行中 1 件」を保証 |
+
+- **順序**: `20261002000000_p2_collab_foundation` の後、`20261003010000_fulltext_search` の前（互いに独立）。
+  通常の `npx prisma migrate deploy` でまとめて適用されます。新テーブルは空なので数秒で終わります。
+- **コードとの順序**: 新ビルドは `AiJob` をポーリングし、チャットでスレッドを保存します。**マイグレーションを先に適用**してください。
+  未適用で新ビルドを出すと、ジョブランナーのポーリングが毎回失敗して `ai job tick failed` がログに出続け、
+  チャットは動くが履歴は保存されず（`chat message not stored` の warn）、ダッシュボードの AI 進捗レポートは開始に失敗します。
+- **ジョブの実行場所**: `AI_JOB_RUNNER`（既定 `auto` = `AI_TRANSLATION_WORKER` に従う）。Phase A（`inprocess`）では
+  Web サービス内で、Phase B（`external`）ではワーカーで実行されます。どちらも無い（`off`）場合、進捗レポートは従来の
+  ストリーミング表示にフォールバックします。詳細は [worker.md](./worker.md#ai-report-jobs-aijob)。
+- **新しい env（すべて任意・既定値あり）**: `AI_JOB_RUNNER`, `AI_JOB_POLL_MS`, `AI_JOB_STALE_MS`, `AI_JOB_YIELD_MAX_MS`,
+  `AI_JOB_RETENTION_DAYS`, `CHAT_RETENTION_DAYS`（180）, `CHAT_DELETED_RETENTION_DAYS`（30）, `SURVEILLANCE_MAX_INVESTIGATIONS`（3）。
+- **ドリフトチェック**（適用後、読み取りのみ）:
+  `npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code` → 0。
+- **確認**（読み取りのみ）:
+
+```powershell
+mysql -u scrum_app -p scrum_tool -e "SHOW TABLES LIKE 'Chat%'; SHOW TABLES LIKE 'AiJob'; SHOW COLUMNS FROM Project LIKE 'surveillanceSettings'"
+```
+
+- **ロールバック**: ビルドを戻すだけなら不要（旧ビルドは新テーブル・新列を参照しないだけ）。消す場合は
+  `migration.sql` 冒頭コメントの順（`ChatMessage` → `ChatThread` → `AiJob` → 列）で。消すと保存済みの履歴・ジョブは失われます。
+
+## 5d. 全体計画の刷新（`20261004000000_plan_linkage`）
+
+全体計画（PlanItem）の PBI 連動・依存関係・ベースライン・担当者・楽観ロック・ゴミ箱のためのマイグレーションです。
+スキーマは追加のみですが、**既存データを 2 点書き換えます**（下記）。適用前に必ずバックアップを取ってください。
+
+| 追加 | 内容 |
+|---|---|
+| `PlanItem.progressMode` | VARCHAR(16) DEFAULT `'manual'`（`manual` / `linked`） |
+| `PlanItem.version` | INT DEFAULT 0（楽観ロック。PATCH / DELETE の `version` 不一致は 409 `VERSION_CONFLICT`） |
+| `PlanItem.baselineStart` / `baselineEnd` | ベースライン日（NULL 可） |
+| `PlanItem.ownerId` | 担当者（FK `User`、ユーザー削除時 NULL） |
+| `PlanItem.deletedAt` / `deletedById` | ゴミ箱（配下ごと同じ `deletedAt`）。30 日後に purge-trash ジョブが物理削除 |
+| `ProductBacklogItem.planItemId` | 紐付く計画項目（FK、項目の物理削除時 NULL）。1 PBI は最大 1 項目 |
+| `PlanItemDependency` | 終了→開始の依存関係（両端 FK は CASCADE、`UNIQUE(predecessorId, successorId)`） |
+
+**データの書き換え（元に戻せません）**
+
+1. `PlanItem.status = 'delayed'` → `'in_progress'`。遅延は表示時に自動判定（`scheduleState`）するため、手動ステータス「遅延」は廃止しました。
+   事前に件数を確認: `SELECT COUNT(*) FROM PlanItem WHERE status = 'delayed'`
+2. 計画・実績日（`plannedStart` / `plannedEnd` / `actualStart` / `actualEnd`）のうち時刻部分を持つ行を**最も近い UTC 0 時**に丸めます
+   （JST 0 時 = 前日 15:00 UTC で保存された行 → 翌日の 0:00）。0:00 の行は触りません（再実行しても同じ結果）。
+   事前に件数を確認: `SELECT COUNT(*) FROM PlanItem WHERE TIME(plannedStart) <> '00:00:00' OR TIME(plannedEnd) <> '00:00:00'`
+
+- **順序**: `20261003010000_fulltext_search` の後。通常の `npx prisma migrate deploy` でまとめて適用されます（PlanItem は小さい表なので数秒）。
+- **コードとの順序**: 新ビルドは新列を読みます。**マイグレーションを先に適用**してください（未適用だと全体計画の画面・API・期限通知が失敗します）。
+- **親項目の集計値**: 親の期間・進捗・ステータスは新しい規則（子の計画日数による加重平均など）で再計算されます。
+  既存行は、全体計画を開いたとき（`GET /plan`、同一プロジェクトの書き込みは 60 秒に 1 回まで）と、
+  毎日の期限通知ジョブの実行前（稼働中プロジェクトのみ）に自動で補正・保存されます。
+  ダッシュボード・AI ツール・アーカイブ済みプロジェクトも含めて**すぐに**揃えるため、マイグレーション適用後に一度だけ下記のバックフィルを流してください。
+- **マイグレーション後の手順: 集計値のバックフィル**（`scripts/heal-plan.ts`、`migrate deploy` の**後**・新ビルド起動の前後どちらでも可）:
+
+```powershell
+cd D:\APP\Kanflow\app
+node --import tsx scripts/heal-plan.ts                    # dry-run（既定）: 書き込みなし。プロジェクトごとに変わる行と「旧 → 新」を表示
+node --import tsx scripts/heal-plan.ts --apply            # 確認後に書き込み（冪等: 再実行しても差分 0 件）
+node --import tsx scripts/heal-plan.ts --project <id>     # 特定プロジェクトだけ（dry-run / --apply と併用可）
+```
+
+  - 対象はゴミ箱以外の全プロジェクト（アーカイブ含む）で、ゴミ箱以外の計画項目を持つもの。書き込むのは `progressPct` / `status` /
+    親の `plannedStart` / `plannedEnd` だけで、`version` は上げません（派生値のため。編集中の画面が 409 になることはありません）。
+  - `[skipped]` = 計画項目が上限（2,000 行）に達したプロジェクト。`[failed]` = 書き込み失敗（他は継続、終了コード 1）。再実行で拾えます。
+  - `--apply` の前にバックアップがあること（`deploy.ps1` はビルド前に取得済み）。
+- **API 変更**: `GET /api/projects/:id/plan` の応答が配列から `{ items, dependencies, today }` に変わります（画面は同じビルドで対応済み）。
+  `DELETE /plan/:itemId` はゴミ箱への移動になり `{ success, deletedCount }` を返します。
+- **ドリフトチェック**（適用後、読み取りのみ）:
+  `npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code` → 0。
+- **確認**（読み取りのみ）:
+
+```powershell
+mysql -u scrum_app -p scrum_tool -e "SHOW COLUMNS FROM PlanItem; SHOW TABLES LIKE 'PlanItemDependency'; SHOW COLUMNS FROM ProductBacklogItem LIKE 'planItemId'; SELECT status, COUNT(*) FROM PlanItem GROUP BY status"
+```
+
+- **ロールバック**: ビルドを戻すだけなら列・表は残してかまいません（旧ビルドは新列を参照しない）。ただし旧ビルドはゴミ箱の計画項目
+  （`deletedAt` あり）も表示してしまうため、戻す前にゴミ箱の計画項目を復元するか完全削除してください。`'delayed'` と時刻部分は復元できません。
+
 ## 6. ロールバック
 
 ```powershell

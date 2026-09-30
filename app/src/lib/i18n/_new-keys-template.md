@@ -57,8 +57,14 @@ Rules:
 | `trash.ts` | Project trash, admin project trash, "move to trash" wording | `trash*` |
 | `comments.ts` | Comment thread / composer (`components/comments/`), PBI detail tabs, change history | `comments*`, `history*` |
 | `insights.ts` | Dashboard top rows (sprint pulse, my tasks, coming up, activity feed), home KPIs / inline task status / lazy archived list, burndown sprint selector, velocity chart, IceBox undo | `dashboardPulse*`, `dashboardMyTasks*`, `dashboardDue*`, `dashboardFeed*`, `top{Kpi,Task,Archived,Retry}*`, `burndownSprint*`, `velocity*`, `iceboxUndo` |
+| `chat-proposals.ts` | `projects/[id]/chat` approval cards of AI write proposals (`proposal-card.tsx`) | `chatProposal*` |
+| `ai-extensions.ts` | P3: chat history sidebar (`chat/thread-list.tsx`), background AI report jobs (dashboard button chip, reports panel), AI surveillance settings (`settings/surveillance-section.tsx`) | `chatThread*`, `chatNewChat`, `aiJob*`, `surv*` |
 | `search.ts` | Global search / command palette (`components/search/`), keyboard shortcuts help (`components/shortcuts/`) | `search*`, `shortcuts*` |
 | `notifications.ts` | Header notification bell / panel, notification settings on `/me` (`components/notifications/`) | `notif*` |
+| `excel-io.ts` | Excel export buttons, backlog import dialog (`components/excel/`), sheet / column names of the server-built workbooks (`services/excel/`) | `excel*` |
+| `portfolio.ts` | Department portfolio `/portfolio` (KPI strip, filters, table) and its header link | `portfolio*` |
+| `api-tokens.ts` | Personal access tokens on `/me` (`me/api-tokens-section.tsx`), admin token list (`admin/api-tokens/`) | `apiToken*` |
+| `admin-metrics.ts` | Admin metrics dashboard (`admin/metrics/`) | `metrics*` |
 
 Keep each file under ~400 lines; if a domain grows past that, split it (e.g. `backlog-detail.ts`)
 and register the new file in `index.ts`.

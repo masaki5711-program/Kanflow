@@ -8,6 +8,7 @@ vi.mock("@/services/icebox/icebox.repository")
 vi.mock("@/services/projects/projects.repository")
 vi.mock("@/services/backlog/backlog.service", () => ({ restoreBacklogItem: vi.fn(), purgeBacklogItem: vi.fn() }))
 vi.mock("@/services/icebox/icebox.service", () => ({ restoreIceboxItem: vi.fn(), purgeIceboxItem: vi.fn() }))
+vi.mock("@/services/plan/plan.trash", () => ({ listTrashedPlanRoots: vi.fn(async () => []), restorePlanItem: vi.fn(), purgePlanItem: vi.fn() }))
 
 const repo = await import("../trash.repository")
 const backlogRepo = await import("@/services/backlog/backlog.repository")
@@ -15,6 +16,7 @@ const iceboxRepo = await import("@/services/icebox/icebox.repository")
 const projectsRepo = await import("@/services/projects/projects.repository")
 const backlog = await import("@/services/backlog/backlog.service")
 const icebox = await import("@/services/icebox/icebox.service")
+const planTrash = await import("@/services/plan/plan.trash")
 const tr = await import("@/services/_shared/translations")
 const { ACTOR, DEFAULT_DB } = await import("@/services/__tests__/support")
 const svc = await import("../trash.service")
@@ -78,7 +80,36 @@ describe("trash.service", () => {
     expect(out.items[0]).toMatchObject({ title: "Init", titleField: "initiative", deletedBy: null })
   })
 
+  it("lists trashed plan subtrees (no display number, name title, subtree size)", async () => {
+    vi.mocked(backlogRepo.findTrashedBacklogItems).mockResolvedValue([])
+    vi.mocked(iceboxRepo.findTrashedIceboxItems).mockResolvedValue([])
+    vi.mocked(planTrash.listTrashedPlanRoots).mockResolvedValueOnce([
+      { id: "pl1", name: "Phase 1", status: "in_progress", deletedAt: d("2026-10-06T00:00:00Z"), deletedById: "u1", subtreeCount: 4 },
+    ])
+    const out = await svc.listProjectTrash("p1", { now: NOW, retentionDays: 30 })
+    expect(tr.getI18nFor).toHaveBeenCalledWith("plan_item", ["pl1"])
+    expect(out.items).toEqual([
+      {
+        entityType: "plan_item",
+        id: "pl1",
+        displayId: null,
+        title: "Phase 1",
+        titleField: "name",
+        status: "in_progress",
+        deletedAt: "2026-10-06T00:00:00.000Z",
+        deletedBy: { id: "u1", name: "Alice" },
+        purgeAt: "2026-11-05T00:00:00.000Z",
+        i18n: {},
+        subtreeCount: 4,
+      },
+    ])
+  })
+
   it("dispatches restore / purge by entity type", async () => {
+    await svc.restoreTrashItem("p1", "plan_item", "pl1", ACTOR)
+    await svc.purgeTrashItem("p1", "plan_item", "pl1", ACTOR)
+    expect(planTrash.restorePlanItem).toHaveBeenCalledWith("p1", "pl1", ACTOR)
+    expect(planTrash.purgePlanItem).toHaveBeenCalledWith("p1", "pl1", ACTOR)
     await svc.restoreTrashItem("p1", "backlog_item", "b1", ACTOR)
     await svc.restoreTrashItem("p1", "icebox_item", "i1", ACTOR)
     await svc.purgeTrashItem("p1", "backlog_item", "b1", ACTOR)
@@ -120,8 +151,9 @@ describe("trash.service", () => {
 })
 
 describe("parseTrashEntityType", () => {
-  it("accepts the two trash entity types only", () => {
+  it("accepts the project trash entity types only", () => {
     expect(parseTrashEntityType("backlog_item")).toBe("backlog_item")
+    expect(parseTrashEntityType("plan_item")).toBe("plan_item")
     expect(parseTrashEntityType("icebox_item")).toBe("icebox_item")
     expect(parseTrashEntityType("project")).toBeNull()
     expect(parseTrashEntityType("")).toBeNull()

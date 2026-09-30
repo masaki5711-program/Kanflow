@@ -3,6 +3,7 @@ import { redirect } from "next/navigation"
 import { Header } from "@/components/header"
 import { MyProfile } from "./my-profile"
 import { NotificationSettings } from "@/components/notifications/notification-settings"
+import { ApiTokensSection } from "./api-tokens-section"
 import { buildPageMetadata } from "@/app/page-metadata"
 
 export function generateMetadata() {
@@ -20,6 +21,9 @@ export default async function MyProfilePage() {
         <MyProfile />
         <div className="mt-6">
           <NotificationSettings />
+        </div>
+        <div className="mt-6">
+          <ApiTokensSection />
         </div>
       </main>
     </div>

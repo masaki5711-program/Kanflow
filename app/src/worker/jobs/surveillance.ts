@@ -10,6 +10,8 @@ import { aiLog } from "@/lib/ai-monitor"
 import { acquireNamedLock, type TxRunner } from "@/worker/named-lock"
 import type { Db } from "@/services/_shared/db"
 import { notify, projectMemberIds } from "@/services/_shared/notifications"
+import { parseStoredSurveillanceSettings, type SurveillanceSettings } from "@/lib/surveillance-settings"
+import { resolveMaxInvestigations } from "./surveillance-limits"
 
 /**
  * Daily AI surveillance run (moved out of the HTTP route).
@@ -26,10 +28,15 @@ import { notify, projectMemberIds } from "@/services/_shared/notifications"
  * run exclusive across processes (web manual trigger vs. worker schedule).
  *
  * Cost guards: agent runs only when anomalies or follow-up items exist, and
- * at most MAX_INVESTIGATIONS projects are investigated per run.
+ * at most SURVEILLANCE_MAX_INVESTIGATIONS (default 3) projects are
+ * investigated per run.
+ *
+ * Per-project settings (Project.surveillanceSettings, lib/surveillance-settings.ts):
+ * a disabled project is skipped; the detection thresholds and whether critical
+ * anomalies notify PO / SM come from the project.
  */
 
-export const MAX_INVESTIGATIONS = 3
+export { DEFAULT_MAX_INVESTIGATIONS, resolveMaxInvestigations } from "./surveillance-limits"
 export const SURVEILLANCE_LOCK_NAME = "kanflow_surveillance"
 /** Upper bound on one run holding the cross-process lock. */
 const RUN_LOCK_HOLD_MS = 3 * 60 * 60_000
@@ -58,6 +65,8 @@ export interface RunSurveillanceOptions {
   /** Awaited before each investigation (the worker waits for busy web users here). */
   beforeInvestigation?: (signal?: AbortSignal) => Promise<void>
   retentionDays?: number
+  /** Agent investigations per run; default SURVEILLANCE_MAX_INVESTIGATIONS (3). */
+  maxInvestigations?: number
   now?: () => Date
 }
 
@@ -161,6 +170,7 @@ export async function notifySurveillanceCritical(
 
 interface Investigation {
   project: { id: string; name: string }
+  settings: SurveillanceSettings
   anomalies: Anomaly[]
   previous: { id: string; createdAt: Date } | null
   previousFindings: string[]
@@ -168,7 +178,7 @@ interface Investigation {
 }
 
 async function investigate(inv: Investigation): Promise<string> {
-  const { project: p, anomalies, previous, previousFindings, signal } = inv
+  const { project: p, settings, anomalies, previous, previousFindings, signal } = inv
   const result = await runAgentInvestigation({
     projectId: p.id,
     goal: buildGoal(previousFindings, previous?.createdAt ?? null, anomalies),
@@ -200,16 +210,28 @@ async function investigate(inv: Investigation): Promise<string> {
     },
   })
   aiLog("REPORT_SAVED", `${p.name}: AiReport ${report.id} saved (${result.report.length} chars)`)
-  await notifySurveillanceCritical(p, report, anomalies)
+  if (settings.notifyCritical) await notifySurveillanceCritical(p, report, anomalies)
   return report.id
 }
 
+interface SurveyedProject {
+  id: string
+  name: string
+  surveillanceSettings: string | null
+}
+
 async function surveyProject(
-  p: { id: string; name: string },
+  row: SurveyedProject,
   budgetLeft: boolean,
   opts: RunSurveillanceOptions
 ): Promise<ProjectResult> {
-  const anomalies = await detectAnomalies(p.id)
+  const p = { id: row.id, name: row.name }
+  const settings = parseStoredSurveillanceSettings(row.surveillanceSettings)
+  if (!settings.enabled) {
+    aiLog("SURVEIL", `${p.name}: surveillance disabled in the project settings`)
+    return { project: p.name, skipped: "disabled" }
+  }
+  const anomalies = await detectAnomalies(p.id, settings)
   // Any trigger counts as "previous" — sprint reviews are followed up too.
   const previous = await prisma.aiReport.findFirst({
     where: { projectId: p.id },
@@ -226,7 +248,7 @@ async function surveyProject(
   }
   aiLog("SURVEIL", `${p.name}: ${anomalies.length} anomaly(ies), ${previousFindings.length} follow-up item(s) → launching autonomous investigation`)
   await opts.beforeInvestigation?.(opts.signal)
-  const reportId = await investigate({ project: p, anomalies, previous, previousFindings, signal: opts.signal })
+  const reportId = await investigate({ project: p, settings, anomalies, previous, previousFindings, signal: opts.signal })
   return { project: p.name, anomalies: anomalies.length, investigated: true, reportId }
 }
 
@@ -247,10 +269,11 @@ async function runLocked(opts: RunSurveillanceOptions, retentionDays: number): P
   const conversion = { converted: await convertLegacy(opts) }
   const projects = await prisma.project.findMany({
     where: { status: "active", deletedAt: null },
-    select: { id: true, name: true },
+    select: { id: true, name: true, surveillanceSettings: true },
     orderBy: { updatedAt: "desc" },
   })
   aiLog("SURVEIL", `daily surveillance started: ${projects.length} active project(s)`)
+  const maxInvestigations = opts.maxInvestigations ?? resolveMaxInvestigations(process.env)
   const results: ProjectResult[] = []
   let investigated = 0
   for (const p of projects) {
@@ -259,7 +282,7 @@ async function runLocked(opts: RunSurveillanceOptions, retentionDays: number): P
       return { status: "aborted", projects: results, investigated, retention: { days: retentionDays, deleted }, conversion }
     }
     try {
-      const r = await surveyProject(p, investigated < MAX_INVESTIGATIONS, opts)
+      const r = await surveyProject(p, investigated < maxInvestigations, opts)
       if (r.investigated) investigated++
       results.push(r)
     } catch (err) {

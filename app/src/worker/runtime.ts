@@ -15,6 +15,7 @@ import { SingleFlightJobRunner } from "./jobs/job-runner"
 import { runSurveillance, type SurveillanceResult } from "./jobs/surveillance"
 import { startCollabScheduler } from "./collab-daily"
 import { startPurgeTrashScheduler } from "./trash-daily"
+import type { AiJobRunner } from "@/lib/ai-jobs/runner"
 
 /**
  * Standalone worker runtime: single-instance lock (own DB connection) →
@@ -43,6 +44,8 @@ interface Runtime {
   collabScheduler: DailyScheduler | null
   /** Daily purge of rows past the trash retention (trash-daily.ts). */
   trashScheduler: DailyScheduler | null
+  /** Background AI report jobs (lib/ai-jobs), when AI_JOB_RUNNER resolves to the worker. */
+  aiJobs: AiJobRunner | null
   heartbeat: ReturnType<typeof setInterval> | null
   limiter: BusinessHoursLimiter
   startedAt: string
@@ -92,6 +95,8 @@ function shutdownSteps(rt: Runtime): ShutdownStep[] {
       },
     },
     { name: "abort-surveillance", run: () => rt.jobs.abort(new Error("worker shutting down")) },
+    // The running AI job is aborted and goes back to the queue (picked up after restart).
+    { name: "stop-ai-jobs", run: () => rt.aiJobs?.stop() },
     {
       name: "stop-translation",
       run: async () => {
@@ -143,6 +148,7 @@ function triggerSurveillance(rt: Runtime, source: string): boolean {
     runSurveillance({
       signal,
       retentionDays: rt.cfg.surveillanceRetentionDays,
+      maxInvestigations: rt.cfg.surveillanceMaxInvestigations,
       beforeInvestigation: async (s) => {
         const free = (await rt.remote?.waitUntilNotBusy(rt.cfg.surveillanceYieldMaxMs, s)) ?? true
         if (!free && !s?.aborted) rt.log.warn("web users still busy after SURVEILLANCE_YIELD_MAX_MS; investigating anyway")
@@ -168,6 +174,7 @@ function startHeartbeat(rt: Runtime, shutdown: ShutdownCoordinator): void {
         gate: rt.remote?.snapshot().state ?? "idle",
         translation: rt.cfg.runTranslation ? { lastTickAt: w.lastTickAt, lastResult: w.lastResult } : "not-run-here",
         surveillanceJob: rt.jobs.running()?.id ?? null,
+        aiJob: rt.aiJobs?.current() ?? null,
         nextSurveillanceAt: rt.scheduler?.nextAt()?.toISOString() ?? null,
         businessHoursUsed: rt.limiter.enabled ? rt.limiter.used(Date.now()) : null,
         rssMb: Math.round(process.memoryUsage().rss / 1_048_576),
@@ -202,6 +209,33 @@ function startServices(rt: Runtime, opts: RunWorkerOptions): void {
   if (opts.surveillanceNow) triggerSurveillance(rt, "cli")
   rt.collabScheduler = startCollabScheduler(rt.cfg, rt.log.child({ component: "collab-daily" }), rt.startup.signal)
   rt.trashScheduler = startPurgeTrashScheduler(rt.cfg, rt.log.child({ component: "purge-trash" }), rt.startup.signal)
+  if (rt.cfg.runAiJobs) {
+    void startAiJobs(rt).catch((err: unknown) =>
+      rt.log.error("ai job runner failed to start", { error: err instanceof Error ? err.message : String(err) })
+    )
+  } else {
+    rt.log.info("ai job runner not started in the worker", { location: rt.cfg.aiJobRunner })
+  }
+}
+
+/**
+ * Background AI report jobs: one at a time; each waits (up to
+ * AI_JOB_YIELD_MAX_MS) until no web user is waiting for Ollama.
+ */
+async function startAiJobs(rt: Runtime): Promise<void> {
+  const { createAiJobRunner } = await import("@/lib/ai-jobs")
+  if (rt.startup.signal.aborted) return
+  const log = rt.log.child({ component: "ai-jobs" })
+  rt.aiJobs = createAiJobRunner({
+    log,
+    config: rt.cfg.aiJobs,
+    waitForTurn: async (signal) => {
+      const free = (await rt.remote?.waitUntilNotBusy(rt.cfg.aiJobs.yieldMaxMs, signal)) ?? true
+      if (!free && !signal.aborted) log.warn("web users still busy after AI_JOB_YIELD_MAX_MS; running the job anyway")
+    },
+  })
+  rt.aiJobs.start()
+  log.info("ai job runner started", { pollMs: rt.cfg.aiJobs.pollMs })
 }
 
 export async function runWorker(cfg: WorkerConfig, opts: RunWorkerOptions): Promise<void> {
@@ -216,6 +250,7 @@ export async function runWorker(cfg: WorkerConfig, opts: RunWorkerOptions): Prom
     scheduler: null,
     collabScheduler: null,
     trashScheduler: null,
+    aiJobs: null,
     heartbeat: null,
     limiter: new BusinessHoursLimiter(cfg.businessHours),
     startedAt: new Date().toISOString(),

@@ -1,10 +1,11 @@
 /**
- * Daily trash purge (worker job): permanently deletes projects, PBIs and
- * Icebox items that have been in the trash longer than
+ * Daily trash purge (worker job): permanently deletes projects, PBIs,
+ * Icebox items and master-plan items that have been in the trash longer than
  * PURGE_TRASH_AFTER_DAYS (default 30).
  *
  * Every row goes through the same hard-delete path as "delete permanently"
- * in the UI (purgeProject / purgeBacklogItem / purgeIceboxItem), so uploaded
+ * in the UI (purgeProject / purgeBacklogItem / purgeIceboxItem /
+ * purgePlanItem — plan subtrees go by their top trashed item), so uploaded
  * files and FieldTranslation rows are cleaned up too. Projects go first: their
  * children (including trashed items) cascade with them. Each row is its own
  * transaction; a failing row is logged and retried on the next run.
@@ -15,6 +16,8 @@ import { findExpiredTrashedBacklogItems } from "@/services/backlog/backlog.repos
 import { purgeBacklogItem } from "@/services/backlog/backlog.service"
 import { findExpiredTrashedIceboxItems } from "@/services/icebox/icebox.repository"
 import { purgeIceboxItem } from "@/services/icebox/icebox.service"
+import { findExpiredTrashedPlanItems } from "@/services/plan/plan.repository"
+import { purgePlanItem } from "@/services/plan/plan.trash"
 import { findExpiredTrashedProjects } from "@/services/projects/projects.repository"
 import { purgeProject } from "@/services/projects/projects.service"
 
@@ -37,11 +40,11 @@ export interface RunPurgeTrashOptions {
 export interface PurgeTrashResult {
   status: "done" | "aborted"
   cutoff: string
-  purged: { projects: number; backlogItems: number; iceboxItems: number }
+  purged: { projects: number; backlogItems: number; iceboxItems: number; planItems: number }
   failed: number
 }
 
-type EntityName = "project" | "backlog_item" | "icebox_item"
+type EntityName = "project" | "backlog_item" | "icebox_item" | "plan_item"
 
 interface Pass<Row> {
   entity: EntityName
@@ -86,7 +89,7 @@ export async function runPurgeTrash(opts: RunPurgeTrashOptions): Promise<PurgeTr
   const result: PurgeTrashResult = {
     status: "done",
     cutoff: cutoff.toISOString(),
-    purged: { projects: 0, backlogItems: 0, iceboxItems: 0 },
+    purged: { projects: 0, backlogItems: 0, iceboxItems: 0, planItems: 0 },
     failed: 0,
   }
   const passes: Array<{ key: keyof PurgeTrashResult["purged"]; run: () => Promise<PassOutcome> }> = [
@@ -108,6 +111,15 @@ export async function runPurgeTrash(opts: RunPurgeTrashOptions): Promise<PurgeTr
       run: () =>
         runPass(
           { entity: "icebox_item", find: (c) => findExpiredTrashedIceboxItems(prisma, c, take), purge: (r) => purgeIceboxItem(r.projectId, r.id, null) },
+          cutoff,
+          opts
+        ),
+    },
+    {
+      key: "planItems",
+      run: () =>
+        runPass(
+          { entity: "plan_item", find: (c) => findExpiredTrashedPlanItems(prisma, c, take), purge: (r) => purgePlanItem(r.projectId, r.id, null) },
           cutoff,
           opts
         ),

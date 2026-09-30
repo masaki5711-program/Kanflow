@@ -4,6 +4,7 @@ import Link from "next/link"
 import { useLanguage } from "@/lib/language-context"
 import { Badge, Button, buttonClasses, PageHeader } from "@/components/ui"
 import { Archive, Calendar, ChartColumn, Plus, TrendingDown, Zap } from "lucide-react"
+import { ExcelExportButton } from "@/components/excel/excel-export-button"
 interface Props {
   projectId: string
   avgActual: number | null
@@ -34,6 +35,7 @@ export default function SprintsHeader({
       }
       actions={
         <div className="flex flex-wrap items-center gap-2">
+          <ExcelExportButton href={`/api/projects/${projectId}/sprints/export`} />
           <Link href={`/projects/${projectId}/calendar`} className={buttonClasses({ variant: "secondary" })}>
             <Calendar className="w-4 h-4" />
             {t.calendarTitle}

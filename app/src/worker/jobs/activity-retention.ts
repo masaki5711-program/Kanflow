@@ -32,7 +32,7 @@ export function cutoff(now: Date, days: number): Date {
 }
 
 /** Delete matching rows batch by batch (select ids → deleteMany by id). */
-async function deleteInBatches(
+export async function deleteInBatches(
   findIds: () => Promise<Array<{ id: string }>>,
   deleteIds: (ids: string[]) => Promise<{ count: number }>
 ): Promise<number> {

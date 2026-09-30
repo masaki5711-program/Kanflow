@@ -1,12 +1,16 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { Badge, Truncate } from "@/components/ui"
 import { useApiQuery } from "@/hooks"
 import { useLanguage } from "@/lib/language-context"
 import { ReportDocument, parseStructured } from "@/components/structured-report-document"
+import { AiJobChip } from "@/components/ai-jobs/ai-job-chip"
+import { AI_REPORTS_CHANGED_EVENT, type AiJobView } from "@/components/ai-jobs/ai-job-client"
+import { useActiveAiJobs } from "@/components/ai-jobs/use-active-ai-jobs"
+import { aiJobKindLabel } from "@/components/notifications/notification-format"
 
 interface AiReport {
   id: string
@@ -22,6 +26,13 @@ interface AiReport {
 type Translations = ReturnType<typeof useLanguage>["t"]
 
 const OLDER_LIST_ID = "ai-reports-older"
+/** `?report=<id>` opens that report (links from the ai_report_ready notification). */
+const REPORT_PARAM = "report"
+
+function readReportParam(): string | null {
+  if (typeof window === "undefined") return null
+  return new URLSearchParams(window.location.search).get(REPORT_PARAM) || null
+}
 
 function toReports(raw: unknown): AiReport[] {
   return Array.isArray(raw) ? (raw as AiReport[]) : []
@@ -46,7 +57,7 @@ function ReportRow({ report: r, isOpen, isLatest, onToggle, triggerLabel, locale
   const panelId = `ai-report-${r.id}`
   const hasBody = Boolean(r.structured || r.body)
   return (
-    <li className={isLatest ? "bg-violet-50/30" : undefined}>
+    <li id={`ai-report-row-${r.id}`} className={isLatest ? "bg-violet-50/30" : undefined}>
       <button
         type="button"
         onClick={onToggle}
@@ -95,8 +106,9 @@ function ReportRow({ report: r, isOpen, isLatest, onToggle, triggerLabel, locale
 }
 
 /**
- * Dashboard panel listing autonomous AI investigation reports
- * (surveillance / sprint-completion triggers). Read-only viewer.
+ * Dashboard panel listing AI reports (surveillance / sprint-completion /
+ * background progress reports) and the report jobs still in progress.
+ * Read-only viewer. `?report=<id>` opens (and scrolls to) one report.
  *
  * The API returns the newest reports first (history is kept). Only the
  * newest one is marked "latest" and listed by default; older reports are
@@ -109,23 +121,46 @@ function ReportRow({ report: r, isOpen, isLatest, onToggle, triggerLabel, locale
  */
 export default function AiReportsPanel({ projectId }: { projectId: string }) {
   const { t, language } = useLanguage()
-  const { data: reports = [] } = useApiQuery<AiReport[]>(`/api/projects/${projectId}/ai-reports`, {
+  const { data: reports = [], refetch: refetchReports } = useApiQuery<AiReport[]>(`/api/projects/${projectId}/ai-reports`, {
     parse: toReports,
     toastOnError: () => t.aiReportLoadFailed,
   })
-  const [openId, setOpenId] = useState<string | null>(null)
-  const [showOlder, setShowOlder] = useState(false)
+  // Deep link: the report named in the URL starts open (reports load after mount, so no SSR mismatch).
+  const [linkedId] = useState(readReportParam)
+  const [openId, setOpenId] = useState<string | null>(linkedId)
+  // null = not toggled yet: older reports start expanded only when the linked report is among them.
+  const [olderToggled, setOlderToggled] = useState<boolean | null>(null)
+  const jobs = useActiveAiJobs(projectId, () => refetchReports?.())
 
-  // Hide the panel entirely until the first report exists — keeps the
-  // dashboard uncluttered for projects where surveillance hasn't fired yet.
-  if (reports.length === 0) return null
+  // A report finished on this page (dashboard button) → reload the list.
+  useEffect(() => {
+    const onChanged = () => refetchReports?.()
+    window.addEventListener(AI_REPORTS_CHANGED_EVENT, onChanged)
+    return () => window.removeEventListener(AI_REPORTS_CHANGED_EVENT, onChanged)
+  }, [refetchReports])
+
+  // …and is scrolled into view once it is listed.
+  const scrolled = useRef(false)
+  useEffect(() => {
+    if (!linkedId || scrolled.current) return
+    const el = document.getElementById(`ai-report-row-${linkedId}`)
+    if (!el) return
+    scrolled.current = true
+    el.scrollIntoView?.({ block: "start" })
+  }, [reports, linkedId])
+
+  // Hide the panel entirely until the first report (or report job) exists —
+  // keeps the dashboard uncluttered for projects where surveillance hasn't fired yet.
+  if (reports.length === 0 && jobs.length === 0) return null
 
   const locale = localeOf(language)
   const triggerLabel: Record<string, string> = {
     surveillance: t.aiReportTriggerSurveillance,
     sprint_completed: t.aiReportTriggerSprintCompleted,
+    manual: t.aiReportTriggerProgress,
   }
   const [latest, ...older] = reports
+  const showOlder = olderToggled ?? (linkedId !== null && older.some((r) => r.id === linkedId))
   const row = (r: AiReport, isLatest: boolean) => (
     <ReportRow
       key={r.id}
@@ -148,12 +183,13 @@ export default function AiReportsPanel({ projectId }: { projectId: string }) {
           <Badge tone="primary">{reports.length}</Badge>
         </div>
       </div>
-      <ul className="divide-y divide-border border-t border-border">{row(latest, true)}</ul>
+      {jobs.length > 0 && <JobsInProgress jobs={jobs} t={t} />}
+      {latest && <ul className="divide-y divide-border border-t border-border">{row(latest, true)}</ul>}
       {older.length > 0 && (
         <>
           <button
             type="button"
-            onClick={() => setShowOlder((v) => !v)}
+            onClick={() => setOlderToggled(!showOlder)}
             aria-expanded={showOlder}
             aria-controls={showOlder ? OLDER_LIST_ID : undefined}
             className="w-full px-4 sm:px-6 py-2 text-left text-caption font-medium text-fg-muted border-t border-border hover:bg-surface-muted hover:text-fg"
@@ -168,5 +204,25 @@ export default function AiReportsPanel({ projectId }: { projectId: string }) {
         </>
       )}
     </section>
+  )
+}
+
+/** Report jobs still queued / running (background progress reports, sprint reviews). */
+function JobsInProgress({ jobs, t }: { jobs: AiJobView[]; t: Translations }) {
+  return (
+    <div className="border-t border-border px-4 sm:px-6 py-3">
+      <h3 className="mb-2 text-caption font-semibold text-fg-muted">{t.aiJobInProgressTitle}</h3>
+      <ul className="space-y-1.5">
+        {jobs.map((job) => (
+          <li key={job.id} className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span className="text-body text-fg">{aiJobKindLabel(job.kind, t)}</span>
+            {job.requestedBy && (
+              <span className="text-caption text-fg-muted">{t.aiJobRequestedBy.replace("{name}", job.requestedBy.name)}</span>
+            )}
+            <AiJobChip job={job} />
+          </li>
+        ))}
+      </ul>
+    </div>
   )
 }

@@ -106,3 +106,41 @@ describe("helpers", () => {
     expect(badgeText(100)).toBe("99+")
   })
 })
+
+describe("notificationHref deep links (param names the target pages read)", () => {
+  it.each([
+    ["sprint_task", "t1", "/projects/p1/sprints?task=t1"],
+    ["sprint", "s1", "/projects/p1/sprints?sprint=s1"],
+    ["icebox", "i/1", "/projects/p1/icebox?item=i%2F1"],
+    ["pbi", "b1", "/projects/p1/backlog?pbi=b1"],
+  ])("%s → %s", (entityType, entityId, href) => {
+    expect(notificationHref(item("assigned", {}, { entityType, entityId }))).toBe(href)
+  })
+
+  it("comments and mentions link to the commented entity from the payload", () => {
+    const n = item("mentioned", { entityType: "icebox", entityId: "i1" })
+    expect(notificationHref(n)).toBe("/projects/p1/icebox?item=i1")
+  })
+
+  it("surveillance alerts link to the project dashboard", () => {
+    expect(notificationHref(item("surveillance_critical", {}, { entityType: "sprint", entityId: "s1" }))).toBe("/projects/p1")
+  })
+})
+
+describe("background AI report notifications", () => {
+  it("ai_report_ready → title sentence and a deep link that opens the report", () => {
+    const n = item("ai_report_ready", { reportId: "r/1", title: "📊 Progress report", kind: "progress_report" }, { entityType: "ai_report", entityId: "r/1" })
+    expect(describeNotification(n, t, "en")).toEqual({
+      text: "Your AI report “📊 Progress report” is ready",
+      projectName: "Apollo",
+      href: "/projects/p1?report=r%2F1",
+    })
+  })
+
+  it("ai_report_failed → localized kind, links to the dashboard", () => {
+    const n = item("ai_report_failed", { kind: "sprint_review", error: "timeout" }, { entityType: "ai_job", entityId: "j1" })
+    const d = describeNotification(n, ja, "ja")
+    expect(d.text).toBe(`AI レポート（${ja.aiJobKindSprintReview}）を生成できませんでした`)
+    expect(d.href).toBe("/projects/p1")
+  })
+})

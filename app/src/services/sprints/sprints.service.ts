@@ -150,7 +150,8 @@ export async function updateSprint(projectId: string, sprintId: string, input: U
     return updated
   })
   // Completing a sprint (done → auto-archived) launches the AI completion review after commit.
-  if (data.status === "done") launchSprintCompletionReview(projectId, sprintId, sprint.sprintName)
+  // The completing user is notified when the review is ready (background job).
+  if (data.status === "done") launchSprintCompletionReview(projectId, sprintId, sprint.sprintName, actor.userId)
   return attachI18nOne("sprint", withTaskAssignees(sprint))
 }
 

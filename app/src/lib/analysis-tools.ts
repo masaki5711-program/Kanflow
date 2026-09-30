@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma"
 import { assigneeNamesOf } from "@/lib/assignees"
+import { searchWorkItems, WORK_ITEM_SEARCH_LIMIT } from "@/lib/analysis-tools-search"
 import { LIVE_PBI, NOT_DELETED, notDeleted } from "@/services/_shared/soft-delete"
 import type { ToolDefinition, ToolHandler, ToolHandlerArgs } from "@/lib/chat-tools-types"
 
@@ -402,62 +403,9 @@ export const analysisHandlers: Record<string, ToolHandler> = {
   async search_work_items({ projectId, args }: ToolHandlerArgs) {
     const keyword = typeof args.keyword === "string" ? args.keyword.trim() : ""
     if (!keyword) return JSON.stringify({ error: "keyword is required" })
-    const LIMIT = 20
-
-    const [pbis, icebox, tasks] = await Promise.all([
-      prisma.productBacklogItem.findMany({
-        where: {
-          projectId,
-          ...NOT_DELETED,
-          OR: [
-            { initiative: { contains: keyword } },
-            { epic: { contains: keyword } },
-            { userStory: { contains: keyword } },
-          ],
-        },
-        select: { displayId: true, initiative: true, userStory: true, status: true, workloadScore: true },
-        take: LIMIT,
-      }),
-      prisma.iceboxItem.findMany({
-        where: {
-          projectId,
-          ...NOT_DELETED,
-          OR: [{ request: { contains: keyword } }, { background: { contains: keyword } }],
-        },
-        select: { displayId: true, request: true, status: true, author: true },
-        take: LIMIT,
-      }),
-      prisma.sprintBacklogItem.findMany({
-        where: {
-          sprint: { projectId },
-          ...LIVE_PBI,
-          taskName: { contains: keyword },
-        },
-        select: {
-          taskName: true, status: true, assignee: true, assignees: ASSIGNEE_NAMES,
-          sprint: { select: { sprintName: true, status: true } },
-          pbItem: { select: { displayId: true } },
-        },
-        take: LIMIT,
-      }),
-    ])
-
-    const results = [
-      ...pbis.map((b) => ({
-        type: "pbi", id: `#${b.displayId}`, status: b.status, sp: b.workloadScore,
-        title: trunc(b.initiative || b.userStory, 80),
-      })),
-      ...icebox.map((i) => ({
-        type: "icebox", id: `#${i.displayId}`, status: i.status, author: i.author,
-        title: trunc(i.request, 80),
-      })),
-      ...tasks.map((t) => ({
-        type: "task", pbi: `#${t.pbItem.displayId}`, status: t.status,
-        sprint: `${t.sprint.sprintName} (${t.sprint.status})`,
-        assignee: assigneeNamesOf(t).join(", ") || null,
-        title: trunc(t.taskName, 80),
-      })),
-    ].slice(0, LIMIT)
+    const LIMIT = WORK_ITEM_SEARCH_LIMIT
+    // FULLTEXT (ngram, both languages) with LIKE fallback: lib/analysis-tools-search.ts
+    const results = await searchWorkItems(projectId, keyword)
 
     return JSON.stringify({
       as_of: iso(now()),

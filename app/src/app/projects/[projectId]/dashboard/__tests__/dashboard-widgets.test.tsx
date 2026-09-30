@@ -240,17 +240,83 @@ describe("ActiveSprintCard", () => {
 })
 
 describe("DashboardHeader", () => {
-  it("opens the AI progress report with the current language and links to the report", async () => {
+  it("falls back to the streaming AI progress report when no job runner exists (503), and links to the report", async () => {
     const user = userEvent.setup()
     const en = tr("en")
+    stubFetch([
+      {
+        match: "/api/projects/p1/ai/jobs",
+        method: "POST",
+        respond: () => jsonResponse({ error: "disabled", code: "SERVICE_UNAVAILABLE", reason: "ai_jobs_disabled" }, 503),
+      },
+    ])
     renderWithProviders(<DashboardHeader projectId="p1" />, { language: "en" })
     expect(screen.getByRole("heading", { level: 1, name: en.dashboardTitle })).toBeInTheDocument()
     expect(screen.getByRole("link", { name: en.reportTitle })).toHaveAttribute("href", "/projects/p1/report")
     await user.click(screen.getByRole("button", { name: new RegExp(en.aiProgressReport) }))
-    const dialog = screen.getByRole("dialog", { name: en.aiProgressReportTitle })
+    const dialog = await screen.findByRole("dialog", { name: en.aiProgressReportTitle })
     expect(dialog).toHaveTextContent("/api/projects/p1/ai/progress-report")
     expect(dialog).toHaveTextContent('{"lang":"en"}')
     await user.click(screen.getByText("close-ai"))
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+  })
+})
+
+describe("DashboardHeader — background progress report", () => {
+  const job = (status: string, progress: number | null = null) => ({
+    id: "j1", kind: "progress_report", status, progress, params: { lang: "ja" }, resultReportId: status === "done" ? "r1" : null,
+    error: null, requestedBy: { id: "u1", name: "Alice" }, createdAt: "", startedAt: null, finishedAt: null,
+  })
+
+  it("queues a job, shows its status chip and tells the user when it is ready", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    let status = "queued"
+    const fetchMock = stubFetch([
+      { match: "/api/projects/p1/ai/jobs", method: "POST", respond: () => jsonResponse({ job: job("queued"), deduped: false }, 202) },
+      { match: "/api/projects/p1/ai/jobs/j1", method: "GET", respond: () => jsonResponse(job(status, status === "running" ? 40 : null)) },
+    ])
+    const changed = vi.fn()
+    window.addEventListener("kanflow:ai-reports-changed", changed)
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    renderWithProviders(<DashboardHeader projectId="p1" />)
+    const button = screen.getByRole("button", { name: new RegExp(ja.aiProgressReport) })
+    await user.click(button)
+
+    expect(await screen.findByText(ja.aiJobStarted)).toBeInTheDocument()
+    expect(screen.getAllByRole("status").some((el) => el.textContent?.includes(ja.aiJobStatusQueued))).toBe(true)
+    expect(button).toBeDisabled()
+    const post = fetchMock.mock.calls.find(([, i]) => (i as RequestInit | undefined)?.method === "POST")!
+    expect(JSON.parse(String((post[1] as RequestInit).body))).toEqual({ kind: "progress_report", lang: "ja" })
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+
+    status = "running"
+    await vi.advanceTimersByTimeAsync(4000)
+    await waitFor(() => expect(screen.getAllByRole("status").some((el) => el.textContent?.includes("40%"))).toBe(true))
+    status = "done"
+    await vi.advanceTimersByTimeAsync(4000)
+    expect(await screen.findByText(ja.aiJobDone)).toBeInTheDocument()
+    expect(changed).toHaveBeenCalled()
+    expect(button).toBeEnabled()
+    window.removeEventListener("kanflow:ai-reports-changed", changed)
+    vi.useRealTimers()
+  })
+
+  it("says so when the same report is already being generated", async () => {
+    stubFetch([
+      { match: "/api/projects/p1/ai/jobs", method: "POST", respond: () => jsonResponse({ job: job("running", 10), deduped: true }, 202) },
+      { match: "/api/projects/p1/ai/jobs/j1", method: "GET", respond: () => jsonResponse(job("running", 10)) },
+    ])
+    const user = userEvent.setup()
+    renderWithProviders(<DashboardHeader projectId="p1" />)
+    await user.click(screen.getByRole("button", { name: new RegExp(ja.aiProgressReport) }))
+    expect(await screen.findByText(ja.aiJobAlreadyRunning)).toBeInTheDocument()
+  })
+
+  it("shows an error toast when the job cannot be queued", async () => {
+    stubFetch([{ match: "/api/projects/p1/ai/jobs", method: "POST", respond: () => jsonResponse({ error: "x" }, 500) }])
+    const user = userEvent.setup()
+    renderWithProviders(<DashboardHeader projectId="p1" />)
+    await user.click(screen.getByRole("button", { name: new RegExp(ja.aiProgressReport) }))
+    expect(await screen.findByText(ja.aiJobStartFailed)).toBeInTheDocument()
   })
 })

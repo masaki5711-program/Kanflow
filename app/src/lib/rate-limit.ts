@@ -168,3 +168,19 @@ export function recordLoginFailure(
 export function recordLoginSuccess(limiters: LoginLimiters, username: string): void {
   limiters.byUser.reset(userKey(username))
 }
+
+/** Per-user limits for the AI endpoints (Ollama is a shared, single-request resource). */
+export const AI_CHAT_RATE_LIMIT: RateLimitOptions = { limit: 30, windowMs: 60_000 }
+export const AI_JOB_RATE_LIMIT: RateLimitOptions = { limit: 10, windowMs: 60_000 }
+
+/**
+ * Record a hit for `key` on the named limiter. Returns the Retry-After value
+ * (seconds, as a string) when the caller is over the limit, else null.
+ */
+export function consumeRateLimit(name: string, opts: RateLimitOptions, key: string): string | null {
+  const limiter = getRateLimiter(name, opts)
+  const status = limiter.peek(key)
+  if (status.limited) return retryAfterSeconds(status)
+  limiter.hit(key)
+  return null
+}

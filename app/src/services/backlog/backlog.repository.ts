@@ -9,12 +9,14 @@ const LINKED_SELECT = {
   // deletedAt: a to-one include cannot be filtered, so the service hides a trashed request.
   iceboxItem: { select: { id: true, displayId: true, request: true, deletedAt: true } },
   productGoal: { select: { id: true, title: true } },
+  // deletedAt: a trashed plan item is not shown as the PBI's plan item.
+  planItem: { select: { id: true, name: true, deletedAt: true } },
 } as const
 
-/** `status` narrows the list server-side (e.g. sprint planning only needs "ready"). */
-export function findBacklogItems(db: Db, projectId: string, status?: PbiStatus) {
+/** `status` / `planItemId` narrow the list server-side (e.g. sprint planning only needs "ready"). */
+export function findBacklogItems(db: Db, projectId: string, status?: PbiStatus, planItemId?: string) {
   return db.productBacklogItem.findMany({
-    where: notDeleted(status ? { projectId, status } : { projectId }),
+    where: notDeleted({ projectId, ...(status && { status }), ...(planItemId && { planItemId }) }),
     include: {
       ...LINKED_SELECT,
       // Sprints currently working on this PBI (planning/active only) so the
@@ -110,6 +112,12 @@ export function findTasksOfBacklogItems(db: Db, itemIds: readonly string[]) {
 /** Sprint tasks (incl. placeholders) that cascade with the PBI. */
 export function findTasksOfBacklogItem(db: Db, itemId: string) {
   return db.sprintBacklogItem.findMany({ where: { pbItemId: itemId }, select: { id: true, sprintId: true } })
+}
+
+/** The plan item a PBI of the project is linked to (trashed PBIs included), or null. */
+export async function findPbiPlanItemId(db: Db, projectId: string, itemId: string): Promise<string | null> {
+  const row = await db.productBacklogItem.findFirst({ where: { id: itemId, projectId }, select: { planItemId: true } })
+  return row?.planItemId ?? null
 }
 
 /** Hard delete (purge). Normal deletes go to the trash via softDeleteBacklogItem. */

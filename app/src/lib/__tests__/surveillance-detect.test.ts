@@ -10,6 +10,8 @@ vi.mock("@/lib/prisma", () => ({
 }))
 
 const { detectAnomalies } = await import("@/lib/surveillance")
+const { DEFAULT_SURVEILLANCE_SETTINGS } = await import("@/lib/surveillance-settings")
+const withSettings = (over: Record<string, unknown>) => ({ ...DEFAULT_SURVEILLANCE_SETTINGS, ...over })
 
 const NOW = new Date("2026-03-10T12:00:00Z").getTime()
 const DAY = 86_400_000
@@ -123,5 +125,37 @@ describe("detectAnomalies", () => {
     sprintFindMany.mockResolvedValue([sprint({ capacity: 10 })])
     sbiFindMany.mockResolvedValue([{ pbItem: { id: "a", workloadScore: 10 } }])
     expect(await detectAnomalies("p1")).toEqual([])
+  })
+})
+
+describe("detectAnomalies with project settings", () => {
+  const stale = (days: number) => ({ taskName: "t", status: "in_progress", updatedAt: daysAgo(days) })
+
+  it("uses stalledDays and stalledTasksThreshold", async () => {
+    sprintFindMany.mockResolvedValue([sprint({ items: [stale(2), stale(2)] })])
+    expect(await detectAnomalies("p1")).toEqual([])
+    const out = await detectAnomalies("p1", withSettings({ stalledDays: 1, stalledTasksThreshold: 2 }))
+    expect(out.map((a) => a.code)).toEqual(["stalled_tasks"])
+    expect(out[0].description).toContain("1日以上")
+  })
+
+  it("skips the daily scrum check when disabled and honours the silent-day threshold", async () => {
+    sprintFindMany.mockResolvedValue([sprint({ status: "active", dailyScrumNotes: [{ date: daysAgo(4) }] })])
+    expect(await detectAnomalies("p1", withSettings({ checkDailyScrum: false }))).toEqual([])
+    expect(await detectAnomalies("p1", withSettings({ dailyScrumSilentDays: 5 }))).toEqual([])
+    expect((await detectAnomalies("p1", withSettings({ dailyScrumSilentDays: 4 }))).map((a) => a.code)).toEqual(["daily_scrum_silent"])
+  })
+
+  it("allows the configured over-capacity tolerance", async () => {
+    sprintFindMany.mockResolvedValue([sprint({ capacity: 10 })])
+    sbiFindMany.mockResolvedValue([{ pbItem: { id: "a", workloadScore: 12 } }])
+    expect(await detectAnomalies("p1", withSettings({ overCapacityTolerancePct: 20 }))).toEqual([])
+    expect((await detectAnomalies("p1", withSettings({ overCapacityTolerancePct: 10 }))).map((a) => a.code)).toEqual(["over_capacity"])
+  })
+
+  it("waits sprintOverdueGraceDays before flagging an overdue sprint", async () => {
+    sprintFindMany.mockResolvedValue([sprint({ endDate: daysAgo(2), items: [{ taskName: "t", status: "todo", updatedAt: daysAgo(0) }] })])
+    expect(await detectAnomalies("p1", withSettings({ sprintOverdueGraceDays: 2 }))).toEqual([])
+    expect((await detectAnomalies("p1", withSettings({ sprintOverdueGraceDays: 1 }))).map((a) => a.code)).toEqual(["sprint_overdue"])
   })
 })

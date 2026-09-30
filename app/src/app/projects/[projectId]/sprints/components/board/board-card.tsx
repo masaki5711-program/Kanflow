@@ -7,6 +7,7 @@ import { pickText } from "@/lib/translation/pick-text"
 import { cn } from "@/components/ui"
 import { CommentsButton } from "@/components/comments/comments-provider"
 import { displayAssignees } from "../../lib/task-payload"
+import { taskElementId } from "../../lib/deep-link"
 import BoardCardMenu from "./board-card-menu"
 import type { BoardStatus } from "./board-model"
 import type { SprintItem } from "../types"
@@ -58,6 +59,7 @@ const BoardCard = memo(function BoardCard({
 
   return (
     <li
+      id={taskElementId(task.id)}
       data-board-card={task.id}
       tabIndex={0}
       aria-roledescription={t.sprintBoardCardRole}

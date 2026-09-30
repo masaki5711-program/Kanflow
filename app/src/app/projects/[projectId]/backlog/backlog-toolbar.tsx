@@ -5,7 +5,7 @@ import { Button, Input, Select } from "@/components/ui"
 import { useLanguage } from "@/lib/language-context"
 import { pickText } from "@/lib/translation/pick-text"
 import { FILTER_NONE, hasActiveFilters, type BacklogFilters, type FacetOptions } from "./url-state"
-import { CheckSquare, FilterX, Search } from "lucide-react"
+import { CheckSquare, FilterX, Search, X } from "lucide-react"
 
 interface Props {
   filters: BacklogFilters
@@ -65,6 +65,7 @@ function Facet({ label, value, onChange, children }: { label: string; value: str
 export function BacklogToolbar({ filters, facets, onChange, shown, total, selectMode }: Props) {
   const { t, pt, language } = useLanguage()
   const active = hasActiveFilters(filters)
+  const planName = facets.plans.find((p) => p.id === filters.plan)?.name
   const none = <option value={FILTER_NONE}>{t.backlogFilterNone}</option>
 
   return (
@@ -119,13 +120,18 @@ export function BacklogToolbar({ filters, facets, onChange, shown, total, select
             </option>
           ))}
         </Facet>
+        {filters.plan && (
+          <Button variant="secondary" size="sm" rightIcon={<X className="h-4 w-4" />} aria-label={`${t.planPbiField}: ${planName ?? ""} — ${t.backlogFilterClear}`} onClick={() => onChange({ plan: "" })}>
+            {t.planPbiField}: {planName ?? "…"}
+          </Button>
+        )}
         {active && (
           <>
             <Button
               variant="ghost"
               size="sm"
               leftIcon={<FilterX className="h-4 w-4" />}
-              onClick={() => onChange({ q: "", status: "", goal: "", epic: "", points: "", po: "" })}
+              onClick={() => onChange({ q: "", status: "", goal: "", epic: "", points: "", po: "", plan: "" })}
             >
               {t.backlogFilterClear}
             </Button>

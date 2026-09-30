@@ -66,8 +66,8 @@ describe("entityHref", () => {
   it.each([
     ["pbi", "/projects/p1/backlog?pbi=x%2F1"],
     ["sprint_task", "/projects/p1/sprints?task=x%2F1"],
-    ["sprint", "/projects/p1/sprints"],
-    ["icebox", "/projects/p1/icebox"],
+    ["sprint", "/projects/p1/sprints?sprint=x%2F1"],
+    ["icebox", "/projects/p1/icebox?item=x%2F1"],
     ["release", "/projects/p1/releases"],
     ["plan_item", "/projects/p1/plan"],
     ["goal", null],

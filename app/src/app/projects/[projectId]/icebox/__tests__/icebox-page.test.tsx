@@ -11,7 +11,9 @@ const nav = vi.hoisted(() => ({ push: vi.fn() }))
 
 vi.mock("next/navigation", () => ({
   useParams: () => ({ projectId: "p1" }),
-  useRouter: () => ({ push: nav.push }),
+  useRouter: () => ({ push: nav.push, replace: vi.fn() }),
+  usePathname: () => "/projects/p1/icebox",
+  useSearchParams: () => new URLSearchParams(),
 }))
 vi.mock("@/components/media-preview-modal", () => ({
   default: ({ items, startIndex, onClose }: { items: { id: string }[]; startIndex: number; onClose: () => void }) => (

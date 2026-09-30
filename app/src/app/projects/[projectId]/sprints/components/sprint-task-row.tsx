@@ -6,6 +6,7 @@ import { I18nText } from "@/components/i18n-text"
 import { pickText } from "@/lib/translation/pick-text"
 import { cn, IconButton, TaskStatusIcon } from "@/components/ui"
 import { nextTaskStatus } from "../lib/sprint-metrics"
+import { taskElementId } from "../lib/deep-link"
 import { displayAssignees } from "../lib/task-payload"
 import CompletionCommentEditor from "./completion-comment-editor"
 import { CommentsButton } from "@/components/comments/comments-provider"
@@ -47,7 +48,7 @@ const SprintTaskRow = memo(function SprintTaskRow({
   }
 
   return (
-    <li className="rounded-ui-sm hover:bg-surface-muted group transition-colors">
+    <li id={taskElementId(task.id)} className="rounded-ui-sm hover:bg-surface-muted group transition-colors">
       <div className="flex flex-wrap items-center gap-2.5 py-1.5 px-2">
         <button type="button" onClick={toggleStatus} aria-label={`${name} — ${statusLabel}`} title={statusLabel}
           className={cn("flex-shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-full transition-colors", STATUS_COLOR[task.status] ?? STATUS_COLOR.todo)}>

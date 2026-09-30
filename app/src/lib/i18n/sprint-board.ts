@@ -24,6 +24,8 @@ export interface SprintBoardTranslations {
   /** {shown} of {total} tasks visible while a filter is active. */
   sprintBoardFilterCount: string
   sprintBoardNoMatch: string
+  sprintDeepLinkTaskNotFound: string
+  sprintDeepLinkSprintNotFound: string
   /** Board region label; {name} = sprint name. */
   sprintBoardLabel: string
   /** Column task count; {count}. */
@@ -65,6 +67,8 @@ export const ja: SprintBoardTranslations = {
   sprintBoardFilterClear: "絞り込みを解除",
   sprintBoardFilterCount: "{total} 件中 {shown} 件のタスクを表示",
   sprintBoardNoMatch: "条件に一致するタスクはありません",
+  sprintDeepLinkTaskNotFound: "リンク先のタスクが見つかりません（削除された可能性があります）",
+  sprintDeepLinkSprintNotFound: "リンク先のスプリントが見つかりません（削除された可能性があります）",
   sprintBoardLabel: "{name} のカンバンボード",
   sprintBoardColumnCount: "{count} 件",
   sprintBoardEmptyColumn: "タスクなし",
@@ -99,6 +103,8 @@ export const en: SprintBoardTranslations = {
   sprintBoardFilterClear: "Clear filters",
   sprintBoardFilterCount: "Showing {shown} of {total} tasks",
   sprintBoardNoMatch: "No tasks match the filters",
+  sprintDeepLinkTaskNotFound: "The linked task was not found (it may have been deleted)",
+  sprintDeepLinkSprintNotFound: "The linked sprint was not found (it may have been deleted)",
   sprintBoardLabel: "Kanban board of {name}",
   sprintBoardColumnCount: "{count} tasks",
   sprintBoardEmptyColumn: "No tasks",
@@ -133,6 +139,8 @@ export const id: SprintBoardTranslations = {
   sprintBoardFilterClear: "Hapus filter",
   sprintBoardFilterCount: "Menampilkan {shown} dari {total} tugas",
   sprintBoardNoMatch: "Tidak ada tugas yang cocok dengan filter",
+  sprintDeepLinkTaskNotFound: "Tugas yang ditautkan tidak ditemukan (mungkin sudah dihapus)",
+  sprintDeepLinkSprintNotFound: "Sprint yang ditautkan tidak ditemukan (mungkin sudah dihapus)",
   sprintBoardLabel: "Papan kanban {name}",
   sprintBoardColumnCount: "{count} tugas",
   sprintBoardEmptyColumn: "Tidak ada tugas",

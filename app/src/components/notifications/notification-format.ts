@@ -70,6 +70,13 @@ function entityHref(projectId: string, entityType: string | null, entityId: stri
   }
 }
 
+/** Localized name of a background AI job kind (lib/ai-jobs/config.ts). */
+export function aiJobKindLabel(kind: string | null, t: Translations): string {
+  if (kind === "progress_report") return t.aiJobKindProgressReport
+  if (kind === "sprint_review") return t.aiJobKindSprintReview
+  return kind ?? t.notifUntitled
+}
+
 /** Where clicking the notification goes (null without a project). */
 export function notificationHref(n: NotificationItem): string | null {
   if (!n.projectId) return null
@@ -77,6 +84,12 @@ export function notificationHref(n: NotificationItem): string | null {
     return entityHref(n.projectId, str(n.payload, "entityType") ?? n.entityType, str(n.payload, "entityId") ?? n.entityId)
   }
   if (n.type === "surveillance_critical") return `/projects/${encodeURIComponent(n.projectId)}`
+  if (n.type === "ai_report_ready" || n.type === "ai_report_failed") {
+    // The dashboard's AI reports panel opens `?report=` (ai-reports-panel.tsx).
+    const reportId = str(n.payload, "reportId") ?? (n.entityType === "ai_report" ? n.entityId : null)
+    const base = `/projects/${encodeURIComponent(n.projectId)}`
+    return reportId ? `${base}?report=${encodeURIComponent(reportId)}` : base
+  }
   return entityHref(n.projectId, n.entityType, n.entityId)
 }
 
@@ -110,6 +123,12 @@ export function describeNotification(n: NotificationItem, t: Translations, langu
       break
     case "surveillance_critical":
       text = fillTemplate(t.notifSurveillance, { title: str(p, "title") ?? t.notifUntitled, count: str(p, "criticalCount") ?? "?" })
+      break
+    case "ai_report_ready":
+      text = fillTemplate(t.notifAiReportReady, { title: str(p, "title") ?? t.notifUntitled })
+      break
+    case "ai_report_failed":
+      text = fillTemplate(t.notifAiReportFailed, { kind: aiJobKindLabel(str(p, "kind"), t) })
       break
     case "mentioned":
       text = fillTemplate(t.notifMentioned, { actor, label })

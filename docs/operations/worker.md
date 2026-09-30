@@ -4,6 +4,9 @@ The standalone worker runs Kanflow's background AI work **outside Next.js**:
 
 - the JA/ID **translation queue** (`field_translation`, 5 s ticks, `FOR UPDATE SKIP LOCKED`)
 - the daily **AI surveillance** run (it used to be a 15-minute HTTP request fired by a scheduled task)
+- the **AI report job queue** (`AiJob`: background progress reports and sprint completion reviews,
+  see [AI report jobs](#ai-report-jobs-aijob)) — or the web process runs it, following
+  `AI_TRANSLATION_WORKER` (override: `AI_JOB_RUNNER`)
 
 It yields to people: whenever a user-facing AI call is running in any Kanflow web process, the
 worker stops its current translation and waits.
@@ -107,6 +110,14 @@ first one exits. A standby worker writes no heartbeat file.
 | `NOTIFICATION_RETENTION_DAYS` | `90` | **Read** notifications older than this are deleted. Unread ones are kept. |
 | `PURGE_TRASH_AFTER_DAYS` | `30` | Trashed projects / PBIs / IceBox items older than this are deleted permanently by the purge job. Set it in the web env too: the trash UI shows the purge date from it. |
 | `PURGE_TRASH_SCHEDULE` | `03:15` | Local `HH:MM` time(s) of the daily trash purge. `off` disables it (nothing is purged automatically). |
+| `SURVEILLANCE_MAX_INVESTIGATIONS` | `3` | Agent investigations per surveillance run (was the constant `MAX_INVESTIGATIONS`). Per-project thresholds live in the project settings, not in the env. |
+| `AI_JOB_RUNNER` | `auto` | Where the `AiJob` queue runs. `auto` follows `AI_TRANSLATION_WORKER`: `external` → this worker, `inprocess` → every `next start` (`next dev` only with `AI_TRANSLATION_WORKER_IN_DEV=true`), `off` → nobody. `worker` / `web` / `off` force it. With `off`, `POST /api/projects/:id/ai/jobs` answers 503 and the dashboard streams the progress report synchronously as before; sprint reviews then run fire-and-forget inside the web process. |
+| `AI_JOB_POLL_MS` | `5000` | Queue poll interval of the job runner. |
+| `AI_JOB_STALE_MS` | `1800000` | A `running` job older than this belongs to a dead process: back to `queued` (one retry), then `failed` (`interrupted`). |
+| `AI_JOB_YIELD_MAX_MS` | `600000` | Before a job uses Ollama it waits up to this long while web users are busy (worker: remote gate; web runner: its own gate). |
+| `AI_JOB_RETENTION_DAYS` | `30` | Finished `AiJob` rows (done / failed / cancelled) older than this are deleted by the collab job. |
+| `CHAT_RETENTION_DAYS` | `180` | Chat threads without a new message for this long are deleted (with their messages) by the collab job. |
+| `CHAT_DELETED_RETENTION_DAYS` | `30` | Chat threads the user deleted are purged this long after deletion. |
 
 ## How it works
 
@@ -176,14 +187,16 @@ the worker stays polite: one row at a time, and it yields immediately to Kanflow
   1. cancel start-up or standby
   2. stop the heartbeat
   3. abort the surveillance job (the current project's report is not saved)
-  4. stop translation: no new ticks, abort the in-flight Ollama request, return claimed rows to
+  4. stop the AI job runner: abort the running job and put it back to `queued` (the next start
+     picks it up; the attempt does not count)
+  5. stop translation: no new ticks, abort the in-flight Ollama request, return claimed rows to
      `pending`
-  5. stop the scheduler
-  6. wait for jobs to finish
-  7. stop the gate
-  8. `RELEASE_LOCK`
-  9. `prisma.$disconnect()`
-  10. flush logs, then exit
+  6. stop the scheduler
+  7. wait for jobs to finish
+  8. stop the gate
+  9. `RELEASE_LOCK`
+  10. `prisma.$disconnect()`
+  11. flush logs, then exit
 
   A failing step is logged and the next step still runs. If the whole sequence takes longer than
   `WORKER_SHUTDOWN_TIMEOUT_MS`, the process exits with code 1. A second Ctrl+C exits immediately.
@@ -197,6 +210,22 @@ The logic moved from `app/api/surveillance/route.ts` to `src/worker/jobs/surveil
   older than `SURVEILLANCE_RETENTION_DAYS` (all projects) are removed. The project dashboard lists
   the latest 10 reports.
 - The follow-up logic is unchanged: the newest report of any trigger is followed up.
+- **Per-project thresholds (P3)** — `Project.surveillanceSettings` (JSON; `NULL` = defaults), edited
+  by the PO / an admin under *Project settings → AI surveillance* (`GET/PUT
+  /api/projects/:id/surveillance-settings`, action `surveillance.configure`). Read at the start of
+  each project's check, so a change applies to the next run. Defaults equal the old constants:
+
+  | Setting | Default | Check |
+  |---|---|---|
+  | `enabled` | `true` | `false` = the project is skipped (`skipped: "disabled"`) |
+  | `stalledDays` / `stalledTasksThreshold` | 3 / 3 | warning when ≥ threshold in-progress tasks of one sprint were not updated for ≥ days |
+  | `checkDailyScrum` / `dailyScrumSilentDays` | `true` / 3 | warning when an active sprint's last daily scrum note is ≥ days old (or missing) |
+  | `overCapacityTolerancePct` | 0 | warning when committed points > capacity × (1 + pct/100) |
+  | `sprintOverdueGraceDays` | 0 | critical when an open sprint with unfinished tasks is more than N days past its end date |
+  | `notifyCritical` | `true` | `surveillance_critical` notification to PO / SM for reports with critical anomalies |
+
+  Invalid or missing stored fields fall back to the default one by one; the API validates the full
+  object (integers within the ranges shown in the UI).
 - **Exclusive across processes:** the MySQL named lock `kanflow_surveillance`. Inside one web
   process, an in-memory single-flight mutex also applies.
 - **Manual trigger:**
@@ -234,8 +263,42 @@ independently (logged under `component: collab-daily`).
    `(recipientId, dedupeKey)` index, so each item is notified once per type and due date.
    Users who disabled the type (`NotificationPreference`) or are inactive are skipped.
 
+3. **Chat history + AI job retention** (`jobs/chat-retention.ts`, P3): deletes chat threads the
+   user deleted more than `CHAT_DELETED_RETENTION_DAYS` ago and threads without a new message for
+   `CHAT_RETENTION_DAYS` (messages go with them, `ON DELETE CASCADE`; batches of 1000 ids), then
+   finished `AiJob` rows older than `AI_JOB_RETENTION_DAYS`. The reports those jobs produced are
+   `AiReport` rows and follow `SURVEILLANCE_RETENTION_DAYS` as before.
+
 The surveillance run additionally notifies the project's PO / SM
-(`surveillance_critical`, once per report) when a saved report has critical anomalies.
+(`surveillance_critical`, once per report) when a saved report has critical anomalies — unless the
+project turned `notifyCritical` off.
+
+### AI report jobs (`AiJob`)
+
+Long AI generations no longer have to live inside an HTTP request. `src/lib/ai-jobs/`:
+
+- **Kinds**: `progress_report` (the dashboard's 🤖 button; same prompt as the streaming endpoint,
+  stored as `AiReport.trigger = "manual"`) and `sprint_review` (queued when a sprint is completed;
+  one job per sprint). Retro synthesis, INVEST review and PBI drafts stay synchronous (short,
+  interactive, not stored).
+- **Queue**: `POST /api/projects/:id/ai/jobs` `{ kind: "progress_report", lang }` → `202 { job,
+  deduped }`. `AiJob.activeKey` (`<projectId>:<kind>[:<sprintId>]`, UNIQUE, `NULL` once finished)
+  allows one queued/running job per project + kind; a second request gets the active job back.
+  `GET /ai/jobs` lists active jobs (reports panel), `GET /ai/jobs/:jobId` is polled by the button
+  chip, `DELETE /ai/jobs/:jobId` cancels (requester, or PO / SM / admin).
+- **Runner** (`runner.ts`, one job at a time per process): sweeps stale `running` rows once a
+  minute, claims the oldest `queued` row with a conditional update (safe with several runners),
+  waits for users (`AI_JOB_YIELD_MAX_MS`), runs the handler with an AbortSignal, and polls the row
+  every 5 s so a cancel from the UI aborts the Ollama request. Result: `done` + `resultReportId`,
+  or `failed` + `error`.
+- **Notification**: the requester gets `ai_report_ready` (link `/projects/<id>?report=<reportId>`,
+  which opens the report in the dashboard's AI reports panel) or `ai_report_failed`. System jobs
+  without a requester notify nobody. Both types can be switched off per user under */me*.
+- **Where it runs**: see `AI_JOB_RUNNER`. In the worker the runner starts after the lock and
+  appears in the heartbeat log as `aiJob`; in a web process (`inprocess`) `instrumentation.ts`
+  starts it and it waits on that process's own priority gate. Deploying the code before the
+  migration `20261003000000_p3_ai` makes every poll fail (logged `ai job tick failed`) until the
+  table exists — apply the migration first.
 
 ### Trash purge job
 
@@ -264,6 +327,8 @@ rest goes the next day). The run stops between rows on worker shutdown.
 | `another worker holds the lock; waiting as standby` | Another worker (service or manual) is running. This is expected. |
 | `single-instance lock lost` | The MySQL connection dropped. The service restarts the worker automatically. |
 | Chat feels slow while translations run | Lower `AI_GATE_POLL_MS`. A user call is detected within about one poll interval plus the probe time. |
+| Progress report stays "Queued" | Nobody runs jobs: check `aiJobRunner` / `runAiJobs` in `npm run worker -- --dry-run` and that the worker (or, with `inprocess`, the web service) is up; look for `ai job runner started` / `ai job tick failed` in the logs. `SELECT id,status,attempts,error FROM AiJob ORDER BY createdAt DESC LIMIT 10`. |
+| `stale ai jobs recovered` in the log | A process died while running a job; it was requeued (first time) or failed. Nothing to do unless it repeats. |
 
 ## Timestamps (UTC) — fixed 2026-09-29
 

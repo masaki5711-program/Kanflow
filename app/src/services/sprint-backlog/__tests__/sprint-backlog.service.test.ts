@@ -5,6 +5,7 @@ vi.mock("@/services/_shared/notifications", async () => (await import("@/service
 vi.mock("@/services/_shared/db", async () => (await import("@/services/__tests__/support")).dbMock())
 vi.mock("@/services/_shared/translations", async () => (await import("@/services/__tests__/support")).translationMock())
 vi.mock("@/lib/pbi-status-sync", () => ({ syncPbiStatusFromTasks: vi.fn(async () => undefined) }))
+vi.mock("@/lib/plan-progress", () => ({ recalcPlanForPbis: vi.fn(async () => undefined) }))
 vi.mock("@/lib/sprint-score", () => ({ recalcSprintActualScore: vi.fn(async () => 0) }))
 vi.mock("../sprint-backlog.repository")
 
@@ -12,6 +13,7 @@ const repo = await import("../sprint-backlog.repository")
 const tr = await import("@/services/_shared/translations")
 const { syncPbiStatusFromTasks } = await import("@/lib/pbi-status-sync")
 const { recalcSprintActualScore } = await import("@/lib/sprint-score")
+const { recalcPlanForPbis } = await import("@/lib/plan-progress")
 const { ACTOR, TX } = await import("@/services/__tests__/support")
 const svc = await import("../sprint-backlog.service")
 
@@ -44,6 +46,8 @@ describe("sprint-backlog.service", () => {
     const out = await svc.addPbisToSprint("p1", "s1", ["b1", "b2", "x"])
     expect(repo.insertPlaceholders).toHaveBeenCalledWith(TX, "s1", ["b2"])
     expect(recalcSprintActualScore).toHaveBeenCalledWith("s1", TX)
+    // Sprint membership starts linked plan leaves.
+    expect(recalcPlanForPbis).toHaveBeenCalledWith(["b2"], TX)
     expect(out).toEqual({ added: 1, skipped: 2, items: [{ id: "t2" }] })
   })
 

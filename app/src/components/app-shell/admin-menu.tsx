@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Building2, ChevronDown, Languages, ListChecks, ShieldCheck, Tags, Trash2, Users } from "lucide-react"
+import { Activity, Building2, ChevronDown, KeyRound, Languages, ListChecks, ShieldCheck, Tags, Trash2, Users } from "lucide-react"
 import { useLanguage } from "@/lib/language-context"
 import { cn } from "@/components/ui"
 
@@ -35,6 +35,8 @@ export function AdminMenu() {
     { href: "/admin/glossary", label: t.glossaryAdminMenu, Icon: Languages },
     { href: "/admin/translations", label: t.translationsAdminMenu, Icon: ListChecks },
     { href: "/admin/trash", label: t.trashAdminMenu, Icon: Trash2 },
+    { href: "/admin/api-tokens", label: t.apiTokenAdminMenu, Icon: KeyRound },
+    { href: "/admin/metrics", label: t.metricsAdminMenu, Icon: Activity },
   ]
   const isAdminPage = pathname.startsWith("/admin")
 

@@ -3,11 +3,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const m = vi.hoisted(() => ({
   purge: vi.fn(),
   notifyDue: vi.fn(),
+  chatPurge: vi.fn(),
   instances: [] as Array<{ opts: { name: string; run: () => Promise<unknown> }; start: ReturnType<typeof vi.fn> }>,
 }))
 
 vi.mock("../jobs/activity-retention", () => ({ purgeCollaborationHistory: m.purge }))
 vi.mock("../jobs/notify-due", () => ({ runNotifyDue: m.notifyDue }))
+vi.mock("../jobs/chat-retention", () => ({ purgeChatHistory: m.chatPurge }))
 vi.mock("../scheduler", () => ({
   DailyScheduler: class {
     start = vi.fn()
@@ -75,7 +77,11 @@ describe("runCollabDaily", () => {
     m.purge.mockRejectedValue(new Error("lock wait"))
     m.notifyDue.mockRejectedValue(new Error("db"))
     const out = await runCollabDaily(CFG, log)
-    expect(out).toEqual({ retention: null, notifyDue: null })
+    m.chatPurge.mockRejectedValue(new Error("chat"))
+    const out2 = await runCollabDaily(CFG, log)
+    expect(out2).toEqual({ retention: null, notifyDue: null, chatRetention: null })
+    expect(log.error).toHaveBeenCalledWith("chat / ai job retention failed", { error: "chat" })
+    expect(out.retention).toBeNull()
     expect(m.notifyDue).toHaveBeenCalled()
     expect(log.error).toHaveBeenCalledWith("collab retention sweep failed", { error: "lock wait" })
     expect(log.error).toHaveBeenCalledWith("due-date notifications failed", { error: "db" })
@@ -97,5 +103,24 @@ describe("startCollabScheduler", () => {
     expect(m.instances[0].start).toHaveBeenCalled()
     await m.instances[0].opts.run()
     expect(m.notifyDue).toHaveBeenCalled()
+  })
+})
+
+describe("chat + AI job retention step", () => {
+  it("runs with the configured days (defaults 180 / 30 / 30)", async () => {
+    m.purge.mockResolvedValue({ activity: { days: 1, deleted: 0 }, notifications: { days: 1, deleted: 0 } })
+    m.notifyDue.mockResolvedValue({ status: "done", candidates: { tasks: 0, planItems: 0 }, notified: 0 })
+    m.chatPurge.mockResolvedValue({ chatIdle: { days: 180, deleted: 1 }, chatDeleted: { days: 30, deleted: 2 }, aiJobs: { days: 30, deleted: 3 } })
+    const out = await runCollabDaily(CFG, log)
+    expect(m.chatPurge).toHaveBeenCalledWith({ idleDays: 180, deletedDays: 30, aiJobDays: 30 })
+    expect(out.chatRetention?.chatDeleted.deleted).toBe(2)
+    await runCollabDaily({ ...CFG, chatRetentionDays: 90, chatDeletedRetentionDays: 7, aiJobRetentionDays: 14 }, log)
+    expect(m.chatPurge).toHaveBeenLastCalledWith({ idleDays: 90, deletedDays: 7, aiJobDays: 14 })
+  })
+
+  it("worker config reads the retention env", () => {
+    const cfg = loadWorkerConfig({ CHAT_RETENTION_DAYS: "365", CHAT_DELETED_RETENTION_DAYS: "x", AI_JOB_RETENTION_DAYS: "10" } as unknown as NodeJS.ProcessEnv)
+    expect(cfg).toMatchObject({ chatRetentionDays: 365, chatDeletedRetentionDays: 30, aiJobRetentionDays: 10 })
+    expect(describeConfig(cfg)).toMatchObject({ chatRetentionDays: 365, aiJobRetentionDays: 10 })
   })
 })

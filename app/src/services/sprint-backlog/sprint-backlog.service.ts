@@ -1,5 +1,6 @@
 import type { Prisma } from "@/generated/prisma/client"
 import { syncPbiStatusFromTasks } from "@/lib/pbi-status-sync"
+import { recalcPlanForPbis } from "@/lib/plan-progress"
 import { recalcSprintActualScore } from "@/lib/sprint-score"
 import type { Actor } from "@/services/_shared/actor"
 import { loadSnapshot, logActivity, logCreate, logDelete, logUpdate } from "@/services/_shared/activity"
@@ -108,6 +109,8 @@ export async function addPbisToSprint(projectId: string, sprintId: string, pbIds
     if (toAdd.length === 0) return { added: 0, skipped: pbIds.length }
     await repo.insertPlaceholders(tx, sprintId, toAdd)
     await recalcSprintActualScore(sprintId, tx)
+    // Sprint membership starts a linked plan leaf ("in_progress").
+    await recalcPlanForPbis(toAdd, tx)
     await logPbiMoves(tx, projectId, toAdd, { from: null, to: sprintId }, actor)
     const items = await repo.findPlaceholders(tx, sprintId, toAdd)
     return { added: toAdd.length, skipped: pbIds.length - toAdd.length, items }

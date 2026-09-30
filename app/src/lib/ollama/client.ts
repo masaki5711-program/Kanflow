@@ -1,5 +1,6 @@
 import { gate } from "@/lib/translation/priority-gate"
 import { aiLog } from "@/lib/ai-monitor"
+import { metricsStore } from "@/lib/metrics/store"
 import { OLLAMA_BASE_URL, OLLAMA_MAX_CONCURRENCY } from "./config"
 import {
   OllamaAbortedError,
@@ -126,6 +127,7 @@ async function open(opts: OllamaRequestOptions, stream: boolean): Promise<Opened
     releaseSlot = slot
     if (cleaned) slot()
     const waited = Date.now() - waitT0
+    metricsStore().recordAiWait(opts.priority, waited)
     if (waited >= QUEUE_LOG_THRESHOLD_MS) {
       aiLog("OLLAMA_QUEUE", `${opts.label}: waited ${waited}ms for a slot (${opts.priority})`)
     }

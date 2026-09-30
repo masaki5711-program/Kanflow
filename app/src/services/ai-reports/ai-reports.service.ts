@@ -7,6 +7,11 @@ export function listLatestReports(projectId: string) {
   return repo.findLatestReports(defaultDb, projectId)
 }
 
+/** Store one report (history is kept; retention is the worker's job). */
+export function saveReport(data: Prisma.AiReportUncheckedCreateInput): Promise<{ id: string }> {
+  return repo.insertReport(defaultDb, data)
+}
+
 /**
  * Store a report and drop the project's previous reports of the same
  * trigger, atomically. Returns the new id and how many were superseded.

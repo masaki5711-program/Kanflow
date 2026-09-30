@@ -84,6 +84,7 @@ export const TRACKED_FIELDS: Readonly<Record<ActivityEntityType, readonly string
     "notReadyReason",
     "iceboxItemId",
     "productGoalId",
+    "planItemId",
   ],
   sprint_task: ["taskName", "assignee", "estimatedHours", "actualHours", "status", "completionComment"],
   sprint: [
@@ -140,6 +141,8 @@ export const TRACKED_FIELDS: Readonly<Record<ActivityEntityType, readonly string
     "isMilestone",
     "color",
     "status",
+    "ownerId",
+    "progressMode",
   ],
   member: ["userId", "role"],
   project: [

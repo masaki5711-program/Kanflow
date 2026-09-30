@@ -4,15 +4,26 @@ import Link from "next/link"
 import { useState } from "react"
 import { Button, buttonClasses, PageHeader } from "@/components/ui"
 import { AIResultModal } from "@/components/ai-result-modal"
+import { AiJobChip } from "@/components/ai-jobs/ai-job-chip"
+import { useAiReportJob } from "@/components/ai-jobs/use-ai-job"
 import { useLanguage } from "@/lib/language-context"
 import { useProjectDocumentTitle } from "@/components/app-shell/project-title-context"
 import { FileText, LayoutDashboard } from "lucide-react"
 
-/** Page title with the AI progress-report and printable-report actions. */
+/**
+ * Page title with the AI progress-report and printable-report actions.
+ *
+ * The progress report is generated in the background (AiJob, worker or
+ * in-process runner): the button shows a status chip and the requester gets
+ * a notification when it is ready; the report appears in the AI reports
+ * panel. Without a job runner (503 ai_jobs_disabled) it falls back to the
+ * streaming modal.
+ */
 export function DashboardHeader({ projectId }: { projectId: string }) {
   const { t, language } = useLanguage()
   useProjectDocumentTitle(t.dashboardTitle)
   const [showProgressReport, setShowProgressReport] = useState(false)
+  const reportJob = useAiReportJob({ projectId, onFallback: () => setShowProgressReport(true) })
 
   return (
     <>
@@ -26,7 +37,14 @@ export function DashboardHeader({ projectId }: { projectId: string }) {
         }
         actions={
           <>
-            <Button variant="secondary" leftIcon={<span aria-hidden="true">🤖</span>} onClick={() => setShowProgressReport(true)}>
+            {reportJob.job && <AiJobChip job={reportJob.job} />}
+            <Button
+              variant="secondary"
+              leftIcon={<span aria-hidden="true">🤖</span>}
+              loading={reportJob.starting}
+              disabled={reportJob.active}
+              onClick={() => void reportJob.start()}
+            >
               {t.aiProgressReport}
             </Button>
             <Link href={`/projects/${projectId}/report`} className={buttonClasses({ variant: "primary" })}>
