@@ -140,6 +140,16 @@ body {
 }
 
 /*
+ * Japanese: wrap at phrase boundaries (Chromium 119+) so lines never end in an
+ * orphaned kana such as 「ありませ／ん」 or 「9月30／日」 (A3-20). `line-break: strict`
+ * keeps small kana / closing punctuation off the start of a line elsewhere.
+ */
+:lang(ja) {
+  word-break: auto-phrase;
+  line-break: strict;
+}
+
+/*
  * Page width tokens — the two content widths of top-level pages:
  *   page-narrow  forms / settings / profile   (48rem, Tailwind 3xl)
  *   page-wide    boards / lists / tables       (80rem, Tailwind 7xl)

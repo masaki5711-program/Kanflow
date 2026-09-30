@@ -4,10 +4,14 @@
  */
 import type { Language, Translations } from "@/lib/i18n"
 import type { ActivityEntry } from "@/components/activity/history-format"
+import { LABEL_FIELDS, localizeLabel } from "@/lib/translation/localize-label"
+import type { EntityI18n } from "@/lib/translation/types"
 
 export interface FeedEntry extends ActivityEntry {
   entityType: string
   entityId: string
+  /** Translations of the entity (label shown in the viewer's language when it still matches). */
+  entityI18n?: EntityI18n
 }
 
 export interface FeedSentence {
@@ -119,7 +123,8 @@ export function feedSentence(entry: FeedEntry, projectId: string, t: Translation
   const template = (t[actionKey ?? "dashboardFeedUpdate"] as string).replace("{actor}", actor)
   const [before, after = ""] = template.split("{entity}")
   const word = ENTITY_KEY[entry.entityType] ? (t[ENTITY_KEY[entry.entityType]] as string) : entry.entityType
-  const label = entityLabel(entry)
+  const raw = entityLabel(entry)
+  const label = raw && localizeLabel(raw, entry.entityI18n, LABEL_FIELDS[entry.entityType] ?? [], language)
   const change = entry.changes?.status
   const to = entry.action === "status_change" && change && "to" in change && change.to !== null ? String(change.to) : null
   return {

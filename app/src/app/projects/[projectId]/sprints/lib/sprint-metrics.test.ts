@@ -17,7 +17,19 @@ function sprint(items: SprintItem[], capacity = 10): Sprint {
 }
 
 describe("computeSprintMetrics", () => {
-  it("counts each PBI workload once and weights done workload by task share", () => {
+  it("counts completed points only for PBIs whose real tasks are all done (same rule as actualScore)", () => {
+    const m = computeSprintMetrics(sprint([
+      task("a", "p1", 4, "done"),
+      task("b", "p1", 4, "done"),
+      task("c", "p2", 2, "done"),
+      task("d", "p2", 2, "todo"),
+      task("placeholder", "p3", 3, "todo", null),
+    ]))
+    expect(m.completedWorkload).toBe(4)
+    expect(Number.isInteger(m.completedWorkload)).toBe(true)
+  })
+
+  it("counts each PBI workload once; a partly done PBI adds no completed points", () => {
     const m = computeSprintMetrics(sprint([
       task("a", "p1", 4, "done"),
       task("b", "p1", 4, "todo"),
@@ -25,7 +37,7 @@ describe("computeSprintMetrics", () => {
       task("placeholder", "p3", 3, "todo", null),
     ]))
     expect(m.currentWorkload).toBe(9)
-    expect(m.completedWorkload).toBe(2)
+    expect(m.completedWorkload).toBe(0)
     expect(m.totalTasks).toBe(3)
     expect(m).toMatchObject({ doneTasks: 1, inProgressTasks: 1, todoTasks: 1, progress: 90, isOver: false })
   })

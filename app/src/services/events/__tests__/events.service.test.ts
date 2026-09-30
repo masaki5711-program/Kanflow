@@ -6,7 +6,7 @@ vi.mock("../events.repository")
 
 const repo = await import("../events.repository")
 const tr = await import("@/services/_shared/translations")
-const { ACTOR, TX } = await import("@/services/__tests__/support")
+const { ACTOR, TX, touchedTranslationFields } = await import("@/services/__tests__/support")
 const svc = await import("../events.service")
 
 describe("events.service", () => {
@@ -73,5 +73,15 @@ describe("events.service", () => {
     await svc.updateEvent("p1", "e1", { title: "N" }, ACTOR)
     expect(repo.findProjectSprintId).toHaveBeenCalledTimes(1)
     expect(repo.updateEvent).toHaveBeenCalledTimes(3)
+  })
+})
+
+describe("A3-02: partial updates keep translations", () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it("moving an event (text keys undefined) touches no FieldTranslation row", async () => {
+    vi.mocked(repo.updateEvent).mockResolvedValue({ id: "e1" } as never)
+    await svc.updateEvent("p1", "e1", { date: "2026-01-02", title: undefined, description: undefined }, ACTOR)
+    expect(touchedTranslationFields(tr.enqueueIn)).toEqual([])
   })
 })

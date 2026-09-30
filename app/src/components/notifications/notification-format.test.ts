@@ -21,6 +21,36 @@ function item(type: string, payload: Record<string, unknown>, over: Partial<Noti
 }
 
 describe("describeNotification", () => {
+  it("shows the entity title in the viewer's language when translated (A3-08)", () => {
+    const entityI18n = {
+      userStory: { ja: "E2E-ACC-3 受入テスト用PBI", id: "E2E-ACC-3 PBI untuk Uji Penerimaan", source: "ja" as const, status: "done" as const },
+    }
+    const mention = item(
+      "mentioned",
+      { entityLabel: "#238 E2E-ACC-3 受入テスト用PBI", actorName: "PO", entityType: "pbi", entityId: "b1" },
+      { entityType: "pbi", entityId: "b1", entityI18n }
+    )
+    const idText = describeNotification(mention, getTranslations("id"), "id").text
+    expect(idText).toContain("#238 E2E-ACC-3 PBI untuk Uji Penerimaan")
+    expect(describeNotification(mention, ja, "ja").text).toContain("#238 E2E-ACC-3 受入テスト用PBI")
+    // A label that no longer matches the source (renamed since) stays as stored.
+    const stale = item("mentioned", { entityLabel: "#238 old title", entityType: "pbi", entityId: "b1" }, { entityI18n })
+    expect(describeNotification(stale, t, "id").text).toContain("#238 old title")
+  })
+
+  it("translates plan item names in due notices", () => {
+    const entityI18n = { name: { ja: "ISとの調整", id: "Koordinasi dengan IS", source: "id" as const, status: "done" as const } }
+    const n = item("due_soon", { entityLabel: "Koordinasi dengan IS", dueDate: "2026-10-03" }, { entityType: "plan_item", entityId: "pl1", entityI18n })
+    expect(describeNotification(n, ja, "ja").text).toContain("ISとの調整")
+    expect(describeNotification(n, getTranslations("id"), "id").text).toContain("Koordinasi dengan IS")
+  })
+
+  it("translates sprint names in sprint notices (A3-08)", () => {
+    const entityI18n = { sprintName: { ja: "スプリント1", id: "Sprint 1", source: "ja" as const, status: "done" as const } }
+    const n = item("sprint_end", { sprintName: "スプリント1" }, { entityType: "sprint", entityId: "s1", entityI18n })
+    expect(describeNotification(n, getTranslations("id"), "id").text).toContain("Sprint 1")
+  })
+
   it("assigned (task) → sentence, project, sprint task deep link", () => {
     const n = item("assigned", { entityLabel: "Write tests\nmore", actorName: "Alice", sprintId: "s1" }, { entityType: "sprint_task", entityId: "t1" })
     expect(describeNotification(n, t, "en")).toEqual({

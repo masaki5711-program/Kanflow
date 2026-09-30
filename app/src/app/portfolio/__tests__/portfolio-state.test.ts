@@ -58,6 +58,26 @@ describe("sortPortfolio", () => {
   })
 })
 
+describe("A3-04 default order and first clicks", () => {
+  it("defaults to overall risk: attention first, then overdue tasks, then delayed plan items", () => {
+    const rows = [
+      row("calm"),
+      row("late-plan", { needsAttention: true, plan: { progressPct: 10, delayed: 3, atRisk: 0, total: 3 } }),
+      row("overdue", { needsAttention: true, overdueTasks: 2 }),
+    ]
+    expect(DEFAULT_VIEW).toMatchObject({ sort: "risk", dir: "desc" })
+    expect(ids(sortPortfolio(rows, DEFAULT_VIEW.sort, DEFAULT_VIEW.dir))).toEqual(["overdue", "late-plan", "calm"])
+  })
+
+  it.each(["overdue", "backlog", "velocity", "surveillance", "plan", "activity"] as const)("sorts %s worst / highest first on the first click", (key) => {
+    expect(nextSort(DEFAULT_VIEW, key).dir).toBe("desc")
+  })
+
+  it("drops the removed status column from URLs", () => {
+    expect(viewFromParams(new URLSearchParams("sort=status&dir=asc"))).toMatchObject({ sort: "risk" })
+  })
+})
+
 describe("portfolioKpis", () => {
   it("totals the strip", () => {
     const sprint = { id: "s" } as PortfolioRow["activeSprint"]
@@ -85,7 +105,8 @@ describe("URL state", () => {
   })
 
   it("header clicks flip the same column and reset another", () => {
-    expect(nextSort(DEFAULT_VIEW, "overdue")).toEqual({ sort: "overdue", dir: "asc" })
+    expect(nextSort(DEFAULT_VIEW, "overdue")).toEqual({ sort: "overdue", dir: "desc" })
+    expect(nextSort({ ...DEFAULT_VIEW, sort: "overdue", dir: "desc" }, "overdue")).toEqual({ sort: "overdue", dir: "asc" })
     expect(nextSort(DEFAULT_VIEW, "name")).toEqual({ sort: "name", dir: "asc" })
     expect(nextSort(DEFAULT_VIEW, "activity")).toEqual({ sort: "activity", dir: "desc" })
   })

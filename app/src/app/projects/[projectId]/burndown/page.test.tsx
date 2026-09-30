@@ -26,6 +26,10 @@ vi.mock("next/navigation", () => ({
     throw new Error("NOT_FOUND")
   },
 }))
+vi.mock("@/lib/translation/hooks", () => ({
+  attachI18n: async (_type: string, rows: Record<string, unknown>[]) =>
+    rows.map((r) => ({ ...r, i18n: r.id === "s1" ? { sprintName: { ja: "S1", id: "S Satu", source: "ja", status: "done" } } : {} })),
+}))
 vi.mock("./burndown-content", () => ({ BurndownPageContent: () => null }))
 
 const { default: BurndownPage } = await import("./page")
@@ -53,7 +57,9 @@ describe("BurndownPage access gate", () => {
     const el = (await BurndownPage({ params })) as ReactElement<{ projectId: string; sprints: unknown }>
     expect(el.type).toBe(BurndownPageContent)
     expect(el.props.projectId).toBe("p1")
-    expect(el.props.sprints).toEqual([{ id: "s1", name: "S1", status: "active" }])
+    expect(el.props.sprints).toEqual([
+      { id: "s1", name: "S1", status: "active", i18n: { sprintName: { ja: "S1", id: "S Satu", source: "ja", status: "done" } } },
+    ])
     expect(mocks.sprintFind.mock.calls[0][0].where).toEqual({ projectId: "p1", status: { in: ["active", "review", "done", "archived"] } })
     expect(mocks.memberFind).toHaveBeenCalledWith({ where: { projectId: "p1", userId: "u1" } })
   })

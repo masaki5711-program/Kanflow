@@ -2,7 +2,9 @@ import { Prisma } from "@/generated/prisma/client"
 import { prisma } from "@/lib/prisma"
 import { aiLog } from "@/lib/ai-monitor"
 import { detectLocale, sourceHash, splitLegacyPairs } from "./detect-locale"
+import { pickTranslatableFields, type FieldInputs } from "./pick-fields"
 import {
+  ENTITY_LIVE_FILTER,
   ENTITY_TABLES,
   TRANSLATABLE_FIELDS,
   translationPriority,
@@ -26,9 +28,6 @@ import {
  *   columns and stored as done instead of being sent to the model.
  */
 
-/** enqueue input: undefined = leave alone, null / empty = delete the row, string = source text */
-export type FieldInputs = Record<string, string | null | undefined>
-
 /**
  * Any Prisma client the write side may run on: the global client or the `tx`
  * of an interactive `prisma.$transaction`. Passing `tx` makes the enqueue /
@@ -39,21 +38,13 @@ export type TranslationDb = Prisma.TransactionClient
 
 type Row = Prisma.FieldTranslationGetPayload<Record<string, never>>
 
+export { pickTranslatableFields }
+export type { FieldInputs }
+
 const LEGACY_MODEL = "legacy-pairs"
 
 /** Upper bound of ids per `IN (...)` when deleting rows of many entities. */
 const DELETE_CHUNK = 1000
-
-/** The translatable subset of `record` as enqueue input (absent keys stay absent). */
-export function pickTranslatableFields(entityType: TranslatableEntity, record: Record<string, unknown>): FieldInputs {
-  const fields: FieldInputs = {}
-  for (const field of Object.keys(TRANSLATABLE_FIELDS[entityType])) {
-    if (!(field in record)) continue
-    const v = record[field]
-    fields[field] = typeof v === "string" ? v : v == null ? null : String(v)
-  }
-  return fields
-}
 
 /**
  * Pick the translatable fields out of an entity record and enqueue them.
@@ -308,6 +299,11 @@ async function deleteOrphans(entity: TranslatableEntity): Promise<number> {
 
 // === backfill ===
 
+/** The entity's extra "still shown" condition on alias `t` (`1=1` when none). Static SQL from types.ts. */
+function liveFilter(entity: TranslatableEntity): Prisma.Sql {
+  return Prisma.raw(ENTITY_LIVE_FILTER[entity] ?? "1=1")
+}
+
 /**
  * Enqueue one backfill field only if the entity still exists. The entity row
  * is share-locked in the same transaction as the insert, so a concurrent
@@ -323,7 +319,7 @@ async function enqueueIfEntityAlive(
   const col = Prisma.raw(`\`${field}\``)
   return prisma.$transaction(async (tx) => {
     const alive = await tx.$queryRaw<Array<{ txt: string | null }>>`
-      SELECT ${col} AS txt FROM ${Prisma.raw(`\`${table}\``)} WHERE \`id\` = ${id} FOR SHARE
+      SELECT ${col} AS txt FROM ${Prisma.raw(`\`${table}\``)} t WHERE t.\`id\` = ${id} AND ${liveFilter(entity)} FOR SHARE
     `
     const txt = alive[0]?.txt
     if (!txt || !txt.trim()) return false
@@ -348,7 +344,7 @@ export async function backfillTranslations(limit = 200): Promise<number> {
       const rows = await prisma.$queryRaw<Array<{ id: string; txt: string }>>`
         SELECT t.\`id\` AS id, ${col} AS txt
         FROM ${Prisma.raw(`\`${table}\``)} t
-        WHERE ${col} IS NOT NULL AND TRIM(${col}) <> ''
+        WHERE ${col} IS NOT NULL AND TRIM(${col}) <> '' AND ${liveFilter(entity)}
           AND NOT EXISTS (
             SELECT 1 FROM field_translation ft
             WHERE ft.entity_type = ${entity} AND ft.entity_id = t.\`id\` AND ft.field = ${field}

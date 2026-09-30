@@ -32,7 +32,6 @@ export interface PortfolioTranslations {
   portfolioTableCaption: string
   portfolioColProject: string
   portfolioColSection: string
-  portfolioColStatus: string
   portfolioColSprint: string
   portfolioColOverdue: string
   portfolioColBacklog: string
@@ -40,6 +39,16 @@ export interface PortfolioTranslations {
   portfolioColSurveillance: string
   portfolioColPlan: string
   portfolioColLastActivity: string
+  /** Header tooltips (the headers themselves are short). */
+  portfolioColProjectHint: string
+  portfolioColSectionHint: string
+  portfolioColSprintHint: string
+  portfolioColOverdueHint: string
+  portfolioColBacklogHint: string
+  portfolioColVelocityHint: string
+  portfolioColSurveillanceHint: string
+  portfolioColPlanHint: string
+  portfolioColLastActivityHint: string
   portfolioNoSection: string
   portfolioStatusActive: string
   portfolioStatusArchived: string
@@ -96,14 +105,22 @@ export const ja: PortfolioTranslations = {
   portfolioTableCaption: "プロジェクト別の状況",
   portfolioColProject: "プロジェクト",
   portfolioColSection: "部門",
-  portfolioColStatus: "状態",
-  portfolioColSprint: "実行中のスプリント",
+  portfolioColSprint: "実行中スプリント",
   portfolioColOverdue: "期限切れ",
-  portfolioColBacklog: "未完了 PBI",
-  portfolioColVelocity: "ベロシティ（直近 3）",
-  portfolioColSurveillance: "AI 監視",
-  portfolioColPlan: "全体計画",
+  portfolioColBacklog: "未完了PBI",
+  portfolioColVelocity: "ベロシティ",
+  portfolioColSurveillance: "AI監視",
+  portfolioColPlan: "計画進捗",
   portfolioColLastActivity: "最終更新",
+  portfolioColProjectHint: "プロジェクト名（要注意・アーカイブの印付き）",
+  portfolioColSectionHint: "担当部門",
+  portfolioColSprintHint: "実行中のスプリント：残り日数、スプリント完了率（完了タスク ÷ 全タスク）、残タスクの推移、完了ポイント",
+  portfolioColOverdueHint: "終了日を過ぎたスプリントの未完了タスク数",
+  portfolioColBacklogHint: "未完了の PBI 数と合計ポイント",
+  portfolioColVelocityHint: "直近 3 スプリントの完了ポイントと傾向",
+  portfolioColSurveillanceHint: "最新の AI 監視レポートの重大度",
+  portfolioColPlanHint: "計画進捗：全体計画の最上位項目を期間で加重した進捗（ダッシュボードと同じ値）と、遅延・要注意の項目数",
+  portfolioColLastActivityHint: "最後の更新からの経過時間",
   portfolioNoSection: "部門なし",
   portfolioStatusActive: "進行中",
   portfolioStatusArchived: "アーカイブ",
@@ -155,15 +172,23 @@ export const en: PortfolioTranslations = {
   portfolioResultCount: "Showing {shown} of {total}",
   portfolioTableCaption: "Status by project",
   portfolioColProject: "Project",
-  portfolioColSection: "Department",
-  portfolioColStatus: "Status",
+  portfolioColSection: "Dept.",
   portfolioColSprint: "Active sprint",
   portfolioColOverdue: "Overdue",
   portfolioColBacklog: "Open PBIs",
-  portfolioColVelocity: "Velocity (last 3)",
+  portfolioColVelocity: "Velocity",
   portfolioColSurveillance: "AI watch",
-  portfolioColPlan: "Master plan",
-  portfolioColLastActivity: "Last activity",
+  portfolioColPlan: "Plan progress",
+  portfolioColLastActivity: "Updated",
+  portfolioColProjectHint: "Project name (with attention / archived tags)",
+  portfolioColSectionHint: "Department",
+  portfolioColSprintHint: "Active sprint: days left, sprint completion (done tasks ÷ all tasks), remaining-task trend, completed points",
+  portfolioColOverdueHint: "Unfinished tasks of sprints past their end date",
+  portfolioColBacklogHint: "Open PBIs and their total points",
+  portfolioColVelocityHint: "Completed points of the last 3 sprints and the trend",
+  portfolioColSurveillanceHint: "Severity of the latest AI watch report",
+  portfolioColPlanHint: "Plan progress: top-level master-plan items weighted by duration (same value as the dashboard), plus delayed / at-risk items",
+  portfolioColLastActivityHint: "Time since the last activity",
   portfolioNoSection: "No department",
   portfolioStatusActive: "Active",
   portfolioStatusArchived: "Archived",
@@ -215,15 +240,23 @@ export const id: PortfolioTranslations = {
   portfolioResultCount: "Menampilkan {shown} dari {total}",
   portfolioTableCaption: "Kondisi per proyek",
   portfolioColProject: "Proyek",
-  portfolioColSection: "Departemen",
-  portfolioColStatus: "Status",
+  portfolioColSection: "Dept.",
   portfolioColSprint: "Sprint aktif",
   portfolioColOverdue: "Terlambat",
-  portfolioColBacklog: "PBI terbuka",
-  portfolioColVelocity: "Velocity (3 terakhir)",
-  portfolioColSurveillance: "Pemantauan AI",
-  portfolioColPlan: "Rencana induk",
-  portfolioColLastActivity: "Aktivitas terakhir",
+  portfolioColBacklog: "PBI",
+  portfolioColVelocity: "Velocity",
+  portfolioColSurveillance: "Pantau AI",
+  portfolioColPlan: "Rencana",
+  portfolioColLastActivity: "Terakhir",
+  portfolioColProjectHint: "Nama proyek (dengan tanda perlu perhatian / arsip)",
+  portfolioColSectionHint: "Departemen",
+  portfolioColSprintHint: "Sprint aktif: sisa hari, penyelesaian sprint (tugas selesai ÷ semua tugas), tren sisa tugas, poin selesai",
+  portfolioColOverdueHint: "Tugas belum selesai pada sprint yang melewati tanggal akhir",
+  portfolioColBacklogHint: "PBI terbuka dan total poinnya",
+  portfolioColVelocityHint: "Poin selesai 3 sprint terakhir dan trennya",
+  portfolioColSurveillanceHint: "Tingkat laporan pemantauan AI terbaru",
+  portfolioColPlanHint: "Progres rencana: item teratas rencana induk dibobot durasi (nilai yang sama dengan dasbor), serta item terlambat / berisiko",
+  portfolioColLastActivityHint: "Waktu sejak aktivitas terakhir",
   portfolioNoSection: "Tanpa departemen",
   portfolioStatusActive: "Aktif",
   portfolioStatusArchived: "Diarsipkan",
@@ -242,7 +275,7 @@ export const id: PortfolioTranslations = {
   portfolioSeverityCritical: "Kritis",
   portfolioSeverityWarning: "Peringatan",
   portfolioSeverityNone: "Aman",
-  portfolioNoReport: "Belum dijalankan",
+  portfolioNoReport: "Belum ada",
   portfolioNoPlan: "Tidak ada rencana",
   portfolioPlanDelayed: "{count} terlambat",
   portfolioPlanAtRisk: "{count} berisiko",

@@ -9,7 +9,7 @@ vi.mock("../backlog.repository")
 
 const repo = await import("../backlog.repository")
 const tr = await import("@/services/_shared/translations")
-const { ACTOR, TX, prismaError } = await import("@/services/__tests__/support")
+const { ACTOR, TX, prismaError, touchedTranslationFields } = await import("@/services/__tests__/support")
 const { withTransaction } = await import("@/services/_shared/db")
 const svc = await import("../backlog.service")
 
@@ -210,5 +210,15 @@ describe("backlog.service", () => {
       vi.mocked(repo.updateBacklogItem).mockResolvedValueOnce({ id: "b1", displayId: 7, initiative: null, userStory: "", status: "ready" } as never)
       await expect(svc.updateBacklogItem("p1", "b1", { status: "ready" }, ACTOR)).resolves.toMatchObject({ id: "b1" })
     })
+  })
+})
+
+describe("A3-02: partial updates keep translations", () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it("a status-only update (text keys undefined) touches no FieldTranslation row", async () => {
+    vi.mocked(repo.updateBacklogItem).mockResolvedValue({ id: "a", displayId: 1 } as never)
+    await svc.updateBacklogItem("p1", "a", { status: "completed", userStory: undefined, initiative: undefined }, ACTOR)
+    expect(touchedTranslationFields(tr.enqueueIn)).toEqual([])
   })
 })

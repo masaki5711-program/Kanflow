@@ -51,7 +51,7 @@ export function ResetPasswordModal({ user, onClose }: Props) {
       isDirty={password.length > 0}
       footer={<Footer saving={saving} />}
     >
-      <form id={FORM_ID} onSubmit={handleSubmit}>
+      <form id={FORM_ID} onSubmit={handleSubmit} noValidate>
         <Field label={t.myProfileNewPassword} required hint={t.userPasswordMinLength} error={error ?? undefined}>
           <Input
             type="password"

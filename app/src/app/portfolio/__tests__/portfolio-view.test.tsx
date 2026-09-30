@@ -86,7 +86,7 @@ describe("PortfolioView", () => {
     renderWithProviders(<PortfolioView data={DATA} />)
     const box = screen.getByRole("table").parentElement!
     // `relative` keeps the sr-only (absolute) cell texts inside the scroll box.
-    expect(box.className.split(" ")).toEqual(expect.arrayContaining(["relative", "max-w-full", "overflow-x-auto"]))
+    expect(box.className.split(" ")).toEqual(expect.arrayContaining(["relative", "max-w-full", "overflow-auto"]))
   })
 
   it("sorts by a column header and reflects it in aria-sort and the URL", async () => {
@@ -98,6 +98,46 @@ describe("PortfolioView", () => {
     expect(window.location.search).toBe("?sort=name&dir=asc")
     await userEvent.click(within(header).getByRole("button"))
     expect(bodyRows()).toEqual(["Gamma", "Beta", "Alpha"])
+  })
+
+  it("A3-04: one-line headers with tooltips, numbers right-aligned, fixed column widths", () => {
+    renderWithProviders(<PortfolioView data={DATA} />)
+    const table = screen.getByRole("table")
+    expect(table.className.split(" ")).toEqual(expect.arrayContaining(["table-fixed", "min-w-[75rem]"]))
+    const headers = within(table).getAllByRole("columnheader")
+    expect(headers).toHaveLength(9)
+    for (const h of headers) expect(h.className).toContain("whitespace-nowrap")
+    const overdue = screen.getByRole("columnheader", { name: t.portfolioColOverdue })
+    expect(overdue.className).toContain("text-right")
+    expect(within(overdue).getByRole("button")).toHaveAttribute("title", t.portfolioColOverdueHint)
+    expect(screen.getByRole("columnheader", { name: t.portfolioColPlan })).toBeInTheDocument()
+    expect(table.querySelectorAll("col")).toHaveLength(9)
+    // The archived project keeps its status as a tag next to its name.
+    expect(within(table).getByText(t.portfolioStatusArchived)).toBeInTheDocument()
+  })
+
+  it("A3-04: the first click on Overdue sorts the worst first", async () => {
+    renderWithProviders(<PortfolioView data={DATA} />)
+    const header = screen.getByRole("columnheader", { name: t.portfolioColOverdue })
+    expect(header).toHaveAttribute("aria-sort", "none")
+    await userEvent.click(within(header).getByRole("button"))
+    expect(header).toHaveAttribute("aria-sort", "descending")
+    expect(window.location.search).toBe("?sort=overdue&dir=desc")
+    expect(bodyRows()[0]).toBe("Beta")
+  })
+
+  it("A3-04: KPI tiles share one row height (no double-height hero tile)", () => {
+    renderWithProviders(<PortfolioView data={DATA} />)
+    const tiles = Array.from(screen.getByTestId("portfolio-kpis").children)
+    expect(tiles).toHaveLength(6)
+    for (const tile of tiles) expect(tile.className).not.toMatch(/row-span/)
+    expect(screen.getByTestId("portfolio-kpis").className).toContain("lg:grid-cols-6")
+  })
+
+  it("A3-13: labels the sprint and plan bars with what they measure", () => {
+    renderWithProviders(<PortfolioView data={DATA} />)
+    expect(screen.getByTitle(`${t.sprintCompletionRate} 25%`)).toBeInTheDocument()
+    expect(screen.getByTitle(`${t.portfolioColPlan} 40%`)).toBeInTheDocument()
   })
 
   it("filters by attention, section and status, with a clear action", async () => {

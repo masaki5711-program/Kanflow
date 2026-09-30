@@ -8,7 +8,7 @@ vi.mock("../releases.repository")
 
 const repo = await import("../releases.repository")
 const tr = await import("@/services/_shared/translations")
-const { ACTOR, TX } = await import("@/services/__tests__/support")
+const { ACTOR, TX, touchedTranslationFields } = await import("@/services/__tests__/support")
 const svc = await import("../releases.service")
 
 describe("releases.service", () => {
@@ -58,5 +58,15 @@ describe("releases.service", () => {
   it("import 404s when no PBI matches", async () => {
     vi.mocked(repo.findPbisForRelease).mockResolvedValue([])
     await expect(svc.importReleaseItems("p1", { pbItemIds: ["x"] })).rejects.toThrow("該当するPBIがありません")
+  })
+})
+
+describe("A3-02: partial updates keep translations", () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it("a status-only update (text keys undefined) touches no FieldTranslation row", async () => {
+    vi.mocked(repo.updateReleaseItem).mockResolvedValue({ id: "r1" } as never)
+    await svc.updateReleaseItem("p1", "r1", { status: "ready", userStory: undefined }, ACTOR)
+    expect(touchedTranslationFields(tr.enqueueIn)).toEqual([])
   })
 })

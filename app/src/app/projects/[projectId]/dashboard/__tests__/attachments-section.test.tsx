@@ -1,3 +1,4 @@
+import { formatLongDate } from "@/lib/format-date"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { fireEvent, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
@@ -48,7 +49,7 @@ describe("AttachmentsSection", () => {
     expect(screen.getByRole("link", { name: "doc.file" })).toHaveAttribute("href", "/api/projects/p1/attachments/doc")
     expect(screen.getByRole("link", { name: ja.edit })).toHaveAttribute("href", "/projects/p1/editor/doc")
     expect(screen.getAllByText("2.0 KB")).toHaveLength(2)
-    expect(screen.getAllByText("2026/02/03")).toHaveLength(2)
+    expect(screen.getAllByText(formatLongDate("2026-02-03T00:00:00Z", "ja"))).toHaveLength(2)
     expect(screen.getByRole("link", { name: `${ja.dashboardDownload}: doc.file` })).toHaveAttribute("href", "/api/projects/p1/attachments/doc?download=1")
   })
 

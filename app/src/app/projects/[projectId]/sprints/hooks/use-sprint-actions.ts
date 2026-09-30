@@ -3,7 +3,10 @@
 import { useToast, useConfirm } from "@/components/ui"
 import { apiFetch, isApiError, useVersionConflict, versionParam, withVersion } from "@/hooks"
 import { useLanguage } from "@/lib/language-context"
+import { fillTemplate } from "@/lib/fill-template"
+import { pickText } from "@/lib/translation/pick-text"
 import { messageOf } from "../lib/errors"
+import { sprintStartMessage, statusChangedTemplate } from "../lib/status-change"
 import { buildStatusPatch } from "../lib/task-payload"
 import type { RetroFields, Sprint } from "../components/types"
 import type { SprintsData } from "./use-sprints-data"
@@ -21,7 +24,7 @@ type Deps = Pick<SprintsData, "sprints" | "refetchSprints" | "refetchReady" | "m
 
 /** Sprint-level writes (create / status / delete / PBI membership). */
 export function useSprintActions(projectId: string, { sprints, refetchSprints, refetchReady, mutateSprints }: Deps) {
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
   const toast = useToast()
   const confirm = useConfirm()
   const onVersionConflict = useVersionConflict()
@@ -45,9 +48,15 @@ export function useSprintActions(projectId: string, { sprints, refetchSprints, r
     }
   }
 
+  const displayName = (s: Sprint) => pickText(s.i18n, "sprintName", s.sprintName, language).text
+
   async function changeStatus(sprintId: string, status: string, retro: Partial<RetroFields> | null): Promise<boolean> {
+    const sprint = sprints.find((s) => s.id === sprintId)
     try {
       await apiFetch(`${base}/${sprintId}`, { method: "PATCH", json: withVersion(buildStatusPatch(status, retro), versionOf(sprintId)) })
+      // A3-10: every explicit status change confirms what happened.
+      const template = sprint ? statusChangedTemplate(sprint.status, status, t) : null
+      if (template && sprint) toast.success(fillTemplate(template, { name: displayName(sprint) }))
       refetchSprints()
       return true
     } catch (err) {
@@ -55,6 +64,18 @@ export function useSprintActions(projectId: string, { sprints, refetchSprints, r
       toast.error(messageOf(err, t.error), { title: t.sprintStatusUpdateFailed })
       return false
     }
+  }
+
+  /** planning → active: confirm with the period / PBI / task / load summary first (the whole team is notified). */
+  async function startSprint(sprint: Sprint): Promise<boolean> {
+    const ok = await confirm({
+      title: fillTemplate(t.sprintStartConfirmTitle, { name: displayName(sprint) }),
+      message: sprintStartMessage(sprint, t, language),
+      confirmLabel: t.sprintStartConfirmLabel,
+      cancelLabel: t.cancel,
+      variant: "info",
+    })
+    return ok ? changeStatus(sprint.id, "active", null) : false
   }
 
   async function deleteSprint(sprint: Sprint): Promise<void> {
@@ -89,5 +110,5 @@ export function useSprintActions(projectId: string, { sprints, refetchSprints, r
     }
   }
 
-  return { createSprint, changeStatus, deleteSprint, removePbi }
+  return { createSprint, changeStatus, startSprint, deleteSprint, removePbi }
 }

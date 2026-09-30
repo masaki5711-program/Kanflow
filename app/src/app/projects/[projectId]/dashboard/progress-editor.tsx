@@ -1,6 +1,7 @@
 "use client"
 
 import { useId, useState } from "react"
+import Link from "next/link"
 import { Button, useToast } from "@/components/ui"
 import { apiFetch } from "@/hooks"
 import { useLanguage } from "@/lib/language-context"
@@ -9,12 +10,18 @@ interface ProgressEditorProps {
   projectId: string
   initialProgress: number
   canEdit: boolean
+  /** "計画進捗": master-plan rollup (planOverallProgress), null without a plan; undefined hides the row. */
+  planProgressPct?: number | null
 }
 
 const clampPct = (n: number) => Math.min(100, Math.max(0, n))
 
-/** Manual project progress (0–100 %) maintained by the PO. */
-export function ProgressEditor({ projectId, initialProgress, canEdit }: ProgressEditorProps) {
+/**
+ * Manual project progress (0–100 %) maintained by the PO, with the computed
+ * plan progress beside it — each clearly labelled so a reader never mistakes
+ * one for the other (A3-13).
+ */
+export function ProgressEditor({ projectId, initialProgress, canEdit, planProgressPct }: ProgressEditorProps) {
   const { t } = useLanguage()
   const toast = useToast()
   const labelId = useId()
@@ -46,7 +53,7 @@ export function ProgressEditor({ projectId, initialProgress, canEdit }: Progress
       <div className="flex flex-wrap items-center justify-between mb-2 gap-3">
         <div className="flex items-center gap-2 flex-1">
           <span id={labelId} className="text-body font-semibold text-success">{t.projectProgress}</span>
-          {!canEdit && <span className="text-caption text-success">{t.dashboardProgressSetByPo}</span>}
+          <span className="text-caption text-success-strong">{t.dashboardProgressSetByPo}</span>
         </div>
         {editing ? (
           <div className="flex flex-wrap items-center gap-2">
@@ -100,6 +107,21 @@ export function ProgressEditor({ projectId, initialProgress, canEdit }: Progress
       >
         <div className="h-full bg-green-600 rounded-full transition-[width] duration-700" style={{ width: `${shown}%` }} />
       </div>
+      {planProgressPct !== undefined && <PlanProgressLine projectId={projectId} pct={planProgressPct} />}
     </div>
+  )
+}
+
+/** The master plan's own progress (same number as the portfolio's 計画進捗 column). */
+function PlanProgressLine({ projectId, pct }: { projectId: string; pct: number | null }) {
+  const { t } = useLanguage()
+  return (
+    <p data-testid="dashboard-plan-progress" className="mt-3 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-body">
+      <Link href={`/projects/${projectId}/plan`} className="font-semibold text-fg hover:text-primary hover:underline">
+        {t.dashboardPlanProgress}
+      </Link>
+      <span className="font-semibold tabular-nums text-fg">{pct === null ? t.dashboardPlanProgressNone : `${pct}%`}</span>
+      <span className="text-caption text-fg-muted">{t.dashboardPlanProgressHint}</span>
+    </p>
   )
 }

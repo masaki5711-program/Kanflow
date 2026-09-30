@@ -2,6 +2,7 @@
  * Pure helpers of the dashboard's top row: sprint time left, the burndown
  * sparkline and the "coming up" list (plan items + sprint end).
  */
+import type { EntityI18n } from "@/lib/translation/types"
 
 const DAY_MS = 86_400_000
 
@@ -67,6 +68,10 @@ export interface DueItem {
   id: string
   kind: DueKind
   name: string
+  /** Both-language text of `name` (field `nameField`); `{}` when untranslated. */
+  i18n: EntityI18n
+  /** Translation field holding the name: plan item "name", sprint "sprintName". */
+  nameField: "name" | "sprintName"
   /** ISO date the item is due. */
   date: string
   /** Days from today (negative = overdue). */
@@ -79,12 +84,14 @@ export interface DuePlanItem {
   plannedEnd: string
   status: string
   isMilestone: boolean
+  i18n?: EntityI18n
 }
 
 export interface DueSprint {
   id: string
   name: string
   endDate: string
+  i18n?: EntityI18n
 }
 
 /**
@@ -94,8 +101,26 @@ export interface DueSprint {
 export function buildUpcomingDue(planItems: readonly DuePlanItem[], sprint: DueSprint | null, now: Date): DueItem[] {
   const fromPlan = planItems
     .filter((p) => p.status !== "done")
-    .map((p) => ({ id: p.id, kind: (p.isMilestone ? "milestone" : "plan_item") as DueKind, name: p.name, date: p.plannedEnd, days: daysFromToday(p.plannedEnd, now) }))
-  const fromSprint = sprint ? [{ id: sprint.id, kind: "sprint_end" as DueKind, name: sprint.name, date: sprint.endDate, days: daysFromToday(sprint.endDate, now) }] : []
+    .map((p) => ({
+      id: p.id,
+      kind: (p.isMilestone ? "milestone" : "plan_item") as DueKind,
+      name: p.name,
+      i18n: p.i18n ?? {},
+      nameField: "name" as const,
+      date: p.plannedEnd,
+      days: daysFromToday(p.plannedEnd, now),
+    }))
+  const fromSprint = sprint
+    ? [{
+        id: sprint.id,
+        kind: "sprint_end" as DueKind,
+        name: sprint.name,
+        i18n: sprint.i18n ?? {},
+        nameField: "sprintName" as const,
+        date: sprint.endDate,
+        days: daysFromToday(sprint.endDate, now),
+      }]
+    : []
   return [...fromSprint, ...fromPlan]
     .filter((i): i is DueItem => i.days !== null && i.days <= DUE_HORIZON_DAYS)
     .sort((a, b) => a.days - b.days)

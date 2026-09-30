@@ -306,14 +306,24 @@ describe("SprintsPage", () => {
     expect(screen.getByText("Sprint s1")).toBeInTheDocument()
   })
 
-  it("moves planning → active directly, and active → review through the retro dialog", async () => {
-    const { calls } = stubFetch(baseRoutes([sprint("s1", { status: "planning" }), sprint("s2", { status: "active" })], {
+  it("starts planning → active after a summary confirm (A3-10), and active → review through the retro dialog", async () => {
+    const { calls } = stubFetch(baseRoutes([sprint("s1", { status: "planning", items: [task("t1", pb1)] }), sprint("s2", { status: "active" })], {
       [`PATCH ${BASE}/sprints/s1`]: {},
       [`PATCH ${BASE}/sprints/s2`]: {},
     }))
     renderWithProviders(<SprintsPage />)
-    await userEvent.click(await screen.findByRole("button", { name: t.sprintMoveToStatus.replace("{status}", t.sprintStatusActive) }))
+    const startButton = await screen.findByRole("button", { name: t.sprintMoveToStatus.replace("{status}", t.sprintStatusActive) })
+    await userEvent.click(startButton)
+    const confirmStart = await screen.findByRole("alertdialog")
+    expect(confirmStart).toHaveTextContent(t.sprintStartConfirmTitle.replace("{name}", "Sprint s1"))
+    expect(confirmStart).toHaveTextContent("PBI: 1 件 / タスク: 1 件")
+    await userEvent.click(within(confirmStart).getByRole("button", { name: t.cancel }))
+    expect(calls.some((c) => c.url === `${BASE}/sprints/s1` && c.method === "PATCH")).toBe(false)
+
+    await userEvent.click(startButton)
+    await userEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: t.sprintStartConfirmLabel }))
     await waitFor(() => expect(calls.find((c) => c.url === `${BASE}/sprints/s1`)?.body).toEqual({ status: "active" }))
+    expect(await screen.findByText(t.sprintStatusChangedActive.replace("{name}", "Sprint s1"))).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole("button", { name: t.sprintMoveToStatus.replace("{status}", t.sprintStatusReview) }))
     const dialog = await screen.findByRole("dialog")
@@ -322,6 +332,7 @@ describe("SprintsPage", () => {
     await userEvent.click(within(dialog).getByRole("button", { name: t.sprintSubmitAndChangeStatus }))
     await waitFor(() => expect(calls.find((c) => c.url === `${BASE}/sprints/s2`)?.body).toMatchObject({ status: "review", retrospectiveKeep: "Pairing", reviewComment: null }))
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
+    expect(await screen.findByText(t.sprintStatusChangedReview.replace("{name}", "Sprint s2"))).toBeInTheDocument()
   })
 
   it("keeps the retro dialog open and toasts when the status change fails", async () => {

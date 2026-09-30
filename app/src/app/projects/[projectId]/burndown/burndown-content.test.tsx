@@ -62,6 +62,13 @@ describe("BurndownPageContent", () => {
     ])
   })
 
+  it("shows the viewer-language sprint name in the selector (cycle 3)", () => {
+    const translated = [{ id: "s3", name: "Sprint Tiga", status: "active", i18n: { sprintName: { ja: "スプリント3", id: "Sprint Tiga", source: "id" as const, status: "done" as const } } }]
+    render(<BurndownPageContent projectId="p1" sprints={translated} />)
+    const select = screen.getByRole("combobox", { name: t.burndownSprintSelect }) as HTMLSelectElement
+    expect(select.options[1].textContent).toBe(`スプリント3 · ${t.sprintStatusActive}`)
+  })
+
   it("switches the chart to another sprint or the whole project", async () => {
     const user = userEvent.setup()
     render(<BurndownPageContent projectId="p1" sprints={sprints} />)

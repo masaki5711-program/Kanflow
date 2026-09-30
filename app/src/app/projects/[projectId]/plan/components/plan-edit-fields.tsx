@@ -19,6 +19,8 @@ interface Props {
   parentOptions: readonly { id: string; name: string; depth: number }[]
   members: readonly { id: string; name: string }[]
   errors: Partial<Record<FormErrorKey, true>>
+  /** Read-only viewers get no glossary-syntax hint (A3-19). */
+  readOnly?: boolean
 }
 
 /** Read-only value of a derived field, marked "自動". */
@@ -36,7 +38,7 @@ function Derived({ label, children }: { label: string; children: ReactNode }) {
 }
 
 /** The editable / derived fields of the plan item editor. */
-export function PlanEditFields({ form, set, flags, item, parentOptions, members, errors }: Props) {
+export function PlanEditFields({ form, set, flags, item, parentOptions, members, errors, readOnly = false }: Props) {
   const { t, language } = useLanguage()
   const isLeaf = !item?.hasChildren
   const showMode = isLeaf && !form.isMilestone
@@ -153,7 +155,7 @@ export function PlanEditFields({ form, set, flags, item, parentOptions, members,
       <Field label={t.planNotes}>
         <Textarea value={form.notes} onChange={(e) => set("notes", e.target.value)} rows={2} />
       </Field>
-      <GlossaryHint />
+      {!readOnly && <GlossaryHint />}
     </div>
   )
 }

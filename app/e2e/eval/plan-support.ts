@@ -59,7 +59,7 @@ export async function userPage(
 
 type Json = Record<string, unknown>
 export async function api(page: Page, method: string, url: string, data?: unknown): Promise<{ status: number; body: any }> {
-  const origin = (process.env.E2E_BASE_URL ?? "http://localhost:3101")
+  const origin = (process.env.E2E_BASE_URL ?? "http://localhost:3102")
   const res = await page.request.fetch(url.startsWith("http") ? url : origin + url, {
     method,
     data: data as Json | undefined,

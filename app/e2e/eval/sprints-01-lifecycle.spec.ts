@@ -50,12 +50,12 @@ test("create sprint via UI with 3 READY PBIs", async ({ browser }) => {
   await ctx.close()
 })
 
-test("add 4th PBI via 'PBアイテムを追加' modal", async ({ browser }) => {
+test("add 4th PBI via 'PBI を追加' modal", async ({ browser }) => {
   const s = readState()
   const { ctx, page, issues } = await newUserPage(browser, "po")
   await page.goto(`/projects/${s.projectId}/sprints`)
   const c = await card(page)
-  await c.getByRole("button", { name: "PBアイテムを追加" }).click()
+  await c.getByRole("button", { name: "PBI を追加" }).click()
   const dlg = page.getByRole("dialog")
   await expect(dlg).toBeVisible()
   await page.waitForTimeout(1000)
@@ -98,7 +98,7 @@ test("add tasks via task form (assignee picker single-owner rule)", async ({ bro
   await expect(c.getByText("E2E-Task-1 design")).toBeVisible()
 
   // Task 2 via the empty-state button on PBI #2
-  await c.getByRole("region", { name: /^#2 / }).getByRole("button", { name: /タスク追加/ }).click()
+  await c.getByRole("region", { name: /^#2 / }).getByRole("button", { name: /タスクがまだありません.*タスク追加/ }).click()
   dlg = page.getByRole("dialog", { name: /タスク追加/ })
   await dlg.getByRole("textbox", { name: /タスク名/ }).fill("E2E-Task-2 build")
   await dlg.getByRole("group", { name: "担当者" }).getByRole("button", { name: "E2E SM" }).click()
@@ -156,6 +156,11 @@ test("start sprint (planning → active) notifies members (sprint_start)", async
   await page.goto(`/projects/${s.projectId}/sprints`)
   const c = await card(page)
   await c.getByRole("button", { name: "「実行中」へ移行" }).click()
+  // Cycle 3 (A3-10): starting asks for confirmation with a summary, then toasts.
+  const confirmStart = page.getByRole("alertdialog")
+  await expect(confirmStart).toContainText("キャパシティ")
+  await confirmStart.getByRole("button", { name: "開始する" }).click()
+  await expect(page.getByText(/を開始しました。チームに通知しました。/)).toBeVisible()
   await page.waitForTimeout(500)
   dump("after-start-click", await page.locator("body").ariaSnapshot())
   await expect(c.getByText("実行中", { exact: true }).first()).toBeVisible({ timeout: 15_000 })

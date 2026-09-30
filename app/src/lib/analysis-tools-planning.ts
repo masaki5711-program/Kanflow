@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma"
 import { LIVE_PBI, NOT_DELETED } from "@/services/_shared/soft-delete"
 import type { ToolDefinition, ToolHandler } from "@/lib/chat-tools-types"
 import { DAY_MS, daysBetween, iso, now, pct, strArg, trunc } from "@/lib/tool-helpers"
+import { planOverallProgress } from "@/lib/plan-overall-progress"
 
 /**
  * Planning pack (P3): master plan, releases, product goals, calendar.
@@ -79,7 +80,7 @@ const OVERDUE_CAP = 15
 const MILESTONE_CAP = 10
 const MILESTONE_WINDOW_DAYS = 30
 
-/** Pure: plan tree summary (overall % = average of the roots, like the plan page). */
+/** Pure: plan tree summary (overall % = planOverallProgress, the same "計画進捗" as the portfolio and dashboard). */
 export function summarizePlan(rows: readonly PlanRow[], today: Date) {
   const byId = new Map(rows.map((r) => [r.id, r]))
   const childCount = new Map<string, number>()
@@ -99,7 +100,7 @@ export function summarizePlan(rows: readonly PlanRow[], today: Date) {
 
   return {
     total_items: rows.length,
-    overall_progress_pct: roots.length > 0 ? Math.round(roots.reduce((s, r) => s + r.progressPct, 0) / roots.length) : null,
+    overall_progress_pct: planOverallProgress(rows),
     by_status: byStatus,
     top_level: roots.slice(0, TOP_LEVEL_CAP).map((r) => ({
       name: trunc(r.name, 60),

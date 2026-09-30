@@ -46,18 +46,37 @@ const ITEMS: NotificationItem[] = [
   n("n8", "comment", { entityLabel: "#2 Idea", actorName: "Eve", entityType: "icebox", entityId: "i2" }),
 ]
 
+const PERSONAL = new Set(["mentioned", "assigned", "comment"])
+
+/** Serves `/api/notifications?group=&state=&cursor=` like the real API: tab + read-state filter, one extra page per cursor. */
 function stubApi(opts: { unread?: number; items?: NotificationItem[]; nextCursor?: string | null } = {}) {
+  const all = opts.items ?? ITEMS
   return stubFetch([
     { match: "/api/notifications/unread-count", respond: () => jsonResponse({ unreadCount: opts.unread ?? 3 }) },
     { match: /\/api\/notifications\/[^/]+\/read$/, method: "POST", respond: () => jsonResponse({ success: true }) },
     { match: "/api/notifications/read-all", method: "POST", respond: () => jsonResponse({ updated: 3 }) },
     {
-      match: /\/api\/notifications\?limit=20&cursor=/,
-      respond: () => jsonResponse({ items: [n("old", "sprint_end", { sprintName: "S1" })], nextCursor: null, unreadCount: 3 }),
-    },
-    {
-      match: /\/api\/notifications\?limit=20$/,
-      respond: () => jsonResponse({ items: opts.items ?? ITEMS, nextCursor: opts.nextCursor ?? null, unreadCount: opts.unread ?? 3 }),
+      match: /\/api\/notifications\?/,
+      respond: (url) => {
+        const q = new URL(url, "http://x").searchParams
+        const group = q.get("group") ?? "all"
+        const state = q.get("state")
+        const inGroup = (n: NotificationItem) => group === "all" || (group === "personal") === PERSONAL.has(n.type)
+        const inState = (n: NotificationItem) => !state || (state === "unread") === !n.readAt
+        const unreadOf = (g: (n: NotificationItem) => boolean) => all.filter((n) => !n.readAt && g(n)).length
+        const unreadByGroup = {
+          all: unreadOf(() => true),
+          personal: unreadOf((n) => PERSONAL.has(n.type)),
+          other: unreadOf((n) => !PERSONAL.has(n.type)),
+        }
+        const base = { unreadCount: opts.unread ?? 3, unreadByGroup }
+        if (q.get("cursor")) {
+          const extra = state === "read" ? [n("old", "sprint_end", { sprintName: "S1" }, { readAt: "2026-09-01T00:00:00Z" })] : []
+          return jsonResponse({ ...base, items: extra, nextCursor: null })
+        }
+        const items = all.filter((x) => inGroup(x) && inState(x))
+        return jsonResponse({ ...base, items, nextCursor: state === "read" ? opts.nextCursor ?? null : null })
+      },
     },
   ])
 }
@@ -175,8 +194,51 @@ describe("NotificationBell panel", () => {
     const { panel, user, fetchMock } = await openPanel({ nextCursor: "abc" })
     await user.click(await within(panel).findByRole("button", { name: t.notifLoadMore }))
     expect(await within(panel).findByText("Sprint “S1” ended")).toBeInTheDocument()
-    expect(fetchMock.mock.calls.some(([u]) => String(u) === "/api/notifications?limit=20&cursor=abc")).toBe(true)
+    expect(fetchMock.mock.calls.some(([u]) => String(u) === "/api/notifications?limit=20&group=all&state=read&cursor=abc")).toBe(true)
     expect(within(panel).queryByRole("button", { name: t.notifLoadMore })).not.toBeInTheDocument()
+  })
+
+  it("lists unread items before read ones and asks the API per read state (A3-08)", async () => {
+    const { panel, fetchMock } = await openPanel()
+    await within(panel).findByText("Sprint “S4” ended")
+    const rows = within(panel).getAllByTestId("notification-row")
+    expect(rows[rows.length - 1]).toHaveTextContent("Sprint “S4” ended")
+    const urls = fetchMock.mock.calls.map(([u]) => String(u))
+    expect(urls).toContain("/api/notifications?limit=20&group=all&state=unread")
+    expect(urls).toContain("/api/notifications?limit=20&group=all&state=read")
+  })
+
+  it("the mentions tab shows mentions, assignments and comments only, with its unread count (A3-08)", async () => {
+    const { panel, user } = await openPanel()
+    const tab = await within(panel).findByRole("tab", { name: new RegExp(t.notifTabPersonal) })
+    expect(within(tab).getByTestId("notif-tab-count-personal")).toHaveTextContent("3")
+    await user.click(tab)
+    expect(tab).toHaveAttribute("aria-selected", "true")
+    await within(panel).findByText("Bob mentioned you in a comment on “#7 Login”")
+    const types = within(panel).getAllByTestId("notification-row").map((r) => r.getAttribute("data-type"))
+    expect(new Set(types)).toEqual(new Set(["assigned", "mentioned", "comment"]))
+
+    await user.click(within(panel).getByRole("tab", { name: new RegExp(t.notifTabOther) }))
+    await within(panel).findByText("Sprint “S4” ended")
+    const other = within(panel).getAllByTestId("notification-row").map((r) => r.getAttribute("data-type"))
+    expect(other).not.toContain("mentioned")
+    expect(other).not.toContain("assigned")
+  })
+
+  it("marks mentions visually (tag + accent) and supports arrow keys between tabs", async () => {
+    const { panel, user } = await openPanel()
+    const mention = (await within(panel).findAllByTestId("notification-row")).find((r) => r.getAttribute("data-type") === "mentioned")!
+    expect(within(mention).getByText(t.notifMentionTag)).toBeInTheDocument()
+    expect(mention.querySelector("button")).toHaveClass("border-l-primary")
+    within(panel).getByRole("tab", { name: new RegExp(t.notifTabAll) }).focus()
+    await user.keyboard("{ArrowRight}")
+    expect(within(panel).getByRole("tab", { name: new RegExp(t.notifTabPersonal) })).toHaveAttribute("aria-selected", "true")
+  })
+
+  it("the mentions tab has its own empty state", async () => {
+    const { panel, user } = await openPanel({ items: [n("s", "sprint_end", { sprintName: "S" })] })
+    await user.click(await within(panel).findByRole("tab", { name: new RegExp(t.notifTabPersonal) }))
+    expect(await within(panel).findByText(t.notifEmptyPersonal)).toBeInTheDocument()
   })
 
   it("shows the empty state", async () => {

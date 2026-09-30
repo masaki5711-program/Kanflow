@@ -15,7 +15,7 @@ const repo = await import("../sprints.repository")
 const tr = await import("@/services/_shared/translations")
 const { syncPbiStatusFromTasks } = await import("@/lib/pbi-status-sync")
 const { launchSprintCompletionReview } = await import("../sprint-completion-review")
-const { ACTOR, TX } = await import("@/services/__tests__/support")
+const { ACTOR, TX, touchedTranslationFields } = await import("@/services/__tests__/support")
 const svc = await import("../sprints.service")
 
 const createInput = { sprintName: "S1", startDate: "2026-01-01", endDate: "2026-01-14" }
@@ -109,10 +109,22 @@ describe("sprints.service", () => {
     expect(out.days).toEqual(["2026-09-01", "2026-09-02", "2026-09-03"])
     expect(out.totalTasks).toBe(2)
     expect(out.sprintMarkers.map((m) => m.id)).toEqual(["s2"])
+    expect(tr.getI18nFor).toHaveBeenCalledWith("sprint", ["s2"])
+    expect(out.sprintMarkers[0].i18n).toEqual({})
   })
 
   it("burndown of an unknown (or planning) sprint 404s", async () => {
     vi.mocked(repo.findBurndownSprint).mockResolvedValue(null)
     await expect(svc.getBurndown("p1", "nope")).rejects.toMatchObject({ status: 404 })
+  })
+})
+
+describe("A3-02: partial updates keep translations", () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it("a status-only update (text keys undefined) touches no FieldTranslation row", async () => {
+    vi.mocked(repo.updateSprint).mockResolvedValue({ id: "s1", sprintName: "S1" } as never)
+    await svc.updateSprint("p1", "s1", { status: "active", sprintName: undefined, sprintGoal: undefined }, ACTOR)
+    expect(touchedTranslationFields(tr.enqueueIn)).toEqual([])
   })
 })

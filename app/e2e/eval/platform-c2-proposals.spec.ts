@@ -48,6 +48,40 @@ test("P-02: persisted outcome, second tab and re-open cannot approve again", asy
     expect.soft(authz.owner_unknown_proposal).toBe(404)
     expect.soft(authz.owner_zeva_path).toBe(404)
 
+    // Cycle 3: the proposal was approved in cycle 2 and its outcome is persisted; no new
+    // proposal can be produced without an Ollama request. In that state verify the
+    // "already applied" contract instead of the first-approval race.
+    const pre = JSON.stringify(await (await owner.get(`/api/projects/${PILOT}/chat/threads/${THREAD}`)).json())
+    const preOutcome = pre.match(/"outcome":\{[^}]*\}/)?.[0] ?? ""
+    log.push(`pre-run outcome: ${preOutcome || "(none)"}`)
+    if (/applied/.test(preOutcome)) {
+      const race = await Promise.all(Array.from({ length: 6 }, () => owner.post(url(), { data: { action: "reserve" } })))
+      const codes = race.map((r) => r.status())
+      log.push(`[applied] parallel reserve x6 -> ${codes.join(",")}`)
+      expect.soft(codes.every((c) => c === 409), "no reserve may win on an applied proposal").toBe(true)
+      const rej = await owner.post(url(), { data: { action: "reject" } })
+      const rel = await owner.post(url(), { data: { action: "release" } })
+      log.push(`[applied] reject -> ${rej.status()} release -> ${rel.status()}`)
+      expect.soft(rej.status()).toBe(409)
+      const ctx = await browser.newContext({ baseURL: BASE, storageState: storage })
+      const c = await ctx.newPage()
+      let creates = 0
+      c.on("request", (r) => { if (r.url().endsWith(`/api/projects/${PILOT}/backlog`) && r.method() === "POST") creates++ })
+      await c.goto(`/projects/${PILOT}/chat?thread=${THREAD}`)
+      await c.waitForLoadState("networkidle").catch(() => {})
+      await expect(c.getByText(APPLIED).first()).toBeVisible({ timeout: 30_000 })
+      const reBtn = c.getByRole("button", { name: APPROVE })
+      const reEnabled = (await reBtn.count()) ? await reBtn.first().isEnabled({ timeout: 5_000 }) : false
+      log.push(`[applied] re-open: approve buttons=${await reBtn.count()} enabled=${reEnabled} applied=${await c.getByText(APPLIED).count()} backlog POSTs=${creates}`)
+      await c.screenshot({ path: shot("c3-p02-reopened-applied"), fullPage: true })
+      expect.soft(reEnabled).toBe(false)
+      expect.soft(creates).toBe(0)
+      const after = JSON.stringify(await (await owner.get(`/api/projects/${PILOT}/chat/threads/${THREAD}`)).json()).match(/"outcome":\{[^}]*\}/)?.[0]
+      expect.soft(after, "stored outcome unchanged").toBe(preOutcome)
+      await ctx.close()
+      return
+    }
+
     // Concurrency: 6 parallel reserves on the legacy (outcome-less) proposal -> exactly one wins
     const race = await Promise.all(Array.from({ length: 6 }, () => owner.post(url(), { data: { action: "reserve" } })))
     const codes = race.map((r) => r.status())

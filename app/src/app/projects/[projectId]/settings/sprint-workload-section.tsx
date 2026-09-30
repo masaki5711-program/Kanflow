@@ -6,6 +6,7 @@ import { apiFetch, useApiMutation, useUnsavedChangesGuard } from "@/hooks"
 import { useLanguage } from "@/lib/language-context"
 import { SettingsCard, SettingsSaveRow } from "./settings-card"
 import type { SprintHistory, SprintSettings } from "./settings-types"
+import { pickText } from "@/lib/translation/pick-text"
 
 interface SprintWorkloadProps {
   projectId: string
@@ -118,7 +119,7 @@ export function SprintWorkloadSection({ projectId, initialSettings, history }: S
 }
 
 function SprintHistoryTable({ history }: { history: SprintHistory[] }) {
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
   return (
     <div className="mt-6 overflow-x-auto border-t border-border pt-4">
       <table className="w-full text-body">
@@ -137,8 +138,8 @@ function SprintHistoryTable({ history }: { history: SprintHistory[] }) {
             const rate = s.capacity > 0 ? Math.round((s.actualScore / s.capacity) * 100) : 0
             const diff = s.actualScore - s.capacity
             return (
-              <tr key={s.sprintName} className="border-b border-border">
-                <th scope="row" className="py-2 text-left font-normal">{s.sprintName}</th>
+              <tr key={s.id ?? s.sprintName} className="border-b border-border">
+                <th scope="row" className="py-2 text-left font-normal">{pickText(s.i18n, "sprintName", s.sprintName, language).text || s.sprintName}</th>
                 <td className="py-2 text-right">{s.capacity}</td>
                 <td className="py-2 text-right">{s.actualScore}</td>
                 <td className="py-2 text-right">{rate}%</td>

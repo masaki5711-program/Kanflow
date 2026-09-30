@@ -13,7 +13,7 @@ const repo = await import("../sprint-backlog.repository")
 const act = await import("@/services/_shared/activity")
 const nt = await import("@/services/_shared/notifications")
 const tr = await import("@/services/_shared/translations")
-const { ACTOR, TX } = await import("@/services/__tests__/support")
+const { ACTOR, TX, touchedTranslationFields } = await import("@/services/__tests__/support")
 const svc = await import("../sprint-backlog.service")
 
 const MEMBERS = [
@@ -146,5 +146,23 @@ describe("task assignee dual-write", () => {
     expect(repo.findProjectMemberCandidates).not.toHaveBeenCalled()
     expect(repo.replaceTaskAssignees).not.toHaveBeenCalled()
     expect(nt.notify).not.toHaveBeenCalled()
+  })
+})
+
+describe("A3-02: a task status move keeps the task-name translation", () => {
+  it("moving to done touches no FieldTranslation row", async () => {
+    await svc.updateTask("p1", "s1", "t1", { status: "done" }, ACTOR)
+    expect(tr.enqueueIn).toHaveBeenCalledTimes(1)
+    expect(touchedTranslationFields(tr.enqueueIn)).toEqual([])
+  })
+
+  it("moving back to in_progress only clears the (removed) completion comment, never the task name", async () => {
+    await svc.updateTask("p1", "s1", "t1", { status: "in_progress", version: 3 }, ACTOR)
+    expect(touchedTranslationFields(tr.enqueueIn)).toEqual(["completionComment"])
+  })
+
+  it("renaming still enqueues the task name", async () => {
+    await svc.updateTask("p1", "s1", "t1", { taskName: "New" }, ACTOR)
+    expect(touchedTranslationFields(tr.enqueueIn)).toEqual(["taskName"])
   })
 })

@@ -5,6 +5,7 @@ import { BurndownPageContent } from "./burndown-content"
 import { BURNDOWN_SELECTABLE_STATUSES } from "@/services/sprints/sprints.repository"
 import { LIST_LIMITS } from "@/services/_shared/limits"
 import { buildPageMetadata } from "@/app/page-metadata"
+import { attachI18n } from "@/lib/translation/hooks"
 
 export async function generateMetadata({ params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params
@@ -59,10 +60,12 @@ export default async function BurndownPage({
     take: LIST_LIMITS.burndownSprints,
   })
 
+  // Sprint names follow the viewer's language in the selector (cycle 3).
+  const withI18n = await attachI18n("sprint", sprints)
   return (
     <BurndownPageContent
       projectId={projectId}
-      sprints={sprints.map((s) => ({ id: s.id, name: s.sprintName, status: s.status }))}
+      sprints={withI18n.map((s) => ({ id: s.id, name: s.sprintName, status: s.status, i18n: s.i18n }))}
     />
   )
 }

@@ -1,4 +1,5 @@
 import type { ProjectDetailDto, ProjectMemberDto, SectionRefDto } from "@/types/api"
+import type { EntityI18n } from "@/lib/translation/types"
 
 export type Member = Pick<ProjectMemberDto, "id" | "role"> & {
   user: Omit<ProjectMemberDto["user"], "avatarUrl">
@@ -12,10 +13,13 @@ export interface SprintSettings {
 }
 
 export interface SprintHistory {
+  id?: string
   sprintName: string
   capacity: number
   actualScore: number
   status: string
+  /** Both-language sprint name (from the sprints API). */
+  i18n?: EntityI18n
 }
 
 export type SectionOption = SectionRefDto

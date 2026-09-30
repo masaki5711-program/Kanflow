@@ -13,7 +13,7 @@ vi.mock("@/lib/logger", () => ({ logger: { child: () => logSpies } }))
 const repo = await import("../projects.repository")
 const tr = await import("@/services/_shared/translations")
 const { attachTemplate } = await import("@/services/attachments/attachments.service")
-const { ACTOR, TX, DEFAULT_DB } = await import("@/services/__tests__/support")
+const { ACTOR, TX, DEFAULT_DB, touchedTranslationFields } = await import("@/services/__tests__/support")
 const { removeProjectUploadDir } = await import("@/lib/api-helpers")
 const svc = await import("../projects.service")
 const { projectUpdateDenial } = await import("../projects.policy")
@@ -127,5 +127,15 @@ describe("projectUpdateDenial", () => {
     expect(projectUpdateDenial(actorOf("sm"), { sectionIds: [] })?.status).toBe(403)
     expect(projectUpdateDenial(actorOf("po"), { progressPct: 10, sectionIds: [] })).toBeNull()
     expect(projectUpdateDenial(actorOf(null, "admin"), { progressPct: 1 })).toBeNull()
+  })
+})
+
+describe("A3-02: partial updates keep translations", () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it("a non-text update (text keys undefined) touches no FieldTranslation row", async () => {
+    vi.mocked(repo.updateProject).mockResolvedValue({ id: "p1" } as never)
+    await svc.updateProject("p1", { status: "active", name: undefined, description: undefined } as never, ACTOR)
+    expect(touchedTranslationFields(tr.enqueueIn)).toEqual([])
   })
 })

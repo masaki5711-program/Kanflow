@@ -60,6 +60,39 @@ describe("notifications.service", () => {
     expect(await svc.getUnreadCount("u1")).toEqual({ unreadCount: 5 })
   })
 
+  it("reports unread counts per panel tab (A3-08)", async () => {
+    vi.mocked(repo.findNotifications).mockResolvedValue([] as never)
+    vi.mocked(repo.countUnread).mockImplementation(((_db: unknown, _u: string, group?: string) => Promise.resolve(group === "personal" ? 2 : 7)) as never)
+    const out = await svc.listMyNotifications("u1", { limit: 5, unreadOnly: false, group: "personal", state: "unread" })
+    expect(repo.findNotifications).toHaveBeenCalledWith(DEFAULT_DB, "u1", { limit: 5, unreadOnly: false, group: "personal", state: "unread" })
+    expect(repo.countUnread).toHaveBeenCalledWith(DEFAULT_DB, "u1", "personal")
+    expect(out.unreadByGroup).toEqual({ all: 7, personal: 2, other: 5 })
+  })
+
+  it("attaches the notified entity's translations so the sentence follows the UI language (A3-08)", async () => {
+    vi.mocked(repo.findNotifications).mockResolvedValue([
+      row("m", { type: "mentioned", entityType: "pbi", entityId: "b1", payload: JSON.stringify({ entityLabel: "#238 受入", entityType: "pbi", entityId: "b1" }) }),
+      row("t"),
+      row("x", { entityType: "member", entityId: "m1" }),
+      row("d", { type: "due_soon", entityType: "plan_item", entityId: "pl1" }),
+    ] as never)
+    vi.mocked(repo.countUnread).mockResolvedValue(0)
+    const pbi = { userStory: { ja: "受入", id: "Penerimaan", source: "ja", status: "done" } }
+    const plan = { name: { ja: "調整", id: "Koordinasi", source: "id", status: "done" } }
+    vi.mocked(tr.getI18nFor).mockImplementation(async (entity) =>
+      (entity === "backlog_item" ? new Map([["b1", pbi]]) : entity === "plan_item" ? new Map([["pl1", plan]]) : new Map()) as never)
+    const out = await svc.listMyNotifications("u1", { limit: 5, unreadOnly: false })
+    expect(tr.getI18nFor).toHaveBeenCalledWith("backlog_item", ["b1"])
+    expect(tr.getI18nFor).toHaveBeenCalledWith("sprint_task", ["t1"])
+    expect(tr.getI18nFor).not.toHaveBeenCalledWith("member", expect.anything())
+    expect(out.items[0].entityI18n).toEqual(pbi)
+    expect(out.items[1].entityI18n).toBeUndefined()
+    // Plan item due notices name the item in the viewer's language too.
+    expect(tr.getI18nFor).toHaveBeenCalledWith("plan_item", ["pl1"])
+    expect(out.items[3].entityI18n).toEqual(plan)
+    vi.mocked(tr.getI18nFor).mockImplementation(async () => new Map())
+  })
+
   it("attaches the project name translations to the listed items (F-06)", async () => {
     vi.mocked(repo.findNotifications).mockResolvedValue([row("a"), row("s", { projectId: null, project: null })] as never)
     vi.mocked(repo.countUnread).mockResolvedValue(0)
@@ -116,6 +149,20 @@ describe("notifications.repository", () => {
     })
     expect(args.take).toBe(11)
     expect(args.orderBy).toEqual([{ createdAt: "desc" }, { id: "desc" }])
+  })
+
+  it("list: tab and read-state filters (A3-08)", async () => {
+    const db = fakeDb()
+    await realRepo.findNotifications(db.client, "u1", { limit: 10, unreadOnly: false, group: "personal", state: "read" })
+    const args = db.fn("notification.findMany").mock.calls[0][0]
+    expect(args.where.readAt).toEqual({ not: null })
+    expect(args.where.type).toEqual({ in: ["mentioned", "assigned", "comment"] })
+    await realRepo.findNotifications(db.client, "u1", { limit: 10, unreadOnly: false, group: "other", state: "unread" })
+    const other = db.fn("notification.findMany").mock.calls[1][0]
+    expect(other.where.readAt).toBeNull()
+    expect(other.where.type).toEqual({ notIn: ["mentioned", "assigned", "comment"] })
+    await realRepo.countUnread(db.client, "u1", "personal")
+    expect(db.fn("notification.count").mock.calls[0][0].where.type).toEqual({ in: ["mentioned", "assigned", "comment"] })
   })
 
   it("count / mark read are scoped to the recipient", async () => {

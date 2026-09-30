@@ -18,6 +18,7 @@ describe("collectProjectTranslationTree", () => {
       releaseBacklogItem: { findMany: rows() },
       calendarEvent: { findMany: rows("e1") },
       planItem: { findMany: rows("pl1") },
+      comment: { findMany: rows("c1") },
     }
     const tree = await repo.collectProjectTranslationTree(db as never, "p1")
     expect(tree).toEqual({
@@ -31,6 +32,7 @@ describe("collectProjectTranslationTree", () => {
       release_item: [],
       calendar_event: ["e1"],
       plan_item: ["pl1"],
+      comment: ["c1"],
     })
     expect(db.sprintBacklogItem.findMany).toHaveBeenCalledWith({ where: { sprint: { projectId: "p1" } }, select: { id: true } })
     expect(db.productGoal.findMany).toHaveBeenCalledWith({ where: { projectId: "p1" }, select: { id: true } })

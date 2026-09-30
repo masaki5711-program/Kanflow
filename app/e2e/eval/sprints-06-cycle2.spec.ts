@@ -219,7 +219,7 @@ test("S-07 / home regressions: (home) route group, KPIs, toolbar, AI titles", as
   await projLink.click()
   await expect(page).toHaveURL(/\/projects\//)
   await page.getByRole("banner").getByRole("link", { name: /Kanflow|Beranda|Home/ }).first().click()
-  await expect(page).toHaveURL(/localhost:3101\/$/)
+  await expect(page).toHaveURL(new URL("/", process.env.E2E_BASE_URL || "http://localhost:3102").href)
   await expect(page.getByRole("heading", { level: 1 }).first()).toBeVisible()
   report("home dev", issues)
   await ctx.close()

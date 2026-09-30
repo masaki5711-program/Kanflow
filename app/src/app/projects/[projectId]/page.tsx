@@ -6,7 +6,7 @@ import { getI18nFor } from "@/lib/translation/hooks"
 import { DashboardContent } from "./dashboard-content"
 import { buildPageMetadata } from "@/app/page-metadata"
 import { computeBurndown } from "@/services/sprints/burndown"
-import { loadDuePlanItems, loadMyProjectTasks } from "./dashboard/dashboard-data"
+import { loadDuePlanItems, loadMyProjectTasks, loadPlanProgress } from "./dashboard/dashboard-data"
 import { buildUpcomingDue, countSprintTasks, sparklineOf } from "./dashboard/dashboard-summary"
 
 export async function generateMetadata({ params }: { params: Promise<{ projectId: string }> }) {
@@ -92,23 +92,32 @@ export default async function ProjectDashboard({
   const activeSprint = project.sprints[0] ?? null
   const now = new Date()
 
-  const [myTasks, duePlanItems] = await Promise.all([
+  const [myTasks, duePlanItems, planProgressPct] = await Promise.all([
     loadMyProjectTasks(projectId, session.user.id, session.user.name),
     loadDuePlanItems(projectId, now),
+    loadPlanProgress(projectId),
   ])
 
-  // Both-language text for the project, its goals, the active sprint and my tasks.
-  const [projectI18n, goalI18n, sprintI18n, taskI18n, pbI18n] = await Promise.all([
+  // Both-language text for the project, its goals, the active sprint, my tasks and the due list.
+  const [projectI18n, goalI18n, sprintI18n, taskI18n, pbI18n, dueI18n] = await Promise.all([
     getI18nFor("project", [project.id]),
     getI18nFor("product_goal", project.productGoals.map((g) => g.id)),
     getI18nFor("sprint", activeSprint ? [activeSprint.id] : []),
     getI18nFor("sprint_task", myTasks.map((t) => t.id)),
     getI18nFor("backlog_item", myTasks.map((t) => t.pbItem.id)),
+    getI18nFor("plan_item", duePlanItems.map((p) => p.id)),
   ])
   const sparkline = activeSprint ? sparklineOf(computeBurndown([activeSprint], now)) : undefined
   const upcomingDue = buildUpcomingDue(
-    duePlanItems,
-    activeSprint ? { id: activeSprint.id, name: activeSprint.sprintName, endDate: activeSprint.endDate.toISOString() } : null,
+    duePlanItems.map((p) => ({ ...p, i18n: dueI18n.get(p.id) ?? {} })),
+    activeSprint
+      ? {
+          id: activeSprint.id,
+          name: activeSprint.sprintName,
+          endDate: activeSprint.endDate.toISOString(),
+          i18n: sprintI18n.get(activeSprint.id) ?? {},
+        }
+      : null,
     now,
   )
   const sprintTaskCounts = activeSprint ? countSprintTasks(activeSprint.items) : null
@@ -155,6 +164,7 @@ export default async function ProjectDashboard({
       backlogCount={project._count.backlogItems}
       sprintCount={project._count.sprints}
       projectProgressPct={projectProgressPct}
+      planProgressPct={planProgressPct}
       currentUserRole={effectiveRole ?? "member"}
       canEditGoals={can(actor, "goal.write")}
       activeSprint={

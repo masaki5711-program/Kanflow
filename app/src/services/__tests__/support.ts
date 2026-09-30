@@ -9,6 +9,8 @@
  * and translation calls received the transaction client.
  */
 import { vi } from "vitest"
+import { pickTranslatableFields } from "@/lib/translation/pick-fields"
+import type { TranslatableEntity } from "@/lib/translation/types"
 import type { Actor } from "@/services/_shared/actor"
 
 export const TX = Object.freeze({ __tx: true })
@@ -34,6 +36,18 @@ export function translationMock() {
     attachI18nOne: vi.fn(async (_type: string, row: Row) => ({ ...row, i18n: {} })),
     getI18nFor: vi.fn(async () => new Map()),
   }
+}
+
+/**
+ * The translation fields the REAL enqueue would touch (upsert or delete) for
+ * every recorded `enqueueIn(tx, entityType, id, record)` call of the mocked
+ * seam — `[]` means the write leaves every FieldTranslation row alone.
+ */
+export function touchedTranslationFields(enqueueIn: unknown, entityType?: TranslatableEntity): string[] {
+  const calls = (enqueueIn as { mock: { calls: unknown[][] } }).mock.calls
+  return calls
+    .filter((c) => entityType === undefined || c[1] === entityType)
+    .flatMap((c) => Object.keys(pickTranslatableFields(c[1] as TranslatableEntity, c[3] as Record<string, unknown>)))
 }
 
 /**

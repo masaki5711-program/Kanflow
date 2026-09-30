@@ -1,6 +1,6 @@
-import type { Translations } from "@/lib/i18n"
+import type { Language, Translations } from "@/lib/i18n"
 import { fillTemplate } from "@/lib/fill-template"
-import { localeOf } from "@/components/comments/relative-time"
+import { formatShortDate as formatDay } from "@/lib/format-date"
 import { COMMENTS_TAB, TAB_PARAM } from "@/components/comments/comments-deep-link"
 import { pickText } from "@/lib/translation/pick-text"
 import type { EntityI18n } from "@/lib/translation/types"
@@ -15,6 +15,8 @@ export interface NotificationItem {
   entityType: string | null
   entityId: string | null
   payload: Record<string, unknown>
+  /** Translations of the notified entity (A3-08); absent on older servers / untranslated kinds. */
+  entityI18n?: EntityI18n
   readAt: string | null
   createdAt: string
 }
@@ -23,6 +25,7 @@ export interface NotificationPage {
   items: NotificationItem[]
   nextCursor: string | null
   unreadCount: number
+  unreadByGroup?: { all: number; personal: number; other: number }
 }
 
 export interface DescribedNotification {
@@ -44,13 +47,10 @@ function firstLine(text: string | null): string | null {
   return line ? line : null
 }
 
-/** "2026-10-03" (local calendar day) or an ISO instant → short localized date. */
+/** "2026-10-03" (local calendar day) or an ISO instant → the app-wide short date (lib/format-date). */
 export function formatShortDate(value: string | null, language: string): string {
   if (!value) return ""
-  const day = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
-  const date = day ? new Date(Number(day[1]), Number(day[2]) - 1, Number(day[3])) : new Date(value)
-  if (isNaN(date.getTime())) return value
-  return date.toLocaleDateString(localeOf(language), { month: "short", day: "numeric" })
+  return formatDay(value, language as Language) || value
 }
 
 /** Deep link of a PBI / sprint task / Icebox item inside a project. */
@@ -103,12 +103,39 @@ export function notificationHref(n: NotificationItem): string | null {
   return entityHref(n.projectId, n.entityType, n.entityId)
 }
 
+/** Fields that name each notified entity (the stored label is one of them, first line). */
+const TITLE_FIELDS: Record<string, readonly string[]> = {
+  pbi: ["initiative", "userStory"],
+  sprint_task: ["taskName"],
+  sprint: ["sprintName"],
+  icebox: ["request"],
+  plan_item: ["name"],
+}
+
+/**
+ * The stored title in the viewer's language (A3-08): the payload keeps the
+ * text as written; when one of the entity's translated fields has that text
+ * as its source, its translation is shown instead.
+ */
+export function localizedTitle(n: NotificationItem, title: string, language: string): string {
+  const fields = TITLE_FIELDS[str(n.payload, "entityType") ?? n.entityType ?? ""] ?? []
+  for (const field of fields) {
+    const entry = n.entityI18n?.[field]
+    const source = entry ? firstLine(entry.source === "ja" ? entry.ja : entry.id) : null
+    if (!entry || source !== title) continue
+    return firstLine(pickText(n.entityI18n, field, source, language).text) ?? title
+  }
+  return title
+}
+
 /**
  * The item's name in the sentence. PBIs are always "#displayId title" (older
  * assignment notifications stored the bare user story; the number is added).
  */
-function entityLabelOf(n: NotificationItem): string | null {
-  const label = firstLine(str(n.payload, "entityLabel"))
+function entityLabelOf(n: NotificationItem, language: string): string | null {
+  const raw = firstLine(str(n.payload, "entityLabel"))
+  const numbered = raw ? /^#(\d+)\s+([\s\S]*)$/.exec(raw) : null
+  const label = numbered ? `#${numbered[1]} ${localizedTitle(n, numbered[2], language)}` : raw && localizedTitle(n, raw, language)
   const isPbi = (str(n.payload, "entityType") ?? n.entityType) === "pbi"
   const displayId = str(n.payload, "displayId")
   if (!isPbi || !displayId || label?.startsWith("#")) return label
@@ -125,8 +152,9 @@ function projectNameOf(n: NotificationItem, language: string): string | null {
 export function describeNotification(n: NotificationItem, t: Translations, language: string): DescribedNotification {
   const p = n.payload
   const actor = str(p, "actorName") ?? t.notifSomeone
-  const label = entityLabelOf(n) ?? t.notifUntitled
-  const sprint = str(p, "sprintName") ?? t.notifUntitled
+  const label = entityLabelOf(n, language) ?? t.notifUntitled
+  const sprintRaw = str(p, "sprintName")
+  const sprint = sprintRaw ? localizedTitle(n, sprintRaw, language) : t.notifUntitled
   const date = formatShortDate(str(p, "dueDate"), language)
   let text: string
   switch (n.type) {

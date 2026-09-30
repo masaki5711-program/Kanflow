@@ -69,8 +69,11 @@ function Kpi({ label, value, sub, valueTone = "neutral" }: { label: string; valu
   )
 }
 
-function workerLabel(t: Translations, status: MetricsCurrent["worker"]["status"]): { text: string; tone: BadgeTone } {
+export function workerLabel(t: Translations, worker: MetricsCurrent["worker"]): { text: string; tone: BadgeTone } {
+  const { status } = worker
   if (status === "ok") return { text: t.metricsWorkerOk, tone: "success" }
+  // No heartbeat is normal when translations run in-process (A3-20): neutral, not a warning.
+  if (status === "absent" && worker.expected === false) return { text: t.metricsWorkerInProcess, tone: "neutral" }
   if (status === "stale") return { text: t.metricsWorkerStale, tone: "danger" }
   return { text: t.metricsWorkerAbsent, tone: "warning" }
 }
@@ -78,7 +81,7 @@ function workerLabel(t: Translations, status: MetricsCurrent["worker"]["status"]
 function KpiStrip({ current }: { current: MetricsCurrent }) {
   const { t } = useLanguage()
   const w = current.http.last5m
-  const worker = workerLabel(t, current.worker.status)
+  const worker = workerLabel(t, current.worker)
   const ago = (sec: number | null) => (sec === null ? t.metricsNotAvailable : t.metricsSecondsAgo.replace("{sec}", String(sec)))
   return (
     <dl className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6" aria-label={t.metricsTitle}>

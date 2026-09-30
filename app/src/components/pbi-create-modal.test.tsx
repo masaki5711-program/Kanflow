@@ -63,7 +63,7 @@ describe("PbiCreateModal", () => {
     expect(posted).toEqual([
       { userStory: "Icebox request one", iceboxItemId: "ib1", productGoalId: "g1", workloadScore: 5, status: "not_ready" },
     ])
-    expect(await screen.findByText(t.backlogSaved)).toBeInTheDocument()
+    expect(await screen.findByText(t.backlogCreatedToast.replace("{id}", "42"))).toBeInTheDocument()
   })
 
   it("stays open and toasts when saving fails", async () => {

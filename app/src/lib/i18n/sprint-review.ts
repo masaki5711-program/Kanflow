@@ -25,6 +25,8 @@ export interface SprintReviewTranslations {
   sprintShowArchived: string
   sprintHideArchived: string
   sprintActualScore: string
+  /** Tooltip explaining how completed points are counted. */
+  sprintActualScoreHint: string
   sprintReviewLegacyLabel: string
   sprintReviewLegacyReadOnly: string
   sprintKptAiSuggestionHeader: string
@@ -52,7 +54,8 @@ export const ja: SprintReviewTranslations = {
   sprintArchivedSprints: "アーカイブ済みスプリント",
   sprintShowArchived: "アーカイブ済みを表示",
   sprintHideArchived: "アーカイブ済みを非表示",
-  sprintActualScore: "消化点数",
+  sprintActualScore: "完了ポイント",
+  sprintActualScoreHint: "全タスクが完了した PBI のポイント合計（ベロシティと同じ基準）",
   sprintReviewLegacyLabel: "旧形式",
   sprintReviewLegacyReadOnly: "旧形式・読み取り専用",
   sprintKptAiSuggestionHeader: "--- AI 提案 ---",
@@ -80,7 +83,8 @@ export const en: SprintReviewTranslations = {
   sprintArchivedSprints: "Archived Sprints",
   sprintShowArchived: "Show Archived",
   sprintHideArchived: "Hide Archived",
-  sprintActualScore: "Actual Score",
+  sprintActualScore: "Completed points",
+  sprintActualScoreHint: "Points of the PBIs whose tasks are all done (same basis as velocity)",
   sprintReviewLegacyLabel: "legacy",
   sprintReviewLegacyReadOnly: "legacy · read-only",
   sprintKptAiSuggestionHeader: "--- AI suggestion ---",
@@ -108,7 +112,8 @@ export const id: SprintReviewTranslations = {
   sprintArchivedSprints: "Sprint yang Diarsipkan",
   sprintShowArchived: "Tampilkan Arsip",
   sprintHideArchived: "Sembunyikan Arsip",
-  sprintActualScore: "Skor Aktual",
+  sprintActualScore: "Poin selesai",
+  sprintActualScoreHint: "Poin PBI yang semua tugasnya selesai (dasar yang sama dengan velocity)",
   sprintReviewLegacyLabel: "format lama",
   sprintReviewLegacyReadOnly: "format lama · hanya baca",
   sprintKptAiSuggestionHeader: "--- Saran AI ---",

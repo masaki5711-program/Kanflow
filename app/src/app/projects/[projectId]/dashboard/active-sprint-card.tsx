@@ -8,7 +8,8 @@ import { useLanguage } from "@/lib/language-context"
 import type { Translations } from "@/lib/i18n"
 import { sprintTimeline, type SprintTimeline } from "./dashboard-summary"
 import { SprintSparkline } from "./sprint-sparkline"
-import { formatDateLocal, type ActiveSprint } from "./types"
+import { formatDateRange } from "@/lib/format-date"
+import type { ActiveSprint } from "./types"
 
 /** Two days or less left reads as a warning. */
 const TIGHT_DAYS = 2
@@ -37,7 +38,7 @@ interface Props {
 
 /** The active sprint at a glance: time left, progress and a burndown sparkline. */
 export function ActiveSprintCard({ projectId, sprint, now = new Date() }: Props) {
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
   const sprintsHref = `/projects/${projectId}/sprints`
 
   if (!sprint) {
@@ -79,11 +80,13 @@ export function ActiveSprintCard({ projectId, sprint, now = new Date() }: Props)
         )}
         <p className="mt-2 inline-flex items-center gap-1.5 text-caption text-fg-muted">
           <Calendar aria-hidden="true" className="h-3.5 w-3.5" />
-          {formatDateLocal(sprint.startDate)} ~ {formatDateLocal(sprint.endDate)} · {t.dashboardCapacity}: {sprint.capacity}
+          {formatDateRange(sprint.startDate, sprint.endDate, language, { utc: true })} · {t.dashboardCapacity}: {sprint.capacity}
         </p>
 
         <div className="mt-5 flex flex-wrap items-end justify-between gap-5">
           <div className="min-w-[12rem] flex-1">
+            {/* A3-13: named so it is not read as project or plan progress. */}
+            <p className="mb-1 text-caption font-medium text-fg-muted" title={t.sprintCompletionRateHint}>{t.sprintCompletionRate}</p>
             <div className="flex items-baseline justify-between gap-3">
               <span className="text-[2rem] font-bold leading-none text-fg">{donePercent}%</span>
               <span className="text-caption text-fg-muted">
@@ -92,7 +95,7 @@ export function ActiveSprintCard({ projectId, sprint, now = new Date() }: Props)
             </div>
             <div
               role="progressbar"
-              aria-label={t.taskDone}
+              aria-label={t.sprintCompletionRate}
               aria-valuemin={0}
               aria-valuemax={100}
               aria-valuenow={donePercent}

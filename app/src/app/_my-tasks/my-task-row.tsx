@@ -72,7 +72,8 @@ export function MyTaskRow({ task, urgency, pending, onStatusChange }: Props) {
         disabled={pending}
         aria-busy={pending || undefined}
         onChange={(e) => onStatusChange(e.target.value)}
-        className="w-[7.5rem] shrink-0"
+        // Wide enough for the longest label ("Sedang Berjalan") — A3-17.
+        className="w-[9.5rem] shrink-0"
       >
         {options.map((s) => (
           <option key={s} value={s}>

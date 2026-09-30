@@ -120,7 +120,7 @@ test("untouched selector keeps the profile language; explicit choice saves it; l
 
   // 3. Logout via the user menu -> login page in en
   await page.locator("header [data-header-end] button[aria-expanded]").last().click()
-  await page.getByRole("button", { name: /Log out|Sign out|ログアウト|Keluar/i }).click()
+  await page.getByRole("button", { name: /Log ?out|Sign out|ログアウト|Keluar/i }).click({ timeout: 15_000 })
   await page.waitForURL(/\/login/, { timeout: 30_000 })
   await page.waitForLoadState("networkidle").catch(() => {})
   const out = await describeLogin(page)

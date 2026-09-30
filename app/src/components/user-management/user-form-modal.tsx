@@ -5,6 +5,7 @@ import { useLanguage } from "@/lib/language-context"
 import { apiFetch } from "@/hooks"
 import { Button, Field, Input, Modal, Select, useModalClose, useToast } from "@/components/ui"
 import { SectionChips } from "./section-chips"
+import { validateUserForm, type UserFormErrors } from "./user-form-validation"
 import {
   DEPARTMENT_LIST_ID,
   EMPTY_USER_FORM,
@@ -34,6 +35,7 @@ export function UserFormModal({ user, sections, onClose, onSaved }: Props) {
   const [initial] = useState<UserFormValues>(() => (user ? formFromUser(user) : EMPTY_USER_FORM))
   const [form, setForm] = useState<UserFormValues>(initial)
   const [error, setError] = useState<string | null>(null)
+  const [fieldErrors, setFieldErrors] = useState<UserFormErrors>({})
   const [saving, setSaving] = useState(false)
 
   function set<K extends keyof UserFormValues>(key: K, value: UserFormValues[K]) {
@@ -43,6 +45,9 @@ export function UserFormModal({ user, sections, onClose, onSaved }: Props) {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (saving) return
+    const errors = validateUserForm(form, isEdit, t)
+    setFieldErrors(errors)
+    if (Object.keys(errors).length > 0) return
     setError(null)
     setSaving(true)
     const body = {
@@ -79,17 +84,17 @@ export function UserFormModal({ user, sections, onClose, onSaved }: Props) {
       isDirty={JSON.stringify(form) !== JSON.stringify(initial)}
       footer={<Footer saving={saving} submitLabel={isEdit ? t.save : t.create} />}
     >
-      <form id={FORM_ID} onSubmit={handleSubmit} className="space-y-4">
+      <form id={FORM_ID} onSubmit={handleSubmit} noValidate className="space-y-4">
         {error && (
           <p role="alert" className="rounded-ui-sm bg-danger-soft px-3 py-2 text-body text-danger-strong">
             {error}
           </p>
         )}
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label={t.userName} required>
+          <Field label={t.userName} required error={fieldErrors.name}>
             <Input value={form.name} onChange={(e) => set("name", e.target.value)} required placeholder={t.userNamePlaceholder} data-autofocus />
           </Field>
-          <Field label={t.userEmail} required>
+          <Field label={t.userEmail} required error={fieldErrors.email}>
             <Input type="email" value={form.email} onChange={(e) => set("email", e.target.value)} required placeholder="user@example.com" autoComplete="off" />
           </Field>
           <Field label={t.userEmployeeNumber}>
@@ -99,7 +104,7 @@ export function UserFormModal({ user, sections, onClose, onSaved }: Props) {
             <Input value={form.department} onChange={(e) => set("department", e.target.value)} placeholder={t.userDepartmentPlaceholder} list={DEPARTMENT_LIST_ID} />
           </Field>
           {!isEdit && (
-            <Field label={t.userInitialPassword} required hint={t.userPasswordMinLength}>
+            <Field label={t.userInitialPassword} required hint={t.userPasswordMinLength} error={fieldErrors.password}>
               <Input
                 type="password"
                 value={form.password}

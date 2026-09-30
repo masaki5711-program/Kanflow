@@ -66,7 +66,7 @@ export function CommentThread({ projectId, entityType, entityId, onCountDelta }:
         <ol className="space-y-3">
           {thread.items.map((c) => (
             <CommentItem key={c.id} comment={c} members={members} membersLoading={membersLoading} onUpdate={thread.update} onRemove={thread.remove}
-              onRemoved={() => onCountDelta?.(-1)} />
+              onRemoved={() => onCountDelta?.(-1)} onTranslated={() => void thread.refetch()} />
           ))}
         </ol>
       )}
@@ -89,9 +89,11 @@ interface ItemProps {
   onUpdate: (id: string, body: string) => Promise<unknown>
   onRemove: (id: string) => Promise<void>
   onRemoved: () => void
+  /** A "translate now" finished — reload so the translated body shows. */
+  onTranslated: () => void
 }
 
-function CommentItem({ comment, members, membersLoading, onUpdate, onRemove, onRemoved }: ItemProps) {
+function CommentItem({ comment, members, membersLoading, onUpdate, onRemove, onRemoved, onTranslated }: ItemProps) {
   const { t, language } = useLanguage()
   const toast = useToast()
   const confirm = useConfirm()
@@ -158,7 +160,7 @@ function CommentItem({ comment, members, membersLoading, onUpdate, onRemove, onR
         <CommentComposer members={members} membersLoading={membersLoading} initialValue={comment.body} onSubmit={save} autoFocus
           label={t.commentsEditBodyLabel} submitLabel={t.commentsSave} onCancel={() => setEditing(false)} />
       ) : (
-        <CommentBody body={comment.body} mentions={comment.mentions} />
+        <CommentBody body={comment.body} mentions={comment.mentions} i18n={comment.i18n} commentId={comment.id} onTranslated={onTranslated} />
       )}
     </li>
   )

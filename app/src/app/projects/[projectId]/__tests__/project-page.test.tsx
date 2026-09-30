@@ -120,10 +120,17 @@ describe("ProjectDashboard (server)", () => {
       { id: "t2", taskName: "Substring only", status: "todo", assignee: "Taro Yamada", assignees: [], pbItem: { id: "pb2", displayId: 5, userStory: null } },
     ])
     const soon = new Date(Date.now() + 3 * 86_400_000)
-    m.prisma.planItem.findMany.mockResolvedValue([
+    const dueRows = [
       { id: "pl1", name: "Launch", plannedEnd: new Date(Date.UTC(soon.getFullYear(), soon.getMonth(), soon.getDate())), status: "in_progress", isMilestone: true },
-    ])
+    ]
+    // The whole plan (for 計画進捗): two roots, 30 and 10 days → (10×30 + 100×10) / 40 = 33 %.
+    const planRows = [
+      { id: "r1", parentId: null, progressPct: 10, status: "in_progress", isMilestone: false, plannedStart: d("2026-01-01T00:00:00Z"), plannedEnd: d("2026-01-30T00:00:00Z") },
+      { id: "r2", parentId: null, progressPct: 100, status: "done", isMilestone: false, plannedStart: d("2026-02-01T00:00:00Z"), plannedEnd: d("2026-02-10T00:00:00Z") },
+    ]
+    m.prisma.planItem.findMany.mockImplementation(async (args: { where: { status?: unknown } }) => (args.where.status ? dueRows : planRows))
     const props = await renderPage()
+    expect(props.planProgressPct).toBe(33)
 
     const taskArgs = m.prisma.sprintBacklogItem.findMany.mock.calls[0][0]
     expect(taskArgs.where.sprint).toEqual({ projectId: "p1", status: { in: ["planning", "active"] } })
@@ -157,6 +164,7 @@ describe("ProjectDashboard (server)", () => {
     expect(props.projectI18n).toEqual({})
     expect(props.myTasks).toEqual([])
     expect(props.upcomingDue).toEqual([])
+    expect(props.planProgressPct).toBeNull()
   })
 
   it("lets a section manager in when sections overlap", async () => {

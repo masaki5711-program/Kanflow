@@ -50,7 +50,7 @@ describe("velocityTrend", () => {
 
 describe("planSummary", () => {
   const item = (over: Partial<PlanRow>): PlanRow => ({
-    id: "x", parentId: null, progressPct: 0, plannedStart: jst("2026-10-01"), plannedEnd: jst("2026-10-10"), status: "in_progress", ...over,
+    id: "x", parentId: null, progressPct: 0, plannedStart: jst("2026-10-01"), plannedEnd: jst("2026-10-10"), status: "in_progress", isMilestone: false, ...over,
   })
   const today = jst("2026-10-06", 10)
 
@@ -69,6 +69,17 @@ describe("planSummary", () => {
       item({ id: "solo", progressPct: 100, status: "done", plannedStart: jst("2026-10-01"), plannedEnd: jst("2026-10-20") }), // 20 days
     ]
     expect(planSummary(items, today)).toEqual({ progressPct: Math.round((50 * 60 + 100 * 20) / 80), delayed: 1, atRisk: 1, total: 7 })
+  })
+
+  it("A3-13: uses the plan page's rules (milestones weightless, on-hold never delayed, 15 pt at-risk margin)", () => {
+    const items = [
+      item({ id: "work", progressPct: 40 }),
+      item({ id: "gate", isMilestone: true, progressPct: 0, plannedStart: jst("2026-10-10"), plannedEnd: jst("2026-10-10") }),
+      item({ id: "paused", status: "on_hold", plannedEnd: jst("2026-10-02") }),
+    ]
+    // work: 6/10 elapsed = 60 %, 40 % done → 20 pt behind (> 15) → at risk; the plan page's rule, not the old 20 pt gap.
+    // progress: (40 × 10 days + 0 × 2 days) / 12 = 33 — the milestone adds no weight (old rule: 31).
+    expect(planSummary(items, today)).toEqual({ progressPct: 33, delayed: 0, atRisk: 1, total: 3 })
   })
 
   it("treats an orphan (parent missing) as a top-level item", () => {

@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest"
 import { getProjectTypeLabels, projectTypeOptions, type ProjectType } from "@/lib/project-type-labels"
 import { DEFAULT_POINT_UNIT, POINT_UNIT_OPTIONS, formatPointUnit, getPointScale } from "@/lib/i18n/point-units"
 import { hasJapanese, isBilingualText, looksEnglish } from "@/lib/bilingual-detect"
+import { projectRoleLabel, projectRoleShortLabel } from "@/lib/project-roles"
+import { getTranslations } from "@/lib/i18n"
+
+const pick = (l: { rolePO: string; roleSM: string; roleDev: string }) => [l.rolePO, l.roleSM, l.roleDev]
 
 describe("project-type-labels", () => {
   const types: ProjectType[] = ["software", "process_improvement", "general"]
@@ -22,6 +26,32 @@ describe("project-type-labels", () => {
     expect(getProjectTypeLabels("software", "ja").rolePO).toBe("プロダクトオーナー")
     expect(getProjectTypeLabels("software", "id").rolePO).toBe("Pemilik Produk")
     expect(getProjectTypeLabels("software", "en").rolePO).toBe("Product Owner")
+  })
+
+  it("localizes every project role; the ja UI never shows English role names (A3-07)", () => {
+    expect(pick(getProjectTypeLabels("software", "ja"))).toEqual(["プロダクトオーナー", "スクラムマスター", "開発者"])
+    expect(pick(getProjectTypeLabels("software", "id"))).toEqual(["Pemilik Produk", "Scrum Master", "Pengembang"])
+    expect(pick(getProjectTypeLabels("software", "en"))).toEqual(["Product Owner", "Scrum Master", "Developer"])
+    for (const type of types) {
+      for (const role of pick(getProjectTypeLabels(type, "ja"))) expect(role).not.toMatch(/^[A-Za-z ]+$/)
+    }
+    // Shared (non project-type) fallbacks follow the same wording.
+    for (const lang of ["ja", "id", "en"] as const) {
+      expect(pick(getTranslations(lang))).toEqual(pick(getProjectTypeLabels("software", lang)))
+    }
+  })
+
+  it("projectRoleLabel / projectRoleShortLabel map po / sm / dev per language (A3-07)", () => {
+    const ja = getProjectTypeLabels("software", "ja")
+    expect(["po", "sm", "dev", "guest"].map((r) => projectRoleLabel(r, ja))).toEqual(["プロダクトオーナー", "スクラムマスター", "開発者", "guest"])
+    expect(projectRoleLabel("dev", getProjectTypeLabels("process_improvement", "id"))).toBe("Anggota Tim Perbaikan")
+    expect(["po", "sm", "dev"].map((r) => projectRoleShortLabel(r, "ja"))).toEqual(["PO", "SM", "開発"])
+    expect(projectRoleShortLabel("dev", "en")).toBe("Dev")
+    expect(projectRoleShortLabel("x", "id")).toBe("x")
+  })
+
+  it("names the release import after the backlog, not 'PB' (A3-15)", () => {
+    expect(getProjectTypeLabels("software", "ja").releaseImportTitle).toBe("バックログから取り込み")
   })
 
   it("falls back to ja/software for unknown values", () => {

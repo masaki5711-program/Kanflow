@@ -42,3 +42,12 @@ describe("burndown geometry", () => {
     expect(isWeekend("2026-09-21")).toBe(false)
   })
 })
+
+describe("sameSeries", () => {
+  it("compares series with a small tolerance", async () => {
+    const { sameSeries } = await import("./burndown-geometry")
+    expect(sameSeries([3, 1.5, 0], [3, 1.5000001, 0])).toBe(true)
+    expect(sameSeries([3, 1.5, 0], [3, 2, 0])).toBe(false)
+    expect(sameSeries([3], [3, 0])).toBe(false)
+  })
+})

@@ -34,7 +34,8 @@ export interface MetricsCurrent {
     jobs: { queued: number; running: number; oldestQueuedAgeSec: number | null } | null
   }
   translation: { pending: number; running: number; failed: number; oldestPendingAgeSec: number | null } | null
-  worker: { status: "ok" | "stale" | "absent"; heartbeatAgeSec: number | null }
+  /** `expected` false = in-process translation worker; no heartbeat is normal. */
+  worker: { status: "ok" | "stale" | "absent"; heartbeatAgeSec: number | null; expected?: boolean }
   db: { ok: boolean; latencyMs: number | null }
 }
 

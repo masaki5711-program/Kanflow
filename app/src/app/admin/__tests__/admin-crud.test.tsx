@@ -14,6 +14,7 @@ vi.mock("@/components/user-management-base", () => ({
 const { SectionManagement } = await import("../sections/section-management")
 const { AdminCategoryManagement } = await import("../categories/admin-category-management")
 const { UserManagement } = await import("../users/user-management")
+const { AdminBackLink } = await import("../admin-back-link")
 
 const t = tr("ja")
 
@@ -38,9 +39,14 @@ const sections = [
 ]
 
 describe("UserManagement", () => {
-  it("wraps the shared base with a back link", () => {
+  it("renders the shared base (the back link comes from the page shell)", () => {
     renderWithProviders(<UserManagement />)
-    expect(within(screen.getByTestId("umb")).getByRole("link", { name: t.projectBackToList })).toHaveAttribute("href", "/")
+    expect(screen.getByTestId("umb")).toBeInTheDocument()
+  })
+
+  it("every admin page gets the same back link (A3-18)", () => {
+    renderWithProviders(<AdminBackLink />)
+    expect(screen.getByRole("link", { name: t.projectBackToList })).toHaveAttribute("href", "/")
   })
 })
 

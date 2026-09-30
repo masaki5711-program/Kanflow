@@ -341,7 +341,8 @@ describe("BacklogPage — create / edit / INVEST", () => {
     expect(within(dialog).getByRole("button", { name: t.add })).toBeDisabled()
     await user.type(within(dialog).getByRole("textbox", { name: new RegExp(pt.backlogInitiative) }), "New PBI")
     await user.click(within(dialog).getByRole("button", { name: t.add }))
-    expect(await screen.findByText(t.backlogSaved)).toBeInTheDocument()
+    // Create toast names the new PBI when the API returns its number, else the generic "saved" text.
+    expect(await screen.findByText((text) => text === t.backlogSaved || /^PBI #\d+/.test(text))).toBeInTheDocument()
     expect(bodyOf(fetchMock, "POST", "/backlog")).toMatchObject({ initiative: "New PBI", productGoalId: "g1", workloadScore: 0, status: "not_ready" })
     await waitFor(() => expect(screen.queryByRole("dialog", { name: t.backlogAddItem })).not.toBeInTheDocument())
   })

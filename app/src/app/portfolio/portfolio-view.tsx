@@ -26,17 +26,22 @@ const KPI_TONE = {
   neutral: "border-border bg-surface text-fg",
 } as const
 
+/**
+ * One tile of the KPI strip. Every tile has the same box (A3-04: the hero
+ * tile used to span two rows and left the grid looking unfinished); the
+ * attention tile stands out by colour, weight and its pressed ring instead.
+ */
 function Kpi({ label, value, tone = "neutral", hero, pressed, onClick }: KpiProps) {
   const body = (
     <>
-      <span className={cn("tabular-nums font-semibold leading-none", hero ? "text-[2.5rem]" : "text-heading")}>{value}</span>
+      <span className={cn("tabular-nums text-heading leading-none", hero ? "font-bold" : "font-semibold")}>{value}</span>
       <span className={cn("text-caption font-medium", tone === "neutral" ? "text-fg-muted" : "")}>{label}</span>
     </>
   )
   const cls = cn(
-    "flex flex-col justify-between gap-2 rounded-ui-lg border px-4 py-3 text-left shadow-ui-sm",
+    "flex h-full min-h-20 flex-col justify-between gap-2 rounded-ui-lg border px-4 py-3 text-left shadow-ui-sm",
     KPI_TONE[value > 0 ? tone : "neutral"],
-    hero && "row-span-2 min-h-32 sm:col-span-2 lg:col-span-1"
+    hero && value > 0 && "border-2"
   )
   if (!onClick) return <div className={cls}>{body}</div>
   return (
@@ -49,7 +54,7 @@ function Kpi({ label, value, tone = "neutral", hero, pressed, onClick }: KpiProp
 function KpiStrip({ kpis, attentionOnly, onToggleAttention }: { kpis: PortfolioKpis; attentionOnly: boolean; onToggleAttention: () => void }) {
   const { t } = useLanguage()
   return (
-    <section aria-label={t.portfolioTitle} className="mb-6 grid auto-rows-fr grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-[1.4fr_repeat(5,1fr)]">
+    <section aria-label={t.portfolioTitle} className="mb-6 grid auto-rows-fr grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6" data-testid="portfolio-kpis">
       <Kpi label={t.portfolioKpiAttention} value={kpis.attention} tone="danger" hero pressed={attentionOnly} onClick={onToggleAttention} />
       <Kpi label={t.portfolioKpiProjects} value={kpis.projects} />
       <Kpi label={t.portfolioKpiActiveSprints} value={kpis.activeSprints} />

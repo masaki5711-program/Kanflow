@@ -27,6 +27,7 @@ vi.mock("@/services/_shared/translations", () => m.tr)
 vi.mock("../goals.repository", () => m.repo)
 
 const svc = await import("../goals.service")
+const { touchedTranslationFields } = await import("@/services/__tests__/support")
 const actor = { userId: "u1", userName: "User", systemRole: "member" }
 
 describe("goals.service", () => {
@@ -54,6 +55,12 @@ describe("goals.service", () => {
     const out = await svc.updateGoal("p1", "g1", { title: "N" }, actor)
     expect(m.tr.enqueueIn).toHaveBeenCalledWith(m.tx, "product_goal", "g1", { title: "N" })
     expect(out).toEqual({ id: "g1", title: "N", i18n: {} })
+  })
+
+  it("A3-02: a non-text update (text keys undefined) touches no FieldTranslation row", async () => {
+    m.repo.updateGoal.mockResolvedValue({ id: "g1" })
+    await svc.updateGoal("p1", "g1", { status: "achieved", title: undefined, description: undefined } as never, actor)
+    expect(touchedTranslationFields(m.tr.enqueueIn)).toEqual([])
   })
 
   it("deletes a goal and purges its translations transactionally", async () => {

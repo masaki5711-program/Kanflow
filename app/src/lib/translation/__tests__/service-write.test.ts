@@ -29,6 +29,19 @@ describe("translation service — write side", () => {
     })
   })
 
+  it("A3-02: treats present-but-undefined keys as 'not changed' (only explicit null / '' clears)", () => {
+    expect(svc.pickTranslatableFields("sprint_task", { taskName: undefined, completionComment: null, status: "done" })).toEqual({
+      completionComment: null,
+    })
+  })
+
+  it("A3-02: a status-only patch with undefined text keys neither deletes nor upserts rows", async () => {
+    const tx = fakeTx()
+    await svc.enqueueTranslations("sprint_task", "t1", { taskName: undefined, completionComment: undefined, status: "done" }, tx as never)
+    expect(tx.fieldTranslation.deleteMany).not.toHaveBeenCalled()
+    expect(tx.$executeRaw).not.toHaveBeenCalled()
+  })
+
   it("enqueues on the given transaction client, not the global one", async () => {
     const tx = fakeTx()
     await svc.enqueueTranslations("product_goal", "g1", { title: "目標", description: "" }, tx as never)
@@ -83,7 +96,7 @@ describe("purgeOrphanTranslations", () => {
     m.global.$queryRaw.mockImplementation(async () => [{ n: BigInt(1) }])
     const out = await svc.purgeOrphanTranslations({ dryRun: true })
     expect(out.dryRun).toBe(true)
-    expect(out.total).toBe(12)
+    expect(out.total).toBe(13)
     expect(out.byEntity.project).toBe(1)
     expect(m.global.$executeRaw).not.toHaveBeenCalled()
   })
@@ -92,7 +105,7 @@ describe("purgeOrphanTranslations", () => {
     m.global.$executeRaw.mockResolvedValueOnce(5000).mockResolvedValueOnce(3).mockResolvedValue(0)
     const out = await svc.purgeOrphanTranslations()
     expect(out).toEqual({ dryRun: false, byEntity: { project: 5003 }, total: 5003 })
-    expect(m.global.$executeRaw).toHaveBeenCalledTimes(13)
+    expect(m.global.$executeRaw).toHaveBeenCalledTimes(14)
     expect(m.global.$queryRaw).not.toHaveBeenCalled()
   })
 })
@@ -122,5 +135,15 @@ describe("backfillTranslations", () => {
     expect(tx.$executeRaw).toHaveBeenCalledTimes(1)
     expect(tx.$executeRaw.mock.calls[0]).toContain("新しい")
     expect(m.global.$executeRaw).not.toHaveBeenCalled()
+  })
+
+  it("A3-03: never backfills soft-deleted comments (live filter on the scan and the re-read)", async () => {
+    m.global.$queryRaw.mockResolvedValue([])
+    await svc.backfillTranslations(5)
+    const scans = m.global.$queryRaw.mock.calls.map((c) => JSON.stringify(c))
+    const commentScan = scans.find((c) => c.includes('"comment"') && c.includes('"body"'))
+    expect(commentScan).toContain("t.`deletedAt` IS NULL")
+    const pbiScan = scans.find((c) => c.includes('"backlog_item"'))
+    expect(pbiScan).not.toContain("deletedAt")
   })
 })

@@ -1,6 +1,9 @@
+import { LABEL_ENTITY } from "@/lib/translation/localize-label"
+import type { EntityI18n, TranslatableEntity } from "@/lib/translation/types"
 import { labelOf, type ActivityDiff } from "@/services/_shared/activity"
 import { toPage, type Page } from "@/services/_shared/cursor"
 import { defaultDb } from "@/services/_shared/db"
+import { getI18nFor } from "@/services/_shared/translations"
 import * as repo from "./activity.repository"
 import type { EntityRef, PageQuery, ProjectActivityQuery } from "./activity.schemas"
 
@@ -33,6 +36,8 @@ export interface ActivityDto {
   createdAt: string
   /** Only in the user feed. */
   project?: { id: string; name: string } | null
+  /** Project feed: translations of the entity, so the label can follow the viewer's language. */
+  entityI18n?: EntityI18n
 }
 
 /** Pure: parse the stored diff JSON; malformed text → empty diff. */
@@ -116,10 +121,27 @@ export async function withMemberNames(items: readonly ActivityDto[]): Promise<Ac
   })
 }
 
+/** Attach the entities' translations (one lookup per translatable entity kind). */
+export async function withEntityI18n(items: readonly ActivityDto[]): Promise<ActivityDto[]> {
+  const idsByEntity = new Map<TranslatableEntity, string[]>()
+  for (const item of items) {
+    const entity = LABEL_ENTITY[item.entityType]
+    if (entity && item.label) idsByEntity.set(entity, [...(idsByEntity.get(entity) ?? []), item.entityId])
+  }
+  if (idsByEntity.size === 0) return [...items]
+  const maps = new Map(
+    await Promise.all([...idsByEntity].map(async ([entity, ids]) => [entity, await getI18nFor(entity, [...new Set(ids)])] as const))
+  )
+  return items.map((item) => {
+    const i18n = maps.get(LABEL_ENTITY[item.entityType])?.get(item.entityId)
+    return i18n ? { ...item, entityI18n: i18n } : item
+  })
+}
+
 export async function listProjectActivity(projectId: string, query: ProjectActivityQuery): Promise<Page<ActivityDto>> {
   const rows = await repo.findProjectActivity(defaultDb, projectId, query)
   const page = toPage(rows, query.limit, toActivityDto)
-  return { ...page, items: await withMemberNames(await withEntityLabels(projectId, page.items)) }
+  return { ...page, items: await withEntityI18n(await withMemberNames(await withEntityLabels(projectId, page.items))) }
 }
 
 export async function listEntityActivity(projectId: string, ref: EntityRef, query: PageQuery): Promise<Page<ActivityDto>> {

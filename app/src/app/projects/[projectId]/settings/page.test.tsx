@@ -23,6 +23,7 @@ vi.mock("@/components/member-picker", () => ({
 }))
 
 const { default: SettingsPage } = await import("./page")
+const { SprintWorkloadSection } = await import("./sprint-workload-section")
 const t = getTranslations("ja")
 
 const MEMBERS = [
@@ -267,6 +268,18 @@ describe("SprintWorkloadSection", () => {
     expect(within(rows[2]).getByText("-2")).toBeInTheDocument()
     expect(within(rows[3]).getByText("0%")).toBeInTheDocument()
     expect(screen.queryByText("S4")).not.toBeInTheDocument()
+  })
+
+  it("names history sprints in the viewer's language", () => {
+    const i18n = { sprintName: { ja: "第5スプリント", id: "Sprint Kelima", source: "id" as const, status: "done" as const } }
+    renderWithProviders(
+      <SprintWorkloadSection projectId="p1" initialSettings={{ defaultCapacity: 10, sprintDurationDays: 14, pointUnit: "pt", pointDescription: "" }}
+        history={[{ id: "s5", sprintName: "Sprint Kelima", capacity: 10, actualScore: 8, status: "done", i18n }]} />,
+      { language: "ja" },
+    )
+    const table = screen.getByRole("table", { name: t.settingsSprintHistory })
+    expect(within(table).getByText("第5スプリント")).toBeInTheDocument()
+    expect(within(table).queryByText("Sprint Kelima")).not.toBeInTheDocument()
   })
 
   it("edits and saves settings, warning on unload only while dirty", async () => {

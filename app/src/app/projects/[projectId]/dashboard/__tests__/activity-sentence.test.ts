@@ -36,6 +36,13 @@ describe("feedSentence", () => {
     expect(full(feedSentence(entry({ action }), "p1", en, "en"))).toBe(text)
   })
 
+  it("shows the entity label in the viewer's language when translated", () => {
+    const entityI18n = { taskName: { ja: "設計タスク", id: "Tugas desain", source: "ja" as const, status: "done" as const } }
+    const e = entry({ entityType: "sprint_task", entityId: "t1", label: "設計タスク", entityI18n })
+    expect(feedSentence(e, "p1", getTranslations("id"), "id").entity).toContain("Tugas desain")
+    expect(feedSentence(e, "p1", ja, "ja").entity).toContain("設計タスク")
+  })
+
   it("renders Japanese with 「」 quotes around the label", () => {
     const s = feedSentence(entry({ entityType: "sprint_task", entityId: "t1", label: "テスト" }), "p1", ja, "ja")
     expect(full(s)).toBe(`Alice が${ja.dashboardFeedEntitySprintTask}「テスト」を作成しました`)

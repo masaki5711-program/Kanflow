@@ -31,12 +31,15 @@ export type TranslatableEntity =
   | "plan_item"
   | "fixed_task"
   | "fixed_task_item"
+  | "comment"
 
 /**
  * Translatable fields per entity with their priority (higher = translated
  * first). Field names match the API/Prisma field names. Deliberately
  * excluded: person names (author, assignee, assignedPo), version labels,
  * link columns (referenceDoc, manualLink), master data, AI reports, chat.
+ * Comment bodies are translated at the lowest priority; their @mentions are
+ * shielded from the model (translator.ts) and kept verbatim.
  */
 export const TRANSLATABLE_FIELDS: Record<TranslatableEntity, Record<string, number>> = {
   project: { name: 10, description: 5, pointDescription: 0 },
@@ -76,6 +79,7 @@ export const TRANSLATABLE_FIELDS: Record<TranslatableEntity, Record<string, numb
   plan_item: { name: 8, description: 3, notes: 0 },
   fixed_task: { taskName: 0 },
   fixed_task_item: { taskName: 0 },
+  comment: { body: 1 },
 }
 
 /** Physical table per entity (Prisma default naming) — used by the backfill query. */
@@ -92,6 +96,15 @@ export const ENTITY_TABLES: Record<TranslatableEntity, string> = {
   plan_item: "PlanItem",
   fixed_task: "UserFixedTask",
   fixed_task_item: "UserFixedTaskItem",
+  comment: "Comment",
+}
+
+/**
+ * Extra backfill condition per entity (SQL on alias `t`): soft-deleted rows
+ * whose text is never shown must not be sent to the model.
+ */
+export const ENTITY_LIVE_FILTER: Partial<Record<TranslatableEntity, string>> = {
+  comment: "t.`deletedAt` IS NULL",
 }
 
 export function translationPriority(entity: TranslatableEntity, field: string): number {

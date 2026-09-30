@@ -32,6 +32,8 @@ interface DashboardContentProps {
   backlogCount: number
   sprintCount: number
   projectProgressPct: number
+  /** 計画進捗 (planOverallProgress of the master plan); null without a plan. */
+  planProgressPct?: number | null
   currentUserRole: string
   /** goal.write from the authz policy (the API enforces the same rule). */
   canEditGoals?: boolean
@@ -60,6 +62,7 @@ export function DashboardContent({
   backlogCount,
   sprintCount,
   projectProgressPct,
+  planProgressPct,
   currentUserRole,
   canEditGoals = false,
   activeSprint,
@@ -85,7 +88,7 @@ export function DashboardContent({
             <I18nText i18n={projectText} field="name" original={projectName} entity={{ type: "project", id: projectId }} />
           </h2>
         </div>
-        <ProgressEditor projectId={projectId} initialProgress={projectProgressPct} canEdit={currentUserRole === "po"} />
+        <ProgressEditor projectId={projectId} initialProgress={projectProgressPct} canEdit={currentUserRole === "po"} planProgressPct={planProgressPct} />
       </section>
 
       {/* Row 1 — now. grid-cols-1 (minmax(0, 1fr)) + min-w-0 keep long names from

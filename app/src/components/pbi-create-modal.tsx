@@ -49,7 +49,9 @@ export function PbiCreateModal({ projectId, onClose, onCreated, initialForm, for
         onClose()
       },
       toastOnError: (e) => `${t.backlogSaveFailed}: ${e.message}`,
-      toastOnSuccess: t.backlogSaved,
+      // "added", not "saved": this is a create (A3-15).
+      toastOnSuccess: (created) =>
+        created?.displayId != null ? t.backlogCreatedToast.replace("{id}", String(created.displayId)) : t.backlogSaved,
     },
   )
   useBackNavigationGuard(isDirty && !create.isPending, () =>

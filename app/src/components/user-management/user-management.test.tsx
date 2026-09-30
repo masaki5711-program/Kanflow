@@ -180,6 +180,20 @@ describe("UserManagementBase", () => {
     expect(await within(dialog).findByRole("alert")).toHaveTextContent("Email taken")
   })
 
+  it("validates the create form with localized inline errors instead of browser bubbles (A3-18)", async () => {
+    await renderPage()
+    await userEvent.click(screen.getByRole("button", { name: t.userAdd }))
+    const dialog = await screen.findByRole("dialog", { name: t.userCreateTitle })
+    expect(dialog.querySelector("form")).toHaveAttribute("novalidate")
+    await userEvent.type(within(dialog).getByLabelText(new RegExp(t.userEmail)), "not-an-email")
+    await userEvent.type(within(dialog).getByLabelText(new RegExp(t.userInitialPassword)), "12345")
+    await userEvent.click(within(dialog).getByRole("button", { name: t.create }))
+    expect(await within(dialog).findByText(t.userNameRequired)).toBeInTheDocument()
+    expect(within(dialog).getByText(t.userEmailInvalid)).toBeInTheDocument()
+    expect(within(dialog).getByText(t.userPasswordMinError)).toBeInTheDocument()
+    expect(calls.some((c) => c.method === "POST")).toBe(false)
+  })
+
   it("edits a user (PATCH) and guards closing with unsaved changes", async () => {
     await renderPage()
     await userEvent.click(within(rowOf("Bob")).getByRole("button", { name: `${t.edit}: Bob` }))

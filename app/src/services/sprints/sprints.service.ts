@@ -187,8 +187,15 @@ export async function getBurndown(projectId: string, sprintId?: string, now: Dat
   if (sprintId) {
     const sprint = await repo.findBurndownSprint(defaultDb, projectId, sprintId)
     if (!sprint) throw new NotFoundError()
-    return computeBurndown([sprint], now)
+    return withMarkerI18n(computeBurndown([sprint], now))
   }
   const newestFirst = await repo.findBurndownSprints(defaultDb, projectId)
-  return computeBurndown([...newestFirst].reverse(), now)
+  return withMarkerI18n(computeBurndown([...newestFirst].reverse(), now))
+}
+
+/** Sprint band labels follow the viewer's language like the sprint page (cycle 3). */
+async function withMarkerI18n(data: BurndownData): Promise<BurndownData> {
+  if (data.sprintMarkers.length === 0) return data
+  const i18n = await getI18nFor("sprint", data.sprintMarkers.map((m) => m.id))
+  return { ...data, sprintMarkers: data.sprintMarkers.map((m) => ({ ...m, i18n: i18n.get(m.id) ?? {} })) }
 }

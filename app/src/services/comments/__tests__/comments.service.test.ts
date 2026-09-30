@@ -3,11 +3,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 vi.mock("@/services/_shared/db", async () => (await import("@/services/__tests__/support")).dbMock())
 vi.mock("@/services/_shared/activity", async () => (await import("@/services/__tests__/support")).activityMock())
 vi.mock("@/services/_shared/notifications", async () => (await import("@/services/__tests__/support")).notificationsMock())
+vi.mock("@/services/_shared/translations", async () => (await import("@/services/__tests__/support")).translationMock())
 vi.mock("../comments.repository")
 
 const repo = await import("../comments.repository")
 const svc = await import("../comments.service")
 const activity = await import("@/services/_shared/activity")
+const tr = await import("@/services/_shared/translations")
 const notifications = await import("@/services/_shared/notifications")
 const { ACTOR, DEFAULT_DB, TX } = await import("@/services/__tests__/support")
 const { ForbiddenError, NotFoundError } = await import("@/services/_shared/errors")
@@ -66,6 +68,7 @@ describe("toCommentDto", () => {
       editedAt: null,
       canEdit: true,
       canDelete: true,
+      i18n: {},
     })
   })
 
@@ -296,5 +299,46 @@ describe("deleteComment", () => {
   it("404 when already deleted", async () => {
     vi.mocked(repo.findComment).mockResolvedValue(row("c1", { deletedAt: AT }) as never)
     await expect(svc.deleteComment("p1", "c1", ACTOR)).rejects.toBeInstanceOf(NotFoundError)
+  })
+})
+
+describe("A3-03: comment translation", () => {
+  const I18N = { body: { ja: "こんにちは", id: "Halo", source: "ja" as const, status: "done" as const } }
+
+  it("enqueues the (glossary-cleaned) body on create, inside the transaction", async () => {
+    vi.mocked(tr.prepareText).mockResolvedValueOnce({ body: "SMT 確認 @[Taro Yamada]" })
+    await svc.createComment("p1", { entityType: "pbi", entityId: "b1", body: "SMT<<SMT>> 確認 @[Taro Yamada]" }, ACTOR)
+    expect(tr.prepareText).toHaveBeenCalledWith({ body: "SMT<<SMT>> 確認 @[Taro Yamada]" }, ACTOR.userId)
+    expect(repo.createComment).toHaveBeenCalledWith(TX, expect.objectContaining({ body: "SMT 確認 @[Taro Yamada]" }))
+    expect(tr.enqueueIn).toHaveBeenCalledWith(TX, "comment", "c1", { body: "SMT 確認 @[Taro Yamada]" })
+    expect(repo.replaceMentions).toHaveBeenCalledWith(TX, "c1", ["u2"])
+  })
+
+  it("re-enqueues on edit and not when the body is unchanged", async () => {
+    vi.mocked(repo.findComment).mockResolvedValue(row("c1") as never)
+    await svc.updateComment("p1", "c1", { body: "Hello" }, ACTOR)
+    expect(tr.enqueueIn).not.toHaveBeenCalled()
+    await svc.updateComment("p1", "c1", { body: "Halo semua" }, ACTOR)
+    expect(tr.enqueueIn).toHaveBeenCalledWith(TX, "comment", "c1", { body: "Halo semua" })
+  })
+
+  it("purges the translation when the comment is deleted", async () => {
+    await svc.deleteComment("p1", "c1", ACTOR)
+    expect(tr.purgeIn).toHaveBeenCalledWith(TX, { comment: ["c1"] })
+  })
+
+  it("attaches i18n to live comments of a thread (one query) and never to tombstones", async () => {
+    vi.mocked(repo.findComments).mockResolvedValue([row("a"), row("b", { deletedAt: AT })] as never)
+    vi.mocked(tr.getI18nFor).mockResolvedValue(new Map([["a", I18N], ["b", I18N]]))
+    const page = await svc.listComments("p1", { entityType: "pbi", entityId: "b1", limit: 10 }, { userId: "u1", canModerate: false })
+    expect(tr.getI18nFor).toHaveBeenCalledWith("comment", ["a"])
+    expect(page.items[0].i18n).toEqual(I18N)
+    expect(page.items[1].i18n).toEqual({})
+  })
+
+  it("returns i18n on the created comment DTO", async () => {
+    vi.mocked(tr.getI18nFor).mockResolvedValue(new Map([["c1", I18N]]))
+    const dto = await svc.createComment("p1", { entityType: "pbi", entityId: "b1", body: "こんにちは" }, ACTOR)
+    expect(dto.i18n).toEqual(I18N)
   })
 })

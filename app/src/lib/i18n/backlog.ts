@@ -41,6 +41,7 @@ export interface BacklogTranslations {
   backlogStatusChangeFailed: string
   backlogSaveFailed: string
   backlogSaved: string
+  backlogCreatedToast: string
   backlogDeleteConfirm: string
   backlogDeleteFailed: string
   backlogLoadFailed: string
@@ -104,6 +105,7 @@ export const ja: BacklogTranslations = {
   backlogStatusChangeFailed: "ステータスを変更できませんでした",
   backlogSaveFailed: "PBI を保存できませんでした",
   backlogSaved: "PBI を保存しました",
+  backlogCreatedToast: "PBI #{id} を追加しました",
   backlogDeleteConfirm: "この PBI をゴミ箱に移動しますか？ゴミ箱から復元できます。",
   backlogDeleteFailed: "PBI を削除できませんでした",
   backlogLoadFailed: "プロダクトバックログを読み込めませんでした",
@@ -167,6 +169,7 @@ export const en: BacklogTranslations = {
   backlogStatusChangeFailed: "Could not change the status",
   backlogSaveFailed: "Could not save the PBI",
   backlogSaved: "PBI saved",
+  backlogCreatedToast: "PBI #{id} added",
   backlogDeleteConfirm: "Move this PBI to the trash? You can restore it from the trash.",
   backlogDeleteFailed: "Could not delete the PBI",
   backlogLoadFailed: "Could not load the product backlog",
@@ -230,6 +233,7 @@ export const id: BacklogTranslations = {
   backlogStatusChangeFailed: "Status tidak dapat diubah",
   backlogSaveFailed: "PBI tidak dapat disimpan",
   backlogSaved: "PBI disimpan",
+  backlogCreatedToast: "PBI #{id} ditambahkan",
   backlogDeleteConfirm: "Pindahkan PBI ini ke tempat sampah? Anda dapat memulihkannya dari tempat sampah.",
   backlogDeleteFailed: "PBI tidak dapat dihapus",
   backlogLoadFailed: "Backlog produk tidak dapat dimuat",

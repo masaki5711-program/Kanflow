@@ -22,6 +22,7 @@ import { useBoardViewState } from "./hooks/use-board-view-state"
 import { useSprintDeepLinks } from "./hooks/use-sprint-deep-links"
 import { sprintElementId } from "./lib/deep-link"
 import { needsRetroDialog, statusDialogFor } from "./lib/task-payload"
+import { isSprintStart } from "./lib/status-change"
 import { useProjectDocumentTitle } from "@/components/app-shell/project-title-context"
 import { Archive, Plus, Zap } from "lucide-react"
 
@@ -99,6 +100,7 @@ export default function SprintsPage() {
     onRequestStatusChange: (sprintId, nextStatus) => {
       const sprint = sprints.find((s) => s.id === sprintId)
       if (sprint && needsRetroDialog(nextStatus)) setStatusDialog(statusDialogFor(sprint, nextStatus))
+      else if (sprint && isSprintStart(sprint.status, nextStatus)) void sprintActions.startSprint(sprint)
       else void sprintActions.changeStatus(sprintId, nextStatus, null)
     },
     onOpenStatusDialog: (sprint) => setStatusDialog(statusDialogFor(sprint, sprint.status)),

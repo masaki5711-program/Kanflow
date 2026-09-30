@@ -33,7 +33,7 @@ export function watch(page: Page): Issues {
 export async function login(page: Page, role: Role) {
   // Cycle 2: the login page now starts in the last-used / Accept-Language
   // language (F-12 fix); pin the anonymous language to ja for the JA selectors.
-  const base = process.env.E2E_BASE_URL || "http://localhost:3101"
+  const base = process.env.E2E_BASE_URL || "http://localhost:3102"
   await page.context().addCookies([{ name: "kanflow_lang", value: "ja", url: base }])
   await loginViaUi(page, USERS[role], PASSWORD)
 }

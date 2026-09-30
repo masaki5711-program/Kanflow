@@ -3,8 +3,15 @@
  * taskName only mark PBI membership and would inflate the burn) across the
  * non-archived sprints, day by day from the earliest sprint start to
  * max(latest sprint end, today).
+ *
+ * Days are calendar days in Asia/Tokyo (the team's zone), independent of the
+ * server's TZ. The ideal / plan lines cover the whole range; the ACTUAL line is
+ * history only: it starts at the total on the first day and stops at today
+ * (A3-01) — future days stay null so a reader can tell history from projection.
  */
 import { isRealTask } from "@/lib/pbi-status-sync"
+import { dateFromKey, tokyoDateKey } from "@/lib/plan-progress"
+import type { EntityI18n } from "@/lib/translation/types"
 
 export interface BurndownTask {
   taskName: string | null
@@ -29,6 +36,8 @@ export interface SprintMarker {
   endIndex: number
   taskCount: number
   doneCount: number
+  /** Sprint-name translations (attached by the service; absent in pure computations). */
+  i18n?: EntityI18n
 }
 
 export interface BurndownData {
@@ -36,8 +45,12 @@ export interface BurndownData {
   totalTasks: number
   idealLine: number[]
   planLine: number[]
+  /** Remaining tasks per day up to and including today; null for future days. */
   actualLine: (number | null)[]
+  /** Kept for API compatibility: always null now that the actual line starts on day 0. */
   actualBaseline: number | null
+  /** Index of today (Asia/Tokyo) in `days`; -1 when today is outside the range. */
+  todayIndex: number
   sprintMarkers: SprintMarker[]
 }
 
@@ -48,38 +61,38 @@ export const EMPTY_BURNDOWN: BurndownData = {
   planLine: [],
   actualLine: [],
   actualBaseline: null,
+  todayIndex: -1,
   sprintMarkers: [],
 }
 
+const DAY_MS = 86_400_000
+
+/** Calendar day "YYYY-MM-DD" of an instant in Asia/Tokyo. */
 export function toDateKey(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+  return tokyoDateKey(d)
 }
 
-function addDays(date: Date, days: number): Date {
-  const d = new Date(date)
-  d.setDate(d.getDate() + days)
-  return d
+function nextKey(key: string): string {
+  const d = dateFromKey(key)
+  if (!d) throw new Error(`invalid date key: ${key}`)
+  return new Date(d.getTime() + DAY_MS).toISOString().slice(0, 10)
 }
 
-function startOfDay(date: Date): Date {
-  const d = new Date(date)
-  d.setHours(0, 0, 0, 0)
-  return d
-}
-
-function buildDays(sprints: readonly BurndownSprint[], today: Date): string[] {
-  const earliest = startOfDay(sprints.reduce<Date>((min, s) => (s.startDate < min ? s.startDate : min), sprints[0].startDate))
-  const latest = startOfDay(sprints.reduce<Date>((max, s) => (s.endDate > max ? s.endDate : max), sprints[0].endDate))
-  const rangeEnd = today > latest ? today : latest
+function buildDays(sprints: readonly BurndownSprint[], todayKey: string): string[] {
+  const starts = sprints.map((s) => toDateKey(s.startDate))
+  const ends = sprints.map((s) => toDateKey(s.endDate))
+  const earliest = starts.reduce((min, k) => (k < min ? k : min))
+  const latest = ends.reduce((max, k) => (k > max ? k : max))
+  const rangeEnd = todayKey > latest ? todayKey : latest
   const days: string[] = []
-  for (let d = new Date(earliest); d.getTime() <= rangeEnd.getTime(); d = addDays(d, 1)) days.push(toDateKey(d))
+  for (let k = earliest; k <= rangeEnd; k = nextKey(k)) days.push(k)
   return days
 }
 
 function sprintRange(s: BurndownSprint, dayIndex: ReadonlyMap<string, number>, dayCount: number) {
   return {
-    start: dayIndex.get(toDateKey(startOfDay(s.startDate))) ?? 0,
-    end: dayIndex.get(toDateKey(startOfDay(s.endDate))) ?? dayCount - 1,
+    start: dayIndex.get(toDateKey(s.startDate)) ?? 0,
+    end: dayIndex.get(toDateKey(s.endDate)) ?? dayCount - 1,
   }
 }
 
@@ -100,42 +113,44 @@ function buildPlanLine(sprints: readonly BurndownSprint[], dayIndex: ReadonlyMap
   return planLine
 }
 
-function buildActualLine(sprints: readonly BurndownSprint[], days: readonly string[], total: number, todayKey: string) {
+/**
+ * Remaining tasks per day, from the first day through today. Completions dated
+ * before the first day count on the first day; days after today are null.
+ */
+export function buildActualLine(
+  sprints: readonly BurndownSprint[],
+  days: readonly string[],
+  total: number,
+  todayKey: string,
+): (number | null)[] {
   const doneEvents = new Map<string, number>()
+  const firstDay = days[0]
   for (const item of sprints.flatMap((s) => s.items)) {
     if (item.status === "done" && item.completedAt) {
-      const k = toDateKey(startOfDay(item.completedAt))
+      const raw = toDateKey(item.completedAt)
+      const k = raw < firstDay ? firstDay : raw
       doneEvents.set(k, (doneEvents.get(k) ?? 0) + 1)
     }
   }
-  const actualLine: (number | null)[] = new Array(days.length).fill(null)
   let rem = total
-  let actualBaseline: number | null = null
-  for (let i = 0; i < days.length; i++) {
-    const done = doneEvents.get(days[i]) ?? 0
-    if (done > 0) {
-      if (actualBaseline === null) actualBaseline = rem
-      rem -= done
-      actualLine[i] = rem
-    } else if (actualBaseline !== null) {
-      actualLine[i] = rem
-    }
-    if (days[i] === todayKey && actualBaseline !== null && actualLine[i] === null) actualLine[i] = rem
-  }
-  return { actualLine, actualBaseline }
+  return days.map((day) => {
+    if (day > todayKey) return null
+    rem -= doneEvents.get(day) ?? 0
+    return rem
+  })
 }
 
 /** Compute the burndown for sprints ordered by startDate ascending. */
 export function computeBurndown(rawSprints: readonly BurndownSprint[], now: Date = new Date()): BurndownData {
   const sprints = rawSprints.map((s) => ({ ...s, items: s.items.filter(isRealTask) }))
   if (sprints.length === 0) return EMPTY_BURNDOWN
-  const today = startOfDay(now)
-  const days = buildDays(sprints, today)
+  const todayKey = toDateKey(now)
+  const days = buildDays(sprints, todayKey)
   const dayIndex = new Map(days.map((k, i) => [k, i]))
   const totalTasks = sprints.reduce((sum, s) => sum + s.items.length, 0)
   const idealLine = days.map((_, i) => (days.length <= 1 ? 0 : totalTasks - (totalTasks * i) / (days.length - 1)))
   const planLine = buildPlanLine(sprints, dayIndex, days.length, totalTasks)
-  const { actualLine, actualBaseline } = buildActualLine(sprints, days, totalTasks, toDateKey(today))
+  const actualLine = buildActualLine(sprints, days, totalTasks, todayKey)
   const sprintMarkers: SprintMarker[] = sprints.map((s) => {
     const { start, end } = sprintRange(s, dayIndex, days.length)
     return {
@@ -148,5 +163,5 @@ export function computeBurndown(rawSprints: readonly BurndownSprint[], now: Date
       doneCount: s.items.filter((i) => i.status === "done").length,
     }
   })
-  return { days, totalTasks, idealLine, planLine, actualLine, actualBaseline, sprintMarkers }
+  return { days, totalTasks, idealLine, planLine, actualLine, actualBaseline: null, todayIndex: dayIndex.get(todayKey) ?? -1, sprintMarkers }
 }

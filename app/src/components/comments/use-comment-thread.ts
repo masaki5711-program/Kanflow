@@ -12,7 +12,7 @@ function appendUnique(items: readonly CommentDto[], more: readonly CommentDto[])
 
 /** Tombstone as the server renders a deleted comment. */
 function asDeleted(c: CommentDto): CommentDto {
-  return { ...c, body: null, deleted: true, mentions: [], canEdit: false, canDelete: false }
+  return { ...c, body: null, deleted: true, mentions: [], canEdit: false, canDelete: false, i18n: {} }
 }
 
 /**

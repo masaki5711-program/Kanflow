@@ -47,7 +47,8 @@ export interface MetricsReport {
     jobs: AiJobQueue | null
   }
   translation: TranslationBacklog | null
-  worker: { status: "ok" | "stale" | "absent"; heartbeatAgeSec: number | null }
+  /** `expected` false = the translation worker runs in-process / off, so no heartbeat is normal (A3-20). */
+  worker: { status: "ok" | "stale" | "absent"; heartbeatAgeSec: number | null; expected?: boolean }
   db: { ok: boolean; latencyMs: number | null }
 }
 
@@ -58,6 +59,8 @@ export interface CollectDeps {
   gateStatus: () => { high_active: number; background_active: number }
   ollamaStatus: () => QueueStatus
   heartbeat: (nowMs: number) => { status: "ok" | "stale" | "absent"; ageSec: number | null }
+  /** Whether an external worker process is expected (AI_TRANSLATION_WORKER=external). */
+  workerExpected?: () => boolean
   processInfo?: () => { pid: number; uptimeSec: number; rssBytes: number; heapUsedBytes: number }
   timeoutMs?: number
 }
@@ -183,7 +186,7 @@ export async function collectMetrics(deps: CollectDeps): Promise<MetricsReport> 
       jobs,
     },
     translation,
-    worker: { status: hb.status, heartbeatAgeSec: hb.ageSec },
+    worker: { status: hb.status, heartbeatAgeSec: hb.ageSec, ...(deps.workerExpected ? { expected: deps.workerExpected() } : {}) },
     db,
   }
 }

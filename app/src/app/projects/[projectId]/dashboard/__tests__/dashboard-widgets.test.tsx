@@ -235,7 +235,8 @@ describe("ActiveSprintCard", () => {
     expect(screen.getByRole("link")).toHaveAttribute("href", "/projects/p1/sprints")
     expect(screen.getByText("Sprint 7")).toBeInTheDocument()
     expect(screen.getByText("Finish login")).toBeInTheDocument()
-    expect(screen.getByText(/2026\/09\/01 ~ 2026\/09\/14/)).toBeInTheDocument()
+    // One app-wide range format (A3-14): no zero padding, "–" separator.
+    expect(screen.getByText(/2026\/9\/1 – 2026\/9\/14/)).toBeInTheDocument()
     expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "50")
     expect(screen.getByText("50%")).toBeInTheDocument()
   })

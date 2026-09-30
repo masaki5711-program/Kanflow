@@ -21,6 +21,7 @@ describe("resolveEntityScope", () => {
   it.each([
     ["icebox_item", "iceboxItem"],
     ["backlog_item", "productBacklogItem"],
+    ["comment", "comment"],
   ] as const)("resolves a live %s and treats a trashed one as missing", async (type, model) => {
     const live = fakeDb({ [`${model}.findUnique`]: { projectId: "p1", deletedAt: null }, ...LIVE })
     await expect(resolveEntityScope(live.client, type, "x")).resolves.toEqual({ kind: "project", projectId: "p1" })

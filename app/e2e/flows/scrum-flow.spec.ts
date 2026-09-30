@@ -124,7 +124,8 @@ test("confirm dialog is fully keyboard operable (Escape cancels, focus returns)"
 
   const heading = page.getByRole("heading", { name: `E2E PBI B ${RUN_ID}` })
   await expect(heading).toBeVisible()
-  const card = heading.locator("xpath=ancestor::*[.//button[@aria-label]][1]")
+  // The whole card is the <li>; the nearest aria-labelled button ancestor is now the drag-handle row.
+  const card = page.locator("li").filter({ has: heading })
   const deleteButton = card.getByRole("button", { name: /^(削除|Delete|Hapus)$/ })
 
   // Open with the keyboard.

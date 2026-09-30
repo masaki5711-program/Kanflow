@@ -91,7 +91,25 @@ describe("MyProjectTasks", () => {
 })
 
 describe("UpcomingDue", () => {
-  const item = (id: string, kind: DueItem["kind"], days: number): DueItem => ({ id, kind, name: `Item ${id}`, date: "2026-10-01T00:00:00.000Z", days })
+  const item = (id: string, kind: DueItem["kind"], days: number, over: Partial<DueItem> = {}): DueItem => ({
+    id, kind, name: `Item ${id}`, i18n: {}, nameField: kind === "sprint_end" ? "sprintName" : "name", date: "2026-10-01T00:00:00.000Z", days, ...over,
+  })
+
+  it("A3-05: shows plan item / sprint names in the viewer's language", () => {
+    const planI18n = { name: { ja: "ISとの調整", id: "Koordinasi dengan IS", source: "id" as const, status: "done" as const } }
+    const sprintI18n = { sprintName: { ja: "スプリント 5", id: "Sprint 5 ID", source: "ja" as const, status: "done" as const } }
+    renderWithProviders(
+      <UpcomingDue projectId="p1" items={[
+        item("a", "plan_item", 1, { name: "Koordinasi dengan IS", i18n: planI18n }),
+        item("s", "sprint_end", 2, { name: "スプリント 5", i18n: sprintI18n }),
+      ]} />,
+      { language: "ja" },
+    )
+    const links = screen.getAllByRole("link")
+    expect(links[0]).toHaveTextContent("ISとの調整")
+    expect(links[0]).not.toHaveTextContent("Koordinasi")
+    expect(links[1]).toHaveTextContent("スプリント 5")
+  })
 
   it("labels each item by kind and urgency and links to its page", () => {
     renderWithProviders(
@@ -100,7 +118,7 @@ describe("UpcomingDue", () => {
     )
     const links = screen.getAllByRole("link")
     expect(links.map((l) => l.getAttribute("href"))).toEqual(["/projects/p1/plan", "/projects/p1/sprints", "/projects/p1/plan"])
-    expect(links[0]).toHaveTextContent(`${en.dashboardDuePlanItem} · 2026/10/01`)
+    expect(links[0]).toHaveTextContent(`${en.dashboardDuePlanItem} · Oct 1, 2026`)
     expect(links[0]).toHaveTextContent(en.dashboardDueOverdue)
     expect(links[1]).toHaveTextContent(en.dashboardDueSprintEnd)
     expect(links[1]).toHaveTextContent(en.dashboardDueToday)

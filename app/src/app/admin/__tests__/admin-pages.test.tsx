@@ -18,14 +18,14 @@ vi.mock("../translations/translation-queue-panel", () => ({ TranslationQueuePane
 vi.mock("../users/user-management", () => ({ UserManagement: () => <div>USERS</div> }))
 vi.mock("../trash/project-trash-management", () => ({ ProjectTrashManagement: () => <div>TRASH</div> }))
 
-/** Tables use the wide page width, small list/queue screens the narrow one. */
+/** Every admin page uses the same (wide) width (A3-18: widths differed per page). */
 const WIDTH: Record<string, string> = {
-  CATEGORIES: "page-narrow",
+  CATEGORIES: "page-wide",
   GLOSSARY: "page-wide",
   SECTIONS: "page-wide",
-  TRANSLATIONS: "page-narrow",
+  TRANSLATIONS: "page-wide",
   USERS: "page-wide",
-  TRASH: "page-narrow",
+  TRASH: "page-wide",
 }
 
 const pages = {

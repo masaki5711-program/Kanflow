@@ -92,7 +92,7 @@ test("admin project trash: restore and purge a throwaway project", async ({ brow
 })
 
 test("/api/health fields", async () => {
-  const anon = await (await import("@playwright/test")).request.newContext({ baseURL: process.env.E2E_BASE_URL || "http://localhost:3100" })
+  const anon = await (await import("@playwright/test")).request.newContext({ baseURL: process.env.E2E_BASE_URL || "http://localhost:3102" })
   const r = await anon.get("/api/health")
   const j = await r.json()
   log.push(`health (anonymous) -> ${r.status()} ${JSON.stringify(j)}`)

@@ -11,8 +11,12 @@
  *   people (PBI PO, task assignees, Icebox author / PO) except the author and
  *   the users already notified as mentioned.
  * - A new comment records one "comment" activity row on the commented entity.
+ * - Bodies are translated JA⇔ID like other user text (entity "comment",
+ *   field "body", lowest priority; mentions are kept verbatim by the
+ *   translator). The DTO carries `i18n`; a delete purges the translation.
  */
 import { resolveAssignees, type AssigneeCandidate } from "@/lib/assignees"
+import type { EntityI18n } from "@/lib/translation/types"
 import { commentExcerpt, resolveMentionUserIds } from "@/lib/mentions"
 import type { Actor } from "@/services/_shared/actor"
 import { LABEL_MAX, logActivity } from "@/services/_shared/activity"
@@ -20,6 +24,7 @@ import { toPage, type Page } from "@/services/_shared/cursor"
 import { defaultDb, withTransaction, type Db } from "@/services/_shared/db"
 import { ForbiddenError, NotFoundError } from "@/services/_shared/errors"
 import { notify } from "@/services/_shared/notifications"
+import { enqueueIn, getI18nFor, prepareText, purgeIn } from "@/services/_shared/translations"
 import * as repo from "./comments.repository"
 import type {
   CommentCountsQuery,
@@ -61,10 +66,12 @@ export interface CommentDto {
   editedAt: string | null
   canEdit: boolean
   canDelete: boolean
+  /** Both-language body (`{}` for tombstones and untranslated comments). */
+  i18n: EntityI18n
 }
 
-/** Pure: DB row → DTO for `viewer` (tombstones hide body and mentions). */
-export function toCommentDto(row: CommentRow, viewer: CommentViewer): CommentDto {
+/** Pure: DB row → DTO for `viewer` (tombstones hide body, mentions and translations). */
+export function toCommentDto(row: CommentRow, viewer: CommentViewer, i18n: EntityI18n = {}): CommentDto {
   const deleted = row.deletedAt !== null
   const isAuthor = row.authorId === viewer.userId
   return {
@@ -79,7 +86,18 @@ export function toCommentDto(row: CommentRow, viewer: CommentViewer): CommentDto
     editedAt: row.editedAt ? row.editedAt.toISOString() : null,
     canEdit: !deleted && isAuthor,
     canDelete: !deleted && (isAuthor || viewer.canModerate),
+    i18n: deleted ? {} : i18n,
   }
+}
+
+/** Translations of the live comments among `rows` (one query). */
+async function commentI18n(rows: readonly CommentRow[]): Promise<Map<string, EntityI18n>> {
+  return getI18nFor("comment", rows.filter((r) => r.deletedAt === null).map((r) => r.id))
+}
+
+async function toDtoWithI18n(row: CommentRow, viewer: CommentViewer): Promise<CommentDto> {
+  const map = await commentI18n([row])
+  return toCommentDto(row, viewer, map.get(row.id))
 }
 
 /** The commented entity, normalized for labels and notification recipients. */
@@ -160,7 +178,8 @@ export async function loadTarget(
 export async function listComments(projectId: string, query: ListCommentsQuery, viewer: CommentViewer): Promise<Page<CommentDto>> {
   await loadTarget(defaultDb, projectId, query.entityType, query.entityId)
   const rows = await repo.findComments(defaultDb, projectId, query.entityType, query.entityId, query)
-  return toPage(rows, query.limit, (row) => toCommentDto(row, viewer))
+  const i18n = await commentI18n(rows)
+  return toPage(rows, query.limit, (row) => toCommentDto(row, viewer, i18n.get(row.id)))
 }
 
 /** `{ counts: { [entityId]: n } }` — live comments per requested id (0 when none). */
@@ -230,18 +249,20 @@ export async function createComment(
   actor: Actor,
   canModerate = false
 ): Promise<CommentDto> {
+  const { body } = await prepareText({ body: input.body }, actor.userId)
   const row = await withTransaction(async (tx) => {
     const members = await repo.findMentionCandidates(tx, projectId)
     const target = await loadTarget(tx, projectId, input.entityType, input.entityId, members)
-    const mentionIds = resolveMentionUserIds(input.body, members)
+    const mentionIds = resolveMentionUserIds(body, members)
     const { id } = await repo.createComment(tx, {
       projectId,
       entityType: input.entityType,
       entityId: input.entityId,
       authorId: actor.userId,
-      body: input.body,
+      body,
     })
     await repo.replaceMentions(tx, id, mentionIds)
+    await enqueueIn(tx, "comment", id, { body })
     await logActivity(tx, {
       projectId,
       entityType: input.entityType,
@@ -251,12 +272,12 @@ export async function createComment(
       // No excerpt: a later-deleted comment must not survive in the history.
       diff: { label: target.label ?? undefined, meta: { commentId: id } },
     })
-    const ctx: NotifyContext = { projectId, commentId: id, body: input.body, target, actor }
+    const ctx: NotifyContext = { projectId, commentId: id, body, target, actor }
     await notifyMentioned(tx, ctx, mentionIds)
     await notifyParticipants(tx, ctx, mentionIds)
     return reload(tx, projectId, id)
   })
-  return toCommentDto(row, { userId: actor.userId, canModerate })
+  return toDtoWithI18n(row, { userId: actor.userId, canModerate })
 }
 
 /** Load a live comment of the project (404 when missing or deleted). */
@@ -275,21 +296,23 @@ export async function updateComment(
   canModerate = false,
   now: Date = new Date()
 ): Promise<CommentDto> {
+  const { body } = await prepareText({ body: input.body }, actor.userId)
   const row = await withTransaction(async (tx) => {
     const current = await loadLiveComment(tx, projectId, commentId)
     if (current.authorId !== actor.userId) throw new ForbiddenError("Only the author can edit this comment")
-    if (current.body === input.body) return current
+    if (current.body === body) return current
     const members = await repo.findMentionCandidates(tx, projectId)
     const target = await loadTarget(tx, projectId, current.entityType as CommentEntityType, current.entityId, members)
     const before = current.mentions.map((m) => m.user.id)
-    const mentionIds = resolveMentionUserIds(input.body, members)
-    await repo.updateCommentBody(tx, commentId, input.body, now)
+    const mentionIds = resolveMentionUserIds(body, members)
+    await repo.updateCommentBody(tx, commentId, body, now)
     await repo.replaceMentions(tx, commentId, mentionIds)
+    await enqueueIn(tx, "comment", commentId, { body })
     const added = mentionIds.filter((id) => !before.includes(id))
-    await notifyMentioned(tx, { projectId, commentId, body: input.body, target, actor }, added)
+    await notifyMentioned(tx, { projectId, commentId, body, target, actor }, added)
     return reload(tx, projectId, commentId)
   })
-  return toCommentDto(row, { userId: actor.userId, canModerate })
+  return toDtoWithI18n(row, { userId: actor.userId, canModerate })
 }
 
 /** Author or moderator. Soft delete: the tombstone keeps its place in the thread. */
@@ -306,5 +329,7 @@ export async function deleteComment(
       throw new ForbiddenError("Only the author or a moderator can delete this comment")
     }
     await repo.softDeleteComment(tx, commentId, now)
+    // The tombstone never shows its body again: drop the translation too.
+    await purgeIn(tx, { comment: [commentId] })
   })
 }

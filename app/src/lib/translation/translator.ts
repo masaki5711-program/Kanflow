@@ -1,6 +1,7 @@
 import { OLLAMA_BASE_URL, OLLAMA_MODELS, ollamaGenerate } from "@/lib/ollama"
 import { detectLocale } from "./detect-locale"
 import { glossaryMisses } from "./glossary-markup"
+import { protectMentions, restoreMentions } from "./protect-mentions"
 import type { GlossaryTerm, TranslationLocale } from "./types"
 
 /**
@@ -10,7 +11,8 @@ import type { GlossaryTerm, TranslationLocale } from "./types"
  * by the "translate now" endpoint (high priority). The model is asked to
  * use every glossary translation; if any is missing from the output the
  * prompt is re-issued once with a stronger instruction, and the remaining
- * misses are reported back to the caller.
+ * misses are reported back to the caller. @mentions are replaced by
+ * placeholders before the model sees the text and restored verbatim after.
  */
 
 /** Upper bound on generated tokens: translations are about input-length. */
@@ -43,7 +45,8 @@ const SYSTEM_PROMPT = `あなたは Yamaha YMMA 工場の生産技術・プロ�
 - 固有名詞 (型番、製品コード、ライン名、機械名、人名) はそのまま保持する
 - 略語 (NG / WW / OQC / FA / IQC / PBI / SP など) はそのまま保持する
 - 翻訳結果のみを返す。前置き・解説・引用符・マークダウンは不要
-- 改行は元のまま保持する`
+- 改行は元のまま保持する
+- {{M0}} {{M1}} のような {{M数字}} 形式のプレースホルダーは翻訳せず、そのままの表記で訳文の適切な位置に残す`
 
 function glossaryBlock(glossary: GlossaryTerm[], strong: boolean): string {
   if (glossary.length === 0) return ""
@@ -93,8 +96,9 @@ export async function translateText(
     return { translated: text, sourceLocale: source, targetLocale: target, modelUsed: "(noop)", glossaryApplied: 0, glossaryMisses: [] }
   }
   const glossary = input.glossary ?? []
-  const generate = (strong: boolean, temperature: number) =>
-    ollamaGenerate(userPrompt(text, source, target, glossary, strong), {
+  const shielded = protectMentions(text)
+  const generate = async (strong: boolean, temperature: number) => {
+    const raw = await ollamaGenerate(userPrompt(shielded.text, source, target, glossary, strong), {
       system: SYSTEM_PROMPT,
       temperature,
       numPredict: numPredictFor(text),
@@ -103,12 +107,14 @@ export async function translateText(
       role: "translate",
       think: false,
     })
+    return restoreMentions(cleanOutput(raw), shielded.tokens)
+  }
 
-  let out = cleanOutput(await generate(false, 0.2))
+  let out = await generate(false, 0.2)
   let misses = glossaryMisses(out, glossary)
   if (misses.length > 0) {
     // One retry with the strong instruction; keep it only if it is not worse.
-    const retry = cleanOutput(await generate(true, 0))
+    const retry = await generate(true, 0)
     const retryMisses = glossaryMisses(retry, glossary)
     if (retryMisses.length <= misses.length && retry.length > 0) {
       out = retry

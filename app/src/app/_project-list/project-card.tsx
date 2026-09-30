@@ -14,7 +14,9 @@ import {
   ProjectTypeMark,
   SectionBadges,
 } from "./project-parts"
-import { cardTint, clampPct, roleLabel, roleStyle, rowTint, type Category, type Project } from "./types"
+import { getProjectTypeLabels, type ProjectType } from "@/lib/project-type-labels"
+import { projectRoleLabel, projectRoleShortLabel } from "@/lib/project-roles"
+import { cardTint, clampPct, roleStyle, rowTint, type Category, type Project } from "./types"
 
 export interface ProjectItemProps {
   project: Project
@@ -112,7 +114,7 @@ function RenameButton({ onClick }: { onClick: () => void }) {
 
 export const ProjectCard = memo(function ProjectCard(props: ProjectItemProps) {
   const { project, badges, color, isFavorite, menuOpen, editing } = props
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
   const tint = color ? cardTint[color] : null
   const pct = clampPct(project.progressPct)
 
@@ -190,7 +192,9 @@ export const ProjectCard = memo(function ProjectCard(props: ProjectItemProps) {
           >
             {m.user.name}
             {/* No opacity on the role label: faded text fails WCAG contrast (P-10). */}
-            <span className="font-semibold">{roleLabel[m.role] ?? m.role}</span>
+            <span className="font-semibold" title={projectRoleLabel(m.role, getProjectTypeLabels(project.projectType as ProjectType, language))}>
+              {projectRoleShortLabel(m.role, language)}
+            </span>
           </li>
         ))}
       </ul>

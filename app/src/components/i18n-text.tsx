@@ -107,7 +107,7 @@ export function I18nText({ i18n, field, original, as, className, noBadge, entity
   )
 }
 
-function OriginalToggle({ expanded, onToggle }: { expanded: boolean; onToggle: () => void }) {
+export function OriginalToggle({ expanded, onToggle }: { expanded: boolean; onToggle: () => void }) {
   const { t } = useLanguage()
   return (
     <button

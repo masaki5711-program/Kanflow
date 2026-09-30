@@ -3,7 +3,7 @@ import { defaultDb, withTransaction } from "@/services/_shared/db"
 import { NotFoundError } from "@/services/_shared/errors"
 import { NOTIFICATION_TYPES, type NotificationType } from "@/services/_shared/notifications"
 import { getI18nFor } from "@/services/_shared/translations"
-import type { EntityI18n } from "@/lib/translation/types"
+import type { EntityI18n, TranslatableEntity } from "@/lib/translation/types"
 import * as repo from "./notifications.repository"
 import type { ListNotificationsQuery, UpdatePreferencesInput } from "./notifications.schemas"
 
@@ -28,8 +28,26 @@ export interface NotificationDto {
   entityType: string | null
   entityId: string | null
   payload: Record<string, unknown>
+  /** Translations of the notified entity (PBI / task / sprint / Icebox) so the sentence follows the UI language (A3-08). */
+  entityI18n?: EntityI18n
   readAt: string | null
   createdAt: string
+}
+
+/** Unread counts per panel tab. */
+export interface UnreadByGroup {
+  all: number
+  personal: number
+  other: number
+}
+
+/** Notification entityType → translatable entity whose fields name it in the sentence. */
+const ENTITY_TRANSLATION: Record<string, TranslatableEntity> = {
+  pbi: "backlog_item",
+  sprint_task: "sprint_task",
+  sprint: "sprint",
+  icebox: "icebox_item",
+  plan_item: "plan_item",
 }
 
 export interface PreferenceDto {
@@ -65,13 +83,40 @@ export function toNotificationDto(row: NotificationRow): NotificationDto {
 export async function listMyNotifications(
   userId: string,
   query: ListNotificationsQuery
-): Promise<Page<NotificationDto> & { unreadCount: number }> {
-  const [rows, unreadCount] = await Promise.all([
+): Promise<Page<NotificationDto> & { unreadCount: number; unreadByGroup: UnreadByGroup }> {
+  const [rows, unreadCount, unreadPersonal] = await Promise.all([
     repo.findNotifications(defaultDb, userId, query),
     repo.countUnread(defaultDb, userId),
+    repo.countUnread(defaultDb, userId, "personal"),
   ])
   const page = toPage(rows, query.limit, toNotificationDto)
-  return { ...page, items: await withProjectI18n(page.items), unreadCount }
+  const items = await withEntityI18n(await withProjectI18n(page.items))
+  const personal = Math.min(unreadPersonal, unreadCount)
+  return { ...page, items, unreadCount, unreadByGroup: { all: unreadCount, personal, other: unreadCount - personal } }
+}
+
+function entityRef(n: NotificationDto): { entity: TranslatableEntity; id: string } | null {
+  const type = typeof n.payload.entityType === "string" ? n.payload.entityType : n.entityType
+  const id = typeof n.payload.entityId === "string" ? n.payload.entityId : n.entityId
+  const entity = type ? ENTITY_TRANSLATION[type] : undefined
+  return entity && id ? { entity, id } : null
+}
+
+/** Attach the translations of the notified entities (one lookup per entity kind). */
+async function withEntityI18n(items: NotificationDto[]): Promise<NotificationDto[]> {
+  const idsByEntity = new Map<TranslatableEntity, string[]>()
+  for (const ref of items.map(entityRef)) {
+    if (ref) idsByEntity.set(ref.entity, [...(idsByEntity.get(ref.entity) ?? []), ref.id])
+  }
+  if (idsByEntity.size === 0) return items
+  const maps = new Map(
+    await Promise.all([...idsByEntity].map(async ([entity, ids]) => [entity, await getI18nFor(entity, [...new Set(ids)])] as const))
+  )
+  return items.map((n) => {
+    const ref = entityRef(n)
+    const i18n = ref ? maps.get(ref.entity)?.get(ref.id) : undefined
+    return i18n ? { ...n, entityI18n: i18n } : n
+  })
 }
 
 /** Attach the translations of the project names (so the panel can show them in the UI language). */

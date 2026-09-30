@@ -34,6 +34,10 @@ export interface DashboardTranslations {
   folderEditName: string
   folderDeleteTitle: string
   dashboardProgressSetByPo: string
+  /** A3-13: plan progress (rolled up from the master plan) shown next to the PO's manual value. */
+  dashboardPlanProgress: string
+  dashboardPlanProgressHint: string
+  dashboardPlanProgressNone: string
   dashboardProgressEditHint: string
   dashboardProgressPercent: string
   dashboardEditGoal: string
@@ -91,6 +95,9 @@ export const ja: DashboardTranslations = {
   folderEditName: "フォルダ名を編集",
   folderDeleteTitle: "フォルダを削除",
   dashboardProgressSetByPo: "（PO が設定）",
+  dashboardPlanProgress: "計画進捗",
+  dashboardPlanProgressHint: "全体計画から自動計算（ポートフォリオと同じ値）",
+  dashboardPlanProgressNone: "全体計画なし",
   dashboardProgressEditHint: "クリックして編集",
   dashboardProgressPercent: "進捗率（%）",
   dashboardEditGoal: "ゴールを編集",
@@ -148,6 +155,9 @@ export const en: DashboardTranslations = {
   folderEditName: "Edit folder name",
   folderDeleteTitle: "Delete folder",
   dashboardProgressSetByPo: "(set by PO)",
+  dashboardPlanProgress: "Plan progress",
+  dashboardPlanProgressHint: "Calculated from the master plan (same value as the portfolio)",
+  dashboardPlanProgressNone: "No master plan",
   dashboardProgressEditHint: "Click to edit",
   dashboardProgressPercent: "Progress (%)",
   dashboardEditGoal: "Edit goal",
@@ -205,6 +215,9 @@ export const id: DashboardTranslations = {
   folderEditName: "Edit nama folder",
   folderDeleteTitle: "Hapus folder",
   dashboardProgressSetByPo: "(diatur oleh PO)",
+  dashboardPlanProgress: "Progres rencana",
+  dashboardPlanProgressHint: "Dihitung dari rencana induk (nilai yang sama dengan portofolio)",
+  dashboardPlanProgressNone: "Tidak ada rencana induk",
   dashboardProgressEditHint: "Klik untuk mengedit",
   dashboardProgressPercent: "Progres (%)",
   dashboardEditGoal: "Edit tujuan",

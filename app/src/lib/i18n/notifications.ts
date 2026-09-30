@@ -41,6 +41,12 @@ export interface NotificationsTranslations {
   notifTypeSurveillance: string
   notifTypeAiReportReady: string
   notifTypeAiReportFailed: string
+  notifTabsLabel: string
+  notifTabAll: string
+  notifTabPersonal: string
+  notifTabOther: string
+  notifMentionTag: string
+  notifEmptyPersonal: string
 }
 
 export const ja: NotificationsTranslations = {
@@ -80,6 +86,12 @@ export const ja: NotificationsTranslations = {
   notifTypeSurveillance: "AI 監視で重大な異常が見つかったとき（PO / SM）",
   notifTypeAiReportReady: "依頼した AI レポートができたとき",
   notifTypeAiReportFailed: "依頼した AI レポートの生成に失敗したとき",
+  notifTabsLabel: "通知の絞り込み",
+  notifTabAll: "すべて",
+  notifTabPersonal: "メンション・自分宛",
+  notifTabOther: "その他",
+  notifMentionTag: "メンション",
+  notifEmptyPersonal: "自分宛の新しい通知はありません",
 }
 
 export const en: NotificationsTranslations = {
@@ -119,6 +131,12 @@ export const en: NotificationsTranslations = {
   notifTypeSurveillance: "When AI surveillance finds a critical issue (PO / SM)",
   notifTypeAiReportReady: "When an AI report I requested is ready",
   notifTypeAiReportFailed: "When an AI report I requested fails",
+  notifTabsLabel: "Filter notifications",
+  notifTabAll: "All",
+  notifTabPersonal: "Mentions & for me",
+  notifTabOther: "Other",
+  notifMentionTag: "Mention",
+  notifEmptyPersonal: "Nothing addressed to you",
 }
 
 export const id: NotificationsTranslations = {
@@ -158,4 +176,10 @@ export const id: NotificationsTranslations = {
   notifTypeSurveillance: "Saat pemantauan AI menemukan masalah kritis (PO / SM)",
   notifTypeAiReportReady: "Saat laporan AI yang saya minta sudah siap",
   notifTypeAiReportFailed: "Saat laporan AI yang saya minta gagal dibuat",
+  notifTabsLabel: "Saring notifikasi",
+  notifTabAll: "Semua",
+  notifTabPersonal: "Sebutan & untuk saya",
+  notifTabOther: "Lainnya",
+  notifMentionTag: "Sebutan",
+  notifEmptyPersonal: "Tidak ada notifikasi untuk Anda",
 }

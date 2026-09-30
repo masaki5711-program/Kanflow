@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("@/services/_shared/db", async () => (await import("@/services/__tests__/support")).dbMock())
+vi.mock("@/services/_shared/translations", async () => (await import("@/services/__tests__/support")).translationMock())
 vi.mock("../activity.repository")
 
 const repo = await import("../activity.repository")
 const svc = await import("../activity.service")
+const tr = await import("@/services/_shared/translations")
 const realRepo = await vi.importActual<typeof import("../activity.repository")>("../activity.repository")
 const { DEFAULT_DB } = await import("@/services/__tests__/support")
 const { fakeDb } = await import("@/services/__tests__/fake-db")
@@ -173,5 +175,23 @@ describe("activity.repository findUserNames", () => {
     const db = fakeDb()
     await realRepo.findUserNames(db.client, ["u1", "u2"])
     expect(db.fn("user.findMany")).toHaveBeenCalledWith({ where: { id: { in: ["u1", "u2"] } }, select: { id: true, name: true } })
+  })
+})
+
+describe("withEntityI18n (project feed labels follow the viewer's language)", () => {
+  it("attaches translations per entity kind, one lookup each, skipping unlabeled / untranslatable entries", async () => {
+    const pbi = { initiative: { ja: "ログイン", id: "Masuk", source: "ja" as const, status: "done" as const } }
+    vi.mocked(tr.getI18nFor).mockImplementation(async (entity) => (entity === "backlog_item" ? new Map([["b1", pbi]]) : new Map()) as never)
+    vi.mocked(repo.findProjectActivity).mockResolvedValue([
+      row("a"),
+      row("b", { entityType: "plan_item", entityId: "pl1", diff: JSON.stringify({ label: "計画" }) }),
+      row("c", { entityType: "member", entityId: "m1", diff: JSON.stringify({ label: "u7", meta: { userName: "Budi" } }) }),
+    ] as never)
+    const page = await svc.listProjectActivity("p1", { limit: 20 })
+    expect(tr.getI18nFor).toHaveBeenCalledWith("backlog_item", ["b1"])
+    expect(tr.getI18nFor).toHaveBeenCalledWith("plan_item", ["pl1"])
+    expect(tr.getI18nFor).toHaveBeenCalledTimes(2)
+    expect(page.items[0].entityI18n).toEqual(pbi)
+    expect(page.items[1].entityI18n).toBeUndefined()
   })
 })

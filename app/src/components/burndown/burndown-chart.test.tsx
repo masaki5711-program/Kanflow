@@ -123,3 +123,42 @@ describe("BurndownSvg localization (S-05 / S-15d)", () => {
     expect(texts.some((s) => /item/.test(s ?? ""))).toBe(false)
   })
 })
+
+describe("burndown cycle-3 fixes", () => {
+  const I18N = { sprintName: { ja: "スプリント1", id: "Sprint Satu", source: "ja" as const, status: "done" as const } }
+
+  it("A3-01: marks today from the server's todayIndex (not the browser day)", async () => {
+    response = () => jsonResponse({ ...DATA, todayIndex: 1 })
+    const { container } = renderWithProviders(<BurndownChart projectId="p1" />)
+    await screen.findByRole("img")
+    const today = Array.from(container.querySelectorAll("text")).find((n) => n.textContent === t.burndownToday)
+    expect(today).toBeDefined()
+    // PADDING.left (60) + 1/4 of the inner width (710) = 237.5
+    expect(today?.getAttribute("x")).toBe("237.5")
+  })
+
+  it("shows translated sprint names in the chips and bands", async () => {
+    response = () => jsonResponse({ ...DATA, sprintMarkers: [{ ...DATA.sprintMarkers[0], i18n: I18N }] })
+    const { container } = renderWithProviders(<BurndownChart projectId="p1" />, "id")
+    await screen.findByRole("img")
+    expect(screen.getByText("Sprint Satu")).toBeInTheDocument()
+    const texts = Array.from(container.querySelectorAll("text")).map((n) => n.textContent)
+    expect(texts.some((s) => s?.startsWith("Sprint Satu"))).toBe(true)
+  })
+
+  it("draws the ideal line and its legend only when it differs from the plan", async () => {
+    response = () => jsonResponse({ ...DATA, idealLine: DATA.planLine })
+    const { container } = renderWithProviders(<BurndownChart projectId="p1" />)
+    await screen.findByRole("img")
+    expect(screen.queryByText(t.burndownIdeal)).not.toBeInTheDocument()
+    expect(container.querySelectorAll('path[stroke-dasharray="1,4"]').length).toBe(0)
+  })
+
+  it("keeps the sprint band label above the plot area", () => {
+    const { container } = renderWithProviders(<BurndownSvg data={DATA} todayIndex={3} label="chart" />)
+    const band = Array.from(container.querySelectorAll("text")).find((n) => n.textContent?.startsWith("Sprint 1"))
+    const today = Array.from(container.querySelectorAll("text")).find((n) => n.textContent === t.burndownToday)
+    expect(Number(band?.getAttribute("y"))).toBeLessThan(Number(today?.getAttribute("y")))
+    expect(Number(today?.getAttribute("y"))).toBeLessThan(48)
+  })
+})

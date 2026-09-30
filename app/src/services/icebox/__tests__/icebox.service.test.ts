@@ -11,7 +11,7 @@ vi.mock("@/services/attachments/storage-quota", () => ({ assertStorageQuota: vi.
 const repo = await import("../icebox.repository")
 const tr = await import("@/services/_shared/translations")
 const files = await import("@/lib/api-helpers")
-const { ACTOR, TX, DEFAULT_DB, prismaError } = await import("@/services/__tests__/support")
+const { ACTOR, TX, DEFAULT_DB, prismaError, touchedTranslationFields } = await import("@/services/__tests__/support")
 const { withTransaction } = await import("@/services/_shared/db")
 const svc = await import("../icebox.service")
 const { assertStorageQuota } = await import("@/services/attachments/storage-quota")
@@ -102,5 +102,15 @@ describe("icebox.service", () => {
     await svc.deleteIceboxAttachment("p1", "i", "a")
     expect(repo.deleteIceboxAttachment).toHaveBeenCalledWith(DEFAULT_DB, "a")
     expect(files.deleteUploadedFile).toHaveBeenCalledWith("p1", "f")
+  })
+})
+
+describe("A3-02: partial updates keep translations", () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it("a status-only update (text keys undefined) touches no FieldTranslation row", async () => {
+    vi.mocked(repo.updateIceboxItem).mockResolvedValue({ id: "i", displayId: 1 } as never)
+    await svc.updateIceboxItem("p1", "i", { status: "accepted", request: undefined } as never, ACTOR)
+    expect(touchedTranslationFields(tr.enqueueIn)).toEqual([])
   })
 })

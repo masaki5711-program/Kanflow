@@ -48,7 +48,12 @@ export function groupTasksByPb(items: readonly SprintItem[]): PbGroup[] {
 export interface SprintMetrics {
   /** Sum of workload of distinct PBIs pulled into the sprint. */
   currentWorkload: number
-  /** Workload weighted by each PBI's share of done tasks. */
+  /**
+   * Completed points: workload of the PBIs whose real tasks are ALL done — the
+   * same rule as Sprint.actualScore (lib/sprint-score.ts), velocity, the report
+   * and the portfolio, so one sprint shows one "completed points" number
+   * everywhere (cycle 3: no more fractional 1.5 / 8).
+   */
   completedWorkload: number
   isOver: boolean
   /** currentWorkload / capacity in % (rounded, uncapped). */
@@ -81,7 +86,7 @@ export function computeSprintMetrics(sprint: Pick<Sprint, "items" | "capacity">)
   }
   const entries = Array.from(perPb.values())
   const currentWorkload = entries.reduce((sum, e) => sum + e.workload, 0)
-  const completedWorkload = entries.reduce((sum, e) => (e.total === 0 ? sum : sum + (e.workload * e.done) / e.total), 0)
+  const completedWorkload = entries.reduce((sum, e) => (e.total > 0 && e.done === e.total ? sum + e.workload : sum), 0)
 
   const realItems = sprint.items.filter(isRealTask)
   const doneTasks = realItems.filter((i) => i.status === "done").length

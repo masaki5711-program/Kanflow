@@ -34,10 +34,10 @@ const roleBadgeColors: Record<string, string> = {
 }
 
 export default function TeamView({ members, sprints, calendarDays, currentMonth, today, locale }: TeamViewProps) {
-  const { t, language } = useLanguage()
+  const { t, pt, language } = useLanguage()
   const displayDays = useMemo(() => calendarDays.slice(0, 35), [calendarDays])
   const sprintName = (sp: Sprint) => pickText(i18nOf(sp), "sprintName", sp.sprintName, language).text
-  const roleLabel: Record<string, string> = { po: t.rolePO, sm: t.roleSM, dev: t.roleDev }
+  const roleLabel: Record<string, string> = { po: pt.rolePO, sm: pt.roleSM, dev: pt.roleDev }
 
   if (members.length === 0) {
     return (

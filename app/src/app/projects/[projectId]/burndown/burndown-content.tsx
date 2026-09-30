@@ -8,11 +8,14 @@ import BurndownChart from "@/components/burndown-chart"
 import VelocityChart from "@/components/burndown/velocity-chart"
 import { PageHeader, Select } from "@/components/ui"
 import { useProjectDocumentTitle } from "@/components/app-shell/project-title-context"
+import { pickText } from "@/lib/translation/pick-text"
+import type { EntityI18n } from "@/lib/translation/types"
 
 export interface BurndownSprintOption {
   id: string
   name: string
   status: string
+  i18n?: EntityI18n
 }
 
 interface Props {
@@ -54,7 +57,8 @@ export function splitArchived<T extends Pick<BurndownSprintOption, "status">>(sp
 }
 
 export function BurndownPageContent({ projectId, sprints }: Props) {
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
+  const nameOf = (s: BurndownSprintOption) => pickText(s.i18n, "sprintName", s.name, language).text
   useProjectDocumentTitle(t.burndownPageTitle)
   const selectId = useId()
   const router = useRouter()
@@ -96,13 +100,13 @@ export function BurndownPageContent({ projectId, sprints }: Props) {
               <option value={ALL}>{t.burndownSprintAll}</option>
               {live.map((s) => (
                 <option key={s.id} value={s.id}>
-                  {s.name} · {statusLabel[s.status] ?? s.status}
+                  {nameOf(s)} · {statusLabel[s.status] ?? s.status}
                 </option>
               ))}
               {archived.length > 0 && (
                 <optgroup label={t.sprintStatusArchived}>
                   {archived.map((s) => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
+                    <option key={s.id} value={s.id}>{nameOf(s)}</option>
                   ))}
                 </optgroup>
               )}

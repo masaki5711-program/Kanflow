@@ -51,6 +51,12 @@ describe("buildUpcomingDue", () => {
     ])
   })
 
+  it("A3-05: carries each item's translations and name field", () => {
+    const i18n = { name: { ja: "調整", id: "Koordinasi", source: "id" as const, status: "done" as const } }
+    const items = buildUpcomingDue([{ ...plan("a", "2026-10-01"), i18n }], { id: "s1", name: "S", endDate: day("2026-10-02") }, now)
+    expect(items.map((i) => [i.id, i.nameField, i.i18n])).toEqual([["a", "name", i18n], ["s1", "sprintName", {}]])
+  })
+
   it("caps the list and skips unparsable dates", () => {
     const many = Array.from({ length: 10 }, (_, i) => plan(`p${i}`, `2026-10-0${1 + (i % 9)}`))
     expect(buildUpcomingDue([...many, plan("bad", "x")], null, now)).toHaveLength(DUE_MAX_ITEMS)

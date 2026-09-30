@@ -22,9 +22,12 @@ export interface AdminUsersTranslations {
   userReset: string
   userInactive: string
   userProjects: string
+  userActionsMenu: string
   userDeactivate: string
   userActivate: string
   userPasswordMinError: string
+  userNameRequired: string
+  userEmailInvalid: string
   userEmployeeNumber: string
   userEmployeeNumberPlaceholder: string
   userDepartment: string
@@ -68,9 +71,12 @@ export const ja: AdminUsersTranslations = {
   userReset: "リセット",
   userInactive: "無効",
   userProjects: "プロジェクト",
+  userActionsMenu: "操作",
   userDeactivate: "無効化",
   userActivate: "有効化",
   userPasswordMinError: "パスワードは6文字以上で入力してください",
+  userNameRequired: "名前を入力してください",
+  userEmailInvalid: "メールアドレスの形式が正しくありません（例: user@example.com）",
   userEmployeeNumber: "従業員番号",
   userEmployeeNumberPlaceholder: "EMP0001",
   userDepartment: "所属",
@@ -114,9 +120,12 @@ export const en: AdminUsersTranslations = {
   userReset: "Reset",
   userInactive: "Inactive",
   userProjects: "projects",
+  userActionsMenu: "Actions",
   userDeactivate: "Deactivate",
   userActivate: "Activate",
   userPasswordMinError: "Password must be at least 6 characters",
+  userNameRequired: "Enter a name",
+  userEmailInvalid: "Enter a valid email address (e.g. user@example.com)",
   userEmployeeNumber: "Employee ID",
   userEmployeeNumberPlaceholder: "EMP0001",
   userDepartment: "Department",
@@ -160,9 +169,12 @@ export const id: AdminUsersTranslations = {
   userReset: "Reset",
   userInactive: "Nonaktif",
   userProjects: "proyek",
+  userActionsMenu: "Tindakan",
   userDeactivate: "Nonaktifkan",
   userActivate: "Aktifkan",
   userPasswordMinError: "Kata sandi minimal 6 karakter",
+  userNameRequired: "Masukkan nama",
+  userEmailInvalid: "Masukkan alamat email yang valid (mis. user@example.com)",
   userEmployeeNumber: "Nomor Karyawan",
   userEmployeeNumberPlaceholder: "EMP0001",
   userDepartment: "Departemen",

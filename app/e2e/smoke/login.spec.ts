@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright"
 import { expect, test } from "@playwright/test"
-import { LOGIN_TEXT, type LoginLanguage } from "../support/login"
+import { LOGIN_TEXT, renderedLoginText, type LoginLanguage } from "../support/login"
 
 // Read-only: renders the login page and switches the (client-side) language
 // toggle. Never submits the form.
@@ -40,11 +40,12 @@ test("login page has no serious or critical axe violations", async ({ page }) =>
 
 test("login form fields are reachable by keyboard", async ({ page }) => {
   await page.goto("/login")
-  const email = page.getByLabel(LOGIN_TEXT.ja.email)
+  const t = await renderedLoginText(page)
+  const email = page.getByLabel(t.email)
   await email.focus()
   await expect(email).toBeFocused()
   await page.keyboard.press("Tab")
-  await expect(page.getByLabel(LOGIN_TEXT.ja.password)).toBeFocused()
+  await expect(page.getByLabel(t.password)).toBeFocused()
   await page.keyboard.press("Tab")
-  await expect(page.getByRole("button", { name: LOGIN_TEXT.ja.button, exact: true })).toBeFocused()
+  await expect(page.getByRole("button", { name: t.button, exact: true })).toBeFocused()
 })

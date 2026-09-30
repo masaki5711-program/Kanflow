@@ -5,20 +5,20 @@
  */
 import { test, expect, type Page } from "@playwright/test"
 import * as fs from "node:fs"
-import { apiFor, apiLogin, BASE, DATA, note, PILOT, shot } from "./platform-helpers"
+import { apiFor, BASE, DATA, note, PILOT, shot, storageFor } from "./platform-helpers"
 
 test.describe.configure({ mode: "serial" })
 test.setTimeout(900_000)
 
 const log: string[] = []
-let storage: Awaited<ReturnType<Awaited<ReturnType<typeof apiLogin>>["storageState"]>>
+let storage = ""
 let threadId = ""
 
+// Cycle 3: the cycle-1 throwaway admin (platform-ui-user.txt) was deactivated by
+// platform-c2-cleanup, so log in as the standing e2e admin instead (system admin,
+// can open the pilot project's settings). The AI tests stay gated by the budget marker.
 test.beforeAll(async () => {
-  const email = fs.readFileSync(`${DATA}/platform-ui-user.txt`, "utf8").split(" ")[0]
-  const api = await apiLogin(email)
-  await api.patch("/api/user/language", { data: { language: "ja" } })
-  storage = await api.storageState()
+  storage = await storageFor("admin")
 })
 
 async function open(browser: import("@playwright/test").Browser): Promise<Page> {

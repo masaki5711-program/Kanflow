@@ -1,4 +1,5 @@
 /** Client-side shapes of the comments API (mirrors services/comments/comments.service.ts). */
+import type { EntityI18n } from "@/lib/translation/types"
 
 export type CommentEntityType = "pbi" | "sprint_task" | "icebox"
 
@@ -15,6 +16,8 @@ export interface CommentDto {
   editedAt: string | null
   canEdit: boolean
   canDelete: boolean
+  /** Both-language body (field "body"); `{}` / absent when untranslated or deleted. */
+  i18n?: EntityI18n
 }
 
 export interface Page<T> {

@@ -9,10 +9,20 @@ export const LOGIN_TEXT = {
 
 export type LoginLanguage = keyof typeof LOGIN_TEXT
 
-/** Sign in through the real login form (default language ja). */
+/**
+ * Strings of the language the login page actually rendered in. Since the cycle-1
+ * login i18n fix the page follows the language cookie / Accept-Language (Playwright's
+ * default locale is en-US), so do not assume ja.
+ */
+export async function renderedLoginText(page: Page) {
+  const lang = (await page.locator("html").getAttribute("lang")) ?? "ja"
+  return LOGIN_TEXT[(lang in LOGIN_TEXT ? lang : "ja") as LoginLanguage]
+}
+
+/** Sign in through the real login form (in whatever language the page rendered). */
 export async function loginViaUi(page: Page, email: string, password: string): Promise<void> {
-  const t = LOGIN_TEXT.ja
   await page.goto("/login")
+  const t = await renderedLoginText(page)
   await page.getByLabel(t.email).fill(email)
   await page.getByLabel(t.password).fill(password)
   await page.getByRole("button", { name: t.button, exact: true }).click()

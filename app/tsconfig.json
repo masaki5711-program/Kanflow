@@ -44,7 +44,9 @@
     ".next-fixb/types/**/*.ts",
     ".next-fixb/dev/types/**/*.ts",
     ".next-fixd/types/**/*.ts",
-    ".next-fixd/dev/types/**/*.ts"
+    ".next-fixd/dev/types/**/*.ts",
+    ".next-c3/types/**/*.ts",
+    ".next-c3/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

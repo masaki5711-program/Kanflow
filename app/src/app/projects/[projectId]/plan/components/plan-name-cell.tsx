@@ -60,7 +60,7 @@ function menuItems(row: FlatRow, env: ChartEnv, handlers: RowHandlers): CardMenu
   const { item } = row
   const { t } = env
   const leaf = !row.hasChildren && !item.isMilestone
-  const items: CardMenuItem[] = [{ key: "edit", label: t.planMenuEdit, onSelect: () => handlers.open(item) }]
+  const items: CardMenuItem[] = [{ key: "edit", label: env.canEdit ? t.planMenuEdit : t.planMenuView, onSelect: () => handlers.open(item) }]
   if (!env.canEdit) return items
   items.push(
     { key: "up", label: t.planMoveUp, disabled: !row.moves.up, onSelect: () => handlers.move(item.id, "moveUp") },

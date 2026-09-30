@@ -1,10 +1,11 @@
 "use client"
 
+import { formatLongDate } from "@/lib/format-date"
 import Link from "next/link"
 import { memo } from "react"
 import { Button, buttonClasses, cn, FileTypeIcon, IconButton, Select } from "@/components/ui"
 import { useLanguage } from "@/lib/language-context"
-import { formatDateLocal, formatFileSize, isEditableInBrowser, isPreviewable, type Attachment } from "./types"
+import { formatFileSize, isEditableInBrowser, isPreviewable, type Attachment } from "./types"
 import type { AttachmentDnd } from "./use-attachment-dnd"
 import { ArrowDown, ArrowUp, Download, GripVertical } from "lucide-react"
 
@@ -47,7 +48,7 @@ export type FileRowDndHandlers = Pick<AttachmentDnd, "onRowDragOver" | "onRowDro
 export const FileRow = memo(function FileRow({
   file, projectId, folderId, isFirst, isLast, moveTargets, onPreview, onDelete, onMove, onMoveBy, isDragged, showInsert, dndHandlers: dnd,
 }: FileRowProps) {
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
   const targets = moveTargets.filter((f) => f.id !== folderId)
   const canMove = folderId !== null || targets.length > 0
   const fileUrl = `/api/projects/${projectId}/attachments/${file.id}`
@@ -100,7 +101,7 @@ export const FileRow = memo(function FileRow({
           )}
           <div className="flex gap-3 text-caption text-fg-muted">
             <span>{formatFileSize(file.fileSize)}</span>
-            <span>{formatDateLocal(file.createdAt)}</span>
+            <span>{formatLongDate(file.createdAt, language)}</span>
           </div>
         </div>
         <div className={cn("flex flex-wrap items-center gap-1", ROW_ACTIONS_VISIBILITY)}>

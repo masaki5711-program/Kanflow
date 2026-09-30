@@ -1,6 +1,7 @@
 import type { Db } from "@/services/_shared/db"
 import { afterCursorWhere, NEWEST_FIRST } from "@/services/_shared/cursor"
 import { NOT_DELETED } from "@/services/_shared/soft-delete"
+import { notificationGroupWhere, type NotificationGroup } from "@/lib/notification-groups"
 
 const NOTIFICATION_SELECT = {
   id: true,
@@ -17,11 +18,26 @@ const NOTIFICATION_SELECT = {
 /** Notifications of trashed projects are hidden (they come back on restore). */
 const VISIBLE = { OR: [{ projectId: null }, { project: NOT_DELETED }] }
 
-export function findNotifications(db: Db, userId: string, args: { cursor?: string; limit: number; unreadOnly: boolean }) {
+export interface FindNotificationsArgs {
+  cursor?: string
+  limit: number
+  unreadOnly: boolean
+  group?: NotificationGroup
+  state?: "unread" | "read"
+}
+
+function readStateWhere(args: Pick<FindNotificationsArgs, "unreadOnly" | "state">) {
+  if (args.unreadOnly || args.state === "unread") return { readAt: null }
+  if (args.state === "read") return { readAt: { not: null } }
+  return {}
+}
+
+export function findNotifications(db: Db, userId: string, args: FindNotificationsArgs) {
   return db.notification.findMany({
     where: {
       recipientId: userId,
-      ...(args.unreadOnly ? { readAt: null } : {}),
+      ...readStateWhere(args),
+      ...notificationGroupWhere(args.group ?? "all"),
       AND: [VISIBLE, afterCursorWhere(args.cursor)],
     },
     select: NOTIFICATION_SELECT,
@@ -30,8 +46,8 @@ export function findNotifications(db: Db, userId: string, args: { cursor?: strin
   })
 }
 
-export function countUnread(db: Db, userId: string) {
-  return db.notification.count({ where: { recipientId: userId, readAt: null, ...VISIBLE } })
+export function countUnread(db: Db, userId: string, group: NotificationGroup = "all") {
+  return db.notification.count({ where: { recipientId: userId, readAt: null, ...notificationGroupWhere(group), ...VISIBLE } })
 }
 
 /** Marks one of the user's unread notifications read; `count` 0 = already read or not theirs. */

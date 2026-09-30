@@ -117,7 +117,8 @@ function Kpi({ label, value, alert = false }: { label: string; value: number; al
         alert ? "bg-white text-danger-strong shadow-ui-md" : "bg-white/15",
       )}
     >
-      <dt className={cn("mt-1 truncate text-caption", alert ? "font-semibold" : "text-white/90")} title={label}>
+      {/* Wraps onto two lines instead of "Tugas terb…" at 375 px (A3-17). */}
+      <dt data-testid="kpi-label" className={cn("mt-1 break-words text-caption leading-tight", alert ? "font-semibold" : "text-white/90")} title={label}>
         {label}
       </dt>
       <dd className="text-2xl font-bold leading-none md:text-3xl">{value}</dd>

@@ -5,9 +5,9 @@
 import { EMPTY_PORTFOLIO_FILTERS, type PortfolioFilters, type PortfolioRow, type Severity } from "@/services/portfolio/portfolio.types"
 
 export const SORT_KEYS = [
+  "risk",
   "name",
   "section",
-  "status",
   "sprint",
   "overdue",
   "backlog",
@@ -24,14 +24,20 @@ export interface PortfolioViewState extends PortfolioFilters {
   dir: SortDir
 }
 
-/** Most overdue tasks first (ties by name) — the trouble a manager scans for. */
-export const DEFAULT_VIEW: PortfolioViewState = Object.freeze({ ...EMPTY_PORTFOLIO_FILTERS, sort: "overdue", dir: "desc" })
+/**
+ * Default order: overall risk (needs attention, then overdue tasks, then
+ * delayed plan items) — the trouble a manager scans for. "risk" is not a
+ * column, so the FIRST click on any header applies that column's default
+ * direction (A3-04: 期限切れ sorted ascending on the first click because it
+ * used to be the active default column and the click flipped it).
+ */
+export const DEFAULT_VIEW: PortfolioViewState = Object.freeze({ ...EMPTY_PORTFOLIO_FILTERS, sort: "risk", dir: "desc" })
 
-/** First click on a column: numbers / risk descend (worst first), text ascends. */
+/** First click on a column: numbers / "bad is high" columns descend (worst first), text ascends. */
 export const DEFAULT_DIR: Record<SortKey, SortDir> = {
+  risk: "desc",
   name: "asc",
   section: "asc",
-  status: "asc",
   sprint: "asc",
   overdue: "desc",
   backlog: "desc",
@@ -47,9 +53,9 @@ type SortValue = string | number | null
 
 function sortValue(r: PortfolioRow, key: SortKey, displayName: (r: PortfolioRow) => string): SortValue {
   switch (key) {
+    case "risk": return (r.needsAttention ? 1_000_000 : 0) + r.overdueTasks * 1_000 + r.plan.delayed
     case "name": return displayName(r).toLocaleLowerCase()
     case "section": return r.sections[0]?.name.toLocaleLowerCase() ?? null
-    case "status": return r.status
     case "sprint": return r.activeSprint?.progressPct ?? null
     case "overdue": return r.overdueTasks
     case "backlog": return r.openPbis

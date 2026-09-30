@@ -21,6 +21,7 @@ export interface AdminMetricsTranslations {
   metricsWorkerOk: string
   metricsWorkerStale: string
   metricsWorkerAbsent: string
+  metricsWorkerInProcess: string
   metricsSecondsAgo: string
   metricsSlowRoutes: string
   metricsSlowRoutesEmpty: string
@@ -65,6 +66,7 @@ export const ja: AdminMetricsTranslations = {
   metricsWorkerOk: "稼働中",
   metricsWorkerStale: "応答なし",
   metricsWorkerAbsent: "停止",
+  metricsWorkerInProcess: "Web 内で実行（別プロセス不要）",
   metricsSecondsAgo: "{sec} 秒前",
   metricsSlowRoutes: "遅いルート（p95 順）",
   metricsSlowRoutesEmpty: "まだリクエストが記録されていません。",
@@ -109,6 +111,7 @@ export const en: AdminMetricsTranslations = {
   metricsWorkerOk: "Running",
   metricsWorkerStale: "Not responding",
   metricsWorkerAbsent: "Stopped",
+  metricsWorkerInProcess: "Runs in the web app (no separate process)",
   metricsSecondsAgo: "{sec} s ago",
   metricsSlowRoutes: "Slowest routes (by p95)",
   metricsSlowRoutesEmpty: "No requests recorded yet.",
@@ -153,6 +156,7 @@ export const id: AdminMetricsTranslations = {
   metricsWorkerOk: "Berjalan",
   metricsWorkerStale: "Tidak merespons",
   metricsWorkerAbsent: "Berhenti",
+  metricsWorkerInProcess: "Berjalan di aplikasi web (tanpa proses terpisah)",
   metricsSecondsAgo: "{sec} detik lalu",
   metricsSlowRoutes: "Rute paling lambat (menurut p95)",
   metricsSlowRoutesEmpty: "Belum ada permintaan yang tercatat.",

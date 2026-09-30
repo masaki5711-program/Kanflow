@@ -84,9 +84,9 @@ export function PlanCell({ plan }: { plan: PortfolioPlan }) {
   if (plan.total === 0 || plan.progressPct === null) return <span className="text-caption text-fg-subtle">{t.portfolioNoPlan}</span>
   const clean = plan.delayed === 0 && plan.atRisk === 0
   return (
-    <span className="flex min-w-28 flex-col gap-1">
-      <ProgressBar pct={plan.progressPct} tone={plan.delayed > 0 ? "danger" : plan.atRisk > 0 ? "warning" : "primary"} />
-      <span className="flex flex-wrap gap-1">
+    <span className="flex min-w-0 flex-col gap-1">
+      <ProgressBar pct={plan.progressPct} tone={plan.delayed > 0 ? "danger" : plan.atRisk > 0 ? "warning" : "primary"} label={t.portfolioColPlan} />
+      <span className="flex flex-wrap gap-1 whitespace-nowrap">
         {plan.delayed > 0 && <Badge tone="danger">{fill(t.portfolioPlanDelayed, { count: plan.delayed })}</Badge>}
         {plan.atRisk > 0 && <Badge tone="warning">{fill(t.portfolioPlanAtRisk, { count: plan.atRisk })}</Badge>}
         {clean && <span className="text-caption text-fg-muted">{t.portfolioPlanOnTrack}</span>}
@@ -97,10 +97,11 @@ export function PlanCell({ plan }: { plan: PortfolioPlan }) {
 
 const BAR_TONE = { primary: "bg-primary", warning: "bg-warning", danger: "bg-danger", success: "bg-success" } as const
 
-export function ProgressBar({ pct, tone = "primary" }: { pct: number; tone?: keyof typeof BAR_TONE }) {
+/** Compact bar + value; `label` names the measure (tooltip), e.g. 計画進捗 / スプリント完了率 (A3-13). */
+export function ProgressBar({ pct, tone = "primary", label }: { pct: number; tone?: keyof typeof BAR_TONE; label?: string }) {
   return (
-    <span className="flex items-center gap-2">
-      <span className="h-1.5 w-20 overflow-hidden rounded-full bg-surface-sunken" aria-hidden="true">
+    <span className="flex items-center gap-2 whitespace-nowrap" title={label ? `${label} ${pct}%` : undefined}>
+      <span className="h-1.5 w-16 shrink-0 overflow-hidden rounded-full bg-surface-sunken" aria-hidden="true">
         <span className={cn("block h-full rounded-full", BAR_TONE[tone])} style={{ width: `${Math.min(100, Math.max(0, pct))}%` }} />
       </span>
       <span className="tabular-nums text-caption font-medium text-fg">{pct}%</span>
@@ -119,19 +120,22 @@ export function SprintCell({ sprint }: { sprint: PortfolioSprint | null }) {
   if (!sprint) return <span className="text-caption text-fg-subtle">{t.portfolioNoSprint}</span>
   const chip = daysChip(sprint, t)
   const burnLabel = `${t.portfolioBurndownLabel}: ${sprint.burn.join(" → ")}`
+  const sprintName = pickText(sprint.i18n, "sprintName", sprint.name, language).text
   return (
-    <span className="flex min-w-44 flex-col gap-1">
-      <span className="flex items-center gap-2">
-        <span className="truncate text-body font-medium text-fg">{pickText(sprint.i18n, "sprintName", sprint.name, language).text}</span>
-        <Badge tone={chip.tone} size="sm">
-          {chip.text}
-        </Badge>
+    <span className="flex min-w-0 flex-col gap-1">
+      <span className="flex min-w-0 items-center gap-2">
+        <span className="min-w-0 truncate text-body font-medium text-fg" title={sprintName}>{sprintName}</span>
+        <span className="shrink-0 whitespace-nowrap">
+          <Badge tone={chip.tone} size="sm">
+            {chip.text}
+          </Badge>
+        </span>
       </span>
       <span className="flex items-center gap-3">
-        {sprint.progressPct !== null && <ProgressBar pct={sprint.progressPct} tone={sprint.daysLeft < 0 ? "danger" : "primary"} />}
+        {sprint.progressPct !== null && <ProgressBar pct={sprint.progressPct} tone={sprint.daysLeft < 0 ? "danger" : "primary"} label={t.sprintCompletionRate} />}
         <BurnSparkline burn={sprint.burn} label={burnLabel} />
       </span>
-      <span className="text-caption text-fg-muted tabular-nums">
+      <span className="whitespace-nowrap text-caption text-fg-muted tabular-nums">
         {fill(t.portfolioSprintPoints, { done: sprint.donePoints, planned: sprint.plannedPoints })}
       </span>
     </span>
@@ -144,14 +148,14 @@ const STALE_MS = 14 * 86_400_000
 /** "3 hours ago" / "2 days ago" in the viewer's language. */
 export function RelativeTime({ iso, now }: { iso: string | null; now: number }) {
   const { t, language } = useLanguage()
-  if (!iso) return <span className="text-caption text-fg-subtle">{t.portfolioNoActivity}</span>
+  if (!iso) return <span className="whitespace-nowrap text-caption text-fg-subtle">{t.portfolioNoActivity}</span>
   const diffMin = Math.round((Date.parse(iso) - now) / 60_000)
   const rtf = new Intl.RelativeTimeFormat(language, { numeric: "auto" })
   const text =
     Math.abs(diffMin) < 60 ? rtf.format(diffMin, "minute") : Math.abs(diffMin) < 1440 ? rtf.format(Math.round(diffMin / 60), "hour") : rtf.format(Math.round(diffMin / 1440), "day")
   const stale = now - Date.parse(iso) > STALE_MS
   return (
-    <time dateTime={iso} title={new Date(iso).toLocaleString(language)} className={cn("text-caption", stale ? "text-warning-strong" : "text-fg-muted")}>
+    <time dateTime={iso} title={new Date(iso).toLocaleString(language)} className={cn("text-caption [word-break:keep-all]", stale ? "text-warning-strong" : "text-fg-muted")}>
       {text}
     </time>
   )

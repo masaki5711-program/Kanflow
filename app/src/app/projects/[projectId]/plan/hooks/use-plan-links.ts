@@ -25,6 +25,12 @@ export function parseLinkable(raw: unknown): LinkablePbi[] {
   return Array.isArray(pbis) ? (pbis as LinkablePbi[]) : []
 }
 
+/** Open PBIs first, done ones last; each group by number (A3-06: the list had no order). Pure. */
+export function sortLinkable<T extends { displayId: number; status: string }>(pbis: readonly T[]): T[] {
+  const rank = (p: T) => (p.status === "done" ? 1 : 0)
+  return [...pbis].sort((a, b) => rank(a) - rank(b) || a.displayId - b.displayId)
+}
+
 function sameSet(a: readonly string[], b: readonly string[]): boolean {
   if (a.length !== b.length) return false
   const s = new Set(a)
@@ -52,7 +58,7 @@ export function usePlanLinks(base: string, itemId: string | null, enabled: boole
     parse: parseLinkable,
     toastOnError: true,
   })
-  const results = search.data ?? NO_RESULTS
+  const results = useMemo(() => sortLinkable(search.data ?? NO_RESULTS), [search.data])
 
   const savedChoices = useMemo(
     () => new Map<string, LinkChoice>(saved.map((p) => [p.id, { ...p, planItem: itemId ? { id: itemId, name: "" } : null }])),

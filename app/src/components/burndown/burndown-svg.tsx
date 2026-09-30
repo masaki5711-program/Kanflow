@@ -3,10 +3,11 @@
 import { useLanguage } from "@/lib/language-context"
 import { fillTemplate } from "@/lib/fill-template"
 import { formatShortDate } from "@/lib/format-date"
+import { pickText } from "@/lib/translation/pick-text"
 import { TONE_COLOR, TONE_SOFT, sprintStatusTone } from "@/lib/design-tokens"
 import {
-  CHART_HEIGHT, CHART_WIDTH, INNER_HEIGHT, INNER_WIDTH, PADDING,
-  actualPoints, isWeekend, labelInterval, linePath, makeScale, pointsPath, yTicks,
+  BAND_LABEL_Y, CHART_HEIGHT, CHART_WIDTH, INNER_HEIGHT, INNER_WIDTH, PADDING, TODAY_LABEL_Y,
+  actualPoints, isWeekend, labelInterval, linePath, makeScale, pointsPath, sameSeries, yTicks,
   type BurndownData, type Scale, type SprintMarker,
 } from "./burndown-geometry"
 
@@ -33,6 +34,7 @@ const TEXT_MUTED = "var(--color-fg-muted)"
 const GRID = "var(--color-border)"
 
 function SprintBand({ marker, scale, dayCount, countTemplate }: { marker: SprintMarker; scale: Scale; dayCount: number; countTemplate: string }) {
+  const { language } = useLanguage()
   if (marker.startIndex < 0 && marker.endIndex < 0) return null
   const x1 = scale.toX(Math.max(marker.startIndex, 0))
   const x2 = scale.toX(marker.endIndex >= 0 ? marker.endIndex : dayCount - 1)
@@ -43,8 +45,9 @@ function SprintBand({ marker, scale, dayCount, countTemplate }: { marker: Sprint
       <rect x={x1} y={PADDING.top} width={Math.max(x2 - x1, 1)} height={INNER_HEIGHT} fill={fill} fillOpacity={BAND_FILL_OPACITY} />
       <line x1={x1} y1={PADDING.top} x2={x1} y2={bottom} stroke={stroke} strokeWidth="1" strokeDasharray="3,3" opacity="0.6" />
       <line x1={x2} y1={PADDING.top} x2={x2} y2={bottom} stroke={stroke} strokeWidth="1" strokeDasharray="3,3" opacity="0.4" />
-      <text x={(x1 + x2) / 2} y={PADDING.top + 14} textAnchor="middle" fontSize={FONT} fill={stroke} fontWeight="600">
-        {marker.name} ({fillTemplate(countTemplate, { count: marker.taskCount })})
+      {/* Above the plot area so the label never sits under the lines (cycle 3). */}
+      <text x={(x1 + x2) / 2} y={BAND_LABEL_Y} textAnchor="middle" fontSize={FONT} fill={stroke} fontWeight="600">
+        {pickText(marker.i18n, "sprintName", marker.name, language).text} ({fillTemplate(countTemplate, { count: marker.taskCount })})
       </text>
     </g>
   )
@@ -97,7 +100,7 @@ function TodayMarker({ index, scale }: { index: number; scale: Scale }) {
   return (
     <g>
       <line x1={x} y1={PADDING.top} x2={x} y2={PADDING.top + INNER_HEIGHT} stroke={SERIES_COLOR.today} strokeWidth="1.5" strokeDasharray="4,3" />
-      <text x={x} y={PADDING.top - 8} textAnchor="middle" fontSize={FONT} fill={SERIES_COLOR.today} fontWeight="bold">
+      <text x={x} y={TODAY_LABEL_Y} textAnchor="middle" fontSize={FONT} fill={SERIES_COLOR.today} fontWeight="bold">
         {t.burndownToday}
       </text>
     </g>
@@ -131,7 +134,10 @@ export default function BurndownSvg({ data, todayIndex, label }: Props) {
         <TodayMarker index={todayIndex} scale={scale} />
         <line x1={PADDING.left} y1={scale.toY(0)} x2={PADDING.left + INNER_WIDTH} y2={scale.toY(0)} stroke="var(--color-fg-subtle)" strokeWidth="1" />
         <path d={linePath(data.planLine, scale)} fill="none" stroke={SERIES_COLOR.plan} strokeWidth="1.5" strokeDasharray="6,3" />
-        <path d={linePath(data.idealLine, scale)} fill="none" stroke={SERIES_COLOR.ideal} strokeWidth="1.5" strokeDasharray="4,2" />
+        {/* A one-sprint ideal line equals the plan line: draw it once instead of two overlapping dashes. */}
+        {!sameSeries(data.idealLine, data.planLine) && (
+          <path d={linePath(data.idealLine, scale)} fill="none" stroke={SERIES_COLOR.ideal} strokeWidth="1.5" strokeDasharray="1,4" strokeLinecap="round" />
+        )}
         <path d={pointsPath(points, scale)} fill="none" stroke={SERIES_COLOR.actual} strokeWidth="2.5" />
         {points.map((p, i) => (
           <circle key={`pt-${p.x}-${i === 0 ? "b" : "v"}`} cx={scale.toX(p.x)} cy={scale.toY(p.y)} r="4"

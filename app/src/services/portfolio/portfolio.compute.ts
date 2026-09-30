@@ -3,6 +3,8 @@
  * master-plan summary and the "needs attention" rule. Days are Tokyo
  * calendar days.
  */
+import { computeScheduleState, tokyoDateKey } from "@/lib/plan-progress"
+import { planOverallProgress } from "@/lib/plan-overall-progress"
 import type { PortfolioPlan, Severity, VelocityTrend } from "./portfolio.types"
 
 const DAY_MS = 86_400_000
@@ -11,8 +13,6 @@ const TOKYO_OFFSET_MS = 9 * 60 * 60 * 1000
 export const BURN_MAX_DAYS = 60
 /** Velocity counts as rising / falling beyond ±10 % of the earlier average. */
 const TREND_TOLERANCE = 0.1
-/** A plan leaf is "at risk" when its progress trails the elapsed share of its window by more than this. */
-const AT_RISK_GAP = 0.2
 
 /** Tokyo calendar day number of an instant. */
 export function tokyoDay(d: Date): number {
@@ -63,37 +63,23 @@ export interface PlanRow {
   plannedStart: Date
   plannedEnd: Date
   status: string
-}
-
-function isDone(p: PlanRow): boolean {
-  return p.status === "done" || p.progressPct >= 100
-}
-
-function planState(p: PlanRow, todayDay: number): "delayed" | "at_risk" | "ok" {
-  if (isDone(p)) return "ok"
-  const [start, end] = [tokyoDay(p.plannedStart), tokyoDay(p.plannedEnd)]
-  if (end < todayDay) return "delayed"
-  if (todayDay < start) return "ok"
-  const elapsed = (todayDay - start + 1) / (end - start + 1)
-  return p.progressPct / 100 < elapsed - AT_RISK_GAP ? "at_risk" : "ok"
+  isMilestone: boolean
 }
 
 /**
- * Master-plan summary of one project: progress = top-level items weighted by
- * planned duration (parents already roll up their children); delayed /
- * at-risk are counted on leaves only, so a late subtree counts once per leaf.
+ * Master-plan summary of one project, on the plan page's own rules (A3-13):
+ * progress = planOverallProgress (top-level items rolled up like a parent);
+ * delayed / at-risk = computeScheduleState of each leaf (the plan's status
+ * pills), so a late subtree counts once per leaf.
  */
 export function planSummary(items: readonly PlanRow[], today: Date): PortfolioPlan {
   if (items.length === 0) return { progressPct: null, delayed: 0, atRisk: 0, total: 0 }
   const ids = new Set(items.map((i) => i.id))
   const parents = new Set(items.map((i) => i.parentId).filter((p): p is string => !!p && ids.has(p)))
-  const roots = items.filter((i) => !i.parentId || !ids.has(i.parentId))
-  const weight = (i: PlanRow) => Math.max(1, tokyoDay(i.plannedEnd) - tokyoDay(i.plannedStart) + 1)
-  const totalWeight = roots.reduce((n, r) => n + weight(r), 0)
-  const progressPct = Math.round(roots.reduce((n, r) => n + Math.min(100, Math.max(0, r.progressPct)) * weight(r), 0) / totalWeight)
-  const todayDay = tokyoDay(today)
+  const progressPct = planOverallProgress(items)
+  const todayKey = tokyoDateKey(today)
   const leaves = items.filter((i) => !parents.has(i.id))
-  const states = leaves.map((l) => planState(l, todayDay))
+  const states = leaves.map((l) => computeScheduleState(l, todayKey))
   return {
     progressPct,
     delayed: states.filter((s) => s === "delayed").length,

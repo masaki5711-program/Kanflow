@@ -25,8 +25,8 @@ export default function SprintProgress({ capacity, metrics: m }: Props) {
             {t.sprintWorkload}: {m.currentWorkload} / {capacity}
             <span className={cn("font-medium", m.isOver ? "text-danger" : "text-fg-muted")}>{loadPct}</span>
           </span>
-          <span className="text-success font-medium">
-            {t.sprintActualScore}: {Math.round(m.completedWorkload * 10) / 10} / {m.currentWorkload}
+          <span className="text-success font-medium" title={t.sprintActualScoreHint}>
+            {t.sprintActualScore}: {m.completedWorkload} / {m.currentWorkload}
           </span>
         </div>
         <div className="w-full bg-surface-sunken rounded-full h-2 relative overflow-hidden" aria-hidden="true">

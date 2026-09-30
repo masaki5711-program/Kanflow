@@ -321,9 +321,13 @@ describe("URL state and permissions", () => {
     await renderPlan(false)
     expect(screen.queryByRole("button", { name: t.planAddItem })).not.toBeInTheDocument()
     expect(document.querySelector("[data-plan-handle]")).toBeNull()
-    const dialog = await openEditor(user, "Beta")
+    // A3-19: read-only viewers "view" the details, not "edit" them; no glossary-syntax hint.
+    await openMenu(user, "Beta", t.planMenuView)
+    const dialog = await screen.findByRole("dialog", { name: t.planViewTitle })
     expect(within(dialog).queryByRole("button", { name: t.save })).not.toBeInTheDocument()
     expect(within(dialog).queryByRole("button", { name: t.delete })).not.toBeInTheDocument()
+    expect(within(dialog).getAllByRole("button", { name: t.close }).length).toBeGreaterThan(0)
+    expect(within(dialog).queryByText(t.glossaryHint)).not.toBeInTheDocument()
   })
 
   it.each(["ja", "id"] as const)("renders in %s", async (lang) => {

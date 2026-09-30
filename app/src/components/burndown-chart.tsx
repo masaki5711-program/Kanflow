@@ -4,7 +4,8 @@ import { RefreshCw } from "lucide-react"
 import { useLanguage } from "@/lib/language-context"
 import { Button, EmptyState, IconButton, SkeletonCard } from "@/components/ui"
 import { useApiQuery } from "@/hooks"
-import { actualPoints, type BurndownData } from "@/components/burndown/burndown-geometry"
+import { actualPoints, sameSeries, type BurndownData } from "@/components/burndown/burndown-geometry"
+import { pickText } from "@/lib/translation/pick-text"
 import BurndownSvg, { SERIES_COLOR, sprintBand } from "@/components/burndown/burndown-svg"
 
 interface Props {
@@ -20,11 +21,16 @@ function localToday(): string {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
 }
 
-function LegendLine({ color, dashed, label }: { color: string; dashed?: boolean; label: string }) {
+/** Today's index: the server's Asia/Tokyo value; older payloads fall back to the browser's day. */
+export function todayIndexOf(data: Pick<BurndownData, "days" | "todayIndex">): number {
+  return typeof data.todayIndex === "number" ? data.todayIndex : data.days.indexOf(localToday())
+}
+
+function LegendLine({ color, dash, label }: { color: string; dash?: string; label: string }) {
   return (
     <span className="flex items-center gap-1.5">
       <svg width="20" height="4" aria-hidden="true">
-        <line x1="0" y1="2" x2="20" y2="2" stroke={color} strokeWidth={dashed ? 2 : 3} strokeDasharray={dashed ? "4,2" : undefined} />
+        <line x1="0" y1="2" x2="20" y2="2" stroke={color} strokeWidth={dash ? 2 : 3} strokeDasharray={dash} strokeLinecap={dash === "1,4" ? "round" : undefined} />
       </svg>
       {label}
     </span>
@@ -32,7 +38,7 @@ function LegendLine({ color, dashed, label }: { color: string; dashed?: boolean;
 }
 
 export default function BurndownChart({ projectId, refreshable = false, sprintId = null }: Props) {
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
   const query = sprintId ? `?sprintId=${encodeURIComponent(sprintId)}` : ""
   const { data, error, isLoading, isFetching, refetch } = useApiQuery<BurndownData>(
     `/api/projects/${projectId}/burndown${query}`,
@@ -68,8 +74,8 @@ export default function BurndownChart({ projectId, refreshable = false, sprintId
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <h3 id={`burndown-title-${projectId}`} className="text-body-lg font-semibold text-fg">{t.burndownTitle}</h3>
         <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-caption text-fg">
-          <LegendLine color={SERIES_COLOR.plan} dashed label={t.burndownPlan} />
-          <LegendLine color={SERIES_COLOR.ideal} dashed label={t.burndownIdeal} />
+          <LegendLine color={SERIES_COLOR.plan} dash="6,3" label={t.burndownPlan} />
+          {!sameSeries(data.idealLine, data.planLine) && <LegendLine color={SERIES_COLOR.ideal} dash="1,4" label={t.burndownIdeal} />}
           <LegendLine color={SERIES_COLOR.actual} label={t.burndownActual} />
           <span className="text-fg-muted">{t.burndownTotal.replace("{count}", String(data.totalTasks))}</span>
           {refreshable && (
@@ -86,7 +92,7 @@ export default function BurndownChart({ projectId, refreshable = false, sprintId
             return (
               <li key={sm.id} className="text-caption px-2.5 py-1 rounded-ui-sm border flex items-center gap-2"
                 style={{ borderColor: band.stroke, backgroundColor: band.fill }}>
-                <span className="font-medium text-fg">{sm.name}</span>
+                <span className="font-medium text-fg">{pickText(sm.i18n, "sprintName", sm.name, language).text}</span>
                 <span className="text-fg-muted">{sm.doneCount}/{sm.taskCount}{t.burndownCompleted}</span>
               </li>
             )
@@ -94,7 +100,7 @@ export default function BurndownChart({ projectId, refreshable = false, sprintId
         </ul>
       )}
 
-      <BurndownSvg data={data} todayIndex={data.days.indexOf(localToday())} label={chartLabel} />
+      <BurndownSvg data={data} todayIndex={todayIndexOf(data)} label={chartLabel} />
     </section>
   )
 }

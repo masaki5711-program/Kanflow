@@ -1,5 +1,6 @@
 "use client"
 
+import { formatLongDate } from "@/lib/format-date"
 import { useId } from "react"
 import { Badge, Button, Truncate } from "@/components/ui"
 import { I18nText } from "@/components/i18n-text"
@@ -105,7 +106,7 @@ export function VersionGroup({
                 )}
                 {item.releaseDate && (
                   <span className="shrink-0 text-caption text-fg-muted">
-                    {new Date(item.releaseDate).toLocaleDateString()}
+                    {formatLongDate(item.releaseDate, language, { utc: true })}
                   </span>
                 )}
               </button>

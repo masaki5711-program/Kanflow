@@ -49,7 +49,7 @@ export const PlanLinkSection = forwardRef<HTMLElement, Props>(function PlanLinkS
               <span className="font-mono text-caption text-fg-muted">#{p.displayId}</span>
               <span className="min-w-0 flex-1 truncate text-fg" title={p.title}>{p.title}</span>
               {!disabled && (
-                <IconButton size="sm" label={`${t.delete}: #${p.displayId}`} icon={<X className="h-4 w-4" />} onClick={() => links.toggle(p)} />
+                <IconButton size="sm" label={`${t.planLinkUnlink}: #${p.displayId}`} icon={<X className="h-4 w-4" />} onClick={() => links.toggle(p)} />
               )}
             </li>
           ))}

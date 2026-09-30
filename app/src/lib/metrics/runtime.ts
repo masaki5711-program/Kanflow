@@ -12,6 +12,7 @@
 import { readHeartbeatStatus, resolveHeartbeatFile } from "@/lib/ai-gate/worker-heartbeat"
 import { ollamaQueueStatus } from "@/lib/ollama/client"
 import { gate } from "@/lib/translation/priority-gate"
+import { parseWorkerMode } from "@/lib/translation/worker-mode"
 import { defaultDb } from "@/services/_shared/db"
 import { collectMetrics, type CollectDeps, type MetricsReport } from "./collect"
 import { installHttpMetrics } from "./http-hook"
@@ -30,6 +31,7 @@ export function defaultCollectDeps(): CollectDeps {
     now: Date.now,
     gateStatus: () => gate.status(),
     ollamaStatus: ollamaQueueStatus,
+    workerExpected: () => parseWorkerMode(process.env.AI_TRANSLATION_WORKER) === "external",
     heartbeat: (nowMs) => {
       const hb = readHeartbeatStatus(resolveHeartbeatFile(process.env), nowMs, process.env)
       return { status: hb.status, ageSec: hb.ageSec }

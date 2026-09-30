@@ -4,6 +4,7 @@ import { useId, useState } from "react"
 import { useLanguage } from "@/lib/language-context"
 import { AIResultModal } from "@/components/ai-result-modal"
 import { GlossaryHint, I18nText } from "@/components/i18n-text"
+import { pickText } from "@/lib/translation/pick-text"
 import { Badge, Button, Field, Modal, Textarea } from "@/components/ui"
 import ModalCancelButton from "./modal-cancel-button"
 import SprintCompletionSummary from "./sprint-completion-summary"
@@ -71,9 +72,10 @@ export default function SprintStatusDialog({ projectId, sprint, initial, onSubmi
     setShowRetroAI(false)
   }
 
-  const description = isEditOnly ? initial.sprintName : (
+  const sprintName = pickText(sprint?.i18n, "sprintName", initial.sprintName, language).text || initial.sprintName
+  const description = isEditOnly ? sprintName : (
     <span className="inline-flex flex-wrap items-center gap-2">
-      <span className="font-medium text-fg">{initial.sprintName}</span>
+      <span className="font-medium text-fg">{sprintName}</span>
       <span aria-hidden="true">→</span>
       <Badge tone="primary">{statusLabels[initial.nextStatus] ?? initial.nextStatus}</Badge>
     </span>

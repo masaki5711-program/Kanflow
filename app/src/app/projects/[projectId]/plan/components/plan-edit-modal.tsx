@@ -186,7 +186,7 @@ export default function PlanEditModal(props: Props) {
     if (item && (await props.onDelete(item))) props.onClose()
   }
 
-  const title = item ? t.planEditTitle : form.isMilestone ? t.planNewMilestoneTitle : t.planNewItemTitle
+  const title = item ? (readOnly ? t.planViewTitle : t.planEditTitle) : form.isMilestone ? t.planNewMilestoneTitle : t.planNewItemTitle
   return (
     <Modal
       open
@@ -211,7 +211,7 @@ export default function PlanEditModal(props: Props) {
           />
         )}
         <fieldset disabled={readOnly} className="min-w-0">
-          <PlanEditFields form={form} set={set} flags={flags} item={item} parentOptions={parents} members={props.members} errors={errors} />
+          <PlanEditFields form={form} set={set} flags={flags} item={item} parentOptions={parents} members={props.members} errors={errors} readOnly={readOnly} />
         </fieldset>
         {canLink && item ? (
           <PlanLinkSection ref={linkRef} links={links} itemId={item.id} disabled={readOnly} backlogHref={`${props.backlogPath}?plan=${encodeURIComponent(item.id)}`} />

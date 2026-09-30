@@ -65,6 +65,16 @@ describe("get_plan_progress", () => {
     expect(out.upcoming_milestones).toEqual([{ name: "ms", date: "2026-03-20", days_left: 9 }])
   })
 
+  it("A3-13: overall progress is the duration-weighted root rollup shared with the portfolio / dashboard", () => {
+    const rows = [
+      plan("long", { progressPct: 10, plannedStart: d("2026-01-01"), plannedEnd: d("2026-01-30") }), // 30 days
+      plan("short", { progressPct: 100, status: "done", plannedStart: d("2026-02-01"), plannedEnd: d("2026-02-10") }), // 10 days
+      plan("gate", { isMilestone: true, plannedStart: d("2026-02-10"), plannedEnd: d("2026-02-10") }),
+    ]
+    // (10 × 30 + 100 × 10) / 40 = 32.5 → 33; the simple average of the roots would have said 37.
+    expect(summarizePlan(rows, NOW).overall_progress_pct).toBe(33)
+  })
+
   it("is scoped to the project and handles an empty plan", async () => {
     m.planFindMany.mockResolvedValue([])
     const out = await run("get_plan_progress")

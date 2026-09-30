@@ -85,7 +85,7 @@ test("dev sees a read-only plan (no add/drag/menu edits, read-only editor)", asy
   expect(c.status).toBe(403)
   expect(b.status).toBe(403)
   // Export allowed
-  const x = await page.request.get(`${process.env.E2E_BASE_URL ?? "http://localhost:3101"}/api/projects/${PROJECT}/plan/export?lang=id`)
+  const x = await page.request.get(`${process.env.E2E_BASE_URL ?? "http://localhost:3102"}/api/projects/${PROJECT}/plan/export?lang=id`)
   console.log("dev export status:", x.status())
   report("dev readonly", issues)
   await ctx.close()

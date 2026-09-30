@@ -63,17 +63,20 @@ describe("auth", () => {
 describe("GET /api/notifications", () => {
   it("lists my notifications (always scoped to the session user)", async () => {
     signedIn()
-    const page = { items: [], nextCursor: null, unreadCount: 3 }
+    const page = { items: [], nextCursor: null, unreadCount: 3, unreadByGroup: { all: 3, personal: 1, other: 2 } }
     vi.mocked(svc.listMyNotifications).mockResolvedValue(page)
     expect(await json(await list.GET(new Request(`${URL_BASE}?unreadOnly=true&limit=20`)))).toEqual({ status: 200, body: page })
-    expect(svc.listMyNotifications).toHaveBeenCalledWith("u1", { limit: 20, unreadOnly: true })
+    expect(svc.listMyNotifications).toHaveBeenCalledWith("u1", { limit: 20, unreadOnly: true, group: "all" })
   })
 
   it("defaults and validation", async () => {
     signedIn()
-    vi.mocked(svc.listMyNotifications).mockResolvedValue({ items: [], nextCursor: null, unreadCount: 0 })
+    vi.mocked(svc.listMyNotifications).mockResolvedValue({ items: [], nextCursor: null, unreadCount: 0, unreadByGroup: { all: 0, personal: 0, other: 0 } })
     await list.GET(new Request(URL_BASE))
-    expect(svc.listMyNotifications).toHaveBeenCalledWith("u1", { limit: 50, unreadOnly: false })
+    expect(svc.listMyNotifications).toHaveBeenCalledWith("u1", { limit: 50, unreadOnly: false, group: "all" })
+    await list.GET(new Request(`${URL_BASE}?group=personal&state=unread`))
+    expect(svc.listMyNotifications).toHaveBeenLastCalledWith("u1", { limit: 50, unreadOnly: false, group: "personal", state: "unread" })
+    expect((await list.GET(new Request(`${URL_BASE}?group=bogus`)))!.status).toBe(400)
     expect((await list.GET(new Request(`${URL_BASE}?limit=500`)))!.status).toBe(400)
     expect((await list.GET(new Request(`${URL_BASE}?unreadOnly=maybe`)))!.status).toBe(400)
   })

@@ -93,6 +93,7 @@ export async function collectProjectTranslationTree(db: Db, projectId: string): 
     release_item: ids(await db.releaseBacklogItem.findMany(byProject)),
     calendar_event: ids(await db.calendarEvent.findMany(byProject)),
     plan_item: ids(await db.planItem.findMany(byProject)),
+    comment: ids(await db.comment.findMany(byProject)),
   }
 }
 

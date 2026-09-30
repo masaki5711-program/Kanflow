@@ -1,5 +1,6 @@
 "use client"
 
+import { formatDateTime } from "@/lib/format-date"
 import { useEffect, useRef, useState } from "react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
@@ -40,22 +41,17 @@ function toReports(raw: unknown): AiReport[] {
   return Array.isArray(raw) ? (raw as AiReport[]) : []
 }
 
-function localeOf(language: string): string {
-  return language === "ja" ? "ja-JP" : language === "id" ? "id-ID" : "en-US"
-}
-
 interface ReportRowProps {
   report: AiReport
   isOpen: boolean
   isLatest: boolean
   onToggle: () => void
   triggerLabel: string
-  locale: string
   language: Language
   t: Translations
 }
 
-function ReportRow({ report: r, isOpen, isLatest, onToggle, triggerLabel, locale, language, t }: ReportRowProps) {
+function ReportRow({ report: r, isOpen, isLatest, onToggle, triggerLabel, language, t }: ReportRowProps) {
   const parsed = isOpen ? parseStructured(r.structured) : null
   // Bilingual (JA/ID) reports show the viewer's side; single-language ones say which language they are in.
   const structured = parsed ? localizeStructuredReport(parsed, language) : null
@@ -91,7 +87,7 @@ function ReportRow({ report: r, isOpen, isLatest, onToggle, triggerLabel, locale
         </div>
         <Badge tone="neutral" className="flex-shrink-0">{triggerLabel}</Badge>
         <span className="text-caption text-fg-muted flex-shrink-0">
-          {new Date(r.createdAt).toLocaleString(locale, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+          {formatDateTime(r.createdAt, language)}
         </span>
       </button>
       {isOpen && hasBody && (
@@ -105,7 +101,7 @@ function ReportRow({ report: r, isOpen, isLatest, onToggle, triggerLabel, locale
             <ReportDocument
               report={structured}
               trigger={triggerLabel}
-              createdAt={new Date(r.createdAt).toLocaleString(locale, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+              createdAt={formatDateTime(r.createdAt, language)}
               t={t}
             />
           ) : (
@@ -167,7 +163,6 @@ export default function AiReportsPanel({ projectId }: { projectId: string }) {
   // keeps the dashboard uncluttered for projects where surveillance hasn't fired yet.
   if (reports.length === 0 && jobs.length === 0) return null
 
-  const locale = localeOf(language)
   const triggerLabel: Record<string, string> = {
     surveillance: t.aiReportTriggerSurveillance,
     sprint_completed: t.aiReportTriggerSprintCompleted,
@@ -183,7 +178,6 @@ export default function AiReportsPanel({ projectId }: { projectId: string }) {
       isOpen={openId === r.id}
       onToggle={() => setOpenId(openId === r.id ? null : r.id)}
       triggerLabel={triggerLabel[r.trigger] ?? r.trigger}
-      locale={locale}
       language={language}
       t={t}
     />

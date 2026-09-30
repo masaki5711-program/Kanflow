@@ -95,7 +95,7 @@ export function findPlanRows(db: Db, projectIds: readonly string[]) {
   return db.planItem.findMany({
     where: { projectId: { in: [...projectIds] }, ...NOT_DELETED },
     take: PLAN_ROW_CAP,
-    select: { id: true, projectId: true, parentId: true, progressPct: true, plannedStart: true, plannedEnd: true, status: true },
+    select: { id: true, projectId: true, parentId: true, progressPct: true, plannedStart: true, plannedEnd: true, status: true, isMilestone: true },
   })
 }
 

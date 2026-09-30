@@ -15,7 +15,7 @@ vi.mock("recharts", async (importOriginal) => {
   }
 })
 
-const { MetricsDashboard, METRICS_REFRESH_MS } = await import("../metrics/metrics-dashboard")
+const { MetricsDashboard, METRICS_REFRESH_MS, workerLabel } = await import("../metrics/metrics-dashboard")
 
 const t = tr("ja")
 const URL = "/api/admin/metrics"
@@ -126,5 +126,15 @@ describe("MetricsDashboard", () => {
     })
     expect(fetchMock.mock.calls.length).toBe(before + 1)
     spy.mockRestore()
+  })
+})
+
+describe("workerLabel (A3-20)", () => {
+  it("shows no warning when the worker runs in-process (no heartbeat expected)", () => {
+    expect(workerLabel(t, { status: "absent", heartbeatAgeSec: null, expected: false })).toEqual({ text: t.metricsWorkerInProcess, tone: "neutral" })
+    expect(workerLabel(t, { status: "absent", heartbeatAgeSec: null, expected: true })).toEqual({ text: t.metricsWorkerAbsent, tone: "warning" })
+    expect(workerLabel(t, { status: "absent", heartbeatAgeSec: null })).toEqual({ text: t.metricsWorkerAbsent, tone: "warning" })
+    expect(workerLabel(t, { status: "ok", heartbeatAgeSec: 3, expected: false }).tone).toBe("success")
+    expect(workerLabel(t, { status: "stale", heartbeatAgeSec: 400 }).tone).toBe("danger")
   })
 })

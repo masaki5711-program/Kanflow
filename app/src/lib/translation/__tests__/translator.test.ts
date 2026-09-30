@@ -34,6 +34,15 @@ describe("translateText", () => {
     expect(ollamaGenerate).not.toHaveBeenCalled()
   })
 
+  it("A3-03: never shows @mentions to the model and restores them verbatim", async () => {
+    ollamaGenerate.mockResolvedValue("Mohon tinjau {{M0}} dan {{M1}} sebelum perencanaan sprint.")
+    const out = await translateText({ text: "@[E2E SM] と @[E2E Dev] スプリント計画前にレビューしてください。", targetLocale: "id" })
+    const prompt = ollamaGenerate.mock.calls[0][0] as string
+    expect(prompt).not.toContain("E2E SM")
+    expect(prompt).toContain("{{M0}}")
+    expect(out.translated).toBe("Mohon tinjau @[E2E SM] dan @[E2E Dev] sebelum perencanaan sprint.")
+  })
+
   it("cleans quotes and separators from the model output", async () => {
     ollamaGenerate.mockResolvedValue("----\n「Halo dunia」\n----")
     const out = await translateText({ text: "こんにちは世界", targetLocale: "id" })

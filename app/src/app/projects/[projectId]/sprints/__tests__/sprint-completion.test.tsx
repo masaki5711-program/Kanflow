@@ -38,6 +38,15 @@ describe("sprint completion dialog (S-08)", () => {
     expect(summary).toHaveTextContent(t.sprintCompleteCarryOverNote)
   })
 
+  it("names the sprint in the viewer's language", () => {
+    const i18n = { sprintName: { ja: "第5スプリント", id: "Sprint Kelima", source: "id" as const, status: "done" as const } }
+    const s = sprint("s1", { sprintName: "Sprint Kelima", i18n } as never)
+    renderWithProviders(<SprintStatusDialog projectId="p1" sprint={s} initial={statusDialogFor(s, "review")}
+      onSubmit={async () => true} onClose={vi.fn()} />)
+    expect(screen.getByText("第5スプリント")).toBeInTheDocument()
+    expect(screen.queryByText("Sprint Kelima")).not.toBeInTheDocument()
+  })
+
   it("says everything is done, and shows no summary when only moving to review", () => {
     const s = sprint("s1", { items: [task("t1", pbA, { status: "done" })] })
     const { unmount } = renderWithProviders(<SprintStatusDialog projectId="p1" sprint={s} initial={statusDialogFor(s, "done")}

@@ -111,7 +111,6 @@ export const roleStyle: Record<string, string> = {
   sm: "bg-success-soft text-success-strong ring-success/30",
   dev: "bg-surface-sunken text-fg-muted ring-border",
 }
-export const roleLabel: Record<string, string> = { po: "PO", sm: "SM", dev: "Dev" }
 
 const TYPE_EMOJI: Record<string, string> = {
   software: "💻",

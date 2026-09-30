@@ -1,4 +1,5 @@
 // Pure geometry for the burndown SVG (unit-tested in burndown-geometry.test.ts).
+import type { EntityI18n } from "@/lib/translation/types"
 
 export interface SprintMarker {
   id: string
@@ -8,6 +9,8 @@ export interface SprintMarker {
   endIndex: number
   taskCount: number
   doneCount: number
+  /** Sprint-name translations (attached by the service; absent in pure computations). */
+  i18n?: EntityI18n
 }
 
 export interface BurndownData {
@@ -17,14 +20,20 @@ export interface BurndownData {
   planLine: number[]
   actualLine: (number | null)[]
   actualBaseline: number | null
+  /** Today (Asia/Tokyo) in `days`, -1 outside the range; older payloads lack it. */
+  todayIndex?: number
   sprintMarkers: SprintMarker[]
 }
 
 export const CHART_WIDTH = 800
 export const CHART_HEIGHT = 340
-export const PADDING = { top: 30, right: 30, bottom: 60, left: 60 } as const
+export const PADDING = { top: 48, right: 30, bottom: 60, left: 60 } as const
 export const INNER_WIDTH = CHART_WIDTH - PADDING.left - PADDING.right
 export const INNER_HEIGHT = CHART_HEIGHT - PADDING.top - PADDING.bottom
+
+/** Sprint band labels sit above the plot (never under the lines); the today label sits just below them. */
+export const BAND_LABEL_Y = 16
+export const TODAY_LABEL_Y = PADDING.top - 8
 
 export interface Point {
   x: number
@@ -78,6 +87,13 @@ export function linePath(values: (number | null)[], scale: Scale): string {
     .flatMap((v, i) => (v === null ? [] : [`${scale.toX(i)} ${scale.toY(v)}`]))
     .map((xy, i) => `${i === 0 ? "M" : "L"} ${xy}`)
     .join(" ")
+}
+
+const SERIES_EPSILON = 0.01
+
+/** True when two series are the same at every index (e.g. ideal vs plan of a single sprint). */
+export function sameSeries(a: readonly number[], b: readonly number[]): boolean {
+  return a.length === b.length && a.every((v, i) => Math.abs(v - b[i]) < SERIES_EPSILON)
 }
 
 export function pointsPath(points: Point[], scale: Scale): string {

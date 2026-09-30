@@ -110,7 +110,7 @@ export function UserManagementBase({ headerExtra }: Props) {
       ) : filtered.length === 0 ? (
         <EmptyState icon={<Users className="h-6 w-6" />} title={t.userNoResults} />
       ) : (
-        <ul aria-label={t.userListLabel} className="space-y-3">
+        <ul aria-label={t.userListLabel} className="overflow-hidden rounded-ui-lg border border-border bg-surface shadow-ui-sm">
           {filtered.map((user) => (
             <UserRow
               key={user.id}

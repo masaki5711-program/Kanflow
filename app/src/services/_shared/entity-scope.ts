@@ -56,6 +56,9 @@ async function resolveOwner(db: Db, type: TranslatableEntity, id: string): Promi
       const row = await db.sprintBacklogItem.findUnique({ where: { id }, select: { sprint: { select: { projectId: true } } } })
       return project(row?.sprint ?? null)
     }
+    case "comment":
+      // A deleted comment is a tombstone whose body is never shown.
+      return liveProject(await db.comment.findUnique(byIdWithTrash))
     case "fixed_task": {
       const row = await db.userFixedTask.findUnique({ where: { id }, select: { userId: true } })
       return row ? { kind: "user", userId: row.userId } : null
