@@ -118,9 +118,15 @@ test("notifications: mention + assignment → SM bell, mark read, preferences", 
   await box.pressSequentially("@E2E S")
   await expect(pdlg.getByRole("listbox", { name: "メンション候補" }).getByRole("option", { name: /E2E SM/ })).toBeVisible()
   await po.page.keyboard.press("Enter")
-  await expect(box).toHaveValue(/@\[E2E SM\]/)
+  // cycle 5: the composer now shows the mention as "@Name" (the stored token
+  // is still resolved server-side — the SM bell assertion below proves it).
+  await expect(box).toHaveValue(/^@(\[E2E SM\]|E2E SM)\s/)
   await box.pressSequentially("E2E 通知確認")
+  const posted = po.page.waitForRequest((req) => req.method() === "POST" && /\/comments/.test(req.url()))
   await po.page.keyboard.press("Control+Enter")
+  const postedBody = (await posted).postData() ?? ""
+  console.log("comment POST body", postedBody.slice(0, 300))
+  expect(postedBody).toContain("E2E SM")
   await expect(pdlg.getByText("E2E 通知確認")).toBeVisible()
   // assign PO = E2E SM (free-text name) via edit
   await pdlg.getByRole("tab", { name: "詳細" }).click()

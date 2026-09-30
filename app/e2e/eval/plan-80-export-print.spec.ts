@@ -77,7 +77,7 @@ test("export in en / id language", async ({ browser }) => {
   const { ctx, page } = await userPage(browser, "po")
   await page.goto("/")
   for (const lang of ["en", "id"]) {
-    const res = await page.request.get(`${process.env.E2E_BASE_URL ?? "http://localhost:3102"}/api/projects/cmr8tnrzm0000m09lghm5jshr/plan/export?lang=${lang}`)
+    const res = await page.request.get(`${process.env.E2E_BASE_URL ?? "http://localhost:3104"}/api/projects/cmr8tnrzm0000m09lghm5jshr/plan/export?lang=${lang}`)
     expect(res.status()).toBe(200)
     console.log(lang, res.headers()["content-type"], res.headers()["content-disposition"])
     const wb = new ExcelJS.Workbook()

@@ -59,7 +59,7 @@ export async function userPage(
 
 type Json = Record<string, unknown>
 export async function api(page: Page, method: string, url: string, data?: unknown): Promise<{ status: number; body: any }> {
-  const origin = (process.env.E2E_BASE_URL ?? "http://localhost:3102")
+  const origin = (process.env.E2E_BASE_URL ?? "http://localhost:3104")
   const res = await page.request.fetch(url.startsWith("http") ? url : origin + url, {
     method,
     data: data as Json | undefined,
@@ -127,3 +127,16 @@ export const row = (page: Page, id: string) => page.locator(`[data-plan-row="${i
 export const nameBtn = (page: Page, id: string) => page.locator(`[data-plan-name="${id}"]`)
 
 export const stamp = () => new Date().toISOString().replace(/[-:T.Z]/g, "").slice(4, 12)
+
+/**
+ * Today label as the plan renders it for a server "today" key (Asia/Tokyo,
+ * from getPlan().today). Avoids hardcoding the calendar day (cycle 5: the run
+ * crossed midnight JST and every hardcoded 2026-09-30 expectation broke).
+ */
+export function todayLabel(ymd: string, lang: "ja" | "en"): string {
+  const d = new Date(`${ymd}T00:00:00Z`)
+  const wd = (l: string) => new Intl.DateTimeFormat(l, { weekday: "short", timeZone: "UTC" }).format(d)
+  if (lang === "ja") return `${ymd.slice(5, 7)}/${ymd.slice(8, 10)}(${wd("ja-JP")})`
+  const mon = new Intl.DateTimeFormat("en-US", { month: "short", timeZone: "UTC" }).format(d)
+  return `${mon} ${d.getUTCDate()} (${wd("en-US")})`
+}

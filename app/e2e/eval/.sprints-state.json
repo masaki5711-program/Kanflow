@@ -1,11 +1,19 @@
 {
-  "projectId": "cmuo5afvp00vga89lbuqgeseu",
-  "projectName": "E2E-Sprints-C2-09301332",
+  "projectId": "cmuo95f4f00yd9c9liy2mpvew",
+  "projectName": "E2E-Sprints-C2-09301520",
   "pbiIds": [
-    "cmuo5afy000voa89lxr69mnx1",
-    "cmuo5afyo00vqa89lsmoyi58a",
-    "cmuo5afzd00vsa89lruse2dhn",
-    "cmuo5ag0000vua89lf74u8dqs"
+    "cmuo95f5p00yl9c9l94fyo105",
+    "cmuo95f6100yn9c9l91hutk1e",
+    "cmuo95f6d00yp9c9l27qyfxp3",
+    "cmuo95f6q00yr9c9ljvwmiho7"
   ],
-  "sprintId": "cmuo5amdu00vwa89le1mentp2"
+  "sprintId": "cmuo95ib600yt9c9lk38sxmkq",
+  "taskIds": [
+    "cmuo95njk00z09c9l2bgsqzhb",
+    "cmuo95o0g00z39c9l524pdcl3",
+    "cmuo95o3u00z69c9lryntiee0",
+    "cmuo95o4g00z89c9ln6pij0mh",
+    "cmuo95o4z00zb9c9lbzz28m3q",
+    "cmuo95o5j00zd9c9l88hvw1px"
+  ]
 }

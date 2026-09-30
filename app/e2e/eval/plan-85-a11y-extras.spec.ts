@@ -33,7 +33,7 @@ test("optimistic lock: stale editor save → conflict handling", async ({ browse
   await gotoPlan(page, "", PROJECT2)
   await bar(page, it.id).dblclick()
   const d = page.getByRole("dialog")
-  await d.getByLabel("説明").fill("stale edit")
+  await d.getByRole("textbox", { name: "説明", exact: true }).fill("stale edit")
   // Someone else edits meanwhile
   expect((await patchItem(page, it.id, { description: "other user" }, PROJECT2)).status).toBeLessThan(300)
   await d.getByRole("button", { name: "保存" }).click()
@@ -51,7 +51,7 @@ test("optimistic lock: stale editor save → conflict handling", async ({ browse
   await expect(notice).toContainText("stale edit")
   // N-05: the dialog's notice is the only message — no duplicate red toast
   await expect(page.getByText("他のユーザーが先に更新しました。最新の内容を読み込みました")).toHaveCount(0)
-  await expect(d.getByLabel("説明")).toHaveValue("other user")
+  await expect(d.getByRole("textbox", { name: "説明", exact: true })).toHaveValue("other user")
   await d.getByRole("button", { name: "保存" }).click()
   await expect(d).toHaveCount(0)
   const again = (await getPlan(page, PROJECT2)).items.find((i) => i.id === it.id)!

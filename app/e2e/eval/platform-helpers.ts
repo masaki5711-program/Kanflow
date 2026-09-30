@@ -2,7 +2,7 @@ import { request as pwRequest, type APIRequestContext, type Browser, type Browse
 import * as fs from "node:fs"
 import * as path from "node:path"
 
-export const BASE = process.env.E2E_BASE_URL || "http://localhost:3102"
+export const BASE = process.env.E2E_BASE_URL || "http://localhost:3104"
 export const PASSWORD = "E2e-Kanflow-2026!"
 export const PILOT = "cmr8tnrzm0000m09lghm5jshr"
 export const ZEVA = "cmouvgryo0004eg9lpqdtctmq"

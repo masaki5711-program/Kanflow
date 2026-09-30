@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test"
-import { PROJECT, SHOTS, addDays, bar, createItem, deleteItem, getPlan, gotoPlan, report, row, stamp, userPage, type Item } from "./plan-support"
+import { PROJECT, SHOTS, addDays, todayLabel, bar, createItem, deleteItem, getPlan, gotoPlan, report, row, stamp, userPage, type Item } from "./plan-support"
 
 /**
  * Date display of the master plan: end-inclusive bars, milestone centring,
@@ -99,7 +99,8 @@ test("today label, initial scroll to open work, compact grid (F-01, F-05)", asyn
   const { ctx, page, issues } = await userPage(browser, "po", { viewport: { width: 1440, height: 900 } })
   await gotoPlan(page)
   const label = page.locator("[data-plan-today-label]")
-  await expect(label).toHaveText(/今日 09\/30\(水\)/)
+  const { today } = await getPlan(page)
+  await expect(label).toHaveText(`今日 ${todayLabel(today, "ja")}`)
   // F-05: the today pill never covers a month label of the top tier.
   const overlap = await page.evaluate(() => {
     const pill = document.querySelector("[data-plan-today-label]")!.getBoundingClientRect()
@@ -183,7 +184,7 @@ test("localized dates after switching the header language (en, id)", async ({ br
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(/Master Plan/)
     await expect(row(page, leaf.id).getByRole("cell").first()).toHaveText("Oct 1–7")
     await expect(row(page, leaf.id).getByRole("cell").nth(1)).toHaveText("0%")
-    await expect(page.locator("[data-plan-chart] span", { hasText: /^Today / })).toHaveText("Today Sep 30 (Wed)")
+    await expect(page.locator("[data-plan-chart] span", { hasText: /^Today / })).toHaveText(`Today ${todayLabel((await getPlan(page)).today, "en")}`)
     const en = await scaleLabels(page)
     console.log("en top", JSON.stringify(en.top.slice(0, 4)), "bottom", JSON.stringify(en.bottom.slice(0, 6)))
     expect(en.top.join("|")).toMatch(/October 2026/)

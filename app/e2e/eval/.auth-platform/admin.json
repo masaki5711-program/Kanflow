@@ -2,7 +2,7 @@
   "cookies": [
     {
       "name": "authjs.csrf-token",
-      "value": "973613ab7438fcfe62bb01b49f32e76cd132e05781a6ca7cdec9dd05e7f63932%7C8a4c7634dd225353c269623db1019c74d189661f705d60a60a34460d0749958a",
+      "value": "cd934820a17b45bfd6b1f31dcbb94005330232fdf8f859519d0e9f6d02ee4a2e%7Cd49158bf7247a4a0972bc2c47a6cd14c29cd1942f9bfd3a7dbeccec51f5a4837",
       "domain": "localhost",
       "path": "/",
       "expires": -1,
@@ -12,7 +12,7 @@
     },
     {
       "name": "authjs.callback-url",
-      "value": "http%3A%2F%2Flocalhost%3A3102%2F",
+      "value": "http%3A%2F%2Flocalhost%3A3104%2F",
       "domain": "localhost",
       "path": "/",
       "expires": -1,
@@ -22,10 +22,10 @@
     },
     {
       "name": "authjs.session-token",
-      "value": "eyJhbGciOiJkaXIiLCJlbmMiOiJBMjU2Q0JDLUhTNTEyIiwia2lkIjoiT1ZjS21aN2ZubEVmcW9UZXA0b29CVXVQNDRTMzZNQjVHbVBPMjVpczdhajJadkVTbHdGLVZQUnFkU2M0N2NCN0c5TXVjdjgzR19CZDhrZWZaQW5zRkEifQ..Es8TNAurBLO-7dr36BXzfQ.n1qIMkQMMuSL5CZ4odQ0hQ3N0LsHN2lxDs_x3tbc8lhWjCBvLSJLUK6OURiLbepAakXCvfOa8_j6i6wmsGolAHgUF96Fq3D-4qAlqWjyAHYpsdOhtdA9XlB7D_1mZNmrKdDZUEd1SR72mqjrcuYLRNGJVLF3-itdn0Bk45JLK-xAeAQRwSx7f5LFEURQJFA3fGPOSTbb-bYAtmJCXt3v1Je9XRXJYj4Nu5vi7f0xwqUf0zThwYPtJ0Cb6l3T5RYR_vD8GQKhU4tdAuPv54qL4NNBLrJHjw-wC-svLC9pqGbfgWRKXVQGShHUy3iPcHgc.Q5qMwh1hiak7aTWHKyccyybBlfBDC4Ovp1TjaSbvc-Q",
+      "value": "eyJhbGciOiJkaXIiLCJlbmMiOiJBMjU2Q0JDLUhTNTEyIiwia2lkIjoiT1ZjS21aN2ZubEVmcW9UZXA0b29CVXVQNDRTMzZNQjVHbVBPMjVpczdhajJadkVTbHdGLVZQUnFkU2M0N2NCN0c5TXVjdjgzR19CZDhrZWZaQW5zRkEifQ..5c5zhoA-_8vaDtt6ZndIHw.seBwhnMsyCJYoIGr5bus4H_7VzLPdegF4SasooFrbagvyvRAG8C6ssCgI6qDSzFb6npkvhifquB97kF-ZDdcPHte5SZWsp3hTkulxNB_rVGxdCjpfk43cO1Kqykse1PYGrxqJCR4d1Dp-L3at6NHdtotaODGOTf1_PxfwU0cwURFprMsDWoFMsWgYNVF0PYm9AcZT1Ma7fJTNsJZ7CvCOgdvci-OY26NbdX4RO_kIRwfoJZM-bk24flj1lDgbxMtPHc69vYtlYSEipRxzK4XT-C97xYvU0BrDZavBxOSNXrzKEMMbqaMd5ZYWIcq4YX5.2sq_bSElUAtSzXeqap2wQBJ4ybgZwNlys7gm2EYF_y8",
       "domain": "localhost",
       "path": "/",
-      "expires": 1790779860,
+      "expires": 1790787619,
       "httpOnly": true,
       "secure": false,
       "sameSite": "Lax"

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test"
-import { PROJECT, SHOTS, bar, createItem, deleteItem, getPlan, gotoPlan, nameBtn, report, row, stamp, userPage, type Item } from "./plan-support"
+import { PROJECT, SHOTS, addDays, bar, createItem, deleteItem, getPlan, gotoPlan, nameBtn, report, row, stamp, userPage, type Item } from "./plan-support"
 
 /** Item operations: drafts, create, inline rename, editor fields, delete + undo, trash. */
 
@@ -15,8 +15,9 @@ test("add-item draft: cancel creates nothing (verified after reload)", async ({ 
   // Draft dates: today .. today+6
   const dates = dialog(page).locator('input[type="date"]')
   console.log("draft dates:", await dates.nth(0).inputValue(), await dates.nth(1).inputValue())
-  expect(await dates.nth(0).inputValue()).toBe("2026-09-30")
-  expect(await dates.nth(1).inputValue()).toBe("2026-10-06")
+  const { today } = await getPlan(page) // server "today" (Asia/Tokyo)
+  expect(await dates.nth(0).inputValue()).toBe(today)
+  expect(await dates.nth(1).inputValue()).toBe(addDays(today, 6))
   await expect(dialog(page).getByText("保存後に PBI をリンクできます")).toBeVisible()
   await page.screenshot({ path: `${SHOTS}/20-draft-item.png` })
   await dialog(page).getByRole("button", { name: "キャンセル" }).click()
@@ -55,7 +56,8 @@ test("milestone draft defaults to today; create milestone + item through the UI"
   await expect(dialog(page).getByRole("heading", { name: "マイルストーンを追加" })).toBeVisible()
   const date = dialog(page).locator('input[type="date"]')
   await expect(date).toHaveCount(1)
-  expect(await date.inputValue()).toBe("2026-09-30")
+  const { today } = await getPlan(page) // server "today" (Asia/Tokyo)
+  expect(await date.inputValue()).toBe(today)
   await expect(dialog(page).getByRole("checkbox", { name: "マイルストーン" })).toBeChecked()
   await dialog(page).getByLabel(/項目名/).fill(`E2E-O${s} MS today`)
   await page.screenshot({ path: `${SHOTS}/21-draft-milestone.png` })
@@ -66,7 +68,7 @@ test("milestone draft defaults to today; create milestone + item through the UI"
   // Item with description + owner via UI.
   await page.getByRole("button", { name: "項目を追加" }).click()
   await dialog(page).getByLabel(/項目名/).fill(`E2E-O${s} UI作成`)
-  await dialog(page).getByLabel("説明").fill("説明テキスト E2E")
+  await dialog(page).getByRole("textbox", { name: "説明", exact: true }).fill("説明テキスト E2E")
   const owner = dialog(page).getByLabel("担当者")
   const opts = await owner.locator("option").allInnerTexts()
   console.log("owner options:", JSON.stringify(opts))
@@ -87,10 +89,10 @@ test("milestone draft defaults to today; create milestone + item through the UI"
   const it = plan.items.find((i) => i.name === `E2E-O${s} UI作成`)!
   console.log("created:", JSON.stringify({ ms: msItem, it }))
   expect(msItem.isMilestone).toBe(true)
-  expect(msItem.plannedEnd).toBe("2026-09-30")
+  expect(msItem.plannedEnd).toBe(today)
   expect(it.description).toBe("説明テキスト E2E")
   expect(it.owner?.name).toBeTruthy()
-  expect(it.plannedStart).toBe("2026-09-30")
+  expect(it.plannedStart).toBe(today)
   expect(it.plannedEnd).toBe("2026-10-09")
   // New row selected + visible?
   await expect(row(page, it.id)).toHaveAttribute("data-selected", "true")
@@ -98,12 +100,12 @@ test("milestone draft defaults to today; create milestone + item through the UI"
 
   // Reopen editor: description persisted in the form.
   await bar(page, it.id).dblclick()
-  await expect(dialog(page).getByLabel("説明")).toHaveValue("説明テキスト E2E")
+  await expect(dialog(page).getByRole("textbox", { name: "説明", exact: true })).toHaveValue("説明テキスト E2E")
   await expect(dialog(page).getByLabel("メモ")).toHaveValue("メモ E2E")
   await expect(dialog(page).getByText("基準線:")).toBeVisible()
   await expect(dialog(page).getByText("未設定")).toBeVisible()
   // Edit description and save.
-  await dialog(page).getByLabel("説明").fill("説明を更新")
+  await dialog(page).getByRole("textbox", { name: "説明", exact: true }).fill("説明を更新")
   await dialog(page).getByRole("button", { name: "保存" }).click()
   await expect(page.getByText("保存しました").first()).toBeVisible()
   expect((await getPlan(page)).items.find((i) => i.id === it.id)!.description).toBe("説明を更新")
