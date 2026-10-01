@@ -44,7 +44,7 @@
                              ▼        (OEE, ZEVA,  │ (課題→PBI)        │
                   ┌──────────────── PostgreSQL 16 + TimescaleDB（PFS）──────────────┐
                   │ pfsdb / schema pfs: マスタ, Tier-2, te_issue*, me_user …       │
-                  │ 段階T: DB bankmasalah（public）+ schema kanflow                 │
+                  │ 段階T: Kanflow 専用 DB（schema kanflow）※BankMasalah とは別 DB  │
                   │ 段階1: pfsdb / schema pfs に te_kf_* / me_kf_*                  │
                   └────────────────────────────────────────────────────────────────┘
                        Ollama（ローカル LLM, 共有）   MinIO（添付, BankMasalah と共用可）
