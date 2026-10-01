@@ -7,7 +7,13 @@ import { TopPage } from "../top-page"
 import { buildPageMetadata } from "@/app/page-metadata"
 import { isMyTask, myTaskAssigneeWhere } from "@/lib/my-tasks"
 import { loadPoHomeSummary } from "@/services/projects/po-home-summary"
-import { countProjectList, findProjectList, loadProjectListScope, toProjectListItem } from "@/services/projects/project-list"
+import {
+  countProjectList,
+  findProjectList,
+  loadProjectListMeta,
+  loadProjectListScope,
+  toProjectListItem,
+} from "@/services/projects/project-list"
 
 export function generateMetadata() {
   return buildPageMetadata(({ t }) => t.projectListTitle)
@@ -86,14 +92,16 @@ export default async function HomePage() {
 
   // Both-language text (one query per entity type) for everything the top
   // page renders: project name/description, task names, PBI stories, sprints.
-  const [projectI18n, taskI18n, pbI18n, sprintI18n] = await Promise.all([
+  const [projectI18n, taskI18n, pbI18n, sprintI18n, projectMeta] = await Promise.all([
     getI18nFor("project", activeProjects.map((p) => p.id)),
     getI18nFor("sprint_task", myTasks.map((t) => t.id)),
     getI18nFor("backlog_item", myTasks.map((t) => t.pbItem.id)),
     getI18nFor("sprint", myTasks.map((t) => t.sprint.id)),
+    // Card dates (one grouped ActivityLog query) + per-project archive permission.
+    loadProjectListMeta(activeProjects, scope, "active"),
   ])
 
-  const flatActive = activeProjects.map((p) => toProjectListItem(p, projectI18n.get(p.id)))
+  const flatActive = activeProjects.map((p) => toProjectListItem(p, projectI18n.get(p.id), projectMeta.get(p.id)))
 
   return (
     <div className="min-h-screen bg-surface-muted">

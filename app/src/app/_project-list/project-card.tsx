@@ -14,6 +14,7 @@ import {
   ProjectTypeMark,
   SectionBadges,
 } from "./project-parts"
+import { DormantBadge, ProjectDates } from "./project-dates"
 import { getProjectTypeLabels, type ProjectType } from "@/lib/project-type-labels"
 import { projectRoleLabel, projectRoleShortLabel } from "@/lib/project-roles"
 import { cardTint, clampPct, roleStyle, rowTint, type Category, type Project } from "./types"
@@ -26,6 +27,8 @@ export interface ProjectItemProps {
   isFavorite: boolean
   menuOpen: boolean
   editing: boolean
+  /** One "now" per list render (relative dates, dormancy). Defaults to the render time. */
+  now?: Date
   /*
    * Handlers receive the project (id) so the list can pass the SAME stable
    * functions to every item — required for the React.memo on cards / rows.
@@ -198,6 +201,10 @@ export const ProjectCard = memo(function ProjectCard(props: ProjectItemProps) {
           </li>
         ))}
       </ul>
+      <div data-testid="project-card-footer" className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+        <ProjectDates project={project} now={props.now ?? new Date()} />
+        <DormantBadge project={project} now={props.now ?? new Date()} />
+      </div>
     </article>
   )
 })
@@ -229,6 +236,8 @@ export const ProjectRow = memo(function ProjectRow(props: ProjectItemProps) {
         </>
       )}
       <CategoryBadges categories={badges} max={3} compact />
+      <DormantBadge project={project} now={props.now ?? new Date()} />
+      <ProjectDates project={project} now={props.now ?? new Date()} compact className="hidden shrink-0 lg:block" />
       <div className="hidden shrink-0 items-center gap-2 sm:flex">
         <div className="h-1 w-20 overflow-hidden rounded-full bg-surface-sunken" aria-hidden="true">
           <div className="h-full rounded-full bg-success" style={{ width: `${pct}%` }} />

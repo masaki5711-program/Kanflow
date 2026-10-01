@@ -27,13 +27,22 @@ export interface Project {
   isFavorite?: boolean
   /** Latest autonomous AI report (for the list badge). */
   aiReports?: { id: string; title: string }[]
+  /** Date (server page) or ISO string (JSON API). */
+  createdAt?: string | Date
+  updatedAt?: string | Date
+  /** max(newest ActivityLog row, updatedAt) — drives "last updated" and dormancy. */
+  lastActivityAt?: string | Date
+  /** When it was moved to the archive (archived list; null / absent when unknown). */
+  archivedAt?: string | Date | null
+  /** Viewer may archive / restore it (project.update: admin, PO, SM). */
+  canUpdate?: boolean
 }
 
 export type Category = CategoryDto
 
 export type ViewMode = "flat" | "category"
 export type Density = "comfortable" | "compact"
-export type SortBy = "updated" | "name" | "progress" | "name_asc" | "favorite"
+export type SortBy = "updated" | "name" | "progress" | "name_asc" | "favorite" | "activity_desc" | "activity_asc"
 export type TypeFilter = "all" | ProjectType
 
 export const CARD_COLORS = ["gray", "red", "orange", "yellow", "green", "blue", "indigo", "purple", "pink"] as const

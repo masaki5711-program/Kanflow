@@ -193,7 +193,7 @@ test("hydration: login and 404 pages load without React errors (x2)", async ({ b
     await ctx.close()
   }
   log("hydration-extra", { res })
-  for (const r of res as Watch[]) {
+  for (const r of res as unknown as Watch[]) {
     expect(r.pageErrors).toEqual([])
     expect(r.console.filter((s) => !benign(s))).toEqual([])
   }

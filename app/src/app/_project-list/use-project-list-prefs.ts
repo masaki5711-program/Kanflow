@@ -51,7 +51,7 @@ function useEnumPref<T extends string>(key: string, allowed: readonly T[], fallb
 
 const VIEW_MODES: readonly ViewMode[] = ["flat", "category"]
 const DENSITIES: readonly Density[] = ["comfortable", "compact"]
-const SORTS: readonly SortBy[] = ["updated", "name", "name_asc", "progress", "favorite"]
+const SORTS: readonly SortBy[] = ["updated", "activity_desc", "activity_asc", "name", "name_asc", "progress", "favorite"]
 
 /**
  * Parse the persisted collapsed-section map. localStorage is untrusted (older

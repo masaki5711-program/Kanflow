@@ -128,6 +128,13 @@ describe("projectUpdateDenial", () => {
     expect(projectUpdateDenial(actorOf("po"), { progressPct: 10, sectionIds: [] })).toBeNull()
     expect(projectUpdateDenial(actorOf(null, "admin"), { progressPct: 1 })).toBeNull()
   })
+
+  it("archive / restore (status) needs project.update: PO, SM or admin — not Dev", () => {
+    expect(projectUpdateDenial(actorOf("po"), { status: "archived" })).toBeNull()
+    expect(projectUpdateDenial(actorOf("sm"), { status: "archived" })).toBeNull()
+    expect(projectUpdateDenial(actorOf(null, "admin"), { status: "active" })).toBeNull()
+    expect(projectUpdateDenial(actorOf("dev"), { status: "archived" })?.status).toBe(403)
+  })
 })
 
 describe("A3-02: partial updates keep translations", () => {

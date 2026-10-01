@@ -65,6 +65,25 @@ export interface ProjectsTranslations {
   projectColorIndigo: string
   projectColorPurple: string
   projectColorPink: string
+  projectDateCreated: string
+  projectDateUpdated: string
+  projectDateArchived: string
+  projectDateCreatedFull: string
+  projectDateUpdatedFull: string
+  projectDateArchivedFull: string
+  projectDormantBadge: string
+  projectDormantHint: string
+  projectSortActivityNewest: string
+  projectSortActivityOldest: string
+  projectFilterDormantOnly: string
+  projectArchiveAction: string
+  projectUnarchiveAction: string
+  projectArchiveConfirm: string
+  projectArchived: string
+  projectUnarchived: string
+  projectArchiveUndo: string
+  projectArchiveFailed: string
+  projectUnarchiveFailed: string
   topGreetingWithName: string
   topLanguageLabel: string
   topMyTasksHeading: string
@@ -130,6 +149,25 @@ export const ja: ProjectsTranslations = {
   projectColorIndigo: "インディゴ",
   projectColorPurple: "パープル",
   projectColorPink: "ピンク",
+  projectDateCreated: "作成 {date}",
+  projectDateUpdated: "更新 {date}",
+  projectDateArchived: "アーカイブ {date}",
+  projectDateCreatedFull: "作成日時: {date}",
+  projectDateUpdatedFull: "最終更新: {date}",
+  projectDateArchivedFull: "アーカイブ日時: {date}",
+  projectDormantBadge: "休眠 {days}日",
+  projectDormantHint: "{days}日間更新がありません — アーカイブを検討してください",
+  projectSortActivityNewest: "最終更新が新しい順",
+  projectSortActivityOldest: "最終更新が古い順",
+  projectFilterDormantOnly: "休眠中のみ",
+  projectArchiveAction: "アーカイブへ移動",
+  projectUnarchiveAction: "アーカイブから戻す",
+  projectArchiveConfirm: "「{name}」をアーカイブへ移動しますか？ メンバーの一覧から非表示になり、アーカイブ欄に移ります。いつでも戻せます。",
+  projectArchived: "アーカイブへ移動しました",
+  projectUnarchived: "アーカイブから戻しました",
+  projectArchiveUndo: "元に戻す",
+  projectArchiveFailed: "アーカイブへの移動に失敗しました",
+  projectUnarchiveFailed: "アーカイブから戻せませんでした",
   topGreetingWithName: "おかえりなさい、{name}さん",
   topLanguageLabel: "表示言語",
   topMyTasksHeading: "スプリントの担当タスク",
@@ -195,6 +233,25 @@ export const en: ProjectsTranslations = {
   projectColorIndigo: "Indigo",
   projectColorPurple: "Purple",
   projectColorPink: "Pink",
+  projectDateCreated: "Created {date}",
+  projectDateUpdated: "Updated {date}",
+  projectDateArchived: "Archived {date}",
+  projectDateCreatedFull: "Created: {date}",
+  projectDateUpdatedFull: "Last updated: {date}",
+  projectDateArchivedFull: "Archived: {date}",
+  projectDormantBadge: "Dormant {days}d",
+  projectDormantHint: "No updates for {days} days — consider archiving it",
+  projectSortActivityNewest: "Last updated (newest)",
+  projectSortActivityOldest: "Last updated (oldest)",
+  projectFilterDormantOnly: "Dormant only",
+  projectArchiveAction: "Move to archive",
+  projectUnarchiveAction: "Restore from archive",
+  projectArchiveConfirm: "Move \"{name}\" to the archive? It is hidden from the members' project list and moves to the archived section. You can restore it at any time.",
+  projectArchived: "Moved to the archive",
+  projectUnarchived: "Restored from the archive",
+  projectArchiveUndo: "Undo",
+  projectArchiveFailed: "Could not move the project to the archive",
+  projectUnarchiveFailed: "Could not restore the project from the archive",
   topGreetingWithName: "Welcome back, {name}",
   topLanguageLabel: "Display language",
   topMyTasksHeading: "My sprint tasks",
@@ -260,6 +317,25 @@ export const id: ProjectsTranslations = {
   projectColorIndigo: "Nila",
   projectColorPurple: "Ungu",
   projectColorPink: "Merah muda",
+  projectDateCreated: "Dibuat {date}",
+  projectDateUpdated: "Diperbarui {date}",
+  projectDateArchived: "Diarsipkan {date}",
+  projectDateCreatedFull: "Dibuat: {date}",
+  projectDateUpdatedFull: "Terakhir diperbarui: {date}",
+  projectDateArchivedFull: "Diarsipkan: {date}",
+  projectDormantBadge: "Tidak aktif {days} hari",
+  projectDormantHint: "Tidak ada pembaruan selama {days} hari — pertimbangkan untuk mengarsipkannya",
+  projectSortActivityNewest: "Terakhir diperbarui (terbaru)",
+  projectSortActivityOldest: "Terakhir diperbarui (terlama)",
+  projectFilterDormantOnly: "Hanya yang tidak aktif",
+  projectArchiveAction: "Pindahkan ke arsip",
+  projectUnarchiveAction: "Kembalikan dari arsip",
+  projectArchiveConfirm: "Pindahkan \"{name}\" ke arsip? Proyek disembunyikan dari daftar proyek anggota dan dipindahkan ke bagian arsip. Anda dapat mengembalikannya kapan saja.",
+  projectArchived: "Dipindahkan ke arsip",
+  projectUnarchived: "Dikembalikan dari arsip",
+  projectArchiveUndo: "Urungkan",
+  projectArchiveFailed: "Gagal memindahkan proyek ke arsip",
+  projectUnarchiveFailed: "Gagal mengembalikan proyek dari arsip",
   topGreetingWithName: "Selamat datang kembali, {name}",
   topLanguageLabel: "Bahasa tampilan",
   topMyTasksHeading: "Tugas Sprint saya",

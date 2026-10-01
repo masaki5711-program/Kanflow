@@ -12,6 +12,7 @@ const m = vi.hoisted(() => ({
     project: { findMany: vi.fn(), count: vi.fn() },
     userProjectCategory: { findMany: vi.fn() },
     sprintBacklogItem: { findMany: vi.fn() },
+    activityLog: { groupBy: vi.fn(), findMany: vi.fn() },
   },
   getI18nFor: vi.fn(),
   loadPoHomeSummary: vi.fn(),
@@ -35,7 +36,9 @@ const { default: HomePage } = await import("../(home)/page")
 const rawProject = (id: string, fav: boolean) => ({
   id,
   name: id,
-  members: [],
+  members: [] as { userId: string; role: string }[],
+  createdAt: new Date("2026-04-12T00:00:00Z"),
+  updatedAt: new Date("2026-09-01T00:00:00Z"),
   sections: [{ section: { id: "s1", name: "Sec" } }],
   favoritedBy: fav ? [{ userId: "u1" }] : [],
   aiReports: [],
@@ -69,6 +72,7 @@ describe("HomePage (server)", () => {
     m.topPageProps = null
     m.prisma.userSection.findMany.mockResolvedValue([{ sectionId: "sec1" }])
     m.prisma.project.findMany.mockResolvedValue([rawProject("p1", true)])
+    m.prisma.activityLog.groupBy.mockResolvedValue([{ projectId: "p1", _max: { createdAt: new Date("2026-09-20T00:00:00Z") } }])
     m.prisma.project.count.mockResolvedValue(2)
     m.prisma.userProjectCategory.findMany.mockResolvedValue([{ id: "c1" }])
     m.prisma.sprintBacklogItem.findMany.mockResolvedValue([rawTask])
@@ -97,6 +101,10 @@ describe("HomePage (server)", () => {
     const props = m.topPageProps as Record<string, never>
     const active = props.activeProjects as unknown as Array<Record<string, unknown>>
     expect(active[0]).toMatchObject({ id: "p1", isFavorite: true, sections: [{ id: "s1", name: "Sec" }], i18n: { name: { ja: "x" } } })
+    // Card dates: ONE grouped ActivityLog query for the whole list; Dev/non-member → no archive permission.
+    expect(m.prisma.activityLog.groupBy).toHaveBeenCalledTimes(1)
+    expect(m.prisma.activityLog.findMany).not.toHaveBeenCalled()
+    expect(active[0]).toMatchObject({ lastActivityAt: new Date("2026-09-20T00:00:00Z"), archivedAt: null, canUpdate: false })
     // Archived projects are only counted (loaded lazily by the list).
     expect(props.archivedCount).toBe(2)
     expect(m.prisma.project.findMany).toHaveBeenCalledTimes(1)

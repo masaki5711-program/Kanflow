@@ -6,6 +6,7 @@ import { Button } from "@/components/ui"
 import { useApiQuery, useStableHandlers } from "@/hooks"
 import { useLanguage } from "@/lib/language-context"
 import { ARCHIVED_PROJECTS_URL, ArchivedSection, type ArchivedProjectsResponse } from "./_project-list/archived-section"
+import { dormantDays } from "./_project-list/dormancy"
 import { filterAndSortProjects } from "./_project-list/filter-projects"
 import { ProjectCard, ProjectRow } from "./_project-list/project-card"
 import { ProjectCreateModal } from "./_project-list/project-create-modal"
@@ -14,6 +15,7 @@ import { ProjectListToolbar } from "./_project-list/project-list-toolbar"
 import { MENU_WIDTH, ProjectOptionsMenu, type MenuAnchor } from "./_project-list/project-options-menu"
 import type { Category, Project, TypeFilter } from "./_project-list/types"
 import { useProjectActions } from "./_project-list/use-project-actions"
+import { useProjectArchive } from "./_project-list/use-project-archive"
 import { useProjectListPrefs } from "./_project-list/use-project-list-prefs"
 
 export { CARD_COLORS } from "./_project-list/types"
@@ -36,21 +38,35 @@ export function ProjectList({ activeProjects, archivedCount, categories }: Props
   const [editingId, setEditingId] = useState<string | null>(null)
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all")
   const [searchQuery, setSearchQuery] = useState("")
+  const [dormantOnly, setDormantOnly] = useState(false)
+  // One "now" per page view: relative dates and dormancy agree across cards (and keep memoized cards stable).
+  const [now] = useState(() => new Date())
   const [showArchived, setShowArchived] = useState(false)
   // Latches on the first expand so collapsing again keeps the loaded list.
   const [archivedRequested, setArchivedRequested] = useState(false)
   const archived = useApiQuery<ArchivedProjectsResponse>(archivedRequested ? ARCHIVED_PROJECTS_URL : null)
-  const archivedProjects = archived.data?.items
+  const archiving = useProjectArchive({
+    // Refresh the archived section only when it has been loaded (otherwise it loads fresh on first expand).
+    onChanged: () => {
+      if (archivedRequested) archived.refetch()
+    },
+  })
+  // Optimistic status: an archived card leaves the active list at once (and vice versa).
+  const visibleActive = activeProjects.filter((p) => archiving.statusOf(p, "active") === "active")
+  const archivedProjects = archived.data?.items.filter((p) => archiving.statusOf(p, "archived") === "archived")
   const [menu, setMenu] = useState<MenuAnchor | null>(null)
   const menuTriggerRef = useRef<HTMLElement | null>(null)
 
   const hasCategories = actions.categories.length > 0
-  const filtered = filterAndSortProjects(activeProjects, {
+  const dormantCount = visibleActive.filter((p) => dormantDays(p, now) !== null).length
+  const filtered = filterAndSortProjects(visibleActive, {
     query: searchQuery,
     typeFilter,
     sortBy: prefs.sortBy,
     language,
     isFav: actions.isFav,
+    dormantOnly: dormantOnly && dormantCount > 0,
+    now,
   })
 
   function openContextMenu(e: MouseEvent<HTMLElement>, projectId: string) {
@@ -117,14 +133,22 @@ export function ProjectList({ activeProjects, archivedCount, categories }: Props
         isFavorite={actions.isFav(project)}
         menuOpen={menu?.projectId === project.id}
         editing={editingId === project.id}
+        now={now}
         {...itemHandlers}
       />
     )
   }
 
-  const menuProject = menu
-    ? (activeProjects.find((p) => p.id === menu.projectId) ?? archivedProjects?.find((p) => p.id === menu.projectId))
-    : undefined
+  const menuActive = menu ? activeProjects.find((p) => p.id === menu.projectId) : undefined
+  const menuProject = menuActive ?? (menu ? archivedProjects?.find((p) => p.id === menu.projectId) : undefined)
+
+  function archiveActionFor(project: Project) {
+    const isArchived = archiving.statusOf(project, project === menuActive ? "active" : "archived") === "archived"
+    return {
+      archived: isArchived,
+      onSelect: () => void (isArchived ? archiving.restore(project) : archiving.archive(project)),
+    }
+  }
 
   const createButton = (
     <Button leftIcon={<Plus className="h-4 w-4" />} onClick={() => setShowCreate(true)}>
@@ -148,6 +172,9 @@ export function ProjectList({ activeProjects, archivedCount, categories }: Props
           onDensityChange={prefs.setDensity}
           viewMode={hasCategories ? prefs.viewMode : null}
           onViewModeChange={prefs.setViewMode}
+          dormantOnly={dormantOnly && dormantCount > 0}
+          onDormantOnlyChange={setDormantOnly}
+          dormantCount={dormantCount}
         />
       )}
 
@@ -165,7 +192,7 @@ export function ProjectList({ activeProjects, archivedCount, categories }: Props
       ) : (
         <FlatView
           projects={filtered}
-          totalCount={activeProjects.length}
+          totalCount={visibleActive.length}
           density={prefs.density}
           renderItem={(p) => renderItem(p)}
           createAction={createButton}
@@ -193,6 +220,7 @@ export function ProjectList({ activeProjects, archivedCount, categories }: Props
           currentColor={menuProject ? actions.cardColorOf(menuProject) : null}
           onToggleCategory={(categoryId) => actions.toggleCategory(categoryId, menu.projectId)}
           onSetColor={(c) => actions.setCardColor(menu.projectId, c)}
+          archiveAction={menuProject?.canUpdate ? archiveActionFor(menuProject) : null}
           onClose={closeMenu}
         />
       )}

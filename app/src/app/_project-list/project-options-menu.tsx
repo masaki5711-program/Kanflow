@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, type KeyboardEvent } from "react"
-import { Check } from "lucide-react"
+import { Archive, ArchiveRestore, Check } from "lucide-react"
 import { cn } from "@/components/ui"
 import { useLanguage } from "@/lib/language-context"
 import { CARD_COLORS, colorDot, colorLabel, type Category } from "./types"
@@ -14,12 +14,20 @@ export interface MenuAnchor {
   projectId: string
 }
 
+/** Archive entry of the menu; omitted (null) when the viewer may not "project.update" the project. */
+export interface ArchiveMenuAction {
+  /** true → "restore from archive", false → "move to archive". */
+  archived: boolean
+  onSelect: () => void
+}
+
 interface Props {
   anchor: MenuAnchor
   categories: Category[]
   currentColor: string | null
   onToggleCategory: (categoryId: string) => void
   onSetColor: (color: string | null) => void
+  archiveAction?: ArchiveMenuAction | null
   /** `restoreFocus` is true for keyboard dismissals (Escape) so focus returns to the trigger. */
   onClose: (restoreFocus: boolean) => void
 }
@@ -39,7 +47,7 @@ function focusItem(menu: HTMLElement, index: number) {
  * items, Escape closes and returns focus, Tab closes. Clicks inside keep it
  * open so several toggles can be made in a row.
  */
-export function ProjectOptionsMenu({ anchor, categories, currentColor, onToggleCategory, onSetColor, onClose }: Props) {
+export function ProjectOptionsMenu({ anchor, categories, currentColor, onToggleCategory, onSetColor, archiveAction, onClose }: Props) {
   const { t } = useLanguage()
   const menuRef = useRef<HTMLDivElement>(null)
   const onCloseRef = useRef(onClose)
@@ -96,7 +104,7 @@ export function ProjectOptionsMenu({ anchor, categories, currentColor, onToggleC
     }
   }
 
-  const top = typeof window === "undefined" ? anchor.y : Math.min(anchor.y, Math.max(8, window.innerHeight - 360))
+  const top = typeof window === "undefined" ? anchor.y : Math.min(anchor.y, Math.max(8, window.innerHeight - 410))
 
   return (
     <div
@@ -175,6 +183,29 @@ export function ProjectOptionsMenu({ anchor, categories, currentColor, onToggleC
           {currentColor === null && <Check aria-hidden="true" className="h-4 w-4 text-primary" />}
         </button>
       </div>
+
+      {archiveAction && (
+        <>
+          <div role="separator" className="my-1.5 border-t border-border" />
+          <button
+            type="button"
+            role="menuitem"
+            tabIndex={-1}
+            onClick={() => {
+              onClose(false)
+              archiveAction.onSelect()
+            }}
+            className="flex min-h-10 w-full items-center gap-2.5 px-3 py-2 text-body text-fg hover:bg-surface-muted focus-visible:bg-surface-muted"
+          >
+            {archiveAction.archived ? (
+              <ArchiveRestore aria-hidden="true" className="h-4 w-4 text-fg-muted" />
+            ) : (
+              <Archive aria-hidden="true" className="h-4 w-4 text-fg-muted" />
+            )}
+            <span className="flex-1 text-left">{archiveAction.archived ? t.projectUnarchiveAction : t.projectArchiveAction}</span>
+          </button>
+        </>
+      )}
     </div>
   )
 }

@@ -1,7 +1,7 @@
 "use client"
 
 import type { ReactNode } from "react"
-import { LayoutList, Rows3, Search } from "lucide-react"
+import { LayoutList, Moon, Rows3, Search } from "lucide-react"
 import { cn, Input, Select } from "@/components/ui"
 import { useLanguage } from "@/lib/language-context"
 import { ProjectTypeMark } from "./project-parts"
@@ -21,6 +21,10 @@ interface Props {
   /** Shown only when the user has categories. */
   viewMode: ViewMode | null
   onViewModeChange: (v: ViewMode) => void
+  /** "Dormant only" chip; hidden when no project is dormant and the filter is off. */
+  dormantOnly: boolean
+  onDormantOnlyChange: (on: boolean) => void
+  dormantCount: number
 }
 
 function Segmented({ label, children }: { label: string; children: ReactNode }) {
@@ -97,11 +101,31 @@ export function ProjectListToolbar(props: Props) {
         className="w-auto"
       >
         <option value="updated">{t.projectSortUpdated}</option>
+        <option value="activity_desc">{t.projectSortActivityNewest}</option>
+        <option value="activity_asc">{t.projectSortActivityOldest}</option>
         <option value="favorite">{t.projectSortFavorite}</option>
         <option value="name">{t.projectSortNameAsc}</option>
         <option value="name_asc">{t.projectSortNameDesc}</option>
         <option value="progress">{t.projectSortProgress}</option>
       </Select>
+
+      {(props.dormantCount > 0 || props.dormantOnly) && (
+        <button
+          type="button"
+          aria-pressed={props.dormantOnly}
+          onClick={() => props.onDormantOnlyChange(!props.dormantOnly)}
+          className={cn(
+            "inline-flex min-h-8 items-center gap-1.5 rounded-full border px-3 py-1 text-caption font-medium transition-colors",
+            props.dormantOnly
+              ? "border-warning/40 bg-warning-soft text-warning-strong"
+              : "border-border bg-surface text-fg-muted hover:border-border-strong hover:text-fg",
+          )}
+        >
+          <Moon aria-hidden="true" className="h-3.5 w-3.5" />
+          {t.projectFilterDormantOnly}
+          <span className="tabular-nums">({props.dormantCount})</span>
+        </button>
+      )}
 
       <Segmented label={t.projectDensityLabel}>
         <SegmentButton
