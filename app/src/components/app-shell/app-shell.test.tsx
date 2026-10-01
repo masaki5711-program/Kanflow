@@ -99,14 +99,14 @@ function Shell({ children }: { children: ReactNode }) {
 }
 
 describe("sidebar-nav", () => {
-  it("builds four labelled sections (plan / execute / review / manage) keeping every route", () => {
+  it("builds four labelled sections (execute / plan / review / manage) keeping every route", () => {
     const groups = buildSidebarGroups("p9", t, { navIcebox: "I", navBacklog: "B", navSprints: "S", navReleases: "R" } as never, { showTrash: true })
-    expect(groups.map((g) => g.id)).toEqual(["plan", "execute", "review", "manage"])
-    expect(groups.map((g) => g.label)).toEqual([t.navGroupPlan, t.navGroupExecute, t.navGroupReview, t.navGroupManage])
+    expect(groups.map((g) => g.id)).toEqual(["execute", "plan", "review", "manage"])
+    expect(groups.map((g) => g.label)).toEqual([t.navGroupExecute, t.navGroupPlan, t.navGroupReview, t.navGroupManage])
     const paths = groups.map((g) => g.items.map((i) => i.href.replace("/projects/p9", "") || "/"))
     expect(paths).toEqual([
-      ["/", "/plan", "/gantt", "/calendar", "/releases"],
       ["/backlog", "/icebox", "/sprints", "/burndown"],
+      ["/", "/plan", "/gantt", "/calendar", "/releases"],
       ["/report", "/chat"],
       ["/settings", "/trash", "/guide"],
     ])
@@ -114,11 +114,11 @@ describe("sidebar-nav", () => {
 
   it("matches active items", () => {
     const groups = buildSidebarGroups("p9", t, { navIcebox: "I", navBacklog: "B", navSprints: "S", navReleases: "R" } as never)
-    const dash = groups[0].items[0]
+    const dash = groups.flatMap((g) => g.items).find((i) => i.href === "/projects/p9")!
     expect(dash.href).toBe("/projects/p9")
     expect(isNavItemActive("/projects/p9", dash)).toBe(true)
     expect(isNavItemActive("/projects/p9/backlog", dash)).toBe(false)
-    const backlog = groups[1].items[0]
+    const backlog = groups.flatMap((g) => g.items).find((i) => i.href === "/projects/p9/backlog")!
     expect(isNavItemActive("/projects/p9/backlog/123", backlog)).toBe(true)
     expect(isNavItemActive("/projects/p9/backlogx", backlog)).toBe(false)
   })

@@ -120,7 +120,7 @@ describe("Sidebar section headings", () => {
       </Shell>,
     )
     const sections = [...container.querySelectorAll<HTMLElement>("aside [data-sidebar-group]")]
-    expect(sections.map((s) => s.dataset.sidebarGroup)).toEqual(["plan", "execute", "review", "manage"])
+    expect(sections.map((s) => s.dataset.sidebarGroup)).toEqual(["execute", "plan", "review", "manage"])
     expect(sections[0].className).not.toContain("border-t")
     for (const s of sections.slice(1)) expect(s.className).toContain("border-t")
   })
@@ -166,7 +166,7 @@ describe("Sidebar expand / collapse all", () => {
     )
     const navEl = projectNav()
     await userEvent.click(within(navEl).getByRole("button", { name: t.navCollapseAll }))
-    expect(stored()).toEqual(["plan", "execute", "review", "manage"])
+    expect(stored()).toEqual(["execute", "plan", "review", "manage"])
     for (const label of [t.navGroupPlan, t.navGroupExecute, t.navGroupReview, t.navGroupManage]) {
       expect(within(navEl).getByRole("button", { name: label })).toHaveAttribute("aria-expanded", "false")
     }

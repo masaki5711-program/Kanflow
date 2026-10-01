@@ -33,7 +33,7 @@ export interface SidebarNavGroup {
   items: SidebarNavItem[]
 }
 
-export const SIDEBAR_GROUP_IDS = ["plan", "execute", "review", "manage"] as const
+export const SIDEBAR_GROUP_IDS = ["execute", "plan", "review", "manage"] as const
 export type SidebarGroupId = (typeof SIDEBAR_GROUP_IDS)[number]
 
 export interface SidebarNavOptions {
@@ -47,7 +47,7 @@ export interface SidebarNavOptions {
 
 /**
  * Sidebar information architecture, four collapsible sections:
- * 計画 (overview and schedule) → 実行 (backlog, sprints) → 振り返り・AI → 管理.
+ * 実行 (backlog, sprints) → 計画 (overview and schedule) → 振り返り・AI → 管理.
  * The trash, team settings and AI chat entries are permission-gated.
  */
 export function buildSidebarGroups(
@@ -69,6 +69,16 @@ export function buildSidebarGroups(
     : []
   return [
     {
+      id: "execute",
+      label: t.navGroupExecute,
+      items: [
+        { href: `${base}/backlog`, label: pt.navBacklog, description: t.navDescBacklog, Icon: ListOrdered },
+        { href: `${base}/icebox`, label: pt.navIcebox, description: t.iceboxDescription, Icon: Lightbulb },
+        { href: `${base}/sprints`, label: pt.navSprints, description: t.navDescSprints, Icon: Zap },
+        { href: `${base}/burndown`, label: t.burndownPageTitle, description: t.navDescBurndown, Icon: TrendingDown },
+      ],
+    },
+    {
       id: "plan",
       label: t.navGroupPlan,
       items: [
@@ -77,16 +87,6 @@ export function buildSidebarGroups(
         { href: `${base}/gantt`, label: t.ganttTitle, description: t.navDescGantt, Icon: ChartGantt },
         { href: `${base}/calendar`, label: t.calendarTitle, description: t.navDescCalendar, Icon: CalendarDays },
         { href: `${base}/releases`, label: pt.navReleases, description: t.navDescReleases, Icon: Rocket },
-      ],
-    },
-    {
-      id: "execute",
-      label: t.navGroupExecute,
-      items: [
-        { href: `${base}/backlog`, label: pt.navBacklog, description: t.navDescBacklog, Icon: ListOrdered },
-        { href: `${base}/icebox`, label: pt.navIcebox, description: t.iceboxDescription, Icon: Lightbulb },
-        { href: `${base}/sprints`, label: pt.navSprints, description: t.navDescSprints, Icon: Zap },
-        { href: `${base}/burndown`, label: t.burndownPageTitle, description: t.navDescBurndown, Icon: TrendingDown },
       ],
     },
     {
