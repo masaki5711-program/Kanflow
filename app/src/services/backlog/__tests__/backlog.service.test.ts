@@ -6,8 +6,10 @@ vi.mock("@/services/_shared/db", async () => (await import("@/services/__tests__
 vi.mock("@/services/_shared/translations", async () => (await import("@/services/__tests__/support")).translationMock())
 vi.mock("@/lib/sprint-score", () => ({ recalcSprintActualScore: vi.fn(async () => 0) }))
 vi.mock("../backlog.repository")
+vi.mock("../backlog.dependencies.repository", () => ({ findDependencyRows: vi.fn(async () => []) }))
 
 const repo = await import("../backlog.repository")
+const depRepo = await import("../backlog.dependencies.repository")
 const tr = await import("@/services/_shared/translations")
 const { ACTOR, TX, prismaError, touchedTranslationFields } = await import("@/services/__tests__/support")
 const { withTransaction } = await import("@/services/_shared/db")
@@ -52,11 +54,35 @@ describe("backlog.service", () => {
     expect(repo.findBacklogItems).toHaveBeenCalledWith(expect.anything(), "p1", undefined, undefined)
   })
 
+  it("attaches blockedBy / blocking to list rows from the dependency repository", async () => {
+    vi.mocked(repo.findBacklogItems).mockResolvedValue([
+      { id: "a", status: "ready", workloadScore: 3, iceboxItem: null, productGoal: null },
+      { id: "b", status: "ready", workloadScore: 5, iceboxItem: null, productGoal: null },
+    ] as never)
+    vi.mocked(tr.getI18nFor).mockResolvedValue(new Map() as never)
+    vi.mocked(depRepo.findDependencyRows).mockResolvedValueOnce([
+      {
+        id: "d1",
+        predecessorId: "a",
+        successorId: "b",
+        predecessor: { id: "a", displayId: 1, initiative: "A", userStory: null, status: "ready" },
+        successor: { id: "b", displayId: 2, initiative: "B", userStory: null, status: "ready" },
+      },
+    ] as never)
+    const out = await svc.listBacklog("p1")
+    const a = out.readyItems.find((i) => i.id === "a")!
+    const b = out.readyItems.find((i) => i.id === "b")!
+    expect(a.blockedBy).toEqual([])
+    expect(a.blocking).toMatchObject([{ dependencyId: "d1", id: "b" }])
+    expect(b.blockedBy).toMatchObject([{ dependencyId: "d1", id: "a" }])
+    expect(b.blocking).toEqual([])
+  })
+
   it("getBacklogItem 404s and otherwise attaches i18n", async () => {
     vi.mocked(repo.findBacklogItem).mockResolvedValueOnce(null)
     await expect(svc.getBacklogItem("p1", "x")).rejects.toMatchObject({ status: 404 })
     vi.mocked(repo.findBacklogItem).mockResolvedValueOnce({ id: "a", iceboxItem: null, productGoal: null } as never)
-    await expect(svc.getBacklogItem("p1", "a")).resolves.toMatchObject({ id: "a", i18n: {}, iceboxItem: null })
+    await expect(svc.getBacklogItem("p1", "a")).resolves.toMatchObject({ id: "a", i18n: {}, iceboxItem: null, blockedBy: [], blocking: [] })
   })
 
   it("retries the whole create transaction when the displayId collides (P2002)", async () => {

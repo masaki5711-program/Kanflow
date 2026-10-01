@@ -136,6 +136,32 @@ export const FAQ_ENTRIES: FaqItem[] = [
     },
     category: "backlog",
   },
+  {
+    question: {
+      ja: "「これが終わらないと始められない」PBI の順番を設定するには？",
+      en: "How do I say one PBI cannot start until another is finished?",
+      id: "Bagaimana mengatur PBI yang baru bisa dimulai setelah PBI lain selesai?",
+    },
+    answer: {
+      ja: "PBI の詳細を開き、下部の「依存関係（作業の順番）」で「先に終わらせる PBI を追加」から選びます。バックログのカードに「#12 の完了待ち」が表示され、待っている PBI より上に並べると警告と「下へ移動」ボタンが出ます。スプリントへ追加する画面でも完了待ちの PBI が分かります。",
+      en: "Open the PBI and, under \"Dependencies (work order)\", use \"Add a PBI to finish first\". The backlog card then shows \"Waiting for #12\"; if it is ranked above the PBI it waits for, a warning with a \"Move below\" button appears. The add-to-sprint picker flags waiting PBIs too.",
+      id: "Buka PBI, lalu di \"Ketergantungan (urutan kerja)\" pilih \"Tambah PBI yang diselesaikan lebih dulu\". Kartu backlog akan menampilkan \"Menunggu #12\"; jika diurutkan di atas PBI yang ditunggunya, muncul peringatan dengan tombol \"Pindahkan ke bawah\". Pemilih PBI saat menambah ke sprint juga menandai PBI yang masih menunggu.",
+    },
+    category: "backlog",
+  },
+  {
+    question: {
+      ja: "全体計画で項目どうしの依存関係（矢印）を描くには？",
+      en: "How do I draw dependency arrows in the master plan?",
+      id: "Bagaimana menggambar panah ketergantungan di rencana induk?",
+    },
+    answer: {
+      ja: "バーにマウスを乗せると右端に ● が出ます。● を後に行う項目のバーまでドラッグして離すと矢印でつながります（循環や親子関係など設定できない相手は黄色で表示されます）。矢印をクリックすると削除できます。バーを選ぶと、その前後のつながりが青く強調されます。",
+      en: "Hover a bar to show the ● at its end. Drag the ● onto the bar of the item that follows and release to connect them (targets that cannot be linked, such as a cycle or parent/child, turn amber). Click an arrow to remove it. Selecting a bar highlights its chain in blue.",
+      id: "Arahkan kursor ke bar untuk menampilkan ● di ujungnya. Seret ● ke bar item berikutnya lalu lepaskan untuk menghubungkannya (target yang tidak dapat dihubungkan, seperti siklus atau induk/anak, berwarna kuning). Klik panah untuk menghapusnya. Memilih bar menyorot rantainya dengan warna biru.",
+    },
+    category: "other",
+  },
   // Sprint
   {
     question: {

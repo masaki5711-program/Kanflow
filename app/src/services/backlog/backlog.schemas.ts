@@ -50,6 +50,12 @@ export const updateBacklogItemSchema = z.object({
   version: versionField,
 })
 
+/** POST /backlog/dependencies: `predecessorId` must be completed before `successorId` can start. */
+export const createPbiDependencySchema = z.object({
+  predecessorId: z.string().min(1).max(64),
+  successorId: z.string().min(1).max(64),
+})
+
 export const reorderBacklogSchema = z.object({
   orderedIds: z.array(z.string()).min(1),
 })

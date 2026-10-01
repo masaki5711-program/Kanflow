@@ -64,6 +64,9 @@ export interface ApiErrorsTranslations {
   apiErrPlanDependencyCycle: string
   apiErrPlanDependencyInvalid: string
   apiErrPlanDependencyExists: string
+  apiErrPbiDependencyCycle: string
+  apiErrPbiDependencyInvalid: string
+  apiErrPbiDependencyExists: string
   apiErrPlanOwnerNotMember: string
   apiErrFileRequired: string
   apiErrFileEmpty: string
@@ -138,6 +141,9 @@ export const API_ERROR_MESSAGE_KEYS: Readonly<Record<ApiErrorCode, ApiErrorMessa
   PLAN_DEPENDENCY_CYCLE: "apiErrPlanDependencyCycle",
   PLAN_DEPENDENCY_INVALID: "apiErrPlanDependencyInvalid",
   PLAN_DEPENDENCY_EXISTS: "apiErrPlanDependencyExists",
+  PBI_DEPENDENCY_CYCLE: "apiErrPbiDependencyCycle",
+  PBI_DEPENDENCY_INVALID: "apiErrPbiDependencyInvalid",
+  PBI_DEPENDENCY_EXISTS: "apiErrPbiDependencyExists",
   PLAN_OWNER_NOT_MEMBER: "apiErrPlanOwnerNotMember",
   FILE_REQUIRED: "apiErrFileRequired",
   FILE_EMPTY: "apiErrFileEmpty",
@@ -219,6 +225,9 @@ export const ja: ApiErrorsTranslations = {
   apiErrPlanDependencyCycle: "依存関係が循環します",
   apiErrPlanDependencyInvalid: "この 2 項目の間には依存関係を設定できません（同一項目または親子関係）",
   apiErrPlanDependencyExists: "この依存関係は既に存在します",
+  apiErrPbiDependencyCycle: "お互いを待つ関係（循環）になるため設定できません",
+  apiErrPbiDependencyInvalid: "同じ PBI どうしには依存関係を設定できません",
+  apiErrPbiDependencyExists: "この依存関係は既に設定されています",
   apiErrPlanOwnerNotMember: "担当者はプロジェクトメンバーから選択してください",
   apiErrFileRequired: "ファイルがありません",
   apiErrFileEmpty: "ファイルが空です",
@@ -294,6 +303,9 @@ export const en: ApiErrorsTranslations = {
   apiErrPlanDependencyCycle: "This dependency would create a cycle",
   apiErrPlanDependencyInvalid: "A dependency cannot be set between these items (same item or parent/child)",
   apiErrPlanDependencyExists: "This dependency already exists",
+  apiErrPbiDependencyCycle: "These PBIs would wait for each other (a cycle)",
+  apiErrPbiDependencyInvalid: "A PBI cannot depend on itself",
+  apiErrPbiDependencyExists: "This dependency is already set",
   apiErrPlanOwnerNotMember: "The owner must be a member of the project",
   apiErrFileRequired: "No file was provided",
   apiErrFileEmpty: "The file is empty",
@@ -369,6 +381,9 @@ export const id: ApiErrorsTranslations = {
   apiErrPlanDependencyCycle: "Dependensi ini akan membuat siklus",
   apiErrPlanDependencyInvalid: "Dependensi tidak dapat diatur antara item ini (item yang sama atau induk/anak)",
   apiErrPlanDependencyExists: "Dependensi ini sudah ada",
+  apiErrPbiDependencyCycle: "PBI ini akan saling menunggu (siklus)",
+  apiErrPbiDependencyInvalid: "PBI tidak dapat bergantung pada dirinya sendiri",
+  apiErrPbiDependencyExists: "Dependensi ini sudah diatur",
   apiErrPlanOwnerNotMember: "Penanggung jawab harus anggota proyek",
   apiErrFileRequired: "Tidak ada file yang dikirim",
   apiErrFileEmpty: "File kosong",

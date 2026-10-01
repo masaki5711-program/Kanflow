@@ -10,6 +10,7 @@ import { DISPLAY_ID_CONFLICT, retryOnUniqueViolation } from "@/services/_shared/
 import { noteUnversionedWrite, staleOrMissing, takeVersion } from "@/services/_shared/versioning"
 import { attachI18n, attachI18nOne, enqueueIn, getI18nFor, prepareText, purgeIn } from "@/services/_shared/translations"
 import { assertLinkablePlanItem } from "@/services/plan/plan.links"
+import { loadDependencies, withDependencies } from "./backlog.dependencies"
 import * as repo from "./backlog.repository"
 import { PBI_CONTENT_REQUIRED_MESSAGE, hasPbiContent, type CreateBacklogItemInput, type ListBacklogQuery, type UpdateBacklogItemInput } from "./backlog.schemas"
 
@@ -75,8 +76,11 @@ export function completionPatch(status: string | undefined): { completedAt?: Dat
  * PBIs linked to that plan item — same response shape either way.
  */
 export async function listBacklog(projectId: string, query: ListBacklogQuery = {}) {
-  const raw = await repo.findBacklogItems(defaultDb, projectId, query.status, query.planItemId)
-  const items = await withLinkedI18n(await attachI18n("backlog_item", raw))
+  const [raw, deps] = await Promise.all([
+    repo.findBacklogItems(defaultDb, projectId, query.status, query.planItemId),
+    loadDependencies(defaultDb, projectId),
+  ])
+  const items = withDependencies(await withLinkedI18n(await attachI18n("backlog_item", raw)), deps)
   const readyItems = items.filter((i) => i.status === "ready")
   return {
     readyItems,
@@ -94,10 +98,12 @@ async function toDetailDto(item: NonNullable<Awaited<ReturnType<typeof repo.find
   return out
 }
 
+/** The detail DTO plus the PBI's dependencies (`blockedBy` / `blocking`). */
 export async function getBacklogItem(projectId: string, itemId: string) {
   const item = await repo.findBacklogItem(defaultDb, projectId, itemId)
   if (!item) throw pbiNotFound()
-  return toDetailDto(item)
+  const [dto, deps] = await Promise.all([toDetailDto(item), loadDependencies(defaultDb, projectId, itemId)])
+  return withDependencies([dto], deps)[0]
 }
 
 /** Error for a versioned PBI write that matched nothing: 409 with the current DTO, or 404. */

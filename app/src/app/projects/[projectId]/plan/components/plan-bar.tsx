@@ -1,9 +1,9 @@
 "use client"
 
-import { memo, useEffect, useRef, type KeyboardEvent } from "react"
+import { memo, useEffect, useRef, type KeyboardEvent, type PointerEvent } from "react"
 import { cn } from "@/components/ui"
 import { formatFullDate } from "../lib/date-format"
-import { ROW_LAYOUT, dayCenterX, spanGeometry } from "../lib/geometry"
+import { ROW_CENTER, ROW_LAYOUT, dayCenterX, itemAnchors, spanGeometry } from "../lib/geometry"
 import { estimateTextWidth } from "../lib/scale-labels"
 import type { BarKind } from "../lib/interaction"
 import type { PlanItem } from "../lib/plan-types"
@@ -28,6 +28,8 @@ interface Props {
   hintId: string
   onSelect: (id: string) => void
   onOpen: (item: PlanItem) => void
+  /** Pointer down on the connector ● (drag-to-link); the ● is shown only to editors. */
+  onStartLink: (e: PointerEvent<HTMLElement>, id: string) => void
   /** Roving-focus navigation; returns true when the key was handled. */
   onNavigate: (e: KeyboardEvent<HTMLElement>) => boolean
 }
@@ -51,7 +53,7 @@ function accessibleLabel(item: PlanItem, kind: BarKind, env: ChartEnv): string {
  * milestone diamond, plus actual / baseline / sprint overlays and chips.
  * Click selects, double click / Enter opens; leaves and milestones drag.
  */
-export const PlanBar = memo(function PlanBar({ item, kind, env, drag, live, selected, isTabStop, hintId, onSelect, onOpen, onNavigate }: Props) {
+export const PlanBar = memo(function PlanBar({ item, kind, env, drag, live, selected, isTabStop, hintId, onSelect, onOpen, onStartLink, onNavigate }: Props) {
   const ref = useRef<HTMLDivElement>(null)
   const draggable = env.canEdit && kind !== "summary"
 
@@ -107,7 +109,7 @@ export const PlanBar = memo(function PlanBar({ item, kind, env, drag, live, sele
     main = (
       <div
         {...common}
-        className={cn("absolute flex h-6 w-6 -translate-x-1/2 items-center justify-center rounded-ui-sm", milestoneClass(item), draggable ? "cursor-grab" : "cursor-pointer", ring)}
+        className={cn("absolute z-[6] flex h-6 w-6 -translate-x-1/2 items-center justify-center rounded-ui-sm", milestoneClass(item), draggable ? "cursor-grab" : "cursor-pointer", ring)}
         style={{ left: center, top: ROW_LAYOUT.bar.top - 4 }}
       >
         <span aria-hidden="true" className="block h-3.5 w-3.5 rotate-45 bg-current shadow-ui-sm" />
@@ -115,7 +117,7 @@ export const PlanBar = memo(function PlanBar({ item, kind, env, drag, live, sele
     )
   } else if (kind === "summary") {
     main = (
-      <div {...common} className={cn("absolute cursor-pointer rounded-ui-sm", ring)} style={{ left: g.x, width: g.width, top: ROW_LAYOUT.bar.top + 2, height: 12 }}>
+      <div {...common} className={cn("absolute z-[6] cursor-pointer rounded-ui-sm", ring)} style={{ left: g.x, width: g.width, top: ROW_LAYOUT.bar.top + 2, height: 12 }}>
         <span aria-hidden="true" className="absolute inset-x-0 top-0 h-1.5 overflow-hidden rounded-sm bg-fg-subtle">
           <span className="absolute inset-y-0 left-0 bg-fg" style={{ width: `${item.progressPct}%` }} />
         </span>
@@ -127,7 +129,7 @@ export const PlanBar = memo(function PlanBar({ item, kind, env, drag, live, sele
     main = (
       <div
         {...common}
-        className={cn("absolute overflow-hidden rounded-ui-sm shadow-ui-sm", barFillClass(item), draggable ? "cursor-grab active:cursor-grabbing" : "cursor-pointer", ring)}
+        className={cn("absolute z-[6] overflow-hidden rounded-ui-sm shadow-ui-sm", barFillClass(item), draggable ? "cursor-grab active:cursor-grabbing" : "cursor-pointer", ring)}
         style={{ left: g.x, width: g.width, top: ROW_LAYOUT.bar.top, height: ROW_LAYOUT.bar.height }}
       >
         <span aria-hidden="true" className="absolute inset-y-0 left-0 bg-black/25" style={{ width: `${item.progressPct}%` }} />
@@ -154,8 +156,34 @@ export const PlanBar = memo(function PlanBar({ item, kind, env, drag, live, sele
       <BaselineBar item={item} env={env} />
       <SprintBands item={item} env={env} />
       {main}
+      {env.canEdit && !env.printing && (
+        <Connector x={kind === "milestone" ? center + 12 : itemAnchors(item, env.startDay, env.dayWidth).endX} visible={selected} label={env.t.depPlanConnector} onPointerDown={(e) => onStartLink(e, item.id)} itemId={item.id} />
+      )}
       <BarChips item={item} env={env} left={chipLeft} name={outsideName} />
       {live && <DragTooltip edit={live} env={env} x={kind === "milestone" ? center : g.x + g.width / 2} single={kind === "milestone"} />}
     </>
   )
 })
+
+/**
+ * The ● right of a bar's finish: drag it onto another bar to make that bar
+ * wait for this one. Shown on row hover and on the selected bar (touch).
+ * Pointer-only; keyboard users use "Add successor…" in the row menu.
+ */
+function Connector({ x, visible, label, itemId, onPointerDown }: { x: number; visible: boolean; label: string; itemId: string; onPointerDown: (e: PointerEvent<HTMLElement>) => void }) {
+  return (
+    <span
+      aria-hidden="true"
+      data-plan-connector={itemId}
+      title={label}
+      onPointerDown={onPointerDown}
+      className={cn(
+        "absolute z-[7] flex h-5 w-5 -translate-y-1/2 cursor-crosshair touch-none items-center justify-center print:hidden",
+        visible ? "opacity-100" : "opacity-0 focus-within:opacity-100 group-hover:opacity-100",
+      )}
+      style={{ left: x + 1, top: ROW_CENTER }}
+    >
+      <span className="block h-3 w-3 rounded-full border-2 border-primary bg-surface shadow-ui-sm transition-transform hover:scale-125" />
+    </span>
+  )
+}

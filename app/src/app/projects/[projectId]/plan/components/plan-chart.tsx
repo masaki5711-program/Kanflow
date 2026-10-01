@@ -6,14 +6,17 @@ import { IconButton } from "@/components/ui"
 import { ymdToDay } from "../lib/date"
 import { COLUMN_WIDTH } from "../lib/grid-layout"
 import type { PlanColumn } from "../lib/prefs"
-import { ROW_HEIGHT, buildArrows, dayCenterX } from "../lib/geometry"
+import { chainOf } from "../lib/dependency-rules"
+import { ROW_HEIGHT, buildArrows, dayCenterX, type DependencyArrow } from "../lib/geometry"
 import type { PlanDependency, PlanItem } from "../lib/plan-types"
 import type { TimeScale } from "../lib/scale"
 import { clampPillX } from "../lib/scale-labels"
 import type { FlatRow } from "../lib/tree"
 import type { BarDrag, LiveEdit } from "../hooks/use-bar-drag"
+import type { LinkDrag } from "../hooks/use-link-drag"
 import type { ChartEnv, RowHandlers } from "./chart-types"
-import { PlanDependencyLayer } from "./plan-dependency-layer"
+import { PlanDependencyHitLayer, PlanDependencyLayer } from "./plan-dependency-layer"
+import { PlanLinkOverlay } from "./plan-link-overlay"
 import { PlanRow } from "./plan-row"
 import { HEADER_HEIGHT, PlanScaleHeader } from "./plan-scale-header"
 
@@ -36,6 +39,10 @@ interface Props {
   /** Row drag-reorder (handle). */
   rowDrop: { targetId: string; position: "before" | "after" } | null
   onHandlePointerDown: (e: PointerEvent<HTMLElement>, id: string) => void
+  /** Drag-to-link in progress (connector ● → another bar), else null. */
+  link: LinkDrag | null
+  /** An arrow was clicked (editors): ask to remove it. */
+  onPickArrow: (arrow: DependencyArrow) => void
 }
 
 const NAV_KEYS = new Set(["ArrowUp", "ArrowDown", "Home", "End"])
@@ -109,6 +116,16 @@ export const PlanChart = forwardRef<HTMLDivElement, Props>(function PlanChart(pr
     () => buildArrows(dependencies, byId, rowIndex, env.startDay, env.dayWidth),
     [dependencies, byId, rowIndex, env.startDay, env.dayWidth],
   )
+  // Selecting an item highlights everything before / after it in the dependency chain.
+  const chain = useMemo(() => chainOf(dependencies, selectedId), [dependencies, selectedId])
+  const arrowTitle = useCallback(
+    (a: DependencyArrow) => {
+      const from = byId.get(a.predecessorId)
+      const to = byId.get(a.successorId)
+      return t.depPlanArrowTitle.replace("{from}", from ? env.nameOf(from) : "").replace("{to}", to ? env.nameOf(to) : "")
+    },
+    [byId, env, t],
+  )
   const tabStopId = selectedId !== null && rowIndex.has(selectedId) ? selectedId : (rows[0]?.item.id ?? null)
   const bodyHeight = rows.length * ROW_HEIGHT
   const rawTodayX = dayCenterX(env.today, env.startDay, env.dayWidth)
@@ -153,7 +170,7 @@ export const PlanChart = forwardRef<HTMLDivElement, Props>(function PlanChart(pr
         <div ref={bodyRef} role="rowgroup" data-plan-body="" className="relative" style={{ minHeight: bodyHeight }}>
           <ChartBackground scale={scale} env={env} height={bodyHeight} />
           <div className="pointer-events-none absolute top-0" style={{ left: env.gridWidth }}>
-            <PlanDependencyLayer arrows={arrows} width={scale.width} height={bodyHeight} selectedId={selectedId} violatedLabel={t.planDependencyViolated} />
+            <PlanDependencyLayer arrows={arrows} width={scale.width} height={bodyHeight} chain={chain} violatedLabel={t.planDependencyViolated} />
           </div>
           {rows.map((row) => (
             <PlanRow
@@ -174,6 +191,17 @@ export const PlanChart = forwardRef<HTMLDivElement, Props>(function PlanChart(pr
               onHandlePointerDown={props.onHandlePointerDown}
             />
           ))}
+          {/* Above the timeline cells, below the bars (z-[6]) and the sticky grid (z-10). */}
+          {env.canEdit && !env.printing && !props.link && (
+            <div className="pointer-events-none absolute top-0 z-[5]" style={{ left: env.gridWidth }}>
+              <PlanDependencyHitLayer arrows={arrows} width={scale.width} height={bodyHeight} titleOf={arrowTitle} onPick={props.onPickArrow} />
+            </div>
+          )}
+          {props.link && (
+            <div className="pointer-events-none absolute top-0 z-[8]" style={{ left: env.gridWidth }}>
+              <PlanLinkOverlay link={props.link} byId={byId} rowIndex={rowIndex} env={env} width={scale.width} height={bodyHeight} view={props.view} />
+            </div>
+          )}
           {dropIndex !== null && (
             <div aria-hidden="true" data-plan-drop="" className="pointer-events-none absolute left-0 z-30 h-0.5 bg-primary" style={{ top: dropIndex * ROW_HEIGHT - 1, width: env.gridWidth }} />
           )}

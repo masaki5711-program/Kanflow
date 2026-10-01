@@ -36,6 +36,7 @@ import * as portfolio from "./portfolio"
 import * as apiTokens from "./api-tokens"
 import * as adminMetrics from "./admin-metrics"
 import * as projectOrganize from "./project-organize"
+import * as dependencies from "./dependencies"
 
 export * from "./languages"
 export * from "./point-units"
@@ -81,7 +82,8 @@ export interface Translations
     portfolio.PortfolioTranslations,
     apiTokens.ApiTokensTranslations,
     adminMetrics.AdminMetricsTranslations,
-    projectOrganize.ProjectOrganizeTranslations {}
+    projectOrganize.ProjectOrganizeTranslations,
+    dependencies.DependenciesTranslations {}
 
 /** All domain modules, exported for tests (key-set / completeness checks). */
 export const domains = {
@@ -122,6 +124,7 @@ export const domains = {
   "api-tokens": apiTokens,
   "admin-metrics": adminMetrics,
   "project-organize": projectOrganize,
+  "dependencies": dependencies,
 } as const
 
 const ja: Translations = {
@@ -162,6 +165,7 @@ const ja: Translations = {
   ...apiTokens.ja,
   ...adminMetrics.ja,
   ...projectOrganize.ja,
+  ...dependencies.ja,
 }
 
 const en: Translations = {
@@ -202,6 +206,7 @@ const en: Translations = {
   ...apiTokens.en,
   ...adminMetrics.en,
   ...projectOrganize.en,
+  ...dependencies.en,
 }
 
 const id: Translations = {
@@ -242,6 +247,7 @@ const id: Translations = {
   ...apiTokens.id,
   ...adminMetrics.id,
   ...projectOrganize.id,
+  ...dependencies.id,
 }
 
 const translations: Record<Language, Translations> = { ja, en, id }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { dayToYmd, ymdToDay } from "../lib/date"
 import { formatCompactRange, formatGridDate } from "../lib/date-format"
-import { successorBlocks, upstreamOf } from "../lib/dependency-rules"
+import { chainOf, downstreamOf, successorBlocks, upstreamOf } from "../lib/dependency-rules"
 import { PRINT_WIDTH, fullPlanRange, printLayout, visibleRange } from "../lib/print"
 import { TRAILING_GUTTER_PX, ZOOM_DAY_WIDTH, buildScale, chartRange, zoomForDayWidth } from "../lib/scale"
 import { TIER_LABEL_INSET, clampPillX, estimateTextWidth, labelFits, tierLabelInset, todayPillBox } from "../lib/scale-labels"
@@ -211,6 +211,20 @@ describe("F-11 successor rules", () => {
     expect(successorBlocks(items, deps, "A").get("B")).toBe("existing")
     expect(successorBlocks(items, deps, "P").get("P1")).toBe("hierarchy")
     expect(successorBlocks(items, deps, "P1").get("P")).toBe("hierarchy")
+  })
+
+  it("downstream = everything that transitively follows the item", () => {
+    expect([...downstreamOf(deps, "A")].sort()).toEqual(["B", "C"])
+    expect([...downstreamOf(deps, "C")]).toEqual([])
+    expect(downstreamOf([...deps, { id: "3", predecessorId: "C", successorId: "A" }], "A").has("A")).toBe(true)
+  })
+
+  it("chainOf: the item plus everything it precedes and follows; null without links or an id", () => {
+    expect([...chainOf(deps, "B")!].sort()).toEqual(["A", "B", "C"])
+    expect([...chainOf(deps, "A")!].sort()).toEqual(["A", "B", "C"])
+    expect(chainOf(deps, "D")).toBeNull()
+    expect(chainOf(deps, null)).toBeNull()
+    expect(chainOf([], "A")).toBeNull()
   })
 })
 

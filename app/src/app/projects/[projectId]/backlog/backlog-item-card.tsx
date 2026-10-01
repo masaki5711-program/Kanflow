@@ -5,6 +5,8 @@ import { Badge, Button, IconButton, cn } from "@/components/ui"
 import { I18nText } from "@/components/i18n-text"
 import { useLanguage } from "@/lib/language-context"
 import { pickText } from "@/lib/translation/pick-text"
+import { PbiDependencyChips } from "@/components/pbi-dependencies/pbi-dependency-chips"
+import type { PbiDependencyRefDto } from "@/types/api"
 import { CardMenu } from "./card-menu"
 import type { BacklogItem, BacklogStatus } from "./types"
 import { DND_HANDLE_ATTR, DND_ROW_ATTR } from "./use-reorder-dnd"
@@ -23,6 +25,7 @@ import {
   Tag,
   Target,
   Trash2,
+  TriangleAlert,
 } from "lucide-react"
 
 /** Id of the hidden keyboard help that every drag handle is described by. */
@@ -35,6 +38,10 @@ export interface CardActions {
   onInvest: (item: BacklogItem) => void
   onToggleSelect: (item: BacklogItem, shift: boolean) => void
   onMoveToEdge: (item: BacklogItem, edge: "top" | "bottom") => void
+  /** Move the item right below `anchorId` (fixes "ranked above what it waits for"). */
+  onMoveBelow: (item: BacklogItem, anchorId: string) => void
+  /** Open a PBI the item depends on / that waits for it. */
+  onOpenRef: (ref: PbiDependencyRefDto) => void
   onHandleKeyDown: (e: KeyboardEvent<HTMLElement>, item: BacklogItem) => void
   onHandlePointerDown: (e: PointerEvent<HTMLElement>, item: BacklogItem) => void
   onHandleBlur: () => void
@@ -54,6 +61,8 @@ interface Props extends CardActions, CardPermissions {
   selectMode: boolean
   isSelected: boolean
   isDragging: boolean
+  /** An open predecessor ranked below this item in the same section (null = order is fine). */
+  orderConflict?: PbiDependencyRefDto | null
 }
 
 const SECTION_BORDER: Record<BacklogStatus, string> = {
@@ -68,11 +77,12 @@ function activeSprints(item: BacklogItem) {
   return Array.from(new Map((item.sprintItems ?? []).map((si) => [si.sprint.id, si.sprint])).values())
 }
 
-function Chips({ item, inSprintNames }: { item: BacklogItem; inSprintNames: string[] }) {
+function Chips({ item, inSprintNames, onOpenRef }: { item: BacklogItem; inSprintNames: string[]; onOpenRef: (ref: PbiDependencyRefDto) => void }) {
   const { t, language } = useLanguage()
   const iceboxText = item.iceboxItem ? pickText(item.iceboxItem.i18n, "request", item.iceboxItem.request, language).text : ""
   return (
     <div className="mb-2 flex flex-wrap items-center gap-1.5">
+      <PbiDependencyChips item={item} onOpenRef={onOpenRef} />
       {inSprintNames.length > 0 && (
         <span className="inline-flex items-center gap-1 rounded-full border border-primary/40 bg-primary-soft px-2 py-0.5 text-caption font-semibold text-primary-active">
           <span aria-hidden="true">⚡</span> {t.backlogInSprintBadge}
@@ -101,6 +111,23 @@ function Chips({ item, inSprintNames }: { item: BacklogItem; inSprintNames: stri
         </span>
       )}
     </div>
+  )
+}
+
+/** "Ranked above #12, which it is waiting for" + a one-click "move below #12". */
+function OrderWarning({ conflict, canFix, onFix }: { conflict: PbiDependencyRefDto; canFix: boolean; onFix: () => void }) {
+  const { t } = useLanguage()
+  const id = String(conflict.displayId)
+  return (
+    <p className="mb-2 flex flex-wrap items-center gap-2 rounded-ui-sm bg-warning-soft px-2 py-1 text-caption text-warning-strong" data-pbi-order-warning="">
+      <TriangleAlert aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+      <span>{t.depOrderWarning.replace("{id}", id)}</span>
+      {canFix && (
+        <button type="button" onClick={onFix} className="font-semibold underline underline-offset-2 hover:no-underline">
+          {t.depMoveBelow.replace("{id}", id)}
+        </button>
+      )}
+    </p>
   )
 }
 
@@ -194,7 +221,10 @@ export const BacklogItemCard = memo(function BacklogItemCard(props: Props) {
               )}
             </div>
 
-            <Chips item={item} inSprintNames={sprints.map((s) => pickText(s.i18n, "sprintName", s.sprintName, language).text || s.sprintName)} />
+            <Chips item={item} inSprintNames={sprints.map((s) => pickText(s.i18n, "sprintName", s.sprintName, language).text || s.sprintName)} onOpenRef={props.onOpenRef} />
+            {props.orderConflict && !isCompleted && (
+              <OrderWarning conflict={props.orderConflict} canFix={reorderable} onFix={() => props.onMoveBelow(item, props.orderConflict!.id)} />
+            )}
 
             {item.userStory ? (
               <I18nText

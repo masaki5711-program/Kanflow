@@ -4,6 +4,7 @@ export type {
   BacklogItemDto,
   BacklogItemDetailDto,
   BacklogListResponse,
+  PbiDependencyRefDto,
 } from "./backlog"
 export type { SprintPbItemDto, SprintTaskDto, SprintDto, SprintTimelineDto, TaskAssigneeDto } from "./sprint"
 export type { CalendarEventDto } from "./event"

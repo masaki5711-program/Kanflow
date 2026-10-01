@@ -21,6 +21,18 @@ export interface PbiWithStatusDto extends PbiSummaryDto {
   status: string
 }
 
+/** The other end of a PBI dependency (finish-to-start). */
+export interface PbiDependencyRefDto {
+  /** Id of the link (DELETE /backlog/dependencies/:id). */
+  dependencyId: string
+  id: string
+  displayId: number
+  initiative: string | null
+  userStory: string | null
+  status: string
+  i18n?: EntityI18n
+}
+
 /** One row of GET /api/projects/:id/backlog (`readyItems` / `notReadyItems` / `completedItems`). */
 export interface BacklogItemDto extends PbiWithStatusDto {
   acceptanceCriteria: string | null
@@ -35,6 +47,10 @@ export interface BacklogItemDto extends PbiWithStatusDto {
   version?: number
   /** Planning/active sprints already working on this PBI (one row per sprint task). */
   sprintItems?: { sprint: { id: string; sprintName: string; status: string; i18n?: EntityI18n } }[]
+  /** PBIs that must be completed before this one can start. */
+  blockedBy?: PbiDependencyRefDto[]
+  /** PBIs waiting for this one. */
+  blocking?: PbiDependencyRefDto[]
 }
 
 /** GET /api/projects/:id/backlog/:itemId — the list row plus the PO-only text fields. */

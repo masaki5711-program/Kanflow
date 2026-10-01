@@ -7,9 +7,10 @@ import { GlossaryHint, I18nText } from "@/components/i18n-text"
 import { Button, EmptyState, Field, IconButton, Input, Modal, SkeletonLines, Textarea, Truncate, cn, useModalClose } from "@/components/ui"
 import { apiFetch, useApiMutation, useApiQuery } from "@/hooks"
 import { pickText } from "@/lib/translation/pick-text"
+import { PbiWaitingChip } from "@/components/pbi-dependencies/pbi-dependency-chips"
 import type { BacklogItemDto, PbiWithStatusDto } from "@/types/api"
 
-export type BacklogPbi = PbiWithStatusDto & { productGoal?: BacklogItemDto["productGoal"] }
+export type BacklogPbi = PbiWithStatusDto & Partial<Pick<BacklogItemDto, "productGoal" | "blockedBy" | "blocking">>
 
 interface Props {
   projectId: string
@@ -284,6 +285,8 @@ function PbiRow({ pb, pointUnit, isSelected, onToggle, onView }: RowProps) {
               {pb.workloadScore} {pointUnit}
             </span>
           </span>
+          {/* A PBI still waiting for another one is flagged before it is added to the sprint. */}
+          <PbiWaitingChip item={pb} className="mt-1" />
           {pb.epic && (
             <I18nText as="span" i18n={pb.i18n} field="epic" original={pb.epic} noBadge className="mt-0.5 block truncate text-caption text-fg-muted" />
           )}

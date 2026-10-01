@@ -19,6 +19,7 @@ import { fillTemplate } from "./lib/template"
 import { ancestorIds, buildFlatTree, descendantIds, dropItem, filterVisibleIds, indentItem, moveSibling, outdentItem, parentIds } from "./lib/tree"
 import { firstViewTarget, fitTarget } from "./lib/fit-view"
 import { useBarDrag } from "./hooks/use-bar-drag"
+import { useLinkDrag } from "./hooks/use-link-drag"
 import { usePlanData } from "./hooks/use-plan-data"
 import { useNameAutoWidth } from "./hooks/use-name-auto-width"
 import { usePlanLayout } from "./hooks/use-plan-layout"
@@ -160,6 +161,31 @@ function PlanPage({ projectId, canEdit }: Props) {
     onDrop: (dragId, target) => void api.reorder(dropItem(items, dragId, target.targetId, target.position)),
   })
 
+  const successorReasons = { cycle: t.planSuccessorBlockedCycle, hierarchy: t.planSuccessorBlockedHierarchy, existing: t.planSuccessorBlockedExisting }
+  const linkDrag = useLinkDrag({
+    getBody: () => chartBodyOf(scrollRef.current),
+    getScroller: () => scrollRef.current,
+    gridWidth: gw,
+    rowIds,
+    items,
+    dependencies,
+    onLink: (predecessorId, successorId) => void api.addDependency(predecessorId, successorId),
+    onRejected: (block) => toast.error(successorReasons[block], { title: t.planDependencyAddFailed }),
+  })
+
+  async function confirmRemoveArrow(arrow: { id: string; predecessorId: string; successorId: string }) {
+    const from = byId.get(arrow.predecessorId)
+    const to = byId.get(arrow.successorId)
+    const ok = await confirm({
+      title: t.depPlanRemoveTitle,
+      message: fillTemplate(t.depPlanRemoveMessage, { from: from ? nameOf(from) : "", to: to ? nameOf(to) : "" }),
+      confirmLabel: t.delete,
+      cancelLabel: t.cancel,
+      variant: "warning",
+    })
+    if (ok) void api.removeDependency(arrow.id)
+  }
+
   function reveal(id: string) {
     const it = byId.get(id)
     if (!it) return
@@ -220,6 +246,11 @@ function PlanPage({ projectId, canEdit }: Props) {
     },
     addChild: (parentId) => openDraft(parentId, false),
     addSuccessor: (item) => setSuccessorFor(item),
+    startLink: (e, id) => {
+      setSelectedId(id)
+      linkDrag.onConnectorPointerDown(e, id)
+    },
+    pickArrow: (arrow) => void confirmRemoveArrow(arrow),
     linkPbis: (item) => setEditor({ kind: "edit", item, focusLinks: true }),
     remove: (item) => void requestDelete(item),
   })
@@ -334,10 +365,12 @@ function PlanPage({ projectId, canEdit }: Props) {
                 onToggleGrid={() => view.setGridCollapsed(!gridCollapsed)}
                 rowDrop={rowDrag.target}
                 onHandlePointerDown={rowDrag.onHandlePointerDown}
+                link={linkDrag.link}
+                onPickArrow={handlers.pickArrow}
               />
             </PlanChartFrame>
           )}
-          <PlanLegend />
+          <PlanLegend canEdit={canEdit} />
         </>
       )}
 

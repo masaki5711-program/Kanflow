@@ -17,6 +17,7 @@ import { BacklogToolbar } from "./backlog-toolbar"
 import { BulkActionBar } from "./bulk-action-bar"
 import { DND_HELP_ID, type CardActions } from "./backlog-item-card"
 import { DoneSection } from "./done-section"
+import { moveBelow } from "@/lib/pbi-dependencies"
 import { applyVisibleMove, moveItem } from "./reorder"
 import type { BacklogItem, BacklogStatus } from "./types"
 import { exportFilterParams, hasActiveFilters, pbiIdForRef } from "./url-state"
@@ -133,6 +134,18 @@ function BacklogPageContent() {
       const from = full.findIndex((i) => i.id === item.id)
       const to = edge === "top" ? 0 : full.length - 1
       if (from >= 0 && from !== to) persistOrder(section, moveItem(full, from, to), item)
+    },
+    onMoveBelow: (item: BacklogItem, anchorId: string) => {
+      const section = item.status as BacklogStatus
+      const full = view.lists[section]
+      const anchor = full.find((i) => i.id === anchorId)
+      if (!anchor) return
+      persistOrder(section, moveBelow(full, item.id, anchorId), item)
+      toast.success(t.depMovedBelow.replace("{id}", String(anchor.displayId)))
+    },
+    onOpenRef: (ref) => {
+      setEditIntent(null)
+      url.openPbi(String(ref.displayId))
     },
     onHandleKeyDown: (e, item: BacklogItem) => dnd.onHandleKeyDown(e, dragTarget(item)),
     onHandlePointerDown: (e, item: BacklogItem) => dnd.onHandlePointerDown(e, dragTarget(item), e.currentTarget.closest("ul")),
@@ -251,6 +264,10 @@ function BacklogPageContent() {
           initialTab={url.pbiTab ?? undefined}
           formOptions={formOptions}
           onSaved={backlog.refetch}
+          onOpenPbi={(displayId) => {
+            setEditIntent(null)
+            url.openPbi(String(displayId))
+          }}
           onClose={() => {
             setEditIntent(null)
             url.closePbi()

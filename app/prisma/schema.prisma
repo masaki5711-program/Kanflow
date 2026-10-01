@@ -8,19 +8,19 @@ datasource db {
 }
 
 model User {
-  id                String                @id @default(cuid())
+  id                String                   @id @default(cuid())
   name              String
-  email             String                @unique
+  email             String                   @unique
   password          String
-  avatarUrl         String?               @db.Text
-  createdAt         DateTime              @default(now())
-  updatedAt         DateTime              @updatedAt
-  isActive          Boolean               @default(true)
-  role              String                @default("member")
+  avatarUrl         String?                  @db.Text
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+  isActive          Boolean                  @default(true)
+  role              String                   @default("member")
   /// Bumped to revoke every JWT issued for this user (deactivate / role change / password reset).
-  tokenVersion      Int                   @default(0)
-  language          String                @default("ja")
-  employeeNumber    String?               @unique
+  tokenVersion      Int                      @default(0)
+  language          String                   @default("ja")
+  employeeNumber    String?                  @unique
   department        String?
   accounts          Account[]
   memberships       ProjectMember[]
@@ -37,7 +37,7 @@ model User {
   taskAssignments   TaskAssignee[]
   chatThreads       ChatThread[]
   aiJobs            AiJob[]
-  ownedPlanItems    PlanItem[]            @relation("PlanItemOwner")
+  ownedPlanItems    PlanItem[]               @relation("PlanItemOwner")
   apiTokens         ApiToken[]
 
   @@index([department])
@@ -54,38 +54,38 @@ model User {
 /// Delay is computed (scheduleState), not stored: "delayed" is no longer a
 /// status (migrated to "in_progress" in 20261004000000_plan_linkage).
 model PlanItem {
-  id            String     @id @default(cuid())
+  id            String    @id @default(cuid())
   projectId     String
   parentId      String?
-  name          String     @db.VarChar(255)
-  description   String?    @db.Text
+  name          String    @db.VarChar(255)
+  description   String?   @db.Text
   plannedStart  DateTime
   plannedEnd    DateTime
   actualStart   DateTime?
   actualEnd     DateTime?
-  progressPct   Int        @default(0)
-  color         String?    @db.VarChar(32)
-  status        String     @default("not_started")
-  sortOrder     Int        @default(0)
-  isMilestone   Boolean    @default(false)
-  notes         String?    @db.Text
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
+  progressPct   Int       @default(0)
+  color         String?   @db.VarChar(32)
+  status        String    @default("not_started")
+  sortOrder     Int       @default(0)
+  isMilestone   Boolean   @default(false)
+  notes         String?   @db.Text
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
   /// "manual" (status → %) | "linked" (% from linked PBIs; leaves only).
-  progressMode  String     @default("manual") @db.VarChar(16)
+  progressMode  String    @default("manual") @db.VarChar(16)
   /// Optimistic-lock counter: bumped on every user update; stale writes get 409.
-  version       Int        @default(0)
+  version       Int       @default(0)
   baselineStart DateTime?
   baselineEnd   DateTime?
   ownerId       String?
   deletedAt     DateTime?
   deletedById   String?
 
-  project       Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  parent        PlanItem?  @relation("PlanItemTree", fields: [parentId], references: [id], onDelete: Cascade)
-  children      PlanItem[] @relation("PlanItemTree")
-  owner         User?      @relation("PlanItemOwner", fields: [ownerId], references: [id], onDelete: SetNull)
-  backlogItems  ProductBacklogItem[]
+  project         Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parent          PlanItem?            @relation("PlanItemTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children        PlanItem[]           @relation("PlanItemTree")
+  owner           User?                @relation("PlanItemOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  backlogItems    ProductBacklogItem[]
   successorDeps   PlanItemDependency[] @relation("PlanDependencyPredecessor")
   predecessorDeps PlanItemDependency[] @relation("PlanDependencySuccessor")
 
@@ -106,8 +106,8 @@ model PlanItemDependency {
   successorId   String
   createdAt     DateTime @default(now())
 
-  predecessor   PlanItem @relation("PlanDependencyPredecessor", fields: [predecessorId], references: [id], onDelete: Cascade)
-  successor     PlanItem @relation("PlanDependencySuccessor", fields: [successorId], references: [id], onDelete: Cascade)
+  predecessor PlanItem @relation("PlanDependencyPredecessor", fields: [predecessorId], references: [id], onDelete: Cascade)
+  successor   PlanItem @relation("PlanDependencySuccessor", fields: [successorId], references: [id], onDelete: Cascade)
 
   @@unique([predecessorId, successorId])
   @@index([successorId])
@@ -169,85 +169,85 @@ model Session {
 }
 
 model Project {
-  id                  String                          @id @default(cuid())
-  name                String
-  description         String?                         @db.Text
-  status              String                          @default("active")
-  defaultCapacity     Int                             @default(0)
-  sprintDurationDays  Int                             @default(7)
-  pointUnit           String                          @default("SP")
-  pointDescription    String?                         @db.Text
-  language            String                          @default("ja")
+  id                       String                          @id @default(cuid())
+  name                     String
+  description              String?                         @db.Text
+  status                   String                          @default("active")
+  defaultCapacity          Int                             @default(0)
+  sprintDurationDays       Int                             @default(7)
+  pointUnit                String                          @default("SP")
+  pointDescription         String?                         @db.Text
+  language                 String                          @default("ja")
   // Team option: when true, saved free-text fields are auto-annotated with a
   // Japanese/Indonesian bilingual rendering (lib/ensure-bilingual.ts)
-  bilingualMode       Boolean                         @default(false)
-  createdAt           DateTime                        @default(now())
-  updatedAt           DateTime                        @updatedAt
-  projectType         String                          @default("software")
-  progressPct         Int                             @default(0)
+  bilingualMode            Boolean                         @default(false)
+  createdAt                DateTime                        @default(now())
+  updatedAt                DateTime                        @updatedAt
+  projectType              String                          @default("software")
+  progressPct              Int                             @default(0)
   // Card tint on the project list: gray|red|orange|yellow|green|blue|indigo|purple|pink; null = default white
-  cardColor           String?
+  cardColor                String?
   // Soft delete (trash). Null = live. deletedById is a plain User id (no FK,
   // like CalendarEvent.createdBy); ActivityLog holds the full audit trail.
-  deletedAt           DateTime?
-  deletedById         String?
+  deletedAt                DateTime?
+  deletedById              String?
   /// P3: per-project AI surveillance thresholds as a JSON string (Text, like
   /// the other JSON-in-Text columns). Null = defaults (lib/surveillance-settings.ts).
-  surveillanceSettings String?                        @db.Text
-  attachmentFolders   AttachmentFolder[]
-  calendarEvents      CalendarEvent[]
-  iceboxItems         IceboxItem[]
-  backlogItems        ProductBacklogItem[]
-  productGoals        ProductGoal[]
-  attachments         ProjectAttachment[]
-  members             ProjectMember[]
-  releaseItems        ReleaseBacklogItem[]
-  sprints             Sprint[]
-  sections            ProjectSection[]
-  categoryAssignments UserProjectCategoryAssignment[]
+  surveillanceSettings     String?                         @db.Text
+  attachmentFolders        AttachmentFolder[]
+  calendarEvents           CalendarEvent[]
+  iceboxItems              IceboxItem[]
+  backlogItems             ProductBacklogItem[]
+  productGoals             ProductGoal[]
+  attachments              ProjectAttachment[]
+  members                  ProjectMember[]
+  releaseItems             ReleaseBacklogItem[]
+  sprints                  Sprint[]
+  sections                 ProjectSection[]
+  categoryAssignments      UserProjectCategoryAssignment[]
   adminCategoryAssignments AdminCategoryAssignment[]
-  favoritedBy         UserProjectFavorite[]
-  planItems           PlanItem[]
-  aiReports           AiReport[]
-  activityLogs        ActivityLog[]
-  notifications       Notification[]
-  comments            Comment[]
-  chatThreads         ChatThread[]
-  aiJobs              AiJob[]
+  favoritedBy              UserProjectFavorite[]
+  planItems                PlanItem[]
+  aiReports                AiReport[]
+  activityLogs             ActivityLog[]
+  notifications            Notification[]
+  comments                 Comment[]
+  chatThreads              ChatThread[]
+  aiJobs                   AiJob[]
 
   @@index([deletedAt])
   @@fulltext([name], map: "ft_project_name")
 }
 
 model AiReport {
-  id        String   @id @default(cuid())
-  projectId String
+  id         String   @id @default(cuid())
+  projectId  String
   // What fired the investigation: surveillance | sprint_completed | manual
-  trigger   String
-  status    String   @default("done")
-  title     String
+  trigger    String
+  status     String   @default("done")
+  title      String
   // One-line summary for list views
-  summary   String?  @db.Text
+  summary    String?  @db.Text
   // Full markdown report produced by the agent (fallback rendering)
-  body      String?  @db.Text
+  body       String?  @db.Text
   // JSON: StructuredReport submitted via the submit_report tool (report-tool.ts).
   // Null for legacy reports / plain-text endings — the UI then renders body.
-  structured String? @db.Text
+  structured String?  @db.Text
   // JSON: detected anomalies, tool call stats, duration ms
-  meta      String?  @db.Text
-  createdAt DateTime @default(now())
-  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  meta       String?  @db.Text
+  createdAt  DateTime @default(now())
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@index([projectId, createdAt])
 }
 
 model Section {
-  id          String                    @id @default(cuid())
-  name        String                    @unique
-  description String?                   @db.Text
-  sortOrder   Int                       @default(0)
-  createdAt   DateTime                  @default(now())
-  updatedAt   DateTime                  @updatedAt
+  id          String           @id @default(cuid())
+  name        String           @unique
+  description String?          @db.Text
+  sortOrder   Int              @default(0)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
   users       UserSection[]
   projects    ProjectSection[]
   categories  AdminCategory[]
@@ -392,37 +392,41 @@ model IceboxAttachment {
 }
 
 model ProductBacklogItem {
-  id                 String               @id @default(cuid())
+  id                 String                  @id @default(cuid())
   projectId          String
   displayId          Int
   iceboxItemId       String?
   initiative         String?
   epic               String?
-  userStory          String?              @db.Text
-  acceptanceCriteria String?              @db.Text
-  referenceDoc       String?              @db.Text
-  workloadScore      Int                  @default(0)
+  userStory          String?                 @db.Text
+  acceptanceCriteria String?                 @db.Text
+  referenceDoc       String?                 @db.Text
+  workloadScore      Int                     @default(0)
   completedAt        DateTime?
   assignedPo         String?
-  poNote             String?              @db.Text
-  status             String               @default("not_ready")
-  notReadyReason     String?              @db.Text
-  sortOrder          Int                  @default(0)
-  createdAt          DateTime             @default(now())
-  updatedAt          DateTime             @updatedAt
+  poNote             String?                 @db.Text
+  status             String                  @default("not_ready")
+  notReadyReason     String?                 @db.Text
+  sortOrder          Int                     @default(0)
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
   productGoalId      String?
   /// Optimistic-lock counter: bumped on every update; stale writes get 409.
-  version            Int                  @default(0)
+  version            Int                     @default(0)
   deletedAt          DateTime?
   deletedById        String?
   /// Master-plan leaf this PBI contributes to (at most one).
   planItemId         String?
-  iceboxItem        IceboxItem?          @relation(fields: [iceboxItemId], references: [id])
-  planItem           PlanItem?            @relation(fields: [planItemId], references: [id], onDelete: SetNull)
-  productGoal        ProductGoal?         @relation(fields: [productGoalId], references: [id])
-  project            Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  iceboxItem         IceboxItem?             @relation(fields: [iceboxItemId], references: [id])
+  planItem           PlanItem?               @relation(fields: [planItemId], references: [id], onDelete: SetNull)
+  productGoal        ProductGoal?            @relation(fields: [productGoalId], references: [id])
+  project            Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
   releaseItems       ReleaseBacklogItem[]
   sprintItems        SprintBacklogItem[]
+  /// Finish-to-start links: PBIs that must be completed before this one ("blocked by").
+  predecessorDeps    BacklogItemDependency[] @relation("PbiDependencySuccessor")
+  /// PBIs waiting for this one.
+  successorDeps      BacklogItemDependency[] @relation("PbiDependencyPredecessor")
 
   @@unique([projectId, displayId])
   @@index([projectId])
@@ -433,29 +437,47 @@ model ProductBacklogItem {
   @@fulltext([initiative, epic, userStory, acceptanceCriteria], map: "ft_pbi_text")
 }
 
+/// Finish-to-start dependency between two PBIs of one project: the
+/// predecessor must be completed before the successor can start. Advisory:
+/// shown on the backlog / sprint pickers, nothing is blocked server-side.
+model BacklogItemDependency {
+  id            String   @id @default(cuid())
+  projectId     String
+  predecessorId String
+  successorId   String
+  createdAt     DateTime @default(now())
+
+  predecessor ProductBacklogItem @relation("PbiDependencyPredecessor", fields: [predecessorId], references: [id], onDelete: Cascade)
+  successor   ProductBacklogItem @relation("PbiDependencySuccessor", fields: [successorId], references: [id], onDelete: Cascade)
+
+  @@unique([predecessorId, successorId])
+  @@index([successorId])
+  @@index([projectId])
+}
+
 model Sprint {
-  id                String              @id @default(cuid())
-  projectId         String
-  sprintName        String
-  startDate         DateTime
-  endDate           DateTime
-  sprintGoal        String?             @db.Text
-  capacity          Int                 @default(0)
-  actualScore       Int                 @default(0)
-  status            String              @default("planning")
-  createdAt         DateTime            @default(now())
-  updatedAt         DateTime            @updatedAt
-  retrospectiveMemo String?             @db.Text
-  retrospectiveKeep String?             @db.Text
-  retrospectiveProblem String?          @db.Text
-  retrospectiveTry  String?             @db.Text
-  reviewComment     String?             @db.Text
+  id                   String              @id @default(cuid())
+  projectId            String
+  sprintName           String
+  startDate            DateTime
+  endDate              DateTime
+  sprintGoal           String?             @db.Text
+  capacity             Int                 @default(0)
+  actualScore          Int                 @default(0)
+  status               String              @default("planning")
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  retrospectiveMemo    String?             @db.Text
+  retrospectiveKeep    String?             @db.Text
+  retrospectiveProblem String?             @db.Text
+  retrospectiveTry     String?             @db.Text
+  reviewComment        String?             @db.Text
   /// Optimistic-lock counter: bumped on every update; stale writes get 409.
-  version           Int                 @default(0)
-  calendarEvents    CalendarEvent[]
-  dailyScrumNotes   DailyScrumNote[]
-  project           Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  items             SprintBacklogItem[]
+  version              Int                 @default(0)
+  calendarEvents       CalendarEvent[]
+  dailyScrumNotes      DailyScrumNote[]
+  project              Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  items                SprintBacklogItem[]
 
   @@index([projectId])
 }
@@ -477,25 +499,25 @@ model DailyScrumNote {
 }
 
 model SprintBacklogItem {
-  id                 String             @id @default(cuid())
-  sprintId           String
-  pbItemId           String
-  taskName           String?
-  assignee           String?
-  estimatedHours     Float?
-  actualHours        Float?
-  status             String             @default("todo")
-  completedAt        DateTime?
-  completionComment  String?            @db.Text
+  id                String             @id @default(cuid())
+  sprintId          String
+  pbItemId          String
+  taskName          String?
+  assignee          String?
+  estimatedHours    Float?
+  actualHours       Float?
+  status            String             @default("todo")
+  completedAt       DateTime?
+  completionComment String?            @db.Text
   /// Optimistic-lock counter: bumped on every update; stale writes get 409.
-  version            Int                @default(0)
-  createdAt          DateTime           @default(now())
-  updatedAt          DateTime           @updatedAt
-  pbItem         ProductBacklogItem @relation(fields: [pbItemId], references: [id], onDelete: Cascade)
-  sprint         Sprint             @relation(fields: [sprintId], references: [id], onDelete: Cascade)
+  version           Int                @default(0)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  pbItem            ProductBacklogItem @relation(fields: [pbItemId], references: [id], onDelete: Cascade)
+  sprint            Sprint             @relation(fields: [sprintId], references: [id], onDelete: Cascade)
   /// Normalized assignees (P2). The legacy `assignee` string (comma-separated
   /// names) stays during the transition; backfilled by scripts/migrate-assignees.ts.
-  assignees      TaskAssignee[]
+  assignees         TaskAssignee[]
 
   @@index([sprintId])
   @@index([pbItemId])
@@ -636,8 +658,8 @@ model FieldTranslation {
 
   @@id([entityType, entityId, field])
   @@index([status, priority(sort: Desc), requestedAt])
-  @@map("field_translation")
   @@fulltext([textJa, textId], map: "ft_translation_text")
+  @@map("field_translation")
 }
 
 /// Shared translation glossary: a correction by one user is applied to every

@@ -16,7 +16,7 @@ function Item({ swatch, children }: { swatch: ReactNode; children: ReactNode }) 
 }
 
 /** Legend of every mark the timeline draws (states, summary, milestone, overlays). */
-export function PlanLegend() {
+export function PlanLegend({ canEdit = false }: { canEdit?: boolean }) {
   const { t } = useLanguage()
   const bar = (cls: string) => <span className={`block h-2.5 w-5 rounded-sm ${cls}`} />
   return (
@@ -74,6 +74,20 @@ export function PlanLegend() {
         </Item>
         <Item swatch={<span className="block h-4 w-0.5 bg-plan-today" />}>{t.planToday}</Item>
       </ul>
+      <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-caption text-fg-muted print:hidden" data-plan-link-help="">
+        {canEdit && (
+          <span className="inline-flex items-center gap-1.5">
+            <span aria-hidden="true" className="block h-3 w-3 shrink-0 rounded-full border-2 border-primary bg-surface" />
+            {t.depPlanLegendHow}
+          </span>
+        )}
+        <span className="inline-flex items-center gap-1.5">
+          <svg aria-hidden="true" viewBox="0 0 20 10" className="h-3 w-5 shrink-0">
+            <path d="M1 2 H8 V8 H17" fill="none" strokeWidth="2" className="stroke-primary-strong" />
+          </svg>
+          {t.depPlanChain}
+        </span>
+      </p>
     </section>
   )
 }

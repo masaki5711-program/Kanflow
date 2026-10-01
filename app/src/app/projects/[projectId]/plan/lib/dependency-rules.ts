@@ -37,3 +37,22 @@ export function successorBlocks(items: readonly PlanItem[], deps: readonly PlanD
   out.set(predecessorId, "self")
   return out
 }
+
+/** Every item `source` reaches over the dependency edges (forward BFS, cycle-safe). */
+export function downstreamOf(deps: readonly Pick<PlanDependency, "predecessorId" | "successorId">[], source: string): Set<string> {
+  return upstreamOf(
+    deps.map((d) => ({ predecessorId: d.successorId, successorId: d.predecessorId })),
+    source,
+  )
+}
+
+/**
+ * The dependency chain through `id`: everything that must finish before it
+ * and everything waiting for it, plus the item itself. Null when the item has
+ * no dependencies (nothing to highlight).
+ */
+export function chainOf(deps: readonly Pick<PlanDependency, "predecessorId" | "successorId">[], id: string | null): Set<string> | null {
+  if (!id) return null
+  const chain = new Set([id, ...upstreamOf(deps, id), ...downstreamOf(deps, id)])
+  return chain.size > 1 ? chain : null
+}

@@ -2,6 +2,7 @@
  * Shared props of the chart pieces (grid rows, bars). Kept in one place so
  * the row components stay small and memoizable.
  */
+import type { PointerEvent } from "react"
 import type { Language, Translations } from "@/lib/i18n"
 import type { PlanItem, Ymd } from "../lib/plan-types"
 import type { PlanColumn } from "../lib/prefs"
@@ -34,6 +35,10 @@ export interface RowHandlers {
   move: (id: string, action: "moveUp" | "moveDown" | "indent" | "outdent") => void
   addChild: (parentId: string) => void
   addSuccessor: (item: PlanItem) => void
+  /** Pointer down on a bar's connector ●: drag to the bar that should follow. */
+  startLink: (e: PointerEvent<HTMLElement>, id: string) => void
+  /** An arrow was clicked: confirm and remove the dependency. */
+  pickArrow: (arrow: { id: string; predecessorId: string; successorId: string }) => void
   linkPbis: (item: PlanItem) => void
   remove: (item: PlanItem) => void
 }

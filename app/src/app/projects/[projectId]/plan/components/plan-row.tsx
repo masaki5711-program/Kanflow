@@ -152,6 +152,7 @@ export const PlanRow = memo(function PlanRow(props: Props) {
           hintId={props.barHintId}
           onSelect={handlers.select}
           onOpen={handlers.open}
+          onStartLink={handlers.startLink}
           onNavigate={props.onNavigate}
         />
       </div>

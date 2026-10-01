@@ -17,6 +17,7 @@ import { PbiReadBody, type PbiDetail } from "@/components/pbi-form/pbi-read-body
 import { useAiFieldGenerator } from "@/components/pbi-form/use-ai-field-generator"
 import { pbiDeepLink, useCopyLink } from "@/components/pbi-form/use-copy-link"
 import { usePbiFormOptions, type PbiFormOptions } from "@/components/pbi-form/use-pbi-form-options"
+import { PbiDependencySection } from "@/components/pbi-dependencies/pbi-dependency-section"
 
 interface Props {
   projectId: string
@@ -34,6 +35,8 @@ interface Props {
   initialTab?: PbiTabKey
   /** Form choices the caller already holds (else they are fetched when editing starts). */
   formOptions?: PbiFormOptions
+  /** Open another PBI by its number (dependency rows become links when given). */
+  onOpenPbi?: (displayId: number) => void
 }
 
 const STATUS_TONE: Record<string, BadgeTone> = {
@@ -59,7 +62,7 @@ function statusLabel(status: string, t: T): string {
  * user's version into the form and lists the user's overwritten input.
  */
 export default function PbiDetailModal(props: Props) {
-  const { projectId, pbiId, onClose, editable, canInvest = true, onSaved, initialMode, initialTab, formOptions } = props
+  const { projectId, pbiId, onClose, editable, canInvest = true, onSaved, initialMode, initialTab, formOptions, onOpenPbi } = props
   const { t, pt, language } = useLanguage()
   const ui = useUiLabels()
   const confirm = useConfirm()
@@ -205,32 +208,46 @@ export default function PbiDetailModal(props: Props) {
             pbiId={item.id}
             initialTab={initialTab}
             details={
-              isEditing && form ? (
-                <div className="space-y-4">
-                  {conflict.lost && (
-                    <VersionConflictNotice
-                      lost={conflict.lost}
-                      labels={labels}
-                      formatValue={(f, v) => (f === "planItemId" ? (v ? t.historyChanged : "") : formatPbiValue(t, f, v as string))}
-                      onRestore={restoreMine}
-                      onDismiss={conflict.dismiss}
+              <div className="space-y-5">
+                {isEditing && form ? (
+                  <div className="space-y-4">
+                    {conflict.lost && (
+                      <VersionConflictNotice
+                        lost={conflict.lost}
+                        labels={labels}
+                        formatValue={(f, v) => (f === "planItemId" ? (v ? t.historyChanged : "") : formatPbiValue(t, f, v as string))}
+                        onRestore={restoreMine}
+                        onDismiss={conflict.dismiss}
+                      />
+                    )}
+                    <PbiEditFields
+                      form={form}
+                      setForm={edit.setForm}
+                      options={options}
+                      selfId={item.id}
+                      projectId={projectId}
+                      disabled={save.isPending}
+                      generating={ai.generating}
+                      onGenerate={ai.generate}
+                      contentError={hasContent ? undefined : contentMessage}
                     />
-                  )}
-                  <PbiEditFields
-                    form={form}
-                    setForm={edit.setForm}
-                    options={options}
-                    selfId={item.id}
-                    projectId={projectId}
-                    disabled={save.isPending}
-                    generating={ai.generating}
-                    onGenerate={ai.generate}
-                    contentError={hasContent ? undefined : contentMessage}
-                  />
-                </div>
-              ) : (
-                <PbiReadBody item={item} projectId={projectId} />
-              )
+                  </div>
+                ) : (
+                  <PbiReadBody item={item} projectId={projectId} />
+                )}
+                {/* Dependency writes apply immediately (no version bump), in read and edit mode alike. */}
+                <PbiDependencySection
+                  projectId={projectId}
+                  item={item}
+                  label={`#${item.displayId} ${title}`}
+                  canEdit={!!editable}
+                  onChanged={() => {
+                    refetch()
+                    onSaved?.()
+                  }}
+                  onOpenRef={onOpenPbi && !isDirty ? (ref) => onOpenPbi(ref.displayId) : undefined}
+                />
+              </div>
             }
           />
         )}

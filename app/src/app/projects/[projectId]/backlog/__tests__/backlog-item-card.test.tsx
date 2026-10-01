@@ -2,8 +2,19 @@ import { describe, expect, it, vi } from "vitest"
 import { fireEvent, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { renderWithProviders, tr } from "@/app/__tests__/test-utils"
+import type { PbiDependencyRefDto } from "@/types/api"
 import { BacklogItemCard, type CardActions } from "../backlog-item-card"
 import { pbi } from "./fixtures"
+
+const conflictRef: PbiDependencyRefDto = {
+  dependencyId: "dep-1",
+  id: "pred",
+  displayId: 12,
+  initiative: "Predecessor",
+  userStory: null,
+  status: "ready",
+  i18n: {},
+}
 
 const t = tr("ja")
 
@@ -15,6 +26,8 @@ function makeActions(): CardActions {
     onInvest: vi.fn(),
     onToggleSelect: vi.fn(),
     onMoveToEdge: vi.fn(),
+    onMoveBelow: vi.fn(),
+    onOpenRef: vi.fn(),
     onHandleKeyDown: vi.fn(),
     onHandlePointerDown: vi.fn(),
     onHandleBlur: vi.fn(),
@@ -166,5 +179,39 @@ describe("BacklogItemCard", () => {
     )
     await userEvent.click(screen.getByRole("button", { name: new RegExp(t.aiInvestReview) }))
     expect(actions.onInvest).toHaveBeenCalledWith(item)
+  })
+
+  it("shows the order-conflict warning and moves the item below the predecessor on fix", async () => {
+    const actions = makeActions()
+    const item = pbi("a", 1)
+    renderWithProviders(
+      <ul>
+        <BacklogItemCard item={item} section="ready" {...PERMS} {...STATE} orderConflict={conflictRef} {...actions} />
+      </ul>,
+    )
+    expect(screen.getByText(t.depOrderWarning.replace("{id}", "12"))).toBeInTheDocument()
+    const fix = screen.getByRole("button", { name: t.depMoveBelow.replace("{id}", "12") })
+    await userEvent.click(fix)
+    expect(actions.onMoveBelow).toHaveBeenCalledWith(item, "pred")
+  })
+
+  it("hides the move-below fix when the viewer cannot reorder", () => {
+    renderWithProviders(
+      <ul>
+        <BacklogItemCard item={pbi("a", 1)} section="ready" canEdit canReorder={false} canDelete={false} canInvest {...STATE} orderConflict={conflictRef} {...makeActions()} />
+      </ul>,
+    )
+    expect(screen.getByText(t.depOrderWarning.replace("{id}", "12"))).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: t.depMoveBelow.replace("{id}", "12") })).not.toBeInTheDocument()
+  })
+
+  it("renders the dependency chip from the item's blockedBy", () => {
+    const item = pbi("a", 1, { blockedBy: [conflictRef] })
+    renderWithProviders(
+      <ul>
+        <BacklogItemCard item={item} section="ready" {...PERMS} {...STATE} {...makeActions()} />
+      </ul>,
+    )
+    expect(screen.getByText(t.depChipWaitingOne.replace("{id}", "12"))).toBeInTheDocument()
   })
 })

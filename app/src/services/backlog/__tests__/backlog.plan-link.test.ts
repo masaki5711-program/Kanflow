@@ -18,6 +18,7 @@ vi.mock("@/lib/plan-progress", () => ({ recalcPlanItems: vi.fn(async () => undef
 vi.mock("@/services/plan/plan.links", () => ({ assertLinkablePlanItem: vi.fn(async () => undefined) }))
 vi.mock("@/services/sprint-backlog/sprint-backlog.service", () => ({ addPbisToSprint: vi.fn() }))
 vi.mock("../backlog.repository")
+vi.mock("../backlog.dependencies.repository", () => ({ findDependencyRows: vi.fn(async () => []) }))
 
 const repo = await import("../backlog.repository")
 const { recalcPlanItems } = await import("@/lib/plan-progress")

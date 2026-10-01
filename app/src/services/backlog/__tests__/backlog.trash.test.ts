@@ -10,6 +10,7 @@ vi.mock("@/services/_shared/soft-delete", async (importOriginal) => ({
 }))
 vi.mock("@/lib/sprint-score", () => ({ recalcSprintActualScore: vi.fn(async () => 0) }))
 vi.mock("../backlog.repository")
+vi.mock("../backlog.dependencies.repository", () => ({ findDependencyRows: vi.fn(async () => []) }))
 
 const repo = await import("../backlog.repository")
 const tr = await import("@/services/_shared/translations")

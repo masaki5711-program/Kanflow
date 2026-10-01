@@ -5,6 +5,7 @@ import { Button, EmptyState, cn } from "@/components/ui"
 import { HelpTooltip } from "@/components/help-tooltip"
 import { useLanguage } from "@/lib/language-context"
 import { BacklogItemCard, type CardActions, type CardPermissions } from "./backlog-item-card"
+import { orderConflict } from "@/lib/pbi-dependencies"
 import { previewIds, type DragState } from "./reorder"
 import type { BacklogItem, BacklogStatus } from "./types"
 import { Archive, CircleCheck, Clock, Scale } from "lucide-react"
@@ -54,6 +55,12 @@ export function BacklogSection(props: Props) {
     const byId = new Map(items.map((i) => [i.id, i]))
     return previewIds(session).flatMap((id) => byId.get(id) ?? [])
   }, [items, session])
+  // Dependency order check against the section's visible order (not while a drag previews another order).
+  const conflicts = useMemo(() => {
+    if (status === "completed") return new Map<string, ReturnType<typeof orderConflict>>()
+    const ids = items.map((i) => i.id)
+    return new Map(items.map((i) => [i.id, orderConflict(i, ids)]))
+  }, [items, status])
   const indicator = useMemo(() => {
     if (session?.mode !== "pointer" || session.to === session.from) return null
     const others = items.filter((i) => i.id !== session.itemId)
@@ -113,6 +120,7 @@ export function BacklogSection(props: Props) {
                     selectMode={selectMode}
                     isSelected={selectedIds.has(item.id)}
                     isDragging={isDragged}
+                    orderConflict={conflicts.get(item.id) ?? null}
                     {...actions}
                   />
                 </Fragment>
