@@ -1,11 +1,11 @@
 "use client"
 
 import type { ReactNode } from "react"
-import { LayoutList, Moon, Rows3, Search } from "lucide-react"
+import { LayoutGrid, List, Moon, Search } from "lucide-react"
 import { cn, Input, Select } from "@/components/ui"
 import { useLanguage } from "@/lib/language-context"
 import { ProjectTypeMark } from "./project-parts"
-import { projectTypeLabel, type Density, type SortBy, type TypeFilter, type ViewMode } from "./types"
+import { projectTypeLabel, type Layout, type SortBy, type TypeFilter, type ViewMode } from "./types"
 
 const TYPE_FILTERS: readonly TypeFilter[] = ["all", "software", "process_improvement", "general"]
 
@@ -16,11 +16,12 @@ interface Props {
   onTypeFilterChange: (f: TypeFilter) => void
   sortBy: SortBy
   onSortChange: (s: SortBy) => void
-  density: Density
-  onDensityChange: (d: Density) => void
-  /** Shown only when the user has categories. */
-  viewMode: ViewMode | null
+  layout: Layout
+  onLayoutChange: (l: Layout) => void
+  viewMode: ViewMode
   onViewModeChange: (v: ViewMode) => void
+  /** The "by category" grouping is offered only when the user has categories. */
+  hasCategories: boolean
   /** "Dormant only" chip; hidden when no project is dormant and the filter is off. */
   dormantOnly: boolean
   onDormantOnlyChange: (on: boolean) => void
@@ -127,33 +128,34 @@ export function ProjectListToolbar(props: Props) {
         </button>
       )}
 
-      <Segmented label={t.projectDensityLabel}>
-        <SegmentButton
-          pressed={props.density === "comfortable"}
-          onClick={() => props.onDensityChange("comfortable")}
-          label={t.projectDensityComfortable}
-        >
-          <Rows3 aria-hidden="true" className="h-4 w-4" />
+      <Segmented label={t.projectLayoutLabel}>
+        <SegmentButton pressed={props.layout === "card"} onClick={() => props.onLayoutChange("card")}>
+          <span className="inline-flex items-center gap-1">
+            <LayoutGrid aria-hidden="true" className="h-3.5 w-3.5" />
+            {t.projectLayoutCard}
+          </span>
         </SegmentButton>
-        <SegmentButton
-          pressed={props.density === "compact"}
-          onClick={() => props.onDensityChange("compact")}
-          label={t.projectDensityCompact}
-        >
-          <LayoutList aria-hidden="true" className="h-4 w-4" />
+        <SegmentButton pressed={props.layout === "list"} onClick={() => props.onLayoutChange("list")}>
+          <span className="inline-flex items-center gap-1">
+            <List aria-hidden="true" className="h-3.5 w-3.5" />
+            {t.projectLayoutList}
+          </span>
         </SegmentButton>
       </Segmented>
 
-      {props.viewMode && (
-        <Segmented label={t.projectViewModeLabel}>
-          <SegmentButton pressed={props.viewMode === "flat"} onClick={() => props.onViewModeChange("flat")}>
-            {t.categoryFlat}
-          </SegmentButton>
+      <Segmented label={t.projectViewModeLabel}>
+        <SegmentButton pressed={props.viewMode === "flat"} onClick={() => props.onViewModeChange("flat")}>
+          {t.categoryFlat}
+        </SegmentButton>
+        {props.hasCategories && (
           <SegmentButton pressed={props.viewMode === "category"} onClick={() => props.onViewModeChange("category")}>
             {t.categoryCategory}
           </SegmentButton>
-        </Segmented>
-      )}
+        )}
+        <SegmentButton pressed={props.viewMode === "role"} onClick={() => props.onViewModeChange("role")}>
+          {t.projectGroupByRole}
+        </SegmentButton>
+      </Segmented>
     </div>
   )
 }

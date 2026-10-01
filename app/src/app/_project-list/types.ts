@@ -36,12 +36,16 @@ export interface Project {
   archivedAt?: string | Date | null
   /** Viewer may archive / restore it (project.update: admin, PO, SM). */
   canUpdate?: boolean
+  /** Viewer's own project role (po / sm / dev); null / absent when they only see it (section manager / admin). */
+  myRole?: string | null
 }
 
 export type Category = CategoryDto
 
-export type ViewMode = "flat" | "category"
-export type Density = "comfortable" | "compact"
+/** Grouping of the list: none, the user's categories, or the viewer's own project role. */
+export type ViewMode = "flat" | "category" | "role"
+/** Card grid or dense one-row-per-project list. */
+export type Layout = "card" | "list"
 export type SortBy = "updated" | "name" | "progress" | "name_asc" | "favorite" | "activity_desc" | "activity_asc"
 export type TypeFilter = "all" | ProjectType
 
@@ -99,19 +103,6 @@ export const cardTint: Record<string, string> = {
   indigo: "bg-indigo-50/70 border-indigo-200",
   purple: "bg-purple-50/70 border-purple-200",
   pink: "bg-pink-50/70 border-pink-200",
-}
-
-/** Compact row: a slim color bar on the left edge keeps rows readable. */
-export const rowTint: Record<string, string> = {
-  gray: "border-l-4 border-l-gray-400",
-  red: "border-l-4 border-l-red-400",
-  orange: "border-l-4 border-l-orange-400",
-  yellow: "border-l-4 border-l-yellow-400",
-  green: "border-l-4 border-l-green-400",
-  blue: "border-l-4 border-l-blue-400",
-  indigo: "border-l-4 border-l-indigo-400",
-  purple: "border-l-4 border-l-purple-400",
-  pink: "border-l-4 border-l-pink-400",
 }
 
 /** Member chips on project cards: kit tokens, AA contrast (≥ 6:1) at caption size. */

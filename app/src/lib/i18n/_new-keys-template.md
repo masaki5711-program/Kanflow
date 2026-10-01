@@ -57,6 +57,7 @@ Rules:
 | `trash.ts` | Project trash, admin project trash, "move to trash" wording | `trash*` |
 | `comments.ts` | Comment thread / composer (`components/comments/`), PBI detail tabs, change history | `comments*`, `history*` |
 | `insights.ts` | Dashboard top rows (sprint pulse, my tasks, coming up, activity feed), home KPIs / inline task status / lazy archived list, burndown sprint selector, velocity chart, IceBox undo | `dashboardPulse*`, `dashboardMyTasks*`, `dashboardDue*`, `dashboardFeed*`, `top{Kpi,Task,Archived,Retry}*`, `burndownSprint*`, `velocity*`, `iceboxUndo` |
+| `project-organize.ts` | Home project list organizing: card / list layout, by-role grouping, dormant reminder, bulk archive (`_project-list/`) | `projectLayout*`, `projectGroup*`, `projectListCol*`, `projectDormantBanner*`, `projectBulkArchive*` |
 | `chat-proposals.ts` | `projects/[id]/chat` approval cards of AI write proposals (`proposal-card.tsx`) | `chatProposal*` |
 | `ai-extensions.ts` | P3: chat history sidebar (`chat/thread-list.tsx`), background AI report jobs (dashboard button chip, reports panel), AI surveillance settings (`settings/surveillance-section.tsx`) | `chatThread*`, `chatNewChat`, `aiJob*`, `surv*` |
 | `search.ts` | Global search / command palette (`components/search/`), keyboard shortcuts help (`components/shortcuts/`) | `search*`, `shortcuts*` |

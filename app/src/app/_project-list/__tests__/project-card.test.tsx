@@ -12,7 +12,7 @@ vi.mock("next/link", () => ({
   ),
 }))
 
-const { ProjectCard, ProjectRow } = await import("../project-card")
+const { ProjectCard } = await import("../project-card")
 
 const SPRINT_REVIEW_TITLE = "🏁 スプリント完了レビュー / Tinjauan penyelesaian sprint: E2E-Sprint-A"
 
@@ -148,13 +148,5 @@ describe("ProjectCard dates and dormancy", () => {
   it("renders no dates when the project has none", () => {
     renderCard(project(), "ja", NOW)
     expect(screen.queryByTestId("project-dates")).toBeNull()
-  })
-
-  it("compact rows show only the last update and the dormant badge", () => {
-    renderCard(project({ createdAt: new Date(2026, 0, 1), lastActivityAt: daysAgo(90) }), "ja", NOW, ProjectRow)
-    const dates = screen.getByTestId("project-dates")
-    expect(dates).not.toHaveTextContent("作成")
-    expect(dates).toHaveTextContent("更新")
-    expect(screen.getByTestId("project-dormant-badge")).toHaveTextContent("休眠 90日")
   })
 })

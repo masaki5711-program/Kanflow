@@ -21,14 +21,15 @@ interface Props {
   isLoading: boolean
   error: Error | null
   onRetry: () => void
-  renderItem: (project: Project) => ReactNode
+  /** Renders the loaded projects in the current layout (cards or list). */
+  renderList: (projects: Project[]) => ReactNode
 }
 
 /**
  * Collapsed "archived" section of the project list. The page only knows the
  * count; the projects themselves are fetched the first time it is expanded.
  */
-export function ArchivedSection({ count, expanded, onToggle, projects, isLoading, error, onRetry, renderItem }: Props) {
+export function ArchivedSection({ count, expanded, onToggle, projects, isLoading, error, onRetry, renderList }: Props) {
   const { t } = useLanguage()
   if (count === 0) return null
 
@@ -45,7 +46,7 @@ export function ArchivedSection({ count, expanded, onToggle, projects, isLoading
         {t.sprintStatusArchived} ({count})
       </button>
       {expanded && (
-        <div id="archived-projects" className="mt-4 grid gap-4" aria-busy={isLoading || undefined}>
+        <div id="archived-projects" className="mt-4" aria-busy={isLoading || undefined}>
           {isLoading ? (
             <SkeletonCard label={t.loading} />
           ) : error && !projects ? (
@@ -57,11 +58,7 @@ export function ArchivedSection({ count, expanded, onToggle, projects, isLoading
               action={<Button variant="secondary" size="sm" onClick={onRetry}>{t.topRetry}</Button>}
             />
           ) : (
-            (projects ?? []).map((project) => (
-              <div key={project.id} className="grayscale">
-                {renderItem(project)}
-              </div>
-            ))
+            <div className="grayscale">{renderList(projects ?? [])}</div>
           )}
         </div>
       )}

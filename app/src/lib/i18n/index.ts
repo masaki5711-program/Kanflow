@@ -35,6 +35,7 @@ import * as excelIo from "./excel-io"
 import * as portfolio from "./portfolio"
 import * as apiTokens from "./api-tokens"
 import * as adminMetrics from "./admin-metrics"
+import * as projectOrganize from "./project-organize"
 
 export * from "./languages"
 export * from "./point-units"
@@ -79,7 +80,8 @@ export interface Translations
     excelIo.ExcelIoTranslations,
     portfolio.PortfolioTranslations,
     apiTokens.ApiTokensTranslations,
-    adminMetrics.AdminMetricsTranslations {}
+    adminMetrics.AdminMetricsTranslations,
+    projectOrganize.ProjectOrganizeTranslations {}
 
 /** All domain modules, exported for tests (key-set / completeness checks). */
 export const domains = {
@@ -119,6 +121,7 @@ export const domains = {
   "portfolio": portfolio,
   "api-tokens": apiTokens,
   "admin-metrics": adminMetrics,
+  "project-organize": projectOrganize,
 } as const
 
 const ja: Translations = {
@@ -158,6 +161,7 @@ const ja: Translations = {
   ...portfolio.ja,
   ...apiTokens.ja,
   ...adminMetrics.ja,
+  ...projectOrganize.ja,
 }
 
 const en: Translations = {
@@ -197,6 +201,7 @@ const en: Translations = {
   ...portfolio.en,
   ...apiTokens.en,
   ...adminMetrics.en,
+  ...projectOrganize.en,
 }
 
 const id: Translations = {
@@ -236,6 +241,7 @@ const id: Translations = {
   ...portfolio.id,
   ...apiTokens.id,
   ...adminMetrics.id,
+  ...projectOrganize.id,
 }
 
 const translations: Record<Language, Translations> = { ja, en, id }

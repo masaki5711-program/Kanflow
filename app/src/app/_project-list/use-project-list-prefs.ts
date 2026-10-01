@@ -1,12 +1,12 @@
 "use client"
 
 import { useCallback, useMemo, useSyncExternalStore } from "react"
-import type { Density, SortBy, ViewMode } from "./types"
+import type { Layout, SortBy, ViewMode } from "./types"
 
 /** Same-tab change notification (the native `storage` event only fires in other tabs). */
 const PREF_EVENT = "kanflow:project-list-pref"
 
-function readPref(key: string): string | null {
+export function readPref(key: string): string | null {
   try {
     return window.localStorage.getItem(key)
   } catch {
@@ -15,7 +15,7 @@ function readPref(key: string): string | null {
   }
 }
 
-function writePref(key: string, value: string): void {
+export function writePref(key: string, value: string): void {
   try {
     window.localStorage.setItem(key, value)
   } catch {
@@ -34,7 +34,7 @@ function subscribe(onChange: () => void): () => void {
 }
 
 /** Raw string preference, `null` on the server and when unset (hydration-safe). */
-function useRawPref(key: string): string | null {
+export function useRawPref(key: string): string | null {
   return useSyncExternalStore(
     subscribe,
     () => readPref(key),
@@ -49,8 +49,27 @@ function useEnumPref<T extends string>(key: string, allowed: readonly T[], fallb
   return [value, set]
 }
 
-const VIEW_MODES: readonly ViewMode[] = ["flat", "category"]
-const DENSITIES: readonly Density[] = ["comfortable", "compact"]
+const VIEW_MODES: readonly ViewMode[] = ["flat", "category", "role"]
+const LAYOUTS: readonly Layout[] = ["card", "list"]
+
+/** localStorage keys of the list preferences. */
+export const PREF_KEYS = {
+  layout: "projectLayout",
+  /** Pre-"list view" density toggle; "compact" now maps to the list layout. */
+  legacyDensity: "projectDensity",
+  viewMode: "projectViewMode",
+  sortBy: "projectSortBy",
+  collapsed: "collapsedSections",
+} as const
+
+/**
+ * Card / list layout from storage. Without an explicit choice, users of the
+ * old compact density keep their dense rows (now the list layout).
+ */
+export function resolveLayout(raw: string | null, legacyDensity: string | null): Layout {
+  if (raw !== null && (LAYOUTS as readonly string[]).includes(raw)) return raw as Layout
+  return legacyDensity === "compact" ? "list" : "card"
+}
 const SORTS: readonly SortBy[] = ["updated", "activity_desc", "activity_asc", "name", "name_asc", "progress", "favorite"]
 
 /**
@@ -74,19 +93,20 @@ export function parseCollapsed(raw: string | null): Record<string, boolean> {
 
 /** View preferences of the project list, persisted per browser in localStorage. */
 export function useProjectListPrefs() {
-  const [viewMode, setViewMode] = useEnumPref("projectViewMode", VIEW_MODES, "flat")
-  const [density, setDensity] = useEnumPref("projectDensity", DENSITIES, "comfortable")
-  const [sortBy, setSortBy] = useEnumPref("projectSortBy", SORTS, "updated")
+  const [viewMode, setViewMode] = useEnumPref(PREF_KEYS.viewMode, VIEW_MODES, "flat")
+  const [sortBy, setSortBy] = useEnumPref(PREF_KEYS.sortBy, SORTS, "updated")
+  const layout = resolveLayout(useRawPref(PREF_KEYS.layout), useRawPref(PREF_KEYS.legacyDensity))
+  const setLayout = useCallback((v: Layout) => writePref(PREF_KEYS.layout, v), [])
 
-  const collapsedRaw = useRawPref("collapsedSections")
+  const collapsedRaw = useRawPref(PREF_KEYS.collapsed)
   const collapsedSections = useMemo(() => parseCollapsed(collapsedRaw), [collapsedRaw])
   const toggleSection = useCallback(
     (key: string) => {
-      const current = parseCollapsed(readPref("collapsedSections"))
-      writePref("collapsedSections", JSON.stringify({ ...current, [key]: !current[key] }))
+      const current = parseCollapsed(readPref(PREF_KEYS.collapsed))
+      writePref(PREF_KEYS.collapsed, JSON.stringify({ ...current, [key]: !current[key] }))
     },
     [],
   )
 
-  return { viewMode, setViewMode, density, setDensity, sortBy, setSortBy, collapsedSections, toggleSection }
+  return { viewMode, setViewMode, layout, setLayout, sortBy, setSortBy, collapsedSections, toggleSection }
 }

@@ -95,6 +95,8 @@ export interface ProjectListMeta {
   archivedAt: Date | null
   /** Viewer may "project.update" this project (archive / restore from the list). */
   canUpdate: boolean
+  /** Viewer's own project role (po / sm / dev); null when they only see it (section manager / admin). */
+  myRole: string | null
 }
 
 /** Newest ActivityLog.createdAt per project — ONE grouped query for the whole list. */
@@ -164,7 +166,12 @@ export async function loadProjectListMeta(
   return new Map(
     rows.map((r) => [
       r.id,
-      { lastActivityAt: lastActivityOf(r, activity.get(r.id)), archivedAt: archived.get(r.id) ?? null, canUpdate: viewerCanUpdate(r, scope) },
+      {
+        lastActivityAt: lastActivityOf(r, activity.get(r.id)),
+        archivedAt: archived.get(r.id) ?? null,
+        canUpdate: viewerCanUpdate(r, scope),
+        myRole: r.members.find((m) => m.userId === scope.userId)?.role ?? null,
+      },
     ]),
   )
 }
@@ -179,6 +186,7 @@ export function toProjectListItem(row: ProjectListRow, i18n: EntityI18n | undefi
     lastActivityAt: meta?.lastActivityAt ?? row.updatedAt,
     archivedAt: meta?.archivedAt ?? null,
     canUpdate: meta?.canUpdate ?? false,
+    myRole: meta?.myRole ?? null,
   }
 }
 

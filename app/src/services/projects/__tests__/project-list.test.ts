@@ -164,17 +164,27 @@ describe("project list meta (dates, permission)", () => {
 
     const active = await svc.loadProjectListMeta(rows, member, "active")
     expect(db.activityLog.findMany).not.toHaveBeenCalled()
-    expect(active.get("p1")).toEqual({ lastActivityAt: new Date("2026-09-20T00:00:00Z"), archivedAt: null, canUpdate: true })
+    expect(active.get("p1")).toEqual({ lastActivityAt: new Date("2026-09-20T00:00:00Z"), archivedAt: null, canUpdate: true, myRole: "po" })
 
     const archived = await svc.loadProjectListMeta(rows, member, "archived")
     expect(archived.get("p1")?.archivedAt).toEqual(new Date("2026-09-25T00:00:00Z"))
   })
 
+  it.each([
+    ["PO", [{ userId: "u1", role: "po" }], "po"],
+    ["Dev", [{ userId: "u1", role: "dev" }], "dev"],
+    ["not a member (section manager / admin view)", [{ userId: "u2", role: "po" }], null],
+  ])("loadProjectListMeta reports the viewer's own role: %s", async (_label, members, expected) => {
+    db.activityLog.groupBy.mockResolvedValue([])
+    const meta = await svc.loadProjectListMeta([fullRow("p1", { members })], member, "active")
+    expect(meta.get("p1")?.myRole).toBe(expected)
+  })
+
   it("toProjectListItem exposes the meta (defaults without it)", () => {
     const r = fullRow("p1")
-    const meta = { lastActivityAt: new Date("2026-09-20T00:00:00Z"), archivedAt: null, canUpdate: true }
+    const meta = { lastActivityAt: new Date("2026-09-20T00:00:00Z"), archivedAt: null, canUpdate: true, myRole: "sm" }
     expect(svc.toProjectListItem(r as never, undefined, meta)).toMatchObject(meta)
-    expect(svc.toProjectListItem(r as never, undefined)).toMatchObject({ lastActivityAt: r.updatedAt, archivedAt: null, canUpdate: false })
+    expect(svc.toProjectListItem(r as never, undefined)).toMatchObject({ lastActivityAt: r.updatedAt, archivedAt: null, canUpdate: false, myRole: null })
   })
 
   it("listArchivedProjects attaches the meta", async () => {

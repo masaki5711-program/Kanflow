@@ -37,6 +37,11 @@ export function useProjectArchive({ onChanged }: Options = {}) {
   /** Optimistic status; `listStatus` is the list the project came from (server truth until overridden). */
   const statusOf = useCallback((p: Project, listStatus: ProjectStatus): ProjectStatus => override[p.id] ?? listStatus, [override])
 
+  /** Record a status the server already accepted (bulk archive / undo): the item moves list at once. */
+  const markStatus = useCallback((id: string, status: ProjectStatus) => {
+    setOverride((m) => ({ ...m, [id]: status }))
+  }, [])
+
   const change = useApiMutation(
     ({ id, status }: StatusVars) => apiFetch(`/api/projects/${id}`, { method: "PATCH", json: { status } }),
     {
@@ -87,5 +92,5 @@ export function useProjectArchive({ onChanged }: Options = {}) {
     })
   }
 
-  return { statusOf, archive, restore, isPending: change.isPending }
+  return { statusOf, markStatus, archive, restore, isPending: change.isPending }
 }

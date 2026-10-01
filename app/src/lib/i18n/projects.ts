@@ -10,8 +10,6 @@ export interface ProjectsTranslations {
   projectSortNameAsc: string
   projectSortNameDesc: string
   projectSortProgress: string
-  projectDensityComfortable: string
-  projectDensityCompact: string
   projectSearchPlaceholder: string
   // Top Page (Home)
   topGreeting: string
@@ -48,7 +46,6 @@ export interface ProjectsTranslations {
   /** "All types" button of the project-type filter. */
   projectTypeFilterAll: string
   projectSortLabel: string
-  projectDensityLabel: string
   projectViewModeLabel: string
   projectNoMatch: string
   projectArchivedSection: string
@@ -97,8 +94,6 @@ export const ja: ProjectsTranslations = {
   projectSortNameAsc: "名前昇順 (A→Z)",
   projectSortNameDesc: "名前降順 (Z→A)",
   projectSortProgress: "進捗の高い順",
-  projectDensityComfortable: "標準表示",
-  projectDensityCompact: "コンパクト",
   projectSearchPlaceholder: "プロジェクト名・説明・メンバー名で検索",
   topGreeting: "おかえりなさい",
   topMyTasksDesc: "進行中スプリントで自分に割り当てられたタスク",
@@ -132,7 +127,6 @@ export const ja: ProjectsTranslations = {
   projectTypeFilterLabel: "プロジェクトタイプで絞り込み",
   projectTypeFilterAll: "すべてのタイプ",
   projectSortLabel: "並び替え",
-  projectDensityLabel: "表示密度",
   projectViewModeLabel: "表示方法",
   projectNoMatch: "条件に一致するプロジェクトはありません",
   projectArchivedSection: "アーカイブ済みプロジェクト",
@@ -181,8 +175,6 @@ export const en: ProjectsTranslations = {
   projectSortNameAsc: "Name A→Z",
   projectSortNameDesc: "Name Z→A",
   projectSortProgress: "Progress (high → low)",
-  projectDensityComfortable: "Comfortable",
-  projectDensityCompact: "Compact",
   projectSearchPlaceholder: "Search project name, description, or member",
   topGreeting: "Welcome back",
   topMyTasksDesc: "Your tasks across active sprints",
@@ -216,7 +208,6 @@ export const en: ProjectsTranslations = {
   projectTypeFilterLabel: "Filter by project type",
   projectTypeFilterAll: "All types",
   projectSortLabel: "Sort by",
-  projectDensityLabel: "Display density",
   projectViewModeLabel: "View mode",
   projectNoMatch: "No projects match your filters",
   projectArchivedSection: "Archived projects",
@@ -265,8 +256,6 @@ export const id: ProjectsTranslations = {
   projectSortNameAsc: "Nama A→Z",
   projectSortNameDesc: "Nama Z→A",
   projectSortProgress: "Progres (tinggi → rendah)",
-  projectDensityComfortable: "Nyaman",
-  projectDensityCompact: "Kompak",
   projectSearchPlaceholder: "Cari nama proyek, deskripsi, atau anggota",
   topGreeting: "Selamat datang kembali",
   topMyTasksDesc: "Tugas Anda di sprint yang sedang berjalan",
@@ -300,7 +289,6 @@ export const id: ProjectsTranslations = {
   projectTypeFilterLabel: "Saring menurut tipe proyek",
   projectTypeFilterAll: "Semua tipe",
   projectSortLabel: "Urutkan",
-  projectDensityLabel: "Kepadatan tampilan",
   projectViewModeLabel: "Mode tampilan",
   projectNoMatch: "Tidak ada proyek yang cocok dengan filter",
   projectArchivedSection: "Proyek yang diarsipkan",

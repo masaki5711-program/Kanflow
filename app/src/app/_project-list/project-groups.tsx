@@ -4,7 +4,8 @@ import type { ReactNode } from "react"
 import { ChevronRight, FolderOpen, SearchX } from "lucide-react"
 import { cn, EmptyState } from "@/components/ui"
 import { useLanguage } from "@/lib/language-context"
-import { colorDot, type Category, type Density, type Project } from "./types"
+import { groupByRole, roleGroupTitle } from "./role-groups"
+import { colorDot, type Category, type Project } from "./types"
 
 interface SectionHeaderProps {
   title: string
@@ -32,48 +33,33 @@ export function SectionHeader({ title, count, expanded, onToggle, controlsId, do
   )
 }
 
-function listClass(density: Density, indented = false): string {
-  return cn(density === "compact" ? "space-y-1.5" : "grid gap-4", indented && "ml-6 mt-2")
+interface Section {
+  key: string
+  title: string
+  dotColor?: string
+  items: Project[]
 }
 
-interface CategoryViewProps {
-  projects: Project[]
-  categories: Category[]
-  density: Density
+interface SectionsProps {
+  sections: Section[]
   collapsed: Record<string, boolean>
   onToggleSection: (key: string) => void
-  renderItem: (p: Project) => ReactNode
+  renderList: (items: Project[], label: string) => ReactNode
 }
 
-/** Projects grouped by the user's categories, then an "uncategorized" group. */
-export function CategoryView({ projects, categories, density, collapsed, onToggleSection, renderItem }: CategoryViewProps) {
+/** Collapsible sections with counts; the collapsed state is persisted by the caller. */
+function CollapsibleSections({ sections, collapsed, onToggleSection, renderList }: SectionsProps) {
   const { t } = useLanguage()
-  const categorized = new Set<string>()
-  const sections = categories
-    .map((cat) => {
-      const ids = new Set(cat.assignments.map((a) => a.projectId))
-      const items = projects.filter((p) => ids.has(p.id))
-      items.forEach((p) => categorized.add(p.id))
-      return { key: `cat-${cat.id}`, title: cat.name, dotColor: colorDot[cat.color] ?? colorDot.gray, items }
-    })
-    .filter((s) => s.items.length > 0)
-  const uncategorized = projects.filter((p) => !categorized.has(p.id))
-  const all =
-    uncategorized.length > 0
-      ? [...sections, { key: "uncategorized", title: t.categoryUncategorized, dotColor: undefined, items: uncategorized }]
-      : sections
-
-  if (all.length === 0) {
+  if (sections.length === 0) {
     return <EmptyState compact icon={<SearchX className="h-5 w-5" />} title={t.projectListNoActive} />
   }
-
   return (
     <div className="space-y-4">
-      {all.map((section) => {
+      {sections.map((section) => {
         const expanded = !collapsed[section.key]
         const listId = `project-section-${section.key}`
         return (
-          <section key={section.key} aria-label={section.title}>
+          <section key={section.key} aria-label={section.title} data-testid={`project-section-${section.key}`}>
             <SectionHeader
               title={section.title}
               count={section.items.length}
@@ -83,8 +69,8 @@ export function CategoryView({ projects, categories, density, collapsed, onToggl
               dotColor={section.dotColor}
             />
             {expanded && (
-              <div id={listId} className={listClass(density, true)}>
-                {section.items.map(renderItem)}
+              <div id={listId} className="ml-6 mt-2">
+                {renderList(section.items, section.title)}
               </div>
             )}
           </section>
@@ -94,15 +80,58 @@ export function CategoryView({ projects, categories, density, collapsed, onToggl
   )
 }
 
+interface CategoryViewProps {
+  projects: Project[]
+  categories: Category[]
+  collapsed: Record<string, boolean>
+  onToggleSection: (key: string) => void
+  renderList: (items: Project[], label: string) => ReactNode
+}
+
+/** Projects grouped by the user's categories, then an "uncategorized" group. */
+export function CategoryView({ projects, categories, collapsed, onToggleSection, renderList }: CategoryViewProps) {
+  const { t } = useLanguage()
+  const categorized = new Set<string>()
+  const sections: Section[] = categories
+    .map((cat) => {
+      const ids = new Set(cat.assignments.map((a) => a.projectId))
+      const items = projects.filter((p) => ids.has(p.id))
+      items.forEach((p) => categorized.add(p.id))
+      return { key: `cat-${cat.id}`, title: cat.name, dotColor: colorDot[cat.color] ?? colorDot.gray, items }
+    })
+    .filter((s) => s.items.length > 0)
+  const uncategorized = projects.filter((p) => !categorized.has(p.id))
+  const all = uncategorized.length > 0 ? [...sections, { key: "uncategorized", title: t.categoryUncategorized, items: uncategorized }] : sections
+  return <CollapsibleSections sections={all} collapsed={collapsed} onToggleSection={onToggleSection} renderList={renderList} />
+}
+
+interface RoleViewProps {
+  projects: Project[]
+  isFav: (p: Project) => boolean
+  collapsed: Record<string, boolean>
+  onToggleSection: (key: string) => void
+  renderList: (items: Project[], label: string) => ReactNode
+}
+
+/** Projects grouped by the viewer's own role (favorites first). */
+export function RoleView({ projects, isFav, collapsed, onToggleSection, renderList }: RoleViewProps) {
+  const { t, language } = useLanguage()
+  const sections: Section[] = groupByRole(projects, isFav).map((g) => ({
+    key: `role-${g.key}`,
+    title: roleGroupTitle(g.key, t, language),
+    items: g.items,
+  }))
+  return <CollapsibleSections sections={sections} collapsed={collapsed} onToggleSection={onToggleSection} renderList={renderList} />
+}
+
 interface FlatViewProps {
   projects: Project[]
   totalCount: number
-  density: Density
-  renderItem: (p: Project) => ReactNode
+  renderList: (items: Project[], label: string) => ReactNode
   createAction: ReactNode
 }
 
-export function FlatView({ projects, totalCount, density, renderItem, createAction }: FlatViewProps) {
+export function FlatView({ projects, totalCount, renderList, createAction }: FlatViewProps) {
   const { t } = useLanguage()
   if (totalCount === 0) {
     return (
@@ -117,5 +146,5 @@ export function FlatView({ projects, totalCount, density, renderItem, createActi
   if (projects.length === 0) {
     return <EmptyState compact icon={<SearchX className="h-5 w-5" />} title={t.projectNoMatch} />
   }
-  return <div className={listClass(density)}>{projects.map(renderItem)}</div>
+  return renderList(projects, t.projectListTitle)
 }

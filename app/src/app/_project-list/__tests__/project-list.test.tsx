@@ -121,7 +121,7 @@ describe("ProjectList rendering", () => {
     expect(screen.getByRole("link", { name: "Beta" })).toBeInTheDocument()
   })
 
-  it("persists sort and density preferences and switches to compact rows", async () => {
+  it("persists sort and layout preferences and switches to the dense list", async () => {
     const user = userEvent.setup()
     renderList()
     await user.selectOptions(screen.getByRole("combobox", { name: t.projectSortLabel }), "name_asc")
@@ -129,10 +129,12 @@ describe("ProjectList rendering", () => {
     const links = screen.getAllByRole("link").map((a) => a.textContent)
     expect(links.indexOf("Beta")).toBeLessThan(links.indexOf("Alpha"))
 
-    await user.click(screen.getByRole("button", { name: t.projectDensityCompact }))
-    expect(window.localStorage.getItem("projectDensity")).toBe("compact")
+    await user.click(screen.getByRole("button", { name: t.projectLayoutList }))
+    expect(window.localStorage.getItem("projectLayout")).toBe("list")
+    expect(screen.getByRole("table", { name: t.projectListTitle })).toBeInTheDocument()
     expect(screen.queryByRole("progressbar")).not.toBeInTheDocument()
-    await user.click(screen.getByRole("button", { name: t.projectDensityComfortable }))
+    await user.click(screen.getByRole("button", { name: t.projectLayoutCard }))
+    expect(screen.queryByRole("table")).not.toBeInTheDocument()
     expect(screen.getAllByRole("progressbar").length).toBeGreaterThan(0)
   })
 
@@ -355,11 +357,11 @@ describe("ProjectList actions", () => {
     expect(screen.queryByRole("textbox", { name: t.projectEditName })).not.toBeInTheDocument()
   })
 
-  it("renames in compact row mode too", async () => {
+  it("renames in the list layout too (old compact density opens the list)", async () => {
     window.localStorage.setItem("projectDensity", "compact")
     const user = userEvent.setup()
     renderList()
-    const row = screen.getByRole("link", { name: "Beta" }).closest("div.group") as HTMLElement
+    const row = screen.getByRole("link", { name: "Beta" }).closest('[role="row"]') as HTMLElement
     await user.click(within(row).getByRole("button", { name: t.projectEditName }))
     expect(within(row).getByRole("textbox", { name: t.projectEditName })).toHaveValue("Beta")
   })

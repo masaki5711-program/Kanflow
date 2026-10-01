@@ -17,7 +17,7 @@ import {
 import { DormantBadge, ProjectDates } from "./project-dates"
 import { getProjectTypeLabels, type ProjectType } from "@/lib/project-type-labels"
 import { projectRoleLabel, projectRoleShortLabel } from "@/lib/project-roles"
-import { cardTint, clampPct, roleStyle, rowTint, type Category, type Project } from "./types"
+import { cardTint, clampPct, roleStyle, type Category, type Project } from "./types"
 
 export interface ProjectItemProps {
   project: Project
@@ -42,7 +42,7 @@ export interface ProjectItemProps {
 }
 
 /** Inline project-name editor: Enter / blur saves, Escape cancels. */
-function RenameInput({ project, onRename, onCancel }: { project: Project; onRename: (name: string) => void | Promise<void>; onCancel: () => void }) {
+export function RenameInput({ project, onRename, onCancel }: { project: Project; onRename: (name: string) => void | Promise<void>; onCancel: () => void }) {
   const { t } = useLanguage()
   const [draft, setDraft] = useState(project.name)
   const busy = useRef(false)
@@ -85,7 +85,7 @@ function RenameInput({ project, onRename, onCancel }: { project: Project; onRena
 }
 
 /** Project name as a stretched link: the whole card is clickable, the name is a real link. */
-function NameLink({ project, className }: { project: Project; className?: string }) {
+export function NameLink({ project, className }: { project: Project; className?: string }) {
   return (
     <Link
       href={`/projects/${project.id}`}
@@ -99,7 +99,7 @@ function NameLink({ project, className }: { project: Project; className?: string
   )
 }
 
-function RenameButton({ onClick }: { onClick: () => void }) {
+export function RenameButton({ onClick }: { onClick: () => void }) {
   const { t } = useLanguage()
   return (
     <IconButton
@@ -206,50 +206,5 @@ export const ProjectCard = memo(function ProjectCard(props: ProjectItemProps) {
         <DormantBadge project={project} now={props.now ?? new Date()} />
       </div>
     </article>
-  )
-})
-
-/** Compact one-line variant of the project card. */
-export const ProjectRow = memo(function ProjectRow(props: ProjectItemProps) {
-  const { project, badges, color, isFavorite, menuOpen, editing } = props
-  const { t } = useLanguage()
-  const pct = clampPct(project.progressPct)
-
-  return (
-    <div
-      onContextMenu={(e) => props.onContextMenu(e, project.id)}
-      className={cn(
-        "group relative flex items-center gap-3 rounded-lg border border-border bg-surface px-3 py-2 transition-colors hover:border-primary/40 hover:bg-primary-soft/30",
-        color ? (rowTint[color] ?? "") : "",
-      )}
-    >
-      <FavoriteButton active={isFavorite} onToggle={() => props.onToggleFavorite(project)} size="sm" />
-      <ProjectTypeMark type={project.projectType} className="w-6 shrink-0 text-center text-body" />
-      {editing ? (
-        <div className="min-w-0 flex-1">
-          <RenameInput project={project} onRename={(name) => props.onRename(project.id, name)} onCancel={props.onCancelEdit} />
-        </div>
-      ) : (
-        <>
-          <NameLink project={project} className="flex-1 truncate text-body font-semibold text-fg group-hover:text-primary" />
-          <RenameButton onClick={() => props.onStartEdit(project.id)} />
-        </>
-      )}
-      <CategoryBadges categories={badges} max={3} compact />
-      <DormantBadge project={project} now={props.now ?? new Date()} />
-      <ProjectDates project={project} now={props.now ?? new Date()} compact className="hidden shrink-0 lg:block" />
-      <div className="hidden shrink-0 items-center gap-2 sm:flex">
-        <div className="h-1 w-20 overflow-hidden rounded-full bg-surface-sunken" aria-hidden="true">
-          <div className="h-full rounded-full bg-success" style={{ width: `${pct}%` }} />
-        </div>
-        <span className="w-10 text-right text-caption font-semibold text-success" title={t.projectProgress}>
-          {pct}%
-        </span>
-      </div>
-      <div className="hidden shrink-0 items-center gap-3 text-caption md:flex">
-        <ProjectCounts project={project} />
-      </div>
-      <OptionsButton expanded={menuOpen} onOpen={(e) => props.onOpenOptions(e, project.id)} />
-    </div>
   )
 })
