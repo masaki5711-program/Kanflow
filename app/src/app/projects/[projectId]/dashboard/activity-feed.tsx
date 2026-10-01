@@ -93,7 +93,7 @@ export function ActivityFeed({ projectId }: { projectId: string }) {
   } else {
     body = (
       <>
-        <ol className="divide-y divide-border">
+        <ol className="max-h-[32rem] divide-y divide-border overflow-y-auto pr-1">
           {data.items.map((entry) => <FeedItem key={entry.id} entry={entry} projectId={projectId} now={now} />)}
         </ol>
         {data.nextCursor && (

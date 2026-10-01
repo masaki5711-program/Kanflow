@@ -19,7 +19,7 @@ interface Row {
   icon: ReactNode
 }
 
-/** IceBox / Backlog / Sprints counters as a compact linked list (secondary to the sprint pulse and feed). */
+/** IceBox / Backlog / Sprints counters: a compact linked list on phones, a 3-tile strip from sm up. */
 export function OverviewCards({ projectId, iceboxCount, backlogCount, sprintCount }: OverviewCardsProps) {
   const { t, pt } = useLanguage()
   const rows: Row[] = [
@@ -32,12 +32,12 @@ export function OverviewCards({ projectId, iceboxCount, backlogCount, sprintCoun
       <h2 id="dashboard-overview-heading" className="mb-1 text-caption font-semibold uppercase tracking-wider text-fg-muted">
         {t.dashboardOverview}
       </h2>
-      <ul className="divide-y divide-border">
+      <ul className="grid grid-cols-1 divide-y divide-border sm:grid-cols-3 sm:gap-2 sm:divide-y-0">
         {rows.map((row) => (
           <li key={row.path}>
             <Link
               href={`/projects/${projectId}/${row.path}`}
-              className="group flex items-center gap-3 rounded-ui-sm px-1 py-2 hover:bg-surface-muted"
+              className="group flex items-center gap-3 rounded-ui-sm px-1 py-2 hover:bg-surface-muted sm:border sm:border-border sm:px-3"
             >
               <span aria-hidden="true" className="flex h-8 w-8 items-center justify-center rounded-full bg-surface-sunken">{row.icon}</span>
               <span className="flex-1 text-body text-fg">{row.label}</span>

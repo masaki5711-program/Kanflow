@@ -33,12 +33,32 @@ function renderDashboard(extra: { canUseAi?: boolean; isProjectMember?: boolean 
 }
 
 describe("dashboard grid on phones (P-17)", () => {
-  it.each(["dashboard-row-now", "dashboard-row-feed"])("%s uses a shrinkable single column below lg", (rowId) => {
+  it.each(["dashboard-row-now"])("%s uses a shrinkable single column below lg", (rowId) => {
     renderDashboard()
     const row = screen.getByTestId(rowId)
     // grid-cols-1 = minmax(0, 1fr): a long name can no longer widen the column past the viewport.
     expect(row).toHaveClass("grid", "grid-cols-1", "lg:grid-cols-12")
     for (const cell of Array.from(row.children)) expect(cell).toHaveClass("min-w-0")
+  })
+
+  it("stacks overview, goals and feed as full-width rows so no column is left empty", () => {
+    // Arrange
+    renderDashboard()
+
+    // Act
+    const rows = ["dashboard-row-overview", "dashboard-row-goals", "dashboard-row-feed"].map((id) => screen.getByTestId(id))
+
+    // Assert
+    expect(rows[0]).toContainElement(screen.getByTestId("overview"))
+    expect(rows[1]).toContainElement(screen.getByTestId("goals"))
+    expect(rows[2]).toContainElement(screen.getByTestId("feed"))
+    for (const row of rows) {
+      expect(row).toHaveClass("min-w-0")
+      expect(row.className).not.toMatch(/col-span/)
+    }
+    // Document order: overview → goals → feed.
+    expect(rows[0].compareDocumentPosition(rows[1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(rows[1].compareDocumentPosition(rows[2]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   it("keeps the sprint card, my tasks and due items inside the first row", () => {

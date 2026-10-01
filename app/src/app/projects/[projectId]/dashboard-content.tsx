@@ -51,7 +51,7 @@ interface DashboardContentProps {
 /**
  * Project dashboard, ordered by what a member needs first:
  * 1. now — active sprint pulse (dominant), my tasks here, what is due next
- * 2. what happened — activity feed, with counts and goals alongside
+ * 2. counts strip, product goals, activity feed — full-width rows (no side column)
  * 3. reference — project description (collapsed) and attachments
  */
 export function DashboardContent({
@@ -114,17 +114,21 @@ export function DashboardContent({
         </div>
       </div>
 
-      {/* Row 2 — what happened, with counts and goals alongside */}
-      <div data-testid="dashboard-row-feed" className="grid grid-cols-1 items-start gap-4 lg:grid-cols-12">
-        <div className="min-w-0 lg:col-span-8">
-          <ActivityFeed projectId={projectId} />
-        </div>
-        <aside className="min-w-0 space-y-4 lg:col-span-4" aria-label={projectName}>
-          <OverviewCards projectId={projectId} iceboxCount={iceboxCount} backlogCount={backlogCount} sprintCount={sprintCount} />
-          <div className="rounded-ui-lg border border-border bg-surface p-4 shadow-ui-sm">
-            <ProductGoals projectId={projectId} initialGoals={productGoals} canEdit={canEditGoals} />
-          </div>
-        </aside>
+      {/* Row 2 — counts as a compact horizontal strip */}
+      <div data-testid="dashboard-row-overview" className="min-w-0">
+        <OverviewCards projectId={projectId} iceboxCount={iceboxCount} backlogCount={backlogCount} sprintCount={sprintCount} />
+      </div>
+
+      {/* Row 3 — product goals at full width (goal statements are long prose). Rows are
+          stacked rather than side by side so a short feed or short goal list never leaves
+          an empty column next to the other. */}
+      <div data-testid="dashboard-row-goals" className="min-w-0 rounded-ui-lg border border-border bg-surface p-4 shadow-ui-sm">
+        <ProductGoals projectId={projectId} initialGoals={productGoals} canEdit={canEditGoals} />
+      </div>
+
+      {/* Row 4 — what happened (list height capped inside the feed) */}
+      <div data-testid="dashboard-row-feed" className="min-w-0">
+        <ActivityFeed projectId={projectId} />
       </div>
 
       {/* Reference — collapsed by default */}
