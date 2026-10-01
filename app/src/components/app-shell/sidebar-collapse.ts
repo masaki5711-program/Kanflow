@@ -73,20 +73,28 @@ function writeCollapsed(ids: readonly string[]): void {
 
 export interface CollapsedGroups {
   isCollapsed: (id: string) => boolean
+  /** True when at least one section is collapsed. */
+  anyCollapsed: boolean
   toggle: (id: string) => void
+  /** Open one section (no-op when it is already open). */
+  expand: (id: string) => void
+  /** Collapse every listed section, or open all with an empty list. */
+  setAll: (ids: readonly string[]) => void
 }
 
 export function useCollapsedGroups(): CollapsedGroups {
   const collapsed = useSyncExternalStore(subscribe, getSnapshot, () => EMPTY)
   const isCollapsed = useCallback((id: string) => collapsed.includes(id), [collapsed])
-  const toggle = useCallback(
-    (id: string) => {
-      const current = getSnapshot()
-      writeCollapsed(current.includes(id) ? current.filter((g) => g !== id) : [...current, id])
-    },
-    [],
-  )
-  return { isCollapsed, toggle }
+  const toggle = useCallback((id: string) => {
+    const current = getSnapshot()
+    writeCollapsed(current.includes(id) ? current.filter((g) => g !== id) : [...current, id])
+  }, [])
+  const expand = useCallback((id: string) => {
+    const current = getSnapshot()
+    if (current.includes(id)) writeCollapsed(current.filter((g) => g !== id))
+  }, [])
+  const setAll = useCallback((ids: readonly string[]) => writeCollapsed([...ids]), [])
+  return { isCollapsed, anyCollapsed: collapsed.length > 0, toggle, expand, setAll }
 }
 
 /** Test seam: forget the cached / in-memory state (does not touch localStorage). */

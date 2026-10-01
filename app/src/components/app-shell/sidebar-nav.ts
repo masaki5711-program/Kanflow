@@ -113,3 +113,8 @@ export function isNavItemActive(pathname: string, item: Pick<SidebarNavItem, "hr
   if (item.exact) return pathname === item.href
   return pathname === item.href || pathname.startsWith(`${item.href}/`)
 }
+
+/** Id of the section holding the current page (undefined outside the project menu). */
+export function findActiveGroupId(groups: readonly SidebarNavGroup[], pathname: string): SidebarGroupId | undefined {
+  return groups.find((g) => g.items.some((item) => isNavItemActive(pathname, item)))?.id
+}
