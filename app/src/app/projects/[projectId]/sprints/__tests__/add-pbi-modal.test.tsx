@@ -107,7 +107,7 @@ describe("AddPbiModal", () => {
     create.resolve(json({ id: "new1" }))
     await waitFor(() => expect(onAdded).toHaveBeenCalled())
     expect(calls.find((c) => c.method === "POST" && c.url === BACKLOG)?.body).toEqual({
-      initiative: "New feature", epic: "E", userStory: null, acceptanceCriteria: null, workloadScore: 0, assignedPo: null, status: "ready",
+      initiative: "New feature", epic: "E", userStory: null, acceptanceCriteria: null, workloadScore: 0, assignedPo: null, referenceDoc: null, status: "ready",
     })
     expect(calls.find((c) => c.url === ATTACH)?.body).toEqual({ pbIds: ["new1"] })
   })

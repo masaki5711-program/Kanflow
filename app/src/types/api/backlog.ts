@@ -53,9 +53,21 @@ export interface BacklogItemDto extends PbiWithStatusDto {
   blocking?: PbiDependencyRefDto[]
 }
 
+/** File / image in a PBI's 参考資料 (GET|POST /api/projects/:id/backlog/:itemId/attachments). */
+export interface PbiAttachmentDto {
+  id: string
+  fileName: string
+  originalName: string
+  fileSize: number
+  mimeType: string
+  createdAt: string
+}
+
 /** GET /api/projects/:id/backlog/:itemId — the list row plus the PO-only text fields. */
 export interface BacklogItemDetailDto extends Omit<BacklogItemDto, "sortOrder" | "sprintItems"> {
   referenceDoc: string | null
+  /** Files / images of the 参考資料 section, oldest first. */
+  attachments?: PbiAttachmentDto[]
   notReadyReason: string | null
   poNote: string | null
   createdAt: string

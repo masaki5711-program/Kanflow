@@ -99,8 +99,8 @@ describe("SearchPalette", () => {
     expect(activeOption()).toBe(options[0])
     await user.type(input, "{Enter}")
     expect(onClose).toHaveBeenCalled()
-    // Static commands follow the sidebar order (実行 first): the first one opens the backlog.
-    expect(router.push).toHaveBeenCalledWith("/projects/p1/backlog")
+    // Static commands follow the sidebar order (実行 first): the first one opens the IceBox.
+    expect(router.push).toHaveBeenCalledWith("/projects/p1/icebox")
   })
 
   it("asks for 2+ characters and does not call the API for one", async () => {

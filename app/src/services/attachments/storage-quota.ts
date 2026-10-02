@@ -2,7 +2,8 @@ import { defaultDb, type Db } from "@/services/_shared/db"
 import { StatusError } from "@/services/_shared/errors"
 
 /**
- * Per-project attachment storage quota (project files + icebox attachments).
+ * Per-project attachment storage quota (project files + icebox, team chat
+ * and PBI reference attachments).
  * env ATTACHMENT_PROJECT_QUOTA_MB, default 5120; 0 = unlimited.
  *
  * Checked against the declared size before an upload is written. Two
@@ -43,6 +44,10 @@ export async function projectStorageUsed(db: Db, projectId: string): Promise<num
            FROM TeamMessageAttachment ta
            JOIN TeamMessage tm ON tm.id = ta.messageId
           WHERE tm.projectId = ${projectId})
+      + (SELECT COALESCE(SUM(pa2.fileSize), 0)
+           FROM pbi_attachment pa2
+           JOIN ProductBacklogItem pbi ON pbi.id = pa2.backlogItemId
+          WHERE pbi.projectId = ${projectId})
     AS CHAR) AS total`
   const total = Number(rows[0]?.total ?? 0)
   return Number.isFinite(total) ? total : 0

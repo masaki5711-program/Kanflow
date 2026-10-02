@@ -5,6 +5,8 @@ import { Field, Input, Select, Textarea, cn } from "@/components/ui"
 import { HelpTooltip } from "@/components/help-tooltip"
 import { formatPointUnit, getPointScale } from "@/lib/i18n"
 import { useLanguage } from "@/lib/language-context"
+import { PbiReferenceField } from "./attachments/pbi-reference-field"
+import type { PbiAttachmentsController } from "./attachments/types"
 import { LabelWithIcon, PbiLinkFields } from "./pbi-link-fields"
 import { PbiPlanPicker } from "./pbi-plan-field"
 import type { PbiForm, PbiStatusValue } from "./pbi-form-state"
@@ -27,13 +29,15 @@ interface Props {
   projectId?: string
   /** Inline "user story or initiative required" message (create modal), shown under the user story. */
   contentError?: string
+  /** Files / images under 参考資料: uploaded at once (edit) or queued until created (create modal). */
+  attachments?: PbiAttachmentsController
 }
 
 /**
  * Every editable field of a PBI — the one form used by the detail modal's
  * edit mode and by the create modal.
  */
-export function PbiEditFields({ form, setForm, options, selfId, disabled, generating, onGenerate, projectId, contentError }: Props) {
+export function PbiEditFields({ form, setForm, options, selfId, disabled, generating, onGenerate, projectId, contentError, attachments }: Props) {
   const { t, pt } = useLanguage()
   const set = <K extends keyof PbiForm>(key: K) => (value: PbiForm[K]) => setForm((prev) => ({ ...prev, [key]: value }))
   const text = (key: keyof PbiForm) => (e: { target: { value: string } }) => set(key)(e.target.value as never)
@@ -93,16 +97,14 @@ export function PbiEditFields({ form, setForm, options, selfId, disabled, genera
           </Field>
         </div>
         <Field label={t.backlogPoNote}>
-          <Textarea value={form.poNote} onChange={text("poNote")} rows={2} />
+          <Textarea value={form.poNote} onChange={text("poNote")} rows={8} autoGrow className="min-h-[200px]" />
         </Field>
         {form.status === "not_ready" && (
           <Field label={t.backlogNotReadyReason}>
-            <Textarea value={form.notReadyReason} onChange={text("notReadyReason")} rows={2} />
+            <Textarea value={form.notReadyReason} onChange={text("notReadyReason")} rows={8} autoGrow className="min-h-[200px]" />
           </Field>
         )}
-        <Field label={t.backlogReferenceDoc}>
-          <Textarea value={form.referenceDoc} onChange={text("referenceDoc")} rows={2} />
-        </Field>
+        <PbiReferenceField value={form.referenceDoc} onChange={text("referenceDoc")} attachments={attachments} disabled={disabled} />
       </div>
     </fieldset>
   )

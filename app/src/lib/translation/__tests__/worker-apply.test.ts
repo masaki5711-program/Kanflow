@@ -66,9 +66,11 @@ beforeEach(() => {
 })
 
 describe("translation worker write-back", () => {
-  test("updates only the row it claimed (running + claim time + source hash)", async () => {
+  test("updates only the row it claimed (running + claim time + source hash); still pending while English is missing", async () => {
     mocks.updateMany.mockResolvedValue({ count: 1 })
     await expect(translationWorkerTick()).resolves.toEqual({ processed: 1, skipped: null })
+    // ROW has sourceLocale "ja" and no textEn: targetsFor("ja") = ["id", "en"], so after
+    // filling "id" the row still needs "en" and goes back to pending (not done).
     expect(applyCall()).toMatchObject({
       where: {
         entityType: "backlog_item",
@@ -78,7 +80,7 @@ describe("translation worker write-back", () => {
         startedAt: CLAIMED_AT,
         sourceHash: "h",
       },
-      data: { status: "done", textId: "Halo" },
+      data: { status: "pending", textId: "Halo" },
     })
   })
 

@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma"
 import { aiLog } from "@/lib/ai-monitor"
-import { detectLocale, oppositeLocale } from "./detect-locale"
+import { detectJaOrId, oppositeLocale } from "./detect-locale"
 import { extractGlossaryMarkers, hasGlossaryMarkup, matchGlossary, normalizeTerm } from "./glossary-markup"
 import type { GlossaryEntry, GlossaryTerm, TranslationLocale } from "./types"
 
@@ -34,7 +34,7 @@ export async function applyGlossaryMarkup<T extends Record<string, unknown>>(
     const { cleaned, entries } = extractGlossaryMarkers(value)
     out[key] = cleaned
     if (entries.length === 0) continue
-    const source = detectLocale(cleaned)
+    const source = detectJaOrId(cleaned)
     for (const e of entries) {
       try {
         await upsertGlossary({ sourceLocale: source, targetLocale: oppositeLocale(source), ...e }, actorId, true)

@@ -4,6 +4,8 @@ import { I18nText, useI18nText } from "@/components/i18n-text"
 import { useLanguage } from "@/lib/language-context"
 import type { EntityI18n } from "@/lib/translation/types"
 import type { BacklogItemDetailDto } from "@/types/api"
+import { PbiAttachmentList } from "./attachments/pbi-attachment-list"
+import { toAttachmentItems } from "./attachments/use-saved-pbi-attachments"
 import { PbiPlanLink } from "./pbi-plan-field"
 
 export type PbiDetail = Omit<BacklogItemDetailDto, "iceboxItemId" | "productGoalId"> &
@@ -35,7 +37,14 @@ export function PbiReadBody({ item, projectId }: { item: PbiDetail; projectId?: 
       {item.status === "not_ready" && item.notReadyReason && (
         <ReadField label={t.backlogNotReadyReason} value={item.notReadyReason} multiline i18n={item.i18n} field="notReadyReason" entityId={item.id} />
       )}
-      <ReadField label={t.backlogReferenceDoc} value={item.referenceDoc} multiline />
+      <div>
+        <ReadField label={t.backlogReferenceDoc} value={item.referenceDoc} multiline />
+        {projectId && item.attachments && item.attachments.length > 0 && (
+          <div className="mt-2">
+            <PbiAttachmentList items={toAttachmentItems(projectId, item.id, item.attachments)} />
+          </div>
+        )}
+      </div>
     </div>
   )
 }

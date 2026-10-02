@@ -5,7 +5,8 @@ import { protectMentions, restoreMentions } from "./protect-mentions"
 import type { GlossaryTerm, TranslationLocale } from "./types"
 
 /**
- * One-direction JA ⇔ ID translation with glossary enforcement.
+ * One-direction translation between Japanese, Indonesian and English with
+ * glossary enforcement.
  *
  * Used both by the background worker (`background: true`, preemptible) and
  * by the "translate now" endpoint (high priority). The model is asked to
@@ -38,7 +39,7 @@ export interface TranslateResult {
   glossaryMisses: string[]
 }
 
-const SYSTEM_PROMPT = `あなたは Yamaha YMMA 工場の生産技術・プロジェクト管理ドキュメントを日本語と Bahasa Indonesia の間で翻訳する専門翻訳者です。
+const SYSTEM_PROMPT = `あなたは Yamaha YMMA 工場の生産技術・プロジェクト管理ドキュメントを日本語・Bahasa Indonesia・English の間で翻訳する専門翻訳者です。
 
 ルール:
 - 製造現場の専門用語 (例: SMT / 治具 / poka-yoke / dekok) は適切に対訳する
@@ -47,6 +48,8 @@ const SYSTEM_PROMPT = `あなたは Yamaha YMMA 工場の生産技術・プロ�
 - 翻訳結果のみを返す。前置き・解説・引用符・マークダウンは不要
 - 改行は元のまま保持する
 - {{M0}} {{M1}} のような {{M数字}} 形式のプレースホルダーは翻訳せず、そのままの表記で訳文の適切な位置に残す`
+
+const LOCALE_LABEL: Record<TranslationLocale, string> = { ja: "日本語", id: "Bahasa Indonesia", en: "English" }
 
 function glossaryBlock(glossary: GlossaryTerm[], strong: boolean): string {
   if (glossary.length === 0) return ""
@@ -64,8 +67,8 @@ function userPrompt(
   glossary: GlossaryTerm[],
   strong: boolean
 ): string {
-  const srcLabel = source === "ja" ? "日本語" : "Bahasa Indonesia"
-  const tgtLabel = target === "ja" ? "日本語" : "Bahasa Indonesia"
+  const srcLabel = LOCALE_LABEL[source]
+  const tgtLabel = LOCALE_LABEL[target]
   return `次の ${srcLabel} のテキストを ${tgtLabel} に翻訳してください。翻訳結果だけを返してください。
 ${glossaryBlock(glossary, strong)}
 ----

@@ -10,10 +10,12 @@ vi.mock("@/services/_shared/soft-delete", async (importOriginal) => ({
 }))
 vi.mock("@/lib/sprint-score", () => ({ recalcSprintActualScore: vi.fn(async () => 0) }))
 vi.mock("../backlog.repository")
+vi.mock("@/lib/upload/stored-files", () => ({ deleteUploadedFile: vi.fn(async () => undefined) }))
 vi.mock("../backlog.dependencies.repository", () => ({ findDependencyRows: vi.fn(async () => []) }))
 
 const repo = await import("../backlog.repository")
 const tr = await import("@/services/_shared/translations")
+const storedFiles = await import("@/lib/upload/stored-files")
 const activity = await import("@/services/_shared/activity")
 const softDelete = await import("@/services/_shared/soft-delete")
 const { ConflictError } = await import("@/services/_shared/errors")
@@ -78,10 +80,22 @@ describe("backlog trash", () => {
   it("purge hard-deletes a trashed PBI with its task translations and re-scores sprints", async () => {
     vi.mocked(repo.findTrashedBacklogItem).mockResolvedValue({ id: "a", projectId: "p1" })
     vi.mocked(repo.findTasksOfBacklogItem).mockResolvedValue(TASKS)
+    vi.mocked(repo.findPbiAttachmentFileNames).mockResolvedValue([])
     await svc.purgeBacklogItem("p1", "a", ACTOR)
     expect(repo.deleteBacklogItem).toHaveBeenCalledWith(TX, "p1", "a")
     expect(tr.purgeIn).toHaveBeenCalledWith(TX, { backlog_item: ["a"], sprint_task: ["t1", "t2", "t3"] })
     expect(recalcSprintActualScore).toHaveBeenCalledTimes(2)
+    expect(storedFiles.deleteUploadedFile).not.toHaveBeenCalled()
+  })
+
+  it("purge removes the stored files of the PBI's reference attachments (rows cascade)", async () => {
+    vi.mocked(repo.findTrashedBacklogItem).mockResolvedValue({ id: "a", projectId: "p1" })
+    vi.mocked(repo.findTasksOfBacklogItem).mockResolvedValue([])
+    vi.mocked(repo.findPbiAttachmentFileNames).mockResolvedValue([{ fileName: "f1.png" }, { fileName: "f2.pdf" }])
+    await svc.purgeBacklogItem("p1", "a", null)
+    expect(repo.findPbiAttachmentFileNames).toHaveBeenCalledWith(TX, "a")
+    expect(storedFiles.deleteUploadedFile).toHaveBeenCalledWith("p1", "f1.png")
+    expect(storedFiles.deleteUploadedFile).toHaveBeenCalledWith("p1", "f2.pdf")
   })
 
   it("purge refuses a PBI that is not in the trash (404)", async () => {

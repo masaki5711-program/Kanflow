@@ -12,16 +12,10 @@ import {
 import type { ApiErrorCode } from "@/services/_shared/error-codes"
 import { HEAD_BYTES, verifyFileType, type FileTypeVerdict } from "@/lib/upload/file-type"
 import { readHead, writeStreamToFile } from "@/lib/upload/stream-write"
+import { deleteUploadedFile, safeFilePath, uploadsRoot } from "@/lib/upload/stored-files"
 import { needsCharsetSniff, sniffFileCharset, withTextCharset } from "@/lib/upload/text-charset"
 
-/**
- * Verify that a resolved file path stays within the uploads directory.
- * Prevents path traversal attacks.
- */
-/** Absolute root of all project uploads: `<cwd>/private/uploads`. */
-export function uploadsRoot(): string {
-  return path.join(process.cwd(), "private", "uploads")
-}
+export { deleteUploadedFile, safeFilePath, uploadsRoot }
 
 /** Project ids are cuid-like; anything else never names an upload dir. */
 const SAFE_PROJECT_ID = /^[A-Za-z0-9_-]{1,64}$/
@@ -52,14 +46,6 @@ export async function removeProjectUploadDir(projectId: string): Promise<boolean
   return true
 }
 
-export function safeFilePath(projectId: string, fileName: string): string | null {
-  const uploadDir = uploadsRoot()
-  const resolved = path.resolve(uploadDir, projectId, fileName)
-  if (!resolved.startsWith(uploadDir + path.sep)) {
-    return null
-  }
-  return resolved
-}
 
 /**
  * Validate that a file extension contains only safe characters.
@@ -351,16 +337,6 @@ export async function serveStoredFile(
     })
   } catch {
     return NextResponse.json({ error: "File missing", code: "FILE_MISSING" }, { status: 404 })
-  }
-}
-
-export async function deleteUploadedFile(projectId: string, fileName: string): Promise<void> {
-  const full = safeFilePath(projectId, fileName)
-  if (!full) return
-  try {
-    await fs.unlink(full)
-  } catch {
-    // Ignore missing file
   }
 }
 

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useId, useRef, useState } from "react"
 import { usePathname } from "next/navigation"
-import { X } from "lucide-react"
+import { PanelLeftClose, PanelLeftOpen, X } from "lucide-react"
 import { useLanguage } from "@/lib/language-context"
 import { projectTypeOptions, type ProjectType } from "@/lib/project-type-labels"
 import type { Language } from "@/lib/i18n"
@@ -14,6 +14,8 @@ import { buildSidebarGroups, buildSidebarHome, buildSidebarTalk } from "@/compon
 import { useTeamChatSummary } from "@/components/updates/use-team-chat-summary"
 import { useProjectUpdateSummary } from "@/components/updates/use-project-updates"
 import { SidebarSections } from "@/components/app-shell/sidebar-group"
+import { SidebarRailNav } from "@/components/app-shell/sidebar-rail-nav"
+import { useSidebarRail } from "@/components/app-shell/sidebar-rail"
 
 interface SidebarProps {
   projectId: string
@@ -44,11 +46,18 @@ export function Sidebar(props: SidebarProps) {
   const drawer = useSidebarDrawer()
   const isDesktop = useMediaQuery("(min-width: 1024px)")
   const drawerOpen = !!drawer?.isOpen && !isDesktop
+  const rail = useSidebarRail()
 
   return (
     <>
-      <aside className="hidden lg:flex lg:sticky lg:top-14 lg:self-start lg:h-[calc(100vh-3.5rem)] w-60 shrink-0 flex-col border-r border-border bg-surface/80 backdrop-blur-sm">
-        <SidebarContent {...props} />
+      <aside
+        data-sidebar-rail={rail.isRail ? "" : undefined}
+        className={cn(
+          "hidden lg:flex lg:sticky lg:top-14 lg:self-start lg:h-[calc(100vh-3.5rem)] shrink-0 flex-col border-r border-border bg-surface/80 backdrop-blur-sm transition-[width] duration-200 ease-out motion-reduce:transition-none",
+          rail.isRail ? "w-16" : "w-60",
+        )}
+      >
+        <SidebarContent {...props} rail={rail.isRail} onToggleRail={rail.toggle} />
       </aside>
       {drawerOpen && drawer && (
         <SidebarDrawer onClose={drawer.close} drawerId={drawer.drawerId}>
@@ -119,9 +128,16 @@ function SidebarDrawer({ onClose, drawerId, children }: { onClose: () => void; d
   )
 }
 
-function SidebarContent({ projectId, projectName, projectI18n, showTrash = false, showSettings = true, showChat = true }: SidebarProps) {
+interface SidebarContentProps extends SidebarProps {
+  /** Desktop icon-only mode (the mobile drawer always shows labels). */
+  rail?: boolean
+  /** Desktop only: the collapse / expand button; absent in the drawer. */
+  onToggleRail?: () => void
+}
+
+function SidebarContent({ projectId, projectName, projectI18n, showTrash = false, showSettings = true, showChat = true, rail = false, onToggleRail }: SidebarContentProps) {
   const pathname = usePathname()
-  const { t, pt, projectType, language } = useLanguage()
+  const { t, pt } = useLanguage()
   const shownName = useI18nText(projectI18n, "name", projectName).text
   const groups = buildSidebarGroups(projectId, t, pt, { showTrash, showSettings, showChat })
   const summary = useProjectUpdateSummary(projectId, pathname)
@@ -139,10 +155,50 @@ function SidebarContent({ projectId, projectName, projectI18n, showTrash = false
 
   return (
     <>
-      <nav aria-label={t.navProjectMenu} className="flex-1 overflow-y-auto px-2 pb-3 pt-2">
-        <SidebarSections groups={groups} pinned={[home, talk]} pathname={pathname} idPrefix={idPrefix} />
+      {onToggleRail && <RailToggle rail={rail} onToggle={onToggleRail} />}
+      <nav aria-label={t.navProjectMenu} className={cn("flex-1 overflow-y-auto pb-3", rail ? "px-1 pt-1" : "px-2 pt-0")}>
+        {rail ? (
+          <SidebarRailNav groups={groups} pinned={[home, talk]} pathname={pathname} />
+        ) : (
+          <SidebarSections groups={groups} pinned={[home, talk]} pathname={pathname} idPrefix={idPrefix} />
+        )}
       </nav>
 
+      {!rail && <ProjectFooter shownName={shownName} />}
+    </>
+  )
+}
+
+/**
+ * Collapse / expand button at the top of the desktop sidebar: right-aligned
+ * with its text when full, a lone centred icon on the rail (named by its tooltip
+ * and aria-label).
+ */
+function RailToggle({ rail, onToggle }: { rail: boolean; onToggle: () => void }) {
+  const { t } = useLanguage()
+  const label = rail ? t.navSidebarExpand : t.navSidebarCollapse
+  const Icon = rail ? PanelLeftOpen : PanelLeftClose
+  return (
+    <div className={cn("flex px-2 pt-2", rail ? "justify-center" : "justify-end")}>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-label={label}
+        aria-expanded={!rail}
+        title={label}
+        data-sidebar-rail-toggle=""
+        className="inline-flex min-h-8 items-center gap-1.5 rounded-ui-sm px-2 text-caption text-fg-muted transition-colors hover:bg-surface-sunken hover:text-fg"
+      >
+        <Icon aria-hidden className="h-4 w-4" />
+        {!rail && <span aria-hidden="true">{label}</span>}
+      </button>
+    </div>
+  )
+}
+
+function ProjectFooter({ shownName }: { shownName: string | null | undefined }) {
+  const { t, projectType, language } = useLanguage()
+  return (
       <div className="border-t border-border px-6 py-4">
         {shownName && (
           <Truncate text={shownName} lines={2} className="text-caption font-medium text-fg" />
@@ -157,6 +213,5 @@ function SidebarContent({ projectId, projectName, projectI18n, showTrash = false
           {projectTypeLabel(projectType, language)}
         </span>
       </div>
-    </>
   )
 }

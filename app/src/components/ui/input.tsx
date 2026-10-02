@@ -1,6 +1,6 @@
 "use client"
 
-import type { ComponentPropsWithRef } from "react"
+import { useCallback, useLayoutEffect, useRef, type ComponentPropsWithRef, type Ref } from "react"
 import { cn } from "./cn"
 import { useFieldControl } from "./field"
 
@@ -59,17 +59,58 @@ export function Input({ className, inputSize = "md", ...props }: InputProps) {
   )
 }
 
-export type TextareaProps = ComponentPropsWithRef<"textarea">
+export type TextareaProps = ComponentPropsWithRef<"textarea"> & {
+  /**
+   * Grow with the content instead of scrolling inside the box: the height
+   * follows the text (never below `rows` / a min-height class), the user can
+   * still drag it taller.
+   */
+  autoGrow?: boolean
+}
 
-export function Textarea({ className, rows = 4, ...props }: TextareaProps) {
+export function Textarea({ className, rows = 4, autoGrow, ref, ...props }: TextareaProps) {
   const merged = useMergedControl(props)
+  const inner = useRef<HTMLTextAreaElement | null>(null)
+  const setRef = useCallback(
+    (el: HTMLTextAreaElement | null) => {
+      inner.current = el
+      assignRef(ref, el)
+    },
+    [ref],
+  )
+  useLayoutEffect(() => {
+    if (autoGrow && inner.current) fitHeight(inner.current)
+  }, [autoGrow, props.value])
   return (
     <textarea
       rows={rows}
       {...merged}
-      className={cn(CONTROL, "px-3 py-2 leading-relaxed", stateClass(isInvalid(merged["aria-invalid"])), className)}
+      ref={setRef}
+      onInput={(e) => {
+        if (autoGrow) fitHeight(e.currentTarget)
+        props.onInput?.(e)
+      }}
+      className={cn(
+        CONTROL,
+        "px-3 py-2 leading-relaxed",
+        autoGrow && "resize-y overflow-hidden",
+        stateClass(isInvalid(merged["aria-invalid"])),
+        className,
+      )}
     />
   )
+}
+
+/** Height = content height (min-height / rows still apply as the floor). */
+function fitHeight(el: HTMLTextAreaElement) {
+  el.style.height = "auto"
+  const border = el.offsetHeight - el.clientHeight
+  el.style.height = `${el.scrollHeight + border}px`
+}
+
+function assignRef<T>(ref: Ref<T> | undefined, value: T | null) {
+  if (typeof ref === "function") ref(value)
+  else if (ref) (ref as { current: T | null }).current = value
 }
 
 export type SelectProps = ComponentPropsWithRef<"select"> & { selectSize?: ControlSize }

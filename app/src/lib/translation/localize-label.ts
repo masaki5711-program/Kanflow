@@ -1,4 +1,5 @@
 import { pickText } from "./pick-text"
+import { textOf } from "./types"
 import type { EntityI18n, TranslatableEntity } from "./types"
 
 /**
@@ -47,7 +48,7 @@ function matches(label: string, source: string): boolean {
 function localizePlain(label: string, i18n: EntityI18n, fields: readonly string[], locale: string): string {
   for (const field of fields) {
     const entry = i18n[field]
-    const source = entry ? firstLine(entry.source === "ja" ? entry.ja : entry.id) : null
+    const source = entry ? firstLine(textOf(entry, entry.source)) : null
     if (!source || !matches(label, source)) continue
     return firstLine(pickText(i18n, field, source, locale).text) ?? label
   }

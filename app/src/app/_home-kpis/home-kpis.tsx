@@ -8,7 +8,7 @@ import type { HomeKpiModel, KpiTile } from "./home-kpi-tiles"
 export function HomeKpis({ model }: { model: HomeKpiModel }) {
   if (model.tiles.length === 0) {
     return model.hint ? (
-      <p data-testid="kpi-hint" className="max-w-sm text-body text-white/90 md:text-right">
+      <p data-testid="kpi-hint" className="max-w-xl text-body text-white/90">
         {model.hint}
       </p>
     ) : null

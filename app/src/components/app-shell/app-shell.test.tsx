@@ -42,6 +42,7 @@ const { AdminMenu } = await import("./admin-menu")
 const { SidebarDrawerProvider, useSidebarDrawer, SIDEBAR_DRAWER_ID } = await import("./sidebar-drawer")
 const { buildSidebarGroups, buildSidebarHome, isNavItemActive } = await import("./sidebar-nav")
 const { resetSidebarCollapseStore, SIDEBAR_COLLAPSE_KEY, parseCollapsed } = await import("./sidebar-collapse")
+const { resetSidebarRailStore, SIDEBAR_RAIL_KEY } = await import("./sidebar-rail")
 const { LanguageProvider } = await import("@/lib/language-context")
 
 stubLayout()
@@ -72,6 +73,7 @@ beforeEach(() => {
   desktop = false
   Object.defineProperty(window, "localStorage", { value: memoryStorage(), configurable: true, writable: true })
   resetSidebarCollapseStore()
+  resetSidebarRailStore()
   // The signed-in header polls the bell's unread count.
   vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ unreadCount: 0 }), { status: 200 })))
   vi.stubGlobal(
@@ -105,7 +107,7 @@ describe("sidebar-nav", () => {
     expect(groups.map((g) => g.label)).toEqual([t.navGroupExecute, t.navGroupPlan, t.navGroupReview, t.navGroupManage])
     const paths = groups.map((g) => g.items.map((i) => i.href.replace("/projects/p9", "") || "/"))
     expect(paths).toEqual([
-      ["/backlog", "/icebox", "/sprints", "/burndown"],
+      ["/icebox", "/backlog", "/sprints", "/burndown"],
       ["/plan", "/gantt", "/calendar", "/releases"],
       ["/report", "/chat"],
       ["/settings", "/trash", "/guide"],
@@ -148,6 +150,45 @@ describe("sidebar-nav", () => {
 })
 
 describe("Sidebar", () => {
+  it("collapses to an icon rail with tooltips, keeps the current page and badges, and remembers the choice", async () => {
+    desktop = true
+    const { unmount } = render(
+      <Shell>
+        <Sidebar projectId="p1" projectName="Apollo" />
+      </Shell>,
+    )
+    await userEvent.click(screen.getByRole("button", { name: t.navSidebarCollapse }))
+    expect(window.localStorage.getItem(SIDEBAR_RAIL_KEY)).toBe("1")
+    const navEl = screen.getByRole("navigation", { name: t.navProjectMenu })
+    // every page is still one click away, named by its label; no section toggles, no footer
+    const plan = within(navEl).getByRole("link", { name: t.planTitle })
+    expect(plan.textContent).toBe("")
+    expect(within(navEl).queryByRole("button", { name: t.navGroupPlan })).toBeNull()
+    expect(within(navEl).getByRole("list", { name: t.navGroupPlan })).toBeInTheDocument()
+    expect(screen.queryByText("Apollo")).toBeNull()
+    const current = within(navEl).getAllByRole("link").filter((a) => a.getAttribute("aria-current") === "page")
+    expect(current.map((a) => a.getAttribute("href"))).toEqual(["/projects/p1/backlog"])
+    // hover / focus shows the name and description next to the rail
+    fireEvent.mouseEnter(plan)
+    expect(screen.getByRole("tooltip")).toHaveTextContent(t.planTitle)
+    expect(screen.getByRole("tooltip")).toHaveTextContent(t.navDescPlan)
+    fireEvent.mouseLeave(plan)
+    expect(screen.queryByRole("tooltip")).toBeNull()
+    unmount()
+
+    // remembered on the next page view; the expand button brings the labels back
+    render(
+      <Shell>
+        <Sidebar projectId="p1" projectName="Apollo" />
+      </Shell>,
+    )
+    const expand = screen.getByRole("button", { name: t.navSidebarExpand })
+    expect(expand).toHaveAttribute("aria-expanded", "false")
+    await userEvent.click(expand)
+    expect(screen.getByText("Apollo")).toBeInTheDocument()
+    expect(window.localStorage.getItem(SIDEBAR_RAIL_KEY)).toBe("0")
+  })
+
   it("marks only the current page link with aria-current=page", () => {
     desktop = true
     render(

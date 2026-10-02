@@ -31,6 +31,7 @@ export function pbiFieldLabels(t: T, pt: PT): Record<string, string> {
     userStory: pt.backlogUserStory,
     acceptanceCriteria: pt.backlogAcceptanceCriteria,
     referenceDoc: t.backlogReferenceDoc,
+    attachment: t.pbiAttachHistoryField,
     workloadScore: pt.backlogWorkloadScore,
     status: t.sprintStatus,
     assignedPo: pt.rolePO,

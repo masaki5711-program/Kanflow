@@ -51,7 +51,8 @@ export function TopPage({ activeProjects, archivedCount, categories, isAdmin, my
         aria-labelledby="top-greeting"
         className="rounded-3xl bg-gradient-to-br from-primary-active via-primary to-sky-600 px-6 py-6 text-white shadow-ui-lg md:px-8"
       >
-        <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
+        {/* Greeting first, the KPI cards under it (side by side they pushed the greeting below the cards). */}
+        <div className="flex flex-col gap-4">
           <div className="min-w-0">
             <p className="text-caption font-medium uppercase tracking-widest text-white/80">{t.appTitle}</p>
             <h1 id="top-greeting" className="mt-1 text-2xl font-bold leading-tight md:text-3xl">{greeting}</h1>

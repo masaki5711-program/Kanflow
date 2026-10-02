@@ -1,7 +1,8 @@
 import { Prisma } from "@/generated/prisma/client"
 import { prisma } from "@/lib/prisma"
 import { aiLog } from "@/lib/ai-monitor"
-import { oppositeLocale } from "./detect-locale"
+import { inBackfillWindow } from "./backfill-window"
+import { targetsFor } from "./detect-locale"
 import { bumpGlossaryUsage, findGlossaryForText } from "./glossary-service"
 import { GateBusy, gate } from "./priority-gate"
 import { backfillTranslations } from "./service"
@@ -199,7 +200,9 @@ async function runTick(): Promise<TickResult> {
     if (!gate.isIdle(QUIET_MS)) return remember({ processed: 0, skipped: "ai-busy" })
     const admission = state.admission?.() ?? { allow: true }
     if (!admission.allow) return remember({ processed: 0, skipped: admission.reason ?? "not-admitted" })
-    const rows = await claim(Math.max(1, Math.min(BATCH, admission.batch ?? BATCH)))
+    let rows = await claim(Math.max(1, Math.min(BATCH, admission.batch ?? BATCH)))
+    // Nothing pending: in the quiet window, add English to one older row at a time.
+    if (rows.length === 0 && inBackfillWindow(process.env.TRANSLATION_EN_BACKFILL_HOURS)) rows = await claimEnglishBackfill(1)
     if (rows.length === 0) return remember({ processed: 0, skipped: null })
     let processed = 0
     for (let i = 0; i < rows.length; i++) {
@@ -281,11 +284,64 @@ async function claim(limit: number): Promise<Row[]> {
   })
 }
 
+/** Text of one language column of a row. */
+function columnText(row: Pick<Row, "textJa" | "textId" | "textEn">, locale: TranslationLocale): string | null {
+  return locale === "ja" ? row.textJa : locale === "id" ? row.textId : row.textEn
+}
+
+/** Languages still missing for the row, in fill order (JA ⇄ ID before English). */
+export function missingTargets(row: Pick<Row, "sourceLocale" | "textJa" | "textId" | "textEn">): TranslationLocale[] {
+  return targetsFor(row.sourceLocale as TranslationLocale).filter((l) => !columnText(row, l)?.trim())
+}
+
+/** Column patch that stores `text` as the `locale` side. */
+function columnPatch(locale: TranslationLocale, text: string) {
+  return locale === "ja" ? { textJa: text } : locale === "id" ? { textId: text } : { textEn: text }
+}
+
+/**
+ * Translates ONE missing language per pass (short, preemptible model calls);
+ * apply() puts the row back to pending while other languages are missing.
+ */
+/**
+ * Rows translated (JA ⇄ ID) before English existed: done but without text_en.
+ * Claimed like pending rows (running + claim time) so apply()'s guard works;
+ * only used when no pending row is waiting, inside the backfill window.
+ */
+async function claimEnglishBackfill(limit: number): Promise<Row[]> {
+  return prisma.$transaction(async (tx) => {
+    const picked = await tx.$queryRaw<Array<{ entity_type: string; entity_id: string; field: string }>>`
+      SELECT entity_type, entity_id, field
+      FROM field_translation
+      WHERE status = 'done' AND text_en IS NULL AND source_locale IN ('ja', 'id')
+      ORDER BY priority DESC, updated_at DESC
+      LIMIT ${limit}
+      FOR UPDATE SKIP LOCKED
+    `
+    const rows: Row[] = []
+    const now = new Date()
+    for (const p of picked) {
+      const r = await tx.fieldTranslation.updateMany({
+        where: { entityType: p.entity_type, entityId: p.entity_id, field: p.field, status: "done", textEn: null },
+        data: { status: "running", startedAt: now },
+      })
+      if (r.count === 0) continue
+      const row = await tx.fieldTranslation.findUnique({
+        where: { entityType_entityId_field: { entityType: p.entity_type, entityId: p.entity_id, field: p.field } },
+      })
+      if (row) rows.push(row)
+    }
+    return rows
+  })
+}
+
 async function translateOne(row: Row): Promise<WorkerOutcome> {
   const source = row.sourceLocale as TranslationLocale
-  const target = oppositeLocale(source)
-  const text = source === "ja" ? row.textJa : row.textId
+  const target = missingTargets(row)[0]
+  const text = columnText(row, source)
   if (!text) return { kind: "failure", error: "source text missing" }
+  // Nothing missing (e.g. re-queued twice): finish without a model call.
+  if (!target) return { kind: "success", translated: "", model: row.model ?? "(complete)" }
 
   let ticket
   try {
@@ -329,8 +385,14 @@ async function translateOne(row: Row): Promise<WorkerOutcome> {
  * discarded and nothing is (re)created. Returns true when the write landed.
  */
 async function apply(row: Row, outcome: WorkerOutcome): Promise<boolean> {
-  const next = nextState({ attempts: row.attempts }, outcome)
-  const target = oppositeLocale(row.sourceLocale as TranslationLocale)
+  const missing = missingTargets(row)
+  const target = missing[0]
+  const filled = outcome.kind === "success" && !!target && !!outcome.translated
+  // More languages to go: back to pending right away (same priority, attempts kept).
+  const more = filled && missing.length > 1
+  const next = more
+    ? { status: "pending" as const, attempts: row.attempts, lastError: null, requestedAt: new Date(), translated: outcome.translated, model: outcome.model }
+    : nextState({ attempts: row.attempts }, outcome)
   const now = new Date()
   const res = await prisma.fieldTranslation.updateMany({
     where: {
@@ -347,13 +409,8 @@ async function apply(row: Row, outcome: WorkerOutcome): Promise<boolean> {
       lastError: next.lastError,
       startedAt: null,
       ...(next.requestedAt ? { requestedAt: next.requestedAt } : {}),
-      ...(next.status === "done"
-        ? {
-            translatedAt: now,
-            model: next.model ?? null,
-            ...(target === "ja" ? { textJa: next.translated } : { textId: next.translated }),
-          }
-        : {}),
+      ...(filled && target && next.translated ? { ...columnPatch(target, next.translated), model: next.model ?? null } : {}),
+      ...(next.status === "done" ? { translatedAt: now } : {}),
     },
   })
   if (res.count === 0) {

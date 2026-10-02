@@ -18,6 +18,9 @@ export interface NavTranslations {
   /** Sidebar control that opens / closes every section at once. */
   navExpandAll: string
   navCollapseAll: string
+  /** Desktop sidebar: shrink to an icon rail / widen back. */
+  navSidebarCollapse: string
+  navSidebarExpand: string
   // One-line descriptions of each sidebar destination
   navDescDashboard: string
   navDescBacklog: string
@@ -61,6 +64,8 @@ export const ja: NavTranslations = {
   navGroupManage: "管理",
   navExpandAll: "すべて展開",
   navCollapseAll: "すべて折りたたむ",
+  navSidebarCollapse: "サイドバーをアイコンだけにする",
+  navSidebarExpand: "サイドバーを広げる",
   navDescDashboard: "プロジェクトの概況と進捗",
   navDescBacklog: "優先順位を付けたやること一覧（PBI）",
   navDescSprints: "期間を区切って実行・タスク管理",
@@ -100,6 +105,8 @@ export const en: NavTranslations = {
   navGroupManage: "Manage",
   navExpandAll: "Expand all",
   navCollapseAll: "Collapse all",
+  navSidebarCollapse: "Collapse sidebar to icons",
+  navSidebarExpand: "Expand sidebar",
   navDescDashboard: "Project overview and progress",
   navDescBacklog: "Prioritized list of work (PBIs)",
   navDescSprints: "Time-boxed delivery and tasks",
@@ -139,6 +146,8 @@ export const id: NavTranslations = {
   navGroupManage: "Kelola",
   navExpandAll: "Buka semua",
   navCollapseAll: "Tutup semua",
+  navSidebarCollapse: "Ciutkan sidebar menjadi ikon",
+  navSidebarExpand: "Lebarkan sidebar",
   navDescDashboard: "Ringkasan dan progres proyek",
   navDescBacklog: "Daftar pekerjaan berprioritas (PBI)",
   navDescSprints: "Pelaksanaan berbatas waktu dan tugas",

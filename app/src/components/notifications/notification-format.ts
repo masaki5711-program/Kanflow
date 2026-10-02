@@ -1,3 +1,4 @@
+import { textOf } from "@/lib/translation/types"
 import type { Language, Translations } from "@/lib/i18n"
 import { fillTemplate } from "@/lib/fill-template"
 import { formatShortDate as formatDay } from "@/lib/format-date"
@@ -123,7 +124,7 @@ export function localizedTitle(n: NotificationItem, title: string, language: str
   const fields = TITLE_FIELDS[str(n.payload, "entityType") ?? n.entityType ?? ""] ?? []
   for (const field of fields) {
     const entry = n.entityI18n?.[field]
-    const source = entry ? firstLine(entry.source === "ja" ? entry.ja : entry.id) : null
+    const source = entry ? firstLine(textOf(entry, entry.source)) : null
     if (!entry || source !== title) continue
     return firstLine(pickText(n.entityI18n, field, source, language).text) ?? title
   }

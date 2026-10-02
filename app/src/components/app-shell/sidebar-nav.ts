@@ -64,7 +64,7 @@ export function buildSidebarTalk(projectId: string, t: Translations): SidebarNav
 /**
  * Sidebar information architecture, four collapsible sections below the
  * pinned dashboard (buildSidebarHome):
- * 実行 (backlog, sprints) → 計画 (schedule) → 振り返り・AI → 管理.
+ * 実行 (IceBox → backlog → sprints, the flow of an idea) → 計画 (schedule) → 振り返り・AI → 管理.
  * The trash, team settings and AI chat entries are permission-gated.
  */
 export function buildSidebarGroups(
@@ -89,8 +89,8 @@ export function buildSidebarGroups(
       id: "execute",
       label: t.navGroupExecute,
       items: [
-        { href: `${base}/backlog`, label: pt.navBacklog, description: t.navDescBacklog, Icon: ListOrdered },
         { href: `${base}/icebox`, label: pt.navIcebox, description: t.iceboxDescription, Icon: Lightbulb },
+        { href: `${base}/backlog`, label: pt.navBacklog, description: t.navDescBacklog, Icon: ListOrdered },
         { href: `${base}/sprints`, label: pt.navSprints, description: t.navDescSprints, Icon: Zap },
         { href: `${base}/burndown`, label: t.burndownPageTitle, description: t.navDescBurndown, Icon: TrendingDown },
       ],

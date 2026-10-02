@@ -88,8 +88,13 @@ describe("POST /api/ai/translate — ad hoc", () => {
 
   it("400 on schema failure (empty text, bad locale)", async () => {
     expect((await POST(req({ text: "", targetLocale: "id" }))).status).toBe(400)
-    expect((await POST(req({ text: "a", targetLocale: "en" }))).status).toBe(400)
+    expect((await POST(req({ text: "a", targetLocale: "fr" }))).status).toBe(400)
     expect((await POST(req({ text: "x".repeat(20001), targetLocale: "id" }))).status).toBe(400)
+  })
+
+  it("accepts \"en\" as a target/source locale (now a stored language)", async () => {
+    const res = await POST(req({ text: "Hello", targetLocale: "en", sourceLocale: "en" }))
+    expect(res.status).toBe(200)
   })
 
   it("translates without glossary when no source locale", async () => {
@@ -207,12 +212,14 @@ describe("POST /api/ai/translate — stored row", () => {
     const res = await POST(req(key))
     expect(res.status).toBe(200)
     const body = await res.json()
-    expect(body.i18n.title).toEqual({ ja: "タイトル", id: "Halo", source: "ja", status: "done" })
+    expect(body.i18n.title).toEqual({ ja: "タイトル", id: "Halo", en: "Halo", source: "ja", status: "done" })
     expect(translateText.mock.calls[0][0].glossary).toEqual([{ term: "a", translation: "b" }])
     const call = ftUpdateMany.mock.calls[0][0]
     expect(call.where).toEqual({ ...key, sourceHash: "h1" })
     expect(call.data).toMatchObject({ status: "done", textId: "Halo", attempts: 2, model: "qwen" })
-    expect(call.data.textJa).toBeUndefined()
+    // The final write carries the whole row's end state: the source column (ja) is
+    // rewritten with its own unchanged value alongside the newly-filled id/en sides.
+    expect(call.data.textJa).toBe("タイトル")
     expect(bumpGlossaryUsage).toHaveBeenCalledWith(["g1"])
   })
 
@@ -220,7 +227,7 @@ describe("POST /api/ai/translate — stored row", () => {
     ftFindUnique.mockResolvedValue({ ...row, sourceLocale: "id", textJa: null, textId: "Judul" })
     translateText.mockResolvedValue({ ...result, translated: "題名" })
     const body = await (await POST(req(key))).json()
-    expect(body.i18n.title).toEqual({ ja: "題名", id: "Judul", source: "id", status: "done" })
+    expect(body.i18n.title).toEqual({ ja: "題名", id: "Judul", en: "題名", source: "id", status: "done" })
     expect(ftUpdateMany.mock.calls[0][0].data.textJa).toBe("題名")
     expect(bumpGlossaryUsage).not.toHaveBeenCalled()
   })
@@ -229,5 +236,21 @@ describe("POST /api/ai/translate — stored row", () => {
     ftFindUnique.mockResolvedValue(row)
     translateText.mockRejectedValue(new Error("x"))
     expect((await POST(req(key))).status).toBe(502)
+  })
+
+  it("fills both missing languages (ja ⇄ id then en) for an English source, one call each, and returns i18n with en", async () => {
+    ftFindUnique.mockResolvedValue({ ...row, sourceLocale: "en", textJa: null, textId: null, textEn: "Hello" })
+    translateText
+      .mockResolvedValueOnce({ ...result, sourceLocale: "en", targetLocale: "ja", translated: "こんにちは" })
+      .mockResolvedValueOnce({ ...result, sourceLocale: "en", targetLocale: "id", translated: "Halo" })
+    const res = await POST(req(key))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(translateText).toHaveBeenCalledTimes(2)
+    expect(translateText.mock.calls[0][0]).toMatchObject({ sourceLocale: "en", targetLocale: "ja" })
+    expect(translateText.mock.calls[1][0]).toMatchObject({ sourceLocale: "en", targetLocale: "id" })
+    expect(body.i18n.title).toEqual({ ja: "こんにちは", id: "Halo", en: "Hello", source: "en", status: "done" })
+    const call = ftUpdateMany.mock.calls[0][0]
+    expect(call.data).toMatchObject({ status: "done", textJa: "こんにちは", textId: "Halo", textEn: "Hello" })
   })
 })

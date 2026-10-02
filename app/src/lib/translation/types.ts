@@ -1,18 +1,33 @@
 /**
  * Shared, dependency-free types and the translatable-field table for the
- * JA/ID both-language storage (src/lib/translation). Safe to import from
- * client components.
+ * JA / ID / EN multi-language storage (src/lib/translation). Safe to import
+ * from client components.
  */
 
-export type TranslationLocale = "ja" | "id"
+export type TranslationLocale = "ja" | "id" | "en"
 export type TranslationStatus = "pending" | "running" | "done" | "failed"
 
-/** One field's both-language text. The source side is always filled. */
+/** Every stored language, in the order the worker fills missing ones. */
+export const TRANSLATION_LOCALES: readonly TranslationLocale[] = ["ja", "id", "en"]
+
+/**
+ * One field's text in every language. The source side is always filled;
+ * `en` may be absent on rows written before English was added (treat as null).
+ * `status` is "done" only when every language is filled.
+ */
 export interface FieldTranslation {
   ja: string | null
   id: string | null
+  en?: string | null
   source: TranslationLocale
   status: TranslationStatus
+}
+
+/** The text of one language of a field (null when not translated yet). */
+export function textOf(entry: Pick<FieldTranslation, "ja" | "id" | "en">, locale: TranslationLocale): string | null {
+  if (locale === "ja") return entry.ja
+  if (locale === "id") return entry.id
+  return entry.en ?? null
 }
 
 /** One entity: field name → both-language text. Fields without a row are absent. */

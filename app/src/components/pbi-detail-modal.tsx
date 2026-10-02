@@ -17,6 +17,8 @@ import { PbiReadBody, type PbiDetail } from "@/components/pbi-form/pbi-read-body
 import { useAiFieldGenerator } from "@/components/pbi-form/use-ai-field-generator"
 import { pbiDeepLink, useCopyLink } from "@/components/pbi-form/use-copy-link"
 import { usePbiFormOptions, type PbiFormOptions } from "@/components/pbi-form/use-pbi-form-options"
+import { useSavedPbiAttachments } from "@/components/pbi-form/attachments/use-saved-pbi-attachments"
+import type { PbiAttachmentDto } from "@/types/api"
 import { PbiDependencySection } from "@/components/pbi-dependencies/pbi-dependency-section"
 
 interface Props {
@@ -38,6 +40,8 @@ interface Props {
   /** Open another PBI by its number (dependency rows become links when given). */
   onOpenPbi?: (displayId: number) => void
 }
+
+const NO_ATTACHMENTS: readonly PbiAttachmentDto[] = []
 
 const STATUS_TONE: Record<string, BadgeTone> = {
   not_ready: "warning",
@@ -82,6 +86,13 @@ export default function PbiDetailModal(props: Props) {
   const options = usePbiFormOptions(projectId, isEditing, formOptions)
   const ai = useAiFieldGenerator(projectId, form ?? EMPTY_PBI_FORM, edit.setForm)
   const copyLink = useCopyLink()
+  // Attachment uploads / deletes apply at once (no version bump): patch the loaded PBI in place.
+  const patchAttachments = useCallback(
+    (update: (prev: readonly PbiAttachmentDto[]) => PbiAttachmentDto[]) =>
+      mutate((prev) => (prev ? { ...prev, attachments: update(prev.attachments ?? []) } : prev)),
+    [mutate],
+  )
+  const attachments = useSavedPbiAttachments({ projectId, itemId: pbiId, attachments: item?.attachments ?? NO_ATTACHMENTS, onChange: patchAttachments })
   const conflict = useConflictRebase<PbiForm>()
   // What the pending save started from (for the conflict's "your input" list).
   const savingRef = useRef<{ base: PbiForm; mine: PbiForm } | null>(null)
@@ -230,6 +241,7 @@ export default function PbiDetailModal(props: Props) {
                       generating={ai.generating}
                       onGenerate={ai.generate}
                       contentError={hasContent ? undefined : contentMessage}
+                      attachments={attachments}
                     />
                   </div>
                 ) : (

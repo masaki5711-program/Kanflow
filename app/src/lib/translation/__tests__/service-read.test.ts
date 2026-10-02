@@ -37,18 +37,18 @@ describe("read side", () => {
 
   it("getI18nFor groups rows per entity and de-duplicates ids", async () => {
     m.global.fieldTranslation.findMany.mockResolvedValue([
-      { entityId: "a", field: "userStory", textJa: "話", textId: "cerita", sourceLocale: "ja", status: "done" },
-      { entityId: "a", field: "epic", textJa: null, textId: "epik", sourceLocale: "id", status: "pending" },
-      { entityId: "b", field: "userStory", textJa: "x", textId: null, sourceLocale: "ja", status: "failed" },
+      { entityId: "a", field: "userStory", textJa: "話", textId: "cerita", textEn: null, sourceLocale: "ja", status: "done" },
+      { entityId: "a", field: "epic", textJa: null, textId: "epik", textEn: "epic (en)", sourceLocale: "id", status: "pending" },
+      { entityId: "b", field: "userStory", textJa: "x", textId: null, textEn: null, sourceLocale: "ja", status: "failed" },
     ])
     const out = await svc.getI18nFor("backlog_item", ["a", "b", "a"])
     expect(m.global.fieldTranslation.findMany).toHaveBeenCalledWith({
       where: { entityType: "backlog_item", entityId: { in: ["a", "b"] } },
-      select: { entityId: true, field: true, textJa: true, textId: true, sourceLocale: true, status: true },
+      select: { entityId: true, field: true, textJa: true, textId: true, textEn: true, sourceLocale: true, status: true },
     })
     expect(out.get("a")).toEqual({
-      userStory: { ja: "話", id: "cerita", source: "ja", status: "done" },
-      epic: { ja: null, id: "epik", source: "id", status: "pending" },
+      userStory: { ja: "話", id: "cerita", en: null, source: "ja", status: "done" },
+      epic: { ja: null, id: "epik", en: "epic (en)", source: "id", status: "pending" },
     })
     expect(out.get("b")?.userStory?.status).toBe("failed")
   })
@@ -134,13 +134,29 @@ describe("enqueueNow branches", () => {
     expect(m.global.fieldTranslation.deleteMany).toHaveBeenCalledTimes(1)
   })
 
-  it("stores legacy JA/ID pairs as done with both columns", async () => {
+  it("stores legacy JA/ID pairs as pending (English side still missing, no translatedAt)", async () => {
     await svc.enqueueNow("project", "p1", { name: "改善プロジェクト\nProyek perbaikan" })
     const values = boundValues(m.global.$executeRaw.mock.calls[0])
     expect(values).toContain("改善プロジェクト")
     expect(values).toContain("Proyek perbaikan")
-    expect(values).toContain("done")
+    expect(values).toContain("pending")
+    expect(values).not.toContain("done")
     expect(values).toContain("legacy-pairs")
+    // translatedAt is the last bound value and stays null until English exists.
+    expect(values[values.length - 1]).toBeNull()
+  })
+
+  it("stores an English source in text_en as pending, with ja/id left null", async () => {
+    const text = "We should check this with the supervisor before we continue"
+    await svc.enqueueNow("project", "p1", { name: text })
+    const values = boundValues(m.global.$executeRaw.mock.calls[0])
+    expect(values).toContain("en")
+    expect(values).toContain("pending")
+    expect(values).toContain(text)
+    // Bound order: entityType, entityId, field, source, hash, textJa, textId, textEn, status, priority, model, translatedAt.
+    expect(values[5]).toBeNull()
+    expect(values[6]).toBeNull()
+    expect(values[7]).toBe(text)
   })
 
   it("stores Indonesian text in text_id as pending", async () => {

@@ -3,12 +3,14 @@
 import { useMemo, useState } from "react"
 import { useLanguage } from "@/lib/language-context"
 import PbiDetailModal from "@/components/pbi-detail-modal"
-import { GlossaryHint, I18nText } from "@/components/i18n-text"
-import { Button, EmptyState, Field, IconButton, Input, Modal, SkeletonLines, Textarea, Truncate, cn, useModalClose } from "@/components/ui"
+import { I18nText } from "@/components/i18n-text"
+import { usePendingPbiAttachments } from "@/components/pbi-form/attachments/use-pending-pbi-attachments"
+import { Button, EmptyState, IconButton, Input, Modal, SkeletonLines, Truncate, cn, useModalClose, useToast } from "@/components/ui"
 import { apiFetch, useApiMutation, useApiQuery } from "@/hooks"
 import { pickText } from "@/lib/translation/pick-text"
 import { PbiWaitingChip } from "@/components/pbi-dependencies/pbi-dependency-chips"
 import type { BacklogItemDto, PbiWithStatusDto } from "@/types/api"
+import { EMPTY_NEW, NewPbiFields, isNewFormDirty, type NewPbiForm } from "./new-pbi-fields"
 
 export type BacklogPbi = PbiWithStatusDto & Partial<Pick<BacklogItemDto, "productGoal" | "blockedBy" | "blocking">>
 
@@ -25,29 +27,7 @@ interface Props {
   onClose: () => void
 }
 
-interface NewPbiForm {
-  initiative: string
-  epic: string
-  userStory: string
-  acceptanceCriteria: string
-  workloadScore: string
-  assignedPo: string
-}
-
 type Tab = "existing" | "new"
-
-const EMPTY_NEW: NewPbiForm = {
-  initiative: "",
-  epic: "",
-  userStory: "",
-  acceptanceCriteria: "",
-  workloadScore: "3",
-  assignedPo: "",
-}
-
-function isNewFormDirty(f: NewPbiForm): boolean {
-  return (Object.keys(f) as (keyof NewPbiForm)[]).some((k) => f[k] !== EMPTY_NEW[k])
-}
 
 function SearchIcon() {
   return (
@@ -73,7 +53,10 @@ export default function AddPbiModal({ projectId, sprintId, sprintName, existingP
   const [query, setQuery] = useState("")
   const [detailPbiId, setDetailPbiId] = useState<string | null>(null)
   const [newForm, setNewForm] = useState<NewPbiForm>(EMPTY_NEW)
-  const isDirty = selected.size > 0 || isNewFormDirty(newForm)
+  // 参考資料 files of a new PBI: uploaded right after it is created.
+  const pending = usePendingPbiAttachments()
+  const toast = useToast()
+  const isDirty = selected.size > 0 || isNewFormDirty(newForm) || pending.count > 0
 
   const backlog = useApiQuery<{ readyItems?: BacklogPbi[] }>(`/api/projects/${projectId}/backlog`, { toastOnError: true })
   const items = useMemo(() => backlog.data?.readyItems ?? [], [backlog.data])
@@ -100,9 +83,18 @@ export default function AddPbiModal({ projectId, sprintId, sprintName, existingP
           acceptanceCriteria: f.acceptanceCriteria.trim() || null,
           workloadScore: parseInt(f.workloadScore || "0", 10),
           assignedPo: f.assignedPo.trim() || null,
+          referenceDoc: f.referenceDoc.trim() || null,
           status: "ready",
         },
       })
+      // The PBI exists either way; files that did not make it are named one by one.
+      const failed = await pending.uploadAll(projectId, created.id)
+      if (failed.length > 0) {
+        toast.error(
+          t.pbiAttachPartialFailed.replace("{n}", String(failed.length)).replace("{names}", failed.map((x) => `${x.name} (${x.message})`).join(", ")),
+          { title: t.pbiAttachUploadFailed },
+        )
+      }
       // Step 2: attach it to the sprint.
       await apiFetch(attachUrl, { method: "POST", json: { pbIds: [created.id] } })
     },
@@ -194,7 +186,7 @@ export default function AddPbiModal({ projectId, sprintId, sprintName, existingP
           )}
         </>
       ) : (
-        <NewPbiFields form={newForm} onChange={setNewForm} pointUnit={pointUnit} />
+        <NewPbiFields form={newForm} onChange={setNewForm} pointUnit={pointUnit} attachments={pending.controller} disabled={saving} />
       )}
 
       {detailPbiId && <PbiDetailModal projectId={projectId} pbiId={detailPbiId} onClose={() => setDetailPbiId(null)} />}
@@ -298,45 +290,6 @@ function PbiRow({ pb, pointUnit, isSelected, onToggle, onView }: RowProps) {
         </span>
       </button>
     </li>
-  )
-}
-
-function NewPbiFields({ form, onChange, pointUnit }: { form: NewPbiForm; onChange: (f: NewPbiForm) => void; pointUnit: string }) {
-  const { t, pt } = useLanguage()
-  const set = (key: keyof NewPbiForm) => (e: { target: { value: string } }) => onChange({ ...form, [key]: e.target.value })
-  return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <Field label={pt.backlogInitiative}>
-          <Input value={form.initiative} onChange={set("initiative")} />
-        </Field>
-        <Field label={pt.backlogEpic}>
-          <Input value={form.epic} onChange={set("epic")} />
-        </Field>
-      </div>
-      <Field label={pt.backlogUserStory}>
-        <Textarea value={form.userStory} onChange={set("userStory")} rows={4} className="resize-y" />
-      </Field>
-      <GlossaryHint className="-mt-2" />
-      <Field label={pt.backlogAcceptanceCriteria}>
-        <Textarea
-          value={form.acceptanceCriteria}
-          onChange={set("acceptanceCriteria")}
-          rows={6}
-          placeholder={t.backlogAcceptanceCriteriaPlaceholder}
-          className="min-h-[160px] resize-y"
-        />
-      </Field>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <Field label={`${pt.backlogWorkloadScore} (${pointUnit})`}>
-          <Input type="number" min={0} step={1} value={form.workloadScore} onChange={set("workloadScore")} />
-        </Field>
-        <Field label={pt.rolePO}>
-          <Input value={form.assignedPo} onChange={set("assignedPo")} />
-        </Field>
-      </div>
-      <p className="text-caption text-fg-muted">{t.backlogAddPbiNewHint}</p>
-    </div>
   )
 }
 

@@ -89,7 +89,8 @@ export default function MediaPreviewModal({ projectId, items, startIndex, onClos
   if (!baseUrl) return null
   const src = baseUrl
   const sep = baseUrl.includes("?") ? "&" : "?"
-  const downloadUrl = `${baseUrl}${sep}download=1`
+  // A local object URL (a file chosen but not uploaded yet) takes no query string.
+  const downloadUrl = baseUrl.startsWith("blob:") ? baseUrl : `${baseUrl}${sep}download=1`
 
   return (
     <div

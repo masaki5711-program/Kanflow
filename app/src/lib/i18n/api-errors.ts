@@ -79,6 +79,7 @@ export interface ApiErrorsTranslations {
   apiErrLinkOnlyField: string
   apiErrTeamChatEmpty: string
   apiErrIceboxTooManyAttachments: string
+  apiErrPbiTooManyAttachments: string
   apiErrTeamChatTooLong: string
   apiErrTeamChatTooManyFiles: string
   apiErrTeamChatFileTooLarge: string
@@ -165,6 +166,7 @@ export const API_ERROR_MESSAGE_KEYS: Readonly<Record<ApiErrorCode, ApiErrorMessa
   LINK_ONLY_FIELD: "apiErrLinkOnlyField",
   TEAM_CHAT_EMPTY: "apiErrTeamChatEmpty",
   ICEBOX_TOO_MANY_ATTACHMENTS: "apiErrIceboxTooManyAttachments",
+  PBI_TOO_MANY_ATTACHMENTS: "apiErrPbiTooManyAttachments",
   TEAM_CHAT_TOO_LONG: "apiErrTeamChatTooLong",
   TEAM_CHAT_TOO_MANY_FILES: "apiErrTeamChatTooManyFiles",
   TEAM_CHAT_FILE_TOO_LARGE: "apiErrTeamChatFileTooLarge",
@@ -258,6 +260,7 @@ export const ja: ApiErrorsTranslations = {
   apiErrLinkOnlyField: "ファイルの名前や URL はここでは変更できません",
   apiErrTeamChatEmpty: "メッセージを入力するか、ファイルを添付してください",
   apiErrIceboxTooManyAttachments: "添付は 1 件につき 10 個までです",
+  apiErrPbiTooManyAttachments: "参考資料の添付は 1 件につき 20 個までです",
   apiErrTeamChatTooLong: "メッセージが長すぎます",
   apiErrTeamChatTooManyFiles: "添付は 1 回に 5 個までです",
   apiErrTeamChatFileTooLarge: "ファイルが大きすぎます（1 ファイル 20MB、合計 50MB まで）。大きなファイルはリンクで共有してください",
@@ -345,6 +348,7 @@ export const en: ApiErrorsTranslations = {
   apiErrLinkOnlyField: "The name or URL of a file cannot be changed here",
   apiErrTeamChatEmpty: "Type a message or attach a file",
   apiErrIceboxTooManyAttachments: "Up to 10 attachments per request",
+  apiErrPbiTooManyAttachments: "Up to 20 reference attachments per PBI",
   apiErrTeamChatTooLong: "The message is too long",
   apiErrTeamChatTooManyFiles: "Up to 5 files per message",
   apiErrTeamChatFileTooLarge: "The file is too large (20 MB per file, 50 MB in total). Share large files as a link",
@@ -432,6 +436,7 @@ export const id: ApiErrorsTranslations = {
   apiErrLinkOnlyField: "Nama atau URL file tidak dapat diubah di sini",
   apiErrTeamChatEmpty: "Ketik pesan atau lampirkan berkas",
   apiErrIceboxTooManyAttachments: "Maksimal 10 lampiran per permintaan",
+  apiErrPbiTooManyAttachments: "Maksimal 20 lampiran referensi per PBI",
   apiErrTeamChatTooLong: "Pesan terlalu panjang",
   apiErrTeamChatTooManyFiles: "Maksimal 5 berkas per pesan",
   apiErrTeamChatFileTooLarge: "Berkas terlalu besar (20 MB per berkas, total 50 MB). Bagikan berkas besar sebagai tautan",

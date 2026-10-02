@@ -1,3 +1,4 @@
+import { deleteUploadedFile } from "@/lib/upload/stored-files"
 import { recalcPlanItems } from "@/lib/plan-progress"
 import { recalcSprintActualScore } from "@/lib/sprint-score"
 import type { Actor } from "@/services/_shared/actor"
@@ -319,17 +320,22 @@ export async function restoreBacklogItem(projectId: string, itemId: string, acto
  * Permanently deletes a trashed PBI; its sprint tasks cascade in the DB. In
  * the same transaction: purge the translations of the PBI and of those tasks
  * and re-score the sprints. Release items keep existing (pbItemId → NULL) with
- * their own translations. `actor` null = the purge-trash worker job.
+ * their own translations. Reference attachments cascade; their stored files
+ * are removed after commit. `actor` null = the purge-trash worker job.
  */
 export async function purgeBacklogItem(projectId: string, itemId: string, actor: Actor | null): Promise<void> {
-  await withTransaction(async (tx) => {
+  const files = await withTransaction(async (tx) => {
     if (!(await repo.findTrashedBacklogItem(tx, projectId, itemId))) throw new NotFoundError("Not found", {}, "PBI_NOT_FOUND")
     const tasks = await repo.findTasksOfBacklogItem(tx, itemId)
     const planItemId = await repo.findPbiPlanItemId(tx, projectId, itemId)
+    const attachments = await repo.findPbiAttachmentFileNames(tx, itemId)
     await repo.deleteBacklogItem(tx, projectId, itemId)
     await purgeIn(tx, { backlog_item: [itemId], sprint_task: tasks.map((t) => t.id) })
     await rescoreSprintsOf(tx, tasks)
     await recalcPlanItems([planItemId], tx)
     await logActivity(tx, { projectId, entityType: "pbi", entityId: itemId, action: "delete", actor, diff: { meta: { purged: true } } })
+    return attachments.map((a) => a.fileName)
   })
+  // Attachment rows cascaded with the PBI; their stored files go after commit.
+  for (const fileName of files) await deleteUploadedFile(projectId, fileName)
 }

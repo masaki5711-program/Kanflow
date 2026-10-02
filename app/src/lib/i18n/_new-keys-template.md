@@ -66,6 +66,7 @@ Rules:
 | `portfolio.ts` | Department portfolio `/portfolio` (KPI strip, filters, table) and its header link | `portfolio*` |
 | `api-tokens.ts` | Personal access tokens on `/me` (`me/api-tokens-section.tsx`), admin token list (`admin/api-tokens/`) | `apiToken*` |
 | `admin-metrics.ts` | Admin metrics dashboard (`admin/metrics/`) | `metrics*` |
+| `pbi-attachments.ts` | Files / images of a PBI's 参考資料 (`components/pbi-form/attachments/`): edit form, create modals, read view | `pbiAttach*` |
 
 Keep each file under ~400 lines; if a domain grows past that, split it (e.g. `backlog-detail.ts`)
 and register the new file in `index.ts`.

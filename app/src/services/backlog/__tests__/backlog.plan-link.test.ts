@@ -113,6 +113,7 @@ describe("backlog ↔ plan link", () => {
     const order: string[] = []
     vi.mocked(repo.findPbiPlanItemId).mockImplementation(async () => (order.push("read"), "pl"))
     vi.mocked(repo.deleteBacklogItem).mockImplementation((() => (order.push("delete"), Promise.resolve({}))) as never)
+    vi.mocked(repo.findPbiAttachmentFileNames).mockResolvedValue([])
     await svc.purgeBacklogItem("p1", "a", null)
     expect(order).toEqual(["read", "delete"])
     expect(recalcPlanItems).toHaveBeenLastCalledWith(["pl"], TX)

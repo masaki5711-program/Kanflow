@@ -38,8 +38,48 @@ describe("pickText", () => {
     expect(r).toMatchObject({ text: "改善提案", pending: false, failed: true })
   })
 
-  test("English UI → original, never pending", () => {
-    expect(pickText(pending, "title", "改善提案", "en")).toMatchObject({ text: "改善提案", pending: false })
+  test("English UI behaves like ja/id: missing en side → original + pending", () => {
+    expect(pickText(pending, "title", "改善提案", "en")).toMatchObject({ text: "改善提案", pending: true, failed: false })
+  })
+
+  test("English UI → translated text with the original for hover once en is filled", () => {
+    const withEnglish: EntityI18n = {
+      title: { ja: "改善提案", id: "Usulan kaizen", en: "Improvement proposal", source: "ja", status: "done" },
+    }
+    expect(pickText(withEnglish, "title", "改善提案", "en")).toEqual({
+      text: "Improvement proposal",
+      translated: true,
+      pending: false,
+      failed: false,
+      original: "改善提案",
+    })
+  })
+
+  test("English source viewed in English → original text, nothing pending", () => {
+    const enSource: EntityI18n = {
+      title: { ja: null, id: null, en: "Improvement proposal", source: "en", status: "pending" },
+    }
+    expect(pickText(enSource, "title", "Improvement proposal", "en")).toEqual({
+      text: "Improvement proposal",
+      translated: false,
+      pending: false,
+      failed: false,
+      original: null,
+    })
+  })
+
+  test("failed row for English UI → original + failed flag", () => {
+    const enFailed: EntityI18n = {
+      title: { ja: "改善提案", id: "Usulan kaizen", en: null, source: "ja", status: "failed" },
+    }
+    expect(pickText(enFailed, "title", "改善提案", "en")).toMatchObject({ text: "改善提案", pending: false, failed: true })
+  })
+
+  test("old rows without an en column at all behave like a missing en side (pending, not a crash)", () => {
+    // `en` is entirely absent (not just null) — rows written before English was added,
+    // requeued to "pending" by the migration until the worker fills their en side.
+    const legacyRow: EntityI18n = { title: { ja: "改善提案", id: "Usulan kaizen", source: "ja", status: "pending" } }
+    expect(pickText(legacyRow, "title", "改善提案", "en")).toMatchObject({ text: "改善提案", translated: false, pending: true, failed: false })
   })
 
   test("legacy pair rows show only the viewer's side even for the source locale", () => {

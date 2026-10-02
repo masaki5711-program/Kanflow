@@ -114,8 +114,9 @@ export function AcceptanceCriteriaField({ value, onChange, field, generating, on
         onChange={(e) => onChange(e.target.value)}
         readOnly={generating !== null}
         rows={8}
+        autoGrow
         placeholder={t.backlogAcceptanceCriteriaPlaceholder}
-        className="min-h-[200px] resize-y"
+        className="min-h-[200px]"
       />
     </div>
   )

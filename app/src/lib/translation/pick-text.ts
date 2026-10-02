@@ -1,10 +1,10 @@
-import type { EntityI18n, TranslationLocale } from "./types"
+import { textOf, type EntityI18n, type TranslationLocale } from "./types"
 
 /**
  * Decide which text to show for a translatable field (pure, client-safe).
  *
  * - no i18n / no row for the field → original, nothing pending
- * - viewer locale is neither ja nor id (en) → original
+ * - viewer locale is not one of ja / id / en → original
  * - the viewer-locale side exists → that text (translated=true when it is
  *   not the source side; `original` carries the source text for hover)
  * - otherwise → original + pending (or failed)
@@ -25,6 +25,7 @@ export function normalizeTextLocale(locale: string): TranslationLocale | null {
   const l = locale.slice(0, 2).toLowerCase()
   if (l === "ja") return "ja"
   if (l === "id") return "id"
+  if (l === "en") return "en"
   return null
 }
 
@@ -39,12 +40,12 @@ export function pickText(
   const want = normalizeTextLocale(locale)
   if (!entry || !want) return { text: base, translated: false, pending: false, failed: false, original: null }
 
-  const candidate = want === "ja" ? entry.ja : entry.id
+  const candidate = textOf(entry, want)
   if (candidate && candidate.trim().length > 0) {
     if (entry.source === want) {
       return { text: candidate, translated: false, pending: false, failed: false, original: null }
     }
-    const sourceText = entry.source === "ja" ? entry.ja : entry.id
+    const sourceText = textOf(entry, entry.source)
     return { text: candidate, translated: true, pending: false, failed: false, original: sourceText ?? base }
   }
   if (entry.source === want) return { text: base, translated: false, pending: false, failed: false, original: null }

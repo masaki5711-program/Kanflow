@@ -438,6 +438,8 @@ model ProductBacklogItem {
   predecessorDeps    BacklogItemDependency[] @relation("PbiDependencySuccessor")
   /// PBIs waiting for this one.
   successorDeps      BacklogItemDependency[] @relation("PbiDependencyPredecessor")
+  /// Files / images of the 参考資料 (reference material) section.
+  attachments        PbiAttachment[]
 
   @@unique([projectId, displayId])
   @@index([projectId])
@@ -446,6 +448,22 @@ model ProductBacklogItem {
   @@index([productGoalId])
   @@index([planItemId])
   @@fulltext([initiative, epic, userStory, acceptanceCriteria], map: "ft_pbi_text")
+}
+
+/// File or image attached to a PBI's 参考資料 (reference material); stored
+/// like the IceBox attachments (private/uploads/<projectId>/<fileName>).
+model PbiAttachment {
+  id            String             @id @default(cuid())
+  backlogItemId String
+  fileName      String
+  originalName  String
+  fileSize      Int
+  mimeType      String
+  createdAt     DateTime           @default(now())
+  backlogItem   ProductBacklogItem @relation(fields: [backlogItemId], references: [id], onDelete: Cascade)
+
+  @@index([backlogItemId])
+  @@map("pbi_attachment")
 }
 
 /// Finish-to-start dependency between two PBIs of one project: the
@@ -736,6 +754,8 @@ model FieldTranslation {
   sourceHash   String    @map("source_hash") @db.VarChar(64)
   textJa       String?   @map("text_ja") @db.Text
   textId       String?   @map("text_id") @db.Text
+  /// English side (added 2026-10; NULL on older rows until the worker fills it).
+  textEn       String?   @map("text_en") @db.Text
   status       String    @default("pending") @db.VarChar(16)
   priority     Int       @default(0)
   attempts     Int       @default(0)

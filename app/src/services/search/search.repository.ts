@@ -45,7 +45,7 @@ export function findTranslationMatches(db: Db, pattern: string) {
   return db.fieldTranslation.findMany({
     where: {
       OR: targets,
-      AND: [{ OR: [{ textJa: { contains: pattern } }, { textId: { contains: pattern } }] }],
+      AND: [{ OR: [{ textJa: { contains: pattern } }, { textId: { contains: pattern } }, { textEn: { contains: pattern } }] }],
     },
     select: { entityType: true, entityId: true },
     orderBy: { updatedAt: "desc" },

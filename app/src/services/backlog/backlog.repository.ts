@@ -3,6 +3,8 @@ import type { Db } from "@/services/_shared/db"
 import { LIST_LIMITS } from "@/services/_shared/limits"
 import { RESTORE_DATA, notDeleted, softDeleteData } from "@/services/_shared/soft-delete"
 import { BUMP_VERSION, versionWhere } from "@/services/_shared/versioning"
+import { PBI_MAX_ATTACHMENTS } from "@/lib/pbi-attachments"
+import { PBI_ATTACHMENT_SELECT } from "./backlog.attachments.repository"
 import type { PbiStatus } from "./backlog.schemas"
 
 const LINKED_SELECT = {
@@ -31,8 +33,15 @@ export function findBacklogItems(db: Db, projectId: string, status?: PbiStatus, 
   })
 }
 
+/** A live PBI with its links and 参考資料 attachments (the detail DTO shape). */
 export function findBacklogItem(db: Db, projectId: string, itemId: string) {
-  return db.productBacklogItem.findFirst({ where: notDeleted({ id: itemId, projectId }), include: LINKED_SELECT })
+  return db.productBacklogItem.findFirst({
+    where: notDeleted({ id: itemId, projectId }),
+    include: {
+      ...LINKED_SELECT,
+      attachments: { select: PBI_ATTACHMENT_SELECT, orderBy: { createdAt: "asc" }, take: PBI_MAX_ATTACHMENTS },
+    },
+  })
 }
 
 /** Next displayId and sortOrder (max + 1) for a new PBI. Trashed PBIs count: a displayId is never reused. */
@@ -118,6 +127,11 @@ export function findTasksOfBacklogItem(db: Db, itemId: string) {
 export async function findPbiPlanItemId(db: Db, projectId: string, itemId: string): Promise<string | null> {
   const row = await db.productBacklogItem.findFirst({ where: { id: itemId, projectId }, select: { planItemId: true } })
   return row?.planItemId ?? null
+}
+
+/** Stored file names of the PBI's 参考資料 attachments (the rows cascade when the PBI is purged). */
+export function findPbiAttachmentFileNames(db: Db, itemId: string) {
+  return db.pbiAttachment.findMany({ where: { backlogItemId: itemId }, select: { fileName: true } })
 }
 
 /** Hard delete (purge). Normal deletes go to the trash via softDeleteBacklogItem. */

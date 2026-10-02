@@ -5,7 +5,7 @@ import { requireAuth } from "@/lib/api-helpers"
 import { accessVia, can, loadProjectActor } from "@/lib/authz"
 import { resolveEntityScope } from "@/services/_shared/entity-scope"
 import { aiLog, aiLogTrunc } from "@/lib/ai-monitor"
-import { oppositeLocale } from "@/lib/translation/detect-locale"
+import { targetsFor } from "@/lib/translation/detect-locale"
 import { bumpGlossaryUsage, findGlossaryForText } from "@/lib/translation/glossary-service"
 import { translateText } from "@/lib/translation/translator"
 import { isTranslatableEntity, type TranslatableEntity, type TranslationLocale } from "@/lib/translation/types"
@@ -16,13 +16,13 @@ import { OllamaAbortedError, OllamaError } from "@/lib/ollama/errors"
  *
  * Two shapes:
  *   { text, targetLocale, sourceLocale? }         → ad-hoc translation, nothing stored
- *   { entityType, entityId, field }                → translate that field's pending row
- *                                                   and store the result (done)
+ *   { entityType, entityId, field }                → translate every missing language of
+ *                                                   that field's row and store it (done)
  */
 const adHocSchema = z.object({
   text: z.string().min(1).max(20000),
-  targetLocale: z.enum(["ja", "id"]),
-  sourceLocale: z.enum(["ja", "id"]).optional(),
+  targetLocale: z.enum(["ja", "id", "en"]),
+  sourceLocale: z.enum(["ja", "id", "en"]).optional(),
 })
 
 const rowSchema = z.object({
@@ -98,18 +98,27 @@ async function translateRow(input: z.infer<typeof rowSchema>, caller: Caller, si
   if (!row) return NextResponse.json({ error: "Not found", code: "NOT_FOUND" }, { status: 404 })
 
   const source = row.sourceLocale as TranslationLocale
-  const target = oppositeLocale(source)
-  const text = source === "ja" ? row.textJa : row.textId
+  const current: Record<TranslationLocale, string | null> = { ja: row.textJa, id: row.textId, en: row.textEn }
+  const text = current[source]
   if (!text) return NextResponse.json({ error: "source text missing", code: "CONFLICT" }, { status: 409 })
+  const missing = targetsFor(source).filter((l) => !current[l]?.trim())
 
   try {
-    const terms = await findGlossaryForText(text, source, target)
-    aiLog("TRANSLATE", `now ${row.entityType}/${row.field} ${source}→${target} ${text.length} chars`)
-    const r = await translateText(
-      { text, sourceLocale: source, targetLocale: target, glossary: terms.map(({ term, translation }) => ({ term, translation })) },
-      { signal }
-    )
-    if (!r.translated.trim()) return NextResponse.json({ error: "empty translation", code: "TRANSLATION_FAILED" }, { status: 502 })
+    // Every missing language, one model call each (JA ⇄ ID first, English last).
+    let last: Awaited<ReturnType<typeof translateText>> | null = null
+    const filled = { ...current }
+    for (const target of missing) {
+      const terms = await findGlossaryForText(text, source, target)
+      aiLog("TRANSLATE", `now ${row.entityType}/${row.field} ${source}→${target} ${text.length} chars`)
+      const r = await translateText(
+        { text, sourceLocale: source, targetLocale: target, glossary: terms.map(({ term, translation }) => ({ term, translation })) },
+        { signal },
+      )
+      if (!r.translated.trim()) return NextResponse.json({ error: "empty translation", code: "TRANSLATION_FAILED" }, { status: 502 })
+      filled[target] = r.translated
+      last = r
+      if (terms.length > 0) void bumpGlossaryUsage(terms.map((t) => t.id)).catch(() => undefined)
+    }
     await prisma.fieldTranslation.updateMany({
       where: { ...key, sourceHash: row.sourceHash },
       data: {
@@ -118,21 +127,15 @@ async function translateRow(input: z.infer<typeof rowSchema>, caller: Caller, si
         lastError: null,
         startedAt: null,
         translatedAt: new Date(),
-        model: r.modelUsed,
-        ...(target === "ja" ? { textJa: r.translated } : { textId: r.translated }),
+        ...(last ? { model: last.modelUsed } : {}),
+        textJa: filled.ja,
+        textId: filled.id,
+        textEn: filled.en,
       },
     })
-    if (terms.length > 0) void bumpGlossaryUsage(terms.map((t) => t.id)).catch(() => undefined)
     return NextResponse.json({
-      ...toResponse(r),
-      i18n: {
-        [row.field]: {
-          ja: target === "ja" ? r.translated : row.textJa,
-          id: target === "id" ? r.translated : row.textId,
-          source,
-          status: "done",
-        },
-      },
+      ...(last ? toResponse(last) : {}),
+      i18n: { [row.field]: { ja: filled.ja, id: filled.id, en: filled.en, source, status: "done" } },
     })
   } catch (err) {
     return ollamaError(err)

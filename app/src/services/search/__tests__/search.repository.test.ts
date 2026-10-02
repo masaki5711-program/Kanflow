@@ -12,7 +12,9 @@ describe("search.repository", () => {
     const db = fakeDb()
     await repo.findTranslationMatches(db.client, "x\\_y")
     const args = whereOf(db, "fieldTranslation.findMany")
-    expect(args.where.AND).toEqual([{ OR: [{ textJa: { contains: "x\\_y" } }, { textId: { contains: "x\\_y" } }] }])
+    expect(args.where.AND).toEqual([
+      { OR: [{ textJa: { contains: "x\\_y" } }, { textId: { contains: "x\\_y" } }, { textEn: { contains: "x\\_y" } }] },
+    ])
     expect(args.where.OR).toEqual(
       expect.arrayContaining([
         { entityType: "backlog_item", field: { in: ["initiative", "epic", "userStory", "acceptanceCriteria"] } },

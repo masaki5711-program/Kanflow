@@ -40,6 +40,7 @@ import * as dependencies from "./dependencies"
 import * as updates from "./updates"
 import * as attachmentLinks from "./attachment-links"
 import * as teamChat from "./team-chat"
+import * as pbiAttachments from "./pbi-attachments"
 
 export * from "./languages"
 export * from "./point-units"
@@ -89,7 +90,8 @@ export interface Translations
     dependencies.DependenciesTranslations,
     updates.UpdatesTranslations,
     attachmentLinks.AttachmentLinksTranslations,
-    teamChat.TeamChatTranslations {}
+    teamChat.TeamChatTranslations,
+    pbiAttachments.PbiAttachmentsTranslations {}
 
 /** All domain modules, exported for tests (key-set / completeness checks). */
 export const domains = {
@@ -134,6 +136,7 @@ export const domains = {
   "updates": updates,
   "attachment-links": attachmentLinks,
   "team-chat": teamChat,
+  "pbi-attachments": pbiAttachments,
 } as const
 
 const ja: Translations = {
@@ -178,6 +181,7 @@ const ja: Translations = {
   ...updates.ja,
   ...attachmentLinks.ja,
   ...teamChat.ja,
+  ...pbiAttachments.ja,
 }
 
 const en: Translations = {
@@ -222,6 +226,7 @@ const en: Translations = {
   ...updates.en,
   ...attachmentLinks.en,
   ...teamChat.en,
+  ...pbiAttachments.en,
 }
 
 const id: Translations = {
@@ -266,6 +271,7 @@ const id: Translations = {
   ...updates.id,
   ...attachmentLinks.id,
   ...teamChat.id,
+  ...pbiAttachments.id,
 }
 
 const translations: Record<Language, Translations> = { ja, en, id }

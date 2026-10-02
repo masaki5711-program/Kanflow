@@ -86,23 +86,27 @@ export async function enqueueNow(
     const source: TranslationLocale = legacy ? "ja" : detectLocale(text)
     const textJa = legacy ? legacy.ja : source === "ja" ? text : null
     const textId = legacy ? legacy.id : source === "id" ? text : null
-    const status: TranslationStatus = legacy ? "done" : "pending"
+    const textEn = !legacy && source === "en" ? text : null
+    // Legacy JA/ID pairs still need their English side from the worker.
+    const status: TranslationStatus = "pending"
     const model = legacy ? LEGACY_MODEL : null
-    const translatedAt = legacy ? new Date() : null
+    // Not complete until the English side exists, so no translatedAt yet.
+    const translatedAt: Date | null = null
     // Same hash → leave the row alone (only refresh priority). Different hash
     // → reset to pending with the new source text and clear the other side.
     // `source_hash` is assigned last: MySQL evaluates the SET list in order.
     await db.$executeRaw`
       INSERT INTO field_translation
-        (entity_type, entity_id, field, source_locale, source_hash, text_ja, text_id,
+        (entity_type, entity_id, field, source_locale, source_hash, text_ja, text_id, text_en,
          status, priority, attempts, last_error, model, requested_at, started_at, translated_at, updated_at)
       VALUES
-        (${entityType}, ${entityId}, ${field}, ${source}, ${hash}, ${textJa}, ${textId},
+        (${entityType}, ${entityId}, ${field}, ${source}, ${hash}, ${textJa}, ${textId}, ${textEn},
          ${status}, ${priority}, 0, NULL, ${model}, UTC_TIMESTAMP(3), NULL, ${translatedAt}, UTC_TIMESTAMP(3))
       AS new
       ON DUPLICATE KEY UPDATE
         text_ja       = IF(field_translation.source_hash = new.source_hash, field_translation.text_ja, new.text_ja),
         text_id       = IF(field_translation.source_hash = new.source_hash, field_translation.text_id, new.text_id),
+        text_en       = IF(field_translation.source_hash = new.source_hash, field_translation.text_en, new.text_en),
         status        = IF(field_translation.source_hash = new.source_hash, field_translation.status, new.status),
         attempts      = IF(field_translation.source_hash = new.source_hash, field_translation.attempts, 0),
         last_error    = IF(field_translation.source_hash = new.source_hash, field_translation.last_error, NULL),
@@ -160,7 +164,7 @@ export async function getI18nFor(entityType: TranslatableEntity, ids: string[]):
   if (unique.length === 0) return out
   const rows = await prisma.fieldTranslation.findMany({
     where: { entityType, entityId: { in: unique } },
-    select: { entityId: true, field: true, textJa: true, textId: true, sourceLocale: true, status: true },
+    select: { entityId: true, field: true, textJa: true, textId: true, textEn: true, sourceLocale: true, status: true },
   })
   for (const r of rows) {
     const entry = out.get(r.entityId) ?? {}
@@ -189,10 +193,11 @@ export async function attachI18nOne<T extends Record<string, unknown>>(
   return out
 }
 
-function toFieldTranslation(r: Pick<Row, "textJa" | "textId" | "sourceLocale" | "status">): FieldTranslation {
+function toFieldTranslation(r: Pick<Row, "textJa" | "textId" | "textEn" | "sourceLocale" | "status">): FieldTranslation {
   return {
     ja: r.textJa,
     id: r.textId,
+    en: r.textEn,
     source: r.sourceLocale as TranslationLocale,
     status: r.status as TranslationStatus,
   }

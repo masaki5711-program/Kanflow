@@ -2,13 +2,14 @@
 
 import { useId, useState } from "react"
 import { useLanguage } from "@/lib/language-context"
-import { Button, Modal, useConfirm, useModalClose, useUiLabels } from "@/components/ui"
+import { Button, Modal, useConfirm, useModalClose, useToast, useUiLabels } from "@/components/ui"
 import { apiFetch, useApiMutation, useUnsavedChangesGuard } from "@/hooks"
 import { useBackNavigationGuard } from "@/hooks/use-back-navigation-guard"
 import { PbiEditFields } from "@/components/pbi-form/pbi-edit-fields"
 import { EMPTY_PBI_FORM, buildPbiCreateBody, hasPbiFormContent, isSamePbiForm, type PbiForm } from "@/components/pbi-form/pbi-form-state"
 import { useAiFieldGenerator } from "@/components/pbi-form/use-ai-field-generator"
 import { usePbiFormOptions, type PbiFormOptions } from "@/components/pbi-form/use-pbi-form-options"
+import { usePendingPbiAttachments } from "@/components/pbi-form/attachments/use-pending-pbi-attachments"
 
 export interface CreatedPbi {
   id: string
@@ -37,12 +38,26 @@ export function PbiCreateModal({ projectId, onClose, onCreated, initialForm, for
   const [form, setForm] = useState<PbiForm>(() => ({ ...EMPTY_PBI_FORM, ...initialForm }))
   const options = usePbiFormOptions(projectId, true, formOptions)
   const ai = useAiFieldGenerator(projectId, form, setForm)
+  const toast = useToast()
+  // 参考資料 files are queued here and uploaded right after the PBI is created.
+  const pending = usePendingPbiAttachments()
   // Compared with the empty form, so an unsaved pre-filled draft still asks before closing.
-  const isDirty = !isSamePbiForm(form, EMPTY_PBI_FORM)
+  const isDirty = !isSamePbiForm(form, EMPTY_PBI_FORM) || pending.count > 0
   useUnsavedChangesGuard(isDirty)
 
   const create = useApiMutation(
-    (body: Record<string, unknown>) => apiFetch<CreatedPbi>(`/api/projects/${projectId}/backlog`, { method: "POST", json: body }),
+    async (body: Record<string, unknown>) => {
+      const created = await apiFetch<CreatedPbi>(`/api/projects/${projectId}/backlog`, { method: "POST", json: body })
+      // The PBI is saved either way; files that did not make it are named one by one.
+      const failed = created?.id ? await pending.uploadAll(projectId, created.id) : []
+      if (failed.length > 0) {
+        toast.error(
+          t.pbiAttachPartialFailed.replace("{n}", String(failed.length)).replace("{names}", failed.map((f) => `${f.name} (${f.message})`).join(", ")),
+          { title: t.pbiAttachUploadFailed },
+        )
+      }
+      return created
+    },
     {
       onSuccess: (created) => {
         onCreated?.(created)
@@ -81,6 +96,7 @@ export function PbiCreateModal({ projectId, onClose, onCreated, initialForm, for
           // Untouched form: a quiet hint by the button; once the user started, an inline error on the field.
           missingHint={!hasContent && !isDirty ? contentMessage : null}
           canSubmit={hasContent}
+          fileCount={pending.count}
           onSubmit={submit}
         />
       }
@@ -93,6 +109,7 @@ export function PbiCreateModal({ projectId, onClose, onCreated, initialForm, for
         generating={ai.generating}
         onGenerate={ai.generate}
         contentError={!hasContent && isDirty ? contentMessage : undefined}
+        attachments={pending.controller}
       />
     </Modal>
   )
@@ -103,10 +120,12 @@ interface FooterProps {
   generating: boolean
   missingHint: string | null
   canSubmit: boolean
+  /** Queued 参考資料 files (named on the button while they upload). */
+  fileCount: number
   onSubmit: () => void
 }
 
-function CreateFooter({ saving, generating, missingHint, canSubmit, onSubmit }: FooterProps) {
+function CreateFooter({ saving, generating, missingHint, canSubmit, fileCount, onSubmit }: FooterProps) {
   const { t } = useLanguage()
   const close = useModalClose()
   const hintId = useId()
@@ -121,7 +140,7 @@ function CreateFooter({ saving, generating, missingHint, canSubmit, onSubmit }: 
         {t.cancel}
       </Button>
       <Button onClick={onSubmit} loading={saving} disabled={generating || !canSubmit} aria-describedby={missingHint ? hintId : undefined}>
-        {t.add}
+        {saving && fileCount > 0 ? t.pbiAttachUploadingN.replace("{n}", String(fileCount)) : t.add}
       </Button>
     </>
   )
