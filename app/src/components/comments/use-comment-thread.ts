@@ -1,8 +1,9 @@
 "use client"
 
-import { useCallback, useContext, useMemo, useState } from "react"
+import { useCallback, useContext, useEffect, useMemo, useState } from "react"
 import { SessionContext } from "next-auth/react"
 import { apiFetch, useApiQuery } from "@/hooks"
+import { NOTIFICATIONS_CHANGED_EVENT, announceNotificationsChanged } from "@/lib/notification-events"
 import { asPage, commentsBaseUrl, type CommentDto, type CommentEntityType, type MentionMember, type Page } from "./types"
 
 function appendUnique(items: readonly CommentDto[], more: readonly CommentDto[]): CommentDto[] {
@@ -121,13 +122,58 @@ export function useMentionMembersState(projectId: string): { members: MentionMem
 export function useCommentCounts(projectId: string, entityType: CommentEntityType, ids: readonly string[]) {
   const key = [...ids].sort().join(",")
   const url = key ? `${commentsBaseUrl(projectId)}/counts?entityType=${entityType}&ids=${encodeURIComponent(key)}` : null
-  const { data, mutate } = useApiQuery<Record<string, number>>(url, { parse: toCounts })
+  const { data, mutate, refetch } = useApiQuery<CountsAndUnread>(url, { parse: (raw) => ({ counts: toCounts(raw), unread: toUnread(raw) }) })
   /** Local +1 / -1 after posting / deleting (never below 0). */
   const adjustCount = useCallback(
-    (id: string, delta: number) => mutate((prev) => ({ ...(prev ?? {}), [id]: Math.max(0, (prev?.[id] ?? 0) + delta) })),
+    (id: string, delta: number) =>
+      mutate((prev) => {
+        const p = prev ?? EMPTY_COUNTS
+        return { ...p, counts: { ...p.counts, [id]: Math.max(0, (p.counts[id] ?? 0) + delta) } }
+      }),
     [mutate],
   )
-  return { counts: data ?? {}, adjustCount }
+  /** The thread was opened (read): its unread mark goes away at once. */
+  const clearUnread = useCallback(
+    (id: string) =>
+      mutate((prev) => {
+        const p = prev ?? EMPTY_COUNTS
+        const rest = Object.fromEntries(Object.entries(p.unread).filter(([k]) => k !== id))
+        return { ...p, unread: rest }
+      }),
+    [mutate],
+  )
+  // Read elsewhere (bell, top page, dashboard, chat): the marks follow without a reload.
+  useEffect(() => {
+    window.addEventListener(NOTIFICATIONS_CHANGED_EVENT, refetch)
+    return () => window.removeEventListener(NOTIFICATIONS_CHANGED_EVENT, refetch)
+  }, [refetch])
+  return { counts: data?.counts ?? EMPTY_COUNTS.counts, unread: data?.unread ?? EMPTY_COUNTS.unread, adjustCount, clearUnread }
+}
+
+interface CountsAndUnread {
+  counts: Record<string, number>
+  unread: Record<string, number>
+}
+
+const EMPTY_COUNTS: CountsAndUnread = { counts: {}, unread: {} }
+
+/** Pure: `{ unread: { id: n } }` → map of the items with unread notifications (malformed → {}). */
+export function toUnread(raw: unknown): Record<string, number> {
+  const unread = (raw as { unread?: unknown } | null)?.unread
+  if (!unread || typeof unread !== "object") return {}
+  return Object.fromEntries(Object.entries(unread).filter(([, n]) => typeof n === "number" && n > 0)) as Record<string, number>
+}
+
+/** Tell the server the viewer read this thread (its mention / comment notifications). */
+export async function markThreadRead(projectId: string, entityType: CommentEntityType, entityId: string): Promise<boolean> {
+  try {
+    const res = await apiFetch<{ updated?: number }>(`${commentsBaseUrl(projectId)}/read`, { method: "POST", json: { entityType, entityId } })
+    if ((res?.updated ?? 0) > 0) announceNotificationsChanged()
+    return true
+  } catch {
+    // Not fatal: the notifications simply stay unread.
+    return false
+  }
 }
 
 /** Pure: `{ counts: { id: n } }` → map (malformed → {}). */

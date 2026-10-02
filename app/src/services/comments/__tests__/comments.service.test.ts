@@ -172,7 +172,7 @@ describe("listComments", () => {
 describe("getCommentCounts", () => {
   it("fills zero for ids without comments", async () => {
     vi.mocked(repo.countComments).mockResolvedValue(new Map([["a", 3]]))
-    expect(await svc.getCommentCounts("p1", { entityType: "sprint_task", ids: ["a", "b"] })).toEqual({ counts: { a: 3, b: 0 } })
+    expect(await svc.getCommentCounts("p1", { entityType: "sprint_task", ids: ["a", "b"] })).toEqual({ counts: { a: 3, b: 0 }, unread: {} })
     expect(repo.countComments).toHaveBeenCalledWith(DEFAULT_DB, "p1", "sprint_task", ["a", "b"])
   })
 })
@@ -353,3 +353,21 @@ describe("A3-03: comment translation", () => {
     expect(dto.i18n).toEqual(I18N)
   })
 })
+
+describe("unread mentions / comments per item", () => {
+  it("returns the viewer's unread notification counts next to the comment counts", async () => {
+    vi.mocked(repo.countComments).mockResolvedValue(new Map([["a", 3]]) as never)
+    vi.mocked(repo.countUnreadForUser).mockResolvedValue(new Map([["a", 2], ["b", 0]]) as never)
+    const out = await svc.getCommentCounts("p1", { entityType: "sprint_task", ids: ["a", "b"] }, "u1")
+    expect(out).toEqual({ counts: { a: 3, b: 0 }, unread: { a: 2 } })
+    expect(repo.countUnreadForUser).toHaveBeenCalledWith(DEFAULT_DB, "u1", "p1", "sprint_task", ["a", "b"])
+  })
+
+  it("marks the viewer's notifications of the opened thread read", async () => {
+    vi.mocked(repo.markEntityNotificationsRead).mockResolvedValue({ count: 2 } as never)
+    const now = new Date("2026-10-02T00:00:00Z")
+    await expect(svc.markThreadRead("p1", "sprint_task", "t1", "u1", now)).resolves.toEqual({ updated: 2 })
+    expect(repo.markEntityNotificationsRead).toHaveBeenCalledWith(DEFAULT_DB, "u1", "p1", "sprint_task", "t1", now)
+  })
+})
+

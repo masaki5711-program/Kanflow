@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
+import { NOTIFICATIONS_CHANGED_EVENT } from "@/lib/notification-events"
 
 export const UNREAD_POLL_MS = 60_000
 export const UNREAD_COUNT_URL = "/api/notifications/unread-count"
@@ -51,7 +52,10 @@ export function useUnreadCount(enabled = true): UnreadCount {
     }
     document.addEventListener("visibilitychange", onVisibility)
     window.addEventListener("focus", refresh)
+    // Read elsewhere in the app (comment thread, chat, top page): reload now.
+    window.addEventListener(NOTIFICATIONS_CHANGED_EVENT, refresh)
     return () => {
+      window.removeEventListener(NOTIFICATIONS_CHANGED_EVENT, refresh)
       clearInterval(timer)
       document.removeEventListener("visibilitychange", onVisibility)
       window.removeEventListener("focus", refresh)

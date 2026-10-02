@@ -25,6 +25,9 @@ export interface TeamMessage {
   replyTo: { id: string; authorName: string | null; excerpt: string; attachmentCount: number; deleted: boolean; source: Pick<MessageSource, "entityType" | "entityId"> | null } | null
   postedToThread: boolean
   canDelete: boolean
+  /** Both-language body (field "body"). */
+  i18n?: import("@/lib/translation/types").EntityI18n
+  translation?: { type: "team_message" | "comment"; id: string } | null
 }
 
 /** "タスク「X」" / "PBI #12 Login" for a message's source. */

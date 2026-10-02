@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { AtSign } from "lucide-react"
 import { useLanguage } from "@/lib/language-context"
 import { apiFetch } from "@/hooks"
+import { announceNotificationsChanged } from "@/lib/notification-events"
 import { NotificationRow } from "@/components/notifications/notification-row"
 import type { NotificationItem } from "@/components/notifications/notification-format"
 
@@ -34,6 +35,7 @@ function HomeMessageList({ items: initial, total }: Props) {
   async function choose(n: NotificationItem, href: string | null) {
     try {
       await apiFetch(`/api/notifications/${encodeURIComponent(n.id)}/read`, { method: "POST" })
+      announceNotificationsChanged()
     } catch {
       // Opening the item matters more than the read flag.
     }

@@ -32,6 +32,7 @@ export type TranslatableEntity =
   | "fixed_task"
   | "fixed_task_item"
   | "comment"
+  | "team_message"
 
 /**
  * Translatable fields per entity with their priority (higher = translated
@@ -80,6 +81,7 @@ export const TRANSLATABLE_FIELDS: Record<TranslatableEntity, Record<string, numb
   fixed_task: { taskName: 0 },
   fixed_task_item: { taskName: 0 },
   comment: { body: 1 },
+  team_message: { body: 1 },
 }
 
 /** Physical table per entity (Prisma default naming) — used by the backfill query. */
@@ -97,6 +99,7 @@ export const ENTITY_TABLES: Record<TranslatableEntity, string> = {
   fixed_task: "UserFixedTask",
   fixed_task_item: "UserFixedTaskItem",
   comment: "Comment",
+  team_message: "TeamMessage",
 }
 
 /**
@@ -105,6 +108,8 @@ export const ENTITY_TABLES: Record<TranslatableEntity, string> = {
  */
 export const ENTITY_LIVE_FILTER: Partial<Record<TranslatableEntity, string>> = {
   comment: "t.`deletedAt` IS NULL",
+  // Mirrors of comments have no own body (the comment is translated instead).
+  team_message: "t.`deletedAt` IS NULL AND t.`body` IS NOT NULL",
 }
 
 export function translationPriority(entity: TranslatableEntity, field: string): number {

@@ -130,10 +130,9 @@ describe("MessageItem", () => {
           ],
         }),
       )
-      const imgLink = screen.getByRole("link", { name: t.talkOpenFile.replace("{name}", "pic.png") })
-      expect(imgLink).toHaveAttribute("href", "/api/projects/p1/talk/attachments/img1")
-      expect(imgLink).toHaveAttribute("target", "_blank")
-      expect(within(imgLink).getByRole("img", { name: "pic.png" })).toBeInTheDocument()
+      // Images open full screen in the app (no new tab).
+      const imgButton = screen.getByRole("button", { name: t.talkOpenFile.replace("{name}", "pic.png") })
+      expect(within(imgButton).getByRole("img", { name: "pic.png" })).toHaveAttribute("src", "/api/projects/p1/talk/attachments/img1")
       const fileLink = screen.getByRole("link", { name: "spec.pdf" })
       expect(fileLink).toHaveAttribute("href", "/api/projects/p1/talk/attachments/doc1")
     })

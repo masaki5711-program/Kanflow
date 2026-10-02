@@ -1,11 +1,12 @@
 "use client"
 
-import { memo } from "react"
+import { memo, useState } from "react"
 import Link from "next/link"
 import { AtSign, CornerUpLeft, FileIcon, MessageSquareQuote, Reply, Trash2 } from "lucide-react"
 import { IconButton, cn } from "@/components/ui"
 import { CommentBody } from "@/components/comments/comment-body"
 import { formatFullDateTime, formatRelativeTime } from "@/components/comments/relative-time"
+import MediaPreviewModal from "@/components/media-preview-modal"
 import { useLanguage } from "@/lib/language-context"
 import { attachmentUrl } from "./use-team-chat"
 import { isImage, sourceHref, sourceText, type TeamMessage } from "./types"
@@ -71,7 +72,7 @@ export const MessageItem = memo(function MessageItem({ projectId, message: m, no
           )}
         </p>
         {m.replyTo && <ReplyQuote quote={m.replyTo} onJump={onJump} />}
-        {m.body && <CommentBody body={m.body} mentions={m.mentions} />}
+        {m.body && <CommentBody body={m.body} mentions={m.mentions} i18n={m.i18n} translationEntity={m.translation} />}
         {m.attachments.length > 0 && <Attachments projectId={projectId} files={m.attachments} />}
         {m.postedToThread && m.source && (
           <Link href={sourceHref(projectId, m.source)} className="mt-1 inline-flex items-center gap-1 text-caption text-fg-muted hover:text-primary-strong">
@@ -111,16 +112,25 @@ function Attachments({ projectId, files }: { projectId: string; files: TeamMessa
   const { t } = useLanguage()
   const images = files.filter((f) => isImage(f.mimeType))
   const others = files.filter((f) => !isImage(f.mimeType))
+  // Images open full screen in the app (same viewer as the dashboard), not in a new tab.
+  const [previewAt, setPreviewAt] = useState<number | null>(null)
   return (
     <div className="mt-1.5 space-y-1.5">
       {images.length > 0 && (
         <div className="flex flex-wrap gap-2">
-          {images.map((f) => (
-            <a key={f.id} href={attachmentUrl(projectId, f.id)} target="_blank" rel="noopener noreferrer" aria-label={t.talkOpenFile.replace("{name}", f.originalName)}>
+          {images.map((f, i) => (
+            <button
+              key={f.id}
+              type="button"
+              data-talk-image={f.id}
+              onClick={() => setPreviewAt(i)}
+              aria-label={t.talkOpenFile.replace("{name}", f.originalName)}
+              className="cursor-zoom-in rounded-ui-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+            >
               {/* Authenticated API URL → plain <img> (next/image cannot fetch it). */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={attachmentUrl(projectId, f.id)} alt={f.originalName} loading="lazy" decoding="async" className="h-28 max-w-[14rem] rounded-ui-sm border border-border object-cover" />
-            </a>
+            </button>
           ))}
         </div>
       )}
@@ -140,6 +150,13 @@ function Attachments({ projectId, files }: { projectId: string; files: TeamMessa
             </li>
           ))}
         </ul>
+      )}
+      {previewAt !== null && (
+        <MediaPreviewModal
+          items={images.map((f) => ({ id: f.id, originalName: f.originalName, mimeType: f.mimeType, url: attachmentUrl(projectId, f.id) }))}
+          startIndex={previewAt}
+          onClose={() => setPreviewAt(null)}
+        />
       )}
     </div>
   )

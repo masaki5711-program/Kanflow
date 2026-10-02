@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { apiFetch } from "@/hooks"
+import { announceNotificationsChanged } from "@/lib/notification-events"
 import type { TeamMessage } from "./types"
 
 /** How often the open chat asks for new messages (ms). */
@@ -43,6 +44,7 @@ export function useTeamChat(projectId: string, forMe: boolean) {
     try {
       await apiFetch(`${base(projectId)}/read`, { method: "POST" })
       window.dispatchEvent(new CustomEvent(TEAM_CHAT_READ_EVENT, { detail: projectId }))
+      announceNotificationsChanged()
     } catch {
       // The badge just stays until the next visit.
     }

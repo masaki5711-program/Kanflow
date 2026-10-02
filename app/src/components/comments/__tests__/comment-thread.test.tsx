@@ -71,7 +71,8 @@ describe("CommentThread", () => {
     await userEvent.click(screen.getByRole("button", { name: t.commentsSend }))
 
     expect(await screen.findByText("@Taro Yamada")).toHaveAttribute("data-mention")
-    expect(calls.find((c) => c.method === "POST")?.body).toEqual({ entityType: "pbi", entityId: "b1", body: "Hi @[Taro Yamada]" })
+    // Opening the thread also POSTs /comments/read; the comment itself carries a body.
+    expect(calls.find((c) => c.method === "POST" && !!(c.body as { body?: string } | undefined)?.body)?.body).toEqual({ entityType: "pbi", entityId: "b1", body: "Hi @[Taro Yamada]" })
     expect(onCountDelta).toHaveBeenCalledWith(1)
     expect(screen.queryByText(t.commentsEmptyTitle)).not.toBeInTheDocument()
     expect(screen.getByLabelText(t.commentsBodyLabel)).toHaveValue("")
@@ -207,3 +208,29 @@ describe("CommentThread", () => {
     await waitFor(() => expect(within(list).getAllByRole("option").map((o) => o.textContent)).toEqual(["@Taro Yamada"]))
   })
 })
+
+describe("reading a thread", () => {
+  it("marks the viewer's notifications of the thread read on open and reports it", async () => {
+    routes[`GET ${LIST}`] = () => jsonResponse({ items: [], nextCursor: null })
+    routes[`POST ${BASE}/read`] = () => jsonResponse({ updated: 1 })
+    const onRead = vi.fn()
+    const changed = vi.fn()
+    window.addEventListener("kanflow:notifications-changed", changed)
+    renderWithProviders(<CommentThread projectId="p1" entityType="pbi" entityId="b1" onRead={onRead} />)
+    await waitFor(() => expect(onRead).toHaveBeenCalledTimes(1))
+    expect(calls.find((c) => c.method === "POST" && c.url === `${BASE}/read`)?.body).toEqual({ entityType: "pbi", entityId: "b1" })
+    // The bell / unread marks elsewhere are told to reload.
+    expect(changed).toHaveBeenCalled()
+    window.removeEventListener("kanflow:notifications-changed", changed)
+  })
+
+  it("a failed read call is not fatal (no onRead)", async () => {
+    routes[`GET ${LIST}`] = () => jsonResponse({ items: [], nextCursor: null })
+    routes[`POST ${BASE}/read`] = () => jsonResponse({ error: "x" }, 500)
+    const onRead = vi.fn()
+    renderWithProviders(<CommentThread projectId="p1" entityType="pbi" entityId="b1" onRead={onRead} />)
+    expect(await screen.findByText(t.commentsEmptyTitle)).toBeInTheDocument()
+    expect(onRead).not.toHaveBeenCalled()
+  })
+})
+

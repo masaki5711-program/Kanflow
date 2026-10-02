@@ -122,6 +122,11 @@ export function findRead(db: Db, userId: string, projectId: string) {
   return db.teamChatRead.findUnique({ where: { userId_projectId: { userId, projectId } }, select: { lastReadAt: true } })
 }
 
+/** The user's unread team chat notifications of the project become read. */
+export function markChatNotificationsRead(db: Db, userId: string, projectId: string, now: Date) {
+  return db.notification.updateMany({ where: { recipientId: userId, projectId, entityType: "team_message", readAt: null }, data: { readAt: now } })
+}
+
 export function upsertRead(db: Db, userId: string, projectId: string, lastReadAt: Date) {
   return db.teamChatRead.upsert({
     where: { userId_projectId: { userId, projectId } },

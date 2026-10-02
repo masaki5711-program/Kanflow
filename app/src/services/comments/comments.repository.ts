@@ -115,3 +115,26 @@ export function findIceboxTarget(db: Db, projectId: string, id: string) {
     select: { id: true, displayId: true, request: true, author: true, assignedPo: true },
   })
 }
+
+/** Notification types a comment thread answers (reading the thread marks them read). */
+export const THREAD_NOTIFICATION_TYPES = ["mentioned", "comment"] as const
+
+/** The user's unread mention / comment notifications per entity (badge "unread"). */
+export async function countUnreadForUser(db: Db, userId: string, projectId: string, entityType: string, ids: readonly string[]): Promise<Map<string, number>> {
+  if (ids.length === 0) return new Map()
+  const rows = await db.notification.groupBy({
+    by: ["entityId"],
+    where: { recipientId: userId, projectId, readAt: null, entityType, entityId: { in: [...ids] }, type: { in: [...THREAD_NOTIFICATION_TYPES] } },
+    _count: { _all: true },
+  })
+  return new Map(rows.filter((r) => r.entityId).map((r) => [r.entityId as string, r._count._all]))
+}
+
+/** Marks the user's unread mention / comment notifications of one entity read. */
+export function markEntityNotificationsRead(db: Db, userId: string, projectId: string, entityType: string, entityId: string, now: Date) {
+  return db.notification.updateMany({
+    where: { recipientId: userId, projectId, readAt: null, entityType, entityId, type: { in: [...THREAD_NOTIFICATION_TYPES] } },
+    data: { readAt: now },
+  })
+}
+

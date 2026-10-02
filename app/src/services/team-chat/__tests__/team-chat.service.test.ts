@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("@/services/_shared/db", async () => (await import("@/services/__tests__/support")).dbMock())
 vi.mock("@/services/_shared/notifications", async () => (await import("@/services/__tests__/support")).notificationsMock())
+vi.mock("@/services/_shared/translations", async () => (await import("@/services/__tests__/support")).translationMock())
 vi.mock("@/lib/logger", () => ({ logger: { child: () => ({ warn: vi.fn(), error: vi.fn(), info: vi.fn() }) } }))
 vi.mock("@/lib/api-helpers", () => ({
   saveUploadedFile: vi.fn(),
@@ -19,6 +20,7 @@ const { createComment } = await import("@/services/comments/comments.service")
 const { findMentionCandidates } = await import("@/services/comments/comments.repository")
 const { notify } = await import("@/services/_shared/notifications")
 const { ACTOR, TX, DEFAULT_DB } = await import("@/services/__tests__/support")
+const tr = await import("@/services/_shared/translations")
 const svc = await import("../team-chat.service")
 const { NotFoundError, ForbiddenError, StatusError } = await import("@/services/_shared/errors")
 
@@ -303,3 +305,31 @@ describe("getChatSummary / markChatRead", () => {
     expect(out).toEqual({ lastReadAt: now.toISOString() })
   })
 })
+
+describe("translation of chat messages", () => {
+  it("queues a new message body for JA ⇄ ID translation inside the transaction", async () => {
+    await svc.createMessage("p1", { body: "こんにちは", replyToId: null, files: [] }, ACTOR)
+    expect(tr.enqueueIn).toHaveBeenCalledWith(TX, "team_message", expect.any(String), { body: "こんにちは" })
+  })
+
+  it("does not queue a files-only message (no text)", async () => {
+    vi.mocked(files.saveUploadedFile).mockResolvedValue({ ok: true, fileName: "f", originalName: "a.txt", fileSize: 1, mimeType: "text/plain" })
+    await svc.createMessage("p1", { body: "", replyToId: null, files: [new File(["x"], "a.txt")] }, ACTOR)
+    expect(tr.enqueueIn).not.toHaveBeenCalledWith(TX, "team_message", expect.anything(), expect.anything())
+  })
+
+  it("drops the translation when the message is deleted", async () => {
+    vi.mocked(repo.findMessage).mockResolvedValueOnce(messageRow() as never)
+    await svc.deleteMessage("p1", "m1", ACTOR)
+    expect(tr.purgeIn).toHaveBeenCalledWith(TX, { team_message: ["m1"] })
+  })
+})
+
+describe("markChatRead", () => {
+  it("also marks the viewer's team chat notifications of the project read", async () => {
+    const now = new Date("2026-10-02T00:00:00Z")
+    await svc.markChatRead("u1", "p1", now)
+    expect(repo.markChatNotificationsRead).toHaveBeenCalledWith(expect.anything(), "u1", "p1", now)
+  })
+})
+

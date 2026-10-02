@@ -1,13 +1,13 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { MessageSquare, Pencil, Trash2 } from "lucide-react"
 import { useLanguage } from "@/lib/language-context"
 import { Button, EmptyState, IconButton, SkeletonLines, useConfirm, useToast } from "@/components/ui"
 import { CommentBody } from "./comment-body"
 import { CommentComposer } from "./comment-composer"
 import { formatFullDateTime, formatRelativeTime } from "./relative-time"
-import { useCommentThread, useMentionMembersState } from "./use-comment-thread"
+import { markThreadRead, useCommentThread, useMentionMembersState } from "./use-comment-thread"
 import type { CommentDto, CommentEntityType, MentionMember } from "./types"
 
 interface Props {
@@ -16,6 +16,8 @@ interface Props {
   entityId: string
   /** Called with +1 / -1 after a comment is posted / deleted (badge counts). */
   onCountDelta?: (delta: number) => void
+  /** Called once the thread was opened and its notifications marked read (unread marks). */
+  onRead?: () => void
 }
 
 function errorText(err: unknown): string {
@@ -27,10 +29,22 @@ function errorText(err: unknown): string {
  * "show more", the composer at the bottom, edit / delete of one's own
  * comments (moderators may delete any — the server decides via canDelete).
  */
-export function CommentThread({ projectId, entityType, entityId, onCountDelta }: Props) {
+export function CommentThread({ projectId, entityType, entityId, onCountDelta, onRead }: Props) {
   const { t } = useLanguage()
   const toast = useToast()
   const thread = useCommentThread(projectId, entityType, entityId)
+  // Opening a thread reads it: its mentions / comment notifications are read everywhere (bell, top page, sprint marks).
+  useEffect(() => {
+    let cancelled = false
+    void markThreadRead(projectId, entityType, entityId).then((ok) => {
+      if (ok && !cancelled) onRead?.()
+    })
+    return () => {
+      cancelled = true
+    }
+    // onRead is a notification only; re-running for a new callback identity is not wanted.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId, entityType, entityId])
   const { members, isLoading: membersLoading } = useMentionMembersState(projectId)
 
   async function post(body: string): Promise<boolean> {

@@ -18,6 +18,8 @@ interface Props {
   commentId?: string
   /** Called after a "translate now" succeeded (reload the thread). */
   onTranslated?: () => void
+  /** Translation record behind the text when it is not this comment (team chat messages). */
+  translationEntity?: { type: string; id: string } | null
 }
 
 const FIELD = "body"
@@ -58,7 +60,7 @@ function renderSegments(text: string, known: ReadonlySet<string>): ReactNode[] {
  * Shown in the viewer's language (JA/ID) when a translation exists, with the
  * same "原文" toggle as I18nText; untranslated text carries a pending badge.
  */
-export function CommentBody({ body, mentions, i18n, commentId, onTranslated }: Props) {
+export function CommentBody({ body, mentions, i18n, commentId, onTranslated, translationEntity }: Props) {
   const { language } = useLanguage()
   const [showOriginal, setShowOriginal] = useState(false)
   const known = new Set(mentions.map((m) => fold(m.name)))
@@ -73,7 +75,7 @@ export function CommentBody({ body, mentions, i18n, commentId, onTranslated }: P
         {renderSegments(picked.text, known)}
         {(picked.pending || picked.failed) && (
           <PendingBadge failed={picked.failed} field={FIELD} onDone={onTranslated}
-            entity={commentId ? { type: "comment", id: commentId } : undefined} />
+            entity={translationEntity ?? (commentId ? { type: "comment", id: commentId } : undefined)} />
         )}
         {canToggle && <OriginalToggle expanded={showOriginal} onToggle={() => setShowOriginal((v) => !v)} />}
       </p>

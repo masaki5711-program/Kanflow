@@ -1,5 +1,6 @@
 /** Team chat message DTOs (pure mapping from repository rows). */
 import { commentExcerpt } from "@/lib/mentions"
+import type { EntityI18n } from "@/lib/translation/types"
 import type { MessageRow } from "./team-chat.repository"
 
 export type SourceType = "pbi" | "sprint_task" | "icebox"
@@ -32,6 +33,10 @@ export interface TeamMessageDto {
   /** A chat reply that was also posted to the source's comment thread. */
   postedToThread: boolean
   canDelete: boolean
+  /** Both-language body (field "body"): the message's own translation, or its comment's for a mirror. */
+  i18n: EntityI18n
+  /** Which translation record "translate now" refreshes. */
+  translation: { type: "team_message" | "comment"; id: string } | null
 }
 
 export interface SourceLabels {
@@ -67,7 +72,12 @@ export interface Viewer {
 }
 
 /** Pure: one row as the chat renders it. */
-export function toMessageDto(row: MessageRow, viewer: Viewer, labels: ReadonlyMap<string, Omit<MessageSourceDto, "entityType" | "entityId">>): TeamMessageDto {
+export function toMessageDto(
+  row: MessageRow,
+  viewer: Viewer,
+  labels: ReadonlyMap<string, Omit<MessageSourceDto, "entityType" | "entityId">>,
+  i18n: EntityI18n = {},
+): TeamMessageDto {
   const c = row.comment
   const mirror = row.body === null && !!c
   const mentionUsers = mirror ? c.mentions.map((m) => m.user) : row.mentions.map((m) => m.user)
@@ -99,5 +109,7 @@ export function toMessageDto(row: MessageRow, viewer: Viewer, labels: ReadonlyMa
       : null,
     postedToThread: row.body !== null && !!row.commentId,
     canDelete: !mirror && (row.authorId === viewer.userId || viewer.canModerate),
+    i18n,
+    translation: mirror ? { type: "comment", id: c.id } : row.body ? { type: "team_message", id: row.id } : null,
   }
 }

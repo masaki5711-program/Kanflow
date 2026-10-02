@@ -163,12 +163,12 @@ describe("PATCH/DELETE /comments/:commentId", () => {
 describe("GET /comments/counts", () => {
   it("parses de-duplicated ids", async () => {
     asRole("dev")
-    vi.mocked(svc.getCommentCounts).mockResolvedValue({ counts: { a: 1, b: 0 } })
+    vi.mocked(svc.getCommentCounts).mockResolvedValue({ counts: { a: 1, b: 0 }, unread: { a: 1 } })
     expect(await read(await counts.GET(get("/counts?entityType=pbi&ids=a,b,,a"), ctx()))).toEqual({
       status: 200,
-      body: { counts: { a: 1, b: 0 } },
+      body: { counts: { a: 1, b: 0 }, unread: { a: 1 } },
     })
-    expect(svc.getCommentCounts).toHaveBeenCalledWith(PROJECT_ID, { entityType: "pbi", ids: ["a", "b"] })
+    expect(svc.getCommentCounts).toHaveBeenCalledWith(PROJECT_ID, { entityType: "pbi", ids: ["a", "b"] }, expect.any(String))
   })
 
   it("400 without ids, with too many ids or a bad type; 500 on failure", async () => {

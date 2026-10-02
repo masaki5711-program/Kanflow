@@ -133,6 +133,7 @@ const ROUTES: RouteCase[] = [
   { file: "activity/[entityType]/[entityId]/route.ts", load: () => import("@/app/api/projects/[projectId]/activity/[entityType]/[entityId]/route"), params: { entityType: "pbi", entityId: "pbi-1" } },
   { file: "comments/route.ts", load: () => import("@/app/api/projects/[projectId]/comments/route"), params: {} },
   { file: "comments/counts/route.ts", load: () => import("@/app/api/projects/[projectId]/comments/counts/route"), params: {} },
+  { file: "comments/read/route.ts", load: () => import("@/app/api/projects/[projectId]/comments/read/route"), params: {} },
   { file: "comments/[commentId]/route.ts", load: () => import("@/app/api/projects/[projectId]/comments/[commentId]/route"), params: { commentId: "c-1" } },
   { file: "ai-reports/route.ts", load: () => import("@/app/api/projects/[projectId]/ai-reports/route"), params: {} },
   { file: "ai/generate-pbi-field/route.ts", load: () => import("@/app/api/projects/[projectId]/ai/generate-pbi-field/route"), params: {} },

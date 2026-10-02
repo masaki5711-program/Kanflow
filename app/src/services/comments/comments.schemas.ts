@@ -41,3 +41,7 @@ export type ListCommentsQuery = z.infer<typeof listCommentsQuerySchema>
 export type CreateCommentInput = z.infer<typeof createCommentSchema>
 export type UpdateCommentInput = z.infer<typeof updateCommentSchema>
 export type CommentCountsQuery = z.infer<typeof commentCountsQuerySchema>
+
+/** POST /comments/read: the viewer opened this thread. */
+export const markThreadReadSchema = z.object({ entityType, entityId })
+

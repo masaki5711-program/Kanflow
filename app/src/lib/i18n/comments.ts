@@ -30,6 +30,7 @@ export interface CommentsTranslations {
   commentsLoadMore: string
   /** {count} = number of comments. */
   commentsCountLabel: string
+  commentsUnreadLabel: string
   /** {name} = task / item name. */
   commentsOpenFor: string
   commentsMentionListLabel: string
@@ -83,6 +84,7 @@ export const ja: CommentsTranslations = {
   commentsRetry: "再読み込み",
   commentsLoadMore: "さらに表示",
   commentsCountLabel: "コメント {count} 件",
+  commentsUnreadLabel: "あなた宛ての未読 {count} 件",
   commentsOpenFor: "コメント: {name}",
   commentsMentionListLabel: "メンション候補",
   commentsMentionNoMatch: "一致するメンバーがいません",
@@ -132,6 +134,7 @@ export const en: CommentsTranslations = {
   commentsRetry: "Reload",
   commentsLoadMore: "Show more",
   commentsCountLabel: "{count} comments",
+  commentsUnreadLabel: "{count} unread for you",
   commentsOpenFor: "Comments: {name}",
   commentsMentionListLabel: "Mention suggestions",
   commentsMentionNoMatch: "No matching members",
@@ -181,6 +184,7 @@ export const id: CommentsTranslations = {
   commentsRetry: "Muat ulang",
   commentsLoadMore: "Tampilkan lagi",
   commentsCountLabel: "{count} komentar",
+  commentsUnreadLabel: "{count} belum dibaca untuk Anda",
   commentsOpenFor: "Komentar: {name}",
   commentsMentionListLabel: "Saran sebutan",
   commentsMentionNoMatch: "Tidak ada anggota yang cocok",

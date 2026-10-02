@@ -12,6 +12,7 @@ import type { Actor } from "@/services/_shared/actor"
 import { defaultDb, withTransaction, type Db } from "@/services/_shared/db"
 import { ForbiddenError, NotFoundError, StatusError, ValidationError } from "@/services/_shared/errors"
 import { notify } from "@/services/_shared/notifications"
+import { enqueueIn, getI18nFor, prepareText, purgeIn } from "@/services/_shared/translations"
 import { assertStorageQuota } from "@/services/attachments/storage-quota"
 import { createComment } from "@/services/comments/comments.service"
 import { findMentionCandidates } from "@/services/comments/comments.repository"
@@ -29,8 +30,16 @@ const FIRST_READ_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
 export const TEAM_CHAT_LABEL = "チームチャット"
 
 async function toDtos(db: Db, projectId: string, rows: readonly repo.MessageRow[], viewer: Viewer): Promise<TeamMessageDto[]> {
-  const labels = sourceLabelMap(await repo.findSourceLabels(db, projectId, sourceIds(rows)))
-  return rows.map((r) => toMessageDto(r, viewer, labels))
+  // Chat messages are translated as team_message; mirrors show their comment's translation.
+  const own = rows.filter((r) => r.body !== null).map((r) => r.id)
+  const mirrored = rows.filter((r) => r.body === null && r.commentId).map((r) => r.commentId as string)
+  const [labelRows, ownI18n, commentI18n] = await Promise.all([
+    repo.findSourceLabels(db, projectId, sourceIds(rows)),
+    getI18nFor("team_message", own),
+    getI18nFor("comment", mirrored),
+  ])
+  const labels = sourceLabelMap(labelRows)
+  return rows.map((r) => toMessageDto(r, viewer, labels, r.body !== null ? ownI18n.get(r.id) : commentI18n.get(r.commentId ?? "")))
 }
 
 export interface ListQuery {
@@ -100,7 +109,8 @@ export function threadBody(body: string, fileCount: number): string {
  * author are notified.
  */
 export async function createMessage(projectId: string, input: CreateMessageInput, actor: Actor, canModerate = false): Promise<TeamMessageDto> {
-  const body = input.body.trim()
+  // Same text handling as comments (e.g. 用語<<訳語>> glossary marks); the worker translates JA ⇄ ID.
+  const body = (await prepareText({ body: input.body.trim() }, actor.userId)).body
   if (!body && input.files.length === 0) throw new ValidationError("メッセージを入力するか、ファイルを添付してください", {}, "TEAM_CHAT_EMPTY")
   if (body.length > TEAM_CHAT_BODY_MAX) throw new ValidationError("メッセージが長すぎます", {}, "TEAM_CHAT_TOO_LONG")
   assertFiles(input.files)
@@ -131,6 +141,7 @@ export async function createMessage(projectId: string, input: CreateMessageInput
     const { id } = await repo.insertMessage(tx, { projectId, authorId: actor.userId, body, replyToId: replyTo?.id ?? null, commentId: threadComment?.id ?? null })
     await repo.insertMentions(tx, id, mentionIds)
     await repo.insertAttachments(tx, id, files)
+    if (body) await enqueueIn(tx, "team_message", id, { body })
     await notifyChat(tx, { projectId, messageId: id, body, actor, mentionIds, replyAuthorId: replyTo?.authorId ?? null })
     return id
   }).catch(async (err: unknown) => {
@@ -172,6 +183,8 @@ export async function deleteMessage(projectId: string, messageId: string, actor:
   await withTransaction(async (tx) => {
     await repo.softDeleteMessage(tx, messageId, now)
     await repo.deleteAttachmentRows(tx, messageId)
+    // A deleted message never shows its text again: drop its translation too.
+    await purgeIn(tx, { team_message: [messageId] })
   })
   await Promise.all(files.map((f) => deleteUploadedFile(projectId, f.fileName)))
 }
@@ -201,6 +214,8 @@ export async function getChatSummary(userId: string, projectId: string, now: Dat
 /** The viewer has seen everything up to now. */
 export async function markChatRead(userId: string, projectId: string, now: Date = new Date()): Promise<{ lastReadAt: string }> {
   await repo.upsertRead(defaultDb, userId, projectId, now)
+  // Mentions / replies in the chat count as read once the chat was seen (bell, top page, dashboard).
+  await repo.markChatNotificationsRead(defaultDb, userId, projectId, now)
   return { lastReadAt: now.toISOString() }
 }
 

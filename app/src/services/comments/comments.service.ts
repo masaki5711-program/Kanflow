@@ -184,9 +184,30 @@ export async function listComments(projectId: string, query: ListCommentsQuery, 
 }
 
 /** `{ counts: { [entityId]: n } }` — live comments per requested id (0 when none). */
-export async function getCommentCounts(projectId: string, query: CommentCountsQuery): Promise<{ counts: Record<string, number> }> {
-  const found = await repo.countComments(defaultDb, projectId, query.entityType, query.ids)
-  return { counts: Object.fromEntries(query.ids.map((id) => [id, found.get(id) ?? 0])) }
+/**
+ * Badge counts per item; with `viewerId` also the viewer's unread mention /
+ * comment notifications per item (read anywhere — bell, top page, dashboard,
+ * the thread itself — they disappear everywhere, as all read the same rows).
+ */
+export async function getCommentCounts(
+  projectId: string,
+  query: CommentCountsQuery,
+  viewerId?: string,
+): Promise<{ counts: Record<string, number>; unread: Record<string, number> }> {
+  const [found, unread] = await Promise.all([
+    repo.countComments(defaultDb, projectId, query.entityType, query.ids),
+    viewerId ? repo.countUnreadForUser(defaultDb, viewerId, projectId, query.entityType, query.ids) : Promise.resolve(new Map<string, number>()),
+  ])
+  return {
+    counts: Object.fromEntries(query.ids.map((id) => [id, found.get(id) ?? 0])),
+    unread: Object.fromEntries(query.ids.filter((id) => (unread.get(id) ?? 0) > 0).map((id) => [id, unread.get(id) as number])),
+  }
+}
+
+/** The viewer opened the thread: its mention / comment notifications are read. */
+export async function markThreadRead(projectId: string, entityType: CommentEntityType, entityId: string, viewerId: string, now: Date = new Date()): Promise<{ updated: number }> {
+  const { count } = await repo.markEntityNotificationsRead(defaultDb, viewerId, projectId, entityType, entityId, now)
+  return { updated: count }
 }
 
 interface NotifyContext {

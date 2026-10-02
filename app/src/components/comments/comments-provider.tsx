@@ -11,6 +11,8 @@ const MAX_COUNT_IDS = 200
 
 interface CommentsContextValue {
   counts: Record<string, number>
+  /** The viewer's unread mentions / comments per item. */
+  unread: Record<string, number>
   open: (entityId: string, name: string) => void
   /** Item whose comments the URL asks to open (`?task=<id>&tab=comments`), until its button claims it. */
   autoOpenId: string | null
@@ -40,7 +42,7 @@ function initialTarget(entityType: CommentEntityType): string | null {
  */
 export function CommentsProvider({ projectId, entityType, entityIds, children }: ProviderProps) {
   const ids = useMemo(() => entityIds.slice(0, MAX_COUNT_IDS), [entityIds])
-  const { counts, adjustCount } = useCommentCounts(projectId, entityType, ids)
+  const { counts, unread, adjustCount, clearUnread } = useCommentCounts(projectId, entityType, ids)
   const [openItem, setOpenItem] = useState<{ id: string; name: string } | null>(null)
   const [autoOpenId, setAutoOpenId] = useState<string | null>(() => initialTarget(entityType))
   const open = useCallback((id: string, name: string) => setOpenItem({ id, name }), [])
@@ -51,14 +53,14 @@ export function CommentsProvider({ projectId, entityType, entityIds, children }:
     const { pathname, search, hash } = window.location
     window.history.replaceState(window.history.state, "", `${pathname}${withoutTabParam(search)}${hash}`)
   }, [])
-  const value = useMemo(() => ({ counts, open, autoOpenId, claimAutoOpen }), [counts, open, autoOpenId, claimAutoOpen])
+  const value = useMemo(() => ({ counts, unread, open, autoOpenId, claimAutoOpen }), [counts, unread, open, autoOpenId, claimAutoOpen])
 
   return (
     <CommentsContext.Provider value={value}>
       {children}
       {openItem && (
         <CommentsDialog projectId={projectId} entityType={entityType} entityId={openItem.id} name={openItem.name}
-          onClose={() => setOpenItem(null)} onCountDelta={(d) => adjustCount(openItem.id, d)} />
+          onClose={() => setOpenItem(null)} onCountDelta={(d) => adjustCount(openItem.id, d)} onRead={() => clearUnread(openItem.id)} />
       )}
     </CommentsContext.Provider>
   )
@@ -73,5 +75,5 @@ export function CommentsButton({ entityId, name, className }: { entityId: string
     if (shouldAutoOpen && claim) claim(entityId, name)
   }, [shouldAutoOpen, claim, entityId, name])
   if (!ctx) return null
-  return <CommentCountButton name={name} count={ctx.counts[entityId]} onClick={() => ctx.open(entityId, name)} className={className} />
+  return <CommentCountButton name={name} count={ctx.counts[entityId]} unread={ctx.unread[entityId]} onClick={() => ctx.open(entityId, name)} className={className} />
 }

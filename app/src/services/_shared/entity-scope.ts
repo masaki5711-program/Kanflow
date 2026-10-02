@@ -59,6 +59,9 @@ async function resolveOwner(db: Db, type: TranslatableEntity, id: string): Promi
     case "comment":
       // A deleted comment is a tombstone whose body is never shown.
       return liveProject(await db.comment.findUnique(byIdWithTrash))
+    case "team_message":
+      // A deleted chat message is never shown again.
+      return liveProject(await db.teamMessage.findUnique(byIdWithTrash))
     case "fixed_task": {
       const row = await db.userFixedTask.findUnique({ where: { id }, select: { userId: true } })
       return row ? { kind: "user", userId: row.userId } : null

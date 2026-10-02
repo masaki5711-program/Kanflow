@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef } from "react"
 import { apiFetch, useApiQuery } from "@/hooks"
+import { announceNotificationsChanged } from "@/lib/notification-events"
 import type { NotificationItem } from "@/components/notifications/notification-format"
 import type { FeedEntry } from "@/app/projects/[projectId]/dashboard/activity-sentence"
 
@@ -40,9 +41,10 @@ export function parseProjectUpdates(raw: unknown): ProjectUpdates {
 
 export const updatesUrl = (projectId: string) => `/api/projects/${encodeURIComponent(projectId)}/updates`
 
-/** Tell the sidebar dot (and other listeners) to reload the project's counts. */
+/** Tell the sidebar dot, the bell and the unread marks to reload. */
 export function announceUpdatesChanged(projectId: string) {
   window.dispatchEvent(new CustomEvent(PROJECT_UPDATES_EVENT, { detail: projectId }))
+  announceNotificationsChanged()
 }
 
 /** The dashboard's "what's new" data plus the two writes (mark one read, mark all seen). */
