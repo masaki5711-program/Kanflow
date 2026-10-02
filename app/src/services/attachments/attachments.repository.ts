@@ -9,6 +9,7 @@ export interface NewAttachment {
   fileSize: number
   mimeType: string
   uploadedBy: string | null
+  linkUrl?: string | null
 }
 
 export function findFolderInProject(db: Db, projectId: string, folderId: string) {
@@ -27,13 +28,19 @@ export function updateAttachment(
   db: Db,
   projectId: string,
   attachmentId: string,
-  data: { folderId?: string | null; sortOrder?: number }
+  data: { folderId?: string | null; sortOrder?: number; originalName?: string; linkUrl?: string }
 ) {
   return db.projectAttachment.update({ where: { id: attachmentId, projectId }, data })
 }
 
 export function deleteAttachment(db: Db, attachmentId: string) {
   return db.projectAttachment.delete({ where: { id: attachmentId } })
+}
+
+/** Lowest sortOrder in the folder minus one (a new link goes on top, like a new upload). */
+export async function firstAttachmentSortOrder(db: Db, projectId: string, folderId: string | null): Promise<number> {
+  const min = await db.projectAttachment.aggregate({ where: { projectId, folderId }, _min: { sortOrder: true } })
+  return (min._min.sortOrder ?? 1) - 1
 }
 
 export async function nextFolderSortOrder(db: Db, projectId: string, parentId: string | null): Promise<number> {

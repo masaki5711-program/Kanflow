@@ -95,7 +95,7 @@ export function withoutUser(members: readonly MentionMember[], userId: string | 
 }
 
 /** The signed-in user's id, or null (no SessionProvider — e.g. isolated component tests). */
-function useSignedInUserId(): string | null {
+export function useSignedInUserId(): string | null {
   const session = useContext(SessionContext)
   return session?.data?.user?.id ?? null
 }

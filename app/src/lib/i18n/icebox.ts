@@ -44,6 +44,12 @@ export interface IceboxTranslations {
   iceboxAttachmentDeleteConfirm: string
   iceboxAttachmentPreview: string
   iceboxAttachmentCount: string
+  iceboxAttachLabel: string
+  iceboxAttachDrop: string
+  iceboxAttachRemove: string
+  iceboxAttachTooMany: string
+  iceboxAttachPartialFailed: string
+  iceboxAttachUploadingN: string
 }
 
 export const ja: IceboxTranslations = {
@@ -86,6 +92,12 @@ export const ja: IceboxTranslations = {
   iceboxAttachmentDeleteConfirm: "添付ファイル「{name}」を削除しますか？この操作は元に戻せません。",
   iceboxAttachmentPreview: "{name} をプレビュー",
   iceboxAttachmentCount: "添付ファイル {n} 件",
+  iceboxAttachLabel: "画像・ファイル",
+  iceboxAttachDrop: "クリックして選択、ドラッグ＆ドロップ、またはスクリーンショットを Ctrl+V で貼り付け",
+  iceboxAttachRemove: "{name} を外す",
+  iceboxAttachTooMany: "添付は 1 件につき最大 {max} 個までです",
+  iceboxAttachPartialFailed: "{n} 個のファイルをアップロードできませんでした: {names}",
+  iceboxAttachUploadingN: "ファイルをアップロード中…（{n} 個）",
 }
 
 export const en: IceboxTranslations = {
@@ -128,6 +140,12 @@ export const en: IceboxTranslations = {
   iceboxAttachmentDeleteConfirm: "Delete the attachment \"{name}\"? This cannot be undone.",
   iceboxAttachmentPreview: "Preview {name}",
   iceboxAttachmentCount: "{n} attachments",
+  iceboxAttachLabel: "Images & files",
+  iceboxAttachDrop: "Click to choose, drag & drop, or paste a screenshot with Ctrl+V",
+  iceboxAttachRemove: "Remove {name}",
+  iceboxAttachTooMany: "Up to {max} attachments per request",
+  iceboxAttachPartialFailed: "{n} file(s) could not be uploaded: {names}",
+  iceboxAttachUploadingN: "Uploading files… ({n})",
 }
 
 export const id: IceboxTranslations = {
@@ -170,4 +188,10 @@ export const id: IceboxTranslations = {
   iceboxAttachmentDeleteConfirm: "Hapus lampiran \"{name}\"? Tindakan ini tidak dapat dibatalkan.",
   iceboxAttachmentPreview: "Pratinjau {name}",
   iceboxAttachmentCount: "{n} lampiran",
+  iceboxAttachLabel: "Gambar & berkas",
+  iceboxAttachDrop: "Klik untuk memilih, seret & lepas, atau tempel tangkapan layar dengan Ctrl+V",
+  iceboxAttachRemove: "Hapus {name}",
+  iceboxAttachTooMany: "Maksimal {max} lampiran per permintaan",
+  iceboxAttachPartialFailed: "{n} berkas gagal diunggah: {names}",
+  iceboxAttachUploadingN: "Mengunggah berkas… ({n})",
 }

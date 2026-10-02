@@ -9,6 +9,7 @@ import { getProjectTypeLabels, type ProjectType } from "@/lib/project-type-label
 import { projectRoleLabel, projectRoleShortLabel } from "@/lib/project-roles"
 import { NameLink, RenameButton, RenameInput, type ProjectItemProps } from "./project-card"
 import { DormantBadge } from "./project-dates"
+import { ProjectUpdatesBadges } from "./project-updates-badges"
 import { FavoriteButton, OptionsButton, ProjectTypeMark } from "./project-parts"
 import { lastActivityTime } from "./dormancy"
 import { clampPct, colorDot, projectTypeLabel, roleStyle, type Project } from "./types"
@@ -132,7 +133,8 @@ export const ProjectListRow = memo(function ProjectListRow(props: ProjectItemPro
         <div role="cell">
           <UpdatedCell project={project} now={now} />
         </div>
-        <div role="cell" className="empty:hidden lg:empty:block">
+        <div role="cell" className="flex flex-wrap items-center gap-1.5 empty:hidden lg:empty:block">
+          <ProjectUpdatesBadges project={project} />
           <DormantBadge project={project} now={now} />
         </div>
         <div role="cell" className="hidden lg:block">

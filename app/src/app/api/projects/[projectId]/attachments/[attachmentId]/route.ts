@@ -1,4 +1,6 @@
+import { NextResponse } from "next/server"
 import { serveStoredFile } from "@/lib/api-helpers"
+import { isLinkEntry, normalizeLinkUrl } from "@/lib/attachment-links"
 import { requireProject } from "@/lib/authz"
 import { jsonResponse, successResponse, toHttpResponse } from "@/services/_shared"
 import { moveAttachmentSchema } from "@/services/attachments/attachments.schemas"
@@ -18,6 +20,11 @@ export async function GET(request: Request, { params }: Params) {
 
   try {
     const attachment = await getAttachment(projectId, attachmentId)
+    if (isLinkEntry(attachment)) {
+      // A link entry opens its URL (re-validated: only http(s) is ever redirected to).
+      const url = normalizeLinkUrl(attachment.linkUrl ?? "")
+      return url ? NextResponse.redirect(url, 302) : NextResponse.json({ error: "Not found", code: "NOT_FOUND" }, { status: 404 })
+    }
     const forceDownload = new URL(request.url).searchParams.get("download") !== null
     return await serveStoredFile(
       projectId,

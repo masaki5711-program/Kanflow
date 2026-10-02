@@ -43,6 +43,12 @@ export function NotificationRow({ item, onChoose }: NotificationRowProps) {
             </span>
           )}
           <span className={cn("block text-body text-fg", unread && "font-medium")}>{text}</span>
+          {typeof item.payload.excerpt === "string" && item.payload.excerpt.trim() && (
+            // The message itself (comment excerpt), so a mention can be read without opening it.
+            <span data-notification-excerpt="" className="mt-1 block line-clamp-2 whitespace-pre-line rounded-ui-sm bg-surface-sunken px-2 py-1 text-caption text-fg">
+              {item.payload.excerpt}
+            </span>
+          )}
           <span className="mt-0.5 block text-caption text-fg-muted">
             {projectName && <span>{projectName} · </span>}
             <time dateTime={item.createdAt} title={formatDateTime(item.createdAt, language)}>

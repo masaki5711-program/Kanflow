@@ -62,6 +62,10 @@ export function findIceboxItemId(db: Db, projectId: string, itemId: string) {
   return db.iceboxItem.findFirst({ where: notDeleted({ id: itemId, projectId }), select: { id: true } })
 }
 
+export function countIceboxAttachments(db: Db, itemId: string) {
+  return db.iceboxAttachment.count({ where: { iceboxItemId: itemId } })
+}
+
 export function insertIceboxAttachment(
   db: Db,
   data: { iceboxItemId: string; fileName: string; originalName: string; fileSize: number; mimeType: string }

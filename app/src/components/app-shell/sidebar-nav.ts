@@ -9,6 +9,7 @@ import {
   ListOrdered,
   Map as MapIcon,
   MessageSquare,
+  MessagesSquare,
   Rocket,
   Settings,
   Trash2,
@@ -25,6 +26,8 @@ export interface SidebarNavItem {
   Icon: ComponentType<{ className?: string; "aria-hidden"?: boolean }>
   /** Exact match only (the dashboard is the project root). */
   exact?: boolean
+  /** Count pill after the label (new updates / unread chat); with its accessible text. "alert" = something is addressed to the viewer. */
+  badge?: { count: number; label: string; tone?: "primary" | "alert" }
 }
 
 export interface SidebarNavGroup {
@@ -46,8 +49,22 @@ export interface SidebarNavOptions {
 }
 
 /**
- * Sidebar information architecture, four collapsible sections:
- * 実行 (backlog, sprints) → 計画 (overview and schedule) → 振り返り・AI → 管理.
+ * The project dashboard: pinned above every section (it is the project's
+ * home, not part of 計画), never collapsed away.
+ */
+export function buildSidebarHome(projectId: string, t: Translations): SidebarNavItem {
+  return { href: `/projects/${projectId}`, label: t.navDashboard, description: t.navDescDashboard, Icon: LayoutDashboard, exact: true }
+}
+
+/** The project team chat, pinned under the dashboard (people come here every day). */
+export function buildSidebarTalk(projectId: string, t: Translations): SidebarNavItem {
+  return { href: `/projects/${projectId}/talk`, label: t.talkTitle, description: t.talkNavDesc, Icon: MessagesSquare }
+}
+
+/**
+ * Sidebar information architecture, four collapsible sections below the
+ * pinned dashboard (buildSidebarHome):
+ * 実行 (backlog, sprints) → 計画 (schedule) → 振り返り・AI → 管理.
  * The trash, team settings and AI chat entries are permission-gated.
  */
 export function buildSidebarGroups(
@@ -82,7 +99,6 @@ export function buildSidebarGroups(
       id: "plan",
       label: t.navGroupPlan,
       items: [
-        { href: base, label: t.navDashboard, description: t.navDescDashboard, Icon: LayoutDashboard, exact: true },
         { href: `${base}/plan`, label: t.planTitle, description: t.navDescPlan, Icon: MapIcon },
         { href: `${base}/gantt`, label: t.ganttTitle, description: t.navDescGantt, Icon: ChartGantt },
         { href: `${base}/calendar`, label: t.calendarTitle, description: t.navDescCalendar, Icon: CalendarDays },

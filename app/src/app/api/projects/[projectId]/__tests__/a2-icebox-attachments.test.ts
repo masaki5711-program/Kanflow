@@ -13,6 +13,7 @@ const m = vi.hoisted(() => ({
   attCreate: vi.fn(),
   attFindFirst: vi.fn(),
   attDelete: vi.fn(),
+  attCount: vi.fn(),
 }))
 
 vi.mock("@/lib/auth", () => ({ auth: () => m.authMock() }))
@@ -27,6 +28,7 @@ vi.mock("@/lib/prisma", () => ({
       create: (...a: unknown[]) => m.attCreate(...a),
       findFirst: (...a: unknown[]) => m.attFindFirst(...a),
       delete: (...a: unknown[]) => m.attDelete(...a),
+      count: (...a: unknown[]) => m.attCount(...a),
     },
   },
 }))
@@ -69,6 +71,7 @@ describe("icebox attachment routes", () => {
   beforeEach(() => {
     Object.values(m).forEach((f) => f.mockReset())
     m.sectionFindFirst.mockResolvedValue(null)
+    m.attCount.mockResolvedValue(0)
     vi.spyOn(process, "cwd").mockReturnValue(tmpRoot)
     m.attCreate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ id: "new", ...data }))
   })
@@ -104,6 +107,17 @@ describe("icebox attachment routes", () => {
       const body = await res.json()
       expect(body).toMatchObject({ iceboxItemId: "i1", originalName: "memo.txt", mimeType: "text/plain", fileSize: 5 })
       expect(m.itemFindFirst).toHaveBeenCalledWith({ where: { id: "i1", projectId: "p1", deletedAt: null }, select: { id: true } })
+      expect(m.attCount).toHaveBeenCalledWith({ where: { iceboxItemId: "i1" } })
+    })
+
+    it("400 ICEBOX_TOO_MANY_ATTACHMENTS when the item is already at the per-request limit", async () => {
+      asRole(m, "dev")
+      m.itemFindFirst.mockResolvedValue({ id: "i1" })
+      m.attCount.mockResolvedValue(10)
+      const res = await upload.POST(formReq(fileForm("x", "a.txt", "text/plain")), PI)
+      expect(res.status).toBe(400)
+      expect(await res.json()).toMatchObject({ code: "ICEBOX_TOO_MANY_ATTACHMENTS" })
+      expect(m.attCreate).not.toHaveBeenCalled()
     })
 
     it("404 when the icebox item is not in this project", async () => {

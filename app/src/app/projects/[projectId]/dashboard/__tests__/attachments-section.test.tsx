@@ -25,6 +25,9 @@ const ja = tr("ja")
 const att = (id: string, mimeType = "application/pdf", folderId: string | null = null): Attachment => ({
   id, originalName: `${id}.file`, fileName: id, fileSize: 2048, mimeType, folderId, createdAt: "2026-02-03T00:00:00Z",
 })
+const link = (id: string, linkUrl = "https://gitlab.example.com/group/repo", folderId: string | null = null): Attachment => ({
+  id, originalName: id, fileName: "", fileSize: 0, mimeType: "text/x-uri", folderId, createdAt: "2026-02-03T00:00:00Z", linkUrl,
+})
 const fold = (id: string, parentId: string | null, sortOrder: number, attachments: Attachment[] = []): Folder => ({ id, name: `Folder ${id}`, parentId, sortOrder, attachments })
 
 function renderSection(folders: Folder[], attachments: Attachment[], language: "ja" | "en" | "id" = "ja") {
@@ -194,6 +197,44 @@ describe("AttachmentsSection", () => {
     expect(await screen.findByText("up1.file")).toBeInTheDocument()
     await user.upload(inputs[1], new File(["y"], "in.txt"))
     await waitFor(() => expect(posts).toEqual([null, "f1"]))
+  })
+
+  it("renders a link entry as an external anchor, no download button, with a GitLab caption", () => {
+    renderSection([], [link("repo1")])
+    const anchor = screen.getByRole("link", { name: "repo1" })
+    expect(anchor).toHaveAttribute("href", "https://gitlab.example.com/group/repo")
+    expect(anchor).toHaveAttribute("target", "_blank")
+    expect(anchor).toHaveAttribute("rel", "noopener noreferrer")
+    expect(anchor).toHaveAttribute("title", `repo1 — ${ja.attLinkOpen}`)
+    expect(screen.getByText("gitlab.example.com/group/repo")).toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: `${ja.dashboardDownload}: repo1` })).not.toBeInTheDocument()
+  })
+
+  it("opens the edit-link dialog from a link row's edit button, prefilled, and saves the rename", async () => {
+    const user = userEvent.setup()
+    stubFetch([{ match: /attachments\/repo1$/, method: "PATCH", respond: () => jsonResponse({ id: "repo1", originalName: "renamed", linkUrl: "https://gitlab.example.com/group/repo" }) }])
+    renderSection([], [link("repo1")])
+    await user.click(screen.getByRole("button", { name: `${ja.attLinkEdit}: repo1` }))
+    const dialog = await screen.findByRole("dialog", { name: ja.attLinkEditTitle })
+    expect(within(dialog).getByLabelText(ja.attLinkUrl, { exact: false })).toHaveValue("https://gitlab.example.com/group/repo")
+    expect(within(dialog).getByLabelText(ja.attLinkName)).toHaveValue("repo1")
+    await user.clear(within(dialog).getByLabelText(ja.attLinkName))
+    await user.type(within(dialog).getByLabelText(ja.attLinkName), "renamed")
+    await user.click(within(dialog).getByRole("button", { name: ja.attLinkSave }))
+    expect(await screen.findByText(ja.attLinkSaved)).toBeInTheDocument()
+    expect(screen.queryByRole("dialog", { name: ja.attLinkEditTitle })).not.toBeInTheDocument()
+  })
+
+  it("opens the add-link dialog from the toolbar and creates a link", async () => {
+    const user = userEvent.setup()
+    stubFetch([{ match: "/api/projects/p1/attachments/links", method: "POST", respond: () => jsonResponse({ id: "new-link", originalName: "example.com", linkUrl: "https://example.com/" }) }])
+    renderSection([], [])
+    await user.click(screen.getByRole("button", { name: ja.attLinkAdd }))
+    const dialog = await screen.findByRole("dialog", { name: ja.attLinkFormTitle })
+    await user.type(within(dialog).getByLabelText(ja.attLinkUrl, { exact: false }), "https://example.com")
+    await user.click(within(dialog).getByRole("button", { name: ja.attLinkSave }))
+    expect(await screen.findByText(ja.attLinkAdded)).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "example.com" })).toBeInTheDocument()
   })
 
   it("drag and drop wiring: OS drop on the page uploads, file drop on folder header moves", async () => {

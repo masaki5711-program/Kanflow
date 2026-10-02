@@ -37,6 +37,9 @@ import * as apiTokens from "./api-tokens"
 import * as adminMetrics from "./admin-metrics"
 import * as projectOrganize from "./project-organize"
 import * as dependencies from "./dependencies"
+import * as updates from "./updates"
+import * as attachmentLinks from "./attachment-links"
+import * as teamChat from "./team-chat"
 
 export * from "./languages"
 export * from "./point-units"
@@ -83,7 +86,10 @@ export interface Translations
     apiTokens.ApiTokensTranslations,
     adminMetrics.AdminMetricsTranslations,
     projectOrganize.ProjectOrganizeTranslations,
-    dependencies.DependenciesTranslations {}
+    dependencies.DependenciesTranslations,
+    updates.UpdatesTranslations,
+    attachmentLinks.AttachmentLinksTranslations,
+    teamChat.TeamChatTranslations {}
 
 /** All domain modules, exported for tests (key-set / completeness checks). */
 export const domains = {
@@ -125,6 +131,9 @@ export const domains = {
   "admin-metrics": adminMetrics,
   "project-organize": projectOrganize,
   "dependencies": dependencies,
+  "updates": updates,
+  "attachment-links": attachmentLinks,
+  "team-chat": teamChat,
 } as const
 
 const ja: Translations = {
@@ -166,6 +175,9 @@ const ja: Translations = {
   ...adminMetrics.ja,
   ...projectOrganize.ja,
   ...dependencies.ja,
+  ...updates.ja,
+  ...attachmentLinks.ja,
+  ...teamChat.ja,
 }
 
 const en: Translations = {
@@ -207,6 +219,9 @@ const en: Translations = {
   ...adminMetrics.en,
   ...projectOrganize.en,
   ...dependencies.en,
+  ...updates.en,
+  ...attachmentLinks.en,
+  ...teamChat.en,
 }
 
 const id: Translations = {
@@ -248,6 +263,9 @@ const id: Translations = {
   ...adminMetrics.id,
   ...projectOrganize.id,
   ...dependencies.id,
+  ...updates.id,
+  ...attachmentLinks.id,
+  ...teamChat.id,
 }
 
 const translations: Record<Language, Translations> = { ja, en, id }

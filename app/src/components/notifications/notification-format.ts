@@ -69,6 +69,8 @@ function entityHref(projectId: string, entityType: string | null, entityId: stri
       return `${base}/sprints?sprint=${id}`
     case "plan_item":
       return `${base}/plan`
+    case "team_message":
+      return `${base}/talk?message=${id}`
     default:
       return base
   }

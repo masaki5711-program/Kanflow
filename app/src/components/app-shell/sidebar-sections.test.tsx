@@ -1,8 +1,9 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest"
-import { fireEvent, render, screen, within } from "@testing-library/react"
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type { ReactNode } from "react"
 import { getTranslations } from "@/lib/i18n"
+import { jsonResponse, stubFetch } from "@/app/__tests__/test-utils"
 import { stubLayout } from "../__tests__/helpers"
 
 const nav = vi.hoisted(() => ({ pathname: "/projects/p1/backlog" }))
@@ -80,7 +81,9 @@ describe("findActiveGroupId", () => {
   const groups = buildSidebarGroups("p1", t, pt, { showTrash: true })
 
   it("returns the section holding the current page", () => {
-    expect(findActiveGroupId(groups, "/projects/p1")).toBe("plan")
+    // The dashboard is pinned above the sections, so it belongs to none.
+    expect(findActiveGroupId(groups, "/projects/p1")).toBeUndefined()
+    expect(findActiveGroupId(groups, "/projects/p1/plan")).toBe("plan")
     expect(findActiveGroupId(groups, "/projects/p1/sprints/s3")).toBe("execute")
     expect(findActiveGroupId(groups, "/projects/p1/chat")).toBe("review")
     expect(findActiveGroupId(groups, "/projects/p1/trash")).toBe("manage")
@@ -151,8 +154,8 @@ describe("Sidebar section headings", () => {
     )
     const toggle = within(projectNav()).getByRole("button", { name: t.navGroupPlan })
     await userEvent.click(toggle)
-    // 5 plan items hidden; the count is decorative so the name stays the label
-    expect(toggle).toHaveTextContent("5")
+    // 4 plan items hidden; the count is decorative so the name stays the label
+    expect(toggle).toHaveTextContent("4")
     expect(toggle).toHaveAccessibleName(t.navGroupPlan)
   })
 })
@@ -170,9 +173,10 @@ describe("Sidebar expand / collapse all", () => {
     for (const label of [t.navGroupPlan, t.navGroupExecute, t.navGroupReview, t.navGroupManage]) {
       expect(within(navEl).getByRole("button", { name: label })).toHaveAttribute("aria-expanded", "false")
     }
+    // The pinned dashboard and team chat stay, plus the current page under its collapsed section.
     const links = within(navEl).getAllByRole("link")
-    expect(links).toHaveLength(1)
-    expect(links[0]).toHaveAttribute("aria-current", "page")
+    expect(links.map((l) => l.textContent)).toEqual([expect.stringContaining(t.navDashboard), expect.stringContaining(t.talkTitle), expect.anything()])
+    expect(links[2]).toHaveAttribute("aria-current", "page")
 
     await userEvent.click(within(navEl).getByRole("button", { name: t.navExpandAll }))
     expect(stored()).toEqual([])
@@ -263,5 +267,34 @@ describe("Sidebar mobile drawer", () => {
     // the desktop aside (also mounted in jsdom) follows the same store
     const aside = document.querySelector("aside") as HTMLElement
     expect(within(aside).getByRole("button", { name: t.navGroupPlan })).toHaveAttribute("aria-expanded", "false")
+  })
+})
+
+describe("Sidebar updates badge", () => {
+  it("shows the new-updates count on the dashboard link once the summary loads", async () => {
+    stubFetch([{ match: "/api/projects/p1/updates", respond: () => jsonResponse({ newActivity: 5, unread: 7, mentions: 2 }) }])
+    render(
+      <Shell>
+        <Sidebar projectId="p1" />
+      </Shell>,
+    )
+    const navEl = projectNav()
+    const dashboardLink = within(navEl).getByRole("link", { name: new RegExp(t.navDashboard) })
+    // newCount = unread + newActivity = 7 + 5
+    const badge = await within(dashboardLink).findByText("12")
+    expect(badge.closest("[data-sidebar-badge]")).toHaveAttribute("title", t.updatesSidebarBadge.replace("{n}", "12"))
+  })
+
+  it("shows no badge when there is nothing new", async () => {
+    const fetchMock = stubFetch([{ match: "/api/projects/p1/updates", respond: () => jsonResponse({ newActivity: 0, unread: 0, mentions: 0 }) }])
+    render(
+      <Shell>
+        <Sidebar projectId="p1" />
+      </Shell>,
+    )
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled())
+    const navEl = projectNav()
+    const dashboardLink = within(navEl).getByRole("link", { name: t.navDashboard })
+    expect(dashboardLink.querySelector("[data-sidebar-badge]")).toBeNull()
   })
 })

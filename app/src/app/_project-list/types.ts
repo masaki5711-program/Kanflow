@@ -38,6 +38,8 @@ export interface Project {
   canUpdate?: boolean
   /** Viewer's own project role (po / sm / dev); null / absent when they only see it (section manager / admin). */
   myRole?: string | null
+  /** What is new for the viewer (top page badges); absent on the archived list. */
+  updates?: { newActivity: number; unread: number; mentions: number }
 }
 
 export type Category = CategoryDto

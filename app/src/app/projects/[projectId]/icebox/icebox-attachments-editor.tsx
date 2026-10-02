@@ -3,9 +3,10 @@
 import { useId, useRef, useState, type ChangeEvent } from "react"
 import { IconButton, useToast, useConfirm } from "@/components/ui"
 import { apiFetch } from "@/hooks"
-import { compressImageFile } from "@/lib/image-compress"
 import { useLanguage } from "@/lib/language-context"
 import { CloudUpload, FileIcon, Paperclip, Trash2 } from "lucide-react"
+import { cn } from "@/components/ui"
+import { uploadIceboxFiles, useFileIntake } from "./use-file-intake"
 import {
   ATTACHMENT_ACCEPT,
   MAX_ATTACHMENTS,
@@ -39,26 +40,35 @@ export function IceboxAttachmentsEditor({ projectId, itemId, attachments, onChan
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const isFull = attachments.length >= MAX_ATTACHMENTS
 
-  async function handleUpload(e: ChangeEvent<HTMLInputElement>) {
-    const raw = e.target.files?.[0]
-    if (!raw) return
+  /** Several files at once (picker, drop or pasted screenshot), within the per-item limit. */
+  async function uploadMany(incoming: File[]) {
+    if (incoming.length === 0 || uploading) return
+    const room = MAX_ATTACHMENTS - attachments.length
+    if (incoming.length > room) toast.error(t.iceboxAttachTooMany.replace("{max}", String(MAX_ATTACHMENTS)))
+    const batch = incoming.slice(0, Math.max(0, room))
+    if (batch.length === 0) return
     setUploading(true)
     try {
-      const file = raw.type.startsWith("image/") ? await compressImageFile(raw) : raw
-      const formData = new FormData()
-      formData.append("file", file)
-      const saved = await apiFetch<IceboxAttachment>(`/api/projects/${projectId}/icebox/${itemId}/attachments`, {
-        method: "POST",
-        body: formData,
-      })
-      onChange([...attachments, saved])
-      onServerChange()
-    } catch (err) {
-      toast.error(errorMessage(err), { title: t.iceboxUploadFailed })
+      const { saved, failed } = await uploadIceboxFiles(projectId, itemId, batch)
+      if (saved.length > 0) {
+        onChange([...attachments, ...saved])
+        onServerChange()
+      }
+      if (failed.length > 0) {
+        toast.error(
+          failed.length === 1 ? failed[0].message : t.iceboxAttachPartialFailed.replace("{n}", String(failed.length)).replace("{names}", failed.map((f) => f.name).join(", ")),
+          { title: t.iceboxUploadFailed },
+        )
+      }
     } finally {
       setUploading(false)
-      if (inputRef.current) inputRef.current.value = ""
     }
+  }
+  const intake = useFileIntake((files) => void uploadMany(files), uploading || isFull)
+
+  function handleUpload(e: ChangeEvent<HTMLInputElement>) {
+    void uploadMany(Array.from(e.target.files ?? []))
+    if (inputRef.current) inputRef.current.value = ""
   }
 
   async function handleDelete(att: IceboxAttachment) {
@@ -82,7 +92,7 @@ export function IceboxAttachmentsEditor({ projectId, itemId, attachments, onChan
   }
 
   return (
-    <div role="group" aria-labelledby={headingId}>
+    <div role="group" aria-labelledby={headingId} onPaste={intake.onPaste}>
       <p id={headingId} className="mb-2 flex items-center gap-1.5 text-body font-medium text-fg">
         <Paperclip className="h-4 w-4 text-fg-muted" />
         {t.dashboardAttachments}
@@ -125,16 +135,20 @@ export function IceboxAttachmentsEditor({ projectId, itemId, attachments, onChan
           ))}
         </ul>
       )}
-      <input ref={inputRef} type="file" onChange={handleUpload} className="hidden" accept={ATTACHMENT_ACCEPT} tabIndex={-1} aria-hidden="true" />
+      <input ref={inputRef} type="file" multiple onChange={handleUpload} className="hidden" accept={ATTACHMENT_ACCEPT} tabIndex={-1} aria-hidden="true" />
       <button
         type="button"
         onClick={() => inputRef.current?.click()}
         disabled={uploading || isFull}
         aria-busy={uploading || undefined}
-        className="flex min-h-11 w-full items-center justify-center gap-2 rounded-ui-md border-2 border-dashed border-border-strong py-3 text-body text-fg-muted hover:border-primary hover:bg-primary-soft/40 hover:text-primary-strong disabled:cursor-not-allowed disabled:opacity-50"
+        {...intake.dropProps}
+        className={cn(
+          "flex min-h-11 w-full items-center justify-center gap-2 rounded-ui-md border-2 border-dashed py-3 text-body text-fg-muted hover:border-primary hover:bg-primary-soft/40 hover:text-primary-strong disabled:cursor-not-allowed disabled:opacity-50",
+          intake.dragActive ? "border-primary bg-primary-soft/60 text-primary-strong" : "border-border-strong",
+        )}
       >
         <CloudUpload className="h-5 w-5" />
-        {uploading ? t.iceboxUploading : t.dashboardUploadFile}
+        {uploading ? t.iceboxUploading : t.iceboxAttachDrop}
       </button>
       <p className="mt-1.5 text-center text-caption text-fg-muted" aria-live="polite">
         {t.iceboxAttachmentHint.replace("{count}", String(attachments.length))}

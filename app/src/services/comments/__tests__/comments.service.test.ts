@@ -5,8 +5,10 @@ vi.mock("@/services/_shared/activity", async () => (await import("@/services/__t
 vi.mock("@/services/_shared/notifications", async () => (await import("@/services/__tests__/support")).notificationsMock())
 vi.mock("@/services/_shared/translations", async () => (await import("@/services/__tests__/support")).translationMock())
 vi.mock("../comments.repository")
+vi.mock("@/services/team-chat/team-chat.repository", () => ({ insertMirror: vi.fn() }))
 
 const repo = await import("../comments.repository")
+const teamChatRepo = await import("@/services/team-chat/team-chat.repository")
 const svc = await import("../comments.service")
 const activity = await import("@/services/_shared/activity")
 const tr = await import("@/services/_shared/translations")
@@ -184,6 +186,7 @@ describe("createComment", () => {
 
     expect(repo.createComment).toHaveBeenCalledWith(TX, { projectId: "p1", entityType: "pbi", entityId: "b1", authorId: "u1", body: input.body })
     expect(repo.replaceMentions).toHaveBeenCalledWith(TX, "c1", ["u2"])
+    expect(teamChatRepo.insertMirror).toHaveBeenCalledWith(TX, { projectId: "p1", authorId: "u1", commentId: "c1" })
     expect(activity.logActivity).toHaveBeenCalledWith(TX, {
       projectId: "p1",
       entityType: "pbi",
@@ -242,6 +245,14 @@ describe("createComment", () => {
   it("404 when the created row cannot be re-read", async () => {
     vi.mocked(repo.findComment).mockResolvedValue(null as never)
     await expect(svc.createComment("p1", input, ACTOR)).rejects.toBeInstanceOf(NotFoundError)
+  })
+
+  it("mirrors into team chat by default, but not when options.mirror is false (a chat reply links the comment itself)", async () => {
+    await svc.createComment("p1", input, ACTOR)
+    expect(teamChatRepo.insertMirror).toHaveBeenCalledTimes(1)
+    vi.mocked(teamChatRepo.insertMirror).mockClear()
+    await svc.createComment("p1", input, ACTOR, false, { mirror: false })
+    expect(teamChatRepo.insertMirror).not.toHaveBeenCalled()
   })
 })
 

@@ -10,7 +10,8 @@ import { UPLOAD_ACCEPT, buildFolderChildMap, flattenFolders, isPreviewable, type
 import { useAttachments } from "./use-attachments"
 import { ZONE_PAGE, ZONE_UNFILED, useAttachmentDnd } from "./use-attachment-dnd"
 import { useFolderDnd } from "./use-folder-dnd"
-import { CloudUpload, FolderIcon, Paperclip } from "lucide-react"
+import { LinkFormModal } from "./link-form-modal"
+import { CloudUpload, FolderIcon, Link2, Paperclip } from "lucide-react"
 
 interface AttachmentsSectionProps {
   projectId: string
@@ -105,6 +106,9 @@ export function AttachmentsSection({ projectId, initialFolders, initialAttachmen
           <Button variant="secondary" size="sm" leftIcon={<FolderIcon className="w-4 h-4" />} onClick={() => setNewFolder({ parentId: null, name: "" })}>
             {t.folderNew}
           </Button>
+          <Button variant="secondary" size="sm" leftIcon={<Link2 className="w-4 h-4" />} onClick={() => api.openLinkForm({ mode: "create", folderId: null })}>
+            {t.attLinkAdd}
+          </Button>
           <input
             ref={fileInputRef}
             type="file"
@@ -177,6 +181,15 @@ export function AttachmentsSection({ projectId, initialFolders, initialAttachmen
           <EmptyState compact icon={<Paperclip className="w-6 h-6" />} title={t.dashboardNoAttachments} headingLevel={3} />
         )}
       </div>
+
+      {api.linkForm && (
+        <LinkFormModal
+          form={api.linkForm}
+          folderName={api.linkForm.mode === "create" && api.linkForm.folderId ? (folders.find((f) => f.id === (api.linkForm as { folderId: string }).folderId)?.name ?? null) : null}
+          onSave={api.saveLink}
+          onClose={() => api.openLinkForm(null)}
+        />
+      )}
 
       {preview && (
         <MediaPreviewModal projectId={projectId} items={preview.items} startIndex={preview.index} onClose={() => setPreview(null)} />

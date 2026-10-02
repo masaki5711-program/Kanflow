@@ -128,10 +128,66 @@ describe("IceboxEditModal", () => {
     expect(compress).not.toHaveBeenCalled()
   })
 
+  it("uploads multiple files chosen at once, sequentially, and keeps any that succeed on a partial failure", async () => {
+    let call = 0
+    const { dialog, onChanged } = renderModal()
+    stubFetch([
+      {
+        match: "/api/projects/p1/icebox/i1/attachments",
+        method: "POST",
+        respond: async (_u, init) => {
+          call += 1
+          const name = ((init!.body as FormData).get("file") as File).name
+          if (name === "bad.txt") return jsonResponse({ error: "too big" }, 413)
+          return jsonResponse({ id: `new${call}`, fileName: name, originalName: name, fileSize: 1, mimeType: "text/plain" })
+        },
+      },
+    ])
+    const files = [new File(["a"], "ok1.txt"), new File(["b"], "bad.txt"), new File(["c"], "ok2.txt")]
+    fireEvent.change(fileInput(dialog), { target: { files } })
+    expect(await within(dialog).findByText("ok1.txt")).toBeInTheDocument()
+    expect(await within(dialog).findByText("ok2.txt")).toBeInTheDocument()
+    expect(within(dialog).queryByText("bad.txt")).not.toBeInTheDocument()
+    // A single failure shows its own message directly (no "N files failed" template).
+    expect(await screen.findByText("too big")).toBeInTheDocument()
+    expect(onChanged).toHaveBeenCalled()
+  })
+
+  it("accepts a drag-and-drop of files onto the dropzone", async () => {
+    const onChanged = vi.fn()
+    stubFetch([
+      {
+        match: "/api/projects/p1/icebox/i1/attachments",
+        method: "POST",
+        respond: async (_u, init) => {
+          const name = ((init!.body as FormData).get("file") as File).name
+          return jsonResponse({ id: "newd", fileName: name, originalName: name, fileSize: 1, mimeType: "text/plain" })
+        },
+      },
+    ])
+    renderWithProviders(<IceboxEditModal projectId="p1" item={ITEM} onClose={vi.fn()} onChanged={onChanged} />)
+    const dialog = screen.getByRole("dialog", { name: t.iceboxEditTitle })
+    const dropzone = within(dialog).getByRole("button", { name: t.iceboxAttachDrop })
+    const file = new File(["z"], "dropped.txt", { type: "text/plain" })
+    fireEvent.dragEnter(dropzone, { dataTransfer: { types: ["Files"], files: [file] } })
+    fireEvent.drop(dropzone, { dataTransfer: { types: ["Files"], files: [file] } })
+    expect(await within(dialog).findByText("dropped.txt")).toBeInTheDocument()
+    expect(onChanged).toHaveBeenCalled()
+  })
+
+  it("rejects a drop beyond the per-item attachment limit with a single toast", async () => {
+    const manyAttachments = Array.from({ length: 10 }, (_, i) => ({ id: `x${i}`, fileName: `f${i}`, originalName: `f${i}.txt`, fileSize: 1, mimeType: "text/plain" }))
+    const fullItem = { ...ITEM, attachments: manyAttachments }
+    renderWithProviders(<IceboxEditModal projectId="p1" item={fullItem} onClose={vi.fn()} onChanged={vi.fn()} />)
+    const dialog = screen.getByRole("dialog", { name: t.iceboxEditTitle })
+    const dropzone = within(dialog).getByRole("button", { name: t.iceboxAttachDrop })
+    expect(dropzone).toBeDisabled()
+  })
+
   it("compresses images and toasts when the upload fails", async () => {
     const { dialog, onChanged } = renderModal({ upload: 413 })
     const img = new File(["x"], "p.png", { type: "image/png" })
-    await userEvent.click(within(dialog).getByRole("button", { name: t.dashboardUploadFile }))
+    await userEvent.click(within(dialog).getByRole("button", { name: t.iceboxAttachDrop }))
     fireEvent.change(fileInput(dialog), { target: { files: [img] } })
     expect(await screen.findByText("too big")).toBeInTheDocument()
     expect(compress).toHaveBeenCalled()

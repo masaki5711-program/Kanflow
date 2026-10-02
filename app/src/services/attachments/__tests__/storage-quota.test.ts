@@ -32,12 +32,12 @@ describe("projectQuotaBytes", () => {
 })
 
 describe("projectStorageUsed", () => {
-  it("sums project and icebox attachment sizes in one parameterized query", async () => {
+  it("sums project, icebox and team-chat attachment sizes in one parameterized query", async () => {
     const { db, queryRaw } = dbReturning("2147483648")
     await expect(quota.projectStorageUsed(db, "p1")).resolves.toBe(2147483648)
     const [strings, ...values] = queryRaw.mock.calls[0] as unknown as [TemplateStringsArray, ...unknown[]]
-    expect(strings.join("?")).toMatch(/ProjectAttachment[\s\S]*IceboxAttachment[\s\S]*IceboxItem/)
-    expect(values).toEqual(["p1", "p1"])
+    expect(strings.join("?")).toMatch(/ProjectAttachment[\s\S]*IceboxAttachment[\s\S]*IceboxItem[\s\S]*TeamMessageAttachment[\s\S]*TeamMessage/)
+    expect(values).toEqual(["p1", "p1", "p1"])
   })
 
   it("handles numeric / bigint / missing results", async () => {

@@ -32,11 +32,12 @@ function initial(name: string | null | undefined): string {
   return name?.trim().charAt(0).toUpperCase() || "·"
 }
 
-function FeedItem({ entry, projectId, now }: { entry: FeedEntry; projectId: string; now: Date }) {
+/** One feed sentence; `isNew` marks entries by others since the viewer's last check. */
+export function FeedItem({ entry, projectId, now, isNew = false }: { entry: FeedEntry; projectId: string; now: Date; isNew?: boolean }) {
   const { t, pt, language } = useLanguage()
   const s = feedSentence(entry, projectId, t, language, pt)
   return (
-    <li className="flex gap-3 py-2.5">
+    <li className="flex gap-3 py-2.5" data-feed-new={isNew ? "true" : undefined}>
       <span aria-hidden="true" className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-surface-sunken text-caption font-semibold text-fg-muted">
         {initial(entry.actor?.name)}
       </span>
@@ -51,16 +52,21 @@ function FeedItem({ entry, projectId, now }: { entry: FeedEntry; projectId: stri
           {s.after}
           {s.statusTo && <> <span className="text-fg-muted">{s.statusTo}</span></>}
         </p>
-        <time dateTime={entry.createdAt} title={formatFullDateTime(entry.createdAt, language)} className="text-caption text-fg-muted">
-          {formatRelativeTime(entry.createdAt, now, language)}
-        </time>
+        <p className="flex items-center gap-2">
+          {isNew && (
+            <span className="rounded-full bg-primary px-1.5 text-[10px] font-bold leading-4 tracking-wide text-white">{t.updatesNewBadge}</span>
+          )}
+          <time dateTime={entry.createdAt} title={formatFullDateTime(entry.createdAt, language)} className="text-caption text-fg-muted">
+            {formatRelativeTime(entry.createdAt, now, language)}
+          </time>
+        </p>
       </div>
     </li>
   )
 }
 
 /** Recent project activity as readable sentences with links to the entities. */
-export function ActivityFeed({ projectId }: { projectId: string }) {
+export function ActivityFeed({ projectId, newIds }: { projectId: string; /** Entries shown as NEW (from the updates panel). */ newIds?: ReadonlySet<string> }) {
   const { t } = useLanguage()
   const toast = useToast()
   const url = `/api/projects/${encodeURIComponent(projectId)}/activity?limit=${FEED_LIMIT}`
@@ -94,7 +100,7 @@ export function ActivityFeed({ projectId }: { projectId: string }) {
     body = (
       <>
         <ol className="max-h-[32rem] divide-y divide-border overflow-y-auto pr-1">
-          {data.items.map((entry) => <FeedItem key={entry.id} entry={entry} projectId={projectId} now={now} />)}
+          {data.items.map((entry) => <FeedItem key={entry.id} entry={entry} projectId={projectId} now={now} isNew={newIds?.has(entry.id) ?? false} />)}
         </ol>
         {data.nextCursor && (
           <div className="flex justify-center pt-2">

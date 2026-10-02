@@ -98,10 +98,17 @@ function logAttachmentChange(projectId: string, itemId: string, change: { from: 
   })
 }
 
+/** Attachments per IceBox request (the UI shows the same limit: app/projects/[projectId]/icebox/types.ts). */
+export const ICEBOX_MAX_ATTACHMENTS = 10
+
 export async function uploadIceboxAttachment(projectId: string, itemId: string, file: File | null, actor: Actor | null = null) {
   const item = await repo.findIceboxItemId(defaultDb, projectId, itemId)
   if (!item) throw new NotFoundError()
   if (!file) throw new ValidationError("ファイルがありません", {}, "FILE_REQUIRED")
+  // Same per-request cap the IceBox UI shows (the UI check alone can be bypassed).
+  if ((await repo.countIceboxAttachments(defaultDb, itemId)) >= ICEBOX_MAX_ATTACHMENTS) {
+    throw new ValidationError(`添付は 1 件につき ${ICEBOX_MAX_ATTACHMENTS} 個までです`, {}, "ICEBOX_TOO_MANY_ATTACHMENTS")
+  }
   await assertStorageQuota(projectId, file.size)
   const saved = await saveUploadedFile(projectId, file)
   if (!saved.ok) throw new StatusError(saved.status, saved.error, {}, saved.code)

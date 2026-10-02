@@ -235,6 +235,25 @@ describe("NotificationBell panel", () => {
     expect(within(panel).getByRole("tab", { name: new RegExp(t.notifTabPersonal) })).toHaveAttribute("aria-selected", "true")
   })
 
+  it("shows the message excerpt when the payload carries one, hidden otherwise", async () => {
+    const { panel } = await openPanel({
+      items: [
+        n("ex1", "mentioned", { entityLabel: "#7 Login", actorName: "Bob", entityType: "pbi", entityId: "b7", excerpt: "Please check this before Friday" }),
+        n("ex2", "comment", { entityLabel: "#2 Idea", actorName: "Eve", entityType: "icebox", entityId: "i2" }),
+        n("ex3", "due_soon", { entityLabel: "Deploy", dueDate: "2026-10-03", excerpt: "   " }),
+      ],
+    })
+    await within(panel).findByText("Please check this before Friday")
+    const rows = within(panel).getAllByTestId("notification-row")
+    const mention = rows.find((r) => r.getAttribute("data-type") === "mentioned")!
+    const comment = rows.find((r) => r.getAttribute("data-type") === "comment")!
+    const dueSoon = rows.find((r) => r.getAttribute("data-type") === "due_soon")!
+    expect(mention.querySelector("[data-notification-excerpt]")).toHaveTextContent("Please check this before Friday")
+    expect(comment.querySelector("[data-notification-excerpt]")).toBeNull()
+    // whitespace-only excerpt is treated as absent
+    expect(dueSoon.querySelector("[data-notification-excerpt]")).toBeNull()
+  })
+
   it("the mentions tab has its own empty state", async () => {
     const { panel, user } = await openPanel({ items: [n("s", "sprint_end", { sprintName: "S" })] })
     await user.click(await within(panel).findByRole("tab", { name: new RegExp(t.notifTabPersonal) }))

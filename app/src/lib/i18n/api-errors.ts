@@ -75,6 +75,15 @@ export interface ApiErrorsTranslations {
   apiErrFolderNotFound: string
   apiErrFolderSelfParent: string
   apiErrFolderCycle: string
+  apiErrLinkUrlInvalid: string
+  apiErrLinkOnlyField: string
+  apiErrTeamChatEmpty: string
+  apiErrIceboxTooManyAttachments: string
+  apiErrTeamChatTooLong: string
+  apiErrTeamChatTooManyFiles: string
+  apiErrTeamChatFileTooLarge: string
+  apiErrTeamChatMessageNotFound: string
+  apiErrTeamChatMirrorReadonly: string
   apiErrFileTypeMismatch: string
   apiErrStorageQuotaExceeded: string
   apiErrInvalidDate: string
@@ -152,6 +161,15 @@ export const API_ERROR_MESSAGE_KEYS: Readonly<Record<ApiErrorCode, ApiErrorMessa
   FOLDER_NOT_FOUND: "apiErrFolderNotFound",
   FOLDER_SELF_PARENT: "apiErrFolderSelfParent",
   FOLDER_CYCLE: "apiErrFolderCycle",
+  LINK_URL_INVALID: "apiErrLinkUrlInvalid",
+  LINK_ONLY_FIELD: "apiErrLinkOnlyField",
+  TEAM_CHAT_EMPTY: "apiErrTeamChatEmpty",
+  ICEBOX_TOO_MANY_ATTACHMENTS: "apiErrIceboxTooManyAttachments",
+  TEAM_CHAT_TOO_LONG: "apiErrTeamChatTooLong",
+  TEAM_CHAT_TOO_MANY_FILES: "apiErrTeamChatTooManyFiles",
+  TEAM_CHAT_FILE_TOO_LARGE: "apiErrTeamChatFileTooLarge",
+  TEAM_CHAT_MESSAGE_NOT_FOUND: "apiErrTeamChatMessageNotFound",
+  TEAM_CHAT_MIRROR_READONLY: "apiErrTeamChatMirrorReadonly",
   FILE_TYPE_MISMATCH: "apiErrFileTypeMismatch",
   STORAGE_QUOTA_EXCEEDED: "apiErrStorageQuotaExceeded",
   INVALID_DATE: "apiErrInvalidDate",
@@ -236,6 +254,15 @@ export const ja: ApiErrorsTranslations = {
   apiErrFolderNotFound: "フォルダがありません",
   apiErrFolderSelfParent: "自分自身を親にはできません",
   apiErrFolderCycle: "循環参照になります",
+  apiErrLinkUrlInvalid: "http:// または https:// で始まる URL を入力してください",
+  apiErrLinkOnlyField: "ファイルの名前や URL はここでは変更できません",
+  apiErrTeamChatEmpty: "メッセージを入力するか、ファイルを添付してください",
+  apiErrIceboxTooManyAttachments: "添付は 1 件につき 10 個までです",
+  apiErrTeamChatTooLong: "メッセージが長すぎます",
+  apiErrTeamChatTooManyFiles: "添付は 1 回に 5 個までです",
+  apiErrTeamChatFileTooLarge: "ファイルが大きすぎます（1 ファイル 20MB、合計 50MB まで）。大きなファイルはリンクで共有してください",
+  apiErrTeamChatMessageNotFound: "返信先のメッセージがありません",
+  apiErrTeamChatMirrorReadonly: "スプリントなどのコメントは元の画面で削除してください",
   apiErrFileTypeMismatch: "ファイルの内容が拡張子と一致しません",
   apiErrStorageQuotaExceeded: "プロジェクトの添付ファイル容量の上限に達しました。不要なファイルを削除してください",
   apiErrInvalidDate: "日付が不正です",
@@ -314,6 +341,15 @@ export const en: ApiErrorsTranslations = {
   apiErrFolderNotFound: "Folder not found",
   apiErrFolderSelfParent: "A folder cannot be its own parent",
   apiErrFolderCycle: "This would create a circular folder structure",
+  apiErrLinkUrlInvalid: "Enter a URL starting with http:// or https://",
+  apiErrLinkOnlyField: "The name or URL of a file cannot be changed here",
+  apiErrTeamChatEmpty: "Type a message or attach a file",
+  apiErrIceboxTooManyAttachments: "Up to 10 attachments per request",
+  apiErrTeamChatTooLong: "The message is too long",
+  apiErrTeamChatTooManyFiles: "Up to 5 files per message",
+  apiErrTeamChatFileTooLarge: "The file is too large (20 MB per file, 50 MB in total). Share large files as a link",
+  apiErrTeamChatMessageNotFound: "The message you are replying to no longer exists",
+  apiErrTeamChatMirrorReadonly: "Delete sprint / backlog comments where they were written",
   apiErrFileTypeMismatch: "The file contents do not match its extension",
   apiErrStorageQuotaExceeded: "This project has reached its attachment storage limit. Delete files you no longer need",
   apiErrInvalidDate: "Invalid date",
@@ -392,6 +428,15 @@ export const id: ApiErrorsTranslations = {
   apiErrFolderNotFound: "Folder tidak ditemukan",
   apiErrFolderSelfParent: "Folder tidak dapat menjadi induk bagi dirinya sendiri",
   apiErrFolderCycle: "Tindakan ini akan membuat struktur folder melingkar",
+  apiErrLinkUrlInvalid: "Masukkan URL yang diawali http:// atau https://",
+  apiErrLinkOnlyField: "Nama atau URL file tidak dapat diubah di sini",
+  apiErrTeamChatEmpty: "Ketik pesan atau lampirkan berkas",
+  apiErrIceboxTooManyAttachments: "Maksimal 10 lampiran per permintaan",
+  apiErrTeamChatTooLong: "Pesan terlalu panjang",
+  apiErrTeamChatTooManyFiles: "Maksimal 5 berkas per pesan",
+  apiErrTeamChatFileTooLarge: "Berkas terlalu besar (20 MB per berkas, total 50 MB). Bagikan berkas besar sebagai tautan",
+  apiErrTeamChatMessageNotFound: "Pesan yang dibalas sudah tidak ada",
+  apiErrTeamChatMirrorReadonly: "Hapus komentar sprint/backlog di tempat aslinya",
   apiErrFileTypeMismatch: "Isi file tidak sesuai dengan ekstensinya",
   apiErrStorageQuotaExceeded: "Proyek ini telah mencapai batas penyimpanan lampiran. Hapus file yang tidak diperlukan",
   apiErrInvalidDate: "Tanggal tidak valid",

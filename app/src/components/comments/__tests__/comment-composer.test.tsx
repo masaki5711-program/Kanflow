@@ -106,6 +106,20 @@ describe("CommentComposer submit", () => {
     expect(box).toHaveValue("x")
   })
 
+  it("allowEmpty: the Send button starts enabled with no text, and submits an empty string", async () => {
+    const onSubmit = vi.fn(async () => true)
+    renderComposer({ onSubmit, allowEmpty: true })
+    const send = screen.getByRole("button", { name: "Send" })
+    expect(send).toBeEnabled()
+    await userEvent.click(send)
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(""))
+  })
+
+  it("allowEmpty does not bypass the over-length guard", async () => {
+    renderComposer({ allowEmpty: true, initialValue: "x".repeat(10_001) })
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled()
+  })
+
   it("flags text over the limit and blocks submit", async () => {
     const { box } = renderComposer({ initialValue: "x".repeat(10_001) })
     expect(screen.getByText(t.commentsTooLong.replace("{max}", "10000"))).toBeInTheDocument()

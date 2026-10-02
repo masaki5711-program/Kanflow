@@ -7,6 +7,8 @@ import { TopPage } from "../top-page"
 import { buildPageMetadata } from "@/app/page-metadata"
 import { isMyTask, myTaskAssigneeWhere } from "@/lib/my-tasks"
 import { loadPoHomeSummary } from "@/services/projects/po-home-summary"
+import { getUpdateSummaries } from "@/services/updates/updates.service"
+import { listMyNotifications } from "@/services/notifications/notifications.service"
 import {
   countProjectList,
   findProjectList,
@@ -14,6 +16,9 @@ import {
   loadProjectListScope,
   toProjectListItem,
 } from "@/services/projects/project-list"
+
+/** Unread "for you" messages listed on the top page. */
+const HOME_MESSAGES_LIMIT = 5
 
 export function generateMetadata() {
   return buildPageMetadata(({ t }) => t.projectListTitle)
@@ -101,7 +106,15 @@ export default async function HomePage() {
     loadProjectListMeta(activeProjects, scope, "active"),
   ])
 
-  const flatActive = activeProjects.map((p) => toProjectListItem(p, projectI18n.get(p.id), projectMeta.get(p.id)))
+  // What is new per project (badges) and the newest unread messages for the viewer.
+  const [updates, messages] = await Promise.all([
+    getUpdateSummaries(userId, activeProjects.map((p) => p.id)),
+    listMyNotifications(userId, { limit: HOME_MESSAGES_LIMIT, unreadOnly: true, group: "personal" }),
+  ])
+  const flatActive = activeProjects.map((p) => ({
+    ...toProjectListItem(p, projectI18n.get(p.id), projectMeta.get(p.id)),
+    updates: updates.get(p.id),
+  }))
 
   return (
     <div className="min-h-screen bg-surface-muted">
@@ -114,6 +127,8 @@ export default async function HomePage() {
           isAdmin={isAdmin}
           userName={userName}
           poSummary={poSummary}
+          messages={messages.items}
+          messagesTotal={messages.unreadByGroup.personal}
           myTasks={myTasks.map((t) => ({
             id: t.id,
             taskName: t.taskName,

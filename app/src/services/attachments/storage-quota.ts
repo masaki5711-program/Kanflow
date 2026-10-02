@@ -39,6 +39,10 @@ export async function projectStorageUsed(db: Db, projectId: string): Promise<num
            FROM IceboxAttachment ia
            JOIN IceboxItem ii ON ii.id = ia.iceboxItemId
           WHERE ii.projectId = ${projectId})
+      + (SELECT COALESCE(SUM(ta.fileSize), 0)
+           FROM TeamMessageAttachment ta
+           JOIN TeamMessage tm ON tm.id = ta.messageId
+          WHERE tm.projectId = ${projectId})
     AS CHAR) AS total`
   const total = Number(rows[0]?.total ?? 0)
   return Number.isFinite(total) ? total : 0

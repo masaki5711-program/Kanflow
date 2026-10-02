@@ -147,6 +147,7 @@ export default async function ProjectDashboard({
           mimeType: a.mimeType,
           folderId: a.folderId,
           createdAt: a.createdAt.toISOString(),
+          linkUrl: a.linkUrl,
         })),
       }))}
       attachments={project.attachments
@@ -159,6 +160,7 @@ export default async function ProjectDashboard({
           mimeType: a.mimeType,
           folderId: a.folderId,
           createdAt: a.createdAt.toISOString(),
+          linkUrl: a.linkUrl,
         }))}
       iceboxCount={project._count.iceboxItems}
       backlogCount={project._count.backlogItems}

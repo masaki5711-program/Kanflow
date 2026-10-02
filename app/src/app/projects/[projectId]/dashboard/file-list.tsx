@@ -25,6 +25,7 @@ export function FileList({ files, folderId, projectId, moveTargets, api, dnd, on
     onDelete: (id: string) => void api.deleteAttachment(id, folderId),
     onMove: (id: string, target: string | null) => void api.placeAttachment(id, folderId, target),
     onMoveBy: (id: string, delta: -1 | 1) => void api.moveAttachmentBy(id, folderId, delta),
+    onEditLink: (f: Attachment) => api.openLinkForm({ mode: "edit", file: f }),
   })
   const dndHandlers = useStableHandlers<FileRowDndHandlers>({
     onRowDragOver: dnd.onRowDragOver,

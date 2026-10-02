@@ -84,6 +84,35 @@ export function useAttachments(projectId: string, initialFolders: Folder[], init
     }
   }
 
+  // ── Links (e.g. GitLab repositories) ───────────────────────────────────
+
+  const [linkForm, setLinkForm] = useState<LinkFormState | null>(null)
+
+  /** Create (form in "create" mode) or update (edit mode) a link entry. Returns true on success. */
+  async function saveLink(name: string, url: string): Promise<boolean> {
+    const form = linkForm
+    if (!form) return false
+    try {
+      if (form.mode === "create") {
+        const saved = await apiFetch<Attachment>(`${base}/attachments/links`, { method: "POST", json: { name, url, folderId: form.folderId } })
+        const snap = stateRef.current
+        commit(withList(snap, form.folderId, [saved, ...listOf(snap, form.folderId)]))
+        toast.success(t.attLinkAdded)
+      } else {
+        const saved = await apiFetch<Attachment>(`${base}/attachments/${form.file.id}`, { method: "PATCH", json: { name: name || form.file.originalName, url } })
+        const snap = stateRef.current
+        const folderId = form.file.folderId
+        commit(withList(snap, folderId, listOf(snap, folderId).map((a) => (a.id === saved.id ? { ...a, ...saved } : a))))
+        toast.success(t.attLinkSaved)
+      }
+      setLinkForm(null)
+      return true
+    } catch (err) {
+      fail(err, t.attLinkAddFailed)
+      return false
+    }
+  }
+
   async function deleteAttachment(attachmentId: string, folderId: string | null) {
     const ok = await confirm({ message: t.dashboardDeleteAttachmentConfirm, confirmLabel: t.delete, cancelLabel: t.cancel, variant: "danger" })
     if (!ok) return
@@ -272,7 +301,13 @@ export function useAttachments(projectId: string, initialFolders: Folder[], init
     placeFolder,
     dropFolder,
     moveFolderBy,
+    linkForm,
+    openLinkForm: setLinkForm,
+    saveLink,
   }
 }
+
+/** The link dialog: add to a folder (null = unfiled) or edit an existing link. */
+export type LinkFormState = { mode: "create"; folderId: string | null } | { mode: "edit"; file: Attachment }
 
 export type AttachmentsApi = ReturnType<typeof useAttachments>

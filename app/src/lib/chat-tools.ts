@@ -78,6 +78,7 @@ const handlers: Record<string, ToolHandler> = {
         fileSize: true,
         mimeType: true,
         createdAt: true,
+        linkUrl: true,
       },
       orderBy: { createdAt: "desc" },
       take: 50,
@@ -87,6 +88,7 @@ const handlers: Record<string, ToolHandler> = {
       .map((r) => {
         const kb = Math.round(r.fileSize / 1024)
         const created = r.createdAt.toISOString().slice(0, 10)
+        if (r.linkUrl) return `- id=${r.id} | ${r.originalName} | link ${r.linkUrl} | added ${created}`
         return `- id=${r.id} | ${r.originalName} | ${r.mimeType} | ${kb} KB | uploaded ${created}`
       })
       .join("\n")
@@ -97,9 +99,10 @@ const handlers: Record<string, ToolHandler> = {
     if (!id) return "Error: attachment_id is required."
     const row = await prisma.projectAttachment.findFirst({
       where: { id, projectId },
-      select: { fileName: true, originalName: true, mimeType: true },
+      select: { fileName: true, originalName: true, mimeType: true, linkUrl: true },
     })
     if (!row) return `Error: attachment ${id} not found in this project.`
+    if (row.linkUrl) return `${row.originalName} is a link (no file content): ${row.linkUrl}`
     const result = await extractAttachment({
       projectId,
       fileName: row.fileName,

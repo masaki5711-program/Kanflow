@@ -90,9 +90,14 @@ export async function listMyNotifications(
     repo.countUnread(defaultDb, userId, "personal"),
   ])
   const page = toPage(rows, query.limit, toNotificationDto)
-  const items = await withEntityI18n(await withProjectI18n(page.items))
+  const items = await enrichNotifications(page.items)
   const personal = Math.min(unreadPersonal, unreadCount)
   return { ...page, items, unreadCount, unreadByGroup: { all: unreadCount, personal, other: unreadCount - personal } }
+}
+
+/** Project-name and entity translations for rendering (shared with the project updates panel). */
+export async function enrichNotifications(items: NotificationDto[]): Promise<NotificationDto[]> {
+  return withEntityI18n(await withProjectI18n(items))
 }
 
 function entityRef(n: NotificationDto): { entity: TranslatableEntity; id: string } | null {

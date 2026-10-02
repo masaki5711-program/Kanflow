@@ -24,6 +24,8 @@ vi.mock("@/lib/prisma", () => ({ prisma: m.prisma }))
 vi.mock("@/components/header", () => ({ Header: () => <header>HEADER</header> }))
 vi.mock("@/lib/translation/hooks", () => ({ getI18nFor: m.getI18nFor }))
 vi.mock("@/services/projects/po-home-summary", () => ({ loadPoHomeSummary: m.loadPoHomeSummary }))
+vi.mock("@/services/updates/updates.service", () => ({ getUpdateSummaries: vi.fn(async () => new Map()) }))
+vi.mock("@/services/notifications/notifications.service", () => ({ listMyNotifications: vi.fn(async () => ({ items: [], nextCursor: null, unreadCount: 0, unreadByGroup: { all: 0, personal: 0, other: 0 } })) }))
 vi.mock("../top-page", () => ({
   TopPage: (props: Record<string, unknown>) => {
     m.topPageProps = props

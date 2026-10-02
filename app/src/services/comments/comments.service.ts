@@ -26,6 +26,7 @@ import { ForbiddenError, NotFoundError } from "@/services/_shared/errors"
 import { notify } from "@/services/_shared/notifications"
 import { enqueueIn, getI18nFor, prepareText, purgeIn } from "@/services/_shared/translations"
 import * as repo from "./comments.repository"
+import { insertMirror } from "@/services/team-chat/team-chat.repository"
 import type {
   CommentCountsQuery,
   CommentEntityType,
@@ -247,7 +248,9 @@ export async function createComment(
   projectId: string,
   input: CreateCommentInput,
   actor: Actor,
-  canModerate = false
+  canModerate = false,
+  /** mirror: false = the caller (a team chat reply) links the comment itself. */
+  options: { mirror?: boolean } = {}
 ): Promise<CommentDto> {
   const { body } = await prepareText({ body: input.body }, actor.userId)
   const row = await withTransaction(async (tx) => {
@@ -262,6 +265,8 @@ export async function createComment(
       body,
     })
     await repo.replaceMentions(tx, id, mentionIds)
+    // Every comment also appears in the project's team chat.
+    if (options.mirror !== false) await insertMirror(tx, { projectId, authorId: actor.userId, commentId: id })
     await enqueueIn(tx, "comment", id, { body })
     await logActivity(tx, {
       projectId,

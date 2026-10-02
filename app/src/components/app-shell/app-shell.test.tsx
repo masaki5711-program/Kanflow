@@ -40,7 +40,7 @@ const { Sidebar } = await import("@/components/sidebar")
 const { Header } = await import("@/components/header")
 const { AdminMenu } = await import("./admin-menu")
 const { SidebarDrawerProvider, useSidebarDrawer, SIDEBAR_DRAWER_ID } = await import("./sidebar-drawer")
-const { buildSidebarGroups, isNavItemActive } = await import("./sidebar-nav")
+const { buildSidebarGroups, buildSidebarHome, isNavItemActive } = await import("./sidebar-nav")
 const { resetSidebarCollapseStore, SIDEBAR_COLLAPSE_KEY, parseCollapsed } = await import("./sidebar-collapse")
 const { LanguageProvider } = await import("@/lib/language-context")
 
@@ -106,7 +106,7 @@ describe("sidebar-nav", () => {
     const paths = groups.map((g) => g.items.map((i) => i.href.replace("/projects/p9", "") || "/"))
     expect(paths).toEqual([
       ["/backlog", "/icebox", "/sprints", "/burndown"],
-      ["/", "/plan", "/gantt", "/calendar", "/releases"],
+      ["/plan", "/gantt", "/calendar", "/releases"],
       ["/report", "/chat"],
       ["/settings", "/trash", "/guide"],
     ])
@@ -114,8 +114,10 @@ describe("sidebar-nav", () => {
 
   it("matches active items", () => {
     const groups = buildSidebarGroups("p9", t, { navIcebox: "I", navBacklog: "B", navSprints: "S", navReleases: "R" } as never)
-    const dash = groups.flatMap((g) => g.items).find((i) => i.href === "/projects/p9")!
-    expect(dash.href).toBe("/projects/p9")
+    // The dashboard is pinned above the sections, not inside 計画.
+    expect(groups.flatMap((g) => g.items).some((i) => i.href === "/projects/p9")).toBe(false)
+    const dash = buildSidebarHome("p9", t)
+    expect(dash).toMatchObject({ href: "/projects/p9", label: t.navDashboard, exact: true })
     expect(isNavItemActive("/projects/p9", dash)).toBe(true)
     expect(isNavItemActive("/projects/p9/backlog", dash)).toBe(false)
     const backlog = groups.flatMap((g) => g.items).find((i) => i.href === "/projects/p9/backlog")!

@@ -12,6 +12,8 @@ export interface Attachment {
   mimeType: string
   folderId: string | null
   createdAt: string
+  /** Link entry (e.g. a GitLab repository): opens this URL; no stored file. */
+  linkUrl?: string | null
 }
 
 export interface Folder {

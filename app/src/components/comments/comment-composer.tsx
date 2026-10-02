@@ -23,6 +23,8 @@ interface Props {
   initialValue?: string
   onCancel?: () => void
   autoFocus?: boolean
+  /** Submit is allowed with empty text (e.g. the team chat sends files only). */
+  allowEmpty?: boolean
 }
 
 function fold(value: string): string {
@@ -53,7 +55,7 @@ export function isCompletedMention(query: string, names: readonly string[]): boo
  * arrive; with no match it does nothing (Escape closes the list, then Enter
  * types a newline).
  */
-export function CommentComposer({ members, membersLoading = false, onSubmit, label, submitLabel, initialValue = "", onCancel, autoFocus }: Props) {
+export function CommentComposer({ members, membersLoading = false, onSubmit, label, submitLabel, initialValue = "", onCancel, autoFocus, allowEmpty = false }: Props) {
   const { t } = useLanguage()
   // Display text shows mentions as "@Name"; `names` turns them back into tokens on save.
   const [initial] = useState(() => toComposerText(initialValue))
@@ -76,7 +78,7 @@ export function CommentComposer({ members, membersLoading = false, onSubmit, lab
   const suggestions = isOpen ? filterMembers(members, mention.query) : []
   const active = suggestions.length > 0 ? Math.min(activeIndex, suggestions.length - 1) : -1
   const tooLong = value.length > COMMENT_BODY_MAX
-  const canSubmit = value.trim().length > 0 && !tooLong && !submitting && value !== initial.text
+  const canSubmit = (value.trim().length > 0 || allowEmpty) && !tooLong && !submitting && (allowEmpty || value !== initial.text)
 
   // The members arrived after an early Enter: insert the first match (or give up when none matches).
   const firstMatch = pendingPickAt !== null && mention?.start === pendingPickAt && !membersLoading ? (suggestions[0] ?? null) : undefined

@@ -1,0 +1,18 @@
+import { requireProject } from "@/lib/authz"
+import { jsonResponse, toHttpResponse } from "@/services/_shared"
+import { markProjectSeen } from "@/services/updates/updates.service"
+
+type Params = { params: Promise<{ projectId: string }> }
+
+/** "すべて確認済みにする": nothing up to now is new any more; this project's notifications become read. */
+export async function POST(_request: Request, { params }: Params) {
+  const { projectId } = await params
+  const gate = await requireProject(projectId, "project.view")
+  if ("error" in gate) return gate.error
+
+  try {
+    return jsonResponse(await markProjectSeen(gate.session.user.id, projectId))
+  } catch (error) {
+    return toHttpResponse(error, { fallback: "確認済みにできませんでした", context: "Project updates SEEN" })
+  }
+}

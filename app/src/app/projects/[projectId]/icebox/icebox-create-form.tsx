@@ -2,10 +2,13 @@
 
 import { useState, type FormEvent } from "react"
 import { GlossaryHint } from "@/components/i18n-text"
-import { Button, Field, Input, Textarea, useUiLabels, useConfirm } from "@/components/ui"
+import { Button, Field, Input, Textarea, useUiLabels, useConfirm, useToast } from "@/components/ui"
 import { apiFetch, useApiMutation, useUnsavedChangesGuard } from "@/hooks"
 import { useLanguage } from "@/lib/language-context"
 import { Plus } from "lucide-react"
+import { IceboxFilePicker } from "./icebox-file-picker"
+import { MAX_ATTACHMENTS } from "./types"
+import { uploadIceboxFiles, useFileIntake } from "./use-file-intake"
 
 interface Props {
   projectId: string
@@ -27,17 +30,35 @@ export function IceboxCreateForm({ projectId, onCreated, onClose }: Props) {
   const [author, setAuthor] = useState("")
   const [request, setRequest] = useState("")
   const [background, setBackground] = useState("")
-  const isDirty = author !== "" || request !== "" || background !== ""
+  const [files, setFiles] = useState<File[]>([])
+  const toast = useToast()
+  const isDirty = author !== "" || request !== "" || background !== "" || files.length > 0
   useUnsavedChangesGuard(isDirty)
+  const tooMany = () => toast.error(t.iceboxAttachTooMany.replace("{max}", String(MAX_ATTACHMENTS)))
+  // A screenshot pasted into any text field of the form is added as an attachment.
+  const paste = useFileIntake((incoming) => {
+    const room = MAX_ATTACHMENTS - files.length
+    if (incoming.length > room) tooMany()
+    if (room > 0) setFiles((prev) => [...prev, ...incoming.slice(0, room)])
+  })
 
   const create = useApiMutation(
     // Raw text is saved as typed; the other language is prepared by the
-    // background translation worker.
-    (v: CreateVars) =>
-      apiFetch(`/api/projects/${projectId}/icebox`, {
+    // background translation worker. Chosen files are uploaded right after.
+    async (v: CreateVars) => {
+      const item = await apiFetch<{ id: string }>(`/api/projects/${projectId}/icebox`, {
         method: "POST",
         json: { request: v.request, background: v.background || undefined, author: v.author || undefined },
-      }),
+      })
+      if (files.length === 0 || !item?.id) return
+      const { failed } = await uploadIceboxFiles(projectId, item.id, files)
+      if (failed.length > 0) {
+        toast.error(
+          t.iceboxAttachPartialFailed.replace("{n}", String(failed.length)).replace("{names}", failed.map((f) => f.name).join(", ")),
+          { title: t.iceboxUploadFailed },
+        )
+      }
+    },
     {
       onSuccess: () => {
         onCreated()
@@ -70,7 +91,7 @@ export function IceboxCreateForm({ projectId, onCreated, onClose }: Props) {
           <Plus className="h-5 w-5 text-primary" />
           {t.iceboxNewRequest}
         </h2>
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} onPaste={paste.onPaste} className="space-y-4">
           <Field label={t.sprintAssignee} hint={t.iceboxAuthorHint}>
             <Input value={author} onChange={(e) => setAuthor(e.target.value)} maxLength={200} />
           </Field>
@@ -81,9 +102,10 @@ export function IceboxCreateForm({ projectId, onCreated, onClose }: Props) {
           <Field label={pt.iceboxBackground}>
             <Textarea value={background} onChange={(e) => setBackground(e.target.value)} rows={3} />
           </Field>
+          <IceboxFilePicker files={files} onChange={setFiles} disabled={create.isPending} onTooMany={tooMany} />
           <div className="flex gap-2 pt-1">
             <Button type="submit" loading={create.isPending} leftIcon={<Plus className="h-4 w-4" />}>
-              {t.add}
+              {create.isPending && files.length > 0 ? t.iceboxAttachUploadingN.replace("{n}", String(files.length)) : t.add}
             </Button>
             <Button variant="secondary" onClick={handleCancel}>
               {t.cancel}

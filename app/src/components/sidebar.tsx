@@ -10,7 +10,9 @@ import { useI18nText, type EntityI18n } from "@/components/i18n-text"
 import { IconButton, Truncate, cn } from "@/components/ui"
 import { useBodyScrollLock, useFocusTrap, useMediaQuery } from "@/hooks"
 import { useSidebarDrawer } from "@/components/app-shell/sidebar-drawer"
-import { buildSidebarGroups } from "@/components/app-shell/sidebar-nav"
+import { buildSidebarGroups, buildSidebarHome, buildSidebarTalk } from "@/components/app-shell/sidebar-nav"
+import { useTeamChatSummary } from "@/components/updates/use-team-chat-summary"
+import { useProjectUpdateSummary } from "@/components/updates/use-project-updates"
 import { SidebarSections } from "@/components/app-shell/sidebar-group"
 
 interface SidebarProps {
@@ -122,13 +124,23 @@ function SidebarContent({ projectId, projectName, projectI18n, showTrash = false
   const { t, pt, projectType, language } = useLanguage()
   const shownName = useI18nText(projectI18n, "name", projectName).text
   const groups = buildSidebarGroups(projectId, t, pt, { showTrash, showSettings, showChat })
+  const summary = useProjectUpdateSummary(projectId, pathname)
+  const newCount = summary ? summary.unread + summary.newActivity : 0
+  const home = { ...buildSidebarHome(projectId, t), badge: { count: newCount, label: t.updatesSidebarBadge.replace("{n}", String(newCount)) } }
+  const chat = useTeamChatSummary(projectId, pathname)
+  const talk = {
+    ...buildSidebarTalk(projectId, t),
+    badge: chat && chat.forYou > 0
+      ? { count: chat.forYou, label: t.talkSidebarForYou.replace("{n}", String(chat.forYou)), tone: "alert" as const }
+      : { count: chat?.unread ?? 0, label: t.talkSidebarBadge.replace("{n}", String(chat?.unread ?? 0)) },
+  }
   // The content renders twice (desktop aside + mobile drawer) -> unique ids per instance.
   const idPrefix = useId().replace(/:/g, "")
 
   return (
     <>
       <nav aria-label={t.navProjectMenu} className="flex-1 overflow-y-auto px-2 pb-3 pt-2">
-        <SidebarSections groups={groups} pathname={pathname} idPrefix={idPrefix} />
+        <SidebarSections groups={groups} pinned={[home, talk]} pathname={pathname} idPrefix={idPrefix} />
       </nav>
 
       <div className="border-t border-border px-6 py-4">

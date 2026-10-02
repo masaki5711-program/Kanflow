@@ -5,8 +5,9 @@ import { defaultDb, withTransaction } from "@/services/_shared/db"
 import { NotFoundError, StatusError, ValidationError } from "@/services/_shared/errors"
 import { wouldCreateCycle } from "@/services/_shared/tree"
 import * as repo from "./attachments.repository"
+import { LINK_MIME, isLinkEntry, normalizeLinkUrl, suggestLinkName } from "@/lib/attachment-links"
 import { assertStorageQuota } from "./storage-quota"
-import type { CreateFolderInput, MoveAttachmentInput, UpdateFolderInput } from "./attachments.schemas"
+import type { CreateFolderInput, CreateLinkInput, MoveAttachmentInput, UpdateFolderInput } from "./attachments.schemas"
 
 const log = logger.child({ module: "attachments-service" })
 
@@ -20,6 +21,7 @@ interface AttachmentRow {
   mimeType: string
   folderId: string | null
   createdAt: Date
+  linkUrl?: string | null
 }
 
 /** The list-item shape the attachment UI consumes. */
@@ -32,7 +34,34 @@ export function toAttachmentDto(a: AttachmentRow) {
     mimeType: a.mimeType,
     folderId: a.folderId,
     createdAt: a.createdAt.toISOString(),
+    linkUrl: a.linkUrl ?? null,
   }
+}
+
+const invalidLink = () => new ValidationError("http:// または https:// で始まる URL を入力してください", {}, "LINK_URL_INVALID")
+
+/** A link entry (no file, nothing counted against the storage quota). */
+export async function createLink(projectId: string, input: CreateLinkInput, actor: Actor) {
+  const url = normalizeLinkUrl(input.url)
+  if (!url) throw invalidLink()
+  const folderId = input.folderId || null
+  if (folderId) await assertFolderInProject(projectId, folderId)
+  const name = input.name?.trim() || suggestLinkName(url)
+  const row = await withTransaction(async (tx) => {
+    const sortOrder = await repo.firstAttachmentSortOrder(tx, projectId, folderId)
+    const created = await repo.insertAttachment(tx, {
+      projectId,
+      folderId,
+      fileName: "",
+      originalName: name,
+      fileSize: 0,
+      mimeType: LINK_MIME,
+      uploadedBy: actor.userName,
+      linkUrl: url,
+    })
+    return repo.updateAttachment(tx, projectId, created.id, { sortOrder })
+  })
+  return toAttachmentDto(row)
 }
 
 async function assertFolderInProject(projectId: string, folderId: string): Promise<void> {
@@ -89,19 +118,34 @@ export async function getAttachment(projectId: string, attachmentId: string) {
   return attachment
 }
 
+/** Move / reorder; for a link entry also rename or change the URL (files cannot be renamed here). */
 export async function moveAttachment(projectId: string, attachmentId: string, input: MoveAttachmentInput) {
   if (input.folderId) await assertFolderInProject(projectId, input.folderId)
-  return repo.updateAttachment(defaultDb, projectId, attachmentId, {
+  const editsLink = input.name !== undefined || input.url !== undefined
+  let linkUrl: string | undefined
+  if (editsLink) {
+    const current = await getAttachment(projectId, attachmentId)
+    if (!isLinkEntry(current)) throw new ValidationError("ファイルの名前や URL はここでは変更できません", {}, "LINK_ONLY_FIELD")
+    if (input.url !== undefined) {
+      linkUrl = normalizeLinkUrl(input.url) ?? undefined
+      if (!linkUrl) throw invalidLink()
+    }
+  }
+  const row = await repo.updateAttachment(defaultDb, projectId, attachmentId, {
     ...(input.folderId !== undefined ? { folderId: input.folderId } : {}),
     ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
+    ...(input.name !== undefined ? { originalName: input.name } : {}),
+    ...(linkUrl !== undefined ? { linkUrl } : {}),
   })
+  return editsLink ? toAttachmentDto(row) : row
 }
 
 /** Deletes the row, then the stored file (a missing file is ignored). */
 export async function deleteAttachment(projectId: string, attachmentId: string): Promise<void> {
   const attachment = await getAttachment(projectId, attachmentId)
   await repo.deleteAttachment(defaultDb, attachmentId)
-  await deleteUploadedFile(projectId, attachment.fileName)
+  // A link entry has no stored file.
+  if (!isLinkEntry(attachment) && attachment.fileName) await deleteUploadedFile(projectId, attachment.fileName)
 }
 
 export async function createFolder(projectId: string, input: CreateFolderInput) {

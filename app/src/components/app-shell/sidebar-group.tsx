@@ -21,11 +21,20 @@ import { useCollapsedGroups, type CollapsedGroups } from "@/components/app-shell
  * - items = icon + label rows indented under a guide line; the active one has a
  *   primary-soft fill, primary-strong text and an accent bar on the guide line.
  */
-export function SidebarSections({ groups, pathname, idPrefix }: { groups: SidebarNavGroup[]; pathname: string; idPrefix: string }) {
+export function SidebarSections({ groups, pinned = [], pathname, idPrefix }: { groups: SidebarNavGroup[]; pinned?: SidebarNavItem[]; pathname: string; idPrefix: string }) {
   const collapse = useCollapsedGroups()
   useAutoExpandOnNavigate(groups, pathname, collapse)
   return (
     <>
+      {pinned.length > 0 && (
+        <ul className="mb-2 space-y-0.5 border-b border-border pb-2" data-sidebar-home="">
+          {pinned.map((item) => (
+            <li key={item.href}>
+              <SidebarLink item={item} active={isNavItemActive(pathname, item)} idPrefix={idPrefix} />
+            </li>
+          ))}
+        </ul>
+      )}
       <ExpandAllControl collapse={collapse} />
       {groups.map((group, index) => (
         <SidebarGroup key={group.id} group={group} pathname={pathname} idPrefix={idPrefix} collapse={collapse} isFirst={index === 0} />
@@ -156,6 +165,13 @@ function SidebarLink({ item, active, idPrefix }: { item: SidebarNavItem; active:
           className={cn("h-[18px] w-[18px] shrink-0", active ? "text-primary-strong" : "text-fg-subtle group-hover:text-fg-muted")}
         />
         <span className="min-w-0 truncate">{item.label}</span>
+        {item.badge && item.badge.count > 0 && (
+          <span data-sidebar-badge="" data-tone={item.badge.tone ?? "primary"} title={item.badge.label} className={cn("ml-auto shrink-0 rounded-full px-1.5 text-caption font-semibold leading-5 tabular-nums text-white", item.badge.tone === "alert" ? "bg-danger" : "bg-primary")}>
+            {item.badge.tone === "alert" && <span aria-hidden="true">@</span>}
+            <span aria-hidden="true">{item.badge.count > 99 ? "99+" : item.badge.count}</span>
+            <span className="sr-only">{item.badge.label}</span>
+          </span>
+        )}
       </Link>
       {active && (
         <p id={descId} className="pb-1 pl-[2.375rem] pr-2 pt-0.5 text-caption text-fg-muted">

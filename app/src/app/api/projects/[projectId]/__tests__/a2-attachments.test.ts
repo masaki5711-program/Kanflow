@@ -38,6 +38,7 @@ vi.mock("@/lib/prisma", () => ({
 }))
 
 const upload = await import("../attachments/route")
+const links = await import("../attachments/links/route")
 const one = await import("../attachments/[attachmentId]/route")
 const editor = await import("../attachments/[attachmentId]/editor-config/route")
 const { verifyWopiToken, getWopiSigningKey } = await import("@/lib/wopi-token")
@@ -312,6 +313,21 @@ describe("attachment routes", () => {
       const res = await one.GET(getReq(`${BASE}/attachments/a1`), PA)
       expect(res.status).toBe(400)
     })
+
+    it("redirects (302) a link entry to its URL instead of serving a file", async () => {
+      asRole(m, "dev")
+      m.attFindFirst.mockResolvedValue(row({ mimeType: "text/x-uri", linkUrl: "https://gitlab.example.com/group/repo", fileName: "" }))
+      const res = await one.GET(getReq(`${BASE}/attachments/a1`), PA)
+      expect(res.status).toBe(302)
+      expect(res.headers.get("location")).toBe("https://gitlab.example.com/group/repo")
+    })
+
+    it("404 for a link entry whose stored URL is no longer valid", async () => {
+      asRole(m, "dev")
+      m.attFindFirst.mockResolvedValue(row({ mimeType: "text/x-uri", linkUrl: "javascript:alert(1)", fileName: "" }))
+      const res = await one.GET(getReq(`${BASE}/attachments/a1`), PA)
+      expect(res.status).toBe(404)
+    })
   })
 
   describe("PATCH/DELETE /attachments/[attachmentId]", () => {
@@ -341,6 +357,34 @@ describe("attachment routes", () => {
       expect((await one.PATCH(jsonReq("PATCH", { folderId: null }), PA)).status).toBe(404)
     })
 
+    it("PATCH renames a link entry and updates its URL", async () => {
+      asRole(m, "dev")
+      m.attFindFirst.mockResolvedValue(row({ mimeType: "text/x-uri", linkUrl: "https://a.com", fileName: "" }))
+      m.attUpdate.mockResolvedValue(row({ mimeType: "text/x-uri", originalName: "New name", linkUrl: "https://b.com/", fileName: "" }))
+      const res = await one.PATCH(jsonReq("PATCH", { name: "New name", url: "https://b.com" }), PA)
+      expect(res.status).toBe(200)
+      expect(m.attUpdate).toHaveBeenCalledWith({ where: { id: "a1", projectId: "p1" }, data: { originalName: "New name", linkUrl: "https://b.com/" } })
+      expect((await res.json()).originalName).toBe("New name")
+    })
+
+    it("PATCH 400 LINK_ONLY_FIELD when renaming a plain file", async () => {
+      asRole(m, "dev")
+      m.attFindFirst.mockResolvedValue(row({ mimeType: "application/pdf" }))
+      const res = await one.PATCH(jsonReq("PATCH", { name: "New name" }), PA)
+      expect(res.status).toBe(400)
+      expect((await res.json()).code).toBe("LINK_ONLY_FIELD")
+      expect(m.attUpdate).not.toHaveBeenCalled()
+    })
+
+    it("PATCH 400 LINK_URL_INVALID for a non-http(s) URL on a link entry", async () => {
+      asRole(m, "dev")
+      m.attFindFirst.mockResolvedValue(row({ mimeType: "text/x-uri", linkUrl: "https://a.com", fileName: "" }))
+      const res = await one.PATCH(jsonReq("PATCH", { url: "javascript:alert(1)" }), PA)
+      expect(res.status).toBe(400)
+      expect((await res.json()).code).toBe("LINK_URL_INVALID")
+      expect(m.attUpdate).not.toHaveBeenCalled()
+    })
+
     it("DELETE removes row and stored file", async () => {
       asRole(m, "dev")
       await storeFile("del.pdf", "x")
@@ -350,6 +394,15 @@ describe("attachment routes", () => {
       expect(res.status).toBe(200)
       expect(m.attDelete).toHaveBeenCalledWith({ where: { id: "a1" } })
       await expect(fs.stat(path.join(tmpRoot, "private", "uploads", "p1", "del.pdf"))).rejects.toThrow()
+    })
+
+    it("DELETE removes a link entry's row without touching any stored file", async () => {
+      asRole(m, "dev")
+      m.attFindFirst.mockResolvedValue(row({ mimeType: "text/x-uri", linkUrl: "https://a.com", fileName: "" }))
+      m.attDelete.mockResolvedValue({})
+      const res = await one.DELETE(getReq(), PA)
+      expect(res.status).toBe(200)
+      expect(m.attDelete).toHaveBeenCalledWith({ where: { id: "a1" } })
     })
 
     it("DELETE 404 when the attachment is not in the project", async () => {

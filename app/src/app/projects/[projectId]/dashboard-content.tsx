@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import AiReportsPanel from "@/components/ai-reports-panel"
 import { I18nText } from "@/components/i18n-text"
 import { useLanguage } from "@/lib/language-context"
@@ -16,6 +16,8 @@ import { OverviewCards } from "./dashboard/overview-cards"
 import { ProductGoals } from "./dashboard/product-goals"
 import { ProgressEditor } from "./dashboard/progress-editor"
 import { UpcomingDue } from "./dashboard/upcoming-due"
+import { WhatsNewPanel } from "./dashboard/whats-new-panel"
+import { useProjectUpdates } from "@/components/updates/use-project-updates"
 import type { ActiveSprint, Attachment, DashboardMyTask, Folder, ProductGoal } from "./dashboard/types"
 import { Briefcase, ChevronRight } from "lucide-react"
 
@@ -79,10 +81,23 @@ export function DashboardContent({
   // Shared by the name heading and the description editor: a saved
   // description drops its stale translation until the worker refreshes it.
   const [projectText, setProjectText] = useState<EntityI18n | undefined>(projectI18n)
+  const updates = useProjectUpdates(projectId)
+  const newIds = useMemo(() => new Set((updates.data?.activity ?? []).map((e) => e.id)), [updates.data])
 
   return (
     <div className="space-y-6">
       <DashboardHeader projectId={projectId} canUseAi={canUseAi} />
+
+      {/* First thing a returning member sees: unread messages for them + what others changed. */}
+      <WhatsNewPanel
+        projectId={projectId}
+        data={updates.data}
+        isLoading={updates.isLoading}
+        error={updates.error}
+        onMarkRead={updates.markRead}
+        onMarkAllSeen={updates.markAllSeen}
+        onChanged={updates.refetch}
+      />
 
       {/* Autonomous AI reports (surveillance / sprint completion) — hidden until the first report exists */}
       <AiReportsPanel projectId={projectId} />
@@ -128,7 +143,7 @@ export function DashboardContent({
 
       {/* Row 4 — what happened (list height capped inside the feed) */}
       <div data-testid="dashboard-row-feed" className="min-w-0">
-        <ActivityFeed projectId={projectId} />
+        <ActivityFeed projectId={projectId} newIds={newIds} />
       </div>
 
       {/* Reference — collapsed by default */}

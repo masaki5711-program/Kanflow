@@ -15,6 +15,7 @@ import {
   SectionBadges,
 } from "./project-parts"
 import { DormantBadge, ProjectDates } from "./project-dates"
+import { ProjectUpdatesBadges } from "./project-updates-badges"
 import { getProjectTypeLabels, type ProjectType } from "@/lib/project-type-labels"
 import { projectRoleLabel, projectRoleShortLabel } from "@/lib/project-roles"
 import { cardTint, clampPct, roleStyle, type Category, type Project } from "./types"
@@ -143,6 +144,7 @@ export const ProjectCard = memo(function ProjectCard(props: ProjectItemProps) {
               </h3>
               <ProjectTypeMark type={project.projectType} className="shrink-0 rounded-md bg-surface-sunken px-1.5 py-0.5 text-caption" />
               <RenameButton onClick={() => props.onStartEdit(project.id)} />
+              <ProjectUpdatesBadges project={project} className="ml-1" />
             </div>
           )}
           {project.description && (

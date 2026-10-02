@@ -24,6 +24,8 @@ export interface FindNotificationsArgs {
   unreadOnly: boolean
   group?: NotificationGroup
   state?: "unread" | "read"
+  /** Only this project's notifications (the dashboard's "for you" list). */
+  projectId?: string
 }
 
 function readStateWhere(args: Pick<FindNotificationsArgs, "unreadOnly" | "state">) {
@@ -36,6 +38,7 @@ export function findNotifications(db: Db, userId: string, args: FindNotification
   return db.notification.findMany({
     where: {
       recipientId: userId,
+      ...(args.projectId ? { projectId: args.projectId } : {}),
       ...readStateWhere(args),
       ...notificationGroupWhere(args.group ?? "all"),
       AND: [VISIBLE, afterCursorWhere(args.cursor)],

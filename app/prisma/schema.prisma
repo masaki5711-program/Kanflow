@@ -40,6 +40,12 @@ model User {
   ownedPlanItems    PlanItem[]               @relation("PlanItemOwner")
   apiTokens         ApiToken[]
 
+  projectVisits ProjectVisit[]
+
+  teamMessages        TeamMessage[]
+  teamMessageMentions TeamMessageMention[]
+  teamChatReads       TeamChatRead[]
+
   @@index([department])
 }
 
@@ -214,6 +220,11 @@ model Project {
   comments                 Comment[]
   chatThreads              ChatThread[]
   aiJobs                   AiJob[]
+
+  visits ProjectVisit[]
+
+  teamMessages  TeamMessage[]
+  teamChatReads TeamChatRead[]
 
   @@index([deletedAt])
   @@fulltext([name], map: "ft_project_name")
@@ -455,6 +466,83 @@ model BacklogItemDependency {
   @@index([projectId])
 }
 
+/// When a user last confirmed a project's updates ("すべて確認済みにする").
+/// Activity by others after lastSeenAt counts as new for that user.
+model ProjectVisit {
+  id         String   @id @default(cuid())
+  userId     String
+  projectId  String
+  lastSeenAt DateTime
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, projectId])
+  @@index([projectId])
+}
+
+/// Project-wide team chat. A row is either a chat message (body set) or the
+/// mirror of a PBI / sprint-task / IceBox comment (commentId set, body NULL:
+/// the text is read from the comment so edits and deletes follow). A reply
+/// to a mirrored comment is also posted to that comment's thread; the reply
+/// row then keeps its own body and links the comment it created.
+model TeamMessage {
+  id          String                  @id @default(cuid())
+  projectId   String
+  authorId    String
+  body        String?                 @db.Text
+  commentId   String?                 @unique
+  replyToId   String?
+  createdAt   DateTime                @default(now())
+  deletedAt   DateTime?
+  project     Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  author      User                    @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  comment     Comment?                @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  replyTo     TeamMessage?            @relation("TeamMessageReply", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies     TeamMessage[]           @relation("TeamMessageReply")
+  attachments TeamMessageAttachment[]
+  mentions    TeamMessageMention[]
+
+  @@index([projectId, createdAt])
+  @@index([replyToId])
+}
+
+/// A file attached to a team chat message (stored like project attachments).
+model TeamMessageAttachment {
+  id           String      @id @default(cuid())
+  messageId    String
+  fileName     String
+  originalName String
+  fileSize     Int
+  mimeType     String
+  createdAt    DateTime    @default(now())
+  message      TeamMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+}
+
+model TeamMessageMention {
+  messageId String
+  userId    String
+  message   TeamMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([messageId, userId])
+  @@index([userId])
+}
+
+/// When a user last read a project's team chat (unread = newer messages by others).
+model TeamChatRead {
+  id         String   @id @default(cuid())
+  userId     String
+  projectId  String
+  lastReadAt DateTime
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, projectId])
+  @@index([projectId])
+}
+
 model Sprint {
   id                   String              @id @default(cuid())
   projectId            String
@@ -595,6 +683,8 @@ model ProjectAttachment {
   fileSize     Int
   mimeType     String
   uploadedBy   String?
+  /// Set for a link entry (e.g. a GitLab repository): no stored file, the row opens this http(s) URL.
+  linkUrl      String?           @db.VarChar(2048)
   sortOrder    Int               @default(0)
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
@@ -770,6 +860,8 @@ model Comment {
   project    Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
   author     User             @relation(fields: [authorId], references: [id], onDelete: Restrict)
   mentions   CommentMention[]
+
+  teamMessage TeamMessage?
 
   @@index([entityType, entityId, createdAt])
   @@index([projectId, createdAt])

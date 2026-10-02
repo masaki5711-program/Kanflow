@@ -15,6 +15,8 @@ import type { Category, Project } from "./_project-list/types"
 import type { PoHomeSummary } from "@/services/projects/po-home-summary.types"
 import { HomeKpis } from "./_home-kpis/home-kpis"
 import { buildHomeKpis } from "./_home-kpis/home-kpi-tiles"
+import { HomeMessages } from "./_home-messages/home-messages"
+import type { NotificationItem } from "@/components/notifications/notification-format"
 
 interface Props {
   activeProjects: Project[]
@@ -26,9 +28,13 @@ interface Props {
   userName: string | null
   /** PO numbers (A3-16); null when the user is PO of no project. */
   poSummary?: PoHomeSummary | null
+  /** Newest unread messages for the viewer (mentions / assignments / comments). */
+  messages?: NotificationItem[]
+  /** All unread messages for the viewer. */
+  messagesTotal?: number
 }
 
-export function TopPage({ activeProjects, archivedCount, categories, isAdmin, myTasks, userName, poSummary = null }: Props) {
+export function TopPage({ activeProjects, archivedCount, categories, isAdmin, myTasks, userName, poSummary = null, messages = [], messagesTotal = 0 }: Props) {
   const { t } = useLanguage()
   useDocumentTitle([t.projectListTitle])
   const [fixedTasksOpen, setFixedTasksOpen] = useState(false)
@@ -55,6 +61,8 @@ export function TopPage({ activeProjects, archivedCount, categories, isAdmin, my
       </section>
 
       <FixedTasksModal open={fixedTasksOpen} onClose={() => setFixedTasksOpen(false)} />
+
+      <HomeMessages items={messages} total={messagesTotal} />
 
       <section id="my-tasks" aria-labelledby="my-tasks-heading">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
