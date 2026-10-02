@@ -56,7 +56,9 @@ describe("CommentsProvider / CommentsButton", () => {
     const withCount = await screen.findByRole("button", {
       name: `${openLabel("Task 1")} (${t.commentsCountLabel.replace("{count}", "3")})`,
     })
-    expect(withCount).toHaveTextContent("3")
+    // The total lives in the label; the visible badge is reserved for unread messages.
+    expect(withCount.querySelector("[data-comment-has]")).toBeInTheDocument()
+    expect(withCount.querySelector("[data-comment-unread]")).toBeNull()
 
     await userEvent.click(screen.getByRole("button", { name: openLabel("Task 2") }))
     const dialog = await screen.findByRole("dialog", { name: openLabel("Task 2") })

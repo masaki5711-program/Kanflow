@@ -8,21 +8,25 @@ import { toUnread } from "../use-comment-thread"
 const t = getTranslations("en")
 
 describe("CommentCountButton unread mark", () => {
-  it("shows the count bubble in red with an unread label when there are unread mentions", () => {
+  it("the red number is the UNREAD count (not the total)", () => {
     renderWithProviders(<CommentCountButton name="Task A" count={3} unread={2} onClick={vi.fn()} />)
     const button = screen.getByRole("button", { name: new RegExp(t.commentsUnreadLabel.replace("{count}", "2")) })
-    expect(button.querySelector("[data-comment-unread]")).toHaveTextContent("3")
+    expect(button.querySelector("[data-comment-unread]")).toHaveTextContent("2")
   })
 
-  it("shows a red dot when there are unread notifications but no count", () => {
-    renderWithProviders(<CommentCountButton name="Task A" count={0} unread={1} onClick={vi.fn()} />)
-    expect(screen.getByRole("button").querySelector("[data-comment-unread]")).toBeInTheDocument()
-  })
-
-  it("no unread mark when everything is read", () => {
+  it("all read: no number at all, a 'has comments' icon, the total only in the label", () => {
     renderWithProviders(<CommentCountButton name="Task A" count={3} onClick={vi.fn()} />)
+    const button = screen.getByRole("button")
+    expect(button.querySelector("[data-comment-unread]")).toBeNull()
+    expect(button).not.toHaveTextContent("3")
+    expect(button.querySelector("[data-comment-has]")).toBeInTheDocument()
+    expect(button.getAttribute("aria-label")).toContain(t.commentsCountLabel.replace("{count}", "3"))
+  })
+
+  it("no comments: plain icon, no badge", () => {
+    renderWithProviders(<CommentCountButton name="Task A" count={0} onClick={vi.fn()} />)
+    expect(screen.getByRole("button").querySelector("[data-comment-has]")).toBeNull()
     expect(screen.getByRole("button").querySelector("[data-comment-unread]")).toBeNull()
-    expect(screen.getByRole("button").getAttribute("aria-label")).not.toContain(t.commentsUnreadLabel.replace("{count}", ""))
   })
 })
 
