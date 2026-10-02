@@ -11,7 +11,7 @@ authoritative deploy (ops\deploy\deploy.ps1). Procedure: docs\operations\cicd.md
   2. Refused (production untouched) when the production tree is dirty, or when
      app\package-lock.json changed: dependency upgrades need the manual
      procedure (service stop + npm ci, docs\operations\deploy.md).
-  3. The commit gets a deploy tag (deploy-YYYYMMDD-HHmm-<sha>) and is checked out
+  3. The commit gets a deploy tag (deploy-YYYYMMDD-HHmmss-<sha>) and is checked out
      detached - deploy.ps1 requires a tagged, clean HEAD.
   4. deploy.ps1 -ApplyMigrations: quality gate, backup, build into .next-new,
      migrations, swap, health check, automatic build rollback + alerts.
@@ -40,7 +40,9 @@ function Log([string]$msg) {
 }
 
 function Invoke-Git([string[]]$argv) {
-    $out = & git -C $ProdDir @argv 2>&1
+    # PS 5.1: with EAP=Stop, git's progress lines on stderr ("From ...") under 2>&1 become terminating errors.
+    $ErrorActionPreference = "Continue"
+    $out = @(& git -C $ProdDir @argv 2>&1 | ForEach-Object { "$_" })
     if ($LASTEXITCODE -ne 0) { throw ("git {0} failed: {1}" -f ($argv -join " "), ($out -join " ")) }
     return $out
 }
@@ -49,6 +51,7 @@ function Get-Phase {
     if ($Phase) { return $Phase }
     # Same rule as deploy.ps1's preflight: external worker = Phase B, else A.
     $envFile = Join-Path $ProdDir "app\.env"
+    if (-not (Test-Path -LiteralPath $envFile)) { return "A" }
     $mode = Select-String -Path $envFile -Pattern '^\s*AI_TRANSLATION_WORKER\s*=\s*"?(\w+)' -ErrorAction SilentlyContinue | Select-Object -Last 1
     if ($mode -and $mode.Matches[0].Groups[1].Value -eq "external") { return "B" }
     return "A"
@@ -71,8 +74,15 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $short = $target.Substring(0, 8)
-$tag = "deploy-{0}-{1}" -f (Get-Date -Format "yyyyMMdd-HHmm"), $short
-Invoke-Git @("tag", $tag, $target) | Out-Null
+$tag = "deploy-{0}-{1}" -f (Get-Date -Format "yyyyMMdd-HHmmss"), $short
+# A retried job may find its tag already there: reuse it when it names the same commit.
+& git -C $ProdDir rev-parse -q --verify "refs/tags/$tag" *> $null
+if ($LASTEXITCODE -eq 0) {
+    $tagged = (Invoke-Git @("rev-list", "-n", "1", $tag)) | Select-Object -First 1
+    if ($tagged -ne $target) { Log "REFUSED: tag $tag exists for another commit ($tagged)"; exit 12 }
+} else {
+    Invoke-Git @("tag", $tag, $target) | Out-Null
+}
 Invoke-Git @("checkout", "--detach", $tag) | Out-Null
 Log "checked out $tag (was $previous)"
 

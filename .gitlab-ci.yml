@@ -12,6 +12,7 @@ stages:
   - audit
   - migrate-check
   - e2e
+  - deploy
 
 variables:
   NODE_VERSION: "25"
@@ -160,3 +161,29 @@ e2e-smoke:
     paths:
       - app/playwright-report/
       - app/test-results/
+
+# Continuous deployment: every push to main (= merged MR) deploys to the
+# production PC. Runs on the GitLab Runner installed there (tag kanflow-prod,
+# shell executor as LocalSystem - ops/runner/install-runner.ps1). It does not
+# wait for the Docker jobs above: ops/deploy/deploy.ps1 runs the same quality
+# gate (lint, typecheck, tests + coverage) on the server before building, then
+# backup, migrations, swap, health check and automatic rollback.
+# Procedure / recovery: docs/operations/cicd.md.
+deploy-production:
+  stage: deploy
+  tags:
+    - kanflow-prod
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE == "push"'
+  needs: []
+  resource_group: production
+  interruptible: false
+  timeout: 1h
+  variables:
+    GIT_STRATEGY: fetch
+    GIT_DEPTH: "0"
+  environment:
+    name: production
+    url: http://pp-21.ymma.emi.yamaha.co.jp:3000
+  script:
+    - powershell -NoProfile -ExecutionPolicy Bypass -File ops/deploy/auto-deploy.ps1 -CommitSha $env:CI_COMMIT_SHA
