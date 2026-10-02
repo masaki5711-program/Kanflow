@@ -300,7 +300,8 @@ describe("Sidebar", () => {
     await userEvent.keyboard("{Escape}")
     // slide-out animation, then unmount
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
-    expect(document.body.style.overflow).toBe("")
+    // The scroll lock is released in the drawer's cleanup, which can land just after the unmount under load.
+    await waitFor(() => expect(document.body.style.overflow).toBe(""))
   })
 
   it("closes the drawer via its close button and the backdrop", async () => {
