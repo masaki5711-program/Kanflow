@@ -6,6 +6,7 @@ preflight (skippable only with the logged -SkipQualityGate switch).
 
 .DESCRIPTION
 Steps (in app\, with the repo's own node_modules):
+  0. generate   npx prisma generate         (before typecheck / test: new models of the release)
   1. lint       npx eslint src --quiet      (errors only; warnings do not fail)
   2. typecheck  npm run typecheck           (tsc --noEmit)
   3. tests      npm run test:coverage       (vitest run --coverage; thresholds in
@@ -39,6 +40,10 @@ $OutFile = Join-Path $paths.LogDir "quality-gate-output.log"
 function Log([string]$msg, [string]$level = "INFO") { Write-RotatingLog -Path $LogFile -Message $msg -Level $level }
 
 $Definitions = [ordered]@{
+    # The checked-out schema may add models the generated client does not know yet
+    # (a release with migrations): typecheck / tests must see the new client.
+    # Safe while the service runs: the live build bundles its own copy.
+    generate  = @{ Exe = "npx.cmd"; Args = @("prisma", "generate") }
     lint      = @{ Exe = "npx.cmd"; Args = @("eslint", "src", "--quiet") }
     typecheck = @{ Exe = "npm.cmd"; Args = @("run", "typecheck") }
     test      = @{ Exe = "npm.cmd"; Args = @("run", "test:coverage") }
@@ -76,7 +81,9 @@ Set-Content -LiteralPath $OutFile -Value ("quality gate {0}" -f (Get-Date -Forma
 Log ("==== quality gate start ({0}) ====" -f ($Steps -join ", "))
 
 $failed = @()
-foreach ($name in @($Definitions.Keys | Where-Object { $Steps -contains $_ })) {
+$run = @($Steps)
+if ($run -contains "typecheck" -or $run -contains "test") { $run = @("generate") + $run }
+foreach ($name in @($Definitions.Keys | Where-Object { $run -contains $_ })) {
     $r = Invoke-GateStep $name
     $extra = ""
     if ($name -eq "test") {
