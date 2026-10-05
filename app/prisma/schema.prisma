@@ -60,46 +60,136 @@ model User {
 /// Delay is computed (scheduleState), not stored: "delayed" is no longer a
 /// status (migrated to "in_progress" in 20261004000000_plan_linkage).
 model PlanItem {
-  id            String    @id @default(cuid())
-  projectId     String
-  parentId      String?
-  name          String    @db.VarChar(255)
-  description   String?   @db.Text
-  plannedStart  DateTime
-  plannedEnd    DateTime
-  actualStart   DateTime?
-  actualEnd     DateTime?
-  progressPct   Int       @default(0)
-  color         String?   @db.VarChar(32)
-  status        String    @default("not_started")
-  sortOrder     Int       @default(0)
-  isMilestone   Boolean   @default(false)
-  notes         String?   @db.Text
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id                    String    @id @default(cuid())
+  projectId             String
+  parentId              String?
+  name                  String    @db.VarChar(255)
+  description           String?   @db.Text
+  /// Null = 日程未定 (undated, e.g. a stage just loaded from a plan template).
+  /// Both are set or both are null; a parent's span is derived from its dated children.
+  plannedStart          DateTime?
+  plannedEnd            DateTime?
+  actualStart           DateTime?
+  actualEnd             DateTime?
+  progressPct           Int       @default(0)
+  color                 String?   @db.VarChar(32)
+  status                String    @default("not_started")
+  sortOrder             Int       @default(0)
+  isMilestone           Boolean   @default(false)
+  notes                 String?   @db.Text
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
   /// "manual" (status → %) | "linked" (% from linked PBIs; leaves only).
-  progressMode  String    @default("manual") @db.VarChar(16)
+  progressMode          String    @default("manual") @db.VarChar(16)
   /// Optimistic-lock counter: bumped on every user update; stale writes get 409.
-  version       Int       @default(0)
-  baselineStart DateTime?
-  baselineEnd   DateTime?
-  ownerId       String?
-  deletedAt     DateTime?
-  deletedById   String?
+  version               Int       @default(0)
+  baselineStart         DateTime?
+  baselineEnd           DateTime?
+  ownerId               String?
+  deletedAt             DateTime?
+  deletedById           String?
+  /// 目安期間 (days) copied from a plan template stage; used by 「日程を仮置き」.
+  durationDays          Int?
+  /// The template load that created this row (null for hand-made rows).
+  templateApplicationId String?
 
-  project         Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  parent          PlanItem?            @relation("PlanItemTree", fields: [parentId], references: [id], onDelete: Cascade)
-  children        PlanItem[]           @relation("PlanItemTree")
-  owner           User?                @relation("PlanItemOwner", fields: [ownerId], references: [id], onDelete: SetNull)
-  backlogItems    ProductBacklogItem[]
-  successorDeps   PlanItemDependency[] @relation("PlanDependencyPredecessor")
-  predecessorDeps PlanItemDependency[] @relation("PlanDependencySuccessor")
+  project             Project                   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  templateApplication PlanTemplateApplication?  @relation(fields: [templateApplicationId], references: [id], onDelete: SetNull)
+  parent              PlanItem?                 @relation("PlanItemTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children            PlanItem[]                @relation("PlanItemTree")
+  owner               User?                     @relation("PlanItemOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  backlogItems        ProductBacklogItem[]
+  successorDeps       PlanItemDependency[]      @relation("PlanDependencyPredecessor")
+  predecessorDeps     PlanItemDependency[]      @relation("PlanDependencySuccessor")
+  /// マイルストーン・検収ボード rows attached to this stage.
+  checklistStates     MilestoneChecklistState[]
+  acceptanceChecks    AcceptanceCheck[]
+  punchItems          PunchItem[]
 
   @@index([projectId])
   @@index([parentId])
   @@index([projectId, sortOrder])
   @@index([projectId, deletedAt])
   @@index([ownerId])
+  @@index([templateApplicationId])
+}
+
+/// Reusable rough plan (大枠の計画) loaded into 全体計画 as undated stages.
+/// builtinKey set = one of the shipped 共通 templates (seeded lazily from
+/// src/lib/plan-templates/builtins.ts; editable, resettable, never deleted).
+/// content = PlanTemplateContent JSON (stages + checks / documents for the
+/// マイルストーン・検収ボード). Users are referenced by id + name (no FK).
+model PlanTemplate {
+  id            String    @id @default(cuid())
+  builtinKey    String?   @unique @db.VarChar(40)
+  name          String    @db.VarChar(255)
+  description   String?   @db.Text
+  /// public | private (private = owner + admins only)
+  visibility    String    @default("public") @db.VarChar(10)
+  ownerId       String?
+  ownerName     String?   @db.VarChar(255)
+  content       String    @db.MediumText
+  version       Int       @default(0)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  updatedById   String?
+  updatedByName String?   @db.VarChar(255)
+  deletedAt     DateTime?
+
+  revisions    PlanTemplateRevision[]
+  applications PlanTemplateApplication[]
+
+  @@index([deletedAt, visibility])
+  @@index([ownerId])
+  @@map("plan_template")
+}
+
+/// Snapshot of a template after each save / reset (edit history).
+model PlanTemplateRevision {
+  id           String   @id @default(cuid())
+  templateId   String
+  version      Int
+  name         String   @db.VarChar(255)
+  description  String?  @db.Text
+  visibility   String   @db.VarChar(10)
+  content      String   @db.MediumText
+  /// create | update | reset | duplicate
+  action       String   @db.VarChar(16)
+  editedById   String?
+  editedByName String?  @db.VarChar(255)
+  editedAt     DateTime @default(now())
+
+  template PlanTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@index([templateId, editedAt])
+  @@map("plan_template_revision")
+}
+
+/// One load of a template into a project's plan (duplicate-load warning and
+/// the link from created PlanItems back to the template content they came from).
+model PlanTemplateApplication {
+  id              String   @id @default(cuid())
+  projectId       String
+  templateId      String
+  templateName    String   @db.VarChar(255)
+  templateVersion Int
+  /// The template content as loaded (later template edits never change it).
+  content         String   @db.MediumText
+  /// JSON string[] of the top-level PlanItem ids created by this load.
+  createdRootIds  String   @db.Text
+  appliedById     String?
+  appliedByName   String?  @db.VarChar(255)
+  appliedAt       DateTime @default(now())
+
+  project       Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  template      PlanTemplate        @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  planItems     PlanItem[]
+  /// Set once the マイルストーン・検収ボード copied this load's checks / documents.
+  milestoneSeed MilestoneBoardSeed?
+
+  @@index([projectId, templateId])
+  @@index([templateId])
+  @@map("plan_template_application")
 }
 
 /// Finish-to-start dependency between two plan items of one project
@@ -225,6 +315,23 @@ model Project {
 
   teamMessages  TeamMessage[]
   teamChatReads TeamChatRead[]
+
+  /// Optional GitLab integration (off by default; see services/git).
+  gitIntegration  GitIntegration?
+  gitRepositories GitRepository[]
+  gitLinks        GitLink[]
+
+  /// Plan template loads into this project's 全体計画.
+  planTemplateApplications PlanTemplateApplication[]
+
+  /// マイルストーン・検収ボード (general projects).
+  milestoneBoard    MilestoneBoard?
+  milestoneSeeds    MilestoneBoardSeed[]
+  acceptanceChecks  AcceptanceCheck[]
+  punchItems        PunchItem[]
+  handoverDocuments HandoverDocument[]
+  budgetLines       BudgetLine[]
+  milestoneMetrics  MilestoneMetric[]
 
   @@index([deletedAt])
   @@fulltext([name], map: "ft_project_name")
@@ -440,6 +547,8 @@ model ProductBacklogItem {
   successorDeps      BacklogItemDependency[] @relation("PbiDependencyPredecessor")
   /// Files / images of the 参考資料 (reference material) section.
   attachments        PbiAttachment[]
+  /// GitLab merge requests / branches / commits naming this PBI (PBI-<displayId>).
+  gitLinks           GitLink[]
 
   @@unique([projectId, displayId])
   @@index([projectId])
@@ -631,28 +740,103 @@ model SprintBacklogItem {
 }
 
 model ReleaseBacklogItem {
-  id             String              @id @default(cuid())
-  projectId      String
-  planVersion    String?
-  pbItemId       String?
-  iceboxId       String?
-  initiative     String?
-  epic           String?
-  userStory      String?             @db.Text
-  assignedPo     String?
-  releaseVersion String?
-  releaseDate    DateTime?
-  releaseNote    String?             @db.Text
-  manualLink     String?             @db.Text
-  poNote         String?             @db.Text
-  status         String              @default("staged")
-  createdAt      DateTime            @default(now())
-  updatedAt      DateTime            @updatedAt
-  pbItem         ProductBacklogItem? @relation(fields: [pbItemId], references: [id], onDelete: SetNull)
-  project        Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  id              String               @id @default(cuid())
+  projectId       String
+  planVersion     String?
+  pbItemId        String?
+  iceboxId        String?
+  initiative      String?
+  epic            String?
+  userStory       String?              @db.Text
+  assignedPo      String?
+  releaseVersion  String?
+  releaseDate     DateTime?
+  releaseNote     String?              @db.Text
+  manualLink      String?              @db.Text
+  poNote          String?              @db.Text
+  status          String               @default("staged")
+  /// 改善成果ボード (process_improvement projects only; the software screen ignores these).
+  /// time | quality | cost | safety | other
+  metricCategory  String?              @db.VarChar(20)
+  metricName      String?              @db.VarChar(200)
+  metricUnit      String?              @db.VarChar(20)
+  /// Which way is better: "decrease" | "increase".
+  direction       String               @default("decrease") @db.VarChar(10)
+  baselineValue   Float?
+  targetValue     Float?
+  resultValue     Float?
+  annualEffectYen Int?
+  /// measuring | standardized | deploying | sustained | deferred
+  kaizenStage     String               @default("measuring") @db.VarChar(20)
+  standardizedAt  DateTime?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  pbItem          ProductBacklogItem?  @relation(fields: [pbItemId], references: [id], onDelete: SetNull)
+  project         Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  rollouts        ImprovementRollout[]
+  checks          ImprovementCheck[]
+  photos          ImprovementPhoto[]
 
   @@index([projectId])
   @@index([pbItemId])
+}
+
+/// 横展開先 of an improvement (another line / plant the kaizen is copied to).
+model ImprovementRollout {
+  id            String             @id @default(cuid())
+  releaseItemId String
+  targetName    String             @db.VarChar(200)
+  /// todo | doing | done
+  status        String             @default("todo") @db.VarChar(10)
+  doneAt        DateTime?
+  sortOrder     Int                @default(0)
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  releaseItem   ReleaseBacklogItem @relation(fields: [releaseItemId], references: [id], onDelete: Cascade)
+
+  @@index([releaseItemId, sortOrder])
+  @@map("improvement_rollout")
+}
+
+/// 定着確認 (sustainment check) of an improvement, e.g. 1 and 3 months after 展開日.
+model ImprovementCheck {
+  id            String             @id @default(cuid())
+  releaseItemId String
+  dueDate       DateTime
+  /// 1m | 3m | custom
+  kind          String             @db.VarChar(10)
+  checkedAt     DateTime?
+  /// sustained | regressed | null (not checked yet)
+  result        String?            @db.VarChar(10)
+  note          String?            @db.Text
+  checkedById   String?
+  checkedByName String?
+  /// Set once the PO reminder for a due check was sent (worker collab-daily).
+  notifiedAt    DateTime?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  releaseItem   ReleaseBacklogItem @relation(fields: [releaseItemId], references: [id], onDelete: Cascade)
+
+  @@index([releaseItemId])
+  @@index([dueDate, checkedAt, notifiedAt])
+  @@map("improvement_check")
+}
+
+/// Before / after photos of an improvement (stored like PbiAttachment).
+model ImprovementPhoto {
+  id            String             @id @default(cuid())
+  releaseItemId String
+  /// before | after
+  phase         String             @db.VarChar(10)
+  fileName      String
+  originalName  String
+  fileSize      Int
+  mimeType      String
+  createdAt     DateTime           @default(now())
+  releaseItem   ReleaseBacklogItem @relation(fields: [releaseItemId], references: [id], onDelete: Cascade)
+
+  @@index([releaseItemId, phase])
+  @@map("improvement_photo")
 }
 
 model CalendarEvent {
@@ -1023,4 +1207,303 @@ model MetricSnapshot {
   data    String   @db.Text
 
   @@index([takenAt])
+}
+
+/// Per-project GitLab integration switch and access token. A project without
+/// a row (or enabled = false) shows no Git UI at all — Kanflow is also used by
+/// process-improvement teams that never touch Git.
+model GitIntegration {
+  projectId           String   @id
+  enabled             Boolean  @default(false)
+  /// Access token (group or project token, read_api), AES-256-GCM sealed by lib/secret-box. Never returned by the API.
+  tokenCipher         String?  @db.Text
+  /// Last 4 characters, shown as "••••abcd" so people can tell which token is set.
+  tokenHint           String?  @db.VarChar(8)
+  /// When every merge request of a PBI is merged, its in-progress tasks of the active sprint become done.
+  autoCompleteOnMerge Boolean  @default(false)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  project             Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("git_integration")
+}
+
+/// One GitLab repository of a project (a project may have several: front end,
+/// API, edge ...). Polled by lib/git/poller (GitLab cannot reach the LAN, so no webhooks).
+model GitRepository {
+  id          String    @id @default(cuid())
+  projectId   String
+  /// Display name ("API", "フロント").
+  name        String    @db.VarChar(100)
+  /// https://host/group/repo as entered (normalised, no .git).
+  webUrl      String    @db.VarChar(1024)
+  /// https://host — the API base.
+  apiBase     String    @db.VarChar(255)
+  /// group/sub/repo
+  repoPath    String    @db.VarChar(512)
+  /// GitLab numeric project id (resolved on the connection test).
+  externalId  Int?
+  /// Optional per-repository token (overrides the integration token).
+  tokenCipher String?   @db.Text
+  tokenHint   String?   @db.VarChar(8)
+  /// Last successful sync and the watermark the next one asks from.
+  syncedAt    DateTime?
+  syncCursor  DateTime?
+  lastError   String?   @db.VarChar(500)
+  lastErrorAt DateTime?
+  sortOrder   Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  links       GitLink[]
+
+  @@index([projectId])
+  @@map("git_repository")
+}
+
+/// A merge request, branch or commit that names a PBI (PBI-123 in its title,
+/// branch name or message). One row per (repository, object, PBI).
+model GitLink {
+  id            String             @id @default(cuid())
+  projectId     String
+  repositoryId  String
+  backlogItemId String
+  /// "mr" | "branch" | "commit"
+  kind          String             @db.VarChar(16)
+  /// MR iid, branch name or commit sha.
+  ref           String             @db.VarChar(255)
+  title         String             @db.VarChar(500)
+  url           String             @db.VarChar(1024)
+  /// MR: opened | merged | closed | locked; null for branches / commits.
+  state         String?            @db.VarChar(16)
+  /// Latest pipeline status (MR head pipeline / branch / commit), when known.
+  pipeline      String?            @db.VarChar(24)
+  author        String?            @db.VarChar(191)
+  sourceBranch  String?            @db.VarChar(255)
+  /// When it last changed on GitLab (MR updated_at, commit date, branch head date).
+  occurredAt    DateTime
+  mergedAt      DateTime?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  project       Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  repository    GitRepository      @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  backlogItem   ProductBacklogItem @relation(fields: [backlogItemId], references: [id], onDelete: Cascade)
+
+  @@unique([repositoryId, kind, ref, backlogItemId])
+  @@index([backlogItemId])
+  @@index([projectId, occurredAt])
+  @@map("git_link")
+}
+
+// ─── マイルストーン・検収ボード (general projects, 2026-10) ────────────────
+// The stages ARE the project's top-level PlanItems (name / dates / status /
+// 完了条件 notes are read from there, never copied); these tables keep only
+// the board's own state. Users are referenced by id + name (no FK).
+
+/// Board settings of a project: the チェック項目 呼び名 and the optional parts.
+model MilestoneBoard {
+  projectId     String   @id
+  /// 呼び名 of the check items (検収 / テスト / 評価 …); null = the UI default.
+  checkLabel    String?  @db.VarChar(40)
+  budgetEnabled Boolean  @default(false)
+  /// 推移 (monthly metric trend) tab shown even before a metric exists.
+  trendEnabled  Boolean  @default(false)
+  updatedAt     DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("milestone_board")
+}
+
+/// Idempotency marker: this template load's checks / documents / flags were
+/// copied onto the board (lazily, on the first board read after the load).
+model MilestoneBoardSeed {
+  applicationId String   @id
+  projectId     String
+  seededAt      DateTime @default(now())
+
+  application PlanTemplateApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  project     Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@map("milestone_board_seed")
+}
+
+/// A ticked 完了条件 of a stage. The condition text lives in PlanItem.notes
+/// ("完了条件:\n- …"); the row exists only while the condition is ticked.
+model MilestoneChecklistState {
+  id            String   @id @default(cuid())
+  planItemId    String
+  label         String   @db.VarChar(255)
+  checkedById   String?
+  checkedByName String?  @db.VarChar(255)
+  checkedAt     DateTime @default(now())
+
+  planItem PlanItem @relation(fields: [planItemId], references: [id], onDelete: Cascade)
+
+  @@unique([planItemId, label])
+  @@map("milestone_checklist_state")
+}
+
+/// チェック項目 (検収 / テスト / 評価 / 竣工検査 …) with its criterion and result.
+model AcceptanceCheck {
+  id             String    @id @default(cuid())
+  projectId      String
+  planItemId     String?
+  name           String    @db.VarChar(255)
+  criterion      String?   @db.Text
+  /// passed | conditional | failed | null (not checked yet)
+  result         String?   @db.VarChar(16)
+  /// 立会者 (free text: customer / maker staff are often not users).
+  witness        String?   @db.VarChar(255)
+  /// Day of the check (UTC midnight).
+  checkedAt      DateTime?
+  note           String?   @db.Text
+  recordedById   String?
+  recordedByName String?   @db.VarChar(255)
+  sortOrder      Int       @default(0)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  planItem PlanItem? @relation(fields: [planItemId], references: [id], onDelete: SetNull)
+
+  @@index([projectId, sortOrder])
+  @@index([planItemId])
+  @@map("acceptance_check")
+}
+
+/// 残課題 (punch list item).
+model PunchItem {
+  id            String       @id @default(cuid())
+  projectId     String
+  planItemId    String?
+  title         String       @db.VarChar(255)
+  detail        String?      @db.Text
+  /// A project member (id + name) or just a name (e.g. the maker's engineer).
+  assigneeId    String?
+  assigneeName  String?      @db.VarChar(255)
+  dueDate       DateTime?
+  /// open | in_progress | done
+  status        String       @default("open") @db.VarChar(16)
+  closedAt      DateTime?
+  sortOrder     Int          @default(0)
+  createdById   String?
+  createdByName String?      @db.VarChar(255)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  photos        PunchPhoto[]
+
+  project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  planItem PlanItem? @relation(fields: [planItemId], references: [id], onDelete: SetNull)
+
+  @@index([projectId, status])
+  @@index([planItemId])
+  @@map("punch_item")
+}
+
+/// Photo of a 残課題 (stored like PbiAttachment, counted in the project quota).
+model PunchPhoto {
+  id           String    @id @default(cuid())
+  punchItemId  String
+  fileName     String
+  originalName String
+  fileSize     Int
+  mimeType     String
+  createdAt    DateTime  @default(now())
+  punchItem    PunchItem @relation(fields: [punchItemId], references: [id], onDelete: Cascade)
+
+  @@index([punchItemId])
+  @@map("punch_photo")
+}
+
+/// 引き渡し資料 (a document to be handed over), with received state and files.
+model HandoverDocument {
+  id             String         @id @default(cuid())
+  projectId      String
+  name           String         @db.VarChar(255)
+  /// pending | received
+  status         String         @default("pending") @db.VarChar(16)
+  receivedAt     DateTime?
+  receivedByName String?        @db.VarChar(255)
+  note           String?        @db.Text
+  sortOrder      Int            @default(0)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  files          HandoverFile[]
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, sortOrder])
+  @@map("handover_document")
+}
+
+/// A file attached to a 引き渡し資料 (stored like PbiAttachment, counted in the quota).
+model HandoverFile {
+  id             String           @id @default(cuid())
+  documentId     String
+  fileName       String
+  originalName   String
+  fileSize       Int
+  mimeType       String
+  uploadedByName String?          @db.VarChar(255)
+  createdAt      DateTime         @default(now())
+  document       HandoverDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId])
+  @@map("handover_file")
+}
+
+/// 予算 line (plan / actual in yen; DOUBLE keeps whole yen exact far past INT).
+model BudgetLine {
+  id         String   @id @default(cuid())
+  projectId  String
+  name       String   @db.VarChar(255)
+  plannedYen Float?
+  actualYen  Float?
+  note       String?  @db.Text
+  sortOrder  Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, sortOrder])
+  @@map("budget_line")
+}
+
+/// 推移 metric of a long-running project (e.g. 不良率 per month).
+model MilestoneMetric {
+  id            String                 @id @default(cuid())
+  projectId     String
+  name          String                 @db.VarChar(200)
+  unit          String?                @db.VarChar(20)
+  /// decrease | increase (which way is better)
+  direction     String                 @default("decrease") @db.VarChar(10)
+  baselineValue Float?
+  targetValue   Float?
+  sortOrder     Int                    @default(0)
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+  points        MilestoneMetricPoint[]
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, sortOrder])
+  @@map("milestone_metric")
+}
+
+/// One monthly value of a 推移 metric.
+model MilestoneMetricPoint {
+  id             String          @id @default(cuid())
+  metricId       String
+  /// "YYYY-MM"
+  month          String          @db.VarChar(7)
+  value          Float
+  recordedByName String?         @db.VarChar(255)
+  updatedAt      DateTime        @updatedAt
+  metric         MilestoneMetric @relation(fields: [metricId], references: [id], onDelete: Cascade)
+
+  @@unique([metricId, month])
+  @@map("milestone_metric_point")
 }

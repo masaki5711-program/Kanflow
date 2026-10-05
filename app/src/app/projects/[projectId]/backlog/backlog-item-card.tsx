@@ -6,6 +6,7 @@ import { I18nText } from "@/components/i18n-text"
 import { useLanguage } from "@/lib/language-context"
 import { pickText } from "@/lib/translation/pick-text"
 import { PbiDependencyChips } from "@/components/pbi-dependencies/pbi-dependency-chips"
+import { GitPbiBadge } from "@/components/git-dev/git-summaries-context"
 import type { PbiDependencyRefDto } from "@/types/api"
 import { CardMenu } from "./card-menu"
 import type { BacklogItem, BacklogStatus } from "./types"
@@ -83,6 +84,7 @@ function Chips({ item, inSprintNames, onOpenRef }: { item: BacklogItem; inSprint
   return (
     <div className="mb-2 flex flex-wrap items-center gap-1.5">
       <PbiDependencyChips item={item} onOpenRef={onOpenRef} />
+      <GitPbiBadge pbiId={item.id} />
       {inSprintNames.length > 0 && (
         <span className="inline-flex items-center gap-1 rounded-full border border-primary/40 bg-primary-soft px-2 py-0.5 text-caption font-semibold text-primary-active">
           <span aria-hidden="true">⚡</span> {t.backlogInSprintBadge}

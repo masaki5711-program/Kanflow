@@ -3,8 +3,10 @@
 import { useId, useState } from "react"
 import { useLanguage } from "@/lib/language-context"
 import { Badge, DisclosureChevron, Field, Input, Select, Textarea } from "@/components/ui"
+import { PbiDevPanel } from "@/components/git-dev/pbi-dev-panel"
 import type { PbiDetailState } from "../hooks/use-pbi-detail"
 interface Props {
+  projectId: string
   pbi: PbiDetailState
   canEdit: boolean
 }
@@ -13,7 +15,7 @@ interface Props {
  * Collapsible full-PBI panel inside the task modal. PO/SM/admin can edit the
  * PBI inline; edits are saved together with the task.
  */
-export default function TaskPbiDetailPanel({ pbi, canEdit }: Props) {
+export default function TaskPbiDetailPanel({ projectId, pbi, canEdit }: Props) {
   const { t, pt } = useLanguage()
   const [expanded, setExpanded] = useState(false)
   const bodyId = useId()
@@ -66,6 +68,8 @@ export default function TaskPbiDetailPanel({ pbi, canEdit }: Props) {
             </Field>
           </div>
           {isSaving && <p className="text-caption text-primary" role="status">{t.saving}</p>}
+          {/* Loaded once the panel is opened; nothing when the project has Git off. */}
+          <PbiDevPanel projectId={projectId} pbiId={detail.id} />
         </div>
       )}
     </div>

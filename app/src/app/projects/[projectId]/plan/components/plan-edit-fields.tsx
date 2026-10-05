@@ -58,19 +58,26 @@ export function PlanEditFields({ form, set, flags, item, parentOptions, members,
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {flags.datesDerived && item ? (
           <>
-            <Derived label={t.planPlannedStart}>{formatShortDate(item.plannedStart, language)}</Derived>
-            <Derived label={t.planPlannedEnd}>{formatShortDate(item.plannedEnd, language)}</Derived>
+            <Derived label={t.planPlannedStart}>{item.plannedStart ? formatShortDate(item.plannedStart, language) : t.tplUndated}</Derived>
+            <Derived label={t.planPlannedEnd}>{item.plannedEnd ? formatShortDate(item.plannedEnd, language) : t.tplUndated}</Derived>
           </>
         ) : form.isMilestone ? (
-          <Field label={t.planMilestoneDate} required error={errors.plannedStart ? t.planDateRequired : undefined}>
+          <Field label={t.planMilestoneDate} hint={form.plannedStart ? undefined : t.tplUndatedFieldHint} error={errors.plannedStart ? t.planDateRequired : undefined}>
             <Input type="date" value={form.plannedStart} onChange={(e) => set("plannedStart", e.target.value)} />
           </Field>
         ) : (
           <>
-            <Field label={t.planPlannedStart} required error={errors.plannedStart ? t.planDateRequired : undefined}>
+            <Field
+              label={t.planPlannedStart}
+              hint={!form.plannedStart && !form.plannedEnd ? t.tplUndatedFieldHint : undefined}
+              error={errors.plannedStart ? t.planDateRequired : undefined}
+            >
               <Input type="date" value={form.plannedStart} onChange={(e) => set("plannedStart", e.target.value)} />
             </Field>
-            <Field label={t.planPlannedEnd} required error={errors.plannedEnd ? t.planDateOrderError : undefined}>
+            <Field
+              label={t.planPlannedEnd}
+              error={errors.plannedEndRequired ? t.planDateRequired : errors.plannedEnd ? t.planDateOrderError : undefined}
+            >
               <Input type="date" value={form.plannedEnd} min={form.plannedStart || undefined} onChange={(e) => set("plannedEnd", e.target.value)} />
             </Field>
           </>

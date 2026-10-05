@@ -30,6 +30,7 @@ import { useDraftPrefill } from "./use-draft-prefill"
 import { useReorderDnd } from "./use-reorder-dnd"
 import { ClipboardList, Plus, Scale } from "lucide-react"
 import { BacklogExcelActions } from "@/components/excel/backlog-excel-actions"
+import { GitSummariesProvider } from "@/components/git-dev/git-summaries-context"
 
 /** useSearchParams needs a Suspense boundary above it. */
 export default function BacklogPage() {
@@ -152,6 +153,12 @@ function BacklogPageContent() {
     onHandleBlur: () => dnd.onHandleBlur(),
   })
 
+  // Git badges: one request for the open PBIs (+ the completed ones on screen); filtering does not refetch.
+  const gitPbiIds = useMemo(
+    () => [...view.lists.ready, ...view.lists.not_ready, ...(view.showDone ? view.visible.completed : [])].map((i) => i.id),
+    [view.lists, view.showDone, view.visible.completed],
+  )
+
   const perms = { canEdit, canReorder, canDelete, canInvest }
   const sectionProps = { ...perms, isFiltered: hasActiveFilters(url.filters), actions: cardActions, selectMode: selection.selectMode, selectedIds: selection.selectedSet, drag: dnd.drag }
   const status = url.filters.status
@@ -212,6 +219,7 @@ function BacklogPageContent() {
       ) : !loaded ? (
         <EmptyState title={t.backlogLoadFailed} description={backlog.error?.message} action={<Button onClick={backlog.refetch}>{t.backlogRetry}</Button>} />
       ) : (
+        <GitSummariesProvider projectId={projectId} pbiIds={gitPbiIds}>
         <div className="space-y-6">
           {(!status || status === "ready") && (
             <BacklogSection title={t.backlogSectionReadyTitle} hint={t.backlogReadyHint} status="ready" items={view.visible.ready} showWorkloadTotal {...sectionProps} />
@@ -237,6 +245,7 @@ function BacklogPageContent() {
             />
           )}
         </div>
+        </GitSummariesProvider>
       )}
 
       {selection.selectMode && (

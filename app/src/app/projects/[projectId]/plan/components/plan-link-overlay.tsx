@@ -31,8 +31,10 @@ export function PlanLinkOverlay({ link, byId, rowIndex, env, width, height, view
   const { t } = env
   const source = byId.get(link.sourceId)
   const sourceRow = rowIndex.get(link.sourceId)
-  if (!source || sourceRow === undefined) return null
-  const from = { x: itemAnchors(source, env.startDay, env.dayWidth).endX, y: sourceRow * ROW_HEIGHT + ROW_CENTER }
+  // The connector ● only exists on dated bars; an undated source has no anchor.
+  const anchor = source ? itemAnchors(source, env.startDay, env.dayWidth) : null
+  if (!anchor || sourceRow === undefined) return null
+  const from = { x: anchor.endX, y: sourceRow * ROW_HEIGHT + ROW_CENTER }
   const target = link.targetId ? byId.get(link.targetId) : undefined
   const targetRow = link.targetId ? rowIndex.get(link.targetId) : undefined
   const blocked = link.block !== null

@@ -191,4 +191,11 @@ describe("background AI report notifications", () => {
     expect(d.text).toBe(`AI レポート（${ja.aiJobKindSprintReview}）を生成できませんでした`)
     expect(d.href).toBe("/projects/p1")
   })
+
+  it("improvement_check_due → kind + date, opens the item on the 改善成果ボード", () => {
+    const n = item("improvement_check_due", { entityLabel: "段取り短縮", dueDate: "2026-11-02", kind: "1m" }, { entityType: "release", entityId: "r1" })
+    const d = describeNotification(n, ja, "ja")
+    expect(d.text).toContain("定着確認の期限です：段取り短縮（1 か月後・")
+    expect(d.href).toBe("/projects/p1/releases?item=r1")
+  })
 })

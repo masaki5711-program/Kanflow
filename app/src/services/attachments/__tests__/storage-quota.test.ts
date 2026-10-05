@@ -36,8 +36,8 @@ describe("projectStorageUsed", () => {
     const { db, queryRaw } = dbReturning("2147483648")
     await expect(quota.projectStorageUsed(db, "p1")).resolves.toBe(2147483648)
     const [strings, ...values] = queryRaw.mock.calls[0] as unknown as [TemplateStringsArray, ...unknown[]]
-    expect(strings.join("?")).toMatch(/ProjectAttachment[\s\S]*IceboxAttachment[\s\S]*IceboxItem[\s\S]*TeamMessageAttachment[\s\S]*TeamMessage[\s\S]*pbi_attachment[\s\S]*ProductBacklogItem/)
-    expect(values).toEqual(["p1", "p1", "p1", "p1"])
+    expect(strings.join("?")).toMatch(/ProjectAttachment[\s\S]*IceboxAttachment[\s\S]*IceboxItem[\s\S]*TeamMessageAttachment[\s\S]*TeamMessage[\s\S]*pbi_attachment[\s\S]*ProductBacklogItem[\s\S]*improvement_photo[\s\S]*ReleaseBacklogItem[\s\S]*punch_photo[\s\S]*punch_item[\s\S]*handover_file[\s\S]*handover_document/)
+    expect(values).toEqual(["p1", "p1", "p1", "p1", "p1", "p1", "p1"])
   })
 
   it("handles numeric / bigint / missing results", async () => {

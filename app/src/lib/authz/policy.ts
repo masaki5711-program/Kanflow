@@ -43,6 +43,19 @@ export const PROJECT_ACTIONS = [
   "goal.write",
   "plan.write",
   "release.manage",
+  /**
+   * 改善成果ボード floor work: record 定着確認 results, update 横展開 status,
+   * add / remove before-after photos. Effect fields, stages, adding rollout
+   * targets and checks stay "release.manage" (PO).
+   */
+  "improvement.track",
+  /**
+   * マイルストーン・検収ボード floor work: tick 完了条件, record チェック項目
+   * results, add / work 残課題 and their photos, mark 引き渡し資料 received and
+   * attach files, enter monthly 推移 values. Stages, check / document
+   * definitions, 予算 and settings stay "plan.write" (PO / SM).
+   */
+  "milestone.track",
   /** Create / edit / delete sprints and move PBIs in and out of them. */
   "sprint.manage",
   "task.write",
@@ -66,6 +79,10 @@ export const PROJECT_ACTIONS = [
   "comment.moderate",
   /** Change the project's AI surveillance thresholds (enable / thresholds / critical notifications). */
   "surveillance.configure",
+  /** Turn the GitLab integration on / off, set the token and the repositories. */
+  "git.configure",
+  /** Ask for an immediate GitLab sync ("今すぐ同期"). */
+  "git.sync",
 ] as const
 export type ProjectAction = (typeof PROJECT_ACTIONS)[number]
 
@@ -93,6 +110,8 @@ const POLICY: Readonly<Record<ProjectAction, readonly Grantee[]>> = {
   "goal.write": PO_SM,
   "plan.write": PO_SM,
   "release.manage": PO,
+  "improvement.track": MEMBER,
+  "milestone.track": MEMBER,
   "sprint.manage": PO_SM,
   "task.write": MEMBER,
   "dailyScrum.write": MEMBER,
@@ -106,6 +125,8 @@ const POLICY: Readonly<Record<ProjectAction, readonly Grantee[]>> = {
   "comment.write": MEMBER,
   "comment.moderate": PO,
   "surveillance.configure": PO,
+  "git.configure": PO_SM,
+  "git.sync": MEMBER,
 }
 
 export function isSystemAdmin(actor: Pick<ProjectActor, "systemRole">): boolean {

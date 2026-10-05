@@ -37,6 +37,7 @@ import { PlanLegend } from "./components/plan-legend"
 import { PlanPrintDialog } from "./components/plan-print-dialog"
 import { PlanSuccessorPicker } from "./components/plan-successor-picker"
 import { PlanToolbar } from "./components/plan-toolbar"
+import { PlanTemplateDialogs, type TemplateDialogMode } from "./templates/plan-template-dialogs"
 
 interface Props {
   projectId: string
@@ -93,6 +94,8 @@ function PlanPage({ projectId, canEdit }: Props) {
   const [editor, setEditor] = useState<EditorTarget | null>(null)
   const [successorFor, setSuccessorFor] = useState<PlanItem | null>(null)
   const [printOpen, setPrintOpen] = useState(false)
+  const [tplMode, setTplMode] = useState<TemplateDialogMode>(null)
+  const [fitPending, setFitPending] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const nameOf = useCallback((item: PlanItem) => pickText(item.i18n, "name", item.name, language).text, [language])
@@ -189,7 +192,8 @@ function PlanPage({ projectId, canEdit }: Props) {
   function reveal(id: string) {
     const it = byId.get(id)
     if (!it) return
-    const g = spanGeometry(it.plannedStart, it.plannedEnd, range.startDay, dayWidth)
+    // An undated row has no bar: reveal the today column (where its 日程未定 chip sits).
+    const g = it.plannedStart && it.plannedEnd ? spanGeometry(it.plannedStart, it.plannedEnd, range.startDay, dayWidth) : { x: dayCenterX(today, range.startDay, dayWidth), width: 0 }
     revealItem(scrollRef.current, id, g.x, g.width, gw)
   }
 
@@ -277,6 +281,15 @@ function PlanPage({ projectId, canEdit }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [itemParam, api.isLoading, byId])
 
+  // After 「日程を仮置き」 the refetched items are fitted into view once (the old window may show none of them).
+  useEffect(() => {
+    if (!fitPending) return
+    setFitPending(false)
+    fitAll()
+    // Runs on the refetched items only; fitAll reads them through its closure.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items])
+
   const editorItem = editor?.kind === "edit" ? (byId.get(editor.item.id) ?? editor.item) : null
   const hasBaseline = items.some((i) => i.baselineStart)
 
@@ -296,8 +309,24 @@ function PlanPage({ projectId, canEdit }: Props) {
         hasBaseline={hasBaseline}
         exportUrl={`${api.base}/export?lang=${language}`}
         onPrint={() => setPrintOpen(true)}
+        onLoadTemplate={() => setTplMode("load")}
+        onSaveAsTemplate={() => setTplMode("save")}
+        onScheduleUndated={() => setTplMode("schedule")}
+        hasItems={items.length > 0}
+        hasUndated={items.some((i) => !i.plannedStart && !i.hasChildren)}
       />
       {layout.printing && <style>{PRINT_PAGE_CSS}</style>}
+      <PlanTemplateDialogs
+        mode={tplMode}
+        onMode={setTplMode}
+        projectId={projectId}
+        items={items}
+        nameOf={nameOf}
+        today={today}
+        onChanged={api.refetch}
+        onLoaded={setSelectedId}
+        onScheduled={() => setFitPending(true)}
+      />
 
       {api.isLoading ? (
         <SkeletonTable rows={6} columns={4} label={t.loading} />
@@ -307,7 +336,14 @@ function PlanPage({ projectId, canEdit }: Props) {
             icon={<CalendarRange className="h-6 w-6" />}
             title={t.planEmpty}
             description={t.planEmptyHint}
-            action={canEdit ? <Button onClick={() => openDraft(null, false)}>{t.planAddItem}</Button> : undefined}
+            action={
+              canEdit ? (
+                <div className="flex flex-wrap justify-center gap-2">
+                  <Button onClick={() => openDraft(null, false)}>{t.planAddItem}</Button>
+                  <Button variant="secondary" onClick={() => setTplMode("load")}>{t.tplLoadButton}</Button>
+                </div>
+              ) : undefined
+            }
           />
         </div>
       ) : (

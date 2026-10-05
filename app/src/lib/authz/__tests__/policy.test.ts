@@ -56,6 +56,8 @@ const EXPECTED: Record<ProjectAction, Persona[]> = {
   "goal.write": PO_SM,
   "plan.write": PO_SM,
   "release.manage": PO,
+  "improvement.track": MEMBERS,
+  "milestone.track": MEMBERS,
   "sprint.manage": PO_SM,
   "task.write": MEMBERS,
   "dailyScrum.write": MEMBERS,
@@ -69,6 +71,8 @@ const EXPECTED: Record<ProjectAction, Persona[]> = {
   "comment.write": MEMBERS,
   "comment.moderate": PO,
   "surveillance.configure": PO,
+  "git.configure": PO_SM,
+  "git.sync": MEMBERS,
 }
 
 const cases = PROJECT_ACTIONS.flatMap((action) =>

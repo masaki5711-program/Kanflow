@@ -33,10 +33,19 @@ function scheduleOf(raw: unknown, status: PlanStatus, legacyDelayed: boolean): S
   return "on_track"
 }
 
-export function normalizeItem(r: Raw, fallbackDate: string): PlanItem {
+/** Planned window: both dates, one date on both ends, or neither (日程未定). end < start → start. */
+function plannedOf(r: Raw): { plannedStart: string | null; plannedEnd: string | null } {
+  const start = toYmd(str(r.plannedStart))
+  const end = toYmd(str(r.plannedEnd))
+  if (!start && !end) return { plannedStart: null, plannedEnd: null }
+  const s = start ?? end ?? ""
+  const e = end ?? s
+  return { plannedStart: s, plannedEnd: e < s ? s : e }
+}
+
+export function normalizeItem(r: Raw): PlanItem {
   const { status, legacyDelayed } = statusOf(r.status)
-  const plannedStart = toYmd(str(r.plannedStart)) ?? fallbackDate
-  const plannedEnd = toYmd(str(r.plannedEnd)) ?? plannedStart
+  const { plannedStart, plannedEnd } = plannedOf(r)
   const owner = r.owner && typeof r.owner === "object" ? (r.owner as { id: string; name: string }) : null
   return {
     id: String(r.id),
@@ -46,7 +55,9 @@ export function normalizeItem(r: Raw, fallbackDate: string): PlanItem {
     description: str(r.description),
     notes: str(r.notes),
     plannedStart,
-    plannedEnd: plannedEnd < plannedStart ? plannedStart : plannedEnd,
+    plannedEnd,
+    durationDays: typeof r.durationDays === "number" ? r.durationDays : null,
+    templateApplicationId: str(r.templateApplicationId),
     actualStart: toYmd(str(r.actualStart)),
     actualEnd: toYmd(str(r.actualEnd)),
     baselineStart: toYmd(str(r.baselineStart)),
@@ -71,7 +82,7 @@ export function normalizePlanData(raw: unknown, now: Date = new Date()): PlanDat
   const obj = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Raw) : null
   const today = toYmd(str(obj?.today)) ?? localTodayYmd(now)
   const rawItems = Array.isArray(raw) ? raw : Array.isArray(obj?.items) ? (obj.items as unknown[]) : []
-  const items = rawItems.filter((r): r is Raw => !!r && typeof r === "object").map((r) => normalizeItem(r, today))
+  const items = rawItems.filter((r): r is Raw => !!r && typeof r === "object").map((r) => normalizeItem(r))
   const ids = new Set(items.map((i) => i.id))
   // hasChildren is derived locally so optimistic moves stay consistent.
   const parents = new Set(items.flatMap((i) => (i.parentId && ids.has(i.parentId) ? [i.parentId] : [])))

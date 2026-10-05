@@ -147,6 +147,15 @@ describe("sidebar-nav", () => {
     expect(reader).not.toContain("/projects/p9/chat")
     expect(reader).toContain("/projects/p9/guide")
   })
+
+  it("adds the Git entry at the end of 実行 only when the project switched the integration on", () => {
+    const pt = { navIcebox: "I", navBacklog: "B", navSprints: "S", navReleases: "R" } as never
+    const hrefs = (groups: ReturnType<typeof buildSidebarGroups>) => groups.flatMap((g) => g.items.map((i) => i.href))
+    expect(hrefs(buildSidebarGroups("p9", t, pt))).not.toContain("/projects/p9/git")
+    const execute = buildSidebarGroups("p9", t, pt, { showGit: true })[0]
+    expect(execute.id).toBe("execute")
+    expect(execute.items[execute.items.length - 1]).toMatchObject({ href: "/projects/p9/git", label: t.gitNavLabel })
+  })
 })
 
 describe("Sidebar", () => {
@@ -187,6 +196,28 @@ describe("Sidebar", () => {
     await userEvent.click(expand)
     expect(screen.getByText("Apollo")).toBeInTheDocument()
     expect(window.localStorage.getItem(SIDEBAR_RAIL_KEY)).toBe("0")
+  })
+
+  it("shows the 開発（Git） link only with showGit, also in the icon rail", async () => {
+    desktop = true
+    const { unmount } = render(
+      <Shell>
+        <Sidebar projectId="p1" projectName="Apollo" />
+      </Shell>,
+    )
+    expect(screen.queryByRole("link", { name: t.gitNavLabel })).toBeNull()
+    unmount()
+
+    render(
+      <Shell>
+        <Sidebar projectId="p1" projectName="Apollo" showGit />
+      </Shell>,
+    )
+    const navEl = screen.getByRole("navigation", { name: t.navProjectMenu })
+    expect(within(navEl).getByRole("link", { name: t.gitNavLabel })).toHaveAttribute("href", "/projects/p1/git")
+    await userEvent.click(screen.getByRole("button", { name: t.navSidebarCollapse }))
+    expect(within(navEl).getByRole("link", { name: t.gitNavLabel })).toHaveAttribute("href", "/projects/p1/git")
+    await userEvent.click(screen.getByRole("button", { name: t.navSidebarExpand }))
   })
 
   it("marks only the current page link with aria-current=page", () => {

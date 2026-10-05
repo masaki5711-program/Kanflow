@@ -4,6 +4,7 @@ import { fillTemplate } from "@/lib/fill-template"
 import { formatShortDate as formatDay } from "@/lib/format-date"
 import { COMMENTS_TAB, TAB_PARAM } from "@/components/comments/comments-deep-link"
 import { pickText } from "@/lib/translation/pick-text"
+import { checkKindLabel } from "@/lib/improvement/labels"
 import type { EntityI18n } from "@/lib/translation/types"
 
 /** GET /api/notifications item (see services/notifications NotificationDto). */
@@ -72,6 +73,9 @@ function entityHref(projectId: string, entityType: string | null, entityId: stri
       return `${base}/plan`
     case "team_message":
       return `${base}/talk?message=${id}`
+    case "release":
+      // 改善成果ボード (process_improvement): opens the item's detail dialog.
+      return `${base}/releases?item=${id}`
     default:
       return base
   }
@@ -188,6 +192,9 @@ export function describeNotification(n: NotificationItem, t: Translations, langu
       break
     case "ai_report_failed":
       text = fillTemplate(t.notifAiReportFailed, { kind: aiJobKindLabel(str(p, "kind"), t) })
+      break
+    case "improvement_check_due":
+      text = fillTemplate(t.notifImprovementCheckDue, { label, kind: checkKindLabel(str(p, "kind") ?? "custom", t), date })
       break
     case "mentioned":
       text = fillTemplate(t.notifMentioned, { actor, label })

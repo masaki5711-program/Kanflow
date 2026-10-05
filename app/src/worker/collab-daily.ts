@@ -3,6 +3,7 @@ import { DailyScheduler, type SchedulerLog } from "./scheduler"
 import { purgeCollaborationHistory, type RetentionResult } from "./jobs/activity-retention"
 import { runNotifyDue, type NotifyDueResult } from "./jobs/notify-due"
 import { purgeChatHistory, type ChatRetentionResult } from "./jobs/chat-retention"
+import { runImprovementCheckReminders, type ImprovementReminderResult } from "./jobs/improvement-checks"
 import {
   DEFAULT_AI_JOB_RETENTION_DAYS,
   DEFAULT_CHAT_DELETED_RETENTION_DAYS,
@@ -15,16 +16,18 @@ import {
  * 1. retention sweep of ActivityLog / read Notification rows
  * 2. due_soon / overdue notifications
  * 3. retention of chat threads (deleted / idle) and finished AI jobs (P3)
+ * 4. 定着確認 reminders of the 改善成果ボード (IMPROVEMENT_CHECK_REMINDERS=off skips)
  * Each step fails independently (logged; the others still run).
  */
 
 type CollabConfig = Pick<WorkerConfig, "notifyDueTimes" | "notifyDueSoonDays" | "activityRetentionDays" | "notificationRetentionDays"> &
-  Partial<Pick<WorkerConfig, "chatRetentionDays" | "chatDeletedRetentionDays" | "aiJobRetentionDays">>
+  Partial<Pick<WorkerConfig, "chatRetentionDays" | "chatDeletedRetentionDays" | "aiJobRetentionDays" | "improvementReminders">>
 
 export interface CollabDailyResult {
   retention: RetentionResult | null
   notifyDue: NotifyDueResult | null
   chatRetention: ChatRetentionResult | null
+  improvementReminders?: ImprovementReminderResult | null
 }
 
 function errorMessage(err: unknown): string {
@@ -60,7 +63,21 @@ export async function runCollabDaily(cfg: CollabConfig, log: SchedulerLog, signa
   } catch (err) {
     log.error("chat / ai job retention failed", { error: errorMessage(err) })
   }
-  return { retention, notifyDue, chatRetention }
+  const improvementReminders = await runImprovementStep(cfg, log, signal)
+  return { retention, notifyDue, chatRetention, improvementReminders }
+}
+
+/** Step 4: 定着確認 reminders (skipped when disabled; failures logged, never thrown). */
+async function runImprovementStep(cfg: CollabConfig, log: SchedulerLog, signal?: AbortSignal): Promise<ImprovementReminderResult | null> {
+  if (cfg.improvementReminders === false) return null
+  try {
+    const result = await runImprovementCheckReminders({ signal })
+    log.info("improvement check reminders done", { ...result })
+    return result
+  } catch (err) {
+    log.error("improvement check reminders failed", { error: errorMessage(err) })
+    return null
+  }
 }
 
 /** Start the daily scheduler, or null when NOTIFY_DUE_SCHEDULE=off. */

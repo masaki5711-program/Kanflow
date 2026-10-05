@@ -20,6 +20,7 @@ import { usePbiFormOptions, type PbiFormOptions } from "@/components/pbi-form/us
 import { useSavedPbiAttachments } from "@/components/pbi-form/attachments/use-saved-pbi-attachments"
 import type { PbiAttachmentDto } from "@/types/api"
 import { PbiDependencySection } from "@/components/pbi-dependencies/pbi-dependency-section"
+import { PbiDevPanel } from "@/components/git-dev/pbi-dev-panel"
 
 interface Props {
   projectId: string
@@ -259,6 +260,8 @@ export default function PbiDetailModal(props: Props) {
                   }}
                   onOpenRef={onOpenPbi && !isDirty ? (ref) => onOpenPbi(ref.displayId) : undefined}
                 />
+                {/* GitLab development info (renders nothing when the project has Git off). */}
+                {!isEditing && <PbiDevPanel projectId={projectId} pbiId={item.id} />}
               </div>
             }
           />

@@ -66,6 +66,8 @@ export interface WorkerConfig {
   chatDeletedRetentionDays: number
   /** AI_JOB_RETENTION_DAYS: finished AiJob rows older than this are deleted by the collab job. */
   aiJobRetentionDays: number
+  /** IMPROVEMENT_CHECK_REMINDERS: 定着確認 reminders to POs in the collab job (default on). */
+  improvementReminders: boolean
 }
 
 export const DEFAULT_SURVEILLANCE_SCHEDULE = "06:30"
@@ -115,6 +117,12 @@ export function formatDailyTimes(times: ReadonlyArray<DailyTime>): string {
   return times.map((t) => `${String(t.hour).padStart(2, "0")}:${String(t.minute).padStart(2, "0")}`).join(",")
 }
 
+/** IMPROVEMENT_CHECK_REMINDERS: "off" / "false" / "0" / "none" disables; anything else (or unset) = on. */
+export function improvementRemindersEnabled(env: Readonly<Record<string, string | undefined>>): boolean {
+  const v = env.IMPROVEMENT_CHECK_REMINDERS?.trim().toLowerCase()
+  return !(v === "off" || v === "false" || v === "0" || v === "none")
+}
+
 /** SURVEILLANCE_RETENTION_DAYS: positive integer, default 90. */
 export function parseRetentionDays(raw: string | undefined): number {
   return envPositiveInt(raw, DEFAULT_SURVEILLANCE_RETENTION_DAYS)
@@ -147,6 +155,7 @@ export function loadWorkerConfig(env: NodeJS.ProcessEnv): WorkerConfig {
     chatRetentionDays: envPositiveInt(env.CHAT_RETENTION_DAYS, DEFAULT_CHAT_RETENTION_DAYS),
     chatDeletedRetentionDays: envPositiveInt(env.CHAT_DELETED_RETENTION_DAYS, DEFAULT_CHAT_DELETED_RETENTION_DAYS),
     aiJobRetentionDays: envPositiveInt(env.AI_JOB_RETENTION_DAYS, DEFAULT_AI_JOB_RETENTION_DAYS),
+    improvementReminders: improvementRemindersEnabled(env),
   }
 }
 
@@ -185,6 +194,7 @@ export function describeConfig(cfg: WorkerConfig): Record<string, unknown> {
     chatRetentionDays: cfg.chatRetentionDays,
     chatDeletedRetentionDays: cfg.chatDeletedRetentionDays,
     aiJobRetentionDays: cfg.aiJobRetentionDays,
+    improvementReminders: cfg.improvementReminders,
   }
 }
 

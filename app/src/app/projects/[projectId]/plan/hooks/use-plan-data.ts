@@ -50,7 +50,7 @@ export function usePlanData(projectId: string) {
         const raw = await apiFetch<unknown>(base, { method: "POST", json: input })
         toast.success(t.planCreated)
         refetch()
-        return raw && typeof raw === "object" ? normalizeItem(raw as Record<string, unknown>, input.plannedStart) : null
+        return raw && typeof raw === "object" ? normalizeItem(raw as Record<string, unknown>) : null
       } catch (err) {
         fail(err, t.errorCreationFailed)
         return null
@@ -71,7 +71,7 @@ export function usePlanData(projectId: string) {
         return true
       } catch (err) {
         const toItem = (current: Record<string, unknown> | null) =>
-          current && typeof current === "object" ? normalizeItem(current, item.plannedStart) : null
+          current && typeof current === "object" ? normalizeItem(current) : null
         const conflict = options?.onConflict ? versionConflictOf<Record<string, unknown>>(err) : null
         if (conflict && options?.onConflict) {
           // The editor explains the conflict in place (with "restore my input"): no duplicate toast (N-05).

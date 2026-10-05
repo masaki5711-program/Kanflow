@@ -75,7 +75,7 @@ export function PlanSuccessorPicker({ predecessor, items, dependencies, nameOf, 
                   {r.item.isMilestone && <span aria-hidden="true" className="h-2.5 w-2.5 shrink-0 rotate-45 bg-plan-milestone" />}
                   <span className="min-w-0 flex-1 truncate">{nameOf(r.item)}</span>
                   {why && <span className="shrink-0 text-caption text-fg-muted">{why}</span>}
-                  <span className="shrink-0 text-caption text-fg-muted tabular-nums">{formatShortDate(r.item.plannedStart, language)}</span>
+                  <span className="shrink-0 text-caption text-fg-muted tabular-nums">{r.item.plannedStart ? formatShortDate(r.item.plannedStart, language) : t.tplUndated}</span>
                 </button>
               </li>
             )

@@ -219,7 +219,12 @@ describe("member schemas", () => {
 describe("plan schemas", () => {
   it("create / update", () => {
     ok(createPlanItemSchema, { name: "n", plannedStart: "a", plannedEnd: "b", parentId: null, status: "delayed" })
-    bad(createPlanItemSchema, { name: "n", plannedStart: "a" })
+    // Undated items (日程未定): dates may be omitted / null; "both or neither" is a service rule.
+    ok(createPlanItemSchema, { name: "n" })
+    ok(createPlanItemSchema, { name: "n", plannedStart: null, plannedEnd: null, durationDays: 5 })
+    bad(createPlanItemSchema, { name: "n", durationDays: 0 })
+    bad(createPlanItemSchema, { name: "n", durationDays: 3651 })
+    ok(updatePlanItemSchema, { plannedStart: null, plannedEnd: null })
     bad(createPlanItemSchema, { name: s(256), plannedStart: "a", plannedEnd: "b" })
     bad(createPlanItemSchema, { name: "n", plannedStart: "a", plannedEnd: "b", color: s(33) })
     ok(updatePlanItemSchema, { actualStart: null, notes: null })

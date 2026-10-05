@@ -5,10 +5,11 @@ import { KEYBOARD_COMMIT_DELAY_MS, useBarDrag } from "../hooks/use-bar-drag"
 import { isSpanVisible, revealItem, scrollLeftFor, scrollTimelineTo } from "../hooks/use-plan-scroll"
 import { useRowDrag } from "../hooks/use-row-drag"
 import { LONG_PRESS_MS } from "../lib/interaction"
+import type { DatedPlanItem } from "../lib/plan-types"
 import { mkItem } from "./fixtures"
 
 const DAY = 10
-const item = mkItem({ id: "i1", plannedStart: "2026-10-01", plannedEnd: "2026-10-05" })
+const item = mkItem({ id: "i1", plannedStart: "2026-10-01", plannedEnd: "2026-10-05" }) as DatedPlanItem
 
 function target() {
   let captured = false
@@ -78,7 +79,7 @@ describe("useBarDrag", () => {
 
   it("milestones only move, even from the resize handle", () => {
     const { hook, onPreview } = setup()
-    const ms = mkItem({ id: "m", isMilestone: true, plannedStart: "2026-10-05", plannedEnd: "2026-10-05" })
+    const ms = mkItem({ id: "m", isMilestone: true, plannedStart: "2026-10-05", plannedEnd: "2026-10-05" }) as DatedPlanItem
     const tgt = target()
     act(() => hook.result.current.handlers.onPointerDown(ev(0, tgt), ms, "milestone", "resize"))
     act(() => hook.result.current.handlers.onPointerMove(ev(20, tgt)))

@@ -3,10 +3,10 @@
 import { memo, useEffect, useRef, type KeyboardEvent, type PointerEvent } from "react"
 import { cn } from "@/components/ui"
 import { formatFullDate } from "../lib/date-format"
-import { ROW_CENTER, ROW_LAYOUT, dayCenterX, itemAnchors, spanGeometry } from "../lib/geometry"
+import { ROW_CENTER, ROW_LAYOUT, dayCenterX, spanGeometry } from "../lib/geometry"
 import { estimateTextWidth } from "../lib/scale-labels"
 import type { BarKind } from "../lib/interaction"
-import type { PlanItem } from "../lib/plan-types"
+import type { DatedPlanItem, PlanItem } from "../lib/plan-types"
 import { barFillClass, itemBadge, milestoneClass } from "../lib/status"
 import { fillTemplate } from "../lib/template"
 import type { BarDrag, LiveEdit } from "../hooks/use-bar-drag"
@@ -17,7 +17,8 @@ import type { ChartEnv } from "./chart-types"
 const BAR_LABEL_PAD = 14
 
 interface Props {
-  item: PlanItem
+  /** Only dated rows have a bar (undated rows: ./plan-undated-mark.tsx). */
+  item: DatedPlanItem
   kind: BarKind
   env: ChartEnv
   drag: BarDrag
@@ -34,7 +35,7 @@ interface Props {
   onNavigate: (e: KeyboardEvent<HTMLElement>) => boolean
 }
 
-function accessibleLabel(item: PlanItem, kind: BarKind, env: ChartEnv): string {
+function accessibleLabel(item: DatedPlanItem, kind: BarKind, env: ChartEnv): string {
   const status = itemBadge(env.t, item).label
   const name = env.nameOf(item)
   if (kind === "milestone") return fillTemplate(env.t.planMilestoneLabel, { name, date: formatFullDate(item.plannedEnd, env.language), status })
@@ -157,7 +158,7 @@ export const PlanBar = memo(function PlanBar({ item, kind, env, drag, live, sele
       <SprintBands item={item} env={env} />
       {main}
       {env.canEdit && !env.printing && (
-        <Connector x={kind === "milestone" ? center + 12 : itemAnchors(item, env.startDay, env.dayWidth).endX} visible={selected} label={env.t.depPlanConnector} onPointerDown={(e) => onStartLink(e, item.id)} itemId={item.id} />
+        <Connector x={kind === "milestone" ? center + 12 : g.x + g.width} visible={selected} label={env.t.depPlanConnector} onPointerDown={(e) => onStartLink(e, item.id)} itemId={item.id} />
       )}
       <BarChips item={item} env={env} left={chipLeft} name={outsideName} />
       {live && <DragTooltip edit={live} env={env} x={kind === "milestone" ? center : g.x + g.width / 2} single={kind === "milestone"} />}

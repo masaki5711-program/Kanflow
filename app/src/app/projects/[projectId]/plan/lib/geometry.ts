@@ -3,7 +3,7 @@
  * to 10/03 covers three day columns. Milestones sit at the centre of their day.
  */
 import { ymdToDay } from "./date"
-import type { PlanDependency, PlanItem, Ymd } from "./plan-types"
+import { isDatedItem, type PlanDependency, type PlanItem, type Ymd } from "./plan-types"
 
 export const ROW_HEIGHT = 40
 /** Vertical layout inside a row (top offsets / heights in px). */
@@ -32,8 +32,9 @@ export function dayCenterX(date: Ymd, startDay: number, dayWidth: number): numbe
   return (ymdToDay(date) - startDay + 0.5) * dayWidth
 }
 
-/** Where arrows leave (finish) and enter (start) an item. */
-export function itemAnchors(item: PlanItem, startDay: number, dayWidth: number): { startX: number; endX: number } {
+/** Where arrows leave (finish) and enter (start) an item; null for an undated item (no bar). */
+export function itemAnchors(item: PlanItem, startDay: number, dayWidth: number): { startX: number; endX: number } | null {
+  if (!isDatedItem(item)) return null
   if (item.isMilestone) {
     const c = dayCenterX(item.plannedEnd, startDay, dayWidth)
     return { startX: c, endX: c }
@@ -48,6 +49,7 @@ export function itemAnchors(item: PlanItem, startDay: number, dayWidth: number):
  * the milestone's own day (and a milestone may fall on its predecessor's last day).
  */
 export function isDependencyViolated(pred: PlanItem, succ: PlanItem): boolean {
+  if (!isDatedItem(pred) || !isDatedItem(succ)) return false
   const gap = pred.isMilestone || succ.isMilestone ? 0 : 1
   return ymdToDay(succ.plannedStart) < ymdToDay(pred.plannedEnd) + gap
 }
@@ -76,7 +78,7 @@ export interface DependencyArrow {
   violated: boolean
 }
 
-/** Arrows between visible rows (`rowIndex`: item id → row index); hidden endpoints are skipped. */
+/** Arrows between visible rows (`rowIndex`: item id → row index); hidden or undated endpoints are skipped. */
 export function buildArrows(
   deps: readonly PlanDependency[],
   byId: ReadonlyMap<string, PlanItem>,
@@ -91,8 +93,11 @@ export function buildArrows(
     const pi = rowIndex.get(dep.predecessorId)
     const si = rowIndex.get(dep.successorId)
     if (!pred || !succ || pi === undefined || si === undefined) continue
-    const from = { x: itemAnchors(pred, startDay, dayWidth).endX, y: pi * ROW_HEIGHT + ROW_CENTER }
-    const to = { x: itemAnchors(succ, startDay, dayWidth).startX, y: si * ROW_HEIGHT + ROW_CENTER }
+    const a = itemAnchors(pred, startDay, dayWidth)
+    const b = itemAnchors(succ, startDay, dayWidth)
+    if (!a || !b) continue
+    const from = { x: a.endX, y: pi * ROW_HEIGHT + ROW_CENTER }
+    const to = { x: b.startX, y: si * ROW_HEIGHT + ROW_CENTER }
     out.push({ id: dep.id, predecessorId: dep.predecessorId, successorId: dep.successorId, d: dependencyPath(from, to), violated: isDependencyViolated(pred, succ) })
   }
   return out

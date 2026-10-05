@@ -7,7 +7,7 @@ import { formatCompactRange, formatFullDate, formatGridDate } from "../lib/date-
 import { COLUMN_WIDTH } from "../lib/grid-layout"
 import { ROW_HEIGHT } from "../lib/geometry"
 import type { BarKind } from "../lib/interaction"
-import type { PlanItem } from "../lib/plan-types"
+import { isDatedItem, type DatedPlanItem, type PlanItem } from "../lib/plan-types"
 import type { PlanColumn } from "../lib/prefs"
 import { itemBadge } from "../lib/status"
 import { fillTemplate } from "../lib/template"
@@ -16,6 +16,7 @@ import type { BarDrag, LiveEdit } from "../hooks/use-bar-drag"
 import type { ChartEnv, RowHandlers } from "./chart-types"
 import { PlanBar } from "./plan-bar"
 import { PlanNameCell } from "./plan-name-cell"
+import { PlanUndatedMark } from "./plan-undated-mark"
 
 interface Props {
   row: FlatRow
@@ -39,9 +40,34 @@ export function barKindOf(row: FlatRow): BarKind {
   return row.item.isMilestone ? "milestone" : "leaf"
 }
 
+const CELL_BASE = "flex h-full shrink-0 items-center overflow-hidden whitespace-nowrap px-2 text-body text-fg-muted tabular-nums"
+const DATE_COLUMNS: ReadonlySet<PlanColumn> = new Set(["period", "start", "end", "duration"])
+
+/** Date columns of an undated row (日程未定): one muted label; the duration shows the template's 目安期間. */
+function UndatedCell({ column, item, env }: { column: PlanColumn; item: PlanItem; env: ChartEnv }) {
+  const { t } = env
+  const style = { width: COLUMN_WIDTH[column] }
+  if (column === "duration") {
+    const hint = item.durationDays && !item.isMilestone ? fillTemplate(t.tplDurationApprox, { n: item.durationDays }) : "—"
+    return <div role="cell" data-plan-undated-cell="" className={cn(CELL_BASE, "justify-end")} style={style}>{hint}</div>
+  }
+  return (
+    <div role="cell" data-plan-undated-cell="" className={cn(CELL_BASE, "italic text-fg-subtle")} style={style} title={t.tplUndated}>
+      <span className="truncate">{t.tplUndated}</span>
+    </div>
+  )
+}
+
 function ColumnCell({ column, item, env }: { column: PlanColumn; item: PlanItem; env: ChartEnv }) {
+  if (isDatedItem(item)) return <DatedColumnCell column={column} item={item} env={env} />
+  if (DATE_COLUMNS.has(column)) return <UndatedCell column={column} item={item} env={env} />
+  // Non-date columns never read the planned dates.
+  return <DatedColumnCell column={column} item={{ ...item, plannedStart: "", plannedEnd: "" }} env={env} />
+}
+
+function DatedColumnCell({ column, item, env }: { column: PlanColumn; item: DatedPlanItem; env: ChartEnv }) {
   const { t, language } = env
-  const base = "flex h-full shrink-0 items-center overflow-hidden whitespace-nowrap px-2 text-body text-fg-muted tabular-nums"
+  const base = CELL_BASE
   const style = { width: COLUMN_WIDTH[column] }
   switch (column) {
     case "period": {
@@ -141,20 +167,34 @@ export const PlanRow = memo(function PlanRow(props: Props) {
         ))}
       </div>
       <div role="cell" className="relative shrink-0 print:overflow-hidden" style={{ width: timelineWidth }}>
-        <PlanBar
-          item={item}
-          kind={barKindOf(row)}
-          env={env}
-          drag={drag}
-          live={live}
-          selected={selected}
-          isTabStop={isTabStop}
-          hintId={props.barHintId}
-          onSelect={handlers.select}
-          onOpen={handlers.open}
-          onStartLink={handlers.startLink}
-          onNavigate={props.onNavigate}
-        />
+        {isDatedItem(item) ? (
+          <PlanBar
+            item={item}
+            kind={barKindOf(row)}
+            env={env}
+            drag={drag}
+            live={live}
+            selected={selected}
+            isTabStop={isTabStop}
+            hintId={props.barHintId}
+            onSelect={handlers.select}
+            onOpen={handlers.open}
+            onStartLink={handlers.startLink}
+            onNavigate={props.onNavigate}
+          />
+        ) : (
+          <PlanUndatedMark
+            item={item}
+            env={env}
+            derived={row.hasChildren}
+            selected={selected}
+            isTabStop={isTabStop}
+            hintId={props.barHintId}
+            onSelect={handlers.select}
+            onOpen={handlers.open}
+            onNavigate={props.onNavigate}
+          />
+        )}
       </div>
     </div>
   )

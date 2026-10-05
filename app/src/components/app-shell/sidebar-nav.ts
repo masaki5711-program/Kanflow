@@ -4,6 +4,7 @@ import {
   CalendarDays,
   ChartGantt,
   FileText,
+  GitBranch,
   LayoutDashboard,
   Lightbulb,
   ListOrdered,
@@ -46,6 +47,8 @@ export interface SidebarNavOptions {
   showSettings?: boolean
   /** AI chat entry; false without the "ai.use" permission (A3-13). Default true. */
   showChat?: boolean
+  /** 開発（Git） entry; only while the project has the Git integration switched on. Default false. */
+  showGit?: boolean
 }
 
 /**
@@ -65,7 +68,8 @@ export function buildSidebarTalk(projectId: string, t: Translations): SidebarNav
  * Sidebar information architecture, four collapsible sections below the
  * pinned dashboard (buildSidebarHome):
  * 実行 (IceBox → backlog → sprints, the flow of an idea) → 計画 (schedule) → 振り返り・AI → 管理.
- * The trash, team settings and AI chat entries are permission-gated.
+ * The trash, team settings and AI chat entries are permission-gated; the Git
+ * entry appears only for projects with the Git integration switched on.
  */
 export function buildSidebarGroups(
   projectId: string,
@@ -74,7 +78,7 @@ export function buildSidebarGroups(
   options: SidebarNavOptions = {},
 ): SidebarNavGroup[] {
   const base = `/projects/${projectId}`
-  const { showTrash = false, showSettings = true, showChat = true } = options
+  const { showTrash = false, showSettings = true, showChat = true, showGit = false } = options
   const trash: SidebarNavItem[] = showTrash
     ? [{ href: `${base}/trash`, label: t.trashTitle, description: t.trashNavDescription, Icon: Trash2 }]
     : []
@@ -83,6 +87,9 @@ export function buildSidebarGroups(
     : []
   const chat: SidebarNavItem[] = showChat
     ? [{ href: `${base}/chat`, label: t.chatTitle, description: t.navDescChat, Icon: MessageSquare }]
+    : []
+  const git: SidebarNavItem[] = showGit
+    ? [{ href: `${base}/git`, label: t.gitNavLabel, description: t.gitNavDesc, Icon: GitBranch }]
     : []
   return [
     {
@@ -93,6 +100,7 @@ export function buildSidebarGroups(
         { href: `${base}/backlog`, label: pt.navBacklog, description: t.navDescBacklog, Icon: ListOrdered },
         { href: `${base}/sprints`, label: pt.navSprints, description: t.navDescSprints, Icon: Zap },
         { href: `${base}/burndown`, label: t.burndownPageTitle, description: t.navDescBurndown, Icon: TrendingDown },
+        ...git,
       ],
     },
     {
@@ -102,7 +110,7 @@ export function buildSidebarGroups(
         { href: `${base}/plan`, label: t.planTitle, description: t.navDescPlan, Icon: MapIcon },
         { href: `${base}/gantt`, label: t.ganttTitle, description: t.navDescGantt, Icon: ChartGantt },
         { href: `${base}/calendar`, label: t.calendarTitle, description: t.navDescCalendar, Icon: CalendarDays },
-        { href: `${base}/releases`, label: pt.navReleases, description: t.navDescReleases, Icon: Rocket },
+        { href: `${base}/releases`, label: pt.navReleases, description: pt.navReleasesDesc, Icon: Rocket },
       ],
     },
     {

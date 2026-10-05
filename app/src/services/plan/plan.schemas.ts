@@ -7,16 +7,20 @@ export { PLAN_STATUSES, PROGRESS_MODES }
 /** Legacy clients may still send "delayed" (retired: delay is computed) — read as in progress. */
 const planStatus = z.preprocess((v) => (v === "delayed" ? "in_progress" : v), z.enum(PLAN_STATUSES))
 
-/** "YYYY-MM-DD" (or an ISO date-time); normalized to date-only in the service. */
-const planDate = z.string().min(1).max(40)
+/** "YYYY-MM-DD" (or an ISO date-time); normalized to date-only in the service. null / "" = 日程未定. */
+const planDate = z.string().max(40).nullable()
+/** 目安期間 (days) of a stage, used by 「日程を仮置き」. */
+export const DURATION_DAYS_MAX = 3650
+const durationDays = z.number().int().min(1).max(DURATION_DAYS_MAX).nullable().optional()
 const optionalText = z.string().max(10000).nullable().optional()
 const id = z.string().min(1).max(64)
 
 export const createPlanItemSchema = z.object({
   name: z.string().min(1).max(255),
   parentId: id.nullable().optional(),
-  plannedStart: planDate,
-  plannedEnd: planDate,
+  /** Omitted / null on both = an undated item (日程未定). */
+  plannedStart: planDate.optional(),
+  plannedEnd: planDate.optional(),
   isMilestone: z.boolean().optional(),
   color: z.string().max(32).nullable().optional(),
   status: planStatus.optional(),
@@ -24,6 +28,7 @@ export const createPlanItemSchema = z.object({
   notes: optionalText,
   ownerId: id.nullable().optional(),
   progressMode: z.enum(PROGRESS_MODES).optional(),
+  durationDays,
 })
 
 export const updatePlanItemSchema = z.object({
@@ -41,6 +46,7 @@ export const updatePlanItemSchema = z.object({
   notes: optionalText,
   ownerId: id.nullable().optional(),
   progressMode: z.enum(PROGRESS_MODES).optional(),
+  durationDays,
   /** Optimistic lock: the version the client loaded (omitted = unchecked, legacy). */
   version: versionField,
 })

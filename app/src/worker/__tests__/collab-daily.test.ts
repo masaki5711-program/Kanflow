@@ -4,12 +4,14 @@ const m = vi.hoisted(() => ({
   purge: vi.fn(),
   notifyDue: vi.fn(),
   chatPurge: vi.fn(),
+  improvement: vi.fn(),
   instances: [] as Array<{ opts: { name: string; run: () => Promise<unknown> }; start: ReturnType<typeof vi.fn> }>,
 }))
 
 vi.mock("../jobs/activity-retention", () => ({ purgeCollaborationHistory: m.purge }))
 vi.mock("../jobs/notify-due", () => ({ runNotifyDue: m.notifyDue }))
 vi.mock("../jobs/chat-retention", () => ({ purgeChatHistory: m.chatPurge }))
+vi.mock("../jobs/improvement-checks", () => ({ runImprovementCheckReminders: m.improvement }))
 vi.mock("../scheduler", () => ({
   DailyScheduler: class {
     start = vi.fn()
@@ -78,8 +80,10 @@ describe("runCollabDaily", () => {
     m.notifyDue.mockRejectedValue(new Error("db"))
     const out = await runCollabDaily(CFG, log)
     m.chatPurge.mockRejectedValue(new Error("chat"))
+    m.improvement.mockRejectedValue(new Error("kaizen"))
     const out2 = await runCollabDaily(CFG, log)
-    expect(out2).toEqual({ retention: null, notifyDue: null, chatRetention: null })
+    expect(out2).toEqual({ retention: null, notifyDue: null, chatRetention: null, improvementReminders: null })
+    expect(log.error).toHaveBeenCalledWith("improvement check reminders failed", { error: "kaizen" })
     expect(log.error).toHaveBeenCalledWith("chat / ai job retention failed", { error: "chat" })
     expect(out.retention).toBeNull()
     expect(m.notifyDue).toHaveBeenCalled()
@@ -122,5 +126,25 @@ describe("chat + AI job retention step", () => {
     const cfg = loadWorkerConfig({ CHAT_RETENTION_DAYS: "365", CHAT_DELETED_RETENTION_DAYS: "x", AI_JOB_RETENTION_DAYS: "10" } as unknown as NodeJS.ProcessEnv)
     expect(cfg).toMatchObject({ chatRetentionDays: 365, chatDeletedRetentionDays: 30, aiJobRetentionDays: 10 })
     expect(describeConfig(cfg)).toMatchObject({ chatRetentionDays: 365, aiJobRetentionDays: 10 })
+  })
+})
+
+describe("改善成果ボード 定着確認 reminder step", () => {
+  it("runs by default and is skipped with improvementReminders: false", async () => {
+    m.improvement.mockResolvedValue({ status: "done", due: 2, notified: 2, stamped: 2 })
+    const out = await runCollabDaily(CFG, log)
+    expect(m.improvement).toHaveBeenCalledWith({ signal: undefined })
+    expect(out.improvementReminders).toEqual({ status: "done", due: 2, notified: 2, stamped: 2 })
+    m.improvement.mockClear()
+    const off = await runCollabDaily({ ...CFG, improvementReminders: false }, log)
+    expect(m.improvement).not.toHaveBeenCalled()
+    expect(off.improvementReminders).toBeNull()
+  })
+
+  it("worker config: IMPROVEMENT_CHECK_REMINDERS=off disables, default on", () => {
+    expect(loadWorkerConfig({} as NodeJS.ProcessEnv).improvementReminders).toBe(true)
+    const off = loadWorkerConfig({ IMPROVEMENT_CHECK_REMINDERS: "off" } as unknown as NodeJS.ProcessEnv)
+    expect(off.improvementReminders).toBe(false)
+    expect(describeConfig(off)).toMatchObject({ improvementReminders: false })
   })
 })

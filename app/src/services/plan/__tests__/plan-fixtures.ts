@@ -9,8 +9,10 @@ export interface PlanRowFixture {
   name: string
   description: string | null
   notes: string | null
-  plannedStart: Date
-  plannedEnd: Date
+  plannedStart: Date | null
+  plannedEnd: Date | null
+  durationDays: number | null
+  templateApplicationId: string | null
   actualStart: Date | null
   actualEnd: Date | null
   baselineStart: Date | null
@@ -41,6 +43,8 @@ export function planRow(over: Partial<PlanRowFixture> = {}): PlanRowFixture {
     notes: null,
     plannedStart: day("2026-10-01"),
     plannedEnd: day("2026-10-10"),
+    durationDays: null,
+    templateApplicationId: null,
     actualStart: null,
     actualEnd: null,
     baselineStart: null,

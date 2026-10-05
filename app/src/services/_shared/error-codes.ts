@@ -69,6 +69,20 @@ export const API_ERROR_CODES = [
   "PBI_DEPENDENCY_INVALID",
   "PBI_DEPENDENCY_EXISTS",
   "PLAN_OWNER_NOT_MEMBER",
+  /** A non-milestone plan item has both planned dates or neither (日程未定). */
+  "PLAN_DATES_INCOMPLETE",
+  // Plan templates
+  "PLAN_TEMPLATE_NOT_FOUND",
+  /** Built-in (共通) templates cannot be deleted, only reset to the default. */
+  "PLAN_TEMPLATE_BUILTIN",
+  /** Only the creator or an admin may delete a user template. */
+  "PLAN_TEMPLATE_DELETE_FORBIDDEN",
+  /** Reset to default exists for built-in templates only. */
+  "PLAN_TEMPLATE_NOT_BUILTIN",
+  /** The plan tree is too large / too deep to save as a template. */
+  "PLAN_TEMPLATE_TOO_LARGE",
+  /** Nothing to load / save (every stage excluded, or an empty plan). */
+  "PLAN_TEMPLATE_EMPTY",
   // Files / folders
   "FILE_REQUIRED",
   "FILE_EMPTY",
@@ -89,6 +103,16 @@ export const API_ERROR_CODES = [
   "TEAM_CHAT_MIRROR_READONLY",
   "FILE_TYPE_MISMATCH",
   "STORAGE_QUOTA_EXCEEDED",
+  // 改善成果ボード (process_improvement)
+  "IMPROVEMENT_NEEDS_STANDARD",
+  "IMPROVEMENT_NEEDS_SUSTAINED_CHECK",
+  "IMPROVEMENT_TARGET_DIRECTION",
+  "IMPROVEMENT_TOO_MANY_PHOTOS",
+  "IMPROVEMENT_PHOTO_NOT_IMAGE",
+  "IMPROVEMENT_TOO_MANY_ROLLOUTS",
+  "IMPROVEMENT_TOO_MANY_CHECKS",
+  // マイルストーン・検収ボード (general)
+  "MILESTONE_LIMIT_REACHED",
   // Dates / glossary / translation
   "INVALID_DATE",
   "GLOSSARY_SAME_LOCALE",

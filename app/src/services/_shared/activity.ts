@@ -128,6 +128,17 @@ export const TRACKED_FIELDS: Readonly<Record<ActivityEntityType, readonly string
     "manualLink",
     "poNote",
     "status",
+    // 改善成果ボード (process_improvement)
+    "metricCategory",
+    "metricName",
+    "metricUnit",
+    "direction",
+    "baselineValue",
+    "targetValue",
+    "resultValue",
+    "annualEffectYen",
+    "kaizenStage",
+    "standardizedAt",
   ],
   plan_item: [
     "name",
@@ -256,7 +267,8 @@ export async function logActivity(tx: Db, input: ActivityInput): Promise<void> {
         entityType: input.entityType,
         entityId: input.entityId,
         action: input.action,
-        actorId: input.actor?.userId ?? null,
+        // "" = a system actor (e.g. the GitLab sync): no user row to point at.
+        actorId: input.actor?.userId || null,
         actorName: input.actor?.userName ?? null,
         diff: serializeDiff(input.diff),
       },

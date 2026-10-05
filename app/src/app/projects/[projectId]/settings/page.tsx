@@ -6,6 +6,7 @@ import { Button, EmptyState, SkeletonCard, PageHeader } from "@/components/ui"
 import { useApiQuery } from "@/hooks"
 import { useLanguage } from "@/lib/language-context"
 import { DangerZoneSection } from "./danger-zone-section"
+import { GitSection } from "./git-section"
 import { ProjectTypeSection, TranslationInfoSection } from "./general-sections"
 import { MembersSection } from "./members-section"
 import { SectionAssignSection } from "./section-assign-section"
@@ -57,7 +58,10 @@ export default function SettingsPage() {
       }
     />
   )
-  const isPO = (membersQuery.data ?? []).some((m) => m.user.id === session?.user?.id && m.role === "po")
+  const myRole = (membersQuery.data ?? []).find((m) => m.user.id === session?.user?.id)?.role
+  const isPO = myRole === "po"
+  // "git.configure": PO / SM / admin. Everyone else sees the Git settings read-only.
+  const canConfigureGit = isAdmin || myRole === "po" || myRole === "sm"
 
   return (
     <div>
@@ -88,6 +92,8 @@ export default function SettingsPage() {
       )}
 
       {(isAdmin || isPO) && <SurveillanceSection key={`surveillance-${projectId}`} projectId={projectId} />}
+
+      <GitSection key={`git-${projectId}`} projectId={projectId} canConfigure={canConfigureGit} />
 
       <MembersSection projectId={projectId} membersQuery={membersQuery} />
       <DangerZoneSection projectId={projectId} />

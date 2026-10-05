@@ -8,6 +8,8 @@ export interface ProjectTypeLabels {
   navBacklog: string
   navSprints: string
   navReleases: string
+  /** One-line sidebar description of the releases slot (its screen differs per project type). */
+  navReleasesDesc: string
 
   // Roles
   rolePO: string
@@ -61,6 +63,7 @@ const jaLabels: Record<ProjectType, ProjectTypeLabels> = {
     navBacklog: "プロダクトバックログ",
     navSprints: "スプリント",
     navReleases: "リリース",
+    navReleasesDesc: "リリース単位で成果をまとめる",
     rolePO: "プロダクトオーナー",
     roleSM: "スクラムマスター",
     roleDev: "開発者",
@@ -101,7 +104,8 @@ const jaLabels: Record<ProjectType, ProjectTypeLabels> = {
     navIcebox: "改善要望",
     navBacklog: "改善バックログ",
     navSprints: "改善スプリント",
-    navReleases: "改善成果・展開",
+    navReleases: "改善成果ボード",
+    navReleasesDesc: "効果・標準化・横展開・定着確認をまとめて見る",
     rolePO: "改善オーナー",
     roleSM: "改善ファシリテーター",
     roleDev: "改善チームメンバー",
@@ -142,7 +146,8 @@ const jaLabels: Record<ProjectType, ProjectTypeLabels> = {
     navIcebox: "アイデアBox",
     navBacklog: "プロジェクトバックログ",
     navSprints: "スプリント",
-    navReleases: "成果物",
+    navReleases: "マイルストーン・検収",
+    navReleasesDesc: "工程の進み具合・検収・残課題・引き渡し資料をまとめて見る",
     rolePO: "プロジェクトオーナー",
     roleSM: "ファシリテーター",
     roleDev: "メンバー",
@@ -187,6 +192,7 @@ const enLabels: Record<ProjectType, ProjectTypeLabels> = {
     navBacklog: "Product Backlog",
     navSprints: "Sprints",
     navReleases: "Releases",
+    navReleasesDesc: "Group results into releases",
     rolePO: "Product Owner",
     roleSM: "Scrum Master",
     roleDev: "Developer",
@@ -227,7 +233,8 @@ const enLabels: Record<ProjectType, ProjectTypeLabels> = {
     navIcebox: "Improvement Ideas",
     navBacklog: "KAIZEN Backlog",
     navSprints: "KAIZEN Sprint",
-    navReleases: "Improvement Results",
+    navReleases: "Improvement Board",
+    navReleasesDesc: "Effects, standardisation, rollout and sustainment in one place",
     rolePO: "Improvement Owner",
     roleSM: "Improvement Facilitator",
     roleDev: "Improvement Team Member",
@@ -268,7 +275,8 @@ const enLabels: Record<ProjectType, ProjectTypeLabels> = {
     navIcebox: "Idea Box",
     navBacklog: "Project Backlog",
     navSprints: "Sprints",
-    navReleases: "Deliverables",
+    navReleases: "Milestones & Acceptance",
+    navReleasesDesc: "Stage progress, acceptance checks, punch list and hand-over documents",
     rolePO: "Project Owner",
     roleSM: "Facilitator",
     roleDev: "Member",
@@ -313,6 +321,7 @@ const idLabels: Record<ProjectType, ProjectTypeLabels> = {
     navBacklog: "Product Backlog",
     navSprints: "Sprint",
     navReleases: "Rilis",
+    navReleasesDesc: "Kelompokkan hasil per rilis",
     rolePO: "Pemilik Produk",
     roleSM: "Scrum Master",
     roleDev: "Pengembang",
@@ -353,7 +362,8 @@ const idLabels: Record<ProjectType, ProjectTypeLabels> = {
     navIcebox: "Ide Perbaikan",
     navBacklog: "KAIZEN Backlog",
     navSprints: "KAIZEN Sprint",
-    navReleases: "Hasil Perbaikan",
+    navReleases: "Papan Hasil Kaizen",
+    navReleasesDesc: "Efek, standardisasi, perluasan, dan pemantauan di satu tempat",
     rolePO: "Pemilik Perbaikan",
     roleSM: "Fasilitator Perbaikan",
     roleDev: "Anggota Tim Perbaikan",
@@ -394,7 +404,8 @@ const idLabels: Record<ProjectType, ProjectTypeLabels> = {
     navIcebox: "Kotak Ide",
     navBacklog: "Backlog Proyek",
     navSprints: "Sprint",
-    navReleases: "Hasil",
+    navReleases: "Milestone & Serah Terima",
+    navReleasesDesc: "Kemajuan tahapan, pemeriksaan serah terima, sisa pekerjaan, dan dokumen serah terima",
     rolePO: "Pemilik Proyek",
     roleSM: "Fasilitator",
     roleDev: "Anggota",

@@ -5,7 +5,7 @@
  */
 import { ymdToDay } from "./date"
 import { dayCenterX, spanGeometry } from "./geometry"
-import type { PlanItem, Ymd } from "./plan-types"
+import { isDatedItem, type PlanItem, type Ymd } from "./plan-types"
 
 /** Days shown before the anchor so the first bar does not touch the grid edge. */
 export const LEAD_DAYS = 3
@@ -32,7 +32,7 @@ export const TODAY_LEAD_DAYS = 14
 export function initialAnchorDay(items: readonly PlanItem[], today: Ymd, visibleDays = 0): number | null {
   let earliest: number | null = null
   for (const it of items) {
-    if (!isUnfinished(it)) continue
+    if (!isUnfinished(it) || !it.plannedStart) continue
     const d = ymdToDay(it.plannedStart)
     if (earliest === null || d < earliest) earliest = d
   }
@@ -59,9 +59,9 @@ export interface RowSpan {
   width: number
 }
 
-/** Horizontal extent of every item's mark (bar, bracket or diamond) in timeline px. */
+/** Horizontal extent of every dated item's mark (bar, bracket or diamond) in timeline px; undated rows have none. */
 export function itemSpans(items: readonly PlanItem[], startDay: number, dayWidth: number): RowSpan[] {
-  return items.map((it) => {
+  return items.filter(isDatedItem).map((it) => {
     if (it.isMilestone) return { id: it.id, x: dayCenterX(it.plannedEnd, startDay, dayWidth) - MILESTONE_HALF, width: MILESTONE_HALF * 2 }
     const g = spanGeometry(it.plannedStart, it.plannedEnd, startDay, dayWidth)
     return { id: it.id, ...g }

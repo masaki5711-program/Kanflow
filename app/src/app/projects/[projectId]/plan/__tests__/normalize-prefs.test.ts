@@ -40,8 +40,9 @@ describe("normalizePlanData", () => {
     )
     expect(data.today).toBe("2026-10-01")
     expect(data.items[0]).toMatchObject({ plannedStart: "2026-03-10", status: "in_progress", scheduleState: "delayed" })
-    expect(data.items[1]).toMatchObject({ plannedStart: "2026-10-01", scheduleState: "done" })
-    expect(data.items[2]).toMatchObject({ status: "not_started" })
+    // No valid date = 日程未定 (undated); a single date is used for both ends.
+    expect(data.items[1]).toMatchObject({ plannedStart: null, plannedEnd: null, scheduleState: "done" })
+    expect(data.items[2]).toMatchObject({ status: "not_started", plannedStart: "2026-03-10", plannedEnd: "2026-03-10" })
     expect(normalizePlanData(null).items).toEqual([])
   })
 

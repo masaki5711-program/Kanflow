@@ -28,6 +28,8 @@ interface SidebarProps {
   showSettings?: boolean
   /** Show AI chat (users with "ai.use"). Default true. */
   showChat?: boolean
+  /** Show 開発（Git） (projects with the Git integration on). Default false. */
+  showGit?: boolean
 }
 
 const projectTypeBadgeColors: Record<ProjectType, string> = {
@@ -135,11 +137,11 @@ interface SidebarContentProps extends SidebarProps {
   onToggleRail?: () => void
 }
 
-function SidebarContent({ projectId, projectName, projectI18n, showTrash = false, showSettings = true, showChat = true, rail = false, onToggleRail }: SidebarContentProps) {
+function SidebarContent({ projectId, projectName, projectI18n, showTrash = false, showSettings = true, showChat = true, showGit = false, rail = false, onToggleRail }: SidebarContentProps) {
   const pathname = usePathname()
   const { t, pt } = useLanguage()
   const shownName = useI18nText(projectI18n, "name", projectName).text
-  const groups = buildSidebarGroups(projectId, t, pt, { showTrash, showSettings, showChat })
+  const groups = buildSidebarGroups(projectId, t, pt, { showTrash, showSettings, showChat, showGit })
   const summary = useProjectUpdateSummary(projectId, pathname)
   const newCount = summary ? summary.unread + summary.newActivity : 0
   const home = { ...buildSidebarHome(projectId, t), badge: { count: newCount, label: t.updatesSidebarBadge.replace("{n}", String(newCount)) } }

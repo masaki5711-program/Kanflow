@@ -57,6 +57,8 @@ System admins skip the membership lookup; every request (admins included) does o
 | `goal.write` | Y | Y | Y | - | - |
 | `plan.write` | Y | Y | Y | - | - |
 | `release.manage` | Y | Y | - | - | - |
+| `improvement.track` | Y | Y | Y | Y | - |
+| `milestone.track` | Y | Y | Y | Y | - |
 | `sprint.manage` | Y | Y | Y | - | - |
 | `task.write` | Y | Y | Y | Y | - |
 | `dailyScrum.write` | Y | Y | Y | Y | - |
@@ -70,6 +72,8 @@ System admins skip the membership lookup; every request (admins included) does o
 | `comment.write` | Y | Y | Y | Y | - |
 | `comment.moderate` | Y | Y | - | - | - |
 | `surveillance.configure` | Y | Y | - | - | - |
+| `git.configure` | Y | Y | Y | - | - |
+| `git.sync` | Y | Y | Y | Y | - |
 
 ## Route → action
 
@@ -99,9 +103,41 @@ Paths are relative to `/api/projects/[projectId]`.
 | `/plan/dependencies` | | plan.write | | |
 | `/plan/dependencies/[dependencyId]` | | | | plan.write |
 | `/plan/export` | project.view | | | |
+| `/plan/schedule-from` | | plan.write | | |
+| `/plan/templates/apply` | | plan.write | | |
+| `/plan/templates/applications` | project.view | | | |
+| `/plan/templates/save` | | plan.write | | |
 | `/releases` | project.view | | | |
 | `/releases/[id]` | | | release.manage | release.manage |
 | `/releases/import` | | release.manage | | |
+| `/improvements` | project.view (改善成果ボード: items, summary, rollout suggestions, `permissions` hint) | | | |
+| `/improvements/summary` | project.view | | | |
+| `/improvements/export` | project.view (xlsx: summary + A3 QC story per item) | | | |
+| `/improvements/[id]` | project.view | | PATCH: release.manage (effect, 標準化, 展開日, stage) | release.manage (photos' files removed too) |
+| `/improvements/[id]/rollouts` | | release.manage (add a 横展開先) | | |
+| `/improvements/[id]/rollouts/reorder` | | | PUT: release.manage | |
+| `/improvements/[id]/rollouts/[rolloutId]` | | | PATCH: improvement.track for `status`; renaming (`targetName`) also needs release.manage (403) | release.manage |
+| `/improvements/[id]/checks` | | release.manage (custom 定着確認 date) | | |
+| `/improvements/[id]/checks/[checkId]` | | | PATCH: improvement.track (record / clear the result) | release.manage |
+| `/improvements/[id]/photos` | project.view | improvement.track (multipart `phase` + image `file`) | | |
+| `/improvements/[id]/photos/[photoId]` | project.view (image) | | | improvement.track |
+| `/milestones` | project.view (マイルストーン・検収ボード: stages from 全体計画, checks, punch list, documents, budget, trend, summary, `permissions` / `viewerId` hints; seeds pending template loads) | | | |
+| `/milestones/export` | project.view (xlsx: summary, check record with signature columns, punch list, documents, trend) | | | |
+| `/milestones/settings` | | | PATCH: plan.write (check 呼び名, 予算 / 推移 on-off) | |
+| `/milestones/stages/[planItemId]/checklist` | | | PUT: milestone.track (tick / untick a 完了条件) | |
+| `/milestones/checks` | | plan.write | | |
+| `/milestones/checks/[checkId]` | | | PATCH: milestone.track for result / 立会者 / day / note; `name`, `criterion`, `planItemId`, `sortOrder` also need plan.write (403) | plan.write |
+| `/milestones/punch` | | milestone.track | | |
+| `/milestones/punch/[punchId]` | | | PATCH: milestone.track | plan.write (photo files removed too) |
+| `/milestones/punch/[punchId]/photos` | | milestone.track (multipart image `file`) | | |
+| `/milestones/punch/[punchId]/photos/[photoId]` | project.view (image) | | | milestone.track |
+| `/milestones/documents` | | plan.write | | |
+| `/milestones/documents/[documentId]` | | | PATCH: milestone.track for `status` / `note`; `name`, `sortOrder` also need plan.write (403) | plan.write (files removed too) |
+| `/milestones/documents/[documentId]/files` | | milestone.track (multipart `file`) | | |
+| `/milestones/documents/[documentId]/files/[fileId]` | project.view (file) | | | milestone.track |
+| `/milestones/budget`, `/milestones/metrics` | | plan.write | | |
+| `/milestones/budget/[lineId]`, `/milestones/metrics/[metricId]` | | | PATCH: plan.write | plan.write |
+| `/milestones/metrics/[metricId]/points` | | | PUT: milestone.track (one month's value; `null` removes it) | |
 | `/sprints` | project.view | sprint.manage | | |
 | `/sprints/export` | project.view (xlsx, `?sprintId=`) | | | |
 | `/sprints/[sprintId]` | project.view | | sprint.manage | sprint.manage |
@@ -129,6 +165,11 @@ Paths are relative to `/api/projects/[projectId]`.
 | `/ai/jobs` | project.view | ai.use (503 `ai_jobs_disabled` without a job runner) | | |
 | `/ai/jobs/[jobId]` | project.view | | | ai.use + requester, or project.update (403) |
 | `/surveillance-settings` | project.view | | PUT: surveillance.configure | |
+| `/git` | project.view (token never returned) | | PUT: git.configure | |
+| `/git/repositories`, `/git/test` | | git.configure | | |
+| `/git/repositories/[repoId]` | | | PATCH: git.configure | git.configure |
+| `/git/sync` | | git.sync | | |
+| `/git/links`, `/git/summary`, `/git/overview` | project.view | | | |
 | `/ai-reports` | project.view | | | |
 | `/burndown` | project.view | | | |
 | `/chat` | | ai.use (+ `threadId`: owner only, 404) | | |
@@ -145,6 +186,50 @@ Paths are relative to `/api/projects/[projectId]`.
 Outside project scope: `/api/admin/**` uses `requireAdmin()`, and user-scoped routes use `requireAuth()`. `/api/v1/**` uses bearer tokens only (see "Read-only REST API and access tokens" below). `/api/wopi/**` uses its own signed-token auth (`src/app/api/wopi/_lib/wopi-auth.ts`, which re-checks admin or explicit membership, the same as `attachment.write` without the section-manager path).
 
 **Department portfolio (P4)** — `GET /api/portfolio` and the `/portfolio` page use `requireAuth()` plus one rule (`src/services/portfolio/portfolio.scope.ts`, shared with the chat tool `portfolio_overview`): a system admin sees every live project, a section manager the live projects assigned to one of their sections (membership alone does not add a project), anyone else gets 403 (the page redirects to `/`). The header shows the link only to those two roles.
+
+## 改善成果ボード (process_improvement, 2026-10)
+
+The release screen of a process_improvement project is the 改善成果ボード
+(`/api/projects/[id]/improvements/**`, the same ReleaseBacklogItem rows). The
+improvement owner (PO, `release.manage`) edits the effect numbers, 標準書リンク,
+展開日, stage, adds / removes 横展開先 and 定着確認 dates, and deletes items. KAIZEN
+work is done on the floor, so every project member (`improvement.track`: PO, SM,
+Dev) may record 定着確認 results, change a 横展開先's status and add / remove
+before-after photos. Section managers without membership only read. Stage
+guards (標準化済み needs a 標準書リンク, 定着確認済み needs a "sustained" check) are
+business rules (400), not permissions.
+
+## マイルストーン・検収ボード (general, 2026-10)
+
+The release screen of a general (その他) project is the マイルストーン・検収ボード
+(`/api/projects/[id]/milestones/**`). Its stages ARE the top-level 全体計画 items:
+dates, status and 完了条件 texts are changed through the plan routes
+(`plan.write`, version-checked), never copied. The PO / SM (`plan.write`) set up
+check items, hand-over documents, budget lines, trend metrics and the board
+settings, and delete checks / documents / punch items. Floor work is open to
+every project member (`milestone.track`: PO, SM, Dev): ticking 完了条件,
+recording check results (合格 / 条件付き合格 / 不合格, 立会者, day), adding and
+working 残課題 with photos, marking documents 揃った and attaching files, and
+entering monthly trend values. Section managers without membership only read.
+
+## Plan templates (計画テンプレート, 2026-10)
+
+`/api/plan-templates/**` is user-scoped (`requireAuth()`, no project). Rules live in
+`src/services/plan-templates/plan-templates.dto.ts` and are enforced by the service:
+
+| Action | public template | private template (自分だけ) | built-in (共通) |
+|--------|-----------------|------------------------------|-----------------|
+| list / read (`GET /`, `GET /[id]`, `GET /[id]/revisions`) | any logged-in user | owner + admins (others: 404) | any logged-in user |
+| create (`POST /`), duplicate (`POST /[id]/duplicate`) | any logged-in user (the copy is owned by the caller; shared by default) | owner + admins may duplicate | any logged-in user |
+| edit content (`PUT /[id]`, version-checked, 409 VERSION_CONFLICT) | any logged-in user (every save is a revision: who / when / snapshot) | owner + admins | any logged-in user |
+| change visibility | owner + admins (403) | owner + admins | never (always public) |
+| delete (`DELETE /[id]`, soft) | owner + admins (403 PLAN_TEMPLATE_DELETE_FORBIDDEN) | owner + admins | never (400 PLAN_TEMPLATE_BUILTIN) |
+| reset to default (`POST /[id]/reset`) | — (400 PLAN_TEMPLATE_NOT_BUILTIN) | — | any logged-in user (recorded as a revision) |
+
+Loading a template into a project, saving a project's plan as a template and 「日程を仮置き」 are
+project routes gated by `plan.write` (see the table above); the template itself must also be
+visible to the caller (else 404). Template writes are rate limited per user (60 / min) and
+bodies are size-bounded (413). Editing a template never changes plans already loaded from it.
 
 ## Read-only REST API and access tokens (P4, 2026-10)
 

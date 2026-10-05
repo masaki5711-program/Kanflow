@@ -27,6 +27,7 @@ const TYPE_LABEL: Record<string, keyof Translations> = {
   surveillance_critical: "notifTypeSurveillance",
   ai_report_ready: "notifTypeAiReportReady",
   ai_report_failed: "notifTypeAiReportFailed",
+  improvement_check_due: "notifTypeImprovementCheckDue",
 }
 
 /**

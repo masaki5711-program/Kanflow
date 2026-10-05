@@ -25,6 +25,7 @@ export interface NotificationsTranslations {
   notifSurveillance: string
   notifAiReportReady: string
   notifAiReportFailed: string
+  notifImprovementCheckDue: string
   notifMentioned: string
   notifComment: string
   notifUnknown: string
@@ -41,6 +42,7 @@ export interface NotificationsTranslations {
   notifTypeSurveillance: string
   notifTypeAiReportReady: string
   notifTypeAiReportFailed: string
+  notifTypeImprovementCheckDue: string
   notifTabsLabel: string
   notifTabAll: string
   notifTabPersonal: string
@@ -70,6 +72,7 @@ export const ja: NotificationsTranslations = {
   notifSurveillance: "AI 監視レポート「{title}」で重大な異常が {count} 件見つかりました",
   notifAiReportReady: "AI レポート「{title}」ができました",
   notifAiReportFailed: "AI レポート（{kind}）を生成できませんでした",
+  notifImprovementCheckDue: "定着確認の期限です：{label}（{kind}・{date}）",
   notifMentioned: "{actor} さんが「{label}」のコメントであなたをメンションしました",
   notifComment: "{actor} さんが「{label}」にコメントしました",
   notifUnknown: "新しいお知らせがあります",
@@ -86,6 +89,7 @@ export const ja: NotificationsTranslations = {
   notifTypeSurveillance: "AI 監視で重大な異常が見つかったとき（PO / SM）",
   notifTypeAiReportReady: "依頼した AI レポートができたとき",
   notifTypeAiReportFailed: "依頼した AI レポートの生成に失敗したとき",
+  notifTypeImprovementCheckDue: "改善成果の定着確認の期限が来たとき（改善オーナー）",
   notifTabsLabel: "通知の絞り込み",
   notifTabAll: "すべて",
   notifTabPersonal: "メンション・自分宛",
@@ -115,6 +119,7 @@ export const en: NotificationsTranslations = {
   notifSurveillance: "AI surveillance report “{title}” found {count} critical issue(s)",
   notifAiReportReady: "Your AI report “{title}” is ready",
   notifAiReportFailed: "Your AI report ({kind}) could not be generated",
+  notifImprovementCheckDue: "A sustainment check is due: {label} ({kind}, {date})",
   notifMentioned: "{actor} mentioned you in a comment on “{label}”",
   notifComment: "{actor} commented on “{label}”",
   notifUnknown: "You have a new notification",
@@ -131,6 +136,7 @@ export const en: NotificationsTranslations = {
   notifTypeSurveillance: "When AI surveillance finds a critical issue (PO / SM)",
   notifTypeAiReportReady: "When an AI report I requested is ready",
   notifTypeAiReportFailed: "When an AI report I requested fails",
+  notifTypeImprovementCheckDue: "When a sustainment check of an improvement is due (improvement owner)",
   notifTabsLabel: "Filter notifications",
   notifTabAll: "All",
   notifTabPersonal: "Mentions & for me",
@@ -160,6 +166,7 @@ export const id: NotificationsTranslations = {
   notifSurveillance: "Laporan pemantauan AI “{title}” menemukan {count} masalah kritis",
   notifAiReportReady: "Laporan AI “{title}” sudah siap",
   notifAiReportFailed: "Laporan AI ({kind}) tidak dapat dibuat",
+  notifImprovementCheckDue: "Pengecekan keberlanjutan jatuh tempo: {label} ({kind}, {date})",
   notifMentioned: "{actor} menyebut Anda dalam komentar di “{label}”",
   notifComment: "{actor} mengomentari “{label}”",
   notifUnknown: "Ada notifikasi baru",
@@ -176,6 +183,7 @@ export const id: NotificationsTranslations = {
   notifTypeSurveillance: "Saat pemantauan AI menemukan masalah kritis (PO / SM)",
   notifTypeAiReportReady: "Saat laporan AI yang saya minta sudah siap",
   notifTypeAiReportFailed: "Saat laporan AI yang saya minta gagal dibuat",
+  notifTypeImprovementCheckDue: "Saat pengecekan keberlanjutan perbaikan jatuh tempo (pemilik perbaikan)",
   notifTabsLabel: "Saring notifikasi",
   notifTabAll: "Semua",
   notifTabPersonal: "Sebutan & untuk saya",

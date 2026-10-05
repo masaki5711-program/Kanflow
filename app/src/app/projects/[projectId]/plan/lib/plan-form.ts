@@ -12,6 +12,7 @@ import type { PlanDraft, PlanItem, PlanItemInput, PlanItemPatch, PlanStatus, Pro
 export interface PlanForm {
   name: string
   description: string
+  /** "" on both = 日程未定 (undated). */
   plannedStart: string
   plannedEnd: string
   actualStart: string
@@ -51,8 +52,8 @@ export function formFromItem(item: PlanItem): PlanForm {
   return {
     name: item.name,
     description: item.description ?? "",
-    plannedStart: item.plannedStart,
-    plannedEnd: item.plannedEnd,
+    plannedStart: item.plannedStart ?? "",
+    plannedEnd: item.plannedEnd ?? "",
     actualStart: item.actualStart ?? "",
     actualEnd: item.actualEnd ?? "",
     status: item.status,
@@ -90,16 +91,23 @@ export function effectiveEnd(form: PlanForm): string {
   return form.isMilestone ? form.plannedStart : form.plannedEnd
 }
 
-export type FormErrorKey = "name" | "plannedStart" | "plannedEnd" | "actualEnd"
+/** plannedEndRequired: a start without an end (an item has both dates or neither = 日程未定). */
+export type FormErrorKey = "name" | "plannedStart" | "plannedEnd" | "plannedEndRequired" | "actualEnd"
 
-/** Error keys → true (the component maps them to localized messages). */
+function plannedErrors(form: PlanForm): Partial<Record<FormErrorKey, true>> {
+  const start = form.plannedStart.trim()
+  const end = effectiveEnd(form).trim()
+  if (!start && !end) return {}
+  if (!isYmd(start)) return { plannedStart: true }
+  if (!end) return { plannedEndRequired: true }
+  if (!isYmd(end) || diffDays(start, end) < 0) return { plannedEnd: true }
+  return {}
+}
+
+/** Error keys → true (the component maps them to localized messages). Empty planned dates = 日程未定 (valid). */
 export function validateForm(form: PlanForm, flags: DerivedFlags): Partial<Record<FormErrorKey, true>> {
-  const errors: Partial<Record<FormErrorKey, true>> = {}
+  const errors: Partial<Record<FormErrorKey, true>> = flags.datesDerived ? {} : plannedErrors(form)
   if (!form.name.trim()) errors.name = true
-  if (!flags.datesDerived) {
-    if (!isYmd(form.plannedStart)) errors.plannedStart = true
-    else if (!isYmd(effectiveEnd(form)) || diffDays(form.plannedStart, effectiveEnd(form)) < 0) errors.plannedEnd = true
-  }
   if (isYmd(form.actualStart) && isYmd(form.actualEnd) && diffDays(form.actualStart, form.actualEnd) < 0) errors.actualEnd = true
   return errors
 }
@@ -111,8 +119,8 @@ function fullBody(form: PlanForm): Required<Omit<PlanItemInput, "color">> {
   return {
     name: form.name.trim(),
     description: orNull(form.description),
-    plannedStart: form.plannedStart,
-    plannedEnd: effectiveEnd(form),
+    plannedStart: orNull(form.plannedStart),
+    plannedEnd: orNull(effectiveEnd(form)),
     actualStart: orNull(form.actualStart),
     actualEnd: orNull(form.actualEnd),
     status: form.status,
@@ -150,5 +158,5 @@ export function buildCreateInput(form: PlanForm): PlanItemInput {
   const body: PlanItemPatch = dropDerived(fullBody(form), derivedFlags(null, form))
   delete body.actualStart
   delete body.actualEnd
-  return { ...body, name: form.name.trim(), plannedStart: form.plannedStart, plannedEnd: effectiveEnd(form) }
+  return { ...body, name: form.name.trim(), plannedStart: orNull(form.plannedStart), plannedEnd: orNull(effectiveEnd(form)) }
 }

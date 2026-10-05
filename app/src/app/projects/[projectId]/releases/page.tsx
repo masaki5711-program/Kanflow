@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { Suspense, useMemo, useState } from "react"
 import { useParams } from "next/navigation"
 import { useLanguage } from "@/lib/language-context"
 import { Button, EmptyState, SkeletonCard, useConfirm, PageHeader } from "@/components/ui"
@@ -10,6 +10,8 @@ import { ChevronIcon, VersionGroup } from "./version-group"
 import { ImportDialog } from "./import-dialog"
 import { EditDialog } from "./edit-dialog"
 import { useProjectDocumentTitle } from "@/components/app-shell/project-title-context"
+import { ImprovementBoardPage } from "./improvement/improvement-board-page"
+import { MilestoneBoardPage } from "./milestones/milestone-board-page"
 
 function PlusIcon() {
   return (
@@ -35,7 +37,19 @@ function UploadIcon() {
   )
 }
 
+/**
+ * process_improvement projects get the 改善成果ボード (releases/improvement/**),
+ * general projects the マイルストーン・検収ボード (releases/milestones/**);
+ * software projects keep the release backlog below, unchanged.
+ */
 export default function ReleasesPage() {
+  const { projectType } = useLanguage()
+  if (projectType !== "general" && projectType !== "process_improvement") return <SoftwareReleasesPage />
+  // The boards read ?item= / ?stage= (useSearchParams needs a Suspense boundary above it).
+  return <Suspense fallback={<SkeletonCard />}>{projectType === "general" ? <MilestoneBoardPage /> : <ImprovementBoardPage />}</Suspense>
+}
+
+function SoftwareReleasesPage() {
   const params = useParams()
   const projectId = params.projectId as string
   const { t, pt } = useLanguage()

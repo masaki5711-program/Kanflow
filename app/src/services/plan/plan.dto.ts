@@ -36,8 +36,13 @@ export interface PlanItemDto {
   name: string
   description: string | null
   notes: string | null
-  plannedStart: string
-  plannedEnd: string
+  /** null = 日程未定 (undated). */
+  plannedStart: string | null
+  plannedEnd: string | null
+  /** 目安期間 (days) from a plan template stage; null when unknown. */
+  durationDays: number | null
+  /** The template load that created the row (null for hand-made rows). */
+  templateApplicationId: string | null
   actualStart: string | null
   actualEnd: string | null
   baselineStart: string | null
@@ -78,8 +83,10 @@ export interface PlanRow {
   name: string
   description: string | null
   notes: string | null
-  plannedStart: Date
-  plannedEnd: Date
+  plannedStart: Date | null
+  plannedEnd: Date | null
+  durationDays?: number | null
+  templateApplicationId?: string | null
   actualStart: Date | null
   actualEnd: Date | null
   baselineStart: Date | null
@@ -161,8 +168,10 @@ export function toPlanItemDto(row: PlanRow, ctx: DtoContext): PlanItemDto {
     name: row.name,
     description: row.description,
     notes: row.notes,
-    plannedStart: toDateKey(row.plannedStart),
-    plannedEnd: toDateKey(row.plannedEnd),
+    plannedStart: toDateKeyOrNull(row.plannedStart),
+    plannedEnd: toDateKeyOrNull(row.plannedEnd),
+    durationDays: row.durationDays ?? null,
+    templateApplicationId: row.templateApplicationId ?? null,
     actualStart: toDateKeyOrNull(row.actualStart),
     actualEnd: toDateKeyOrNull(row.actualEnd),
     baselineStart: toDateKeyOrNull(row.baselineStart),

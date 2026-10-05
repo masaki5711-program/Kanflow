@@ -34,6 +34,8 @@ export const NOTIFICATION_TYPES = [
   "ai_report_ready",
   /** A background AI report the user requested failed (payload: kind, error). */
   "ai_report_failed",
+  /** A 定着確認 of the 改善成果ボード is due (to the project's POs; payload: entityLabel, dueDate, kind). */
+  "improvement_check_due",
 ] as const
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number]
 

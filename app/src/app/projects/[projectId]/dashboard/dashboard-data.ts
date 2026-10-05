@@ -55,7 +55,8 @@ export async function loadDuePlanItems(projectId: string, now: Date): Promise<Du
     orderBy: { plannedEnd: "asc" },
     take: PLAN_ITEMS_TAKE,
   })
-  return rows.map((r) => ({ ...r, plannedEnd: r.plannedEnd.toISOString() }))
+  // `lte` never matches NULL (日程未定 rows have no due date); the filter only narrows the type.
+  return rows.flatMap((r) => (r.plannedEnd ? [{ ...r, plannedEnd: r.plannedEnd.toISOString() }] : []))
 }
 
 /** 計画進捗 of the project: the master plan rolled up like the portfolio / AI tool (A3-13). */

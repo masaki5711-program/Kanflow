@@ -18,13 +18,14 @@ export interface ViewTarget {
 
 type Dated = Pick<PlanItem, "plannedStart" | "plannedEnd" | "status" | "scheduleState">
 
-/** First / last day of the live items (all items when none is live) and today. */
+/** First / last day of the live dated items (all dated items when none is live) and today; undated rows are ignored. */
 export function liveSpanDays(items: readonly Dated[], today: Ymd): { first: number; last: number } {
   const live = items.filter(isUnfinished)
   const pool = live.length > 0 ? live : items
   let first = ymdToDay(today)
   let last = first
   for (const it of pool) {
+    if (!it.plannedStart || !it.plannedEnd) continue
     const s = ymdToDay(it.plannedStart)
     const e = ymdToDay(it.plannedEnd)
     if (s < first) first = s

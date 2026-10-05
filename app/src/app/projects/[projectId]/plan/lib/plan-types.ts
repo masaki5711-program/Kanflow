@@ -38,8 +38,13 @@ export interface PlanItem {
   name: string
   description: string | null
   notes: string | null
-  plannedStart: Ymd
-  plannedEnd: Ymd
+  /** null = 日程未定 (undated: no bar, never delayed). Both set or both null. */
+  plannedStart: Ymd | null
+  plannedEnd: Ymd | null
+  /** 目安期間 (days) from a plan template stage. */
+  durationDays?: number | null
+  /** The template load that created the row. */
+  templateApplicationId?: string | null
   actualStart: Ymd | null
   actualEnd: Ymd | null
   baselineStart: Ymd | null
@@ -103,8 +108,9 @@ export interface LinkablePbi {
 export interface PlanItemInput {
   name: string
   parentId?: string | null
-  plannedStart: Ymd
-  plannedEnd: Ymd
+  /** null on both = 日程未定. */
+  plannedStart: Ymd | null
+  plannedEnd: Ymd | null
   actualStart?: Ymd | null
   actualEnd?: Ymd | null
   isMilestone?: boolean
@@ -124,4 +130,11 @@ export interface PlanDraft {
   isMilestone: boolean
   plannedStart: Ymd
   plannedEnd: Ymd
+}
+
+/** A plan item with both planned dates (the only kind that draws a bar / can be late). */
+export type DatedPlanItem = PlanItem & { plannedStart: Ymd; plannedEnd: Ymd }
+
+export function isDatedItem(item: PlanItem): item is DatedPlanItem {
+  return item.plannedStart !== null && item.plannedEnd !== null
 }

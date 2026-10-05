@@ -20,6 +20,8 @@ export async function register(): Promise<void> {
   await startTranslation(log)
   await startAiJobs(log)
   await startRequestMetrics(log)
+  await startGitSync(log)
+  await startWebDailyJobs(log)
 }
 
 type Log = { info(msg: string, fields?: Record<string, unknown>): void; warn(msg: string, fields?: Record<string, unknown>): void; error(msg: string, fields?: Record<string, unknown>): void }
@@ -83,5 +85,46 @@ async function startRequestMetrics(log: Log): Promise<void> {
     startMetrics(log)
   } catch (err) {
     log.error("metrics failed to start", { error: err instanceof Error ? err.message : String(err) })
+  }
+}
+
+/** GitLab polling sync for projects with the Git integration on (lib/git/poller; GIT_SYNC=off disables). */
+async function startGitSync(log: Log): Promise<void> {
+  try {
+    const { shouldStartGitPoller, startGitPoller } = await import("@/lib/git/poller")
+    const decision = shouldStartGitPoller(process.env)
+    if (!decision.start) {
+      log.info("git sync not started in this process", { reason: decision.reason })
+      return
+    }
+    startGitPoller()
+    log.info("git sync poller started", { reason: decision.reason })
+  } catch (err) {
+    log.error("git sync failed to start", { error: err instanceof Error ? err.message : String(err) })
+  }
+}
+
+/**
+ * The worker's daily housekeeping (due-date notifications, retention sweeps,
+ * 定着確認 reminders — worker/collab-daily.ts) inside the web process, for
+ * installs without the standalone kanflow-worker service. WEB_DAILY_JOBS:
+ * auto (default) = only when the translation loop also runs in-process
+ * (AI_TRANSLATION_WORKER=inprocess, i.e. no worker), on, off. Every step is
+ * idempotent (dedupe keys / notifiedAt), so an overlap with a worker is harmless.
+ */
+async function startWebDailyJobs(log: Log): Promise<void> {
+  try {
+    const mode = (process.env.WEB_DAILY_JOBS ?? "auto").toLowerCase()
+    const inprocess = (process.env.AI_TRANSLATION_WORKER ?? "").toLowerCase() === "inprocess"
+    const start = mode === "on" || (mode === "auto" && inprocess && process.env.NODE_ENV === "production")
+    if (!start) {
+      log.info("daily jobs not started in this web process", { mode })
+      return
+    }
+    const { loadWorkerConfig } = await import("@/worker/config")
+    const { startCollabScheduler } = await import("@/worker/collab-daily")
+    startCollabScheduler(loadWorkerConfig(process.env), log)
+  } catch (err) {
+    log.error("daily jobs failed to start", { error: err instanceof Error ? err.message : String(err) })
   }
 }

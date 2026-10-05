@@ -60,8 +60,9 @@ export interface PlanRow {
   id: string
   parentId: string | null
   progressPct: number
-  plannedStart: Date
-  plannedEnd: Date
+  /** null = 日程未定 (never delayed / at risk). */
+  plannedStart: Date | null
+  plannedEnd: Date | null
   status: string
   isMilestone: boolean
 }

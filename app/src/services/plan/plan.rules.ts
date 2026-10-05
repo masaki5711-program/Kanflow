@@ -3,7 +3,7 @@
  * parent-derived dates, reorder trees). Throws ValidationError (400).
  */
 import type { Prisma } from "@/generated/prisma/client"
-import { normalizePlanDate } from "@/lib/plan-progress"
+import { normalizePlanDate, sameDateOrNull } from "@/lib/plan-progress"
 import { INVALID_DATE_MESSAGE } from "@/services/_shared/dates"
 import { NotFoundError, ValidationError } from "@/services/_shared/errors"
 import { wouldCreateCycle, type TreeNode } from "@/services/_shared/tree"
@@ -34,22 +34,36 @@ function assertRange(start: Date, end: Date): void {
 }
 
 export interface PlannedDates {
-  plannedStart: Date
-  plannedEnd: Date
+  plannedStart: Date | null
+  plannedEnd: Date | null
 }
 
-/** Create: normalized planned dates; a milestone is one day (start = end). */
-export function resolveCreateDates(input: { plannedStart: string; plannedEnd: string; isMilestone?: boolean }): PlannedDates {
-  const plannedStart = planDateOrThrow(input.plannedStart)
-  const plannedEnd = planDateOrThrow(input.plannedEnd)
-  if (input.isMilestone) return { plannedStart: plannedEnd, plannedEnd }
-  assertRange(plannedStart, plannedEnd)
+/** 400 PLAN_DATES_INCOMPLETE: a (non-milestone) item has both planned dates or neither (日程未定). */
+function assertComplete(start: Date | null, end: Date | null): void {
+  if ((start === null) !== (end === null)) {
+    throw new ValidationError("開始日と終了日は両方入力するか、両方空にしてください", {}, "PLAN_DATES_INCOMPLETE")
+  }
+  if (start && end) assertRange(start, end)
+}
+
+/**
+ * Create: normalized planned dates. Both omitted / null = undated (日程未定).
+ * A milestone is one day (start = end = the end date, else the start date).
+ */
+export function resolveCreateDates(input: { plannedStart?: string | null; plannedEnd?: string | null; isMilestone?: boolean }): PlannedDates {
+  const plannedStart = optionalPlanDate(input.plannedStart) ?? null
+  const plannedEnd = optionalPlanDate(input.plannedEnd) ?? null
+  if (input.isMilestone) {
+    const day = plannedEnd ?? plannedStart
+    return { plannedStart: day, plannedEnd: day }
+  }
+  assertComplete(plannedStart, plannedEnd)
   return { plannedStart, plannedEnd }
 }
 
 export interface ExistingDates {
-  plannedStart: Date
-  plannedEnd: Date
+  plannedStart: Date | null
+  plannedEnd: Date | null
   actualStart: Date | null
   actualEnd: Date | null
   isMilestone: boolean
@@ -57,19 +71,20 @@ export interface ExistingDates {
 
 type UpdateFields = Omit<UpdatePlanItemInput, "version">
 
-const sameDay = (a: Date, b: Date) => a.getTime() === b.getTime()
-
 /**
- * Planned-date part of a PATCH. Parents (live children) have derived dates:
- * sending a DIFFERENT date → 400 PLAN_PARENT_DATES_DERIVED (the same date is
- * accepted as a no-op). A milestone collapses to one day (the end date, or
- * the start date when only that was sent). start > end → 400 PLAN_INVALID_RANGE.
+ * Planned-date part of a PATCH (null / "" clears = 日程未定). Parents (live
+ * children) have derived dates: sending a DIFFERENT date → 400
+ * PLAN_PARENT_DATES_DERIVED (the same date is accepted as a no-op). A
+ * milestone collapses to one day (the end date, or the start date when only
+ * that was sent). start > end → 400 PLAN_INVALID_RANGE; exactly one date on
+ * a non-milestone → 400 PLAN_DATES_INCOMPLETE.
  */
 function plannedPatch(data: UpdateFields, existing: ExistingDates, hasChildren: boolean): Partial<PlannedDates> {
-  const start = data.plannedStart !== undefined ? planDateOrThrow(data.plannedStart) : undefined
-  const end = data.plannedEnd !== undefined ? planDateOrThrow(data.plannedEnd) : undefined
+  const start = optionalPlanDate(data.plannedStart)
+  const end = optionalPlanDate(data.plannedEnd)
   if (hasChildren) {
-    const changed = (start && !sameDay(start, existing.plannedStart)) || (end && !sameDay(end, existing.plannedEnd))
+    const changed =
+      (start !== undefined && !sameDateOrNull(start, existing.plannedStart)) || (end !== undefined && !sameDateOrNull(end, existing.plannedEnd))
     if (changed) {
       throw new ValidationError("子項目を持つ項目の期間は子項目から計算されます", {}, "PLAN_PARENT_DATES_DERIVED")
     }
@@ -77,14 +92,13 @@ function plannedPatch(data: UpdateFields, existing: ExistingDates, hasChildren: 
   }
   const isMilestone = data.isMilestone ?? existing.isMilestone
   if (isMilestone) {
-    const day = end ?? start ?? existing.plannedEnd
-    const unchanged = sameDay(day, existing.plannedStart) && sameDay(day, existing.plannedEnd)
+    const sent = start !== undefined || end !== undefined
+    const day = sent ? (end ?? start ?? null) : (existing.plannedEnd ?? existing.plannedStart)
+    const unchanged = sameDateOrNull(day, existing.plannedStart) && sameDateOrNull(day, existing.plannedEnd)
     return unchanged ? {} : { plannedStart: day, plannedEnd: day }
   }
-  const nextStart = start ?? existing.plannedStart
-  const nextEnd = end ?? existing.plannedEnd
-  assertRange(nextStart, nextEnd)
-  return { ...(start && { plannedStart: start }), ...(end && { plannedEnd: end }) }
+  assertComplete(start === undefined ? existing.plannedStart : start, end === undefined ? existing.plannedEnd : end)
+  return { ...(start !== undefined && { plannedStart: start }), ...(end !== undefined && { plannedEnd: end }) }
 }
 
 function actualPatch(data: UpdateFields, existing: ExistingDates): { actualStart?: Date | null; actualEnd?: Date | null } {
@@ -115,6 +129,7 @@ export function buildPlanUpdate(data: UpdateFields, existing: ExistingDates, has
     ...(data.sortOrder !== undefined && { sortOrder: data.sortOrder }),
     ...(data.ownerId !== undefined && { ownerId: data.ownerId }),
     ...(data.progressMode !== undefined && { progressMode: data.progressMode }),
+    ...(data.durationDays !== undefined && { durationDays: data.durationDays }),
   }
 }
 

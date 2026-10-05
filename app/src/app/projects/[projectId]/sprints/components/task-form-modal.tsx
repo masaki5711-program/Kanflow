@@ -130,7 +130,7 @@ export default function TaskFormModal({
           </Field>
         )}
 
-        <TaskPbiDetailPanel pbi={pbi} canEdit={canEditPbi} />
+        <TaskPbiDetailPanel projectId={projectId} pbi={pbi} canEdit={canEditPbi} />
 
         {!isEdit && onBulkAdd && <FixedTaskBulkAdd pbItemId={form.pbItemId} onBulkAdd={handleBulkAdd} />}
 

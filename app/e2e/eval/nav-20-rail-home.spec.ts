@@ -9,7 +9,9 @@ const SHOTS = "D:/APP/Kanflow-e2e/reports/shots"
 test("sidebar rail + IceBox first + greeting above cards", async ({ page }) => {
   await loginViaUi(page, "e2e-po@example.test", "E2e-Kanflow-2026!")
   await page.goto("/")
-  const greeting = page.locator("#top-greeting")
+  // `next dev` re-renders the page right after login and can briefly hold two trees: use the
+  // first heading for geometry, and check that exactly one remains once it settles.
+  const greeting = page.locator("#top-greeting").first()
   await expect(greeting).toBeVisible({ timeout: 60_000 })
   const kpis = page.locator("section[aria-labelledby=top-greeting] dl, [data-testid=kpi-hint]").first()
   if (await kpis.count()) {
@@ -17,6 +19,7 @@ test("sidebar rail + IceBox first + greeting above cards", async ({ page }) => {
     const k = (await kpis.boundingBox())!
     expect(g.y + g.height).toBeLessThanOrEqual(k.y + 1)
   }
+  await expect(page.locator("#top-greeting")).toHaveCount(1, { timeout: 15_000 })
   await page.screenshot({ path: `${SHOTS}/home-greeting-top.png`, clip: { x: 0, y: 0, width: 1440, height: 420 } })
 
   await page.goto("/projects/cmr8tnrzm0000m09lghm5jshr/backlog")

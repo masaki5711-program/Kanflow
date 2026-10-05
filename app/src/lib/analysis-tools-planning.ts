@@ -67,8 +67,9 @@ export interface PlanRow {
   id: string
   parentId: string | null
   name: string
-  plannedStart: Date
-  plannedEnd: Date
+  /** null = 日程未定 (never overdue, no milestone date). */
+  plannedStart: Date | null
+  plannedEnd: Date | null
   progressPct: number
   status: string
   isMilestone: boolean
@@ -86,16 +87,19 @@ export function summarizePlan(rows: readonly PlanRow[], today: Date) {
   const childCount = new Map<string, number>()
   for (const r of rows) if (r.parentId) childCount.set(r.parentId, (childCount.get(r.parentId) ?? 0) + 1)
   const roots = rows.filter((r) => !r.parentId || !byId.has(r.parentId)).sort((a, b) => a.sortOrder - b.sortOrder)
-  const isOverdue = (r: PlanRow) => r.status !== "done" && r.progressPct < 100 && r.plannedEnd.getTime() < today.getTime()
+  const horizon = today.getTime() + MILESTONE_WINDOW_DAYS * DAY_MS
+  const isOverdue = (r: PlanRow): r is PlanRow & { plannedEnd: Date } =>
+    r.status !== "done" && r.progressPct < 100 && r.plannedEnd !== null && r.plannedEnd.getTime() < today.getTime()
+  const isUpcomingMilestone = (r: PlanRow): r is PlanRow & { plannedEnd: Date } =>
+    r.isMilestone && r.status !== "done" && r.plannedEnd !== null && r.plannedEnd.getTime() >= today.getTime() && r.plannedEnd.getTime() <= horizon
   const byStatus: Record<string, number> = {}
   for (const r of rows) byStatus[r.status] = (byStatus[r.status] ?? 0) + 1
 
   const overdue = rows
     .filter(isOverdue)
     .sort((a, b) => a.plannedEnd.getTime() - b.plannedEnd.getTime())
-  const horizon = today.getTime() + MILESTONE_WINDOW_DAYS * DAY_MS
   const milestones = rows
-    .filter((r) => r.isMilestone && r.status !== "done" && r.plannedEnd.getTime() >= today.getTime() && r.plannedEnd.getTime() <= horizon)
+    .filter(isUpcomingMilestone)
     .sort((a, b) => a.plannedEnd.getTime() - b.plannedEnd.getTime())
 
   return {
@@ -104,7 +108,7 @@ export function summarizePlan(rows: readonly PlanRow[], today: Date) {
     by_status: byStatus,
     top_level: roots.slice(0, TOP_LEVEL_CAP).map((r) => ({
       name: trunc(r.name, 60),
-      period: `${iso(r.plannedStart)}..${iso(r.plannedEnd)}`,
+      period: r.plannedStart && r.plannedEnd ? `${iso(r.plannedStart)}..${iso(r.plannedEnd)}` : "undated",
       progress_pct: r.progressPct,
       status: r.status,
       children: childCount.get(r.id) ?? 0,
@@ -124,7 +128,8 @@ export function summarizePlan(rows: readonly PlanRow[], today: Date) {
       date: iso(r.plannedEnd),
       days_left: daysBetween(today, r.plannedEnd),
     })),
-    note: `overdue = planned end passed and not done; milestones within ${MILESTONE_WINDOW_DAYS} days`,
+    undated_count: rows.filter((r) => !r.plannedEnd).length,
+    note: `overdue = planned end passed and not done; milestones within ${MILESTONE_WINDOW_DAYS} days; undated items (no planned dates yet) are never overdue`,
   }
 }
 

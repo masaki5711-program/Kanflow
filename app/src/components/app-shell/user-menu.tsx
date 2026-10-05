@@ -4,7 +4,7 @@ import { useCallback, useEffect, useId, useRef, useState, type FocusEvent, type 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { signOut } from "next-auth/react"
-import { Briefcase, FolderOpen, LogOut, UserRound } from "lucide-react"
+import { Briefcase, FolderOpen, LayoutTemplate, LogOut, UserRound } from "lucide-react"
 import { useLanguage } from "@/lib/language-context"
 import { LanguageMenu } from "@/components/language-switcher"
 import { cn } from "@/components/ui"
@@ -117,6 +117,11 @@ export function UserMenu({ userName, isAdmin, showPortfolio }: UserMenuProps) {
               <li className={HEADER_PRIMARY_IN_MENU}>
                 <MenuLink href="/me" icon={<UserRound aria-hidden className="h-4 w-4 shrink-0 text-fg-muted" />} onNavigate={close}>
                   {t.myProfileMenu}
+                </MenuLink>
+              </li>
+              <li>
+                <MenuLink href="/templates" icon={<LayoutTemplate aria-hidden className="h-4 w-4 shrink-0 text-fg-muted" />} onNavigate={close}>
+                  {t.tplNav}
                 </MenuLink>
               </li>
               {showPortfolio && (

@@ -34,8 +34,8 @@ vi.mock("@/components/header", () => ({
   Header: ({ projectName, projectI18n }: { projectName?: string; projectI18n: unknown }) => <header>{`H:${projectName}:${JSON.stringify(projectI18n)}`}</header>,
 }))
 vi.mock("@/components/sidebar", () => ({
-  Sidebar: ({ projectId, showTrash, showSettings, showChat }: { projectId: string; showTrash?: boolean; showSettings?: boolean; showChat?: boolean }) => (
-    <nav>{`S:${projectId}:trash=${String(showTrash)}:settings=${String(showSettings)}:chat=${String(showChat)}`}</nav>
+  Sidebar: ({ projectId, showTrash, showSettings, showChat, showGit }: { projectId: string; showTrash?: boolean; showSettings?: boolean; showChat?: boolean; showGit?: boolean }) => (
+    <nav>{`S:${projectId}:trash=${String(showTrash)}:settings=${String(showSettings)}:chat=${String(showChat)}:git=${String(showGit)}`}</nav>
   ),
 }))
 vi.mock("@/components/app-shell/sidebar-drawer", () => ({ SidebarDrawerProvider: ({ children }: { children: React.ReactNode }) => <>{children}</> }))
@@ -94,6 +94,21 @@ describe("ProjectLayout (server)", () => {
     render(<LanguageProvider>{el}</LanguageProvider>)
     expect(screen.getByRole("navigation")).toHaveTextContent("S:p1:trash=true")
     expect(m.loadProjectActor).toHaveBeenCalledWith("u1", "member", "p1")
+  })
+
+  it("shows the Git entry only while the project has the Git integration on", async () => {
+    m.auth.mockResolvedValue({ user: { id: "u1" } })
+    m.getI18nFor.mockResolvedValue(new Map())
+    m.findUnique.mockResolvedValue({ name: "Proj", projectType: "software", deletedAt: null, gitIntegration: null })
+    const off = (await ProjectLayout({ children: null, params: Promise.resolve({ projectId: "p1" }) })) as ReactElement
+    render(<LanguageProvider>{off}</LanguageProvider>)
+    expect(screen.getByRole("navigation")).toHaveTextContent("git=false")
+    cleanup()
+
+    m.findUnique.mockResolvedValue({ name: "Proj", projectType: "software", deletedAt: null, gitIntegration: { enabled: true } })
+    const on = (await ProjectLayout({ children: null, params: Promise.resolve({ projectId: "p1" }) })) as ReactElement
+    render(<LanguageProvider>{on}</LanguageProvider>)
+    expect(screen.getByRole("navigation")).toHaveTextContent("git=true")
   })
 
   it("404s a missing project and a project in the trash", async () => {

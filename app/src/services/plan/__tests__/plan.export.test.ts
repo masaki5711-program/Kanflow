@@ -19,6 +19,8 @@ const dto = (id: string, parentId: string | null, sortOrder: number, over: Parti
   notes: null,
   plannedStart: "2026-10-01",
   plannedEnd: "2026-10-10",
+  durationDays: null,
+  templateApplicationId: null,
   actualStart: null,
   actualEnd: null,
   baselineStart: null,

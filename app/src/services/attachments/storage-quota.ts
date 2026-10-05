@@ -2,8 +2,9 @@ import { defaultDb, type Db } from "@/services/_shared/db"
 import { StatusError } from "@/services/_shared/errors"
 
 /**
- * Per-project attachment storage quota (project files + icebox, team chat
- * and PBI reference attachments).
+ * Per-project attachment storage quota (project files + icebox, team chat,
+ * PBI reference attachments, 改善成果ボード photos and the
+ * マイルストーン・検収ボード's 残課題 photos / 引き渡し資料 files).
  * env ATTACHMENT_PROJECT_QUOTA_MB, default 5120; 0 = unlimited.
  *
  * Checked against the declared size before an upload is written. Two
@@ -48,6 +49,18 @@ export async function projectStorageUsed(db: Db, projectId: string): Promise<num
            FROM pbi_attachment pa2
            JOIN ProductBacklogItem pbi ON pbi.id = pa2.backlogItemId
           WHERE pbi.projectId = ${projectId})
+      + (SELECT COALESCE(SUM(ip.fileSize), 0)
+           FROM improvement_photo ip
+           JOIN ReleaseBacklogItem rbi ON rbi.id = ip.releaseItemId
+          WHERE rbi.projectId = ${projectId})
+      + (SELECT COALESCE(SUM(pp.fileSize), 0)
+           FROM punch_photo pp
+           JOIN punch_item pi ON pi.id = pp.punchItemId
+          WHERE pi.projectId = ${projectId})
+      + (SELECT COALESCE(SUM(hf.fileSize), 0)
+           FROM handover_file hf
+           JOIN handover_document hd ON hd.id = hf.documentId
+          WHERE hd.projectId = ${projectId})
     AS CHAR) AS total`
   const total = Number(rows[0]?.total ?? 0)
   return Number.isFinite(total) ? total : 0

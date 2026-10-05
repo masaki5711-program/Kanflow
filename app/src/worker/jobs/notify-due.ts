@@ -234,6 +234,8 @@ export async function runNotifyDue(opts: NotifyDueOptions = {}): Promise<NotifyD
 
   for (const item of planItems) {
     if (opts.signal?.aborted) return { status: "aborted", candidates, notified, planHeal }
+    // The range filter never matches NULL (日程未定 items have no due date); this only narrows the type.
+    if (!item.plannedEnd) continue
     const type = classifyDue(item.plannedEnd, w)
     if (!type) continue
     notified += await notify(db, {

@@ -14,7 +14,7 @@ import {
   type BarKind,
   type PressState,
 } from "../lib/interaction"
-import type { PlanItem, Ymd } from "../lib/plan-types"
+import type { DatedPlanItem, PlanItem, Ymd } from "../lib/plan-types"
 
 /** Keyboard nudges are persisted once the user pauses (one PATCH per burst). */
 export const KEYBOARD_COMMIT_DELAY_MS = 600
@@ -26,7 +26,7 @@ export interface LiveEdit {
 }
 
 interface DragSession {
-  item: PlanItem
+  item: DatedPlanItem
   mode: "move" | "resize"
   press: PressState
   timer: ReturnType<typeof setTimeout> | null
@@ -43,7 +43,7 @@ interface Options {
   onCommit: (item: PlanItem, start: Ymd, end: Ymd) => void
 }
 
-function rangeFor(item: PlanItem, mode: "move" | "resize", deltaDays: number): { start: Ymd; end: Ymd } {
+function rangeFor(item: DatedPlanItem, mode: "move" | "resize", deltaDays: number): { start: Ymd; end: Ymd } {
   if (mode === "move") return { start: addDays(item.plannedStart, deltaDays), end: addDays(item.plannedEnd, deltaDays) }
   return shiftRange(item.plannedStart, item.plannedEnd, "resize", deltaDays) ?? { start: item.plannedStart, end: item.plannedStart }
 }
@@ -55,7 +55,7 @@ function rangeFor(item: PlanItem, mode: "move" | "resize", deltaDays: number): {
  */
 export function useBarDrag({ dayWidth, canEdit, onPreview, onCommit }: Options) {
   const sessionRef = useRef<DragSession | null>(null)
-  const pendingKeyRef = useRef<{ item: PlanItem; edit: LiveEdit; timer: ReturnType<typeof setTimeout> } | null>(null)
+  const pendingKeyRef = useRef<{ item: DatedPlanItem; edit: LiveEdit; timer: ReturnType<typeof setTimeout> } | null>(null)
   const suppressClickRef = useRef(false)
   const [live, setLive] = useState<LiveEdit | null>(null)
 
@@ -83,7 +83,7 @@ export function useBarDrag({ dayWidth, canEdit, onPreview, onCommit }: Options) 
   })
   useEffect(() => () => flushRef.current(), [])
 
-  function onKeyDown(e: KeyboardEvent, item: PlanItem, kind: BarKind, onOpen: (item: PlanItem) => void) {
+  function onKeyDown(e: KeyboardEvent, item: DatedPlanItem, kind: BarKind, onOpen: (item: PlanItem) => void) {
     const action = barKeyAction(e.key, e.shiftKey, kind)
     if (!action) return
     e.preventDefault()
@@ -108,7 +108,7 @@ export function useBarDrag({ dayWidth, canEdit, onPreview, onCommit }: Options) 
     if (!s.target.hasPointerCapture?.(s.pointerId)) s.target.setPointerCapture?.(s.pointerId)
   }
 
-  function onPointerDown(e: PointerEvent, item: PlanItem, kind: BarKind, mode: "move" | "resize") {
+  function onPointerDown(e: PointerEvent, item: DatedPlanItem, kind: BarKind, mode: "move" | "resize") {
     if (!canEdit || kind === "summary" || e.button > 0) return
     e.stopPropagation()
     const pointerType = e.pointerType || "mouse"

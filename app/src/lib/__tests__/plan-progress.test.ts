@@ -98,14 +98,14 @@ describe("rollupChildren", () => {
     // 10 days @100 + 30 days @0 → 25
     expect(r.progressPct).toBe(25)
     expect(r.status).toBe("in_progress")
-    expect(r.plannedStart.toISOString()).toBe("2026-01-01T00:00:00.000Z")
-    expect(r.plannedEnd.toISOString()).toBe("2026-02-09T00:00:00.000Z")
+    expect(r.plannedStart?.toISOString()).toBe("2026-01-01T00:00:00.000Z")
+    expect(r.plannedEnd?.toISOString()).toBe("2026-02-09T00:00:00.000Z")
   })
 
   it("milestones weigh 0 next to real work", () => {
     const r = pp.rollupChildren([child("2026-01-01", "2026-01-04", 50, "in_progress"), child("2026-01-05", "2026-01-05", 0, "not_started", true)])
     expect(r.progressPct).toBe(50)
-    expect(r.plannedEnd.toISOString()).toBe("2026-01-05T00:00:00.000Z")
+    expect(r.plannedEnd?.toISOString()).toBe("2026-01-05T00:00:00.000Z")
   })
 
   it("equal weights when every child is a milestone", () => {

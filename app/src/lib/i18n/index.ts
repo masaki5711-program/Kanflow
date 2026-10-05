@@ -41,6 +41,11 @@ import * as updates from "./updates"
 import * as attachmentLinks from "./attachment-links"
 import * as teamChat from "./team-chat"
 import * as pbiAttachments from "./pbi-attachments"
+import * as improvement from "./improvement"
+import * as gitDev from "./git-dev"
+import * as git from "./git"
+import * as planTemplates from "./plan-templates"
+import * as milestones from "./milestones"
 
 export * from "./languages"
 export * from "./point-units"
@@ -91,7 +96,12 @@ export interface Translations
     updates.UpdatesTranslations,
     attachmentLinks.AttachmentLinksTranslations,
     teamChat.TeamChatTranslations,
-    pbiAttachments.PbiAttachmentsTranslations {}
+    pbiAttachments.PbiAttachmentsTranslations,
+    improvement.ImprovementTranslations,
+    gitDev.GitDevTranslations,
+    git.GitTranslations,
+    planTemplates.PlanTemplatesTranslations,
+    milestones.MilestonesTranslations {}
 
 /** All domain modules, exported for tests (key-set / completeness checks). */
 export const domains = {
@@ -137,6 +147,11 @@ export const domains = {
   "attachment-links": attachmentLinks,
   "team-chat": teamChat,
   "pbi-attachments": pbiAttachments,
+  "improvement": improvement,
+  "git-dev": gitDev,
+  "git": git,
+  "plan-templates": planTemplates,
+  "milestones": milestones,
 } as const
 
 const ja: Translations = {
@@ -182,6 +197,11 @@ const ja: Translations = {
   ...attachmentLinks.ja,
   ...teamChat.ja,
   ...pbiAttachments.ja,
+  ...improvement.ja,
+  ...gitDev.ja,
+  ...git.ja,
+  ...planTemplates.ja,
+  ...milestones.ja,
 }
 
 const en: Translations = {
@@ -227,6 +247,11 @@ const en: Translations = {
   ...attachmentLinks.en,
   ...teamChat.en,
   ...pbiAttachments.en,
+  ...improvement.en,
+  ...gitDev.en,
+  ...git.en,
+  ...planTemplates.en,
+  ...milestones.en,
 }
 
 const id: Translations = {
@@ -272,6 +297,11 @@ const id: Translations = {
   ...attachmentLinks.id,
   ...teamChat.id,
   ...pbiAttachments.id,
+  ...improvement.id,
+  ...gitDev.id,
+  ...git.id,
+  ...planTemplates.id,
+  ...milestones.id,
 }
 
 const translations: Record<Language, Translations> = { ja, en, id }

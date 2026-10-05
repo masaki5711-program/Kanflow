@@ -6,6 +6,7 @@ import { I18nText } from "@/components/i18n-text"
 import { pickText } from "@/lib/translation/pick-text"
 import { cn } from "@/components/ui"
 import { CommentsButton } from "@/components/comments/comments-provider"
+import { GitPbiBadge } from "@/components/git-dev/git-summaries-context"
 import { displayAssignees } from "../../lib/task-payload"
 import { taskElementId } from "../../lib/deep-link"
 import BoardCardMenu from "./board-card-menu"
@@ -120,6 +121,7 @@ const BoardCard = memo(function BoardCard({
             {task.estimatedHours ?? "-"} / {task.actualHours ?? "-"} {t.sprintHoursUnit}
           </span>
         )}
+        <GitPbiBadge pbiId={task.pbItem.id} />
         <div data-card-control onClick={stopPropagation} onKeyDown={stopPropagation} className="ml-auto">
           <CommentsButton entityId={task.id} name={name} />
         </div>

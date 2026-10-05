@@ -6,6 +6,7 @@ import { pickText } from "@/lib/translation/pick-text"
 import { Button, IconButton, Truncate, cn } from "@/components/ui"
 import { fillTemplate } from "@/lib/fill-template"
 import { isRealTask, summarizePbTasks } from "../lib/sprint-metrics"
+import { GitPbiBadge } from "@/components/git-dev/git-summaries-context"
 import SprintTaskRow from "./sprint-task-row"
 import type { SprintItem, SprintPbItem, SprintTaskActions } from "./types"
 import { CirclePlus, ClipboardList, Eye, Scale, SquarePen, Trash2 } from "lucide-react"
@@ -63,6 +64,7 @@ export default function PbiGroup({
               <Scale className="w-3.5 h-3.5" />
               {pbItem.workloadScore} {pointUnit}
             </span>
+            <GitPbiBadge pbiId={pbItem.id} />
           </div>
           <div className="flex items-center gap-1 flex-shrink-0">
             <IconButton size="sm" label={`${canEditPbi ? t.edit : t.view}: ${pbRef}`}

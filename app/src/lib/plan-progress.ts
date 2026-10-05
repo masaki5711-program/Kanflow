@@ -12,7 +12,10 @@
  *      calendar days, inclusive; milestones weigh 0 unless every child is a
  *      milestone, then equal weights); status = all done → done; all on_hold →
  *      on_hold; any in_progress / done → in_progress; else not_started;
- *      plannedStart / plannedEnd = min / max of the children.
+ *      plannedStart / plannedEnd = min / max of the DATED children (null
+ *      when none is dated; an undated non-milestone child weighs 1).
+ *  - Undated items (plannedStart / plannedEnd null = 日程未定) are never
+ *      delayed / at_risk and draw no bar; both dates are set or both null.
  *  - scheduleState (computed per request, never stored): done | on_hold |
  *      delayed | at_risk | not_started | on_track against "today" in Asia/Tokyo.
  *
@@ -99,9 +102,25 @@ export function inclusiveDays(start: Date, end: Date): number {
   return dayIndex(end) - dayIndex(start) + 1
 }
 
-/** plannedEnd − baselineEnd in days (positive = later than the baseline); null without a baseline. */
-export function baselineVarianceDays(plannedEnd: Date, baselineEnd: Date | null | undefined): number | null {
-  return baselineEnd ? dayIndex(plannedEnd) - dayIndex(baselineEnd) : null
+/** plannedEnd − baselineEnd in days (positive = later than the baseline); null without a baseline or planned end. */
+export function baselineVarianceDays(plannedEnd: Date | null, baselineEnd: Date | null | undefined): number | null {
+  return baselineEnd && plannedEnd ? dayIndex(plannedEnd) - dayIndex(baselineEnd) : null
+}
+
+/** Planned window of a plan row; null / partial = 日程未定 (undated). */
+export interface PlannedWindow {
+  plannedStart: Date | null
+  plannedEnd: Date | null
+}
+
+/** Narrowing: the row has both planned dates (only dated rows have a bar / can be late). */
+export function isDated<T extends PlannedWindow>(item: T): item is T & { plannedStart: Date; plannedEnd: Date } {
+  return item.plannedStart !== null && item.plannedEnd !== null
+}
+
+/** Same instant (or both null). */
+export function sameDateOrNull(a: Date | null, b: Date | null): boolean {
+  return a === null || b === null ? a === b : a.getTime() === b.getTime()
 }
 
 // ── leaves ──────────────────────────────────────────────────────────────────
@@ -149,18 +168,13 @@ export function deriveLinkedLeaf(pbis: readonly LinkedPbi[]): DerivedState | nul
 
 // ── parents ─────────────────────────────────────────────────────────────────
 
-export interface ChildState {
+export interface ChildState extends PlannedWindow {
   progressPct: number
   status: string
-  plannedStart: Date
-  plannedEnd: Date
   isMilestone: boolean
 }
 
-export interface ParentRollup extends DerivedState {
-  plannedStart: Date
-  plannedEnd: Date
-}
+export interface ParentRollup extends DerivedState, PlannedWindow {}
 
 function rollupStatus(statuses: readonly string[]): PlanStatus {
   if (statuses.every((s) => s === "done")) return "done"
@@ -171,7 +185,10 @@ function rollupStatus(statuses: readonly string[]): PlanStatus {
 
 function childWeights(children: readonly ChildState[]): number[] {
   if (children.every((c) => c.isMilestone)) return children.map(() => 1)
-  const weights = children.map((c) => (c.isMilestone ? 0 : Math.max(1, inclusiveDays(c.plannedStart, c.plannedEnd))))
+  const weights = children.map((c) => {
+    if (c.isMilestone) return 0
+    return isDated(c) ? Math.max(1, inclusiveDays(c.plannedStart, c.plannedEnd)) : 1
+  })
   return weights.some((w) => w > 0) ? weights : children.map(() => 1)
 }
 
@@ -180,38 +197,24 @@ export function rollupChildren(children: readonly ChildState[]): ParentRollup {
   const weights = childWeights(children)
   const total = weights.reduce((s, w) => s + w, 0)
   const weighted = children.reduce((s, c, i) => s + c.progressPct * weights[i], 0)
-  const start = Math.min(...children.map((c) => c.plannedStart.getTime()))
-  const end = Math.max(...children.map((c) => c.plannedEnd.getTime()))
+  const dated = children.filter(isDated)
   return {
     progressPct: Math.round(weighted / total),
     status: rollupStatus(children.map((c) => c.status)),
-    plannedStart: new Date(start),
-    plannedEnd: new Date(end),
+    plannedStart: dated.length > 0 ? new Date(Math.min(...dated.map((c) => c.plannedStart.getTime()))) : null,
+    plannedEnd: dated.length > 0 ? new Date(Math.max(...dated.map((c) => c.plannedEnd.getTime()))) : null,
   }
 }
 
 // ── schedule state ──────────────────────────────────────────────────────────
 
-export interface ScheduleInput {
+export interface ScheduleInput extends PlannedWindow {
   status: string
   progressPct: number
-  plannedStart: Date
-  plannedEnd: Date
 }
 
-/**
- * done: status done. on_hold: status on_hold (a paused item is never
- * reported delayed / at_risk). delayed: plannedEnd before today. at_risk: the window
- * has started and progress < elapsedPct − 15 (elapsedPct = days elapsed
- * INCLUDING today / planned days; a one-day item due today is exempt). not_started: no progress and not marked in
- * progress. on_track: otherwise. `todayKey` = Asia/Tokyo "YYYY-MM-DD".
- */
-export function computeScheduleState(item: ScheduleInput, todayKey: string): ScheduleState {
-  if (item.status === "done") return "done"
-  if (item.status === "on_hold") return "on_hold"
-  const today = dateFromKey(todayKey)
-  if (!today) return "on_track"
-  const t = dayIndex(today)
+/** delayed / at_risk of a dated, unfinished item (see computeScheduleState); null otherwise. */
+function lateness(item: ScheduleInput & { plannedStart: Date; plannedEnd: Date }, t: number): "delayed" | "at_risk" | null {
   const s = dayIndex(item.plannedStart)
   const e = dayIndex(item.plannedEnd)
   if (t > e) return "delayed"
@@ -220,20 +223,36 @@ export function computeScheduleState(item: ScheduleInput, todayKey: string): Sch
     const elapsedPct = ((t - s + 1) / Math.max(1, e - s + 1)) * 100
     if (item.progressPct < elapsedPct - AT_RISK_MARGIN_PCT) return "at_risk"
   }
+  return null
+}
+
+/**
+ * done: status done. on_hold: status on_hold (a paused item is never
+ * reported delayed / at_risk). delayed: plannedEnd before today. at_risk: the window
+ * has started and progress < elapsedPct − 15 (elapsedPct = days elapsed
+ * INCLUDING today / planned days; a one-day item due today is exempt). not_started: no progress and not marked in
+ * progress. on_track: otherwise. An undated item (日程未定) is never delayed / at_risk.
+ * `todayKey` = Asia/Tokyo "YYYY-MM-DD".
+ */
+export function computeScheduleState(item: ScheduleInput, todayKey: string): ScheduleState {
+  if (item.status === "done") return "done"
+  if (item.status === "on_hold") return "on_hold"
+  const today = dateFromKey(todayKey)
+  if (!today) return "on_track"
+  const late = isDated(item) ? lateness(item, dayIndex(today)) : null
+  if (late) return late
   if (item.progressPct === 0 && item.status !== "in_progress" && item.status !== "delayed") return "not_started"
   return "on_track"
 }
 
 // ── tree recalculation ──────────────────────────────────────────────────────
 
-export interface PlanCalcNode {
+export interface PlanCalcNode extends PlannedWindow {
   id: string
   parentId: string | null
   status: string
   progressPct: number
   progressMode: string
-  plannedStart: Date
-  plannedEnd: Date
   isMilestone: boolean
 }
 
@@ -241,8 +260,8 @@ export interface PlanCalcUpdate {
   id: string
   progressPct?: number
   status?: string
-  plannedStart?: Date
-  plannedEnd?: Date
+  plannedStart?: Date | null
+  plannedEnd?: Date | null
 }
 
 export interface PlanRecalcResult {
@@ -285,8 +304,8 @@ function diffOf(before: PlanCalcNode, after: PlanCalcNode): PlanCalcUpdate | nul
   const u: PlanCalcUpdate = { id: before.id }
   if (after.progressPct !== before.progressPct) u.progressPct = after.progressPct
   if (after.status !== before.status) u.status = after.status
-  if (after.plannedStart.getTime() !== before.plannedStart.getTime()) u.plannedStart = after.plannedStart
-  if (after.plannedEnd.getTime() !== before.plannedEnd.getTime()) u.plannedEnd = after.plannedEnd
+  if (!sameDateOrNull(after.plannedStart, before.plannedStart)) u.plannedStart = after.plannedStart
+  if (!sameDateOrNull(after.plannedEnd, before.plannedEnd)) u.plannedEnd = after.plannedEnd
   return Object.keys(u).length > 1 ? u : null
 }
 

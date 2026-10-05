@@ -14,6 +14,7 @@ import SprintRetroSummary from "./sprint-retro-summary"
 import SprintProgress from "./sprint-progress"
 import { SprintGoal } from "./sprint-goal"
 import { CommentsProvider } from "@/components/comments/comments-provider"
+import { GitSummariesProvider } from "@/components/git-dev/git-summaries-context"
 import { computeSprintMetrics, isRealTask } from "../lib/sprint-metrics"
 import { dateLocale } from "../lib/locale"
 import type { BoardViewState } from "../hooks/use-board-view-state"
@@ -59,6 +60,7 @@ export default function SprintCard({
   const taskActions: SprintTaskActions = useMemo(() => ({ ...actions, onRequestComplete: setPendingDoneTask }), [actions])
   const closeCommentEditor = useCallback(() => setEditingCommentTaskId(null), [])
   const taskIds = useMemo(() => sprint.items.filter(isRealTask).map((i) => i.id), [sprint.items])
+  const pbiIds = useMemo(() => [...new Set(sprint.items.map((i) => i.pbItem.id))], [sprint.items])
 
   return (
     <article className="bg-surface rounded-ui-md shadow-ui-sm border border-border overflow-hidden">
@@ -72,6 +74,8 @@ export default function SprintCard({
 
       {isExpanded && (
         <CommentsProvider projectId={projectId} entityType="sprint_task" entityIds={taskIds}>
+          {/* Git badges of the cards: one request for the sprint's PBIs (nothing when Git is off). */}
+          <GitSummariesProvider projectId={projectId} pbiIds={pbiIds}>
           <div id={`sprint-body-${sprint.id}`}>
             <div className="border-t border-border px-6 py-2.5 bg-surface-muted">
               <button type="button" onClick={() => setShowDaily((v) => !v)} aria-expanded={showDaily} aria-controls={dailyId}
@@ -94,6 +98,7 @@ export default function SprintCard({
               onOpenCommentEditor={setEditingCommentTaskId} onCloseCommentEditor={closeCommentEditor}
               actions={taskActions} onAddPbi={() => actions.onAddPbi(sprint.id)} />
           </div>
+          </GitSummariesProvider>
         </CommentsProvider>
       )}
 

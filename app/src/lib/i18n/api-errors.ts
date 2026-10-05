@@ -68,6 +68,13 @@ export interface ApiErrorsTranslations {
   apiErrPbiDependencyInvalid: string
   apiErrPbiDependencyExists: string
   apiErrPlanOwnerNotMember: string
+  apiErrPlanDatesIncomplete: string
+  apiErrPlanTemplateNotFound: string
+  apiErrPlanTemplateBuiltin: string
+  apiErrPlanTemplateDeleteForbidden: string
+  apiErrPlanTemplateNotBuiltin: string
+  apiErrPlanTemplateTooLarge: string
+  apiErrPlanTemplateEmpty: string
   apiErrFileRequired: string
   apiErrFileEmpty: string
   apiErrFileMissing: string
@@ -87,6 +94,14 @@ export interface ApiErrorsTranslations {
   apiErrTeamChatMirrorReadonly: string
   apiErrFileTypeMismatch: string
   apiErrStorageQuotaExceeded: string
+  apiErrImprovementNeedsStandard: string
+  apiErrImprovementNeedsSustainedCheck: string
+  apiErrImprovementTargetDirection: string
+  apiErrImprovementTooManyPhotos: string
+  apiErrImprovementPhotoNotImage: string
+  apiErrImprovementTooManyRollouts: string
+  apiErrImprovementTooManyChecks: string
+  apiErrMilestoneLimitReached: string
   apiErrInvalidDate: string
   apiErrGlossarySameLocale: string
   apiErrTranslationFailed: string
@@ -155,6 +170,13 @@ export const API_ERROR_MESSAGE_KEYS: Readonly<Record<ApiErrorCode, ApiErrorMessa
   PBI_DEPENDENCY_INVALID: "apiErrPbiDependencyInvalid",
   PBI_DEPENDENCY_EXISTS: "apiErrPbiDependencyExists",
   PLAN_OWNER_NOT_MEMBER: "apiErrPlanOwnerNotMember",
+  PLAN_DATES_INCOMPLETE: "apiErrPlanDatesIncomplete",
+  PLAN_TEMPLATE_NOT_FOUND: "apiErrPlanTemplateNotFound",
+  PLAN_TEMPLATE_BUILTIN: "apiErrPlanTemplateBuiltin",
+  PLAN_TEMPLATE_DELETE_FORBIDDEN: "apiErrPlanTemplateDeleteForbidden",
+  PLAN_TEMPLATE_NOT_BUILTIN: "apiErrPlanTemplateNotBuiltin",
+  PLAN_TEMPLATE_TOO_LARGE: "apiErrPlanTemplateTooLarge",
+  PLAN_TEMPLATE_EMPTY: "apiErrPlanTemplateEmpty",
   FILE_REQUIRED: "apiErrFileRequired",
   FILE_EMPTY: "apiErrFileEmpty",
   FILE_MISSING: "apiErrFileMissing",
@@ -174,6 +196,14 @@ export const API_ERROR_MESSAGE_KEYS: Readonly<Record<ApiErrorCode, ApiErrorMessa
   TEAM_CHAT_MIRROR_READONLY: "apiErrTeamChatMirrorReadonly",
   FILE_TYPE_MISMATCH: "apiErrFileTypeMismatch",
   STORAGE_QUOTA_EXCEEDED: "apiErrStorageQuotaExceeded",
+  IMPROVEMENT_NEEDS_STANDARD: "apiErrImprovementNeedsStandard",
+  IMPROVEMENT_NEEDS_SUSTAINED_CHECK: "apiErrImprovementNeedsSustainedCheck",
+  IMPROVEMENT_TARGET_DIRECTION: "apiErrImprovementTargetDirection",
+  IMPROVEMENT_TOO_MANY_PHOTOS: "apiErrImprovementTooManyPhotos",
+  IMPROVEMENT_PHOTO_NOT_IMAGE: "apiErrImprovementPhotoNotImage",
+  IMPROVEMENT_TOO_MANY_ROLLOUTS: "apiErrImprovementTooManyRollouts",
+  IMPROVEMENT_TOO_MANY_CHECKS: "apiErrImprovementTooManyChecks",
+  MILESTONE_LIMIT_REACHED: "apiErrMilestoneLimitReached",
   INVALID_DATE: "apiErrInvalidDate",
   GLOSSARY_SAME_LOCALE: "apiErrGlossarySameLocale",
   TRANSLATION_FAILED: "apiErrTranslationFailed",
@@ -249,6 +279,13 @@ export const ja: ApiErrorsTranslations = {
   apiErrPbiDependencyInvalid: "同じ PBI どうしには依存関係を設定できません",
   apiErrPbiDependencyExists: "この依存関係は既に設定されています",
   apiErrPlanOwnerNotMember: "担当者はプロジェクトメンバーから選択してください",
+  apiErrPlanDatesIncomplete: "開始日と終了日は両方入力するか、両方空にしてください",
+  apiErrPlanTemplateNotFound: "テンプレートが見つかりません",
+  apiErrPlanTemplateBuiltin: "共通テンプレートは削除できません（デフォルトに戻すことはできます）",
+  apiErrPlanTemplateDeleteForbidden: "このテンプレートを削除できるのは作成者または管理者だけです",
+  apiErrPlanTemplateNotBuiltin: "デフォルトに戻せるのは共通テンプレートだけです",
+  apiErrPlanTemplateTooLarge: "計画が大きすぎるためテンプレートにできません（3階層・200項目まで）",
+  apiErrPlanTemplateEmpty: "読み込む・保存する工程がありません",
   apiErrFileRequired: "ファイルがありません",
   apiErrFileEmpty: "ファイルが空です",
   apiErrFileMissing: "ファイルが見つかりません",
@@ -268,6 +305,14 @@ export const ja: ApiErrorsTranslations = {
   apiErrTeamChatMirrorReadonly: "スプリントなどのコメントは元の画面で削除してください",
   apiErrFileTypeMismatch: "ファイルの内容が拡張子と一致しません",
   apiErrStorageQuotaExceeded: "プロジェクトの添付ファイル容量の上限に達しました。不要なファイルを削除してください",
+  apiErrImprovementNeedsStandard: "「標準化済み」にするには、先に標準書リンクを入れてください",
+  apiErrImprovementNeedsSustainedCheck: "「定着確認済み」にするには、定着確認で「維持できている」を 1 回以上記録してください",
+  apiErrImprovementTargetDirection: "目標値が改善前より良くなっていません（「良い方向」を確認してください）",
+  apiErrImprovementTooManyPhotos: "写真は改善前・改善後それぞれ 10 枚までです",
+  apiErrImprovementPhotoNotImage: "写真には画像ファイルを選んでください",
+  apiErrImprovementTooManyRollouts: "横展開先が多すぎます",
+  apiErrImprovementTooManyChecks: "定着確認が多すぎます",
+  apiErrMilestoneLimitReached: "これ以上追加できません（件数の上限です）",
   apiErrInvalidDate: "日付が不正です",
   apiErrGlossarySameLocale: "翻訳元と翻訳先の言語は別にしてください",
   apiErrTranslationFailed: "翻訳に失敗しました",
@@ -337,6 +382,13 @@ export const en: ApiErrorsTranslations = {
   apiErrPbiDependencyInvalid: "A PBI cannot depend on itself",
   apiErrPbiDependencyExists: "This dependency is already set",
   apiErrPlanOwnerNotMember: "The owner must be a member of the project",
+  apiErrPlanDatesIncomplete: "Enter both the start and the end date, or leave both empty",
+  apiErrPlanTemplateNotFound: "Template not found",
+  apiErrPlanTemplateBuiltin: "Common templates cannot be deleted (you can reset them to the default)",
+  apiErrPlanTemplateDeleteForbidden: "Only the creator or an admin can delete this template",
+  apiErrPlanTemplateNotBuiltin: "Only common templates can be reset to the default",
+  apiErrPlanTemplateTooLarge: "The plan is too large to save as a template (3 levels, 200 items max)",
+  apiErrPlanTemplateEmpty: "There are no stages to load or save",
   apiErrFileRequired: "No file was provided",
   apiErrFileEmpty: "The file is empty",
   apiErrFileMissing: "The file was not found",
@@ -356,6 +408,14 @@ export const en: ApiErrorsTranslations = {
   apiErrTeamChatMirrorReadonly: "Delete sprint / backlog comments where they were written",
   apiErrFileTypeMismatch: "The file contents do not match its extension",
   apiErrStorageQuotaExceeded: "This project has reached its attachment storage limit. Delete files you no longer need",
+  apiErrImprovementNeedsStandard: "Add the standard document link before marking it as standardized",
+  apiErrImprovementNeedsSustainedCheck: "Record at least one \"still sustained\" check before marking it as sustained",
+  apiErrImprovementTargetDirection: "The target is not better than the baseline (check \"better when\")",
+  apiErrImprovementTooManyPhotos: "Up to 10 photos each for before and after",
+  apiErrImprovementPhotoNotImage: "Please choose an image file for the photo",
+  apiErrImprovementTooManyRollouts: "Too many rollout targets",
+  apiErrImprovementTooManyChecks: "Too many sustainment checks",
+  apiErrMilestoneLimitReached: "Cannot add more (the limit has been reached)",
   apiErrInvalidDate: "Invalid date",
   apiErrGlossarySameLocale: "Source and target languages must differ",
   apiErrTranslationFailed: "Translation failed",
@@ -425,6 +485,13 @@ export const id: ApiErrorsTranslations = {
   apiErrPbiDependencyInvalid: "PBI tidak dapat bergantung pada dirinya sendiri",
   apiErrPbiDependencyExists: "Dependensi ini sudah diatur",
   apiErrPlanOwnerNotMember: "Penanggung jawab harus anggota proyek",
+  apiErrPlanDatesIncomplete: "Isi tanggal mulai dan selesai, atau kosongkan keduanya",
+  apiErrPlanTemplateNotFound: "Templat tidak ditemukan",
+  apiErrPlanTemplateBuiltin: "Templat umum tidak dapat dihapus (dapat dikembalikan ke default)",
+  apiErrPlanTemplateDeleteForbidden: "Hanya pembuat atau admin yang dapat menghapus templat ini",
+  apiErrPlanTemplateNotBuiltin: "Hanya templat umum yang dapat dikembalikan ke default",
+  apiErrPlanTemplateTooLarge: "Rencana terlalu besar untuk disimpan sebagai templat (maks. 3 tingkat, 200 item)",
+  apiErrPlanTemplateEmpty: "Tidak ada tahapan untuk dimuat atau disimpan",
   apiErrFileRequired: "Tidak ada file yang dikirim",
   apiErrFileEmpty: "File kosong",
   apiErrFileMissing: "File tidak ditemukan",
@@ -444,6 +511,14 @@ export const id: ApiErrorsTranslations = {
   apiErrTeamChatMirrorReadonly: "Hapus komentar sprint/backlog di tempat aslinya",
   apiErrFileTypeMismatch: "Isi file tidak sesuai dengan ekstensinya",
   apiErrStorageQuotaExceeded: "Proyek ini telah mencapai batas penyimpanan lampiran. Hapus file yang tidak diperlukan",
+  apiErrImprovementNeedsStandard: "Isi tautan dokumen standar terlebih dahulu sebelum menandai sebagai sudah distandarkan",
+  apiErrImprovementNeedsSustainedCheck: "Catat minimal satu pengecekan \"masih terjaga\" sebelum menandai sebagai sudah terjaga",
+  apiErrImprovementTargetDirection: "Target tidak lebih baik dari kondisi awal (periksa \"lebih baik jika\")",
+  apiErrImprovementTooManyPhotos: "Maksimal 10 foto masing-masing untuk sebelum dan sesudah",
+  apiErrImprovementPhotoNotImage: "Pilih file gambar untuk foto",
+  apiErrImprovementTooManyRollouts: "Terlalu banyak tujuan penerapan",
+  apiErrImprovementTooManyChecks: "Terlalu banyak pengecekan",
+  apiErrMilestoneLimitReached: "Tidak dapat menambah lagi (batas jumlah tercapai)",
   apiErrInvalidDate: "Tanggal tidak valid",
   apiErrGlossarySameLocale: "Bahasa sumber dan bahasa tujuan harus berbeda",
   apiErrTranslationFailed: "Terjemahan gagal",
