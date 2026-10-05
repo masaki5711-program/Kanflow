@@ -60,6 +60,7 @@ function emptyClient(overrides: Record<string, unknown> = {}) {
     listCommits: vi.fn().mockResolvedValue([]),
     listBranches: vi.fn().mockResolvedValue([]),
     getMergeRequestPipeline: vi.fn().mockResolvedValue(null),
+    canReadRepository: vi.fn().mockResolvedValue(true),
     ...overrides,
   }
 }

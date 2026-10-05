@@ -13,9 +13,10 @@ const gitLinkFindMany = vi.fn()
 const productBacklogItemFindFirst = vi.fn()
 const logActivityMock = vi.fn()
 const getProjectMock = vi.fn()
+const canReadRepositoryMock = vi.fn()
 const createGitLabClientMock = vi.fn((...args: unknown[]) => {
   void args // signature only; call args are asserted separately via toHaveBeenCalledWith
-  return { getProject: getProjectMock }
+  return { getProject: getProjectMock, canReadRepository: canReadRepositoryMock }
 })
 
 vi.mock("@/lib/prisma", () => ({
@@ -66,6 +67,7 @@ beforeEach(() => {
   gitLinkFindMany.mockResolvedValue([])
   productBacklogItemFindFirst.mockResolvedValue(null)
   getProjectMock.mockResolvedValue({ id: 555, web_url: REPO_URL, path_with_namespace: "group/repo", default_branch: "main" })
+  canReadRepositoryMock.mockResolvedValue(true)
 })
 
 afterEach(() => {
@@ -182,6 +184,21 @@ describe("testConnection", () => {
     const result = await svc.testConnection(PROJECT_ID, REPO_URL)
     expect(result).toEqual({ ok: false, error: "アクセストークンが設定されていません。" })
     expect(createGitLabClientMock).not.toHaveBeenCalled()
+  })
+
+  it("refuses a token whose owner is only a Guest, naming the role", async () => {
+    getProjectMock.mockResolvedValue({ id: 555, web_url: REPO_URL, path_with_namespace: "group/repo", default_branch: "main", permissions: { project_access: null, group_access: { access_level: 10 } } })
+    const result = await svc.testConnection(PROJECT_ID, REPO_URL, "given-token")
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain("レポーター以上")
+    expect(result.error).toContain("現在のロール: ゲスト")
+  })
+
+  it("refuses when the repository contents are not readable even though the project is visible", async () => {
+    canReadRepositoryMock.mockResolvedValue(false)
+    const result = await svc.testConnection(PROJECT_ID, REPO_URL, "given-token")
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain("レポーター以上")
   })
 
   it("uses the given token over the saved integration token", async () => {

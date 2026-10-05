@@ -3,7 +3,8 @@
  * Every call has a timeout and bounded pagination; errors are mapped to
  * GitLabError kinds the settings UI can explain.
  */
-export type GitLabErrorKind = "auth" | "not_found" | "rate_limited" | "network" | "http"
+/** auth = 401 (token invalid / expired); forbidden = 403 (valid token, but its owner may not read this). */
+export type GitLabErrorKind = "auth" | "forbidden" | "not_found" | "rate_limited" | "network" | "http"
 
 export class GitLabError extends Error {
   constructor(
@@ -21,7 +22,21 @@ export interface GitLabProject {
   web_url: string
   path_with_namespace: string
   default_branch: string | null
+  /** The token owner's role (10 Guest, 20 Reporter, 30 Developer …); absent for admin / some tokens. */
+  permissions?: {
+    project_access?: { access_level?: number } | null
+    group_access?: { access_level?: number } | null
+  } | null
 }
+
+/** GitLab role of the token owner on the project (highest of project / group), or null when unknown. */
+export function accessLevelOf(p: Pick<GitLabProject, "permissions">): number | null {
+  const levels = [p.permissions?.project_access?.access_level, p.permissions?.group_access?.access_level].filter((n): n is number => typeof n === "number")
+  return levels.length > 0 ? Math.max(...levels) : null
+}
+
+/** Reporter: the lowest role that can read code and merge requests of a private project. */
+export const REPORTER_ACCESS_LEVEL = 20
 
 export interface GitLabMergeRequest {
   iid: number
@@ -77,7 +92,8 @@ export function createGitLabClient({ apiBase, token, fetchImpl = fetch, timeoutM
     } catch (err) {
       throw new GitLabError("network", `GitLab unreachable: ${err instanceof Error ? err.message : String(err)}`)
     }
-    if (res.status === 401 || res.status === 403) throw new GitLabError("auth", `GitLab rejected the token (${res.status})`, res.status)
+    if (res.status === 401) throw new GitLabError("auth", "GitLab rejected the token (401)", 401)
+    if (res.status === 403) throw new GitLabError("forbidden", "The token owner may not read this (403)", 403)
     if (res.status === 404) throw new GitLabError("not_found", "Repository not found or not visible to this token", 404)
     if (res.status === 429) throw new GitLabError("rate_limited", "GitLab rate limit reached", 429)
     if (!res.ok) throw new GitLabError("http", `GitLab responded ${res.status}`, res.status)
@@ -106,6 +122,16 @@ export function createGitLabClient({ apiBase, token, fetchImpl = fetch, timeoutM
     getMergeRequestPipeline: async (id: number, iid: number): Promise<string | null> => {
       const mr = (await request<{ head_pipeline?: { status?: string } | null }>(`${project(id)}/merge_requests/${iid}`)).data
       return mr.head_pipeline?.status ?? null
+    },
+    /** True when the token can read the repository contents (a Guest on a private project cannot). */
+    canReadRepository: async (id: number): Promise<boolean> => {
+      try {
+        await request<unknown[]>(`${project(id)}/repository/branches`, { per_page: 1 })
+        return true
+      } catch (err) {
+        if (err instanceof GitLabError && err.kind === "forbidden") return false
+        throw err
+      }
     },
     listBranches: (id: number, search: string, maxPages = 3) => paged<GitLabBranch>(`${project(id)}/repository/branches`, { search }, maxPages),
     listCommits: (id: number, since: Date, maxPages = 3) =>

@@ -1,13 +1,13 @@
 import { z } from "zod"
 import { prisma } from "@/lib/prisma"
 import { open, seal, secretHint } from "@/lib/secret-box"
-import { createGitLabClient, GitLabError } from "@/lib/git/gitlab-client"
+import { accessLevelOf, createGitLabClient, GitLabError, REPORTER_ACCESS_LEVEL } from "@/lib/git/gitlab-client"
 import { parseRepoUrl } from "@/lib/git/repo-url"
 import { pbiKey, suggestBranchName } from "@/lib/git/pbi-keys"
 import { NotFoundError, ValidationError } from "@/services/_shared/errors"
 import { logActivity, type ActivityChanges } from "@/services/_shared/activity"
 import type { Actor } from "@/services/_shared/actor"
-import { syncErrorMessage } from "./git-sync"
+import { FORBIDDEN_MESSAGE, syncErrorMessage } from "./git-sync"
 
 /**
  * GitLab integration settings and read models. The access token is write-only:
@@ -162,11 +162,27 @@ export async function testConnection(projectId: string, url: string, token?: str
   const usable = await tokenFor(projectId, token)
   if (!usable) return { ok: false, error: "アクセストークンが設定されていません。" }
   try {
-    const p = await createGitLabClient({ apiBase: location.apiBase, token: usable, fetchImpl }).getProject(location.repoPath)
+    const client = createGitLabClient({ apiBase: location.apiBase, token: usable, fetchImpl })
+    const p = await client.getProject(location.repoPath)
+    // Seeing the project is not enough: a Guest sees it but cannot read code or merge requests.
+    const level = accessLevelOf(p)
+    if ((level !== null && level < REPORTER_ACCESS_LEVEL) || !(await client.canReadRepository(p.id))) {
+      return { ok: false, error: level !== null && level < REPORTER_ACCESS_LEVEL ? `${FORBIDDEN_MESSAGE}（現在のロール: ${roleName(level)}）` : FORBIDDEN_MESSAGE }
+    }
     return { ok: true, repository: { path: p.path_with_namespace, webUrl: p.web_url, defaultBranch: p.default_branch, externalId: p.id } }
   } catch (err) {
     return { ok: false, error: err instanceof GitLabError ? syncErrorMessage(err) : "接続テストに失敗しました" }
   }
+}
+
+/** GitLab role names as GitLab's Japanese UI shows them. */
+function roleName(level: number): string {
+  if (level >= 50) return "オーナー"
+  if (level >= 40) return "メンテナー"
+  if (level >= 30) return "デベロッパー"
+  if (level >= 20) return "レポーター"
+  if (level >= 10) return "ゲスト"
+  return "なし"
 }
 
 export async function addRepository(projectId: string, input: z.infer<typeof addRepositorySchema>, actor: Actor, fetchImpl?: typeof fetch): Promise<GitRepositoryDto> {

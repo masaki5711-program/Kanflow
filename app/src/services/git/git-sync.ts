@@ -75,12 +75,19 @@ export async function syncRepository(repositoryId: string, factory: ClientFactor
   }
 }
 
+/** 403 on code / merge requests: the token is valid but its owner's role (e.g. Guest) cannot read them. */
+export const FORBIDDEN_MESSAGE =
+  "トークンの持ち主に、このリポジトリのコードやマージリクエストを読む権限がありません（GitLab のロールが「ゲスト」など）。" +
+  "GitLab でレポーター以上のロールを付けてもらうか、レポーター以上の人のトークン（read_api）を設定してください。"
+
 /** Japanese message stored on the repository (shown in settings and on the Git page). */
 export function syncErrorMessage(err: unknown): string {
   if (!(err instanceof GitLabError)) return "同期中にエラーが発生しました"
   switch (err.kind) {
     case "auth":
-      return "GitLab がトークンを拒否しました（期限切れ・権限不足の可能性）。read_api 権限のトークンを設定してください。"
+      return "GitLab がトークンを拒否しました（無効または期限切れ）。read_api 権限の新しいトークンを設定してください。"
+    case "forbidden":
+      return FORBIDDEN_MESSAGE
     case "not_found":
       return "リポジトリが見つからないか、このトークンでは見えません。URL とトークンの権限を確認してください。"
     case "rate_limited":

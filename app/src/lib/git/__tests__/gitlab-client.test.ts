@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
-import { createGitLabClient, GitLabError } from "../gitlab-client"
+import { createGitLabClient, GitLabError, accessLevelOf } from "../gitlab-client"
 
 const API_BASE = "https://gitlab.scm.service.infosys.yamaha.com"
 const TOKEN = "glpat-test-token"
@@ -48,7 +48,7 @@ describe("createGitLabClient — request plumbing", () => {
 describe("createGitLabClient — error mapping", () => {
   it.each([
     [401, "auth"],
-    [403, "auth"],
+    [403, "forbidden"],
     [404, "not_found"],
     [429, "rate_limited"],
     [500, "http"],
@@ -170,5 +170,27 @@ describe("createGitLabClient — endpoint query shapes", () => {
     const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse({ head_pipeline: null }))
     const client = createGitLabClient({ apiBase: API_BASE, token: TOKEN, fetchImpl })
     expect(await client.getMergeRequestPipeline(5, 12)).toBeNull()
+  })
+})
+
+describe("canReadRepository", () => {
+  const fetchWith = (status: number) =>
+    vi.fn<typeof fetch>().mockResolvedValue(new Response(status === 200 ? "[]" : "{}", { status, headers: { "content-type": "application/json" } }))
+
+  it("is true when the branch list is readable and false on 403 (e.g. a Guest)", async () => {
+    expect(await createGitLabClient({ apiBase: "https://gl.example", token: "t", fetchImpl: fetchWith(200) }).canReadRepository(1)).toBe(true)
+    expect(await createGitLabClient({ apiBase: "https://gl.example", token: "t", fetchImpl: fetchWith(403) }).canReadRepository(1)).toBe(false)
+  })
+
+  it("rethrows other failures", async () => {
+    await expect(createGitLabClient({ apiBase: "https://gl.example", token: "t", fetchImpl: fetchWith(401) }).canReadRepository(1)).rejects.toMatchObject({ kind: "auth" })
+  })
+})
+
+describe("accessLevelOf", () => {
+  it("takes the highest of project and group access, null when unknown", () => {
+    expect(accessLevelOf({ permissions: { project_access: { access_level: 30 }, group_access: { access_level: 10 } } })).toBe(30)
+    expect(accessLevelOf({ permissions: { project_access: null, group_access: { access_level: 10 } } })).toBe(10)
+    expect(accessLevelOf({ permissions: null })).toBeNull()
   })
 })
