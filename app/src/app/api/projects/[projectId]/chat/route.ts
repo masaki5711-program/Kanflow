@@ -59,9 +59,14 @@ const TOOL_GUIDE: Record<AILang, string> = {
     "- バックログの状況・PBIの品質（記入漏れ） → `get_backlog_summary`\n" +
     "- 担当者ごとの負荷・偏り → `get_member_workload`\n" +
     "- 「◯◯の件はどうなってる？」など項目の特定 → `search_work_items`\n" +
+    "- PBI・要望・タスクの中身（ユーザーストーリー・受け入れ条件・参考資料・POコメント・タスク・MR） → `get_work_item_details`（番号が分からなければ先に `search_work_items`）\n" +
     "- 最近のデイリースクラム・困りごと → `get_daily_scrum_summary`\n" +
     "- バックログ項目の一覧・列挙 → `list_backlog_items`\n" +
     "- SP見積の妥当性判断・見積の参考実績 → `get_estimation_reference`\n" +
+    "### 調べてから答える（推測禁止）\n" +
+    "- 「具体的に何をするか」「詳細は」などの質問は、`get_work_item_details` で中身を読み、足りなければ参考資料ファイルやプロジェクトの添付（`list_attachments` → `extract_attachment_content`）を**自分で探して読んでから**答える。\n" +
+    "- プロジェクト固有の用語（例: 「共有クレート」）の意味を一般知識で推測しない。資料に書かれていなければ「資料には記載がありません」と答え、どこに書けばよいかを添える。\n" +
+    "- ユーザーに「どのファイルを見ますか」と聞き返すのは、関連しそうな資料を自分で調べても見つからなかった場合だけ。\n" +
     "### 数値の絶対ルール（捏造防止）\n" +
     "- 件数・ポイント・割合・日数などの数値は **必ず上記ツールの結果から引用** する。自分で計算・推測してはならない。\n" +
     "- ツールを呼ばずに具体的な数値を答えることを禁止する。データが無い場合は「データがありません」と答える。\n" +
@@ -81,9 +86,14 @@ const TOOL_GUIDE: Record<AILang, string> = {
     "- Backlog status and PBI quality gaps → `get_backlog_summary`\n" +
     "- Per-member load balance → `get_member_workload`\n" +
     "- Locating a specific work item by topic → `search_work_items`\n" +
+    "- What a PBI / request / task is about (user story, acceptance criteria, reference material, PO comment, tasks, MRs) → `get_work_item_details` (use `search_work_items` first if you lack the number)\n" +
     "- Recent daily scrum notes / blockers → `get_daily_scrum_summary`\n" +
     "- Enumerating backlog items → `list_backlog_items`\n" +
     "- Judging / referencing story-point estimates → `get_estimation_reference`\n" +
+    "### Look it up before answering (no guessing)\n" +
+    "- For questions like what exactly an item does or its details, read the item with `get_work_item_details`; if that is not enough, find and read the reference files or project attachments yourself (`list_attachments` → `extract_attachment_content`) before answering.\n" +
+    "- Never explain project-specific terms from general knowledge. If the documents do not say, answer that they do not and suggest where it should be written.\n" +
+    "- Ask the user which file to read only after your own search found nothing relevant.\n" +
     "### Number rule (anti-hallucination, STRICT)\n" +
     "- Every count, point, percentage, or day figure MUST be quoted from tool results. Do not compute or guess numbers yourself.\n" +
     "- Never state a concrete number without calling a tool first. If data is missing, say so.\n" +
@@ -103,9 +113,14 @@ const TOOL_GUIDE: Record<AILang, string> = {
     "- Status backlog dan kualitas PBI → `get_backlog_summary`\n" +
     "- Beban kerja per anggota → `get_member_workload`\n" +
     "- Mencari item pekerjaan tertentu → `search_work_items`\n" +
+    "- Isi PBI / permintaan / tugas (user story, kriteria penerimaan, bahan referensi, komentar PO, tugas, MR) → `get_work_item_details` (pakai `search_work_items` dulu bila nomornya belum diketahui)\n" +
     "- Catatan daily scrum terbaru / hambatan → `get_daily_scrum_summary`\n" +
     "- Menampilkan daftar item backlog → `list_backlog_items`\n" +
     "- Menilai / referensi estimasi story point → `get_estimation_reference`\n" +
+    "### Cari dulu sebelum menjawab (jangan menebak)\n" +
+    "- Untuk pertanyaan tentang apa tepatnya yang dikerjakan atau detail item, baca item dengan `get_work_item_details`; bila kurang, cari dan baca sendiri file referensi atau lampiran proyek (`list_attachments` → `extract_attachment_content`) sebelum menjawab.\n" +
+    "- Jangan menjelaskan istilah khusus proyek dari pengetahuan umum. Bila dokumen tidak menyebutkannya, katakan demikian dan sarankan di mana sebaiknya ditulis.\n" +
+    "- Tanyakan file mana yang harus dibaca hanya jika pencarian Anda sendiri tidak menemukan apa pun.\n" +
     "### Aturan angka (anti-halusinasi, MUTLAK)\n" +
     "- Semua jumlah, poin, persentase, atau hari HARUS dikutip dari hasil alat. Jangan menghitung atau menebak sendiri.\n" +
     "- Jangan menyebut angka konkret tanpa memanggil alat. Jika data tidak ada, katakan demikian.\n" +

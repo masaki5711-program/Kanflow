@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
  */
 
 const m = vi.hoisted(() => ({
+  pbiAttFindFirst: vi.fn().mockResolvedValue(null),
   attFindMany: vi.fn(),
   attFindFirst: vi.fn(),
   extract: vi.fn(),
@@ -21,6 +22,7 @@ const m = vi.hoisted(() => ({
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     projectAttachment: { findMany: m.attFindMany, findFirst: m.attFindFirst },
+    pbiAttachment: { findFirst: m.pbiAttFindFirst },
     sprint: { findFirst: m.sprintFindFirst, findMany: m.sprintFindMany },
     sprintBacklogItem: { findMany: m.sbiFindMany },
     productBacklogItem: { findMany: m.pbiFindMany },
@@ -133,8 +135,19 @@ describe("extract_attachment_content", () => {
       args: { attachment_id: "a-other" },
     })
     expect(m.attFindFirst.mock.calls[0][0].where).toEqual({ id: "a-other", projectId: "p1" })
+    // PBI reference files are looked up through the PBI's project too.
+    expect(m.pbiAttFindFirst.mock.calls[0][0].where).toEqual({ id: "a-other", backlogItem: { projectId: "p1" } })
     expect(out).toBe("Error: attachment a-other not found in this project.")
     expect(m.extract).not.toHaveBeenCalled()
+  })
+
+  it("reads a PBI reference file (pbi_attachment) of the same project", async () => {
+    m.attFindFirst.mockResolvedValueOnce(null)
+    m.pbiAttFindFirst.mockResolvedValueOnce({ fileName: "f.docx", originalName: "spec.docx", mimeType: "application/msword" })
+    m.extract.mockResolvedValueOnce({ ok: true, format: "docx", truncated: false, text: "本文" })
+    const out = await runTool("extract_attachment_content", { projectId: "p1", args: { attachment_id: "pa1" } })
+    expect(out).toContain("Content of spec.docx")
+    expect(out).toContain("本文")
   })
 
   it("extracts content of an own attachment using the caller's projectId", async () => {

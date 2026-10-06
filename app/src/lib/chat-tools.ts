@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma"
 import { extractAttachment } from "@/lib/attachment-extractor"
 import { ANALYSIS_TOOL_DEFS, analysisHandlers } from "@/lib/analysis-tools"
+import { DETAIL_TOOL_DEFS, detailHandlers } from "@/lib/analysis-tools-detail"
 import { packHandlers } from "@/lib/chat-tool-packs"
 import type { ToolDefinition, ToolHandler, ToolHandlerArgs } from "@/lib/chat-tools-types"
 
@@ -49,7 +50,7 @@ const tools: ToolDefinition[] = [
         properties: {
           attachment_id: {
             type: "string",
-            description: "The id returned by list_attachments.",
+            description: "The id returned by list_attachments, or the attachment_id of a PBI reference file from get_work_item_details.",
           },
         },
         required: ["attachment_id"],
@@ -58,7 +59,7 @@ const tools: ToolDefinition[] = [
   },
 ]
 
-export const CHAT_TOOLS: ToolDefinition[] = [...tools, ...ANALYSIS_TOOL_DEFS]
+export const CHAT_TOOLS: ToolDefinition[] = [...tools, ...ANALYSIS_TOOL_DEFS, ...DETAIL_TOOL_DEFS]
 
 const handlers: Record<string, ToolHandler> = {
   async list_attachments({ projectId, args }) {
@@ -97,10 +98,15 @@ const handlers: Record<string, ToolHandler> = {
   async extract_attachment_content({ projectId, args }) {
     const id = typeof args.attachment_id === "string" ? args.attachment_id : ""
     if (!id) return "Error: attachment_id is required."
-    const row = await prisma.projectAttachment.findFirst({
-      where: { id, projectId },
-      select: { fileName: true, originalName: true, mimeType: true, linkUrl: true },
-    })
+    // Project files first, then a PBI's 参考資料 files (same storage, scoped through the PBI).
+    const row =
+      (await prisma.projectAttachment.findFirst({
+        where: { id, projectId },
+        select: { fileName: true, originalName: true, mimeType: true, linkUrl: true },
+      })) ??
+      (await prisma.pbiAttachment
+        .findFirst({ where: { id, backlogItem: { projectId } }, select: { fileName: true, originalName: true, mimeType: true } })
+        .then((r) => (r ? { ...r, linkUrl: null } : null)))
     if (!row) return `Error: attachment ${id} not found in this project.`
     if (row.linkUrl) return `${row.originalName} is a link (no file content): ${row.linkUrl}`
     const result = await extractAttachment({
@@ -123,7 +129,7 @@ const handlers: Record<string, ToolHandler> = {
  * see proposal tools (no human to approve).
  */
 export async function runTool(name: string, ctx: ToolHandlerArgs): Promise<string> {
-  const handler = handlers[name] ?? analysisHandlers[name] ?? packHandlers[name]
+  const handler = handlers[name] ?? analysisHandlers[name] ?? detailHandlers[name] ?? packHandlers[name]
   if (!handler) return `Error: unknown tool ${name}`
   try {
     return await handler(ctx)

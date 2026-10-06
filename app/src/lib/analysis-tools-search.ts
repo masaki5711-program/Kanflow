@@ -116,7 +116,7 @@ export async function searchWorkItems(projectId: string, keyword: string) {
       title: trunc(i.request, 80),
     })),
     ...tasks.map((t) => ({
-      type: "task", pbi: `#${t.pbItem.displayId}`, status: t.status,
+      type: "task", task_id: t.id, pbi: `#${t.pbItem.displayId}`, status: t.status,
       sprint: `${t.sprint.sprintName} (${t.sprint.status})`,
       assignee: assigneeNamesOf(t).join(", ") || null,
       title: trunc(t.taskName, 80),
