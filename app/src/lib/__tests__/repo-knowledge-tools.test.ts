@@ -14,7 +14,7 @@ vi.mock("@/services/git/repo-search", async (importOriginal) => {
 })
 vi.mock("@/lib/prisma", () => ({ prisma: {} }))
 
-const { REPO_KNOWLEDGE_TOOL_DEFS, REPO_KNOWLEDGE_GUIDE, READ_MAX_CHARS, hasRepoKnowledge, repoKnowledgeHandlers } = await import("../repo-knowledge-tools")
+const { REPO_KNOWLEDGE_TOOL_DEFS, REPO_KNOWLEDGE_GUIDE, READ_MAX_CHARS, MAP_MAX_CHARS, hasRepoKnowledge, orderMapPassages, repoKnowledgeHandlers } = await import("../repo-knowledge-tools")
 
 const SPEC = { id: "r1", name: "仕様書", webUrl: "https://gitlab.example/g/spec", ref: "abc", indexedFiles: 3, indexedAt: null }
 const API = { ...SPEC, id: "r2", name: "API" }
@@ -28,6 +28,7 @@ beforeEach(() => {
 describe("definitions and guide", () => {
   it("defines the two tools with required arguments", () => {
     expect(REPO_KNOWLEDGE_TOOL_DEFS.map((d) => [d.function.name, d.function.parameters.required])).toEqual([
+      ["read_repository_map", undefined],
       ["search_repository_docs", ["query"]],
       ["read_repository_file", ["path"]],
     ])
@@ -39,7 +40,7 @@ describe("definitions and guide", () => {
     expect(REPO_KNOWLEDGE_GUIDE.en).toContain("Sources")
     expect(REPO_KNOWLEDGE_GUIDE.id).toContain("Sumber")
     // Short: it is added to every chat prompt of such a project.
-    for (const text of Object.values(REPO_KNOWLEDGE_GUIDE)) expect(text.length).toBeLessThan(650)
+    for (const text of Object.values(REPO_KNOWLEDGE_GUIDE)) expect(text.length).toBeLessThan(800)
   })
 
   it("hasRepoKnowledge follows the project's knowledge repositories", async () => {
@@ -119,5 +120,53 @@ describe("read_repository_file", () => {
     listKnowledgeRepos.mockImplementation(async (projectId: string) => (projectId === "other" ? [] : [SPEC]))
     expect(await call("read_repository_file", { path: "a.md" }, "other")).toBe("No reference repository is set up for this project.")
     expect(readRepoFile).not.toHaveBeenCalled()
+  })
+})
+
+describe("read_repository_map", () => {
+  const passage = (heading: string, content: string) => ({ heading, anchor: null, content })
+  const MAP = [
+    passage("Structure Map", "header"),
+    passage("Structure Map > 1. Folder overview / フォルダ一覧", "folders"),
+    passage("Structure Map > 2. Question → where to look / 質問 → 読む場所", "questions"),
+    passage("Structure Map > 3. Files by folder > 10-pfs", "files"),
+  ]
+
+  it("puts the question table first, then the folder overview", () => {
+    expect(orderMapPassages(MAP).map((p) => p.content)).toEqual(["questions", "folders", "header", "files"])
+  })
+
+  it("reads the first existing map file (exact path) of each repository and tells the model what to do next", async () => {
+    listKnowledgeRepos.mockResolvedValue([SPEC])
+    readRepoFile.mockImplementation(async (_p: string, _r: unknown, path: string) =>
+      path === "00-structure-map.md" ? { repo: SPEC, path, passages: MAP } : { candidates: [] },
+    )
+    const out = await call("read_repository_map", {})
+    expect(readRepoFile.mock.calls[0][2]).toBe("00-structure-map.md")
+    expect(out).toContain("structure map 00-structure-map.md")
+    expect(out.indexOf("questions")).toBeLessThan(out.indexOf("folders"))
+    expect(out).toContain("read_repository_file")
+  })
+
+  it("falls back to README.md and ignores near-name suggestions", async () => {
+    listKnowledgeRepos.mockResolvedValue([SPEC])
+    readRepoFile.mockImplementation(async (_p: string, _r: unknown, path: string) =>
+      path === "README.md" ? { repo: SPEC, path: "README.md", passages: [passage("Spec > 4. Reading order by task", "tasks")] } : { repo: SPEC, path: "docs/other-structure-map.md.bak", passages: [] },
+    )
+    const out = await call("read_repository_map", {})
+    expect(out).toContain("structure map README.md")
+    expect(out).toContain("tasks")
+  })
+
+  it("says so when a repository has neither, and stays within the budget", async () => {
+    listKnowledgeRepos.mockResolvedValue([SPEC])
+    readRepoFile.mockResolvedValue({ candidates: [] })
+    expect(await call("read_repository_map", {})).toContain("no structure map")
+    readRepoFile.mockImplementation(async (_p: string, _r: unknown, path: string) =>
+      path === "00-structure-map.md" ? { repo: SPEC, path, passages: [passage("2. Question", "あ".repeat(9000)), passage("1. Folder", "x")] } : { candidates: [] },
+    )
+    const big = await call("read_repository_map", {})
+    expect(big.length).toBeLessThan(MAP_MAX_CHARS + 600)
+    expect(big).toContain("more sections")
   })
 })
