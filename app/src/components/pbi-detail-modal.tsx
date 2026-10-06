@@ -18,6 +18,7 @@ import { useAiFieldGenerator } from "@/components/pbi-form/use-ai-field-generato
 import { pbiDeepLink, useCopyLink } from "@/components/pbi-form/use-copy-link"
 import { usePbiFormOptions, type PbiFormOptions } from "@/components/pbi-form/use-pbi-form-options"
 import { useSavedPbiAttachments } from "@/components/pbi-form/attachments/use-saved-pbi-attachments"
+import { useLivePbi } from "@/components/pbi-form/use-live-pbi"
 import type { PbiAttachmentDto } from "@/types/api"
 import { PbiDependencySection } from "@/components/pbi-dependencies/pbi-dependency-section"
 import { PbiDevPanel } from "@/components/git-dev/pbi-dev-panel"
@@ -85,6 +86,7 @@ export default function PbiDetailModal(props: Props) {
     confirm({ title: ui.unsavedTitle, message: ui.unsavedMessage, confirmLabel: ui.discard, cancelLabel: t.cancel, variant: "warning" }),
   )
   const options = usePbiFormOptions(projectId, isEditing, formOptions)
+  const live = useLivePbi({ projectId, pbiId, isEditing, refetch })
   const ai = useAiFieldGenerator(projectId, form ?? EMPTY_PBI_FORM, edit.setForm)
   const copyLink = useCopyLink()
   // Attachment uploads / deletes apply at once (no version bump): patch the loaded PBI in place.
@@ -108,6 +110,7 @@ export default function PbiDetailModal(props: Props) {
       edit.reset()
       conflict.dismiss()
       setMode("read")
+      live.leaveEdit()
       refetch()
     },
     // Someone else saved first: load their version into the form (a second
@@ -146,6 +149,7 @@ export default function PbiDetailModal(props: Props) {
       edit.reset()
       conflict.dismiss()
       setMode("read")
+      live.leaveEdit()
       return
     }
     savingRef.current = { base: toPbiForm(item), mine: form }
@@ -200,6 +204,7 @@ export default function PbiDetailModal(props: Props) {
               edit.reset()
               conflict.dismiss()
               setMode("read")
+              live.leaveEdit()
             }}
             onSave={handleSave}
           />
@@ -223,6 +228,11 @@ export default function PbiDetailModal(props: Props) {
               <div className="space-y-5">
                 {isEditing && form ? (
                   <div className="space-y-4">
+                    {live.remoteChanged && !conflict.lost && (
+                      <p role="status" data-pbi-remote-changed="" className="rounded-ui-md border border-warning/40 bg-warning-soft px-3 py-2 text-caption text-warning-strong">
+                        {t.historyEditedElsewhere}
+                      </p>
+                    )}
                     {conflict.lost && (
                       <VersionConflictNotice
                         lost={conflict.lost}

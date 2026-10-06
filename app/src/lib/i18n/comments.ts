@@ -56,6 +56,8 @@ export interface CommentsTranslations {
   historyActionComment: string
   historySystem: string
   historyChanged: string
+  /** PBI detail in edit mode: someone else saved the PBI meanwhile (live update). */
+  historyEditedElsewhere: string
   historyEmptyValue: string
   historyFieldProductGoal: string
 }
@@ -106,6 +108,7 @@ export const ja: CommentsTranslations = {
   historyActionComment: "{actor} がコメントしました",
   historySystem: "システム",
   historyChanged: "内容を変更",
+  historyEditedElsewhere: "編集中に他の人がこの PBI を更新しました。保存すると、最新の内容との違いが表示されます。",
   historyEmptyValue: "（なし）",
   historyFieldProductGoal: "プロダクトゴール",
 }
@@ -156,6 +159,7 @@ export const en: CommentsTranslations = {
   historyActionComment: "{actor} commented",
   historySystem: "System",
   historyChanged: "changed",
+  historyEditedElsewhere: "Someone else updated this PBI while you were editing. When you save, the differences from the latest version are shown.",
   historyEmptyValue: "(none)",
   historyFieldProductGoal: "Product goal",
 }
@@ -206,6 +210,7 @@ export const id: CommentsTranslations = {
   historyActionComment: "{actor} berkomentar",
   historySystem: "Sistem",
   historyChanged: "diubah",
+  historyEditedElsewhere: "Orang lain memperbarui PBI ini saat Anda mengedit. Saat menyimpan, perbedaan dengan versi terbaru akan ditampilkan.",
   historyEmptyValue: "(kosong)",
   historyFieldProductGoal: "Tujuan produk",
 }

@@ -9,6 +9,8 @@ import { useLanguage } from "@/lib/language-context"
 import { parseActivityPage } from "@/components/activity/history-format"
 import { formatFullDateTime, formatRelativeTime } from "@/components/comments/relative-time"
 import { feedSentence, type FeedEntry } from "./activity-sentence"
+import { useLiveRefetch } from "@/components/realtime/use-live-refetch"
+import { mergeNewestFirst } from "@/components/realtime/merge-pages"
 
 /** Entries per page of the feed. */
 export const FEED_LIMIT = 20
@@ -73,6 +75,16 @@ export function ActivityFeed({ projectId, newIds }: { projectId: string; /** Ent
   const { data, error, isLoading, refetch, mutate } = useApiQuery<FeedPage>(url, { parse: parseFeedPage })
   const [loadingMore, setLoadingMore] = useState(false)
   const [now] = useState(() => new Date())
+  // New activity goes on top live; pages loaded with "show more" stay.
+  const refreshNewest = useCallback(async () => {
+    try {
+      const first = parseFeedPage(await apiFetch(url))
+      mutate((prev) => mergeNewestFirst(prev, first))
+    } catch {
+      // The next event or a reload tries again.
+    }
+  }, [url, mutate])
+  useLiveRefetch(() => void refreshNewest(), { types: ["activity"], projectId, debounceMs: 1_000 })
 
   const loadMore = useCallback(async () => {
     if (!data?.nextCursor) return

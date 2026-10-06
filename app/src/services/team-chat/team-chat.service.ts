@@ -7,6 +7,7 @@
 import { deleteUploadedFile, saveUploadedFile } from "@/lib/api-helpers"
 import { logger } from "@/lib/logger"
 import { commentExcerpt, resolveMentionUserIds } from "@/lib/mentions"
+import { publishAfterCommit } from "@/lib/realtime/after-commit"
 import { checkTeamChatFiles, TEAM_CHAT_BODY_MAX, TEAM_CHAT_MAX_FILE_BYTES, TEAM_CHAT_MAX_FILES } from "@/lib/team-chat-limits"
 import type { Actor } from "@/services/_shared/actor"
 import { defaultDb, withTransaction, type Db } from "@/services/_shared/db"
@@ -143,6 +144,7 @@ export async function createMessage(projectId: string, input: CreateMessageInput
     await repo.insertAttachments(tx, id, files)
     if (body) await enqueueIn(tx, "team_message", id, { body })
     await notifyChat(tx, { projectId, messageId: id, body, actor, mentionIds, replyAuthorId: replyTo?.authorId ?? null })
+    publishChatEvent(projectId, id, "create", actor)
     return id
   }).catch(async (err: unknown) => {
     await Promise.all(files.map((f) => deleteUploadedFile(projectId, f.fileName)))
@@ -152,6 +154,11 @@ export async function createMessage(projectId: string, input: CreateMessageInput
   if (!row) throw new NotFoundError()
   const [dto] = await toDtos(defaultDb, projectId, [row], { userId: actor.userId, canModerate })
   return dto
+}
+
+/** Open chats and the sidebar badges of the project refresh live (after the commit; ids only). */
+function publishChatEvent(projectId: string, messageId: string, action: "create" | "delete", actor: Actor): void {
+  publishAfterCommit({ type: "team-message", projectId, entityType: "team_message", entityId: messageId, action, actorId: actor.userId })
 }
 
 interface ChatNotice {
@@ -185,6 +192,7 @@ export async function deleteMessage(projectId: string, messageId: string, actor:
     await repo.deleteAttachmentRows(tx, messageId)
     // A deleted message never shows its text again: drop its translation too.
     await purgeIn(tx, { team_message: [messageId] })
+    publishChatEvent(projectId, messageId, "delete", actor)
   })
   await Promise.all(files.map((f) => deleteUploadedFile(projectId, f.fileName)))
 }

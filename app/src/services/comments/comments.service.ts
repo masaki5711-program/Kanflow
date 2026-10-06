@@ -11,6 +11,8 @@
  *   people (PBI PO, task assignees, Icebox author / PO) except the author and
  *   the users already notified as mentioned.
  * - A new comment records one "comment" activity row on the commented entity.
+ * - Create / edit / delete publish a "comment" real-time event (after the
+ *   commit; entity + comment ids only) so open threads and badges refresh.
  * - Bodies are translated JA⇔ID like other user text (entity "comment",
  *   field "body", lowest priority; mentions are kept verbatim by the
  *   translator). The DTO carries `i18n`; a delete purges the translation.
@@ -18,6 +20,7 @@
 import { resolveAssignees, type AssigneeCandidate } from "@/lib/assignees"
 import type { EntityI18n } from "@/lib/translation/types"
 import { commentExcerpt, resolveMentionUserIds } from "@/lib/mentions"
+import { publishAfterCommit } from "@/lib/realtime/after-commit"
 import type { Actor } from "@/services/_shared/actor"
 import { LABEL_MAX, logActivity } from "@/services/_shared/activity"
 import { toPage, type Page } from "@/services/_shared/cursor"
@@ -259,6 +262,11 @@ async function notifyParticipants(tx: Db, ctx: NotifyContext, exclude: readonly 
   })
 }
 
+/** Open threads, badges and the team chat (mirrors) of the project refresh live; ids only. */
+function publishCommentEvent(projectId: string, row: { entityType: string; entityId: string }, commentId: string, action: string, actor: Actor): void {
+  publishAfterCommit({ type: "comment", projectId, entityType: row.entityType, entityId: row.entityId, subjectId: commentId, action, actorId: actor.userId })
+}
+
 async function reload(tx: Db, projectId: string, commentId: string) {
   const row = await repo.findComment(tx, projectId, commentId)
   if (!row) throw new NotFoundError("Comment not found")
@@ -301,6 +309,7 @@ export async function createComment(
     const ctx: NotifyContext = { projectId, commentId: id, body, target, actor }
     await notifyMentioned(tx, ctx, mentionIds)
     await notifyParticipants(tx, ctx, mentionIds)
+    publishCommentEvent(projectId, input, id, "create", actor)
     return reload(tx, projectId, id)
   })
   return toDtoWithI18n(row, { userId: actor.userId, canModerate })
@@ -336,6 +345,7 @@ export async function updateComment(
     await enqueueIn(tx, "comment", commentId, { body })
     const added = mentionIds.filter((id) => !before.includes(id))
     await notifyMentioned(tx, { projectId, commentId, body, target, actor }, added)
+    publishCommentEvent(projectId, current, commentId, "update", actor)
     return reload(tx, projectId, commentId)
   })
   return toDtoWithI18n(row, { userId: actor.userId, canModerate })
@@ -357,5 +367,6 @@ export async function deleteComment(
     await repo.softDeleteComment(tx, commentId, now)
     // The tombstone never shows its body again: drop the translation too.
     await purgeIn(tx, { comment: [commentId] })
+    publishCommentEvent(projectId, current, commentId, "delete", actor)
   })
 }

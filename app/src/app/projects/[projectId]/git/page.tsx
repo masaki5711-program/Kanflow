@@ -12,6 +12,7 @@ import { GitActivityList } from "./git-activity-list"
 import { toGitOverview, type GitOverviewDto } from "./git-labels"
 import { GitRepoStatus } from "./git-repo-status"
 import { useCanConfigureGit } from "./use-can-configure-git"
+import { useLiveRefetch } from "@/components/realtime/use-live-refetch"
 
 /** 開発（Git）: repository sync status, how to link work to PBIs, and the latest linked activity. */
 export default function GitPage() {
@@ -26,6 +27,8 @@ export default function GitPage() {
     toastOnError: () => t.gitPageLoadFailed,
   })
   const data = query.data
+  // Background syncs (poller) and other people's syncs show up live.
+  useLiveRefetch(query.refetch, { types: ["git"], projectId })
 
   return (
     <div className="mx-auto max-w-5xl">

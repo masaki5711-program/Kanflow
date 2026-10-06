@@ -1,5 +1,6 @@
 import type { Prisma } from "@/generated/prisma/client"
 import { prisma } from "@/lib/prisma"
+import { runWithCommitScope } from "@/lib/realtime/after-commit"
 
 /**
  * The client every repository function takes as its first argument: either
@@ -19,7 +20,11 @@ export const defaultDb: Db = prisma
  */
 const TX_OPTIONS = { maxWait: 5_000, timeout: 20_000 } as const
 
-/** Interactive transaction wrapper (single seam for tests to mock). */
+/**
+ * Interactive transaction wrapper (single seam for tests to mock). Real-time
+ * events published inside the body (`publishAfterCommit`) go out only after
+ * the commit and are dropped on rollback (lib/realtime/after-commit.ts).
+ */
 export function withTransaction<T>(fn: (tx: Db) => Promise<T>): Promise<T> {
-  return prisma.$transaction((tx) => fn(tx), TX_OPTIONS)
+  return runWithCommitScope(() => prisma.$transaction((tx) => fn(tx), TX_OPTIONS))
 }

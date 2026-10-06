@@ -12,6 +12,8 @@ vi.mock("@/services/attachments/storage-quota", () => ({ assertStorageQuota: vi.
 vi.mock("@/services/comments/comments.service", () => ({ createComment: vi.fn() }))
 vi.mock("@/services/comments/comments.repository", () => ({ findMentionCandidates: vi.fn() }))
 vi.mock("../team-chat.repository")
+const publishAfterCommit = vi.fn()
+vi.mock("@/lib/realtime/after-commit", () => ({ publishAfterCommit: (...a: unknown[]) => publishAfterCommit(...a) }))
 
 const repo = await import("../team-chat.repository")
 const files = await import("@/lib/api-helpers")
@@ -333,3 +335,21 @@ describe("markChatRead", () => {
   })
 })
 
+
+describe("real-time 'team-message' events (ids only, after the commit)", () => {
+  it("a new message publishes one event with the message id, never its body", async () => {
+    await svc.createMessage("p1", { body: "secret text", replyToId: null, files: [] }, ACTOR)
+    expect(publishAfterCommit).toHaveBeenCalledTimes(1)
+    expect(publishAfterCommit).toHaveBeenCalledWith({ type: "team-message", projectId: "p1", entityType: "team_message", entityId: "new1", action: "create", actorId: "u1" })
+    expect(JSON.stringify(publishAfterCommit.mock.calls)).not.toContain("secret")
+  })
+
+  it("a delete publishes a delete event; a refused delete publishes nothing", async () => {
+    await svc.deleteMessage("p1", "m1", ACTOR)
+    expect(publishAfterCommit).toHaveBeenCalledWith(expect.objectContaining({ type: "team-message", entityId: "m1", action: "delete" }))
+    publishAfterCommit.mockClear()
+    vi.mocked(repo.findMessage).mockResolvedValueOnce(messageRow({ authorId: "other" }) as never)
+    await expect(svc.deleteMessage("p1", "m2", ACTOR)).rejects.toBeInstanceOf(ForbiddenError)
+    expect(publishAfterCommit).not.toHaveBeenCalled()
+  })
+})

@@ -10,6 +10,7 @@ import type { PbiForm } from "@/components/pbi-form/pbi-form-state"
 import type { PbiFormOptions } from "@/components/pbi-form/use-pbi-form-options"
 import { Button, EmptyState, PageHeader, SkeletonCard, useConfirm, useToast } from "@/components/ui"
 import { useProjectDocumentTitle } from "@/components/app-shell/project-title-context"
+import { useLiveRefetch } from "@/components/realtime/use-live-refetch"
 import { useStableHandlers } from "@/hooks"
 import { useLanguage } from "@/lib/language-context"
 import { BacklogSection } from "./backlog-section"
@@ -33,6 +34,9 @@ import { BacklogExcelActions } from "@/components/excel/backlog-excel-actions"
 import { GitSummariesProvider } from "@/components/git-dev/git-summaries-context"
 
 /** useSearchParams needs a Suspense boundary above it. */
+const LIVE_TYPES = ["activity"] as const
+const LIVE_ENTITIES = ["pbi", "goal"] as const
+
 export default function BacklogPage() {
   return (
     <Suspense fallback={<BacklogSkeleton />}>
@@ -108,6 +112,9 @@ function BacklogPageContent() {
     const visibleIds = view.visible[section].map((i) => i.id)
     persistOrder(section, applyVisibleMove(view.lists[section], visibleIds, itemId, toIndex), item)
   })
+
+  // Other people's PBI / goal changes appear live; never under a drag or a pending reorder.
+  useLiveRefetch(backlog.refetch, { types: LIVE_TYPES, projectId, entityTypes: LIVE_ENTITIES, paused: dnd.drag !== null || data.reorder.isPending })
 
   function dragTarget(item: BacklogItem) {
     const section = item.status as BacklogStatus

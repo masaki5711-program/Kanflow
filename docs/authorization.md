@@ -262,6 +262,16 @@ Comments hang off PBIs, sprint tasks and Icebox items (`Comment.entityType` = `p
 - The target must exist in the project and not be in the trash (404 otherwise); a sprint task counts as trashed when its PBI is.
 - Each `CommentDto` carries `canEdit` / `canDelete` for the viewer, so the UI never re-implements this table.
 
+## Real-time updates (2026-10)
+
+`GET /api/realtime?projectId=<optional>` is a Server-Sent Events stream (`src/app/api/realtime/route.ts`, `src/lib/realtime/`) that tells open screens *that* something changed so they refetch.
+
+- **Session required** (401 otherwise). Not a project route: the optional `projectId` is checked like `project.view` (live project + `accessVia` + `can`). When the check fails (non-member, trashed, malformed id) the stream is still opened but carries **no project events** — only the user's own — and the `ready` event reports `projectId: null`. Project existence is not revealed.
+- **Delivery**: an event with recipients (`notification`) reaches only those users; any other event (`activity`, `comment`, `team-message`, `git`) reaches the streams subscribed to its project.
+- **Payload**: ids and kinds only (`type`, `projectId`, `entityType`, `entityId`, `subjectId`, `action`, `actorId`, `at`). Never bodies, names, excerpts or the recipient list; the client reloads through the normal authorized routes, so every permission rule above still applies to the data itself.
+- **Limits**: 8 open streams per user (429 beyond), stream lifetime 15 min (the reconnect re-runs `auth()`, so a revoked / expired session stops receiving), heartbeat every 25 s.
+- **Idle logout**: the stream and the refetches it triggers do not count as user activity (`quietActivityFor` in `hooks/activity.ts`), and the stream never refreshes the session cookie.
+
 ## Behaviour changes from unification (2026-09)
 
 1. **Non-members now get 404 instead of 403** on every project route.

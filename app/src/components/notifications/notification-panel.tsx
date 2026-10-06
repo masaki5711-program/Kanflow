@@ -10,6 +10,9 @@ import type { NotificationItem } from "./notification-format"
 import { NotificationRow } from "./notification-row"
 import { NotificationTabs } from "./notification-tabs"
 import { useNotificationFeed } from "./use-notification-feed"
+import { useLiveRefetch } from "@/components/realtime/use-live-refetch"
+
+const LIVE_TYPES = ["notification"] as const
 
 interface NotificationPanelProps {
   headingId: string
@@ -30,6 +33,8 @@ export function NotificationPanel({ headingId, onUnreadCount, onNavigate }: Noti
   const [actionError, setActionError] = useState(false)
   const { state, unreadByGroup, loadingMore, loadMore, markAllReadLocally, reload } = useNotificationFeed(group, onUnreadCount)
   const baseId = useId().replace(/:/g, "")
+  // New notifications while the panel is open appear without reopening it.
+  useLiveRefetch(reload, { types: LIVE_TYPES })
 
   async function markAllRead() {
     try {

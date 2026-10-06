@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef } from "react"
 import { apiFetch, useApiQuery } from "@/hooks"
+import { useLiveRefetch } from "@/components/realtime/use-live-refetch"
 import { announceNotificationsChanged } from "@/lib/notification-events"
 import type { NotificationItem } from "@/components/notifications/notification-format"
 import type { FeedEntry } from "@/app/projects/[projectId]/dashboard/activity-sentence"
@@ -39,6 +40,11 @@ export function parseProjectUpdates(raw: unknown): ProjectUpdates {
   }
 }
 
+/** Changes that move the "what's new" counts / lists. */
+const LIVE_TYPES = ["activity", "comment", "notification"] as const
+/** Activity is frequent (every save): refresh these summaries at most about once a second. */
+const LIVE_DEBOUNCE_MS = 1_000
+
 export const updatesUrl = (projectId: string) => `/api/projects/${encodeURIComponent(projectId)}/updates`
 
 /** Tell the sidebar dot, the bell and the unread marks to reload. */
@@ -51,6 +57,7 @@ export function announceUpdatesChanged(projectId: string) {
 export function useProjectUpdates(projectId: string) {
   const query = useApiQuery<ProjectUpdates>(updatesUrl(projectId), { parse: parseProjectUpdates })
   const { refetch } = query
+  useLiveRefetch(refetch, { types: LIVE_TYPES, projectId, debounceMs: LIVE_DEBOUNCE_MS })
 
   const markRead = useCallback(
     async (notificationId: string) => {
@@ -69,7 +76,7 @@ export function useProjectUpdates(projectId: string) {
   return { ...query, markRead, markAllSeen }
 }
 
-/** Counts only (sidebar dot); reloads on navigation and whenever the updates change. */
+/** Counts only (sidebar dot); reloads on navigation, whenever the updates change and on real-time events. */
 export function useProjectUpdateSummary(projectId: string, reloadKey: string) {
   const query = useApiQuery<UpdateSummary>(`${updatesUrl(projectId)}?summary=1`, {
     parse: (raw) => {
@@ -85,6 +92,7 @@ export function useProjectUpdateSummary(projectId: string, reloadKey: string) {
     window.addEventListener(PROJECT_UPDATES_EVENT, onChange)
     return () => window.removeEventListener(PROJECT_UPDATES_EVENT, onChange)
   }, [projectId, refetch])
+  useLiveRefetch(refetch, { types: LIVE_TYPES, projectId, debounceMs: LIVE_DEBOUNCE_MS })
   // Navigating to another page of the project reloads (not the first render: the query loads itself).
   const lastKey = useRef(reloadKey)
   useEffect(() => {

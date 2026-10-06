@@ -5,6 +5,8 @@ import type { ReactNode } from "react"
 import { jsonResponse, renderWithProviders, stubFetch, tr } from "./test-utils"
 import type { MyTask } from "../my-sprint-tasks"
 
+// The home messages block refreshes the (server) page on live notifications.
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }) }))
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: ReactNode }) => (
     <a href={href} {...rest}>

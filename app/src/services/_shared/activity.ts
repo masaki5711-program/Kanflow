@@ -6,7 +6,8 @@
  * that performs the mutation, so a rolled-back write never leaves a history
  * row behind. Recording is best effort: every function here catches and logs
  * its own failures and NEVER throws into the caller's transaction (a missing
- * history row must not fail the user's save).
+ * history row must not fail the user's save). Every recorded row also
+ * publishes an "activity" real-time event after the commit (lib/realtime).
  *
  * Stored `diff` column (JSON text):
  *   { changes?: { field: { from, to } | { changed: true } }, label?: string, meta?: {...} }
@@ -18,6 +19,7 @@
  * - `meta`: extra context (e.g. `{ sprintId }` for a task, `{ count }` for a reorder).
  */
 import { logger } from "@/lib/logger"
+import { publishAfterCommit } from "@/lib/realtime/after-commit"
 import type { Actor } from "./actor"
 import type { Db } from "./db"
 
@@ -272,6 +274,15 @@ export async function logActivity(tx: Db, input: ActivityInput): Promise<void> {
         actorName: input.actor?.userName ?? null,
         diff: serializeDiff(input.diff),
       },
+    })
+    // Live refresh of the project's open screens (ids only; delivered after the commit).
+    publishAfterCommit({
+      type: "activity",
+      projectId: input.projectId,
+      entityType: input.entityType,
+      entityId: input.entityId,
+      action: input.action,
+      actorId: input.actor?.userId || undefined,
     })
   } catch (err) {
     log.warn("activity log write failed", {

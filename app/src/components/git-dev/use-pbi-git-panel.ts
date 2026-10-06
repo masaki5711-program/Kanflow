@@ -3,6 +3,7 @@
 import { useEffect } from "react"
 import { useApiQuery } from "@/hooks"
 import { GIT_SYNCED_EVENT, gitApiBase, isGitKnownOff, rememberGitOff, toPanel, type PbiGitPanelDto } from "./git-client-state"
+import { useLiveRefetch } from "@/components/realtime/use-live-refetch"
 
 export interface PbiGitPanelState {
   /** The panel data; null while loading, on error and when the integration is off. */
@@ -31,6 +32,8 @@ export function usePbiGitPanel(projectId: string, pbiId: string | null | undefin
     window.addEventListener(GIT_SYNCED_EVENT, refetch)
     return () => window.removeEventListener(GIT_SYNCED_EVENT, refetch)
   }, [enabled, refetch])
+
+  useLiveRefetch(refetch, { types: ["git"], projectId, enabled })
 
   return { panel: enabled && data ? data : null, refetch }
 }

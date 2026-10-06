@@ -1,8 +1,9 @@
 "use client"
 
-import { useCallback, useContext, useEffect, useMemo, useState } from "react"
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
 import { SessionContext } from "next-auth/react"
 import { apiFetch, useApiQuery } from "@/hooks"
+import { useLiveRefetch } from "@/components/realtime/use-live-refetch"
 import { NOTIFICATIONS_CHANGED_EVENT, announceNotificationsChanged } from "@/lib/notification-events"
 import { asPage, commentsBaseUrl, type CommentDto, type CommentEntityType, type MentionMember, type Page } from "./types"
 
@@ -16,10 +17,33 @@ function asDeleted(c: CommentDto): CommentDto {
   return { ...c, body: null, deleted: true, mentions: [], canEdit: false, canDelete: false, i18n: {} }
 }
 
+/** Pages a live refresh reads at most (a thread is rarely longer than a page or two). */
+const MAX_REFRESH_PAGES = 10
+const COMMENT_EVENTS = ["comment"] as const
+const COUNT_EVENTS = ["comment", "notification"] as const
+
+/**
+ * Re-read a thread from its start: at least `loaded` comments, or all of
+ * them when the whole thread was loaded (new comments are at the end).
+ */
+export async function rereadThread(url: string, loaded: number, complete: boolean): Promise<Page<CommentDto>> {
+  let items: CommentDto[] = []
+  let cursor: string | null = null
+  for (let i = 0; i < MAX_REFRESH_PAGES; i++) {
+    const page: Page<CommentDto> = asPage<CommentDto>(await apiFetch(cursor ? `${url}&cursor=${encodeURIComponent(cursor)}` : url))
+    items = appendUnique(items, page.items)
+    cursor = page.nextCursor
+    if (!cursor || (!complete && items.length >= loaded)) break
+  }
+  return { items, nextCursor: cursor }
+}
+
 /**
  * One entity's comment thread: first page via useApiQuery, "load more"
  * appends (oldest → newest), and create / edit / delete update the list in
- * place. Mutations throw ApiError so callers can toast.
+ * place. Other people's comments, edits and deletes arrive live (real-time
+ * "comment" events re-read the loaded part of the thread). Mutations throw
+ * ApiError so callers can toast.
  */
 export function useCommentThread(projectId: string, entityType: CommentEntityType, entityId: string) {
   const base = commentsBaseUrl(projectId)
@@ -27,6 +51,21 @@ export function useCommentThread(projectId: string, entityType: CommentEntityTyp
   const query = useApiQuery<Page<CommentDto>>(url, { parse: asPage })
   const { mutate } = query
   const [loadingMore, setLoadingMore] = useState(false)
+  const dataRef = useRef(query.data)
+  useEffect(() => {
+    dataRef.current = query.data
+  })
+
+  const refreshLoaded = useCallback(async () => {
+    const prev = dataRef.current
+    try {
+      const page = await rereadThread(url, prev?.items.length ?? 0, !prev?.nextCursor)
+      mutate(page)
+    } catch {
+      // Kept as is; the next event or reopening the thread reloads.
+    }
+  }, [url, mutate])
+  useLiveRefetch(() => void refreshLoaded(), { types: COMMENT_EVENTS, projectId, entityTypes: [entityType], entityIds: entityId })
 
   const setItems = useCallback(
     (fn: (items: CommentDto[]) => CommentDto[]) =>
@@ -147,6 +186,8 @@ export function useCommentCounts(projectId: string, entityType: CommentEntityTyp
     window.addEventListener(NOTIFICATIONS_CHANGED_EVENT, refetch)
     return () => window.removeEventListener(NOTIFICATIONS_CHANGED_EVENT, refetch)
   }, [refetch])
+  // Someone commented on one of these items (or notified the viewer about one): counts and marks follow live.
+  useLiveRefetch(refetch, { types: COUNT_EVENTS, projectId, entityTypes: [entityType], entityIds: ids, enabled: url !== null })
   return { counts: data?.counts ?? EMPTY_COUNTS.counts, unread: data?.unread ?? EMPTY_COUNTS.unread, adjustCount, clearUnread }
 }
 

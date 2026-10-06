@@ -7,6 +7,8 @@ import { Button, EmptyState, SkeletonLines, useToast } from "@/components/ui"
 import { apiFetch, useApiQuery } from "@/hooks"
 import { formatFullDateTime, formatRelativeTime } from "@/components/comments/relative-time"
 import { actionSentence, parseActivityPage, type ActivityEntry, type ActivityPage } from "./history-format"
+import { useLiveRefetch } from "@/components/realtime/use-live-refetch"
+import { mergeNewestFirst } from "@/components/realtime/merge-pages"
 
 export interface EntityHistoryProps {
   projectId: string
@@ -34,6 +36,16 @@ export function EntityHistory({ projectId, entityType, entityId, fieldLabels, fo
   const url = `/api/projects/${encodeURIComponent(projectId)}/activity/${entityType}/${encodeURIComponent(entityId)}`
   const { data, error, isLoading, refetch, mutate } = useApiQuery<ActivityPage>(url, { parse: parseActivityPage })
   const [loadingMore, setLoadingMore] = useState(false)
+  // Changes made meanwhile (by anyone) go on top live.
+  const refreshNewest = useCallback(async () => {
+    try {
+      const first = parseActivityPage(await apiFetch(url))
+      mutate((prev) => mergeNewestFirst(prev, first))
+    } catch {
+      // The next event or reopening the tab tries again.
+    }
+  }, [url, mutate])
+  useLiveRefetch(() => void refreshNewest(), { types: ["activity"], projectId, entityTypes: [entityType], entityIds: entityId })
 
   const loadMore = useCallback(async () => {
     if (!data?.nextCursor) return

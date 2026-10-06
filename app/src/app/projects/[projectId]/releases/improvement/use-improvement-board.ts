@@ -6,6 +6,7 @@ import { localizeApiError } from "@/hooks/api-client"
 import { improvementUrl, improvementsUrl } from "@/lib/improvement/constants"
 import { useLanguage } from "@/lib/language-context"
 import type { ImprovementBoard } from "./improvement-types"
+import { useLiveRefetch } from "@/components/realtime/use-live-refetch"
 
 /** Result of one write: ok, or the localized error message to announce. */
 export type WriteResult = { ok: true } | { ok: false; message: string }
@@ -23,6 +24,8 @@ export function useImprovementBoard(projectId: string) {
   })
   const { refetch } = query
   const [pending, setPending] = useState(0)
+  // Other people's board changes appear live (not while this tab's own write is in flight).
+  useLiveRefetch(refetch, { types: ["activity"], projectId, entityTypes: ["release", "project"], paused: pending > 0 })
 
   /** Send a write to `/improvements/<itemId><path>`; refetches on success. */
   const write = useCallback(

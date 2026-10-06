@@ -17,6 +17,7 @@
  */
 import { resolveAssignees } from "@/lib/assignees"
 import { logger } from "@/lib/logger"
+import { publishAfterCommit } from "@/lib/realtime/after-commit"
 import type { Db } from "./db"
 
 const log = logger.child({ module: "notifications" })
@@ -139,6 +140,18 @@ export async function notify(
     } catch (err) {
       log.warn("notification delivery failed", { channel: channel.name, type: input.type, error: errorMessage(err) })
     }
+  }
+  // The recipients' bells and badges refresh live (after the commit; ids only).
+  if (delivered > 0) {
+    publishAfterCommit({
+      type: "notification",
+      userIds: recipients,
+      projectId: input.projectId ?? undefined,
+      entityType: input.entityType ?? undefined,
+      entityId: input.entityId ?? undefined,
+      action: input.type,
+      actorId: input.actorId ?? undefined,
+    })
   }
   return delivered
 }

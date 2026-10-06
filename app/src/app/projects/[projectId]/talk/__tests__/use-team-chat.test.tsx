@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@testing-library/react"
+import type { ReactNode } from "react"
 import { jsonResponse, stubFetch } from "@/app/__tests__/test-utils"
-import { attachmentUrl, mergeMessages, TEAM_CHAT_READ_EVENT, useTeamChat } from "../use-team-chat"
+import { createRealtimeHub } from "@/components/realtime/realtime-hub"
+import { RealtimeContext } from "@/components/realtime/realtime-provider"
+import { attachmentUrl, mergeMessages, reconcileLatest, TEAM_CHAT_READ_EVENT, useTeamChat } from "../use-team-chat"
 import type { TeamMessage } from "../types"
 
 const msg = (id: string, overrides: Partial<TeamMessage> = {}): TeamMessage => ({
@@ -194,5 +197,48 @@ describe("useTeamChat", () => {
     renderHook(() => useTeamChat("p1", false))
     await waitFor(() => expect(seen).toEqual(["p1"]))
     window.removeEventListener(TEAM_CHAT_READ_EVENT, handler)
+  })
+})
+
+describe("reconcileLatest", () => {
+  it("keeps older loaded messages and takes the server's version of the latest page (new, edited, deleted)", () => {
+    const current = [msg("1"), msg("2", { body: "old" }), msg("3")]
+    const page = { items: [msg("2", { body: "edited" }), msg("4")], hasMore: true }
+    expect(reconcileLatest(current, page)).toEqual([msg("1"), msg("2", { body: "edited" }), msg("4")])
+  })
+
+  it("a latest page without more = the whole chat", () => {
+    expect(reconcileLatest([msg("1"), msg("2")], { items: [msg("2")], hasMore: false })).toEqual([msg("2")])
+    expect(reconcileLatest([msg("1")], { items: [], hasMore: false })).toEqual([])
+    expect(reconcileLatest([msg("1")], { items: [], hasMore: true })).toEqual([msg("1")])
+  })
+})
+
+describe("useTeamChat — real-time", () => {
+  it("another member's message appears on a 'team-message' event without waiting for the poll", async () => {
+    const hub = createRealtimeHub()
+    let latestPage = { items: [msg("1")], hasMore: false }
+    const reads: string[] = []
+    stubFetch([
+      { match: "/api/projects/p1/talk/read", method: "GET", respond: () => jsonResponse({ lastReadAt: null }) },
+      { match: "/api/projects/p1/talk/read", method: "POST", respond: () => { reads.push("x"); return jsonResponse({ lastReadAt: "now" }) } },
+      { match: "/api/projects/p1/talk/messages", method: "GET", respond: () => jsonResponse(latestPage) },
+    ])
+    const wrapper = ({ children }: { children: ReactNode }) => <RealtimeContext.Provider value={hub}>{children}</RealtimeContext.Provider>
+    const { result } = renderHook(() => useTeamChat("p1", false), { wrapper })
+    await waitFor(() => expect(result.current.messages.map((m) => m.id)).toEqual(["1"]))
+    await waitFor(() => expect(reads).toHaveLength(1))
+
+    latestPage = { items: [msg("1"), msg("2", { author: { id: "u2", name: "Bob" } })], hasMore: false }
+    act(() => hub.emit({ type: "team-message", projectId: "p1", entityType: "team_message", entityId: "2", action: "create", at: "t" }))
+    await waitFor(() => expect(result.current.messages.map((m) => m.id)).toEqual(["1", "2"]), { timeout: 2000 })
+    // Seen at once: the chat is marked read again.
+    await waitFor(() => expect(reads).toHaveLength(2))
+
+    // A deleted message disappears; events of other projects are ignored.
+    latestPage = { items: [msg("2")], hasMore: false }
+    act(() => hub.emit({ type: "team-message", projectId: "p2", at: "t" }))
+    act(() => hub.emit({ type: "team-message", projectId: "p1", entityId: "1", action: "delete", at: "t" }))
+    await waitFor(() => expect(result.current.messages.map((m) => m.id)).toEqual(["2"]), { timeout: 2000 })
   })
 })

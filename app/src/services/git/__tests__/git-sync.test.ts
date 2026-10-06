@@ -33,8 +33,10 @@ vi.mock("@/lib/prisma", () => ({
 vi.mock("@/lib/secret-box", () => ({ open: (...a: unknown[]) => openMock(...a) }))
 vi.mock("@/lib/logger", () => ({ logger: noopLog }))
 vi.mock("@/services/sprint-backlog/sprint-backlog.service", () => ({ updateTask: (...a: unknown[]) => updateTaskMock(...a) }))
+const publishAfterCommit = vi.fn()
+vi.mock("@/lib/realtime/after-commit", () => ({ publishAfterCommit: (...a: unknown[]) => publishAfterCommit(...a) }))
 
-const { syncRepository, syncProject, syncErrorMessage, GIT_ACTOR } = await import("../git-sync")
+const { syncRepository, syncProject, syncErrorMessage, GIT_ACTOR, isSameLink } = await import("../git-sync")
 const { GitLabError } = await import("@/lib/git/gitlab-client")
 
 const NOW = new Date("2026-10-01T00:00:00.000Z")
@@ -322,13 +324,51 @@ describe("syncRepository — full success: links, pipelines, pruning, auto-compl
     expect(gitLinkDeleteMany).not.toHaveBeenCalled()
   })
 
-  it("skips the gitLink.findUnique 'before' lookup for branch and commit links (only merge requests need it)", async () => {
+  it("writes a new branch link and publishes one 'git' real-time event for the project", async () => {
+    gitRepositoryFindUnique.mockResolvedValue(repoRow({ externalId: 7 }))
+    productBacklogItemFindMany.mockResolvedValue([{ id: "b-42", displayId: 42 }])
+    const client = emptyClient({ listBranches: vi.fn().mockResolvedValue([{ name: "feature/PBI-42-x", web_url: "u", commit: null }]) })
+    const result = await syncRepository("r1", () => client, NOW)
+    expect(gitLinkUpsert).toHaveBeenCalledTimes(1)
+    expect(result.links).toBe(1)
+    expect(publishAfterCommit).toHaveBeenCalledTimes(1)
+    expect(publishAfterCommit).toHaveBeenCalledWith({ type: "git", projectId: "p1", action: "sync" })
+  })
+
+  it("does not rewrite an unchanged link and publishes nothing when the sync changed nothing", async () => {
     gitRepositoryFindUnique.mockResolvedValue(repoRow({ externalId: 7 }))
     productBacklogItemFindMany.mockResolvedValue([{ id: "b-42", displayId: 42 }])
     const client = emptyClient({ listBranches: vi.fn().mockResolvedValue([{ name: "feature/PBI-42-x", web_url: "u", commit: null }]) })
     await syncRepository("r1", () => client, NOW)
-    expect(gitLinkFindUnique).not.toHaveBeenCalled()
-    expect(gitLinkUpsert).toHaveBeenCalledTimes(1)
+    const stored = gitLinkUpsert.mock.calls[0][0].update
+    vi.clearAllMocks()
+    gitLinkFindUnique.mockResolvedValue({ ...stored })
+    gitLinkFindMany.mockResolvedValue([])
+    gitRepositoryUpdate.mockResolvedValue({})
+    openMock.mockImplementation((sealed: string | null) => (sealed ? `plain(${sealed})` : null))
+
+    const result = await syncRepository("r1", () => client, NOW)
+    expect(result.links).toBe(1)
+    expect(gitLinkUpsert).not.toHaveBeenCalled()
+    expect(publishAfterCommit).not.toHaveBeenCalled()
+  })
+
+  it("publishes a 'git' event when only a stale branch link was pruned", async () => {
+    gitRepositoryFindUnique.mockResolvedValue(repoRow({ externalId: 7 }))
+    gitLinkFindMany.mockImplementation(async (args: { where: { kind: string } }) =>
+      args.where.kind === "branch" ? [{ id: "link-stale", ref: "feature/PBI-999-gone", backlogItemId: "b-999" }] : [],
+    )
+    await syncRepository("r1", () => emptyClient(), NOW)
+    expect(publishAfterCommit).toHaveBeenCalledWith({ type: "git", projectId: "p1", action: "sync" })
+  })
+
+  it("isSameLink compares every written column (dates by time, null ≡ undefined)", () => {
+    const data = { title: "t", url: "u", state: null, pipeline: "success", author: "a", sourceBranch: null, occurredAt: new Date(NOW), mergedAt: null }
+    expect(isSameLink(null, data)).toBe(false)
+    expect(isSameLink({ ...data, occurredAt: new Date(NOW.getTime()) }, data)).toBe(true)
+    expect(isSameLink({ ...data, mergedAt: undefined }, data)).toBe(true)
+    expect(isSameLink({ ...data, pipeline: "failed" }, data)).toBe(false)
+    expect(isSameLink({ ...data, occurredAt: new Date(NOW.getTime() + 1) }, data)).toBe(false)
   })
 })
 

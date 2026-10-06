@@ -3,6 +3,7 @@
 import { useMemo } from "react"
 import { useSession } from "next-auth/react"
 import { useApiQuery } from "@/hooks"
+import { useLiveRefetch } from "@/components/realtime/use-live-refetch"
 import { can, type ProjectAction, type ProjectActor } from "@/lib/authz/policy"
 import type { CalendarEvent, Member, ProjectSettings, ReadyPbItem, Sprint } from "../components/types"
 import type { BacklogListResponse, ProjectDetailDto } from "@/types/api"
@@ -14,6 +15,10 @@ const EMPTY_SPRINTS: Sprint[] = []
 const EMPTY_READY: ReadyPbItem[] = []
 const EMPTY_EVENTS: CalendarEvent[] = []
 const EMPTY_MEMBERS: Member[] = []
+const LIVE_TYPES = ["activity"] as const
+const SPRINT_ENTITIES = ["sprint", "sprint_task", "pbi"] as const
+const READY_ENTITIES = ["pbi", "sprint"] as const
+const MEMBER_ENTITIES = ["member"] as const
 
 /**
  * All data the sprints page needs, fetched in parallel. Every query is
@@ -27,6 +32,10 @@ export function useSprintsData(projectId: string) {
   const eventsQuery = useApiQuery<CalendarEvent[]>(`${base}/events`, { toastOnError: true })
   const membersQuery = useApiQuery<Member[]>(`${base}/members`, { toastOnError: true })
   const projectQuery = useApiQuery<ProjectResponse>(base, { toastOnError: true })
+  // Other people's sprint / task / PBI changes (status moves, new tasks, ...) appear live.
+  useLiveRefetch(sprintsQuery.refetch, { types: LIVE_TYPES, projectId, entityTypes: SPRINT_ENTITIES })
+  useLiveRefetch(backlogQuery.refetch, { types: LIVE_TYPES, projectId, entityTypes: READY_ENTITIES })
+  useLiveRefetch(membersQuery.refetch, { types: LIVE_TYPES, projectId, entityTypes: MEMBER_ENTITIES })
 
   const { data: session } = useSession()
   const members = membersQuery.data ?? EMPTY_MEMBERS

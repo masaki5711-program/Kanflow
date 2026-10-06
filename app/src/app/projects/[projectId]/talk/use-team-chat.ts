@@ -2,11 +2,19 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { apiFetch } from "@/hooks"
+import { quietActivityFor } from "@/hooks/activity"
+import { LIVE_QUIET_MS, useLiveRefetch, useRealtimeConnected } from "@/components/realtime/use-live-refetch"
 import { announceNotificationsChanged } from "@/lib/notification-events"
 import type { TeamMessage } from "./types"
 
-/** How often the open chat asks for new messages (ms). */
+/** How often the open chat asks for new messages (ms) — the fallback when the real-time stream is down. */
 export const TALK_POLL_MS = 10_000
+/** Safety-net poll while the real-time stream is connected (events refresh the chat at once). */
+export const TALK_POLL_LIVE_MS = 60_000
+/** Real-time refresh of the chat: messages, mirrored comments (create / edit / delete). */
+const LIVE_TYPES = ["team-message", "comment"] as const
+/** Short window: a chat message should appear "immediately". */
+const LIVE_DEBOUNCE_MS = 200
 /** Window event: the viewer's chat read state changed (sidebar badge reloads). Detail: projectId. */
 export const TEAM_CHAT_READ_EVENT = "kanflow:team-chat-read"
 
@@ -21,6 +29,18 @@ const base = (projectId: string) => `/api/projects/${encodeURIComponent(projectI
 export function mergeMessages(current: readonly TeamMessage[], incoming: readonly TeamMessage[]): TeamMessage[] {
   const seen = new Set(current.map((m) => m.id))
   return [...current, ...incoming.filter((m) => !seen.has(m.id))]
+}
+
+/**
+ * Pure: merge the latest page into the list. Everything older than the page
+ * stays as loaded; inside the page's time range the server's version wins,
+ * so new messages appear, edited mirrors update and deleted ones disappear.
+ */
+export function reconcileLatest(current: readonly TeamMessage[], latestPage: Page): TeamMessage[] {
+  const first = latestPage.items[0]
+  if (!first) return latestPage.hasMore ? [...current] : []
+  const older = latestPage.hasMore ? current.filter((m) => m.createdAt < first.createdAt) : []
+  return [...older, ...latestPage.items]
 }
 
 /**
@@ -39,6 +59,10 @@ export function useTeamChat(projectId: string, forMe: boolean) {
   /** Last read time before this visit (null = never / not loaded yet). */
   const [readMark, setReadMark] = useState<string | null | undefined>(undefined)
   const latest = useRef<string | null>(null)
+  const messagesRef = useRef(messages)
+  useEffect(() => {
+    messagesRef.current = messages
+  })
 
   const markRead = useCallback(async () => {
     try {
@@ -93,10 +117,30 @@ export function useTeamChat(projectId: string, forMe: boolean) {
     }
   }, [projectId, forMe, markRead])
 
+  // Someone posted / edited / deleted: re-read the latest page (the sender already shows their own message).
+  const refreshLatest = useCallback(async () => {
+    if (!latest.current) return
+    try {
+      const page = await apiFetch<Page>(`${base(projectId)}/messages${forMe ? "?forMe=1" : ""}`)
+      const known = new Set(messagesRef.current.map((m) => m.id))
+      setMessages((prev) => reconcileLatest(prev, page))
+      latest.current = page.items.at(-1)?.createdAt ?? latest.current
+      if (page.items.some((m) => !known.has(m.id))) void markRead()
+    } catch {
+      // The next event or poll tries again.
+    }
+  }, [projectId, forMe, markRead])
+  useLiveRefetch(() => void refreshLatest(), { types: LIVE_TYPES, projectId, debounceMs: LIVE_DEBOUNCE_MS })
+
+  const isLive = useRealtimeConnected()
   useEffect(() => {
-    const timer = window.setInterval(() => void poll(), TALK_POLL_MS)
+    const timer = window.setInterval(() => {
+      // A background poll is not the user's activity (else the idle logout never fires on this page).
+      quietActivityFor(LIVE_QUIET_MS)
+      void poll()
+    }, isLive ? TALK_POLL_LIVE_MS : TALK_POLL_MS)
     return () => window.clearInterval(timer)
-  }, [poll])
+  }, [poll, isLive])
 
   const loadOlder = useCallback(async () => {
     const first = messages[0]

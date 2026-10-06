@@ -38,6 +38,7 @@ import { PlanPrintDialog } from "./components/plan-print-dialog"
 import { PlanSuccessorPicker } from "./components/plan-successor-picker"
 import { PlanToolbar } from "./components/plan-toolbar"
 import { PlanTemplateDialogs, type TemplateDialogMode } from "./templates/plan-template-dialogs"
+import { useLiveRefetch } from "@/components/realtime/use-live-refetch"
 
 interface Props {
   projectId: string
@@ -45,6 +46,8 @@ interface Props {
 }
 
 const NO_MEMBERS: ProjectMemberDto[] = []
+const LIVE_TYPES = ["activity"] as const
+const LIVE_ENTITIES = ["plan_item", "pbi"] as const
 const DRAFT_DAYS = 7
 /** A4 landscape page for the plan printout (see lib/print.ts PRINT_WIDTH). */
 const PRINT_PAGE_CSS = "@page { size: A4 landscape; margin: 8mm; }"
@@ -175,6 +178,8 @@ function PlanPage({ projectId, canEdit }: Props) {
     onLink: (predecessorId, successorId) => void api.addDependency(predecessorId, successorId),
     onRejected: (block) => toast.error(successorReasons[block], { title: t.planDependencyAddFailed }),
   })
+  // Other people's plan / PBI changes appear live; held while a bar, row or link is dragged or a name is being renamed.
+  useLiveRefetch(api.refetch, { types: LIVE_TYPES, projectId, entityTypes: LIVE_ENTITIES, paused: !!drag.live || !!rowDrag.target || !!linkDrag.link || !!renamingId })
 
   async function confirmRemoveArrow(arrow: { id: string; predecessorId: string; successorId: string }) {
     const from = byId.get(arrow.predecessorId)

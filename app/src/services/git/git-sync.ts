@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma"
 import { open } from "@/lib/secret-box"
 import { createGitLabClient, GitLabError, type GitLabClient } from "@/lib/git/gitlab-client"
 import { logger } from "@/lib/logger"
+import { publishAfterCommit } from "@/lib/realtime/after-commit"
 import { updateTask } from "@/services/sprint-backlog/sprint-backlog.service"
 import type { Actor } from "@/services/_shared/actor"
 import { allMergeRequestsMerged, linksFromBranch, linksFromCommit, linksFromMergeRequest, type LinkDraft } from "./git-links"
@@ -60,8 +61,10 @@ export async function syncRepository(repositoryId: string, factory: ClientFactor
     const pbiIds = await resolvePbis(repo.projectId, drafts)
     await attachPipelines(client, externalId, mrDrafts.filter((d) => pbiIds.has(d.pbiNumber)))
 
-    const { written, newlyMerged } = await writeLinks(repo.projectId, repo.id, drafts, pbiIds)
-    await pruneBranches(repo.id, branchDrafts, pbiIds)
+    const { written, changed, newlyMerged } = await writeLinks(repo.projectId, repo.id, drafts, pbiIds)
+    const pruned = await pruneBranches(repo.id, branchDrafts, pbiIds)
+    // Git panels / badges of the project refresh live, only when a link actually changed.
+    if (changed + pruned > 0) publishAfterCommit({ type: "git", projectId: repo.projectId, action: "sync" })
     await prisma.gitRepository.update({
       where: { id: repo.id },
       data: { externalId, syncedAt: now, syncCursor: now, lastError: null, lastErrorAt: null },
@@ -132,19 +135,34 @@ async function attachPipelines(client: GitLabClient, externalId: number, drafts:
 
 interface WriteResult {
   written: number
+  /** Links created or changed by this sync (unchanged ones are not rewritten). */
+  changed: number
   /** PBI ids with a merge request that turned merged in this sync. */
   newlyMerged: Set<string>
+}
+
+/** Stored columns a sync writes (compared to skip rewriting an unchanged link). */
+const LINK_SELECT = { title: true, url: true, state: true, pipeline: true, author: true, sourceBranch: true, occurredAt: true, mergedAt: true } as const
+type LinkData = Record<keyof typeof LINK_SELECT, unknown>
+
+const comparable = (v: unknown) => (v instanceof Date ? v.getTime() : (v ?? null))
+
+/** Pure: true when every written column equals the stored one. */
+export function isSameLink(before: Partial<LinkData> | null, data: LinkData): boolean {
+  if (!before) return false
+  return (Object.keys(LINK_SELECT) as (keyof LinkData)[]).every((k) => comparable(before[k]) === comparable(data[k]))
 }
 
 async function writeLinks(projectId: string, repositoryId: string, drafts: readonly LinkDraft[], pbiIds: Map<number, string>): Promise<WriteResult> {
   const newlyMerged = new Set<string>()
   let written = 0
+  let changed = 0
   for (const d of drafts) {
     const backlogItemId = pbiIds.get(d.pbiNumber)
     if (!backlogItemId) continue
     const key = { repositoryId, kind: d.kind, ref: d.ref, backlogItemId }
     const where = { repositoryId_kind_ref_backlogItemId: key }
-    const before = d.kind === "mr" ? await prisma.gitLink.findUnique({ where, select: { state: true, pipeline: true } }) : null
+    const before = await prisma.gitLink.findUnique({ where, select: LINK_SELECT })
     const data = {
       title: d.title,
       url: d.url,
@@ -156,19 +174,22 @@ async function writeLinks(projectId: string, repositoryId: string, drafts: reado
       occurredAt: d.occurredAt,
       mergedAt: d.mergedAt,
     }
-    await prisma.gitLink.upsert({ where, create: { projectId, ...key, ...data }, update: data })
     written++
+    if (isSameLink(before, data)) continue
+    await prisma.gitLink.upsert({ where, create: { projectId, ...key, ...data }, update: data })
+    changed++
     if (d.kind === "mr" && d.state === "merged" && before?.state !== "merged") newlyMerged.add(backlogItemId)
   }
-  return { written, newlyMerged }
+  return { written, changed, newlyMerged }
 }
 
 /** Branch links mirror the current branch list: deleted / merged-away branches disappear. */
-async function pruneBranches(repositoryId: string, branchDrafts: readonly LinkDraft[], pbiIds: Map<number, string>): Promise<void> {
+async function pruneBranches(repositoryId: string, branchDrafts: readonly LinkDraft[], pbiIds: Map<number, string>): Promise<number> {
   const keep = new Set(branchDrafts.filter((d) => pbiIds.has(d.pbiNumber)).map((d) => `${d.ref}|${pbiIds.get(d.pbiNumber)}`))
   const existing = await prisma.gitLink.findMany({ where: { repositoryId, kind: "branch" }, select: { id: true, ref: true, backlogItemId: true } })
   const stale = existing.filter((l) => !keep.has(`${l.ref}|${l.backlogItemId}`)).map((l) => l.id)
   if (stale.length > 0) await prisma.gitLink.deleteMany({ where: { id: { in: stale } } })
+  return stale.length
 }
 
 /**

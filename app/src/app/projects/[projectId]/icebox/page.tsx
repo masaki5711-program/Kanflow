@@ -23,6 +23,7 @@ import {
 } from "./types"
 import { useProjectDocumentTitle } from "@/components/app-shell/project-title-context"
 import { ExcelExportButton } from "@/components/excel/excel-export-button"
+import { useLiveRefetch } from "@/components/realtime/use-live-refetch"
 
 interface StatusVars {
   item: IceboxItem
@@ -41,6 +42,8 @@ export default function IceboxPage() {
   const url = `/api/projects/${projectId}/icebox`
   const query = useApiQuery<IceboxLists>(url, { toastOnError: (e) => `${t.iceboxLoadFailed}: ${e.message}` })
   const { data: lists, mutate: setLists, refetch } = query
+  // Other people's IceBox changes (new requests, reviews, PBI conversions) appear live.
+  useLiveRefetch(refetch, { types: ["activity"], projectId, entityTypes: ["icebox", "pbi"] })
 
   const [showForm, setShowForm] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")

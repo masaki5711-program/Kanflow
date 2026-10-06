@@ -5,6 +5,8 @@ import { renderWithProviders, tr } from "@/app/__tests__/test-utils"
 import type { PoHomeSummary } from "@/services/projects/po-home-summary.types"
 import { buildHomeKpis } from "../home-kpi-tiles"
 
+// The home messages block refreshes the (server) page on live notifications.
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }) }))
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: ReactNode }) => (
     <a href={href} {...rest}>

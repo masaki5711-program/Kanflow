@@ -7,6 +7,7 @@ import { useLanguage } from "@/lib/language-context"
 import { apiFetch } from "@/hooks"
 import { announceNotificationsChanged } from "@/lib/notification-events"
 import { NotificationRow } from "@/components/notifications/notification-row"
+import { useLiveRefetch } from "@/components/realtime/use-live-refetch"
 import type { NotificationItem } from "@/components/notifications/notification-format"
 
 interface Props {
@@ -22,8 +23,16 @@ interface Props {
  * read and opens the item. Hidden when there is nothing unread.
  */
 export function HomeMessages(props: Props) {
-  return props.items.length > 0 ? <HomeMessageList {...props} /> : null
+  const router = useRouter()
+  // A new message for the viewer: re-render the (server) top page; the list remounts with it.
+  useLiveRefetch(router.refresh, { types: LIVE_TYPES, debounceMs: LIVE_DEBOUNCE_MS })
+  const listKey = props.items.map((i) => i.id).join(",")
+  return props.items.length > 0 ? <HomeMessageList key={listKey} {...props} /> : null
 }
+
+const LIVE_TYPES = ["notification"] as const
+/** router.refresh re-renders the whole top page: coalesce a burst of notifications. */
+const LIVE_DEBOUNCE_MS = 1_000
 
 function HomeMessageList({ items: initial, total }: Props) {
   const { t } = useLanguage()

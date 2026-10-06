@@ -8,6 +8,7 @@ import { type Language } from "@/lib/i18n"
 import { type ReactNode } from "react"
 import IdleLogoutWatcher from "@/components/idle-logout-watcher"
 import { LiveAnnouncer } from "@/components/live-announcer"
+import { RealtimeProvider } from "@/components/realtime/realtime-provider"
 
 export function Providers({
   children,
@@ -30,12 +31,15 @@ export function Providers({
       <IdleLogoutWatcher />
       {/* Single shared polite live region (see live-announcer.tsx). */}
       <LiveAnnouncer />
-      <LanguageProvider initialLanguage={userLanguage} persistToUser>
-        {/* Toast/Confirm sit inside LanguageProvider so their default labels are localized. */}
-        <ToastProvider>
-          <ConfirmProvider>{children}</ConfirmProvider>
-        </ToastProvider>
-      </LanguageProvider>
+      {/* One real-time event stream per tab (live refresh of chats, comments, boards, badges). */}
+      <RealtimeProvider>
+        <LanguageProvider initialLanguage={userLanguage} persistToUser>
+          {/* Toast/Confirm sit inside LanguageProvider so their default labels are localized. */}
+          <ToastProvider>
+            <ConfirmProvider>{children}</ConfirmProvider>
+          </ToastProvider>
+        </LanguageProvider>
+      </RealtimeProvider>
     </SessionProvider>
   )
 }

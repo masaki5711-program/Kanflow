@@ -7,6 +7,7 @@ import { Button, EmptyState, IconButton, SkeletonLines, useConfirm, useToast } f
 import { CommentBody } from "./comment-body"
 import { CommentComposer } from "./comment-composer"
 import { formatFullDateTime, formatRelativeTime } from "./relative-time"
+import { useLiveRefetch } from "@/components/realtime/use-live-refetch"
 import { markThreadRead, useCommentThread, useMentionMembersState } from "./use-comment-thread"
 import type { CommentDto, CommentEntityType, MentionMember } from "./types"
 
@@ -19,6 +20,8 @@ interface Props {
   /** Called once the thread was opened and its notifications marked read (unread marks). */
   onRead?: () => void
 }
+
+const NOTIFICATION_EVENTS = ["notification"] as const
 
 function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
@@ -45,6 +48,11 @@ export function CommentThread({ projectId, entityType, entityId, onCountDelta, o
     // onRead is a notification only; re-running for a new callback identity is not wanted.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, entityType, entityId])
+  // A new mention / comment notification about this thread while it is open: it is being read right now.
+  useLiveRefetch(
+    () => void markThreadRead(projectId, entityType, entityId).then((ok) => ok && onRead?.()),
+    { types: NOTIFICATION_EVENTS, projectId, entityTypes: [entityType], entityIds: entityId, resync: false },
+  )
   const { members, isLoading: membersLoading } = useMentionMembersState(projectId)
 
   async function post(body: string): Promise<boolean> {

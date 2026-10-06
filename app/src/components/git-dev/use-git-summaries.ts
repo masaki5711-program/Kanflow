@@ -3,6 +3,7 @@
 import { useEffect, useMemo } from "react"
 import { useApiQuery } from "@/hooks"
 import { GIT_SYNCED_EVENT, gitApiBase, isGitKnownOff, rememberGitOff, toSummaries, type GitSummaries, type PbiGitSummary } from "./git-client-state"
+import { useLiveRefetch } from "@/components/realtime/use-live-refetch"
 
 /** PBIs per request (keeps the query string well under URL limits; later PBIs show no badge). */
 export const MAX_SUMMARY_IDS = 200
@@ -31,6 +32,9 @@ export function useGitSummaries(projectId: string, pbiIds: readonly string[]): G
     window.addEventListener(GIT_SYNCED_EVENT, refetch)
     return () => window.removeEventListener(GIT_SYNCED_EVENT, refetch)
   }, [enabled, refetch])
+
+  // A background GitLab sync changed links of this project: badges follow live.
+  useLiveRefetch(refetch, { types: ["git"], projectId, enabled })
 
   return useMemo(() => ({ enabled, summaries: enabled && data ? data.summaries : NONE }), [enabled, data])
 }

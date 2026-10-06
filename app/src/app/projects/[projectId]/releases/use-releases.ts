@@ -5,6 +5,7 @@ import { useToast } from "@/components/ui"
 import { apiFetch, useApiMutation, useApiQuery } from "@/hooks"
 import { useLanguage } from "@/lib/language-context"
 import { UNCATEGORIZED, type ReleaseEditForm, type ReleaseItem } from "./release-types"
+import { useLiveRefetch } from "@/components/realtime/use-live-refetch"
 
 interface SaveVars {
   id: string
@@ -26,6 +27,8 @@ export function useReleases(projectId: string) {
     toastOnError: () => t.releaseLoadFailed,
   })
   const { data: items, mutate: setItems, refetch } = query
+  // Other people's release changes appear live.
+  useLiveRefetch(refetch, { types: ["activity"], projectId, entityTypes: ["release"] })
 
   const save = useApiMutation(
     ({ id, form }: SaveVars) => apiFetch(`${baseUrl}/${id}`, { method: "PATCH", json: form }),

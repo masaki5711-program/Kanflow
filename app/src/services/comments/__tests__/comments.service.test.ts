@@ -6,6 +6,8 @@ vi.mock("@/services/_shared/notifications", async () => (await import("@/service
 vi.mock("@/services/_shared/translations", async () => (await import("@/services/__tests__/support")).translationMock())
 vi.mock("../comments.repository")
 vi.mock("@/services/team-chat/team-chat.repository", () => ({ insertMirror: vi.fn() }))
+const publishAfterCommit = vi.fn()
+vi.mock("@/lib/realtime/after-commit", () => ({ publishAfterCommit: (...a: unknown[]) => publishAfterCommit(...a) }))
 
 const repo = await import("../comments.repository")
 const teamChatRepo = await import("@/services/team-chat/team-chat.repository")
@@ -371,3 +373,25 @@ describe("unread mentions / comments per item", () => {
   })
 })
 
+
+describe("real-time 'comment' events (ids only, after the commit)", () => {
+  const event = (action: string) => ({ type: "comment", projectId: "p1", entityType: "pbi", entityId: "b1", subjectId: "c1", action, actorId: "u1" })
+
+  it("create / edit / delete each publish one event for the commented entity", async () => {
+    await svc.createComment("p1", { entityType: "pbi", entityId: "b1", body: "hi" }, ACTOR)
+    expect(publishAfterCommit).toHaveBeenLastCalledWith(event("create"))
+    vi.mocked(repo.findComment).mockResolvedValueOnce(row("c1") as never).mockResolvedValueOnce(row("c1", { body: "edited" }) as never)
+    await svc.updateComment("p1", "c1", { body: "edited" }, ACTOR)
+    expect(publishAfterCommit).toHaveBeenLastCalledWith(event("update"))
+    await svc.deleteComment("p1", "c1", ACTOR)
+    expect(publishAfterCommit).toHaveBeenLastCalledWith(event("delete"))
+    expect(publishAfterCommit).toHaveBeenCalledTimes(3)
+  })
+
+  it("an unchanged edit or a refused delete publishes nothing", async () => {
+    await svc.updateComment("p1", "c1", { body: "Hello" }, ACTOR)
+    vi.mocked(repo.findComment).mockResolvedValue(row("c1", { authorId: "u2" }) as never)
+    await expect(svc.deleteComment("p1", "c1", ACTOR)).rejects.toBeInstanceOf(ForbiddenError)
+    expect(publishAfterCommit).not.toHaveBeenCalled()
+  })
+})

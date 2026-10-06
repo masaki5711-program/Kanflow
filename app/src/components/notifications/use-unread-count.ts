@@ -1,10 +1,12 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
+import { useLiveRefetch } from "@/components/realtime/use-live-refetch"
 import { NOTIFICATIONS_CHANGED_EVENT } from "@/lib/notification-events"
 
 export const UNREAD_POLL_MS = 60_000
 export const UNREAD_COUNT_URL = "/api/notifications/unread-count"
+const LIVE_TYPES = ["notification"] as const
 
 export interface UnreadCount {
   count: number
@@ -19,8 +21,8 @@ function isVisible(): boolean {
 }
 
 /**
- * Unread notification count for the header bell. Polls every 60 s but only
- * while the tab is visible; refreshes at once when the tab becomes visible
+ * Unread notification count for the header bell. Refreshes on real-time
+ * "notification" events; polls every 60 s (the fallback) but only while the tab is visible; refreshes at once when the tab becomes visible
  * again or the window regains focus. Failures keep the last known count.
  */
 export function useUnreadCount(enabled = true): UnreadCount {
@@ -62,6 +64,9 @@ export function useUnreadCount(enabled = true): UnreadCount {
       controllerRef.current?.abort()
     }
   }, [enabled, refresh])
+
+  // A notification for the viewer was created (any project): the badge follows at once.
+  useLiveRefetch(refresh, { types: LIVE_TYPES, enabled })
 
   return { count, refresh, setCount }
 }

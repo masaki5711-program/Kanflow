@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { apiFetch, isAbortError } from "@/hooks"
 import type { NotificationGroup } from "@/lib/notification-groups"
 import type { NotificationItem, NotificationPage } from "./notification-format"
@@ -49,6 +49,7 @@ export function useNotificationFeed(group: NotificationGroup, onUnreadCount: (co
   const [unreadByGroup, setUnreadByGroup] = useState<UnreadByGroup | null>(null)
   const [loadingMore, setLoadingMore] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
+  const shownGroup = useRef<NotificationGroup | null>(null)
 
   const applyCounts = useCallback(
     (page: NotificationPage) => {
@@ -60,7 +61,9 @@ export function useNotificationFeed(group: NotificationGroup, onUnreadCount: (co
 
   useEffect(() => {
     const controller = new AbortController()
-    setState({ status: "loading" })
+    // A reload of the tab on screen (live update) keeps the list visible until the new one arrives.
+    if (shownGroup.current !== group) setState({ status: "loading" })
+    shownGroup.current = group
     loadChunk(group, "unread", null, controller.signal)
       .then((r) => {
         setState({ status: "ready", items: r.items, phase: r.phase, cursor: r.cursor, hasMore: r.hasMore })

@@ -6,6 +6,9 @@ vi.mock("@/lib/logger", () => {
   return { logger: log }
 })
 
+const publishAfterCommit = vi.fn()
+vi.mock("@/lib/realtime/after-commit", () => ({ publishAfterCommit: (...a: unknown[]) => publishAfterCommit(...a) }))
+
 const act = await import("../activity")
 const { fakeDb } = await import("@/services/__tests__/fake-db")
 const { ACTOR } = await import("@/services/__tests__/support")
@@ -93,7 +96,32 @@ describe("labelOf / serializeDiff", () => {
 })
 
 describe("logActivity", () => {
-  beforeEach(() => warn.mockClear())
+  beforeEach(() => {
+    warn.mockClear()
+    publishAfterCommit.mockClear()
+  })
+
+  it("publishes an 'activity' real-time event with ids only (no diff / labels)", async () => {
+    const db = fakeDb()
+    await act.logActivity(db.client, {
+      projectId: "p1",
+      entityType: "pbi",
+      entityId: "b1",
+      action: "status_change",
+      actor: ACTOR,
+      diff: { changes: { status: { from: "a", to: "b" } }, label: "secret label" },
+    })
+    expect(publishAfterCommit).toHaveBeenCalledWith({ type: "activity", projectId: "p1", entityType: "pbi", entityId: "b1", action: "status_change", actorId: "u1" })
+  })
+
+  it("a system actor publishes without actorId; a failed write publishes nothing", async () => {
+    const db = fakeDb()
+    await act.logActivity(db.client, { projectId: "p1", entityType: "sprint", entityId: "s", action: "update", actor: { userId: "", userName: "GitLab", systemRole: "member" } })
+    expect(publishAfterCommit.mock.calls[0][0].actorId).toBeUndefined()
+    db.fn("activityLog.create").mockRejectedValueOnce(new Error("db down"))
+    await act.logActivity(db.client, { projectId: "p1", entityType: "pbi", entityId: "b", action: "create", actor: ACTOR })
+    expect(publishAfterCommit).toHaveBeenCalledTimes(1)
+  })
 
   it("writes one row with actor fields and the serialized diff", async () => {
     const db = fakeDb()

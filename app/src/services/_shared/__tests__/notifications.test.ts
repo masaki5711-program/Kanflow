@@ -6,6 +6,9 @@ vi.mock("@/lib/logger", () => {
   return { logger: log }
 })
 
+const publishAfterCommit = vi.fn()
+vi.mock("@/lib/realtime/after-commit", () => ({ publishAfterCommit: (...a: unknown[]) => publishAfterCommit(...a) }))
+
 const n = await import("../notifications")
 const { fakeDb } = await import("@/services/__tests__/fake-db")
 
@@ -22,7 +25,23 @@ describe("candidateRecipients", () => {
 })
 
 describe("notify", () => {
-  beforeEach(() => warn.mockClear())
+  beforeEach(() => {
+    warn.mockClear()
+    publishAfterCommit.mockClear()
+  })
+
+  it("publishes one 'notification' real-time event to the eligible recipients (ids only, no payload)", async () => {
+    const db = fakeDb({ "user.findMany": [user("a"), user("b", false)], "notification.createMany": { count: 1 } })
+    await n.notify(db.client, { recipientIds: ["a", "b"], actorId: "me", type: "mentioned", projectId: "p1", entityType: "pbi", entityId: "b1", payload: { excerpt: "secret" } })
+    expect(publishAfterCommit).toHaveBeenCalledTimes(1)
+    expect(publishAfterCommit).toHaveBeenCalledWith({ type: "notification", userIds: ["a"], projectId: "p1", entityType: "pbi", entityId: "b1", action: "mentioned", actorId: "me" })
+  })
+
+  it("publishes nothing when no row was created (all duplicates / nobody eligible)", async () => {
+    const db = fakeDb({ "user.findMany": [user("a")], "notification.createMany": { count: 0 } })
+    await n.notify(db.client, { recipientIds: ["a"], type: "assigned", dedupeKey: "k" })
+    expect(publishAfterCommit).not.toHaveBeenCalled()
+  })
 
   it("inserts one row per eligible recipient with skipDuplicates", async () => {
     const db = fakeDb({

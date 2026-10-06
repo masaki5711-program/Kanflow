@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react"
 import { useSession } from "next-auth/react"
 import { apiFetch, conflictAwareToast, useApiMutation, useApiQuery, versionConflictOf, versionParam, withVersion } from "@/hooks"
+import { useLiveRefetch } from "@/components/realtime/use-live-refetch"
 import { useLanguage } from "@/lib/language-context"
 import {
   LIST_KEY,
@@ -18,6 +19,7 @@ import { createKeyedSerialQueue, newestVersion } from "./keyed-serial-queue"
 import { useTrashUndo } from "./use-bulk-actions"
 
 const NO_MEMBERS: ProjectMember[] = []
+const LIVE_TYPES = ["activity"] as const
 
 interface ReorderVars {
   status: BacklogStatus
@@ -47,6 +49,11 @@ export function useBacklogData(projectId: string) {
   const goals = useApiQuery<ProductGoal[]>(`${base}/goals`, { toastOnError: true })
   const members = useApiQuery<ProjectMember[]>(`${base}/members`, { toastOnError: true })
   const project = useApiQuery<{ pointUnit?: string }>(base, { toastOnError: true })
+
+  // The IceBox picker and goals follow other people's changes (the list itself refreshes in the page, paused while dragging).
+  useLiveRefetch(icebox.refetch, { types: LIVE_TYPES, projectId, entityTypes: ["icebox"] })
+  useLiveRefetch(goals.refetch, { types: LIVE_TYPES, projectId, entityTypes: ["goal"] })
+  useLiveRefetch(members.refetch, { types: LIVE_TYPES, projectId, entityTypes: ["member"] })
 
   // System admins bypass project membership and get PO-equivalent edit rights
   // (matches the requireProjectMember admin synthesis on the server side).

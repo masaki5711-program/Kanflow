@@ -6,6 +6,7 @@ import { localizeApiError } from "@/hooks/api-client"
 import { milestonesUrl } from "@/lib/milestones/constants"
 import { useLanguage } from "@/lib/language-context"
 import type { MilestoneBoard } from "./milestone-types"
+import { useLiveRefetch } from "@/components/realtime/use-live-refetch"
 
 /** Result of one write: ok (with the response body), or the localized error to announce. */
 export type WriteResult = { ok: true; data: unknown } | { ok: false; message: string; conflict?: boolean }
@@ -23,6 +24,8 @@ export function useMilestoneBoard(projectId: string) {
   const query = useApiQuery<MilestoneBoard>(projectId ? milestonesUrl(projectId) : null, { toastOnError: () => t.releaseLoadFailed })
   const { refetch } = query
   const [pending, setPending] = useState(0)
+  // Other people's board changes appear live (not while this tab's own write is in flight).
+  useLiveRefetch(refetch, { types: ["activity"], projectId, entityTypes: ["project", "release", "plan_item"], paused: pending > 0 })
 
   const send = useCallback(
     async (url: string, init: WriteInit): Promise<WriteResult> => {
