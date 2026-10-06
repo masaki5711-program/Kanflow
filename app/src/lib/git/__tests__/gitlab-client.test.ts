@@ -194,3 +194,52 @@ describe("accessLevelOf", () => {
     expect(accessLevelOf({ permissions: null })).toBeNull()
   })
 })
+
+describe("createGitLabClient — knowledge index endpoints", () => {
+  const client = (fetchImpl: typeof fetch) => createGitLabClient({ apiBase: API_BASE, token: TOKEN, fetchImpl })
+
+  it("latestCommitSha asks for one commit of the default branch (null for an empty repository)", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse([{ id: "abc" }]))
+    expect(await client(fetchImpl).latestCommitSha(7)).toBe("abc")
+    expect(String(fetchImpl.mock.calls[0][0])).toBe(`${API_BASE}/api/v4/projects/7/repository/commits?per_page=1`)
+    expect(await client(vi.fn<typeof fetch>(async () => jsonResponse([]))).latestCommitSha(7)).toBeNull()
+  })
+
+  it("listTree pages through the recursive tree at a commit", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse([{ id: "1", path: "a.md", type: "blob" }], 200, { "x-next-page": "2" }))
+      .mockResolvedValueOnce(jsonResponse([{ id: "2", path: "b.md", type: "blob" }]))
+    const tree = await client(fetchImpl).listTree(7, "sha1", 5)
+    expect(tree.map((e) => e.path)).toEqual(["a.md", "b.md"])
+    const url = new URL(String(fetchImpl.mock.calls[0][0]))
+    expect(url.pathname).toBe("/api/v4/projects/7/repository/tree")
+    expect(Object.fromEntries(url.searchParams)).toMatchObject({ ref: "sha1", recursive: "true", per_page: "100", page: "1" })
+  })
+
+  it("compare passes from / to", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse({ diffs: [], compare_timeout: false }))
+    expect(await client(fetchImpl).compare(7, "old", "new")).toEqual({ diffs: [], compare_timeout: false })
+    expect(String(fetchImpl.mock.calls[0][0])).toBe(`${API_BASE}/api/v4/projects/7/repository/compare?from=old&to=new`)
+  })
+
+  it("rawFile encodes the path as one segment and returns the bytes", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => new Response("# 仕様", { status: 200 }))
+    const r = await client(fetchImpl).rawFile(7, "10-pfs/06 oee.md", "sha1", 1000)
+    expect(r.kind === "ok" && r.data.toString("utf8")).toBe("# 仕様")
+    expect(String(fetchImpl.mock.calls[0][0])).toBe(`${API_BASE}/api/v4/projects/7/repository/files/10-pfs%2F06%20oee.md/raw?ref=sha1`)
+  })
+
+  it("rawFile refuses a file over the limit, by Content-Length or while streaming", async () => {
+    const declared = vi.fn<typeof fetch>(async () => new Response("x".repeat(10), { status: 200, headers: { "content-length": "5000" } }))
+    expect(await client(declared).rawFile(7, "big.pdf", "s", 100)).toEqual({ kind: "too_large" })
+    const streamed = vi.fn<typeof fetch>(async () => new Response("y".repeat(500), { status: 200 }))
+    expect(await client(streamed).rawFile(7, "big.txt", "s", 100)).toEqual({ kind: "too_large" })
+  })
+
+  it("maps errors of the new endpoints like every other call", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => new Response("", { status: 404 }))
+    await expect(client(fetchImpl).rawFile(7, "gone.md", "s", 100)).rejects.toMatchObject({ kind: "not_found" })
+    await expect(client(fetchImpl).compare(7, "a", "b")).rejects.toBeInstanceOf(GitLabError)
+  })
+})

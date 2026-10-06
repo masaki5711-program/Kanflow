@@ -2,13 +2,16 @@ import { prisma } from "@/lib/prisma"
 import { logger } from "@/lib/logger"
 import { pollIntervalSec } from "@/services/git/git.service"
 import { syncRepository } from "@/services/git/git-sync"
+import { runKnowledgeTick } from "@/services/git/repo-index-runner"
 
 /**
  * Background GitLab sync (polling: GitLab on Google Cloud cannot reach the
  * LAN, so webhooks are impossible). Every GIT_SYNC_INTERVAL_SEC (default 180 s)
  * each repository of an enabled project is synced, one after another; a tick
  * never overlaps the previous one. Projects with the integration off cost
- * one indexed query per tick.
+ * one indexed query per tick. After the sync, repositories used as AI
+ * knowledge ("AI の参照資料") are re-indexed when their branch moved
+ * (services/git/repo-index-runner, time-boxed, resumed next tick).
  *
  * GIT_SYNC=off disables it; under `next dev` it only runs with GIT_SYNC_IN_DEV=true.
  */
@@ -46,11 +49,17 @@ export async function runGitSyncTick(sync: typeof syncRepository = syncRepositor
   }
 }
 
+/** Sync, then the knowledge index (each has its own overlap guard). */
+async function runGitTick(): Promise<void> {
+  await runGitSyncTick()
+  await runKnowledgeTick()
+}
+
 export function startGitPoller(): void {
   if (timer) return
   const everyMs = pollIntervalSec() * 1000
   // First pass shortly after start (not during the boot burst), then on the interval.
-  setTimeout(() => void runGitSyncTick(), 30_000).unref?.()
-  timer = setInterval(() => void runGitSyncTick(), everyMs)
+  setTimeout(() => void runGitTick(), 30_000).unref?.()
+  timer = setInterval(() => void runGitTick(), everyMs)
   timer.unref?.()
 }

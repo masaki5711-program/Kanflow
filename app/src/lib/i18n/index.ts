@@ -44,6 +44,7 @@ import * as pbiAttachments from "./pbi-attachments"
 import * as improvement from "./improvement"
 import * as gitDev from "./git-dev"
 import * as git from "./git"
+import * as gitKnowledge from "./git-knowledge"
 import * as planTemplates from "./plan-templates"
 import * as milestones from "./milestones"
 
@@ -100,6 +101,7 @@ export interface Translations
     improvement.ImprovementTranslations,
     gitDev.GitDevTranslations,
     git.GitTranslations,
+    gitKnowledge.GitKnowledgeTranslations,
     planTemplates.PlanTemplatesTranslations,
     milestones.MilestonesTranslations {}
 
@@ -150,6 +152,7 @@ export const domains = {
   "improvement": improvement,
   "git-dev": gitDev,
   "git": git,
+  "git-knowledge": gitKnowledge,
   "plan-templates": planTemplates,
   "milestones": milestones,
 } as const
@@ -200,6 +203,7 @@ const ja: Translations = {
   ...improvement.ja,
   ...gitDev.ja,
   ...git.ja,
+  ...gitKnowledge.ja,
   ...planTemplates.ja,
   ...milestones.ja,
 }
@@ -250,6 +254,7 @@ const en: Translations = {
   ...improvement.en,
   ...gitDev.en,
   ...git.en,
+  ...gitKnowledge.en,
   ...planTemplates.en,
   ...milestones.en,
 }
@@ -300,6 +305,7 @@ const id: Translations = {
   ...improvement.id,
   ...gitDev.id,
   ...git.id,
+  ...gitKnowledge.id,
   ...planTemplates.id,
   ...milestones.id,
 }

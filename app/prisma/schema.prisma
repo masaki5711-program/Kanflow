@@ -320,6 +320,7 @@ model Project {
   gitIntegration  GitIntegration?
   gitRepositories GitRepository[]
   gitLinks        GitLink[]
+  repoChunks      RepoChunk[]
 
   /// Plan template loads into this project's 全体計画.
   planTemplateApplications PlanTemplateApplication[]
@@ -1231,34 +1232,76 @@ model GitIntegration {
 /// One GitLab repository of a project (a project may have several: front end,
 /// API, edge ...). Polled by lib/git/poller (GitLab cannot reach the LAN, so no webhooks).
 model GitRepository {
-  id          String    @id @default(cuid())
-  projectId   String
+  id             String      @id @default(cuid())
+  projectId      String
   /// Display name ("API", "フロント").
-  name        String    @db.VarChar(100)
+  name           String      @db.VarChar(100)
   /// https://host/group/repo as entered (normalised, no .git).
-  webUrl      String    @db.VarChar(1024)
+  webUrl         String      @db.VarChar(1024)
   /// https://host — the API base.
-  apiBase     String    @db.VarChar(255)
+  apiBase        String      @db.VarChar(255)
   /// group/sub/repo
-  repoPath    String    @db.VarChar(512)
+  repoPath       String      @db.VarChar(512)
   /// GitLab numeric project id (resolved on the connection test).
-  externalId  Int?
+  externalId     Int?
   /// Optional per-repository token (overrides the integration token).
-  tokenCipher String?   @db.Text
-  tokenHint   String?   @db.VarChar(8)
+  tokenCipher    String?     @db.Text
+  tokenHint      String?     @db.VarChar(8)
   /// Last successful sync and the watermark the next one asks from.
-  syncedAt    DateTime?
-  syncCursor  DateTime?
-  lastError   String?   @db.VarChar(500)
-  lastErrorAt DateTime?
-  sortOrder   Int       @default(0)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  links       GitLink[]
+  syncedAt       DateTime?
+  syncCursor     DateTime?
+  lastError      String?     @db.VarChar(500)
+  lastErrorAt    DateTime?
+  sortOrder      Int         @default(0)
+  /// "AI の参照資料として使う": the repository's documents / code are indexed
+  /// into repo_chunk and searchable by the project AI chat (PO / SM switch).
+  aiKnowledge    Boolean     @default(false)
+  /// Optional folder prefixes to index (comma / newline separated, e.g. "docs/"); null = whole repository.
+  aiPathFilter   String?     @db.VarChar(1000)
+  /// Commit the index reflects, when it was completed and how many files it holds.
+  indexedSha     String?     @db.VarChar(64)
+  indexedAt      DateTime?
+  indexedFiles   Int         @default(0)
+  /// A pass in progress (resumed on the next poller tick): target commit and last finished path.
+  indexTargetSha String?     @db.VarChar(64)
+  indexCursor    String?     @db.VarChar(512)
+  indexError     String?     @db.VarChar(500)
+  indexErrorAt   DateTime?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  project        Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  links          GitLink[]
+  chunks         RepoChunk[]
 
   @@index([projectId])
   @@map("git_repository")
+}
+
+/// One searchable passage of a knowledge repository file (services/git/repo-index):
+/// a Markdown section or a ~2,000-character window. FULLTEXT ngram index
+/// ft_repo_chunk_text (migration 20261016000000_repo_knowledge).
+model RepoChunk {
+  id           String        @id @default(cuid())
+  repositoryId String
+  projectId    String
+  /// File path inside the repository.
+  path         String        @db.VarChar(512)
+  /// Heading path ("06 OEE > 2.3 定義") for citations; null for plain windows.
+  heading      String?       @db.VarChar(500)
+  /// GitLab URL fragment: Markdown heading slug, or "L12" for text / code; null for Office / PDF.
+  anchor       String?       @db.VarChar(255)
+  chunkNo      Int
+  content      String        @db.Text
+  /// Git blob id of the file version this chunk came from.
+  blobSha      String        @db.VarChar(64)
+  createdAt    DateTime      @default(now())
+  repository   GitRepository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  project      Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([repositoryId, path, chunkNo])
+  @@index([projectId])
+  @@fulltext([path, heading, content], map: "ft_repo_chunk_text")
+  @@map("repo_chunk")
 }
 
 /// A merge request, branch or commit that names a PBI (PBI-123 in its title,

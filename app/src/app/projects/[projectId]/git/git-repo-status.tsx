@@ -9,6 +9,7 @@ import { useLanguage } from "@/lib/language-context"
 import { fillTemplate } from "@/lib/fill-template"
 import { pollMinutes, type GitRepositoryDto } from "./git-labels"
 import { RepoSyncStatus } from "./repo-sync-status"
+import { RepoKnowledgeStatus, RepoReindexButton } from "./repo-knowledge-status"
 
 interface SyncResponse {
   results: Array<{ repositoryId: string; ok: boolean; links: number; error?: string }>
@@ -98,6 +99,12 @@ export function GitRepoStatus({ projectId, repositories, pollIntervalSec, settin
               </a>
               <p className="break-all text-caption text-fg-muted">{repo.repoPath}</p>
               <RepoSyncStatus repo={repo} now={now} />
+              {repo.aiKnowledge && (
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                  <RepoKnowledgeStatus repo={repo} now={now} />
+                  <RepoReindexButton projectId={projectId} repo={repo} onStarted={onSynced} />
+                </div>
+              )}
             </li>
           ))}
         </ul>

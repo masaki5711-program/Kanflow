@@ -167,7 +167,9 @@ Paths are relative to `/api/projects/[projectId]`.
 | `/surveillance-settings` | project.view | | PUT: surveillance.configure | |
 | `/git` | project.view (token never returned) | | PUT: git.configure | |
 | `/git/repositories`, `/git/test` | | git.configure | | |
-| `/git/repositories/[repoId]` | | | PATCH: git.configure | git.configure |
+| `/git/repositories/[repoId]` | | | PATCH: git.configure (incl. `aiKnowledge` / `aiPathFilter`: what every member can read through the AI) | git.configure |
+| `/git/repositories/[repoId]/index` | | git.sync (今すぐ取り込む; repository looked up within the project, 404 otherwise; 429 within 30 s) | | |
+| `/git/knowledge` | ai.use — names / file counts of the project's AI reference repositories only | | | |
 | `/git/sync` | | git.sync | | |
 | `/git/links`, `/git/summary`, `/git/overview` | project.view | | | |
 | `/ai-reports` | project.view | | | |
@@ -186,6 +188,8 @@ Paths are relative to `/api/projects/[projectId]`.
 Outside project scope: `/api/admin/**` uses `requireAdmin()`, and user-scoped routes use `requireAuth()`. `/api/v1/**` uses bearer tokens only (see "Read-only REST API and access tokens" below). `/api/wopi/**` uses its own signed-token auth (`src/app/api/wopi/_lib/wopi-auth.ts`, which re-checks admin or explicit membership, the same as `attachment.write` without the section-manager path).
 
 **Department portfolio (P4)** — `GET /api/portfolio` and the `/portfolio` page use `requireAuth()` plus one rule (`src/services/portfolio/portfolio.scope.ts`, shared with the chat tool `portfolio_overview`): a system admin sees every live project, a section manager the live projects assigned to one of their sections (membership alone does not add a project), anyone else gets 403 (the page redirects to `/`). The header shows the link only to those two roles.
+
+**Repository knowledge base for the AI chat (2026-10)** — a PO / SM (`git.configure`) can switch a GitLab repository to 「AI の参照資料として使う」. Its documents and code are then indexed into `repo_chunk` (`src/services/git/repo-index*.ts`) and the chat tools `search_repository_docs` / `read_repository_file` (`src/lib/repo-knowledge-tools.ts`) answer from them. This deliberately **widens visibility**: every project member with `ai.use` can read the repository's content through the AI even without GitLab access; the switch shows a confirmation saying so and the change is written to the activity log (`git.aiKnowledge`, `git.aiPathFilter`). Guards: the tools are offered only for a project with a knowledge repository, and every lookup is filtered by the caller's project id **and** the project's switched-on repositories (integration on, project not trashed); secret files (`.env*`, keys, certificates, credential / secret config files) are never downloaded and secret-looking values are redacted before storage (`repo-redact.ts`); switching off deletes the stored passages in the same transaction; the GitLab token and file contents are never logged.
 
 ## 改善成果ボード (process_improvement, 2026-10)
 

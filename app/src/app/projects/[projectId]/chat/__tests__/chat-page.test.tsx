@@ -61,16 +61,23 @@ function useStreamingFetch() {
     streams.push(s)
     return Promise.resolve(s.response)
   })
-  // The chat-history sidebar (GET /chat/threads) answers an empty list;
-  // `fetchMock` only sees the chat requests.
+  // The chat-history sidebar (GET /chat/threads) answers an empty list and the
+  // knowledge hint (GET /git/knowledge) `knowledgeRepos`; `fetchMock` only sees the chat requests.
   vi.stubGlobal("fetch", (url: string, init?: RequestInit) =>
     String(url).includes("/chat/threads")
       ? Promise.resolve(jsonResponse({ items: [], nextCursor: null }))
-      : fetchMock(url, init),
+      : String(url).includes("/git/knowledge")
+        ? Promise.resolve(jsonResponse({ repositories: knowledgeRepos }))
+        : fetchMock(url, init),
   )
 }
 
-beforeEach(() => useStreamingFetch())
+let knowledgeRepos: Array<{ name: string; indexedFiles: number; indexedAt: string | null }> = []
+
+beforeEach(() => {
+  knowledgeRepos = []
+  useStreamingFetch()
+})
 afterEach(() => vi.unstubAllGlobals())
 
 const log = () => screen.getByRole("log", { name: t.chatConversationLabel })
@@ -296,5 +303,44 @@ describe("ChatPage", () => {
     renderWithProviders(<ChatPage />)
     await user.type(input(), "   {Enter}")
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+})
+
+describe("ChatPage — repository knowledge", () => {
+  it("shows the hint chip when the project has reference repositories", async () => {
+    knowledgeRepos = [{ name: "仕様書（トライ）", indexedFiles: 137, indexedAt: null }]
+    renderWithProviders(<ChatPage />)
+    const chip = await screen.findByText(t.chatKbHint)
+    expect(chip.closest("span[title]")).toHaveAttribute("title", "AI が参照できるリポジトリ: 仕様書（トライ）")
+  })
+
+  it("shows no chip without them", async () => {
+    renderWithProviders(<ChatPage />)
+    await screen.findByRole("log")
+    await waitFor(() => expect(screen.queryByText(t.chatKbHint)).toBeNull())
+  })
+
+  it("renders https citations as new-tab links and refuses other schemes", async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<ChatPage />)
+    await ask(user, "OEE?")
+    await waitFor(() => expect(streams).toHaveLength(1))
+    act(() => {
+      streams[0].push(
+        [
+          "出典",
+          "- [10-pfs/06-oee.md（1.1 OEE）](https://gitlab.example.com/spec/-/blob/abc/10-pfs/06-oee.md#11-oee)",
+          "- [bad](javascript:alert(1))",
+          "- [plain](http://example.com)",
+        ].join("\n"),
+      )
+      streams[0].close()
+    })
+    const link = await within(log()).findByRole("link", { name: "10-pfs/06-oee.md（1.1 OEE）" })
+    expect(link).toHaveAttribute("target", "_blank")
+    expect(link).toHaveAttribute("rel", "noopener noreferrer")
+    expect(within(log()).queryByRole("link", { name: "bad" })).toBeNull()
+    expect(within(log()).queryByRole("link", { name: "plain" })).toBeNull()
+    expect(within(log()).getByText("plain")).toBeInTheDocument()
   })
 })

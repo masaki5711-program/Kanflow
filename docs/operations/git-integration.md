@@ -51,6 +51,62 @@ the API — the UI only shows its last four characters. Rotating
 `AUTH_SECRET` / `INTEGRATION_SECRET_KEY` makes stored tokens unreadable;
 repositories then show "トークンが読み取れません" until the token is re-entered.
 
+## Repository as AI reference material (「AI の参照資料として使う」)
+
+Instead of linking code to PBIs, a repository (e.g. a specification repository)
+can be pulled into Kanflow so the project's AI chat answers questions from it
+(read-only; nothing is ever written to GitLab).
+
+**Visibility caveat.** Switching it on means **every member of the project can
+see the repository's content through the AI — including people who have no
+access to it in GitLab**. Only PO / SM / admin (`git.configure`) can switch it,
+the switch asks for confirmation with exactly this warning, and the activity
+log records who changed it. Do not switch on repositories whose content must
+stay restricted to the GitLab project members.
+
+| Step | What happens |
+|---|---|
+| チーム設定 → Git 連携 → repository → 「AI の参照資料として使う」 | Confirmation, then the first import starts in the background |
+| 取り込むフォルダ（任意） | Comma / newline separated prefixes (`docs/, specs/`); empty = whole repository. Changing it re-imports (files now outside are removed) |
+| Status line (settings and 開発（Git）) | 取り込み中… / 取り込み待ち / 「AI の参照資料: n ファイル・最終取り込み …」 / 取り込みエラー |
+| 今すぐ取り込む | Any member (`git.sync`); runs in the background, at most once per 30 s per repository |
+| Switch off | The imported passages are deleted at once; the AI can no longer read the repository |
+| AI chat | A chip 「仕様書リポジトリを参照できます」; answers end with a 出典 list of `path（見出し）` links to GitLab at the indexed commit, or say 「仕様書（リポジトリ）には記載がありません」 |
+
+**What is imported.** GitLab API only (no git binary): documents (md, txt, rst,
+adoc, csv, tsv, json, yaml, toml, xml, html, sql …), Office / PDF (docx, xlsx,
+pptx, pdf — text extracted in the same sandboxed worker as attachments, at most
+60,000 characters per file) and common source code. Skipped automatically:
+images and other binaries, `node_modules/`, `vendor/`, `dist/`, `build/`,
+`.git/` and similar, lockfiles, minified bundles, files over 2 MB (text) /
+20 MB (Office / PDF), and **secret files**: `.env*`, `*.pem`, `*.key`, `*.pfx`,
+`*.p12`, `id_rsa*` / `id_ed25519*`, `.npmrc`, `.netrc`, credential / secret /
+password config files, Terraform state. Inside imported files, private keys,
+well-known token formats (GitLab, GitHub, AWS, Slack, JWT …), URL passwords and
+`password=` / `token:` style values that look like real credentials are
+replaced with `[REDACTED]`. Caps: 3,000 files, 300 passages per file, 30,000
+per repository.
+
+**How it stays current.** After each sync tick the poller checks every
+knowledge repository with one request (newest commit of the default branch).
+When it moved, only the files changed since the indexed commit are re-imported
+(GitLab compare); the first import, a folder change, a compare that fails
+(e.g. force push) or one touching ≥ 1,000 files re-reads the tree and downloads
+only files whose blob id changed. One repository at a time per process, at most
+90 s per tick (a manual run up to 10 min), 100 ms between downloads; an
+unfinished import resumes after the last finished file on the next tick.
+Measured on the trial specification repository (147 files, ~10 MB, 137
+imported): first import 49 s / 2,305 passages; an incremental run with 54
+changed files 17 s; an unchanged check 0.5 s.
+
+**Search.** Passages are Markdown sections (with the heading path and GitLab
+heading anchor) or ~2,000-character windows (line anchor for text / code) in
+`repo_chunk`, searched with the FULLTEXT ngram index `ft_repo_chunk_text`
+(falls back to LIKE like the other searches; `SEARCH_FULLTEXT=off` forces
+LIKE). Japanese questions are split at particles; documents in English /
+Japanese / Indonesian are matched as written (the tool tells the model to
+retry with English terms when a Japanese search finds little).
+
 ## Environment
 
 | Variable | Default | Meaning |
@@ -64,10 +120,13 @@ repositories then show "トークンが読み取れません" until the token is
 ## Data
 
 `git_integration` (switch, sealed token, option), `git_repository` (one row per
-repository: URL, GitLab id, watermark, last error), `git_link` (one row per
-merge request / branch / commit × PBI). Removing a repository removes its
-links; turning the integration off keeps everything (it just stops syncing and
-hides the UI). Migration `20261012000000_git_integration`.
+repository: URL, GitLab id, watermark, last error; AI knowledge switch, folder
+filter, indexed commit / time / file count, in-progress cursor, index error),
+`git_link` (one row per merge request / branch / commit × PBI), `repo_chunk`
+(passages of AI knowledge repositories). Removing a repository removes its
+links and passages; turning the integration off keeps everything (it just stops
+syncing, hides the UI and the AI stops using the passages). Migrations
+`20261012000000_git_integration`, `20261016000000_repo_knowledge`.
 
 ## Troubleshooting
 
@@ -77,3 +136,5 @@ hides the UI). Migration `20261012000000_git_integration`.
 | "リポジトリが見つからない" | URL typo, or the token's group does not contain the repository |
 | Nothing linked | Branch / MR / commit really contains `PBI-<number>` of **this** project's PBI; wait one interval or press 今すぐ同期 |
 | No sync at all | Log line "git sync poller started" at start-up; `GIT_SYNC` not `off` |
+| AI knowledge stays 取り込み待ち | The poller is off (`GIT_SYNC=off`, or `next dev` without `GIT_SYNC_IN_DEV=true`) — press 今すぐ取り込む |
+| A document is missing from AI answers | It is outside the folder filter, over the size cap, a secret / binary file, or an Office file whose text could not be extracted (log line "repository indexed" shows processed / skipped counts) |

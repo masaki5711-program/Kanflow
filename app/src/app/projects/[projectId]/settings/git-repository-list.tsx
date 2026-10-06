@@ -8,6 +8,7 @@ import { useLanguage } from "@/lib/language-context"
 import { fillTemplate } from "@/lib/fill-template"
 import { serverErrorText, type GitRepositoryDto } from "../git/git-labels"
 import { RepoSyncStatus } from "../git/repo-sync-status"
+import { GitKnowledgeControls } from "./git-knowledge-controls"
 
 interface Props {
   projectId: string
@@ -131,6 +132,7 @@ function RepositoryRow({ projectId, repo, now, canConfigure, onChanged }: RowPro
           <span className="sr-only">{t.gitOpenInGitLab}</span>
         </a>
         <RepoSyncStatus repo={repo} now={now} />
+        <GitKnowledgeControls projectId={projectId} repo={repo} now={now} canConfigure={canConfigure} onChanged={onChanged} />
       </div>
       {canConfigure && !renaming && (
         <div className="flex shrink-0 gap-1">

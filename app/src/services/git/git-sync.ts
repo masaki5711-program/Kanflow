@@ -25,7 +25,8 @@ const MAX_PIPELINE_LOOKUPS = 25
 export const GIT_ACTOR: Actor = { userId: "", userName: "GitLab", systemRole: "member" }
 
 export type ClientFactory = (apiBase: string, token: string) => GitLabClient
-const defaultFactory: ClientFactory = (apiBase, token) => createGitLabClient({ apiBase, token })
+export const defaultClientFactory: ClientFactory = (apiBase, token) => createGitLabClient({ apiBase, token })
+const defaultFactory = defaultClientFactory
 
 export interface SyncResult {
   repositoryId: string

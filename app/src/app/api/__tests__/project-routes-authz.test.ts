@@ -118,6 +118,10 @@ vi.mock("@/services/ai-jobs/ai-jobs.service", () => h.inertModule("ai-jobs.servi
 vi.mock("@/services/surveillance-settings/surveillance-settings.service", () => h.inertModule("surveillance-settings.service"))
 vi.mock("@/services/git/git.service", () => h.inertModule("git.service"))
 vi.mock("@/services/git/git-sync", () => h.inertModule("git-sync"))
+vi.mock("@/services/git/repo-index-runner", () => h.inertModule("repo-index-runner"))
+vi.mock("@/services/git/repo-knowledge.service", () => h.inertModule("repo-knowledge.service"))
+vi.mock("@/services/git/repo-search", () => h.inertModule("repo-search"))
+vi.mock("@/lib/repo-knowledge-tools", () => h.inertModule("repo-knowledge-tools", { REPO_KNOWLEDGE_TOOL_DEFS: [], REPO_KNOWLEDGE_GUIDE: { ja: "", en: "", id: "" } }))
 
 // AI / file / network modules
 vi.mock("@/lib/ollama", () => h.inertModule("ollama"))
@@ -182,10 +186,12 @@ const ROUTES: RouteCase[] = [
   { file: "favorite/route.ts", load: () => import("@/app/api/projects/[projectId]/favorite/route"), params: {} },
   { file: "folders/route.ts", load: () => import("@/app/api/projects/[projectId]/folders/route"), params: {} },
   { file: "git/route.ts", load: () => import("@/app/api/projects/[projectId]/git/route"), params: {} },
+  { file: "git/knowledge/route.ts", load: () => import("@/app/api/projects/[projectId]/git/knowledge/route"), params: {} },
   { file: "git/links/route.ts", load: () => import("@/app/api/projects/[projectId]/git/links/route"), params: {} },
   { file: "git/overview/route.ts", load: () => import("@/app/api/projects/[projectId]/git/overview/route"), params: {} },
   { file: "git/repositories/route.ts", load: () => import("@/app/api/projects/[projectId]/git/repositories/route"), params: {} },
   { file: "git/repositories/[repoId]/route.ts", load: () => import("@/app/api/projects/[projectId]/git/repositories/[repoId]/route"), params: { repoId: "repo-1" } },
+  { file: "git/repositories/[repoId]/index/route.ts", load: () => import("@/app/api/projects/[projectId]/git/repositories/[repoId]/index/route"), params: { repoId: "repo-1" } },
   { file: "git/summary/route.ts", load: () => import("@/app/api/projects/[projectId]/git/summary/route"), params: {} },
   { file: "git/sync/route.ts", load: () => import("@/app/api/projects/[projectId]/git/sync/route"), params: {} },
   { file: "git/test/route.ts", load: () => import("@/app/api/projects/[projectId]/git/test/route"), params: {} },

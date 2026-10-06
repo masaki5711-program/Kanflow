@@ -175,6 +175,29 @@ describe("POST /api/projects/[projectId]/chat", () => {
     expect(streamWithTools).toHaveBeenCalledTimes(4)
   })
 
+  it("after the tool turns, answers in a clean tool-free pass built from the gathered material", async () => {
+    const toolTurn = () => turn([{ type: "tool_calls", calls: [{ id: "c", function: { name: "get_backlog_summary", arguments: {} } }] }])
+    streamWithTools.mockImplementationOnce(toolTurn).mockImplementationOnce(toolTurn).mockImplementationOnce(toolTurn)
+    streamWithTools.mockImplementationOnce(() => turn([{ type: "text", chunk: "final answer" }]))
+    const text = await (await POST(req({ messages: [{ role: "user", content: "loop" }], lang: "en" }), ctx)).text()
+    expect(text).toContain("final answer")
+    expect(text).not.toContain("tool iteration limit")
+    expect(streamWithTools.mock.calls[2][1].tools.length).toBeGreaterThan(0)
+    // Answer pass: no tools, only a short system prompt + the question with the material.
+    expect(streamWithTools.mock.calls[3][1].tools).toEqual([])
+    const pass = streamWithTools.mock.calls[3][0] as Array<{ role: string; content: string }>
+    expect(pass.map((m) => m.role)).toEqual(["system", "user"])
+    expect(pass[0].content).toContain("No more tools are available")
+    expect(pass[1].content).toContain("loop")
+  })
+
+  it("still reports the limit when the answer pass produces no text", async () => {
+    const toolTurn = () => turn([{ type: "tool_calls", calls: [{ id: "c", function: { name: "get_backlog_summary", arguments: {} } }] }])
+    streamWithTools.mockImplementationOnce(toolTurn).mockImplementationOnce(toolTurn).mockImplementationOnce(toolTurn).mockImplementationOnce(toolTurn)
+    const text = await (await POST(req({ messages: [{ role: "user", content: "loop" }], lang: "en" }), ctx)).text()
+    expect(text).toContain("tool iteration limit")
+  })
+
   it("writes an inline error when the stream fails mid-answer", async () => {
     streamWithTools.mockReturnValueOnce(turn([{ type: "text", chunk: "partial" }], new Error("boom")))
     const text = await (await POST(req({ messages: [{ role: "user", content: "x" }] }), ctx)).text()

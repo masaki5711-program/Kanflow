@@ -60,6 +60,16 @@ function TypingIndicator({ label }: { label: string }) {
   )
 }
 
+/** Links in AI answers open only for https URLs (no javascript:, data:, http: or relative surprises). */
+export function isSafeLink(href: string | undefined): href is string {
+  if (!href) return false
+  try {
+    return new URL(href).protocol === "https:"
+  } catch {
+    return false
+  }
+}
+
 function AssistantMarkdown({ text }: { text: string }) {
   return (
     <ReactMarkdown
@@ -77,11 +87,15 @@ function AssistantMarkdown({ text }: { text: string }) {
         ul: ({ children }) => <ul className="list-disc pl-5 my-2 space-y-0.5">{children}</ul>,
         ol: ({ children }) => <ol className="list-decimal pl-5 my-2 space-y-0.5">{children}</ol>,
         li: ({ children }) => <li className="leading-relaxed">{children}</li>,
-        a: ({ href, children }) => (
-          <a href={href} target="_blank" rel="noreferrer" className="text-primary hover:underline">
-            {children}
-          </a>
-        ),
+        // Citations (e.g. GitLab file links): https only, new tab; anything else stays plain text.
+        a: ({ href, children }) =>
+          isSafeLink(href) ? (
+            <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+              {children}
+            </a>
+          ) : (
+            <span>{children}</span>
+          ),
         code: ({ className, children }) => {
           const isBlock = className?.startsWith("language-")
           // ```chart blocks: parse the JSON spec and render a real chart.

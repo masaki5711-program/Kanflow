@@ -12,6 +12,8 @@ import { normalizeLang, type AILang } from "@/lib/ai-analysis"
 import { CHAT_TOOLS, runTool } from "@/lib/chat-tools"
 import { aiLog, aiLogTrunc } from "@/lib/ai-monitor"
 import { packGuide, packToolDefs, selectPacks } from "@/lib/chat-tool-packs"
+import { hasRepoKnowledge, REPO_KNOWLEDGE_GUIDE, REPO_KNOWLEDGE_TOOL_DEFS } from "@/lib/repo-knowledge-tools"
+import { buildSynthesisMessages } from "@/lib/chat-synthesis"
 import { encodeChatEvent, proposalFromToolResult, sanitizeModelText } from "@/lib/chat-proposals"
 import { toHttpResponse } from "@/services/_shared/http"
 import { beginChatRecording, resolveChatThread } from "@/services/chat-threads/chat-threads.service"
@@ -48,6 +50,8 @@ const TOOL_RESULT_FOOTER: Record<AILang, string> = {
   en: "\n\n---\n(NOTE) The above is reference data from the tool. Continue the user's request (summary, answer, etc.) based on this content. The answer MUST be written in English.",
 }
 
+// Added to the tool results before the last iteration: the model (which may
+// still emit tool calls when none are offered) must answer now.
 const TOOL_GUIDE: Record<AILang, string> = {
   ja:
     "## ツール利用ガイド\n" +
@@ -144,7 +148,9 @@ const bodySchema = z.object({
   threadId: z.string().min(1).max(191).optional(),
 })
 
+/** Tool turns before the final answer pass (more for projects with repository knowledge: search, read, read). */
 const MAX_TOOL_ITERATIONS = 4
+const MAX_TOOL_ITERATIONS_KNOWLEDGE = 6
 
 export async function POST(
   request: Request,
@@ -198,12 +204,16 @@ export async function POST(
   // tool schemas + routing guide within the num_ctx budget).
   const packs = selectPacks({ messages: parsed.messages, actor: auth.actor })
   if (packs.length > 0) aiLog("TOOL_PACKS", packs.join(", "))
+  // Repository knowledge tools only when the project has a repository switched on as AI reference material.
+  const knowledge = await hasRepoKnowledge(projectId).catch(() => false)
+  const maxIterations = knowledge ? MAX_TOOL_ITERATIONS_KNOWLEDGE : MAX_TOOL_ITERATIONS
 
   const baseMessages: ChatMessage[] = [
     { role: "system", content: CHAT_SYSTEM_PROMPT },
     { role: "system", content: `# プロジェクト現状\n\n${context}` },
     { role: "system", content: LANG_LOCK[replyLang] },
-    { role: "system", content: TOOL_GUIDE[replyLang] + packGuide(packs, replyLang) },
+    { role: "system", content: TOOL_GUIDE[replyLang] + packGuide(packs, replyLang) + (knowledge ? `
+${REPO_KNOWLEDGE_GUIDE[replyLang]}` : "") },
     ...parsed.messages,
   ]
 
@@ -217,7 +227,7 @@ export async function POST(
     timeoutMs: OLLAMA_TIMEOUTS.chat,
     label: "chat",
     think: false,
-    tools: [...CHAT_TOOLS, ...packToolDefs(packs)],
+    tools: [...CHAT_TOOLS, ...(knowledge ? REPO_KNOWLEDGE_TOOL_DEFS : []), ...packToolDefs(packs)],
     numPredict: 4096,
   }
   const conversation = [...baseMessages]
@@ -225,7 +235,7 @@ export async function POST(
 
   // Open the first turn before responding so that failures before any output
   // (Ollama down, timeout, client gone) become a JSON error status.
-  aiLog("LLM_TURN", `iteration=1/${MAX_TOOL_ITERATIONS} waiting for local model…`)
+  aiLog("LLM_TURN", `iteration=1/${maxIterations} waiting for local model…`)
   let firstTurn: AsyncIterableIterator<ChatStreamEvent>
   try {
     firstTurn = await primeStream(ollamaChatStreamWithTools(conversation, turnOptions))
@@ -260,13 +270,14 @@ export async function POST(
         // Tool-calling loop with true token streaming. Each turn streams text
         // chunks to the client in real time; if the model produces tool_calls
         // we execute them and re-enter the stream for the next turn.
-        for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
+        // The last iteration is the tool-free answer pass below.
+        for (let i = 0; i < maxIterations - 1; i++) {
           let textBuf = ""
           let toolCalls: ToolCall[] = []
           // Demo monitor: log streaming progress in coarse slices, not per token.
           let sliceStart = 0
           let firstToken = true
-          if (i > 0) aiLog("LLM_TURN", `iteration=${i + 1}/${MAX_TOOL_ITERATIONS} waiting for local model…`)
+          if (i > 0) aiLog("LLM_TURN", `iteration=${i + 1}/${maxIterations} waiting for local model…`)
           const turnT0 = Date.now()
           const turn = i === 0 ? firstTurn : ollamaChatStreamWithTools(conversation, turnOptions)
 
@@ -339,8 +350,22 @@ export async function POST(
           }
         }
 
-        aiLog("CHAT_LIMIT", `tool iteration limit (${MAX_TOOL_ITERATIONS}) reached`)
-        send("\n\n[error] tool iteration limit reached; please rephrase your question")
+        // Tool turns used up: one clean answer pass from the gathered material, no tools.
+        aiLog("CHAT_SYNTH", `tool turns used up (${maxIterations - 1}); answering from gathered material`)
+        let answer = ""
+        const synthesis = buildSynthesisMessages(conversation, lastUserMsg?.content ?? "", replyLang)
+        for await (const event of ollamaChatStreamWithTools(synthesis, { ...turnOptions, tools: [] })) {
+          if (event.type !== "text") continue // a stray tool call is ignored here
+          const chunk = sanitizeModelText(event.chunk)
+          answer += chunk
+          send(chunk)
+        }
+        if (answer.trim()) {
+          completed = true
+          aiLog("CHAT_DONE", `answer ${answer.length} chars (answer pass), total ${Date.now() - chatT0}ms`)
+        } else {
+          send("\n\n[error] tool iteration limit reached; please rephrase your question")
+        }
       } catch (err) {
         aiLog(err instanceof OllamaAbortedError ? "CHAT_ABORT" : "CHAT_ERROR", ollamaErrorMessage(err))
         send(`\n\n[error] ${ollamaErrorMessage(err)}`)

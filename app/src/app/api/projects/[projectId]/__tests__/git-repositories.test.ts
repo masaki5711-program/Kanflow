@@ -15,11 +15,12 @@ const oneRoute = await import("@/app/api/projects/[projectId]/git/repositories/[
 const { ValidationError, NotFoundError } = await import("@/services/_shared/errors")
 
 const REPO_ID = "repo-1"
-const REPO_DTO = { id: REPO_ID, name: "API", webUrl: "https://g/x", repoPath: "x", hasOwnToken: false, tokenHint: null, syncedAt: null, lastError: null, lastErrorAt: null }
+const KNOWLEDGE_OFF = { aiKnowledge: false, aiPathFilter: null, indexedAt: null, indexedFiles: 0, indexError: null, indexErrorAt: null, indexing: false, indexPending: false }
+const REPO_DTO = { id: REPO_ID, name: "API", webUrl: "https://g/x", repoPath: "x", hasOwnToken: false, tokenHint: null, syncedAt: null, lastError: null, lastErrorAt: null, ...KNOWLEDGE_OFF }
 
 beforeEach(() => {
   vi.mocked(svc.addRepository).mockReset().mockResolvedValue(REPO_DTO)
-  vi.mocked(svc.updateRepository).mockReset().mockResolvedValue(REPO_DTO)
+  vi.mocked(svc.updateRepository).mockReset().mockResolvedValue({ ...REPO_DTO, reindex: false })
   vi.mocked(svc.removeRepository).mockReset().mockResolvedValue(undefined)
 })
 
@@ -72,7 +73,7 @@ describe("PATCH /git/repositories/[repoId]", () => {
     asRole("sm")
     const res = await oneRoute.PATCH(req("PATCH", { name: "New" }), PI)
     expect(res.status).toBe(200)
-    expect(svc.updateRepository).toHaveBeenCalledWith(PROJECT_ID, REPO_ID, { name: "New" })
+    expect(svc.updateRepository).toHaveBeenCalledWith(PROJECT_ID, REPO_ID, { name: "New" }, ACTOR)
   })
 
   it("403 for a developer", async () => {

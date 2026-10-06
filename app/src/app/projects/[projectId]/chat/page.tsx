@@ -12,6 +12,7 @@ import { ProposalList } from "./proposal-card"
 import { ProposalPermissionsLoader, ProposalProvider } from "./proposal-context"
 import { ThreadList } from "./thread-list"
 import { useThreadLoader, useThreadParam } from "./use-chat-thread"
+import { KnowledgeHint } from "./knowledge-hint"
 
 export default function ChatPage() {
   const { t, language } = useLanguage()
@@ -146,7 +147,12 @@ export default function ChatPage() {
           <PageHeader
             className="mb-4"
             title={t.chatTitle}
-            description={<span className="text-caption">{t.chatContextNote}</span>}
+            description={
+              <>
+                <span className="text-caption">{t.chatContextNote}</span>
+                <KnowledgeHint projectId={projectId} />
+              </>
+            }
             icon={
               <span className="block p-2 bg-purple-50 rounded-ui-md">
                 <MessageSquare className="w-6 h-6 text-purple-600" />

@@ -12,6 +12,8 @@ const gitRepositoryDelete = vi.fn()
 const gitLinkFindMany = vi.fn()
 const productBacklogItemFindFirst = vi.fn()
 const logActivityMock = vi.fn()
+const repoChunkDeleteMany = vi.fn((...a: unknown[]) => ({ op: "deleteChunks", args: a }))
+const transactionMock = vi.fn(async (ops: unknown[]) => Promise.all(ops))
 const getProjectMock = vi.fn()
 const canReadRepositoryMock = vi.fn()
 const createGitLabClientMock = vi.fn((...args: unknown[]) => {
@@ -32,6 +34,8 @@ vi.mock("@/lib/prisma", () => ({
       delete: (...a: unknown[]) => gitRepositoryDelete(...a),
     },
     gitLink: { findMany: (...a: unknown[]) => gitLinkFindMany(...a) },
+    repoChunk: { deleteMany: (...a: unknown[]) => repoChunkDeleteMany(...a) },
+    $transaction: (ops: unknown[]) => transactionMock(ops),
     productBacklogItem: { findFirst: (...a: unknown[]) => productBacklogItemFindFirst(...a) },
   },
 }))
@@ -110,11 +114,17 @@ describe("getGitSettings", () => {
 
   it("maps repositories, including their own-token flag and hint, never the token", async () => {
     gitRepositoryFindMany.mockResolvedValue([
-      { id: "r1", name: "API", webUrl: REPO_URL, repoPath: "group/repo", tokenCipher: "v1:x:y:z", tokenHint: "wxyz", syncedAt: new Date("2026-09-01T00:00:00Z"), lastError: null, lastErrorAt: null },
+      {
+        id: "r1", name: "API", webUrl: REPO_URL, repoPath: "group/repo", tokenCipher: "v1:x:y:z", tokenHint: "wxyz", syncedAt: new Date("2026-09-01T00:00:00Z"), lastError: null, lastErrorAt: null,
+        aiKnowledge: true, aiPathFilter: "docs/", indexedSha: "abc", indexedAt: new Date("2026-09-02T00:00:00Z"), indexedFiles: 12, indexError: null, indexErrorAt: null, indexTargetSha: null,
+      },
     ])
     const settings = await svc.getGitSettings(PROJECT_ID)
     expect(settings.repositories).toEqual([
-      { id: "r1", name: "API", webUrl: REPO_URL, repoPath: "group/repo", hasOwnToken: true, tokenHint: "wxyz", syncedAt: "2026-09-01T00:00:00.000Z", lastError: null, lastErrorAt: null },
+      {
+        id: "r1", name: "API", webUrl: REPO_URL, repoPath: "group/repo", hasOwnToken: true, tokenHint: "wxyz", syncedAt: "2026-09-01T00:00:00.000Z", lastError: null, lastErrorAt: null,
+        aiKnowledge: true, aiPathFilter: "docs/", indexedAt: "2026-09-02T00:00:00.000Z", indexedFiles: 12, indexError: null, indexErrorAt: null, indexing: false, indexPending: false,
+      },
     ])
     expect(JSON.stringify(settings)).not.toContain("v1:x:y:z")
   })
@@ -318,6 +328,22 @@ describe("updateRepository", () => {
     gitRepositoryFindFirst.mockResolvedValue({ id: "r1" })
     await svc.updateRepository(PROJECT_ID, "r1", { token: null })
     expect(gitRepositoryUpdate.mock.calls[0][0].data).toMatchObject({ tokenCipher: null, tokenHint: null, lastError: null, lastErrorAt: null })
+  })
+  it("switching AI knowledge on resets the index, logs who did it and asks for an import", async () => {
+    gitRepositoryFindFirst.mockResolvedValue({ id: "r1", aiKnowledge: false, aiPathFilter: null })
+    const result = await svc.updateRepository(PROJECT_ID, "r1", { aiKnowledge: true }, ACTOR)
+    expect(gitRepositoryUpdate.mock.calls[0][0].data).toMatchObject({ aiKnowledge: true, indexedSha: null, indexedFiles: 0 })
+    expect(transactionMock).not.toHaveBeenCalled()
+    expect(result.reindex).toBe(true)
+    expect(logActivityMock.mock.calls[0][1].diff).toEqual({ changes: { "git.aiKnowledge": { from: false, to: true } } })
+  })
+
+  it("switching it off deletes the stored passages in the same transaction", async () => {
+    gitRepositoryFindFirst.mockResolvedValue({ id: "r1", aiKnowledge: true, aiPathFilter: "docs/" })
+    const result = await svc.updateRepository(PROJECT_ID, "r1", { aiKnowledge: false }, ACTOR)
+    expect(transactionMock).toHaveBeenCalledTimes(1)
+    expect(repoChunkDeleteMany).toHaveBeenCalledWith({ where: { repositoryId: "r1" } })
+    expect(result.reindex).toBe(false)
   })
 })
 

@@ -6,6 +6,7 @@ import { Button, EmptyState, SkeletonLines, useConfirm, useToast } from "@/compo
 import { apiFetch, useApiMutation, useApiQuery } from "@/hooks"
 import { useLanguage } from "@/lib/language-context"
 import { forgetGitState } from "@/components/git-dev/git-client-state"
+import { useLiveRefetch } from "@/components/realtime/use-live-refetch"
 import type { GitSettingsDto } from "../git/git-labels"
 import { GitAddRepository } from "./git-add-repository"
 import { GitRepositoryList } from "./git-repository-list"
@@ -43,6 +44,8 @@ export function GitSection({ projectId, canConfigure }: Props) {
     parse: toGitSettings,
     toastOnError: () => t.gitSetLoadFailed,
   })
+  // Background syncs / knowledge imports update the repository status lines live.
+  useLiveRefetch(query.refetch, { types: ["git"], projectId })
   const anchorRef = useRef<HTMLDivElement>(null)
   const loaded = !!query.data
   // Arriving from the Git page (settings#git): the sections above load late, so scroll once this one has content.

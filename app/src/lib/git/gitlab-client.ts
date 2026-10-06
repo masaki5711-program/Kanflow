@@ -66,7 +66,33 @@ export interface GitLabCommit {
   committed_date: string
 }
 
+/** One entry of a recursive repository tree listing. */
+export interface GitLabTreeEntry {
+  id: string
+  path: string
+  type: "blob" | "tree" | "commit"
+}
+
+/** One changed file of a compare (the diff text itself is ignored). */
+export interface GitLabDiffEntry {
+  old_path: string
+  new_path: string
+  new_file: boolean
+  renamed_file: boolean
+  deleted_file: boolean
+}
+
+export interface GitLabCompare {
+  diffs: GitLabDiffEntry[]
+  compare_timeout?: boolean
+}
+
+/** Raw file download: the bytes, or "too_large" when it exceeds the caller's limit. */
+export type RawFileResult = { kind: "ok"; data: Buffer } | { kind: "too_large" }
+
 const TIMEOUT_MS = 15_000
+/** Raw files and compares can be bigger than JSON listings. */
+const DOWNLOAD_TIMEOUT_MS = 60_000
 const PER_PAGE = 100
 
 type FetchLike = typeof fetch
@@ -79,16 +105,15 @@ export interface GitLabClientOptions {
 }
 
 export function createGitLabClient({ apiBase, token, fetchImpl = fetch, timeoutMs = TIMEOUT_MS }: GitLabClientOptions) {
-  async function request<T>(path: string, query: Record<string, string | number | boolean | undefined> = {}): Promise<{ data: T; nextPage: number | null }> {
+  type Query = Record<string, string | number | boolean | undefined>
+
+  /** GET with the token header, a timeout and GitLab status codes mapped to GitLabError kinds. */
+  async function send(path: string, query: Query, accept: string, ms: number): Promise<Response> {
     const url = new URL(`${apiBase}/api/v4${path}`)
     for (const [k, v] of Object.entries(query)) if (v !== undefined) url.searchParams.set(k, String(v))
     let res: Response
     try {
-      res = await fetchImpl(url, {
-        headers: { "PRIVATE-TOKEN": token, Accept: "application/json" },
-        signal: AbortSignal.timeout(timeoutMs),
-        cache: "no-store",
-      })
+      res = await fetchImpl(url, { headers: { "PRIVATE-TOKEN": token, Accept: accept }, signal: AbortSignal.timeout(ms), cache: "no-store" })
     } catch (err) {
       throw new GitLabError("network", `GitLab unreachable: ${err instanceof Error ? err.message : String(err)}`)
     }
@@ -97,12 +122,39 @@ export function createGitLabClient({ apiBase, token, fetchImpl = fetch, timeoutM
     if (res.status === 404) throw new GitLabError("not_found", "Repository not found or not visible to this token", 404)
     if (res.status === 429) throw new GitLabError("rate_limited", "GitLab rate limit reached", 429)
     if (!res.ok) throw new GitLabError("http", `GitLab responded ${res.status}`, res.status)
+    return res
+  }
+
+  async function request<T>(path: string, query: Query = {}, ms = timeoutMs): Promise<{ data: T; nextPage: number | null }> {
+    const res = await send(path, query, "application/json", ms)
     const next = Number(res.headers.get("x-next-page"))
     return { data: (await res.json()) as T, nextPage: Number.isFinite(next) && next > 0 ? next : null }
   }
 
+  /** Raw bytes, refused (without reading the rest) as soon as they exceed `maxBytes`. */
+  async function download(path: string, query: Query, maxBytes: number): Promise<RawFileResult> {
+    const res = await send(path, query, "*/*", DOWNLOAD_TIMEOUT_MS)
+    if (Number(res.headers.get("content-length") ?? 0) > maxBytes) {
+      await res.body?.cancel().catch(() => undefined)
+      return { kind: "too_large" }
+    }
+    const reader = res.body?.getReader()
+    if (!reader) return { kind: "ok", data: Buffer.alloc(0) }
+    const parts: Uint8Array[] = []
+    let total = 0
+    for (let r = await reader.read(); !r.done; r = await reader.read()) {
+      total += r.value.byteLength
+      if (total > maxBytes) {
+        await reader.cancel().catch(() => undefined)
+        return { kind: "too_large" }
+      }
+      parts.push(r.value)
+    }
+    return { kind: "ok", data: Buffer.concat(parts) }
+  }
+
   /** All pages up to `maxPages` (the rest is picked up by the next sync). */
-  async function paged<T>(path: string, query: Record<string, string | number | boolean | undefined>, maxPages: number): Promise<T[]> {
+  async function paged<T>(path: string, query: Query, maxPages: number): Promise<T[]> {
     const out: T[] = []
     let page: number | null = 1
     for (let i = 0; i < maxPages && page; i++) {
@@ -136,6 +188,19 @@ export function createGitLabClient({ apiBase, token, fetchImpl = fetch, timeoutM
     listBranches: (id: number, search: string, maxPages = 3) => paged<GitLabBranch>(`${project(id)}/repository/branches`, { search }, maxPages),
     listCommits: (id: number, since: Date, maxPages = 3) =>
       paged<GitLabCommit>(`${project(id)}/repository/commits`, { since: since.toISOString(), all: true }, maxPages),
+    /** Newest commit id of the default branch, or null for an empty repository. */
+    latestCommitSha: async (id: number): Promise<string | null> => {
+      const r = await request<Array<{ id: string }>>(`${project(id)}/repository/commits`, { per_page: 1 })
+      return r.data[0]?.id ?? null
+    },
+    /** Every entry of the tree at `ref`, recursively (up to maxPages × 100 entries). */
+    listTree: (id: number, ref: string, maxPages: number) =>
+      paged<GitLabTreeEntry>(`${project(id)}/repository/tree`, { ref, recursive: true }, maxPages),
+    compare: async (id: number, from: string, to: string): Promise<GitLabCompare> =>
+      (await request<GitLabCompare>(`${project(id)}/repository/compare`, { from, to }, DOWNLOAD_TIMEOUT_MS)).data,
+    /** Raw content of one file at `ref` (the path is encoded as one segment, as GitLab requires). */
+    rawFile: (id: number, filePath: string, ref: string, maxBytes: number) =>
+      download(`${project(id)}/repository/files/${encodeURIComponent(filePath)}/raw`, { ref }, maxBytes),
   }
 }
 

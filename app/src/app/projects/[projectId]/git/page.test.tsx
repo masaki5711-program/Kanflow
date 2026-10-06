@@ -161,4 +161,18 @@ describe("GitPage", () => {
     expect(screen.getByText(t.gitPageRecentEmpty)).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: t.gitPageSyncNow })).toBeNull()
   })
+  it("shows the AI knowledge status of a reference repository with 今すぐ取り込む", async () => {
+    const user = userEvent.setup()
+    overview = { ...ON, repositories: [{ ...REPO, aiKnowledge: true, indexedFiles: 137, indexedAt: new Date(Date.now() - 60_000).toISOString(), indexing: false, indexPending: false }] }
+    renderWithProviders(<GitPage />)
+    expect(await screen.findByText(/AI の参照資料: 137 ファイル/)).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: fillTemplate(t.gitKbReindexOf, { name: REPO.name }) }))
+    await waitFor(() => expect(calls("POST", "/api/projects/p1/git/repositories/r1/index")).toHaveLength(1))
+  })
+
+  it("shows no knowledge line for a repository that is not AI reference material", async () => {
+    renderWithProviders(<GitPage />)
+    expect(await screen.findByText(REPO.repoPath)).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: fillTemplate(t.gitKbReindexOf, { name: REPO.name }) })).toBeNull()
+  })
 })

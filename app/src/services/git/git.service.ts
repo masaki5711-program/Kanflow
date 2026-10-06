@@ -8,6 +8,7 @@ import { NotFoundError, ValidationError } from "@/services/_shared/errors"
 import { logActivity, type ActivityChanges } from "@/services/_shared/activity"
 import type { Actor } from "@/services/_shared/actor"
 import { FORBIDDEN_MESSAGE, syncErrorMessage } from "./git-sync"
+import { aiPathFilterField, knowledgePatch, toKnowledgeDto, type RepositoryKnowledgeDto } from "./repo-knowledge.service"
 
 /**
  * GitLab integration settings and read models. The access token is write-only:
@@ -43,12 +44,15 @@ export const updateRepositorySchema = z
   .object({
     name: z.string().trim().min(1).max(100).optional(),
     token: tokenField.nullable().optional(),
+    /** "AI の参照資料として使う" and its folder filter (repo-knowledge.service). */
+    aiKnowledge: z.boolean().optional(),
+    aiPathFilter: aiPathFilterField.optional(),
   })
   .strict()
 
 export const testConnectionSchema = z.object({ url: z.string().trim().min(1).max(1000), token: tokenField.optional() }).strict()
 
-export interface GitRepositoryDto {
+export interface GitRepositoryDto extends RepositoryKnowledgeDto {
   id: string
   name: string
   webUrl: string
@@ -88,6 +92,7 @@ function toRepoDto(r: RepoRow): GitRepositoryDto {
     syncedAt: r.syncedAt?.toISOString() ?? null,
     lastError: r.lastError,
     lastErrorAt: r.lastErrorAt?.toISOString() ?? null,
+    ...toKnowledgeDto(r),
   }
 }
 
@@ -210,19 +215,32 @@ export async function addRepository(projectId: string, input: z.infer<typeof add
   return toRepoDto(row)
 }
 
-export async function updateRepository(projectId: string, repositoryId: string, input: z.infer<typeof updateRepositorySchema>): Promise<GitRepositoryDto> {
+/** `reindex`: the caller should start an index pass (knowledge switched on / filter changed). */
+export async function updateRepository(
+  projectId: string,
+  repositoryId: string,
+  input: z.infer<typeof updateRepositorySchema>,
+  actor?: Actor,
+): Promise<GitRepositoryDto & { reindex: boolean }> {
   const repo = await prisma.gitRepository.findFirst({ where: { id: repositoryId, projectId } })
   if (!repo) throw new NotFoundError("Repository not found")
-  const row = await prisma.gitRepository.update({
+  const knowledge = knowledgePatch(repo, input)
+  const update = prisma.gitRepository.update({
     where: { id: repositoryId },
     data: {
       ...(input.name !== undefined ? { name: input.name } : {}),
       ...(input.token === undefined ? {} : input.token === null ? { tokenCipher: null, tokenHint: null } : { tokenCipher: seal(input.token), tokenHint: secretHint(input.token) }),
       // A new token deserves a fresh attempt.
-      ...(input.token !== undefined ? { lastError: null, lastErrorAt: null } : {}),
+      ...(input.token !== undefined ? { lastError: null, lastErrorAt: null, indexError: null, indexErrorAt: null } : {}),
+      ...knowledge.data,
     },
   })
-  return toRepoDto(row)
+  // Switched off: the passages go in the same transaction, so the AI can no longer read them.
+  const row = knowledge.purge ? (await prisma.$transaction([prisma.repoChunk.deleteMany({ where: { repositoryId } }), update]))[1] : await update
+  if (Object.keys(knowledge.changes).length > 0 && actor) {
+    await logActivity(prisma, { projectId, entityType: "project", entityId: projectId, action: "update", actor, diff: { changes: knowledge.changes } })
+  }
+  return { ...toRepoDto(row), reindex: knowledge.reindex }
 }
 
 /** Removes the repository and its links (cascade). */
