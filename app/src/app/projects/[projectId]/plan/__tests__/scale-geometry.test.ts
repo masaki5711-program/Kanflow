@@ -6,6 +6,7 @@ import {
   buildArrows,
   dayCenterX,
   dependencyPath,
+  dependencySeverity,
   isDependencyViolated,
   itemAnchors,
   spanGeometry,
@@ -99,6 +100,18 @@ describe("dependencies", () => {
     expect(isDependencyViolated(a, ms)).toBe(false)
     expect(isDependencyViolated(ms, early)).toBe(false)
     expect(isDependencyViolated(b, ms)).toBe(true)
+  })
+
+  it("grades a violation: starting on the predecessor's end day is same-day, earlier is before", () => {
+    const earlier = mkItem({ id: "e", plannedStart: "2026-10-03", plannedEnd: "2026-10-09" })
+    expect(dependencySeverity(a, b)).toBe("none")
+    expect(dependencySeverity(a, early)).toBe("sameDay")
+    expect(dependencySeverity(a, earlier)).toBe("before")
+    // milestones are instants: their own day is fine, only an earlier day counts (as before)
+    expect(dependencySeverity(a, ms)).toBe("none")
+    expect(dependencySeverity(b, ms)).toBe("before")
+    // undated endpoints never violate
+    expect(dependencySeverity(a, mkItem({ id: "u", plannedStart: null, plannedEnd: null }))).toBe("none")
   })
 
   it("routes straight down when there is room, around otherwise", () => {

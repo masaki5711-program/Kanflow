@@ -4,7 +4,7 @@ import { useId } from "react"
 import { AlertTriangle, ArrowLeft, ArrowRight, X } from "lucide-react"
 import { IconButton } from "@/components/ui"
 import { useLanguage } from "@/lib/language-context"
-import { isDependencyViolated } from "../lib/geometry"
+import { dependencySeverity, type DependencySeverity } from "../lib/geometry"
 import type { PlanDependency, PlanItem } from "../lib/plan-types"
 import { fillTemplate } from "../lib/template"
 
@@ -24,7 +24,7 @@ export function PlanDependencySection({ item, dependencies, byId, nameOf, canEdi
   const preds = dependencies.filter((d) => d.successorId === item.id)
   const succs = dependencies.filter((d) => d.predecessorId === item.id)
 
-  const row = (dep: PlanDependency, otherId: string, icon: React.ReactNode, violated: boolean) => {
+  const row = (dep: PlanDependency, otherId: string, icon: React.ReactNode, severity: DependencySeverity) => {
     const other = byId.get(otherId)
     if (!other) return null
     const name = nameOf(other)
@@ -32,10 +32,10 @@ export function PlanDependencySection({ item, dependencies, byId, nameOf, canEdi
       <li key={dep.id} className="flex items-center gap-2 rounded-ui-sm bg-surface-muted px-2 py-1 text-body">
         {icon}
         <span className="min-w-0 flex-1 truncate text-fg" title={name}>{name}</span>
-        {violated && (
-          <span className="inline-flex items-center gap-1 text-caption text-warning-strong">
+        {severity !== "none" && (
+          <span data-severity={severity} className={`inline-flex items-center gap-1 text-caption ${severity === "before" ? "text-danger-strong" : "text-warning-strong"}`}>
             <AlertTriangle aria-hidden="true" className="h-3.5 w-3.5" />
-            {t.planDependencyViolated}
+            {severity === "before" ? t.planDependencyViolated : t.planDependencySameDay}
           </span>
         )}
         {canEdit && (
@@ -57,7 +57,7 @@ export function PlanDependencySection({ item, dependencies, byId, nameOf, canEdi
             <ul className="space-y-1">
               {preds.map((d) => {
                 const other = byId.get(d.predecessorId)
-                return row(d, d.predecessorId, <ArrowLeft aria-hidden="true" className="h-3.5 w-3.5 text-fg-muted" />, !!other && isDependencyViolated(other, item))
+                return row(d, d.predecessorId, <ArrowLeft aria-hidden="true" className="h-3.5 w-3.5 text-fg-muted" />, other ? dependencySeverity(other, item) : "none")
               })}
             </ul>
           </div>
@@ -66,7 +66,7 @@ export function PlanDependencySection({ item, dependencies, byId, nameOf, canEdi
             <ul className="space-y-1">
               {succs.map((d) => {
                 const other = byId.get(d.successorId)
-                return row(d, d.successorId, <ArrowRight aria-hidden="true" className="h-3.5 w-3.5 text-fg-muted" />, !!other && isDependencyViolated(item, other))
+                return row(d, d.successorId, <ArrowRight aria-hidden="true" className="h-3.5 w-3.5 text-fg-muted" />, other ? dependencySeverity(item, other) : "none")
               })}
             </ul>
           </div>

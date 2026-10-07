@@ -170,7 +170,7 @@ export const PlanChart = forwardRef<HTMLDivElement, Props>(function PlanChart(pr
         <div ref={bodyRef} role="rowgroup" data-plan-body="" className="relative" style={{ minHeight: bodyHeight }}>
           <ChartBackground scale={scale} env={env} height={bodyHeight} />
           <div className="pointer-events-none absolute top-0" style={{ left: env.gridWidth }}>
-            <PlanDependencyLayer arrows={arrows} width={scale.width} height={bodyHeight} chain={chain} violatedLabel={t.planDependencyViolated} />
+            <PlanDependencyLayer arrows={arrows} width={scale.width} height={bodyHeight} chain={chain} violatedLabel={t.planDependencyViolated} sameDayLabel={t.planDependencySameDay} />
           </div>
           {rows.map((row) => (
             <PlanRow

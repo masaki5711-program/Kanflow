@@ -49,9 +49,24 @@ export function itemAnchors(item: PlanItem, startDay: number, dayWidth: number):
  * the milestone's own day (and a milestone may fall on its predecessor's last day).
  */
 export function isDependencyViolated(pred: PlanItem, succ: PlanItem): boolean {
-  if (!isDatedItem(pred) || !isDatedItem(succ)) return false
-  const gap = pred.isMilestone || succ.isMilestone ? 0 : 1
-  return ymdToDay(succ.plannedStart) < ymdToDay(pred.plannedEnd) + gap
+  return dependencySeverity(pred, succ) !== "none"
+}
+
+/**
+ * How badly a finish-to-start link is broken: "sameDay" = the successor starts
+ * on the predecessor's last day (orange), "before" = it starts even earlier
+ * (red). Milestones are instants, so their own day is fine and any violation
+ * involving one is "before".
+ */
+export type DependencySeverity = "none" | "sameDay" | "before"
+
+export function dependencySeverity(pred: PlanItem, succ: PlanItem): DependencySeverity {
+  if (!isDatedItem(pred) || !isDatedItem(succ)) return "none"
+  const start = ymdToDay(succ.plannedStart)
+  const end = ymdToDay(pred.plannedEnd)
+  if (start < end) return "before"
+  if (start === end && !pred.isMilestone && !succ.isMilestone) return "sameDay"
+  return "none"
 }
 
 const STUB = 8
@@ -76,6 +91,7 @@ export interface DependencyArrow {
   successorId: string
   d: string
   violated: boolean
+  severity: DependencySeverity
 }
 
 /** Arrows between visible rows (`rowIndex`: item id → row index); hidden or undated endpoints are skipped. */
@@ -98,7 +114,8 @@ export function buildArrows(
     if (!a || !b) continue
     const from = { x: a.endX, y: pi * ROW_HEIGHT + ROW_CENTER }
     const to = { x: b.startX, y: si * ROW_HEIGHT + ROW_CENTER }
-    out.push({ id: dep.id, predecessorId: dep.predecessorId, successorId: dep.successorId, d: dependencyPath(from, to), violated: isDependencyViolated(pred, succ) })
+    const severity = dependencySeverity(pred, succ)
+    out.push({ id: dep.id, predecessorId: dep.predecessorId, successorId: dep.successorId, d: dependencyPath(from, to), violated: severity !== "none", severity })
   }
   return out
 }

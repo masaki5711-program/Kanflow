@@ -66,7 +66,16 @@ export function PlanLegend({ canEdit = false }: { canEdit?: boolean }) {
         <Item
           swatch={
             <svg viewBox="0 0 20 10" className="h-3 w-5">
-              <path d="M1 2 H8 V8 H17" fill="none" strokeWidth="1.5" strokeDasharray="3 2" className="stroke-warning" />
+              <path d="M1 2 H8 V8 H17" fill="none" strokeWidth="1.5" strokeDasharray="4 3" className="stroke-warning" />
+            </svg>
+          }
+        >
+          {t.planDependencySameDay}
+        </Item>
+        <Item
+          swatch={
+            <svg viewBox="0 0 20 10" className="h-3 w-5">
+              <path d="M1 2 H8 V8 H17" fill="none" strokeWidth="2" strokeDasharray="3 2" className="stroke-danger" />
             </svg>
           }
         >

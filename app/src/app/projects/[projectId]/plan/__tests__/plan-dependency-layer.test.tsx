@@ -6,18 +6,19 @@ import type { DependencyArrow } from "../lib/geometry"
 const arrow = (over: Partial<DependencyArrow> & { id: string; predecessorId: string; successorId: string }): DependencyArrow => ({
   d: "M0 0 H10",
   violated: false,
+  severity: "none",
   ...over,
 })
 
 describe("PlanDependencyLayer", () => {
   it("renders nothing without arrows", () => {
-    const { container } = render(<PlanDependencyLayer arrows={[]} width={100} height={100} chain={null} violatedLabel="violated" />)
+    const { container } = render(<PlanDependencyLayer arrows={[]} width={100} height={100} chain={null} violatedLabel="violated" sameDayLabel="same day" />)
     expect(container.querySelector("svg")).toBeNull()
   })
 
   it("without a chain, every arrow is full-opacity and unmarked", () => {
     const arrows = [arrow({ id: "e1", predecessorId: "a", successorId: "b" })]
-    const { container } = render(<PlanDependencyLayer arrows={arrows} width={100} height={100} chain={null} violatedLabel="violated" />)
+    const { container } = render(<PlanDependencyLayer arrows={arrows} width={100} height={100} chain={null} violatedLabel="violated" sameDayLabel="same day" />)
     const path = container.querySelector('[data-plan-arrow="e1"]') as SVGPathElement
     expect(path).not.toHaveAttribute("data-chain")
     expect(path).toHaveAttribute("opacity", "1")
@@ -29,7 +30,7 @@ describe("PlanDependencyLayer", () => {
       arrow({ id: "e2", predecessorId: "b", successorId: "c" }),
     ]
     const chain = new Set(["a", "b"])
-    const { container } = render(<PlanDependencyLayer arrows={arrows} width={100} height={100} chain={chain} violatedLabel="violated" />)
+    const { container } = render(<PlanDependencyLayer arrows={arrows} width={100} height={100} chain={chain} violatedLabel="violated" sameDayLabel="same day" />)
     const inChain = container.querySelector('[data-plan-arrow="e1"]') as SVGPathElement
     const outChain = container.querySelector('[data-plan-arrow="e2"]') as SVGPathElement
     expect(inChain).toHaveAttribute("data-chain", "true")
@@ -38,13 +39,25 @@ describe("PlanDependencyLayer", () => {
     expect(outChain).toHaveAttribute("opacity", "0.3")
   })
 
-  it("marks a violated link with a dashed stroke and a title", () => {
-    const arrows = [arrow({ id: "e1", predecessorId: "a", successorId: "b", violated: true })]
-    const { container, getByText } = render(<PlanDependencyLayer arrows={arrows} width={100} height={100} chain={null} violatedLabel="finish-to-start violated" />)
+  it("draws a same-day start orange (dashed) with its own title", () => {
+    const arrows = [arrow({ id: "e1", predecessorId: "a", successorId: "b", violated: true, severity: "sameDay" })]
+    const { container, getByText } = render(<PlanDependencyLayer arrows={arrows} width={100} height={100} chain={null} violatedLabel="starts before" sameDayLabel="starts on the end day" />)
+    const path = container.querySelector('[data-plan-arrow="e1"]') as SVGPathElement
+    expect(path).toHaveAttribute("data-severity", "sameDay")
+    expect(path).toHaveAttribute("stroke-dasharray", "4 3")
+    expect(path.getAttribute("class")).toContain("stroke-warning")
+    expect(getByText("starts on the end day")).toBeInTheDocument()
+  })
+
+  it("draws a start before the predecessor's end red, thicker and densely dashed", () => {
+    const arrows = [arrow({ id: "e1", predecessorId: "a", successorId: "b", violated: true, severity: "before" })]
+    const { container, getByText } = render(<PlanDependencyLayer arrows={arrows} width={100} height={100} chain={null} violatedLabel="starts before" sameDayLabel="starts on the end day" />)
     const path = container.querySelector('[data-plan-arrow="e1"]') as SVGPathElement
     expect(path).toHaveAttribute("data-violated", "true")
-    expect(path).toHaveAttribute("stroke-dasharray", "4 3")
-    expect(getByText("finish-to-start violated")).toBeInTheDocument()
+    expect(path).toHaveAttribute("data-severity", "before")
+    expect(path).toHaveAttribute("stroke-dasharray", "3 2")
+    expect(path.getAttribute("class")).toContain("stroke-danger")
+    expect(getByText("starts before")).toBeInTheDocument()
   })
 })
 
