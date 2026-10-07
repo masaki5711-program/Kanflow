@@ -40,12 +40,23 @@ export function MessageBubble({ message, labels, footer }: MessageBubbleProps) {
         {message.content ? (
           isUser ? message.content : <AssistantMarkdown text={message.content} />
         ) : (
-          message.pending && <TypingIndicator label={labels.thinking} />
+          message.pending && !message.status && <TypingIndicator label={labels.thinking} />
         )}
+        {message.pending && message.status && <StatusLine text={message.status} />}
         {footer}
         {message.stopped && <p className="mt-1 text-caption text-fg-muted italic">{labels.stopped}</p>}
       </div>
     </div>
+  )
+}
+
+/** One line that is replaced in place as the AI moves from step to step (announced politely to screen readers). */
+function StatusLine({ text }: { text: string }) {
+  return (
+    <p role="status" aria-live="polite" className="flex items-center gap-2 text-caption text-fg-muted truncate">
+      <span aria-hidden className="w-1.5 h-1.5 shrink-0 bg-primary rounded-full animate-pulse" />
+      <span className="truncate">{text}</span>
+    </p>
   )
 }
 

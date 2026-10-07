@@ -43,7 +43,7 @@ export interface ChatThreadDto {
 }
 
 /** A stored proposal event; `outcome` records approve / reject (see chat-proposal-outcomes.service). */
-export type StoredProposalEvent = ChatUiEvent & { outcome?: ProposalOutcome }
+export type StoredProposalEvent = Extract<ChatUiEvent, { type: "proposal" }> & { outcome?: ProposalOutcome }
 
 /** One stored tool call or out-of-band event of an assistant turn. */
 export type ChatToolEvent = { type: "tool"; name: string; ms: number } | StoredProposalEvent
@@ -210,7 +210,9 @@ export interface AssistantTurn {
 /** Store the assistant's answer. Best effort: failures are logged, never thrown. */
 export async function recordAssistantMessage(threadId: string, turn: AssistantTurn): Promise<boolean> {
   const { text, events } = decodeChatStream(turn.raw)
-  const toolEvents: ChatToolEvent[] = [...turn.tools.map((t) => ({ type: "tool" as const, name: t.name, ms: t.ms })), ...events]
+  // Live status frames are transient progress, never part of the stored thread.
+  const stored = events.filter((e): e is StoredProposalEvent => e.type === "proposal")
+  const toolEvents: ChatToolEvent[] = [...turn.tools.map((t) => ({ type: "tool" as const, name: t.name, ms: t.ms })), ...stored]
   if (!text.trim() && toolEvents.length === 0) return false
   try {
     await withTransaction(async (tx) => {

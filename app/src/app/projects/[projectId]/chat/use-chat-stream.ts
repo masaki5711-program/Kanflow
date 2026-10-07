@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useToast } from "@/components/ui"
 import { emitActivity, isAbortError, parseErrorMessage } from "@/hooks"
-import { decodeChatStream, proposalsOf, type ChatProposal, type ProposalOutcome } from "@/lib/chat-proposals"
+import { decodeChatStream, proposalsOf, statusOf, type ChatProposal, type ProposalOutcome } from "@/lib/chat-proposals"
 import { toRequestHistory } from "./chat-history"
 
 export interface ChatMessage {
@@ -12,6 +12,8 @@ export interface ChatMessage {
   content: string
   /** Assistant message still streaming. */
   pending?: boolean
+  /** Live one-line progress of the running answer ("reading file …"); cleared once it ends. */
+  status?: string
   /** Generation was stopped by the user before completion. */
   stopped?: boolean
   /** Approval-based write proposals the server sent with this answer (P3). */
@@ -21,10 +23,11 @@ export interface ChatMessage {
 }
 
 /** Visible text + proposals of the raw stream (frames never reach the markdown). */
-function decodeAnswer(raw: string): Pick<ChatMessage, "content" | "proposals"> {
+function decodeAnswer(raw: string): Pick<ChatMessage, "content" | "proposals" | "status"> {
   const { text, events } = decodeChatStream(raw)
   const proposals = proposalsOf(events)
-  return proposals.length > 0 ? { content: text, proposals } : { content: text }
+  const status = statusOf(events)
+  return { content: text, status, ...(proposals.length > 0 ? { proposals } : {}) }
 }
 
 function genId(): string {
@@ -131,12 +134,12 @@ export function useChatStream({ projectId, language, errorTitle, threadId = null
           acc += decoder.decode(value, { stream: true })
           patchMessage(assistantMsg.id, decodeAnswer(acc))
         }
-        patchMessage(assistantMsg.id, { ...decodeAnswer(acc), pending: false })
+        patchMessage(assistantMsg.id, { ...decodeAnswer(acc), status: "", pending: false })
         return true
       } catch (err) {
         if (isAbortError(err)) {
           // User pressed stop (or left the page): keep the partial answer.
-          patchMessage(assistantMsg.id, { ...decodeAnswer(acc), pending: false, stopped: stoppedByUserRef.current })
+          patchMessage(assistantMsg.id, { ...decodeAnswer(acc), status: "", pending: false, stopped: stoppedByUserRef.current })
           return true
         }
         const message = err instanceof Error && err.message ? err.message : errorTitle

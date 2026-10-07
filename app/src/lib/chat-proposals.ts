@@ -82,8 +82,28 @@ export type StatusChangeProposal = z.infer<typeof statusChangeProposalSchema>
 export type ChatProposal = z.infer<typeof chatProposalSchema>
 export type ChatProposalKind = ChatProposal["kind"]
 
-/** Out-of-band server event carried in the chat text stream. */
-export type ChatUiEvent = { type: "proposal"; proposal: ChatProposal }
+/**
+ * Out-of-band server event carried in the chat text stream.
+ * `status` is the live one-line progress ("reading file …"); empty text clears it.
+ * Status frames are transient: the server sends them without recording them.
+ */
+export type ChatUiEvent = { type: "proposal"; proposal: ChatProposal } | { type: "status"; text: string }
+
+const STATUS_MAX_CHARS = 200
+
+/**
+ * Progress hints (`_🔧 tool_name_`) that older versions wrote into the answer
+ * text. Stored threads still contain them; removing them keeps them out of the
+ * display and — more importantly — out of the history the model imitates.
+ */
+const LEGACY_TOOL_HINT = /^[ \t]*_🔧[^\n]*_[ \t]*(?:\r?\n|$)/gm
+
+/** Remove legacy tool-hint lines and tidy the blank lines they leave behind. */
+export function stripToolHints(text: string): string {
+  if (!text.includes("🔧")) return text
+  const stripped = text.replace(LEGACY_TOOL_HINT, "")
+  return stripped === text ? text : stripped.replace(/\n{3,}/g, "\n\n").trim()
+}
 
 /** Validate an unknown value as a proposal (null when malformed). */
 export function parseChatProposal(value: unknown): ChatProposal | null {
@@ -109,7 +129,10 @@ function parseEvent(raw: string): ChatUiEvent | null {
     return null
   }
   if (typeof value !== "object" || value === null) return null
-  const v = value as { type?: unknown; proposal?: unknown }
+  const v = value as { type?: unknown; proposal?: unknown; text?: unknown }
+  if (v.type === "status") {
+    return typeof v.text === "string" ? { type: "status", text: v.text.slice(0, STATUS_MAX_CHARS) } : null
+  }
   if (v.type !== "proposal") return null
   const proposal = parseChatProposal(v.proposal)
   return proposal ? { type: "proposal", proposal } : null
@@ -127,7 +150,7 @@ export interface DecodedChatStream {
  * frame (still arriving) is hidden until its closing mark comes in.
  */
 export function decodeChatStream(raw: string): DecodedChatStream {
-  if (!raw.includes(FRAME_MARK)) return { text: raw, events: [] }
+  if (!raw.includes(FRAME_MARK)) return { text: stripToolHints(raw), events: [] }
   const parts = raw.split(FRAME_MARK)
   // Even indexes are text, odd indexes are frame bodies. With an odd number
   // of marks the last part is an incomplete frame → dropped.
@@ -142,7 +165,14 @@ export function decodeChatStream(raw: string): DecodedChatStream {
     const event = parseEvent(part)
     if (event) events.push(event)
   })
-  return { text, events }
+  return { text: stripToolHints(text), events }
+}
+
+/** The latest live status of a decoded stream (empty string = cleared / none). */
+export function statusOf(events: readonly ChatUiEvent[]): string {
+  let status = ""
+  for (const e of events) if (e.type === "status") status = e.text
+  return status
 }
 
 /** Unique proposals of a decoded stream (first occurrence of a proposalId wins). */

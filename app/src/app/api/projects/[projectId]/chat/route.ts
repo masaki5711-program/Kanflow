@@ -14,7 +14,8 @@ import { aiLog, aiLogTrunc } from "@/lib/ai-monitor"
 import { packGuide, packToolDefs, selectPacks } from "@/lib/chat-tool-packs"
 import { hasRepoKnowledge, REPO_KNOWLEDGE_GUIDE, REPO_KNOWLEDGE_TOOL_DEFS } from "@/lib/repo-knowledge-tools"
 import { buildSynthesisMessages } from "@/lib/chat-synthesis"
-import { encodeChatEvent, proposalFromToolResult, sanitizeModelText } from "@/lib/chat-proposals"
+import { encodeChatEvent, proposalFromToolResult, sanitizeModelText, stripToolHints } from "@/lib/chat-proposals"
+import { composingStatusLabel, toolStatusLabel } from "@/lib/chat-tool-status"
 import { toHttpResponse } from "@/services/_shared/http"
 import { beginChatRecording, resolveChatThread } from "@/services/chat-threads/chat-threads.service"
 
@@ -148,6 +149,17 @@ const bodySchema = z.object({
   threadId: z.string().min(1).max(191).optional(),
 })
 
+/**
+ * Stored/old clients may still carry `_🔧 tool_` progress hints in earlier
+ * answers; the model imitates them (answering with nothing but hints), so they
+ * never reach it. Answers that were only hints are dropped.
+ */
+function historyForModel<T extends { role: string; content: string }>(messages: readonly T[]): T[] {
+  return messages
+    .map((m) => (m.role === "assistant" ? { ...m, content: stripToolHints(m.content) } : m))
+    .filter((m) => m.role !== "assistant" || m.content.trim() !== "")
+}
+
 /** Tool turns before the final answer pass (more for projects with repository knowledge: search, read, read). */
 const MAX_TOOL_ITERATIONS = 4
 const MAX_TOOL_ITERATIONS_KNOWLEDGE = 6
@@ -214,7 +226,7 @@ export async function POST(
     { role: "system", content: LANG_LOCK[replyLang] },
     { role: "system", content: TOOL_GUIDE[replyLang] + packGuide(packs, replyLang) + (knowledge ? `
 ${REPO_KNOWLEDGE_GUIDE[replyLang]}` : "") },
-    ...parsed.messages,
+    ...historyForModel(parsed.messages),
   ]
 
   // Whole-conversation deadline + client disconnect (request.signal) +
@@ -253,14 +265,23 @@ ${REPO_KNOWLEDGE_GUIDE[replyLang]}` : "") },
     async start(controller) {
       const encoder = new TextEncoder()
       let closed = false
-      const send = (text: string) => {
-        recorder?.append(text)
+      const sendRaw = (text: string) => {
         if (closed) return
         try {
           controller.enqueue(encoder.encode(text))
         } catch {
           closed = true // client went away
         }
+      }
+      const send = (text: string) => {
+        recorder?.append(text)
+        sendRaw(text)
+      }
+      // Live one-line progress: shown while it runs, never stored in the thread.
+      let statusShown = false
+      const sendStatus = (text: string) => {
+        statusShown = text !== ""
+        sendRaw(encodeChatEvent({ type: "status", text }))
       }
       // Demo monitor: flag chart/table generation once per chat so the
       // console shows a [図表] event (rendering itself happens client-side).
@@ -290,6 +311,7 @@ ${REPO_KNOWLEDGE_GUIDE[replyLang]}` : "") },
                 aiLog("LLM_FIRST_TOK", `first token after ${Date.now() - (i === 0 ? chatT0 : turnT0)}ms`)
               }
               textBuf += chunk
+              if (statusShown && chunk) sendStatus("") // the answer is flowing again
               send(chunk)
               if (!chartLogged && textBuf.includes("```chart")) {
                 chartLogged = true
@@ -314,11 +336,9 @@ ${REPO_KNOWLEDGE_GUIDE[replyLang]}` : "") },
             return // streamed text was the final reply
           }
 
-          // Surface a tiny status hint so the user knows a tool is running
-          // (otherwise the chat would appear frozen for several seconds).
-          const toolNames = toolCalls.map((c) => c.function.name).join(", ")
-          send(`\n\n_🔧 ${toolNames}_\n\n`)
-
+          // Text spoken before a tool call must not run into the next turn's text
+          // (the old tool hint line used to separate them).
+          if (textBuf.trim()) send("\n\n")
           conversation.push({
             role: "assistant",
             content: textBuf,
@@ -329,6 +349,8 @@ ${REPO_KNOWLEDGE_GUIDE[replyLang]}` : "") },
               typeof call.function.arguments === "string"
                 ? safeParseJson(call.function.arguments)
                 : call.function.arguments
+            // One-line "what is it doing now" so the chat never looks frozen.
+            sendStatus(toolStatusLabel(call.function.name, args as Record<string, unknown> | null, replyLang))
             aiLog("TOOL_CALL", `${call.function.name}(${aiLogTrunc(JSON.stringify(args ?? {}), 80)})  ← model decided to use this tool`)
             const toolT0 = Date.now()
             const result = await runTool(call.function.name, {
@@ -353,11 +375,13 @@ ${REPO_KNOWLEDGE_GUIDE[replyLang]}` : "") },
         // Tool turns used up: one clean answer pass from the gathered material, no tools.
         aiLog("CHAT_SYNTH", `tool turns used up (${maxIterations - 1}); answering from gathered material`)
         let answer = ""
+        sendStatus(composingStatusLabel(replyLang))
         const synthesis = buildSynthesisMessages(conversation, lastUserMsg?.content ?? "", replyLang)
         for await (const event of ollamaChatStreamWithTools(synthesis, { ...turnOptions, tools: [] })) {
           if (event.type !== "text") continue // a stray tool call is ignored here
           const chunk = sanitizeModelText(event.chunk)
           answer += chunk
+          if (statusShown && chunk) sendStatus("")
           send(chunk)
         }
         if (answer.trim()) {

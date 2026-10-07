@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { decodeChatStream } from "@/lib/chat-proposals"
 
 const authMock = vi.fn()
 const memberFindFirst = vi.fn()
@@ -149,7 +150,18 @@ describe("POST /api/projects/[projectId]/chat", () => {
     const res = await POST(req({ messages: [{ role: "user", content: "list items" }], lang: "en" }), ctx)
     const text = await res.text()
     expect(text).toContain("Let me check.")
-    expect(text).toContain("list_backlog_items, get_sprint_metrics")
+    // The text before the tool calls and the answer after them stay apart.
+    expect(decodeChatStream(text).text).toMatch(/Let me check\.\s*\n\nDone\./)
+    // Progress goes out as transient status frames, not as text in the answer.
+    const decoded = decodeChatStream(text)
+    expect(decoded.text).not.toContain("🔧")
+    expect(decoded.events.flatMap((e) => (e.type === "status" ? [e.text] : []))).toEqual([
+      "Fetching information (list_backlog_items)",
+      "Fetching information (get_sprint_metrics)",
+      "Fetching information (get_backlog_summary)",
+      "Fetching information (get_backlog_summary)",
+      "",
+    ])
     expect(text).toContain("Done.")
     expect(runTool).toHaveBeenCalledTimes(4)
     for (const call of runTool.mock.calls) expect(call[1].projectId).toBe("p1")
@@ -163,6 +175,24 @@ describe("POST /api/projects/[projectId]/chat", () => {
     expect(toolMsgs[0]).toMatchObject({ name: "list_backlog_items", tool_call_id: "c1" })
     expect(toolMsgs[0].content).toContain("TOOL-OUT")
     expect(toolMsgs[0].content).toContain("MUST be written in English")
+  })
+
+  it("keeps legacy tool-hint lines out of the history the model sees", async () => {
+    streamWithTools.mockReturnValueOnce(turn([{ type: "text", chunk: "ok" }]))
+    await POST(
+      req({
+        messages: [
+          { role: "user", content: "first" },
+          { role: "assistant", content: "_🔧 read_repository_file_ _🔧 read_repository_file_" },
+          { role: "user", content: "second" },
+        ],
+        lang: "en",
+      }),
+      ctx,
+    )
+    const sent = streamWithTools.mock.calls[0][0] as { role: string; content: string }[]
+    expect(sent.some((m) => m.content.includes("🔧"))).toBe(false)
+    expect(sent.filter((m) => m.role === "assistant")).toHaveLength(0)
   })
 
   it("stops after the tool iteration limit", async () => {

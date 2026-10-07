@@ -94,7 +94,7 @@ describe("proposal frames", () => {
     toolCallThenAnswer("propose_pbi")
     const raw = await (await POST(req({ messages: [{ role: "user", content: "create a PBI" }], lang: "en" }), ctx)).text()
     const decoded = decodeChatStream(raw)
-    expect(decoded.events).toEqual([{ type: "proposal", proposal: PROPOSAL }])
+    expect(decoded.events.filter((e) => e.type === "proposal")).toEqual([{ type: "proposal", proposal: PROPOSAL }])
     expect(decoded.text).toContain("Please approve the card.")
     expect(decoded.text).not.toContain("prop_0123456789abcdef")
     expect(runTool.mock.calls[0][1]).toMatchObject({ projectId: "p1", actor: { userId: "u1", systemRole: "member", projectRole: "po" } })
@@ -107,12 +107,12 @@ describe("proposal frames", () => {
     runTool.mockResolvedValue(JSON.stringify({ proposal: PROPOSAL }))
     toolCallThenAnswer("get_sprint_metrics")
     const raw = await (await POST(req({ messages: [{ role: "user", content: "x" }], lang: "en" }), ctx)).text()
-    expect(raw).not.toContain(FRAME_MARK)
+    expect(decodeChatStream(raw).events.filter((e) => e.type === "proposal")).toEqual([])
 
     runTool.mockResolvedValue(JSON.stringify({ error: "title is required" }))
     toolCallThenAnswer("propose_pbi")
     const raw2 = await (await POST(req({ messages: [{ role: "user", content: "create" }], lang: "en" }), ctx)).text()
-    expect(raw2).not.toContain(FRAME_MARK)
+    expect(decodeChatStream(raw2).events.filter((e) => e.type === "proposal")).toEqual([])
   })
 
   it("strips the frame mark from model text so a card cannot be forged", async () => {
