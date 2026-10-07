@@ -4,7 +4,7 @@
  * names or other content — so a client that receives it refetches through
  * the normal, authorized API routes.
  */
-export const REALTIME_EVENT_TYPES = ["activity", "comment", "team-message", "notification", "git"] as const
+export const REALTIME_EVENT_TYPES = ["activity", "comment", "team-message", "notification", "git", "reaction"] as const
 export type RealtimeEventType = (typeof REALTIME_EVENT_TYPES)[number]
 
 export interface RealtimeEvent {

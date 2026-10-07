@@ -1,6 +1,8 @@
 "use client"
 
 import { useId, useState } from "react"
+import { useParams } from "next/navigation"
+import { ReactionBar } from "@/components/reactions/reaction-bar"
 import { useLanguage } from "@/lib/language-context"
 import { GlossaryHint, I18nText } from "@/components/i18n-text"
 import { Button, Field, IconButton, Textarea } from "@/components/ui"
@@ -26,6 +28,7 @@ interface Props {
  */
 export default function CompletionCommentEditor({ sprintId, task, isOpen, onOpen, onClose, onSave, onSendToIcebox }: Props) {
   const { t } = useLanguage()
+  const projectId = useParams<{ projectId?: string }>()?.projectId
   const iceboxToggleId = useId()
   const [commentDraft, setCommentDraft] = useState("")
   const [iceboxEnabled, setIceboxEnabled] = useState(false)
@@ -56,7 +59,7 @@ export default function CompletionCommentEditor({ sprintId, task, isOpen, onOpen
   }
 
   return (
-    <div className="ml-10 mr-2 mb-2 px-3 py-1.5 bg-success-soft/60 border-l-2 border-success rounded-ui-sm">
+    <div className="group ml-10 mr-2 mb-2 px-3 py-1.5 bg-success-soft/60 border-l-2 border-success rounded-ui-sm">
       <div className="flex items-center justify-between gap-2 mb-0.5">
         <p className="text-caption font-semibold text-success">{t.sprintTaskCompletionComment}</p>
         {!isOpen && (
@@ -95,8 +98,13 @@ export default function CompletionCommentEditor({ sprintId, task, isOpen, onOpen
           </div>
         </div>
       ) : (
-        <I18nText as="p" i18n={task.i18n} field="completionComment" original={task.completionComment}
-          entity={{ type: "sprint_task", id: task.id }} className="text-body text-fg whitespace-pre-wrap leading-relaxed" />
+        <>
+          <I18nText as="p" i18n={task.i18n} field="completionComment" original={task.completionComment}
+            entity={{ type: "sprint_task", id: task.id }} className="text-body text-fg whitespace-pre-wrap leading-relaxed" />
+          {projectId && task.completionComment?.trim() && (
+            <ReactionBar projectId={projectId} targetType="task_completion" targetId={task.id} />
+          )}
+        </>
       )}
     </div>
   )

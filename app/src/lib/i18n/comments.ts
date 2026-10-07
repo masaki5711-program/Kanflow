@@ -60,6 +60,13 @@ export interface CommentsTranslations {
   historyEditedElsewhere: string
   historyEmptyValue: string
   historyFieldProductGoal: string
+  /** Emoji reactions (components/reactions/). Placeholders: {emoji} {count}. */
+  reactionGroupLabel: string
+  reactionAdd: string
+  reactionChipAdd: string
+  reactionChipRemove: string
+  reactionMore: string
+  reactionFailed: string
 }
 
 export const ja: CommentsTranslations = {
@@ -111,6 +118,12 @@ export const ja: CommentsTranslations = {
   historyEditedElsewhere: "編集中に他の人がこの PBI を更新しました。保存すると、最新の内容との違いが表示されます。",
   historyEmptyValue: "（なし）",
   historyFieldProductGoal: "プロダクトゴール",
+  reactionGroupLabel: "リアクション",
+  reactionAdd: "リアクションを追加",
+  reactionChipAdd: "{emoji} のリアクションを付ける（現在 {count} 件）",
+  reactionChipRemove: "{emoji} のリアクションを取り消す（現在 {count} 件）",
+  reactionMore: "ほか {count} 人",
+  reactionFailed: "リアクションを更新できませんでした",
 }
 
 export const en: CommentsTranslations = {
@@ -162,6 +175,12 @@ export const en: CommentsTranslations = {
   historyEditedElsewhere: "Someone else updated this PBI while you were editing. When you save, the differences from the latest version are shown.",
   historyEmptyValue: "(none)",
   historyFieldProductGoal: "Product goal",
+  reactionGroupLabel: "Reactions",
+  reactionAdd: "Add reaction",
+  reactionChipAdd: "Add {emoji} reaction ({count} so far)",
+  reactionChipRemove: "Remove your {emoji} reaction ({count} so far)",
+  reactionMore: "and {count} more",
+  reactionFailed: "Could not update the reaction",
 }
 
 export const id: CommentsTranslations = {
@@ -213,4 +232,10 @@ export const id: CommentsTranslations = {
   historyEditedElsewhere: "Orang lain memperbarui PBI ini saat Anda mengedit. Saat menyimpan, perbedaan dengan versi terbaru akan ditampilkan.",
   historyEmptyValue: "(kosong)",
   historyFieldProductGoal: "Tujuan produk",
+  reactionGroupLabel: "Reaksi",
+  reactionAdd: "Tambah reaksi",
+  reactionChipAdd: "Beri reaksi {emoji} (saat ini {count})",
+  reactionChipRemove: "Batalkan reaksi {emoji} Anda (saat ini {count})",
+  reactionMore: "dan {count} lainnya",
+  reactionFailed: "Reaksi tidak dapat diperbarui",
 }

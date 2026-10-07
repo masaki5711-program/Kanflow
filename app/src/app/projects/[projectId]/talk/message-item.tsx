@@ -7,6 +7,7 @@ import { IconButton, cn } from "@/components/ui"
 import { CommentBody } from "@/components/comments/comment-body"
 import { formatFullDateTime, formatRelativeTime } from "@/components/comments/relative-time"
 import MediaPreviewModal from "@/components/media-preview-modal"
+import { ReactionBar } from "@/components/reactions/reaction-bar"
 import { useLanguage } from "@/lib/language-context"
 import { attachmentUrl } from "./use-team-chat"
 import { isImage, sourceHref, sourceText, type TeamMessage } from "./types"
@@ -74,6 +75,8 @@ export const MessageItem = memo(function MessageItem({ projectId, message: m, no
         {m.replyTo && <ReplyQuote quote={m.replyTo} onJump={onJump} />}
         {m.body && <CommentBody body={m.body} mentions={m.mentions} i18n={m.i18n} translationEntity={m.translation} />}
         {m.attachments.length > 0 && <Attachments projectId={projectId} files={m.attachments} />}
+        <ReactionBar projectId={projectId} targetType="team_message" targetId={m.id} />
+
         {m.postedToThread && m.source && (
           <Link href={sourceHref(projectId, m.source)} className="mt-1 inline-flex items-center gap-1 text-caption text-fg-muted hover:text-primary-strong">
             <CornerUpLeft aria-hidden="true" className="h-3 w-3" />

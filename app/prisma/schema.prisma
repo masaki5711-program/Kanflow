@@ -43,6 +43,7 @@ model User {
   projectVisits ProjectVisit[]
 
   teamMessages        TeamMessage[]
+  reactions           Reaction[]
   teamMessageMentions TeamMessageMention[]
   teamChatReads       TeamChatRead[]
 
@@ -315,6 +316,7 @@ model Project {
 
   teamMessages  TeamMessage[]
   teamChatReads TeamChatRead[]
+  reactions     Reaction[]
 
   /// Optional GitLab integration (off by default; see services/git).
   gitIntegration  GitIntegration?
@@ -1549,4 +1551,27 @@ model MilestoneMetricPoint {
 
   @@unique([metricId, month])
   @@map("milestone_metric_point")
+}
+
+/// Emoji reaction of one user on a comment-like text (one row per user + emoji).
+/// targetType: comment (PBI / task / IceBox comment; a team-chat mirror of it
+/// shares these rows) | team_message (a plain chat message) | task_completion
+/// (the completion comment of a sprint task). The emoji is one of
+/// REACTION_EMOJIS (services/reactions/reactions.schemas.ts). No FK on the
+/// target: it lives in different tables, the service validates it and reads
+/// ignore rows of removed targets.
+model Reaction {
+  id         String   @id @default(cuid())
+  projectId  String
+  targetType String   @db.VarChar(32)
+  targetId   String   @db.VarChar(191)
+  userId     String
+  emoji      String   @db.VarChar(16)
+  createdAt  DateTime @default(now())
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([targetType, targetId, userId, emoji])
+  @@index([projectId, targetType, targetId])
+  @@map("reaction")
 }

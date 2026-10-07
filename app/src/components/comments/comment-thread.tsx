@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { MessageSquare, Pencil, Trash2 } from "lucide-react"
 import { useLanguage } from "@/lib/language-context"
 import { Button, EmptyState, IconButton, SkeletonLines, useConfirm, useToast } from "@/components/ui"
+import { ReactionBar } from "@/components/reactions/reaction-bar"
 import { CommentBody } from "./comment-body"
 import { CommentComposer } from "./comment-composer"
 import { formatFullDateTime, formatRelativeTime } from "./relative-time"
@@ -87,7 +88,7 @@ export function CommentThread({ projectId, entityType, entityId, onCountDelta, o
       ) : (
         <ol className="space-y-3">
           {thread.items.map((c) => (
-            <CommentItem key={c.id} comment={c} members={members} membersLoading={membersLoading} onUpdate={thread.update} onRemove={thread.remove}
+            <CommentItem key={c.id} projectId={projectId} comment={c} members={members} membersLoading={membersLoading} onUpdate={thread.update} onRemove={thread.remove}
               onRemoved={() => onCountDelta?.(-1)} onTranslated={() => void thread.refetch()} />
           ))}
         </ol>
@@ -105,6 +106,7 @@ export function CommentThread({ projectId, entityType, entityId, onCountDelta, o
 }
 
 interface ItemProps {
+  projectId: string
   comment: CommentDto
   members: readonly MentionMember[]
   membersLoading: boolean
@@ -115,7 +117,7 @@ interface ItemProps {
   onTranslated: () => void
 }
 
-function CommentItem({ comment, members, membersLoading, onUpdate, onRemove, onRemoved, onTranslated }: ItemProps) {
+function CommentItem({ projectId, comment, members, membersLoading, onUpdate, onRemove, onRemoved, onTranslated }: ItemProps) {
   const { t, language } = useLanguage()
   const toast = useToast()
   const confirm = useConfirm()
@@ -184,6 +186,7 @@ function CommentItem({ comment, members, membersLoading, onUpdate, onRemove, onR
       ) : (
         <CommentBody body={comment.body} mentions={comment.mentions} i18n={comment.i18n} commentId={comment.id} onTranslated={onTranslated} />
       )}
+      {!comment.deleted && !editing && <ReactionBar projectId={projectId} targetType="comment" targetId={comment.id} />}
     </li>
   )
 }
