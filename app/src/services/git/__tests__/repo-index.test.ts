@@ -110,6 +110,12 @@ describe("indexRepository — guards", () => {
     expect(client.listTree).not.toHaveBeenCalled()
     expect(db.updates).toEqual([])
   })
+
+  it("clears an old error once GitLab answers again, even though the branch did not move", async () => {
+    db.repo = repoRow({ indexedSha: HEAD, indexedAt: new Date(), indexError: "GitLab に接続できませんでした。次回の同期で再試行します。", indexErrorAt: new Date() })
+    expect((await run(fakeClient())).status).toBe("up_to_date")
+    expect(db.updates).toEqual([{ indexError: null, indexErrorAt: null }])
+  })
 })
 
 describe("indexRepository — first (full) pass", () => {

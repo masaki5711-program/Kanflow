@@ -73,12 +73,21 @@ export async function indexRepository(repositoryId: string, opts: IndexOptions =
     const externalId = repo.externalId ?? (await client.getProject(repo.repoPath)).id
     const head = await client.latestCommitSha(externalId)
     const unchanged = head ? head === repo.indexedSha : repo.indexedAt !== null && repo.indexedSha === null
-    if (unchanged && !repo.indexTargetSha) return { ...base, status: "up_to_date" }
+    if (unchanged && !repo.indexTargetSha) {
+      // GitLab answered and the index is current: an old error (e.g. a network blip) is over, so stop showing it.
+      if (repo.indexError) await clearIndexError(repo)
+      return { ...base, status: "up_to_date" }
+    }
     return await runPass(repo, client, externalId, head, opts)
   } catch (err) {
     if (!(err instanceof GitLabError)) log.error("repository index failed", { repositoryId, error: err instanceof Error ? err.message : String(err) })
     return fail(repo, err instanceof GitLabError ? syncErrorMessage(err) : "取り込み中にエラーが発生しました。次回の同期で再試行します。")
   }
+}
+
+async function clearIndexError(repo: RepoRow): Promise<void> {
+  await prisma.gitRepository.update({ where: { id: repo.id }, data: { indexError: null, indexErrorAt: null } }).catch(() => undefined)
+  publishAfterCommit({ type: "git", projectId: repo.projectId, action: "index" })
 }
 
 async function fail(repo: RepoRow, message: string): Promise<IndexResult> {
