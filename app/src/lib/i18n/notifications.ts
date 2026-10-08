@@ -32,6 +32,15 @@ export interface NotificationsTranslations {
   notifSettingsTitle: string
   notifSettingsHint: string
   notifSettingsFailed: string
+  desktopNotifyTitle: string
+  desktopNotifyHint: string
+  desktopNotifyEnable: string
+  desktopNotifyDisable: string
+  desktopNotifyOn: string
+  desktopNotifyBlocked: string
+  desktopNotifyUnsupported: string
+  desktopNotifyChat: string
+  desktopNotifyChatFrom: string
   notifTypeAssigned: string
   notifTypeMentioned: string
   notifTypeComment: string
@@ -79,6 +88,15 @@ export const ja: NotificationsTranslations = {
   notifSettingsTitle: "通知設定",
   notifSettingsHint: "ヘッダーのベル（アプリ内通知）で受け取る種類を選べます。変更はすぐに保存されます。",
   notifSettingsFailed: "通知設定を保存できませんでした",
+  desktopNotifyTitle: "デスクトップ通知",
+  desktopNotifyHint: "Kanflow を別のタブやアプリの陰で開いている間に、新しい通知やチャットをデスクトップに表示します。この端末のこのブラウザだけの設定です。",
+  desktopNotifyEnable: "通知をオンにする",
+  desktopNotifyDisable: "通知をオフにする",
+  desktopNotifyOn: "オン（通知は Kanflow のタブを開いている間だけ届きます）",
+  desktopNotifyBlocked: "ブラウザで通知がブロックされています。アドレスバーの鍵アイコンから通知を許可してください。",
+  desktopNotifyUnsupported: "このブラウザはデスクトップ通知に対応していません。",
+  desktopNotifyChat: "新しいチャットメッセージ",
+  desktopNotifyChatFrom: "{name} さんからチャットが届きました",
   notifTypeAssigned: "担当者に設定されたとき",
   notifTypeMentioned: "コメントでメンションされたとき",
   notifTypeComment: "担当している項目にコメントが付いたとき",
@@ -126,6 +144,15 @@ export const en: NotificationsTranslations = {
   notifSettingsTitle: "Notifications",
   notifSettingsHint: "Choose what the header bell (in-app notifications) tells you about. Changes are saved immediately.",
   notifSettingsFailed: "Could not save the notification settings",
+  desktopNotifyTitle: "Desktop notifications",
+  desktopNotifyHint: "Show new notifications and chat messages on your desktop while Kanflow is open behind another tab or app. This applies to this browser on this device only.",
+  desktopNotifyEnable: "Turn on notifications",
+  desktopNotifyDisable: "Turn off notifications",
+  desktopNotifyOn: "On (notifications arrive only while a Kanflow tab is open)",
+  desktopNotifyBlocked: "Notifications are blocked in your browser. Allow them from the lock icon in the address bar.",
+  desktopNotifyUnsupported: "This browser does not support desktop notifications.",
+  desktopNotifyChat: "New chat message",
+  desktopNotifyChatFrom: "New chat message from {name}",
   notifTypeAssigned: "When I am assigned",
   notifTypeMentioned: "When I am mentioned in a comment",
   notifTypeComment: "When an item I am responsible for gets a comment",
@@ -173,6 +200,15 @@ export const id: NotificationsTranslations = {
   notifSettingsTitle: "Notifikasi",
   notifSettingsHint: "Pilih jenis pemberitahuan yang ditampilkan lonceng di header (notifikasi dalam aplikasi). Perubahan langsung disimpan.",
   notifSettingsFailed: "Pengaturan notifikasi tidak dapat disimpan",
+  desktopNotifyTitle: "Notifikasi desktop",
+  desktopNotifyHint: "Tampilkan notifikasi dan pesan chat baru di desktop saat Kanflow terbuka di balik tab atau aplikasi lain. Hanya berlaku untuk browser ini di perangkat ini.",
+  desktopNotifyEnable: "Aktifkan notifikasi",
+  desktopNotifyDisable: "Matikan notifikasi",
+  desktopNotifyOn: "Aktif (notifikasi hanya masuk saat tab Kanflow terbuka)",
+  desktopNotifyBlocked: "Notifikasi diblokir di browser. Izinkan lewat ikon gembok di address bar.",
+  desktopNotifyUnsupported: "Browser ini tidak mendukung notifikasi desktop.",
+  desktopNotifyChat: "Pesan chat baru",
+  desktopNotifyChatFrom: "Pesan chat baru dari {name}",
   notifTypeAssigned: "Saat saya ditugaskan",
   notifTypeMentioned: "Saat saya disebut dalam komentar",
   notifTypeComment: "Saat item yang saya tangani mendapat komentar",

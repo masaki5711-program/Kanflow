@@ -4,6 +4,7 @@ import { useLanguage } from "@/lib/language-context"
 import { apiFetch, useApiMutation, useApiQuery } from "@/hooks"
 import { SkeletonLines } from "@/components/ui"
 import type { Translations } from "@/lib/i18n"
+import { DesktopNotifySetting } from "./desktop-notify-setting"
 
 export const PREFERENCES_URL = "/api/notifications/preferences"
 
@@ -58,6 +59,7 @@ export function NotificationSettings() {
         {t.notifSettingsTitle}
       </h2>
       <p className="text-caption text-fg-muted mb-4">{t.notifSettingsHint}</p>
+      <DesktopNotifySetting />
       {isLoading || !data ? (
         <SkeletonLines lines={4} label={t.loading} />
       ) : (

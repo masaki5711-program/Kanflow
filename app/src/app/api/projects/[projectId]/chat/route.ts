@@ -2,7 +2,7 @@ import { AI_CHAT_RATE_LIMIT, consumeRateLimit } from "@/lib/rate-limit"
 import { z } from "zod"
 import { NextResponse } from "next/server"
 import { requireProject } from "@/lib/authz"
-import { ollamaChatStreamWithTools, detectLang, type ChatMessage, type ChatStreamEvent, type ToolCall } from "@/lib/ollama"
+import { ollamaChatStreamWithTools, detectLang, OLLAMA_NUM_CTX, type ChatMessage, type ChatStreamEvent, type ToolCall } from "@/lib/ollama"
 import { OLLAMA_TIMEOUTS } from "@/lib/ollama/config"
 import { OllamaAbortedError, OllamaTimeoutError, ollamaErrorMessage, ollamaErrorResponse } from "@/lib/ollama/errors"
 import { primeStream } from "@/lib/ollama/prime"
@@ -13,7 +13,7 @@ import { CHAT_TOOLS, runTool } from "@/lib/chat-tools"
 import { aiLog, aiLogTrunc } from "@/lib/ai-monitor"
 import { packGuide, packToolDefs, selectPacks } from "@/lib/chat-tool-packs"
 import { hasRepoKnowledge, REPO_KNOWLEDGE_GUIDE, REPO_KNOWLEDGE_TOOL_DEFS } from "@/lib/repo-knowledge-tools"
-import { buildSynthesisMessages } from "@/lib/chat-synthesis"
+import { buildSynthesisMessages, wouldOverflowContext } from "@/lib/chat-synthesis"
 import { encodeChatEvent, proposalFromToolResult, sanitizeModelText, stripToolHints } from "@/lib/chat-proposals"
 import { composingStatusLabel, toolStatusLabel } from "@/lib/chat-tool-status"
 import { toHttpResponse } from "@/services/_shared/http"
@@ -292,7 +292,15 @@ ${REPO_KNOWLEDGE_GUIDE[replyLang]}` : "") },
         // chunks to the client in real time; if the model produces tool_calls
         // we execute them and re-enter the stream for the next turn.
         // The last iteration is the tool-free answer pass below.
+        // Prompt size Ollama measured on the last turn, and what was appended since.
+        let promptTokens = 0
+        let addedChars = 0
         for (let i = 0; i < maxIterations - 1; i++) {
+          if (i > 0 && wouldOverflowContext(promptTokens, addedChars, OLLAMA_NUM_CTX)) {
+            // Another tool turn would push the question out of num_ctx (HTTP 500).
+            aiLog("CHAT_CTX_FULL", `prompt ~${promptTokens + addedChars}/${OLLAMA_NUM_CTX} tokens; answering from the gathered material`)
+            break
+          }
           let textBuf = ""
           let toolCalls: ToolCall[] = []
           // Demo monitor: log streaming progress in coarse slices, not per token.
@@ -327,6 +335,9 @@ ${REPO_KNOWLEDGE_GUIDE[replyLang]}` : "") },
               }
             } else if (event.type === "tool_calls") {
               toolCalls = event.calls
+            } else if (event.type === "usage") {
+              promptTokens = event.promptTokens
+              addedChars = 0
             }
           }
 
@@ -355,6 +366,7 @@ ${REPO_KNOWLEDGE_GUIDE[replyLang]}` : "") },
             content: textBuf,
             tool_calls: toolCalls,
           })
+          addedChars += textBuf.length + JSON.stringify(toolCalls).length
           for (const call of toolCalls) {
             const args =
               typeof call.function.arguments === "string"
@@ -374,6 +386,7 @@ ${REPO_KNOWLEDGE_GUIDE[replyLang]}` : "") },
             // Approval-based write proposal → out-of-band frame for the card UI.
             const proposal = proposalFromToolResult(call.function.name, result)
             if (proposal) send(encodeChatEvent({ type: "proposal", proposal }))
+            addedChars += result.length + TOOL_RESULT_FOOTER[replyLang].length
             conversation.push({
               role: "tool",
               content: result + TOOL_RESULT_FOOTER[replyLang],

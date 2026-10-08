@@ -8,6 +8,7 @@ import { type Language } from "@/lib/i18n"
 import { type ReactNode } from "react"
 import IdleLogoutWatcher from "@/components/idle-logout-watcher"
 import { LiveAnnouncer } from "@/components/live-announcer"
+import { DesktopNotifier } from "@/components/notifications/desktop-notifier"
 import { RealtimeProvider } from "@/components/realtime/realtime-provider"
 
 export function Providers({
@@ -36,7 +37,11 @@ export function Providers({
         <LanguageProvider initialLanguage={userLanguage} persistToUser>
           {/* Toast/Confirm sit inside LanguageProvider so their default labels are localized. */}
           <ToastProvider>
-            <ConfirmProvider>{children}</ConfirmProvider>
+            <ConfirmProvider>
+              {/* Desktop popups for new notifications / chat while the tab is in the background. */}
+              <DesktopNotifier />
+              {children}
+            </ConfirmProvider>
           </ToastProvider>
         </LanguageProvider>
       </RealtimeProvider>

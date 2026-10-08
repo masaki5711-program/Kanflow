@@ -226,10 +226,13 @@ export interface ChatTurnResult {
 export type ChatStreamEvent =
   | { type: "text"; chunk: string }
   | { type: "tool_calls"; calls: ToolCall[] }
+  /** Tokens Ollama actually counted in the prompt of this turn (sent once, last). */
+  | { type: "usage"; promptTokens: number }
 
 interface ChatChunk {
   message?: { content?: string; tool_calls?: ToolCall[] }
   done?: boolean
+  prompt_eval_count?: number
 }
 
 interface ChatCallOptions extends BaseCallOptions {
@@ -262,7 +265,10 @@ export async function* ollamaChatStreamWithTools(
     if (content) yield { type: "text", chunk: content }
     const calls = json.message?.tool_calls
     if (calls && calls.length > 0) pendingToolCalls = calls
-    if (json.done) break
+    if (json.done) {
+      if (json.prompt_eval_count) yield { type: "usage", promptTokens: json.prompt_eval_count }
+      break
+    }
   }
   if (pendingToolCalls.length > 0) yield { type: "tool_calls", calls: pendingToolCalls }
 }

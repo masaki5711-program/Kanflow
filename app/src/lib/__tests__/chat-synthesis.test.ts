@@ -1,5 +1,16 @@
 import { describe, expect, it } from "vitest"
-import { buildSynthesisMessages, collectMaterial } from "@/lib/chat-synthesis"
+import { buildSynthesisMessages, collectMaterial, wouldOverflowContext } from "@/lib/chat-synthesis"
+
+describe("context overflow guard", () => {
+  it("stops tool turns before the question would be pushed out of num_ctx", () => {
+    expect(wouldOverflowContext(8500, 3300, 12288)).toBe(true) // the failing chat: ~11.8k + next result
+    expect(wouldOverflowContext(6000, 3000, 12288)).toBe(false)
+  })
+
+  it("does nothing without a measurement", () => {
+    expect(wouldOverflowContext(0, 99999, 12288)).toBe(false)
+  })
+})
 
 const tool = (name: string, content: string) => ({ role: "tool" as const, name, content })
 

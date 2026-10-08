@@ -41,6 +41,21 @@ const LABELS: Record<AILang, { question: string; material: string; none: string 
   id: { question: "Pertanyaan", material: "Materi terkumpul", none: "(tidak ada materi)" },
 }
 
+/** Tokens kept free below num_ctx: Ollama drops the oldest messages (the question first) past it. */
+const CONTEXT_MARGIN_TOKENS = 512
+
+/**
+ * True when the next tool turn would not fit num_ctx. `promptTokens` is what
+ * Ollama counted for the previous turn; `addedChars` is what the loop appended
+ * since (assistant + tool messages), priced at 1 token per character (worst case).
+ * Overflowing does not just truncate: the user question is dropped and Ollama
+ * answers HTTP 500 "no user query found in messages".
+ */
+export function wouldOverflowContext(promptTokens: number, addedChars: number, numCtx: number): boolean {
+  if (promptTokens <= 0) return false // no measurement: leave it to the model
+  return promptTokens + addedChars > numCtx - CONTEXT_MARGIN_TOKENS
+}
+
 /** Tool results of the conversation, newest first, within the character budget. */
 export function collectMaterial(conversation: readonly SynthesisMessage[], max = SYNTHESIS_MATERIAL_MAX): string {
   const parts: string[] = []
