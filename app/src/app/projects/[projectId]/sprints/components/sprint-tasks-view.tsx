@@ -8,7 +8,7 @@ import PbiGroup from "./pbi-group"
 import Board from "./board/board"
 import BoardFilters from "./board/board-filters"
 import { filterTasks, isFilterActive, type FilterContext } from "./board/board-model"
-import { groupTasksByPb, isRealTask } from "../lib/sprint-metrics"
+import { groupTasksByPb, isRealTask, orderByPbDependency } from "../lib/sprint-metrics"
 import type { BoardViewState } from "../hooks/use-board-view-state"
 import type { Member, Sprint, SprintItem, SprintTaskActions } from "./types"
 import { CirclePlus, ClipboardList, SearchX } from "lucide-react"
@@ -38,7 +38,9 @@ export default function SprintTasksView({
   const { view, swimlane, filter } = viewState
   const canEditMembership = canManageSprint && sprint.status !== "archived" && sprint.status !== "done"
 
-  const realTasks = useMemo(() => sprint.items.filter(isRealTask), [sprint.items])
+  // PBIs in dependency order (a PBI others wait for comes first) in both the list and the board.
+  const orderedItems = useMemo(() => orderByPbDependency(sprint.items), [sprint.items])
+  const realTasks = useMemo(() => orderedItems.filter(isRealTask), [orderedItems])
   const filterCtx = useMemo<FilterContext>(() => ({
     currentUserId,
     members,
@@ -51,7 +53,7 @@ export default function SprintTasksView({
   const shownTasks = useMemo(() => filterTasks(realTasks, filter, filterCtx), [realTasks, filter, filterCtx])
   const filtering = isFilterActive(filter)
   // Without a filter, PBIs that have no task yet still show (their placeholder row keeps the group).
-  const pbGroups = useMemo(() => groupTasksByPb(filtering ? shownTasks : sprint.items), [filtering, shownTasks, sprint.items])
+  const pbGroups = useMemo(() => groupTasksByPb(filtering ? shownTasks : orderedItems), [filtering, shownTasks, orderedItems])
 
   function renderBody() {
     if (sprint.items.length === 0) {

@@ -7,6 +7,7 @@ import { Button, IconButton, Truncate, cn } from "@/components/ui"
 import { fillTemplate } from "@/lib/fill-template"
 import { isRealTask, summarizePbTasks } from "../lib/sprint-metrics"
 import { GitPbiBadge } from "@/components/git-dev/git-summaries-context"
+import { PbiDependencyChips } from "@/components/pbi-dependencies/pbi-dependency-chips"
 import SprintTaskRow from "./sprint-task-row"
 import type { SprintItem, SprintPbItem, SprintTaskActions } from "./types"
 import { CirclePlus, ClipboardList, Eye, Scale, SquarePen, Trash2 } from "lucide-react"
@@ -65,6 +66,8 @@ export default function PbiGroup({
               {pbItem.workloadScore} {pointUnit}
             </span>
             <GitPbiBadge pbiId={pbItem.id} />
+            {/* Waiting for #n / prerequisites done / how many PBIs wait for this one. */}
+            <PbiDependencyChips item={pbItem} />
           </div>
           <div className="flex items-center gap-1 flex-shrink-0">
             <IconButton size="sm" label={`${canEditPbi ? t.edit : t.view}: ${pbRef}`}

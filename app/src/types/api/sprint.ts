@@ -1,9 +1,13 @@
 import type { EntityI18n } from "@/lib/translation/types"
-import type { PbiSummaryDto } from "./backlog"
+import type { PbiDependencyRefDto, PbiSummaryDto } from "./backlog"
 
 /** PBI embedded in a sprint task (GET /api/projects/:id/sprints). */
 export interface SprintPbItemDto extends PbiSummaryDto {
   acceptanceCriteria?: string | null
+  /** PBIs that must be completed before this one (the sprint list orders and flags by them). */
+  blockedBy?: PbiDependencyRefDto[]
+  /** PBIs waiting for this one. */
+  blocking?: PbiDependencyRefDto[]
 }
 
 /** A normalized task assignee (TaskAssignee → user). */

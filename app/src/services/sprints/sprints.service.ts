@@ -9,26 +9,31 @@ import { notify, projectMemberIds, type NotificationType } from "@/services/_sha
 import { attachI18n, attachI18nOne, enqueueIn, getI18nFor, prepareText, purgeIn } from "@/services/_shared/translations"
 import { noteUnversionedWrite, staleOrMissing, takeVersion } from "@/services/_shared/versioning"
 import { withAssigneeRefs } from "@/services/sprint-backlog/task-assignees"
+import { loadDependencies, type PbiDependenciesDto } from "@/services/backlog/backlog.dependencies"
 import { computeBurndown, type BurndownData } from "./burndown"
 import { launchSprintCompletionReview } from "./sprint-completion-review"
 import * as repo from "./sprints.repository"
 import type { CreateSprintInput, UpdateSprintInput } from "./sprints.schemas"
 
+const NO_DEPENDENCIES: PbiDependenciesDto = { blockedBy: [], blocking: [] }
+
 export async function listSprints(projectId: string) {
   const sprints = await repo.findSprints(defaultDb, projectId)
   // Sprint text, sprint task names, and the PBIs shown inside each sprint.
   const allItems = sprints.flatMap((s) => s.items)
-  const [withI18n, taskI18n, pbI18n] = await Promise.all([
+  const [withI18n, taskI18n, pbI18n, deps] = await Promise.all([
     attachI18n("sprint", sprints),
     getI18nFor("sprint_task", allItems.map((i) => i.id)),
     getI18nFor("backlog_item", allItems.map((i) => i.pbItemId)),
+    // What each PBI waits for / holds up: the sprint list orders and flags PBIs by it.
+    loadDependencies(defaultDb, projectId),
   ])
   return withI18n.map((s) => ({
     ...s,
     items: s.items.map((it) => ({
       ...withAssigneeRefs(it),
       i18n: taskI18n.get(it.id) ?? {},
-      pbItem: { ...it.pbItem, i18n: pbI18n.get(it.pbItem.id) ?? {} },
+      pbItem: { ...it.pbItem, i18n: pbI18n.get(it.pbItem.id) ?? {}, ...(deps.get(it.pbItem.id) ?? NO_DEPENDENCIES) },
     })),
   }))
 }

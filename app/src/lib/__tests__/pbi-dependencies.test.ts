@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  dependencyOrder,
   edgesOf,
   isRefDone,
   moveBelow,
@@ -183,5 +184,38 @@ describe("refLabel", () => {
   it("uses the translated text in the viewer's language when present", () => {
     const out = refLabel({ displayId: 3, initiative: "Original", userStory: null, i18n: { initiative: { ja: "日本語", id: "Original", source: "id", status: "done" } } }, "ja")
     expect(out).toBe("#3 日本語")
+  })
+})
+
+describe("dependencyOrder", () => {
+  const ids = (list: { id: string }[]) => list.map((i) => i.id)
+  const items = (...names: string[]) => names.map((id) => ({ id }))
+  const edge = (predecessorId: string, successorId: string) => ({ predecessorId, successorId })
+
+  it("keeps the given order when nothing depends on anything", () => {
+    expect(ids(dependencyOrder(items("c", "a", "b"), []))).toEqual(["c", "a", "b"])
+  })
+
+  it("puts a prerequisite before the PBI that waits for it, moving as little as possible", () => {
+    // a waits for c: c jumps ahead of a, b keeps its place after them.
+    expect(ids(dependencyOrder(items("a", "b", "c"), [edge("c", "a")]))).toEqual(["c", "a", "b"])
+  })
+
+  it("orders a chain end to end", () => {
+    expect(ids(dependencyOrder(items("c", "b", "a"), [edge("a", "b"), edge("b", "c")]))).toEqual(["a", "b", "c"])
+  })
+
+  it("ignores links to PBIs outside the list", () => {
+    expect(ids(dependencyOrder(items("a", "b"), [edge("zzz", "a"), edge("b", "yyy")]))).toEqual(["a", "b"])
+  })
+
+  it("does not lose or duplicate items on a cycle", () => {
+    expect(ids(dependencyOrder(items("a", "b", "c"), [edge("a", "b"), edge("b", "a")])).sort()).toEqual(["a", "b", "c"])
+  })
+
+  it("does not change its input", () => {
+    const input = items("a", "b")
+    dependencyOrder(input, [edge("b", "a")])
+    expect(ids(input)).toEqual(["a", "b"])
   })
 })

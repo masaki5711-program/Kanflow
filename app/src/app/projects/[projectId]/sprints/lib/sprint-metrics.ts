@@ -1,4 +1,5 @@
 // Pure sprint calculations shared by the sprint card and its tests.
+import { dependencyOrder, waitingOn } from "@/lib/pbi-dependencies"
 import type { Sprint, SprintItem, SprintPbItem } from "../components/types"
 
 /** Sprint lifecycle: planning → active → review → done (auto-archives).
@@ -43,6 +44,20 @@ export function groupTasksByPb(items: readonly SprintItem[]): PbGroup[] {
     }
   }
   return order.map((id) => groups.get(id)!)
+}
+
+/**
+ * Sprint rows in PBI dependency order: a PBI others wait for comes before them
+ * (see dependencyOrder), each PBI's rows stay together, and the team's own order
+ * holds wherever nothing depends on anything. Returns a new array.
+ */
+export function orderByPbDependency(items: readonly SprintItem[]): SprintItem[] {
+  const pbis = groupTasksByPb(items).map((g) => g.pbItem)
+  // Only prerequisites still open count: a finished one no longer holds anything back.
+  const edges = pbis.flatMap((p) => waitingOn(p).map((r) => ({ predecessorId: r.id, successorId: p.id })))
+  const rank = new Map(dependencyOrder(pbis, edges).map((p, at) => [p.id, at]))
+  // Array.prototype.sort is stable: rows of one PBI keep their order.
+  return [...items].sort((a, b) => (rank.get(a.pbItem.id) ?? 0) - (rank.get(b.pbItem.id) ?? 0))
 }
 
 export interface SprintMetrics {

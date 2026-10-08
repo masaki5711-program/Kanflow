@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { Sprint, SprintItem } from "../components/types"
-import { computeSprintMetrics, groupTasksByPb, nextTaskStatus, patchTask, removeTask, summarizePbTasks, unfinishedWork } from "./sprint-metrics"
+import { computeSprintMetrics, groupTasksByPb, nextTaskStatus, orderByPbDependency, patchTask, removeTask, summarizePbTasks, unfinishedWork } from "./sprint-metrics"
 
 function pb(id: string, workloadScore: number) {
   return { id, displayId: 1, initiative: null, epic: null, userStory: null, workloadScore }
@@ -111,5 +111,38 @@ describe("summarizePbTasks (S-20)", () => {
 
   it("is all zero without real tasks", () => {
     expect(summarizePbTasks([task("x", "p1", 5, "todo", "")])).toEqual({ total: 0, done: 0, estimatedHours: 0, donePercent: 0 })
+  })
+})
+
+describe("orderByPbDependency", () => {
+  const link = (id: string) => ({ dependencyId: `d-${id}`, id, displayId: 1, initiative: null, userStory: null, status: "ready", i18n: {} })
+  const withDeps = (t: SprintItem, over: { blockedBy?: string[]; blocking?: string[] }): SprintItem => ({
+    ...t,
+    pbItem: { ...t.pbItem, blockedBy: (over.blockedBy ?? []).map(link), blocking: (over.blocking ?? []).map(link) },
+  })
+
+  it("moves the PBI that others wait for ahead of them, keeping each PBI's tasks together", () => {
+    const items = [
+      withDeps(task("a1", "p1", 1, "todo"), { blockedBy: ["p3"] }),
+      task("b1", "p2", 1, "todo"),
+      withDeps(task("c1", "p3", 1, "todo"), { blocking: ["p1"] }),
+      withDeps(task("a2", "p1", 1, "todo"), { blockedBy: ["p3"] }),
+    ]
+    expect(orderByPbDependency(items).map((i) => i.id)).toEqual(["c1", "a1", "a2", "b1"])
+  })
+
+  it("does not reorder for a prerequisite that is already completed", () => {
+    const done = { dependencyId: "d-p2", id: "p2", displayId: 2, initiative: null, userStory: null, status: "completed", i18n: {} }
+    const items = [
+      { ...task("a", "p1", 1, "todo"), pbItem: { ...pb("p1", 1), blockedBy: [done], blocking: [] } },
+      task("b", "p2", 1, "done"),
+    ]
+    expect(orderByPbDependency(items).map((i) => i.id)).toEqual(["a", "b"])
+  })
+
+  it("leaves the order alone when the sprint has no dependencies, and does not change its input", () => {
+    const items = [task("a", "p1", 1, "todo"), task("b", "p2", 1, "todo")]
+    expect(orderByPbDependency(items).map((i) => i.id)).toEqual(["a", "b"])
+    expect(items.map((i) => i.id)).toEqual(["a", "b"])
   })
 })

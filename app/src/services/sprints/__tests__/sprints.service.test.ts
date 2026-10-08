@@ -10,8 +10,10 @@ vi.mock("@/lib/pbi-status-sync", () => ({
 }))
 vi.mock("../sprint-completion-review", () => ({ launchSprintCompletionReview: vi.fn() }))
 vi.mock("../sprints.repository")
+vi.mock("@/services/backlog/backlog.dependencies", () => ({ loadDependencies: vi.fn(async () => new Map()) }))
 
 const repo = await import("../sprints.repository")
+const { loadDependencies } = await import("@/services/backlog/backlog.dependencies")
 const tr = await import("@/services/_shared/translations")
 const { syncPbiStatusFromTasks } = await import("@/lib/pbi-status-sync")
 const { launchSprintCompletionReview } = await import("../sprint-completion-review")
@@ -30,6 +32,18 @@ describe("sprints.service", () => {
     const out = await svc.listSprints("p1")
     expect(out[0]).toMatchObject({ id: "s1", i18n: {}, items: [{ id: "t1", i18n: {}, pbItem: { id: "b1", i18n: {} } }] })
     expect(out[0].items[0].assignees).toEqual([{ id: "u1", name: "Ann" }])
+  })
+
+  it("hands each sprint PBI what it waits for and what waits for it", async () => {
+    const blocker = { dependencyId: "d1", id: "b0", displayId: 3, initiative: null, userStory: null, status: "ready", i18n: {} }
+    vi.mocked(loadDependencies).mockResolvedValueOnce(new Map([["b1", { blockedBy: [blocker], blocking: [] }]]))
+    vi.mocked(repo.findSprints).mockResolvedValue([
+      { id: "s1", items: [{ id: "t1", pbItemId: "b1", pbItem: { id: "b1" }, assignees: [] }, { id: "t2", pbItemId: "b2", pbItem: { id: "b2" }, assignees: [] }] },
+    ] as never)
+    const out = await svc.listSprints("p1")
+    expect(loadDependencies).toHaveBeenCalledWith(expect.anything(), "p1")
+    expect(out[0].items[0].pbItem).toMatchObject({ id: "b1", blockedBy: [blocker], blocking: [] })
+    expect(out[0].items[1].pbItem).toMatchObject({ id: "b2", blockedBy: [], blocking: [] })
   })
 
   it("getSprint 404s", async () => {
