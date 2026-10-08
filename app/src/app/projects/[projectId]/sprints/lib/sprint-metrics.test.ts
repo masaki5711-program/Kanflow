@@ -128,7 +128,7 @@ describe("orderByPbDependency", () => {
       withDeps(task("c1", "p3", 1, "todo"), { blocking: ["p1"] }),
       withDeps(task("a2", "p1", 1, "todo"), { blockedBy: ["p3"] }),
     ]
-    expect(orderByPbDependency(items).map((i) => i.id)).toEqual(["c1", "a1", "a2", "b1"])
+    expect(orderByPbDependency(items).map((i) => i.id)).toEqual(["c1", "b1", "a1", "a2"])
   })
 
   it("does not reorder for a prerequisite that is already completed", () => {

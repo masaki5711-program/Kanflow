@@ -68,31 +68,35 @@ export function edgesOf(items: readonly WithDeps[]): Edge[] {
 }
 
 /**
- * `items` with every prerequisite ahead of the PBIs that wait for it. Stable:
- * each item keeps its place and only its open prerequisites are pulled up to
- * just before it, so the team's own order survives wherever nothing depends on
- * anything. Links to ids outside `items` are ignored; a cycle (the API refuses
- * them) is cut where it closes, and nothing is lost or repeated.
+ * `items` in the order to work them: PBIs with nothing to wait for first, then
+ * those that wait for them, level by level (a level is the length of the
+ * longest chain of prerequisites behind a PBI). Within a level the PBIs that
+ * the most others wait for (directly or through a chain) come first; ties keep
+ * the given order. Links to ids outside `items` are ignored; a cycle (the API
+ * refuses them) is cut where it closes, and nothing is lost or repeated.
  */
 export function dependencyOrder<T extends { id: string }>(items: readonly T[], edges: readonly Edge[]): T[] {
-  const byId = new Map(items.map((i) => [i.id, i]))
+  const inList = new Set(items.map((i) => i.id))
+  const own = edges.filter((e) => inList.has(e.predecessorId) && inList.has(e.successorId))
   const prerequisites = new Map<string, string[]>()
-  for (const e of edges) {
-    if (!byId.has(e.predecessorId) || !byId.has(e.successorId)) continue
-    prerequisites.set(e.successorId, [...(prerequisites.get(e.successorId) ?? []), e.predecessorId])
+  for (const e of own) prerequisites.set(e.successorId, [...(prerequisites.get(e.successorId) ?? []), e.predecessorId])
+
+  const levels = new Map<string, number>()
+  const levelOf = (id: string, path: ReadonlySet<string>): number => {
+    const known = levels.get(id)
+    if (known !== undefined) return known
+    if (path.has(id)) return 0 // cycle: cut here
+    const next = new Set(path).add(id)
+    const level = Math.max(-1, ...(prerequisites.get(id) ?? []).map((p) => levelOf(p, next))) + 1
+    levels.set(id, level)
+    return level
   }
-  const given = new Map(items.map((i, at) => [i.id, at]))
-  const visited = new Set<string>()
-  const out: T[] = []
-  const place = (id: string) => {
-    if (visited.has(id)) return
-    visited.add(id)
-    // Prerequisites in the order the list already has them.
-    for (const p of [...(prerequisites.get(id) ?? [])].sort((a, b) => (given.get(a) ?? 0) - (given.get(b) ?? 0))) place(p)
-    out.push(byId.get(id) as T)
-  }
-  for (const i of items) place(i.id)
-  return out
+  const waiting = new Map(items.map((i) => [i.id, reachable(own, i.id, "down").size]))
+
+  return items
+    .map((item, at) => ({ item, at, level: levelOf(item.id, new Set()), waiting: waiting.get(item.id) ?? 0 }))
+    .sort((a, b) => a.level - b.level || b.waiting - a.waiting || a.at - b.at)
+    .map((r) => r.item)
 }
 
 /** Ids reachable from `start` following the edges forward ("down") or backward ("up"), cycle-safe. */

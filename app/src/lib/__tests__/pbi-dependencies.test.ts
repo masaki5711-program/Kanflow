@@ -196,9 +196,19 @@ describe("dependencyOrder", () => {
     expect(ids(dependencyOrder(items("c", "a", "b"), []))).toEqual(["c", "a", "b"])
   })
 
-  it("puts a prerequisite before the PBI that waits for it, moving as little as possible", () => {
-    // a waits for c: c jumps ahead of a, b keeps its place after them.
-    expect(ids(dependencyOrder(items("a", "b", "c"), [edge("c", "a")]))).toEqual(["c", "a", "b"])
+  it("puts PBIs with nothing to wait for first, and the ones that wait after them", () => {
+    // a waits for c; b is free: the free ones (c, b) come before a.
+    expect(ids(dependencyOrder(items("a", "b", "c"), [edge("c", "a")]))).toEqual(["c", "b", "a"])
+  })
+
+  it("among PBIs with nothing to wait for, those that others wait for come first", () => {
+    // z and y are free; only y holds x up, so y leads even though z was listed first.
+    expect(ids(dependencyOrder(items("z", "y", "x"), [edge("y", "x")]))).toEqual(["y", "z", "x"])
+  })
+
+  it("counts PBIs that wait through a chain, not only directly", () => {
+    // a holds up b which holds up c; d holds up nobody.
+    expect(ids(dependencyOrder(items("d", "c", "b", "a"), [edge("a", "b"), edge("b", "c")]))).toEqual(["a", "d", "b", "c"])
   })
 
   it("orders a chain end to end", () => {
