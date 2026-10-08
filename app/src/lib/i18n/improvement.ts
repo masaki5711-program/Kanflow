@@ -29,8 +29,8 @@ export interface ImprovementTranslations {
   kzSumRollout: string
   kzSumItems: string
   kzSumByStage: string
-  kzYen: string
-  kzYenPerYear: string
+  kzUsd: string
+  kzUsdPerYear: string
   kzNone: string
   kzBefore: string
   kzAfter: string
@@ -67,6 +67,10 @@ export interface ImprovementTranslations {
   kzDirIncrease: string
   kzAnnualEffect: string
   kzAnnualEffectHint: string
+  kzSpaceSaved: string
+  kzSpaceSavedHint: string
+  kzSumSpace: string
+  kzSqm: string
   kzNumberInvalid: string
   kzTargetDirectionWarn: string
   kzSaveEffect: string
@@ -167,13 +171,13 @@ export const ja: ImprovementTranslations = {
   kzStageSustainedHint: "時間がたっても元に戻っていないことを確認した",
   kzStageDeferredHint: "いったん止めているもの",
   kzSumEffect: "効果金額の合計",
-  kzSumEffectUnit: "円/年",
+  kzSumEffectUnit: "ドル/年",
   kzSumStandardized: "標準化済み",
   kzSumRollout: "横展開の完了率",
   kzSumItems: "改善の件数",
   kzSumByStage: "段階ごとの件数",
-  kzYen: "{value} 円",
-  kzYenPerYear: "{value} 円/年",
+  kzUsd: "${value}",
+  kzUsdPerYear: "${value}/年",
   kzNone: "—",
   kzBefore: "改善前",
   kzAfter: "改善後",
@@ -208,8 +212,12 @@ export const ja: ImprovementTranslations = {
   kzDirection: "良い方向",
   kzDirDecrease: "少ないほど良い",
   kzDirIncrease: "多いほど良い",
-  kzAnnualEffect: "効果金額（円/年）",
+  kzAnnualEffect: "効果金額（ドル/年）",
   kzAnnualEffectHint: "わかる場合だけ入れてください",
+  kzSpaceSaved: "スペース削減（m²）",
+  kzSpaceSavedHint: "削減した面積だけを入れます。金額への換算は今後対応予定です",
+  kzSumSpace: "スペース削減の合計",
+  kzSqm: "{value} m²",
   kzNumberInvalid: "数字で入れてください",
   kzTargetDirectionWarn: "目標が改善前より良くなっていません。「良い方向」を確かめてください",
   kzSaveEffect: "効果を保存",
@@ -310,13 +318,13 @@ export const en: ImprovementTranslations = {
   kzStageSustainedHint: "Confirmed it has not slipped back over time",
   kzStageDeferredHint: "On hold for now",
   kzSumEffect: "Total effect",
-  kzSumEffectUnit: "yen/year",
+  kzSumEffectUnit: "USD/year",
   kzSumStandardized: "Standardized",
   kzSumRollout: "Rollout completion",
   kzSumItems: "Improvements",
   kzSumByStage: "Improvements per stage",
-  kzYen: "¥{value}",
-  kzYenPerYear: "¥{value}/yr",
+  kzUsd: "${value}",
+  kzUsdPerYear: "${value}/yr",
   kzNone: "—",
   kzBefore: "Before",
   kzAfter: "After",
@@ -351,8 +359,12 @@ export const en: ImprovementTranslations = {
   kzDirection: "Better when",
   kzDirDecrease: "Lower is better",
   kzDirIncrease: "Higher is better",
-  kzAnnualEffect: "Money effect (yen/year)",
+  kzAnnualEffect: "Money effect (USD/year)",
   kzAnnualEffectHint: "Only if known",
+  kzSpaceSaved: "Space reduction (m²)",
+  kzSpaceSavedHint: "Area only. Conversion to a money amount is planned for later.",
+  kzSumSpace: "Total space reduction",
+  kzSqm: "{value} m²",
   kzNumberInvalid: "Enter a number",
   kzTargetDirectionWarn: "The target is not better than before. Check \"Better when\"",
   kzSaveEffect: "Save effect",
@@ -453,13 +465,13 @@ export const id: ImprovementTranslations = {
   kzStageSustainedHint: "Sudah dicek tidak kembali seperti semula",
   kzStageDeferredHint: "Dihentikan sementara",
   kzSumEffect: "Total efek biaya",
-  kzSumEffectUnit: "yen/tahun",
+  kzSumEffectUnit: "USD/tahun",
   kzSumStandardized: "Sudah distandarkan",
   kzSumRollout: "Penerapan selesai",
   kzSumItems: "Jumlah perbaikan",
   kzSumByStage: "Jumlah per tahap",
-  kzYen: "¥{value}",
-  kzYenPerYear: "¥{value}/thn",
+  kzUsd: "${value}",
+  kzUsdPerYear: "${value}/thn",
   kzNone: "—",
   kzBefore: "Sebelum",
   kzAfter: "Sesudah",
@@ -494,8 +506,12 @@ export const id: ImprovementTranslations = {
   kzDirection: "Lebih baik jika",
   kzDirDecrease: "Makin kecil makin baik",
   kzDirIncrease: "Makin besar makin baik",
-  kzAnnualEffect: "Efek biaya (yen/tahun)",
+  kzAnnualEffect: "Efek biaya (USD/tahun)",
   kzAnnualEffectHint: "Isi jika diketahui",
+  kzSpaceSaved: "Pengurangan ruang (m²)",
+  kzSpaceSavedHint: "Hanya luas. Konversi ke nilai uang direncanakan nanti.",
+  kzSumSpace: "Total pengurangan ruang",
+  kzSqm: "{value} m²",
   kzNumberInvalid: "Isi dengan angka",
   kzTargetDirectionWarn: "Target tidak lebih baik dari sebelum. Periksa \"Lebih baik jika\"",
   kzSaveEffect: "Simpan efek",

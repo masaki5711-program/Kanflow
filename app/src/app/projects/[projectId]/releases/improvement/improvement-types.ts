@@ -38,7 +38,8 @@ export interface ImprovementItem extends ReleaseItem {
   baselineValue: number | null
   targetValue: number | null
   resultValue: number | null
-  annualEffectYen: number | null
+  annualEffectUsd: number | null
+  spaceSavedM2: number | null
   kaizenStage: string
   standardizedAt: string | null
   rollouts: ImprovementRollout[]
@@ -73,7 +74,8 @@ export interface ImprovementForm {
   baselineValue: string
   targetValue: string
   resultValue: string
-  annualEffectYen: string
+  annualEffectUsd: string
+  spaceSavedM2: string
   manualLink: string
   standardizedAt: string
   releaseDate: string
@@ -92,7 +94,8 @@ export function toForm(item: ImprovementItem): ImprovementForm {
     baselineValue: numText(item.baselineValue),
     targetValue: numText(item.targetValue),
     resultValue: numText(item.resultValue),
-    annualEffectYen: numText(item.annualEffectYen),
+    annualEffectUsd: numText(item.annualEffectUsd),
+    spaceSavedM2: numText(item.spaceSavedM2),
     manualLink: item.manualLink ?? "",
     standardizedAt: dayText(item.standardizedAt),
     releaseDate: dayText(item.releaseDate),
@@ -110,8 +113,8 @@ export function parseNumberText(text: string): number | null {
   return /^-?\d+(\.\d+)?$/.test(normalized) ? Number(normalized) : NaN
 }
 
-export type NumberField = "baselineValue" | "targetValue" | "resultValue" | "annualEffectYen"
-export const NUMBER_FIELDS: readonly NumberField[] = ["baselineValue", "targetValue", "resultValue", "annualEffectYen"]
+export type NumberField = "baselineValue" | "targetValue" | "resultValue" | "annualEffectUsd" | "spaceSavedM2"
+export const NUMBER_FIELDS: readonly NumberField[] = ["baselineValue", "targetValue", "resultValue", "annualEffectUsd", "spaceSavedM2"]
 
 /** Number fields whose text is not a valid (for money: whole, non-negative) number. */
 export function invalidNumberFields(form: ImprovementForm): NumberField[] {
@@ -119,7 +122,9 @@ export function invalidNumberFields(form: ImprovementForm): NumberField[] {
     const v = parseNumberText(form[f])
     if (v === null) return false
     if (Number.isNaN(v)) return true
-    return f === "annualEffectYen" && (!Number.isInteger(v) || v < 0)
+    if (f === "annualEffectUsd") return !Number.isInteger(v) || v < 0
+    if (f === "spaceSavedM2") return v < 0
+    return false
   })
 }
 
@@ -133,7 +138,8 @@ const TO_API: { [K in keyof ImprovementForm]: (v: string) => unknown } = {
   baselineValue: parseNumberText,
   targetValue: parseNumberText,
   resultValue: parseNumberText,
-  annualEffectYen: parseNumberText,
+  annualEffectUsd: parseNumberText,
+  spaceSavedM2: parseNumberText,
   manualLink: orNull,
   standardizedAt: (v) => v,
   releaseDate: (v) => v,

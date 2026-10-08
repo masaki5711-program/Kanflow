@@ -768,7 +768,12 @@ model ReleaseBacklogItem {
   baselineValue   Float?
   targetValue     Float?
   resultValue     Float?
+  /// Legacy (yen, before the switch to USD): kept for the record, no longer shown or written.
   annualEffectYen Int?
+  /// 効果金額 in whole US dollars per year.
+  annualEffectUsd Int?
+  /// スペース削減 in m² (area only for now; a money conversion is planned).
+  spaceSavedM2    Float?
   /// measuring | standardized | deploying | sustained | deferred
   kaizenStage     String               @default("measuring") @db.VarChar(20)
   standardizedAt  DateTime?

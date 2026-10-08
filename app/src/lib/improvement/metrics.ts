@@ -55,13 +55,17 @@ export function targetContradictsDirection(direction: MetricDirection | string, 
 
 export interface SummaryItem extends MetricValues {
   kaizenStage: string
-  annualEffectYen: number | null
+  annualEffectUsd: number | null
+  /** スペース削減 (m², area only). */
+  spaceSavedM2?: number | null
   rollouts: ReadonlyArray<{ status: string }>
 }
 
 export interface ImprovementSummary {
-  /** 効果金額合計 (yen / year) of every item except 延期. */
-  totalAnnualEffectYen: number
+  /** 効果金額合計 (US dollars / year) of every item except 延期. */
+  totalAnnualEffectUsd: number
+  /** スペース削減合計 (m²) of every item except 延期. */
+  totalSpaceSavedM2: number
   countByStage: Record<KaizenStage, number>
   /** Items at or past 標準化済み (standardized / deploying / sustained). */
   standardizedCount: number
@@ -84,6 +88,7 @@ function emptyStageCounts(): Record<KaizenStage, number> {
 export function summarizeImprovements(items: readonly SummaryItem[]): ImprovementSummary {
   const countByStage = emptyStageCounts()
   let total = 0
+  let space = 0
   let rolloutTotal = 0
   let rolloutDone = 0
   const rates: number[] = []
@@ -91,14 +96,17 @@ export function summarizeImprovements(items: readonly SummaryItem[]): Improvemen
     const stage = (KAIZEN_STAGES as readonly string[]).includes(item.kaizenStage) ? (item.kaizenStage as KaizenStage) : "measuring"
     countByStage[stage] += 1
     if (stage === "deferred") continue
-    total += isNum(item.annualEffectYen) ? item.annualEffectYen : 0
+    total += isNum(item.annualEffectUsd) ? item.annualEffectUsd : 0
+    space += isNum(item.spaceSavedM2) ? item.spaceSavedM2 : 0
     rolloutTotal += item.rollouts.length
     rolloutDone += item.rollouts.filter((r) => r.status === "done").length
     const rate = achievementRate(item)
     if (rate !== null) rates.push(rate)
   }
   return {
-    totalAnnualEffectYen: total,
+    totalAnnualEffectUsd: total,
+    // Rounded to cm²: float sums of decimals must not show 0.30000000000000004.
+    totalSpaceSavedM2: Math.round(space * 100) / 100,
     countByStage,
     standardizedCount: items.filter((i) => STANDARDIZED_OR_LATER.has(i.kaizenStage)).length,
     rolloutTotal,

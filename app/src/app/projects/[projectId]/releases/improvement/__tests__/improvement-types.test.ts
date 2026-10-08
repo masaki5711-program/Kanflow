@@ -13,8 +13,15 @@ describe("improvement form helpers", () => {
   })
 
   it("money must be a whole, non-negative number", () => {
-    const form = { ...toForm(improvement()), annualEffectYen: "1.5", resultValue: "x" }
-    expect(invalidNumberFields(form)).toEqual(["resultValue", "annualEffectYen"])
+    const form = { ...toForm(improvement()), annualEffectUsd: "1.5", resultValue: "x" }
+    expect(invalidNumberFields(form)).toEqual(["resultValue", "annualEffectUsd"])
+  })
+
+  it("space reduction may have decimals but not be negative", () => {
+    const base = toForm(improvement())
+    expect(invalidNumberFields({ ...base, spaceSavedM2: "12.5" })).toEqual([])
+    expect(invalidNumberFields({ ...base, spaceSavedM2: "-1" })).toEqual(["spaceSavedM2"])
+    expect(invalidNumberFields({ ...base, spaceSavedM2: "abc" })).toEqual(["spaceSavedM2"])
   })
 
   it("toPatch sends only the changed fields, converted for the API", () => {

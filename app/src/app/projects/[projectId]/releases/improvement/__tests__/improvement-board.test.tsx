@@ -18,7 +18,8 @@ const ITEMS = [
     baselineValue: 60,
     targetValue: 30,
     resultValue: 45,
-    annualEffectYen: 1_200_000,
+    annualEffectUsd: 1_200_000,
+    spaceSavedM2: 12.5,
     rollouts: [
       { id: "ro1", targetName: "第2ライン", status: "done", doneAt: null, sortOrder: 0 },
       { id: "ro2", targetName: "YMMA", status: "todo", doneAt: null, sortOrder: 1 },
@@ -48,7 +49,9 @@ describe("改善成果ボード (process_improvement /releases)", () => {
     expect(await screen.findByRole("heading", { level: 1, name: "改善成果ボード" })).toBeInTheDocument()
     expect(calls.some((c) => c.url === "/api/projects/p1/releases")).toBe(false)
     const summary = screen.getByRole("region", { name: "段階ごとの件数" })
-    expect(within(summary).getByText("1,200,000 円")).toBeInTheDocument()
+    expect(within(summary).getByText("$1,200,000")).toBeInTheDocument()
+    // Space reduction is shown as an area, not as money.
+    expect(within(summary).getByText("12.5 m²")).toBeInTheDocument()
     expect(within(summary).getByText("50%")).toBeInTheDocument()
   })
 
@@ -70,7 +73,8 @@ describe("改善成果ボード (process_improvement /releases)", () => {
     expect(within(card).getByText("45 分")).toBeInTheDocument()
     expect(within(card).getByText("(目標 30 分)")).toBeInTheDocument()
     expect(within(card).getByRole("meter", { name: "達成率" })).toHaveAttribute("aria-valuenow", "50")
-    expect(within(card).getByText("1,200,000 円/年")).toBeInTheDocument()
+    expect(within(card).getByText("$1,200,000/年")).toBeInTheDocument()
+    expect(within(card).getByText("12.5 m²")).toBeInTheDocument()
     expect(within(card).getByText("横展開 1/2")).toBeInTheDocument()
     expect(within(card).getByText(/定着確認の期限切れ/)).toHaveClass("text-danger")
   })

@@ -11,7 +11,7 @@ describe("updateImprovementSchema", () => {
       baselineValue: 60,
       targetValue: 30,
       resultValue: 32.5,
-      annualEffectYen: 1_200_000,
+      annualEffectUsd: 1_200_000,
       kaizenStage: "measuring",
       releaseDate: "2026-10-01",
       standardizedAt: "",
@@ -23,8 +23,10 @@ describe("updateImprovementSchema", () => {
     ["non-finite number", { baselineValue: Number.POSITIVE_INFINITY }],
     ["NaN", { targetValue: Number.NaN }],
     ["unit over 20 chars", { metricUnit: "x".repeat(21) }],
-    ["negative money", { annualEffectYen: -1 }],
-    ["fractional money", { annualEffectYen: 1.5 }],
+    ["negative money", { annualEffectUsd: -1 }],
+    ["fractional money", { annualEffectUsd: 1.5 }],
+    ["negative space", { spaceSavedM2: -0.5 }],
+    ["absurd space", { spaceSavedM2: 1e12 }],
     ["unknown category", { metricCategory: "speed" }],
     ["unknown stage", { kaizenStage: "done" }],
     ["unknown direction", { direction: "up" }],
@@ -34,8 +36,13 @@ describe("updateImprovementSchema", () => {
     expect(updateImprovementSchema.safeParse(input).success).toBe(false)
   })
 
+  it("space reduction takes decimals in m²", () => {
+    expect(updateImprovementSchema.parse({ spaceSavedM2: 12.75 })).toEqual({ spaceSavedM2: 12.75 })
+    expect(updateImprovementSchema.parse({ spaceSavedM2: null })).toEqual({ spaceSavedM2: null })
+  })
+
   it("null clears values", () => {
-    expect(updateImprovementSchema.parse({ baselineValue: null, metricCategory: null, annualEffectYen: null })).toEqual({ baselineValue: null, metricCategory: null, annualEffectYen: null })
+    expect(updateImprovementSchema.parse({ baselineValue: null, metricCategory: null, annualEffectUsd: null })).toEqual({ baselineValue: null, metricCategory: null, annualEffectUsd: null })
   })
 })
 

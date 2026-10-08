@@ -28,7 +28,7 @@ const STATE = {
   targetValue: null as number | null,
 }
 
-const row = (over: Record<string, unknown> = {}) => ({ id: "r1", pbItem: null, rollouts: [], checks: [], photos: [], kaizenStage: "measuring", annualEffectYen: null, direction: "decrease", baselineValue: null, targetValue: null, resultValue: null, ...over })
+const row = (over: Record<string, unknown> = {}) => ({ id: "r1", pbItem: null, rollouts: [], checks: [], photos: [], kaizenStage: "measuring", annualEffectUsd: null, direction: "decrease", baselineValue: null, targetValue: null, resultValue: null, ...over })
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -41,14 +41,14 @@ beforeEach(() => {
 describe("getBoard", () => {
   it("returns items with summary and rollout suggestions; a trashed source PBI is hidden", async () => {
     vi.mocked(repo.findBoardItems).mockResolvedValue([
-      row({ id: "a", kaizenStage: "standardized", annualEffectYen: 1000, pbItem: { id: "b1", deletedAt: new Date() } }),
+      row({ id: "a", kaizenStage: "standardized", annualEffectUsd: 1000, pbItem: { id: "b1", deletedAt: new Date() } }),
       row({ id: "b", pbItem: { id: "b2", deletedAt: null } }),
     ] as never)
     vi.mocked(repo.findRolloutNames).mockResolvedValue(["Line 2"])
     const board = await svc.getBoard("p1")
     expect(board.items[0].pbItem).toBeNull()
     expect(board.items[1].pbItem).toMatchObject({ id: "b2", i18n: {} })
-    expect(board.summary).toMatchObject({ totalAnnualEffectYen: 1000, standardizedCount: 1, itemCount: 2 })
+    expect(board.summary).toMatchObject({ totalAnnualEffectUsd: 1000, standardizedCount: 1, itemCount: 2 })
     expect(board.rolloutNames).toEqual(["Line 2"])
   })
 })

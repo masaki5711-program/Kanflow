@@ -22,7 +22,7 @@ const row = (over: Record<string, unknown> = {}) =>
     baselineValue: 60,
     targetValue: 30,
     resultValue: 45,
-    annualEffectYen: 1_200_000,
+    annualEffectUsd: 1_200_000,
     manualLink: "https://std/1",
     standardizedAt: new Date("2026-09-01T00:00:00Z"),
     releaseDate: new Date("2026-09-01T00:00:00Z"),

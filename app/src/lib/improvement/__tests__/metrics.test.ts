@@ -66,7 +66,7 @@ describe("isWorsened / targetContradictsDirection", () => {
 describe("summarizeImprovements", () => {
   const item = (over: Partial<SummaryItem>): SummaryItem => ({
     kaizenStage: "measuring",
-    annualEffectYen: null,
+    annualEffectUsd: null,
     rollouts: [],
     ...m("decrease", null, null, null),
     ...over,
@@ -74,21 +74,31 @@ describe("summarizeImprovements", () => {
 
   it("totals money, counts stages and rollout completion, skipping deferred items", () => {
     const s = summarizeImprovements([
-      item({ kaizenStage: "standardized", annualEffectYen: 100_000, rollouts: [{ status: "done" }, { status: "todo" }] }),
-      item({ kaizenStage: "sustained", annualEffectYen: 50_000, rollouts: [{ status: "done" }], ...m("decrease", 10, 5, 5) }),
-      item({ kaizenStage: "deferred", annualEffectYen: 999_999, rollouts: [{ status: "todo" }] }),
+      item({ kaizenStage: "standardized", annualEffectUsd: 100_000, rollouts: [{ status: "done" }, { status: "todo" }] }),
+      item({ kaizenStage: "sustained", annualEffectUsd: 50_000, rollouts: [{ status: "done" }], ...m("decrease", 10, 5, 5) }),
+      item({ kaizenStage: "deferred", annualEffectUsd: 999_999, rollouts: [{ status: "todo" }] }),
       item({ kaizenStage: "bogus" }),
     ])
-    expect(s.totalAnnualEffectYen).toBe(150_000)
+    expect(s.totalAnnualEffectUsd).toBe(150_000)
     expect(s.countByStage).toEqual({ measuring: 1, standardized: 1, deploying: 0, sustained: 1, deferred: 1 })
     expect(s.standardizedCount).toBe(2)
     expect(s).toMatchObject({ rolloutTotal: 3, rolloutDone: 2, averageAchievement: 1, itemCount: 4 })
     expect(s.rolloutCompletion).toBeCloseTo(2 / 3)
   })
 
+  it("totals the space reduction in m² (area only), skipping deferred items and float noise", () => {
+    const s = summarizeImprovements([
+      item({ kaizenStage: "standardized", spaceSavedM2: 0.1 }),
+      item({ kaizenStage: "sustained", spaceSavedM2: 0.2 }),
+      item({ kaizenStage: "measuring", spaceSavedM2: null }),
+      item({ kaizenStage: "deferred", spaceSavedM2: 500 }),
+    ])
+    expect(s.totalSpaceSavedM2).toBe(0.3)
+  })
+
   it("empty board: zeros and nulls", () => {
     const s = summarizeImprovements([])
-    expect(s).toMatchObject({ totalAnnualEffectYen: 0, standardizedCount: 0, rolloutCompletion: null, averageAchievement: null, itemCount: 0 })
+    expect(s).toMatchObject({ totalAnnualEffectUsd: 0, totalSpaceSavedM2: 0, standardizedCount: 0, rolloutCompletion: null, averageAchievement: null, itemCount: 0 })
   })
 })
 

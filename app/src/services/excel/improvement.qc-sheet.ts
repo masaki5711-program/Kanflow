@@ -30,7 +30,8 @@ export interface QcItem {
   baselineValue: number | null
   targetValue: number | null
   resultValue: number | null
-  annualEffectYen: number | null
+  annualEffectUsd: number | null
+  spaceSavedM2: number | null
   manualLink: string | null
   standardizedAt: Date | null
   releaseDate: Date | null
@@ -101,10 +102,11 @@ function rightColumn(ws: ExcelJS.Worksheet, item: QcItem, t: Translations): void
   heading(ws, 8, c, COLS, t.kzXlsEffect)
   pair(ws, 9, c, t.kzAfter, withUnit(item.resultValue, item.metricUnit))
   pair(ws, 10, c, t.kzAchievement, achievementRate(item), "0%")
-  pair(ws, 11, c, t.kzAnnualEffect, item.annualEffectYen, "#,##0")
-  heading(ws, 12, c, COLS, t.kzXlsStandard)
-  pair(ws, 13, c, t.kzStandardLink, excelCellText(item.manualLink))
-  pair(ws, 14, c, t.kzStandardizedAt, excelDate(item.standardizedAt), "yyyy-mm-dd")
+  pair(ws, 11, c, t.kzAnnualEffect, item.annualEffectUsd, "$#,##0")
+  pair(ws, 12, c, t.kzSpaceSaved, item.spaceSavedM2, "#,##0.00")
+  heading(ws, 13, c, COLS, t.kzXlsStandard)
+  pair(ws, 14, c, t.kzStandardLink, excelCellText(item.manualLink))
+  pair(ws, 15, c, t.kzStandardizedAt, excelDate(item.standardizedAt), "yyyy-mm-dd")
   heading(ws, 16, c, COLS, t.kzXlsRollout)
   const rows = item.rollouts.slice(0, 8)
   rows.forEach((r, i) => {

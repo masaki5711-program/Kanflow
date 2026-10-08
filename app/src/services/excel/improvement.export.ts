@@ -33,7 +33,8 @@ export function toQcItem(row: BoardRow): QcItem {
     baselineValue: row.baselineValue,
     targetValue: row.targetValue,
     resultValue: row.resultValue,
-    annualEffectYen: row.annualEffectYen,
+    annualEffectUsd: row.annualEffectUsd,
+    spaceSavedM2: row.spaceSavedM2,
     manualLink: row.manualLink,
     standardizedAt: row.standardizedAt,
     releaseDate: row.releaseDate,
@@ -65,7 +66,8 @@ function summaryColumns(t: Translations): ExcelColumn<QcItem>[] {
     { key: "target", header: t.kzTarget, width: 12, type: "number", value: (r) => r.targetValue },
     { key: "after", header: t.kzAfter, width: 12, type: "number", value: (r) => r.resultValue },
     { key: "rate", header: t.kzAchievement, width: 10, type: "number", value: (r) => achievementRate(r) },
-    { key: "yen", header: t.kzAnnualEffect, width: 16, type: "number", value: (r) => r.annualEffectYen },
+    { key: "usd", header: t.kzAnnualEffect, width: 16, type: "number", value: (r) => r.annualEffectUsd },
+    { key: "space", header: t.kzSpaceSaved, width: 14, type: "number", value: (r) => r.spaceSavedM2 },
     { key: "std", header: t.kzStandardizedAt, width: 14, type: "date", value: (r) => excelDate(r.standardizedAt) },
     { key: "rollout", header: t.kzXlsRollout, width: 10, value: rollout },
     { key: "check", header: t.kzNextCheck.replace("{date}", "").trim(), width: 14, type: "date", value: (r) => excelDate(nextCheck(r)) },
@@ -76,12 +78,14 @@ function summaryColumns(t: Translations): ExcelColumn<QcItem>[] {
 function addSummarySheet(wb: ExcelJS.Workbook, items: readonly QcItem[], t: Translations): void {
   const ws = addTableSheet(wb, t.kzXlsSummarySheet, summaryColumns(t), items, { xSplit: 1 })
   ws.getColumn("rate").numFmt = "0%"
-  ws.getColumn("yen").numFmt = "#,##0"
+  ws.getColumn("usd").numFmt = "$#,##0"
+  ws.getColumn("space").numFmt = "#,##0.00"
   ws.pageSetup = { paperSize: A3_PAPER, orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0 }
   const s = summarizeImprovements(items)
   const start = items.length + 3
   const lines: Array<[string, string | number | null, string?]> = [
-    [t.kzSumEffect, s.totalAnnualEffectYen, "#,##0"],
+    [t.kzSumEffect, s.totalAnnualEffectUsd, "$#,##0"],
+    [t.kzSumSpace, s.totalSpaceSavedM2, "#,##0.00"],
     [t.kzSumStandardized, s.standardizedCount],
     [t.kzSumRollout, s.rolloutCompletion, "0%"],
     ...KAIZEN_STAGES.map((stage): [string, number] => [stageLabel(stage, t), s.countByStage[stage]]),

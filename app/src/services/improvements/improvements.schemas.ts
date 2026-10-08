@@ -15,6 +15,8 @@ import {
 export const METRIC_VALUE_MAX = 1e12
 /** 効果金額 upper bound: INT column (signed 32 bit). */
 export const ANNUAL_EFFECT_MAX = 2_000_000_000
+/** スペース削減 upper bound in m² (a whole plant is far below this). */
+export const SPACE_SAVED_MAX = 10_000_000
 
 const metricValue = z.number().finite().min(-METRIC_VALUE_MAX).max(METRIC_VALUE_MAX).nullable().optional()
 
@@ -37,7 +39,8 @@ export const updateImprovementSchema = z.object({
   baselineValue: metricValue,
   targetValue: metricValue,
   resultValue: metricValue,
-  annualEffectYen: z.number().int().min(0).max(ANNUAL_EFFECT_MAX).nullable().optional(),
+  annualEffectUsd: z.number().int().min(0).max(ANNUAL_EFFECT_MAX).nullable().optional(),
+  spaceSavedM2: z.number().min(0).max(SPACE_SAVED_MAX).nullable().optional(),
   kaizenStage: z.enum(KAIZEN_STAGES).optional(),
   standardizedAt: day,
   /** 標準書リンク (the release item's manualLink). */

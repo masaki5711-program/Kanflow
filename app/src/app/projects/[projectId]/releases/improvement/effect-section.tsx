@@ -15,7 +15,7 @@ interface Props {
   onChange: <K extends keyof ImprovementForm>(key: K, value: ImprovementForm[K]) => void
 }
 
-/** 効果: metric category / name / unit / better direction, before / target / after, money effect. */
+/** 効果: metric category / name / unit / better direction, before / target / after, money effect (USD) and space reduction (m²). */
 export function EffectSection({ form, readOnly, onChange }: Props) {
   const { t } = useLanguage()
   const invalid = new Set(invalidNumberFields(form))
@@ -69,7 +69,10 @@ export function EffectSection({ form, readOnly, onChange }: Props) {
           {t.kzAchievement}: <span className={`font-bold tabular-nums ${isWorsened(values) ? "text-danger" : ""}`}>{isWorsened(values) ? t.kzWorsened : formatRate(rate)}</span>
         </p>
       )}
-      <div className="mt-3 sm:max-w-xs">{numberField("annualEffectYen", t.kzAnnualEffect, t.kzAnnualEffectHint)}</div>
+      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {numberField("annualEffectUsd", t.kzAnnualEffect, t.kzAnnualEffectHint)}
+        {numberField("spaceSavedM2", t.kzSpaceSaved, t.kzSpaceSavedHint)}
+      </div>
     </SectionFrame>
   )
 }

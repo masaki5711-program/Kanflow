@@ -15,12 +15,14 @@ import { STAGE_STYLE } from "./stage-style"
 export function SummaryStrip({ summary }: { summary: ImprovementSummary }) {
   const { t, language } = useLanguage()
   const locale = DATE_LOCALE[language]
-  const yen = new Intl.NumberFormat(locale).format(summary.totalAnnualEffectYen)
+  const usd = new Intl.NumberFormat(locale).format(summary.totalAnnualEffectUsd)
+  const space = new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(summary.totalSpaceSavedM2)
   const rollout = summary.rolloutCompletion === null ? t.kzNone : `${Math.round(summary.rolloutCompletion * 100)}%`
 
   return (
-    <section aria-label={t.kzSumByStage} className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-[1.4fr_1fr_1fr_2fr]">
-      <Figure label={t.kzSumEffect} value={t.kzYen.replace("{value}", yen)} unit={t.kzSumEffectUnit} emphasis />
+    <section aria-label={t.kzSumByStage} className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-[1.4fr_1.2fr_1fr_1fr_2fr]">
+      <Figure label={t.kzSumEffect} value={t.kzUsd.replace("{value}", usd)} unit={t.kzSumEffectUnit} emphasis />
+      <Figure label={t.kzSumSpace} value={t.kzSqm.replace("{value}", space)} />
       <Figure label={t.kzSumStandardized} value={String(summary.standardizedCount)} unit={`/ ${summary.itemCount - summary.countByStage.deferred}`} />
       <Figure
         label={t.kzSumRollout}

@@ -42,8 +42,11 @@ export function ImprovementCard({ projectId, item, onOpen, now = new Date() }: P
       </h3>
       <MetricBlock item={item} />
       <ul className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-caption text-fg-muted">
-        {item.annualEffectYen !== null && (
-          <li className="font-semibold text-fg">{t.kzYenPerYear.replace("{value}", new Intl.NumberFormat(DATE_LOCALE[language]).format(item.annualEffectYen))}</li>
+        {item.annualEffectUsd !== null && (
+          <li className="font-semibold text-fg">{t.kzUsdPerYear.replace("{value}", new Intl.NumberFormat(DATE_LOCALE[language]).format(item.annualEffectUsd))}</li>
+        )}
+        {item.spaceSavedM2 !== null && (
+          <li className="font-semibold text-fg">{t.kzSqm.replace("{value}", new Intl.NumberFormat(DATE_LOCALE[language], { maximumFractionDigits: 2 }).format(item.spaceSavedM2))}</li>
         )}
         {item.rollouts.length > 0 && (
           <li className="inline-flex items-center gap-1">
