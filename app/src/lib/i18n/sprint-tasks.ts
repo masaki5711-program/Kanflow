@@ -66,6 +66,8 @@ export interface SprintTasksTranslations {
   sprintTaskPbiSaveFailed: string
   sprintTaskBulkAdded: string
   sprintTaskStatusFailed: string
+  sprintReopenTaskConfirm: string
+  sprintReopenTaskLabel: string
   sprintTaskDeleteFailed: string
   sprintTaskCommentSaveFailed: string
   sprintTaskIceboxFailed: string
@@ -140,6 +142,8 @@ export const ja: SprintTasksTranslations = {
   sprintTaskPbiSaveFailed: "PBIの保存に失敗しました",
   sprintTaskBulkAdded: "{count}件のタスクを追加しました",
   sprintTaskStatusFailed: "タスクのステータス更新に失敗しました",
+  sprintReopenTaskConfirm: "完了を取り消して未完了に戻します。完了コメントは残り、再び完了にすると表示されます。",
+  sprintReopenTaskLabel: "戻す",
   sprintTaskDeleteFailed: "タスクの削除に失敗しました",
   sprintTaskCommentSaveFailed: "完了コメントの保存に失敗しました",
   sprintTaskIceboxFailed: "Iceboxへの追加に失敗しました",
@@ -214,6 +218,8 @@ export const en: SprintTasksTranslations = {
   sprintTaskPbiSaveFailed: "Failed to save the PBI",
   sprintTaskBulkAdded: "Added {count} tasks",
   sprintTaskStatusFailed: "Failed to update the task status",
+  sprintReopenTaskConfirm: "This reopens the finished task. The completion comment is kept and shows again when the task is finished again.",
+  sprintReopenTaskLabel: "Reopen",
   sprintTaskDeleteFailed: "Failed to delete the task",
   sprintTaskCommentSaveFailed: "Failed to save the completion comment",
   sprintTaskIceboxFailed: "Failed to add to Icebox",
@@ -288,6 +294,8 @@ export const id: SprintTasksTranslations = {
   sprintTaskPbiSaveFailed: "Gagal menyimpan PBI",
   sprintTaskBulkAdded: "{count} tugas berhasil ditambahkan",
   sprintTaskStatusFailed: "Gagal memperbarui status tugas",
+  sprintReopenTaskConfirm: "Tugas selesai akan dibuka kembali. Komentar penyelesaian tetap disimpan dan muncul lagi saat tugas diselesaikan kembali.",
+  sprintReopenTaskLabel: "Buka kembali",
   sprintTaskDeleteFailed: "Gagal menghapus tugas",
   sprintTaskCommentSaveFailed: "Gagal menyimpan komentar penyelesaian",
   sprintTaskIceboxFailed: "Gagal menambahkan ke Icebox",

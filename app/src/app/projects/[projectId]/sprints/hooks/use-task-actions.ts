@@ -36,10 +36,18 @@ export function useTaskActions(projectId: string, { sprints, refetchSprints, mut
       onConflict?.(current)
     })
 
+  /** Leaving "done" asks first (the finished state and its timestamp are dropped; the comment is kept). */
+  async function confirmReopen(sprintId: string, taskId: string, next: string | undefined): Promise<boolean> {
+    const current = sprints.find((s) => s.id === sprintId)?.items.find((i) => i.id === taskId)
+    if (current?.status !== "done" || !next || next === "done") return true
+    return confirm({ message: t.sprintReopenTaskConfirm, confirmLabel: t.sprintReopenTaskLabel, cancelLabel: t.cancel })
+  }
+
   /** `onConflict` receives the server's row on a 409 so an open editor can show it. */
   async function saveTask(
     sprintId: string, taskId: string | null, form: TaskFormState, onConflict?: (current: SprintItem | null) => void,
   ): Promise<boolean> {
+    if (taskId && !(await confirmReopen(sprintId, taskId, form.status))) return false
     try {
       if (taskId) {
         await apiFetch(`${tasksUrl(sprintId)}/${taskId}`, {
@@ -94,6 +102,7 @@ export function useTaskActions(projectId: string, { sprints, refetchSprints, mut
   }
 
   async function quickUpdateTaskStatus(sprintId: string, taskId: string, status: string, completionComment?: string | null) {
+    if (!(await confirmReopen(sprintId, taskId, status))) return
     const body: Record<string, unknown> = { status }
     if (status === "done" && completionComment !== undefined) body.completionComment = completionComment
     const snapshot = sprints

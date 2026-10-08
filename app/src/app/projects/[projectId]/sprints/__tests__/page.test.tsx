@@ -161,6 +161,9 @@ describe("SprintsPage", () => {
     }))
     renderWithProviders(<SprintsPage />)
     await userEvent.click(await screen.findByRole("button", { name: toggleLabel("Task t1", t.taskDone) }))
+    // Leaving "done" asks first.
+    expect(await screen.findByText(t.sprintReopenTaskConfirm)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole("button", { name: t.sprintReopenTaskLabel }))
     patch.resolve(json({ id: "t1", status: "todo" }))
     await waitFor(() => expect(calls.some((c) => c.method === "PATCH")).toBe(true))
     expect(await screen.findByRole("button", { name: toggleLabel("Task t1", t.taskTodo) })).toBeInTheDocument()
@@ -184,6 +187,9 @@ describe("SprintsPage", () => {
     expect(details).toHaveAttribute("aria-expanded", "false")
     await userEvent.click(details)
     await userEvent.click(await screen.findByRole("button", { name: toggleLabel("Task t1", t.taskDone) }))
+    // Leaving "done" asks first.
+    expect(await screen.findByText(t.sprintReopenTaskConfirm)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole("button", { name: t.sprintReopenTaskLabel }))
     expect(await screen.findByRole("button", { name: toggleLabel("Task t1", t.taskTodo) })).toBeInTheDocument()
     await waitFor(() => expect(calls.filter((c) => c.url === `${BASE}/sprints` && c.method === "GET").length).toBeGreaterThan(1))
   })

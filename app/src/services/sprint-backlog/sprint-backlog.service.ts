@@ -37,7 +37,8 @@ export type TaskFieldsInput = Omit<UpdateTaskInput, "version" | "assigneeIds">
 
 /**
  * Pure: PATCH payload for a task. "done" stamps completedAt; any other
- * explicit status clears it and (unless given) the completion comment.
+ * explicit status clears it. The completion comment is KEPT (it shows again
+ * when the task is finished again).
  * `assignees` (the planned dual-write) sets the legacy `assignee` column.
  */
 export function buildTaskUpdate(data: TaskFieldsInput, assignees?: AssigneeWrite | null): Prisma.SprintBacklogItemUncheckedUpdateInput {
@@ -48,11 +49,7 @@ export function buildTaskUpdate(data: TaskFieldsInput, assignees?: AssigneeWrite
   }
   if (data.status === "done") return { ...base, completedAt: new Date() }
   if (!data.status) return base
-  return {
-    ...base,
-    completedAt: null,
-    ...(data.completionComment === undefined ? { completionComment: null } : {}),
-  }
+  return { ...base, completedAt: null }
 }
 
 /** Score + PBI status follow every task change (same transaction). */

@@ -156,9 +156,9 @@ describe("A3-02: a task status move keeps the task-name translation", () => {
     expect(touchedTranslationFields(tr.enqueueIn)).toEqual([])
   })
 
-  it("moving back to in_progress only clears the (removed) completion comment, never the task name", async () => {
+  it("moving back to in_progress touches neither the task name nor the (kept) completion comment", async () => {
     await svc.updateTask("p1", "s1", "t1", { status: "in_progress", version: 3 }, ACTOR)
-    expect(touchedTranslationFields(tr.enqueueIn)).toEqual(["completionComment"])
+    expect(touchedTranslationFields(tr.enqueueIn)).toEqual([])
   })
 
   it("renaming still enqueues the task name", async () => {

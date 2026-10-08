@@ -26,7 +26,7 @@ describe("sprint-backlog rules", () => {
 
   it("buildTaskUpdate stamps / clears completion", () => {
     expect(svc.buildTaskUpdate({ status: "done" }).completedAt).toBeInstanceOf(Date)
-    expect(svc.buildTaskUpdate({ status: "todo" })).toEqual({ status: "todo", completedAt: null, completionComment: null })
+    expect(svc.buildTaskUpdate({ status: "todo" })).toEqual({ status: "todo", completedAt: null })
     expect(svc.buildTaskUpdate({ status: "todo", completionComment: "keep" })).toEqual({
       status: "todo",
       completedAt: null,
@@ -88,7 +88,7 @@ describe("sprint-backlog.service", () => {
     vi.mocked(repo.updateTask).mockResolvedValue(1)
     vi.mocked(repo.findTaskDetail).mockResolvedValue({ id: "t1", pbItemId: "b1" } as never)
     await svc.updateTask("p1", "s1", "t1", { status: "in_progress" }, ACTOR)
-    expect(tr.enqueueIn).toHaveBeenCalledWith(TX, "sprint_task", "t1", { taskName: undefined, completionComment: null })
+    expect(tr.enqueueIn).toHaveBeenCalledWith(TX, "sprint_task", "t1", { taskName: undefined, completionComment: undefined })
     expect(recalcSprintActualScore).toHaveBeenCalledWith("s1", TX)
   })
 
