@@ -330,10 +330,21 @@ ${REPO_KNOWLEDGE_GUIDE[replyLang]}` : "") },
             }
           }
 
-          if (toolCalls.length === 0) {
+          if (toolCalls.length === 0 && textBuf.trim()) {
             aiLog("CHAT_DONE", `answer ${textBuf.length} chars, total ${Date.now() - chatT0}ms`)
             completed = true
             return // streamed text was the final reply
+          }
+          if (toolCalls.length === 0) {
+            // The model ended its turn with neither text nor a tool call (typically
+            // a context overflow after big tool results). Never finish silently.
+            if (!conversation.some((m) => m.role === "tool")) {
+              aiLog("CHAT_EMPTY", "first turn produced no text and no tool call")
+              send("\n\n[error] the model returned an empty answer; please ask again")
+              return
+            }
+            aiLog("CHAT_EMPTY", `turn ${i + 1} was empty; answering from the gathered material`)
+            break
           }
 
           // Text spoken before a tool call must not run into the next turn's text

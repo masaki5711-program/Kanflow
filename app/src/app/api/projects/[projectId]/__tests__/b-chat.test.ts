@@ -228,6 +228,25 @@ describe("POST /api/projects/[projectId]/chat", () => {
     expect(text).toContain("tool iteration limit")
   })
 
+  it("answers from the gathered material when a turn after a tool call comes back empty", async () => {
+    const toolTurn = () => turn([{ type: "tool_calls", calls: [{ id: "c", function: { name: "get_backlog_summary", arguments: {} } }] }])
+    streamWithTools
+      .mockImplementationOnce(toolTurn)
+      .mockImplementationOnce(() => turn([]))
+      .mockImplementationOnce(() => turn([{ type: "text", chunk: "recovered answer" }]))
+    const text = await (await POST(req({ messages: [{ role: "user", content: "q" }], lang: "en" }), ctx)).text()
+    expect(text).toContain("recovered answer")
+    expect(streamWithTools).toHaveBeenCalledTimes(3)
+    expect(streamWithTools.mock.calls[2][1].tools).toEqual([])
+  })
+
+  it("tells the user when the very first turn produces nothing", async () => {
+    streamWithTools.mockImplementationOnce(() => turn([]))
+    const text = await (await POST(req({ messages: [{ role: "user", content: "q" }], lang: "en" }), ctx)).text()
+    expect(text).toContain("[error]")
+    expect(streamWithTools).toHaveBeenCalledTimes(1)
+  })
+
   it("writes an inline error when the stream fails mid-answer", async () => {
     streamWithTools.mockReturnValueOnce(turn([{ type: "text", chunk: "partial" }], new Error("boom")))
     const text = await (await POST(req({ messages: [{ role: "user", content: "x" }] }), ctx)).text()
