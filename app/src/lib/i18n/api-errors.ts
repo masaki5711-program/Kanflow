@@ -48,6 +48,7 @@ export interface ApiErrorsTranslations {
   apiErrIceboxItemNotFound: string
   apiErrProductGoalNotFound: string
   apiErrReleaseNoPbi: string
+  apiErrImprovementNoRequest: string
   apiErrProjectInTrash: string
   apiErrPbiContentRequired: string
   apiErrSprintNotFound: string
@@ -150,6 +151,7 @@ export const API_ERROR_MESSAGE_KEYS: Readonly<Record<ApiErrorCode, ApiErrorMessa
   ICEBOX_ITEM_NOT_FOUND: "apiErrIceboxItemNotFound",
   PRODUCT_GOAL_NOT_FOUND: "apiErrProductGoalNotFound",
   RELEASE_NO_PBI: "apiErrReleaseNoPbi",
+  IMPROVEMENT_NO_REQUEST: "apiErrImprovementNoRequest",
   PROJECT_IN_TRASH: "apiErrProjectInTrash",
   PBI_CONTENT_REQUIRED: "apiErrPbiContentRequired",
   SPRINT_NOT_FOUND: "apiErrSprintNotFound",
@@ -259,6 +261,7 @@ export const ja: ApiErrorsTranslations = {
   apiErrIceboxItemNotFound: "IceBox の要望が見つかりません",
   apiErrProductGoalNotFound: "プロダクトゴールが見つかりません",
   apiErrReleaseNoPbi: "該当するPBIがありません",
+  apiErrImprovementNoRequest: "該当する改善要望がありません",
   apiErrProjectInTrash: "プロジェクトがゴミ箱にあります。先にプロジェクトを復元してください",
   apiErrPbiContentRequired: "ユーザーストーリーかイニシアティブを入力してください",
   apiErrSprintNotFound: "スプリントが見つかりません",
@@ -362,6 +365,7 @@ export const en: ApiErrorsTranslations = {
   apiErrIceboxItemNotFound: "IceBox request not found",
   apiErrProductGoalNotFound: "Product goal not found",
   apiErrReleaseNoPbi: "No matching PBIs",
+  apiErrImprovementNoRequest: "No matching improvement requests",
   apiErrProjectInTrash: "The project is in the trash. Restore the project first",
   apiErrPbiContentRequired: "Enter a user story or an initiative",
   apiErrSprintNotFound: "Sprint not found",
@@ -465,6 +469,7 @@ export const id: ApiErrorsTranslations = {
   apiErrIceboxItemNotFound: "Permintaan IceBox tidak ditemukan",
   apiErrProductGoalNotFound: "Tujuan produk tidak ditemukan",
   apiErrReleaseNoPbi: "Tidak ada PBI yang sesuai",
+  apiErrImprovementNoRequest: "Tidak ada permintaan perbaikan yang sesuai",
   apiErrProjectInTrash: "Proyek ada di tempat sampah. Pulihkan proyek terlebih dahulu",
   apiErrPbiContentRequired: "Isi user story atau inisiatif",
   apiErrSprintNotFound: "Sprint tidak ditemukan",

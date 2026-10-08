@@ -2,7 +2,7 @@ import { deleteUploadedFile } from "@/lib/upload/stored-files"
 import type { KaizenStage } from "@/lib/improvement/constants"
 import { summarizeImprovements } from "@/lib/improvement/metrics"
 import type { Actor } from "@/services/_shared/actor"
-import { loadSnapshot, logUpdate } from "@/services/_shared/activity"
+import { loadSnapshot, logCreate, logUpdate } from "@/services/_shared/activity"
 import { optionalDate } from "@/services/_shared/dates"
 import { defaultDb, withTransaction, type Db } from "@/services/_shared/db"
 import { NotFoundError } from "@/services/_shared/errors"
@@ -10,7 +10,7 @@ import { attachI18n, enqueueIn, getI18nFor, prepareText } from "@/services/_shar
 import { deleteReleaseItem } from "@/services/releases/releases.service"
 import { scheduleAutoChecks } from "./improvements.checks"
 import * as repo from "./improvements.repository"
-import type { UpdateImprovementInput } from "./improvements.schemas"
+import type { CreateImprovementInput, ImportRequestsInput, UpdateImprovementInput } from "./improvements.schemas"
 import { assertStageAllowed, assertTargetDirection } from "./improvements.stage"
 
 /**
@@ -54,6 +54,51 @@ export async function getImprovement(projectId: string, id: string): Promise<Imp
   if (!row) throw notFound()
   const [dto] = await toDtos([row])
   return dto
+}
+
+/** 404 unless the project is a live process_improvement project (the only place the board exists). */
+async function assertBoardProject(projectId: string): Promise<void> {
+  const project = await repo.findProjectType(defaultDb, projectId)
+  if (project?.projectType !== "process_improvement") throw notFound()
+}
+
+/** An improvement written straight onto the board (no PBI): the title is the item's story. */
+export async function createImprovement(projectId: string, input: CreateImprovementInput, actor: Actor): Promise<ImprovementDto> {
+  await assertBoardProject(projectId)
+  const { title, ...metric } = await prepareText(input, actor.userId)
+  assertTargetDirection(metric.direction ?? "decrease", metric.baselineValue ?? null, metric.targetValue ?? null)
+  const id = await withTransaction(async (tx) => {
+    const row = await repo.insertItem(tx, { projectId, userStory: title, status: "staged", ...metric })
+    await enqueueIn(tx, "release_item", row.id, row)
+    await logCreate(tx, { projectId, entityType: "release", entityId: row.id, actor, row, meta: { origin: "direct" } })
+    return row.id
+  })
+  return getImprovement(projectId, id)
+}
+
+/** Pull 改善要望 (icebox items) onto the board; ones already on it are skipped. */
+export async function importFromRequests(projectId: string, input: ImportRequestsInput, actor: Actor): Promise<{ created: number; skipped: number }> {
+  await assertBoardProject(projectId)
+  const ids = [...new Set(input.iceboxIds)]
+  return withTransaction(async (tx) => {
+    const [requests, linked] = await Promise.all([repo.findIceboxForImport(tx, projectId, ids), repo.findLinkedIceboxIds(tx, projectId, ids)])
+    const taken = new Set(linked)
+    const fresh = requests.filter((r) => !taken.has(r.id))
+    if (requests.length === 0) throw new NotFoundError("該当する改善要望がありません", {}, "IMPROVEMENT_NO_REQUEST")
+    for (const req of fresh) {
+      const row = await repo.insertItem(tx, {
+        projectId,
+        iceboxId: req.id,
+        userStory: req.request,
+        poNote: req.background,
+        assignedPo: req.assignedPo,
+        status: "staged",
+      })
+      await enqueueIn(tx, "release_item", row.id, row)
+      await logCreate(tx, { projectId, entityType: "release", entityId: row.id, actor, row, meta: { iceboxId: req.id } })
+    }
+    return { created: fresh.length, skipped: ids.length - fresh.length }
+  })
 }
 
 type ItemState = NonNullable<Awaited<ReturnType<typeof repo.findItemState>>>

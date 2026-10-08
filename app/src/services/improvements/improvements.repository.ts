@@ -64,6 +64,25 @@ export function findItemState(db: Db, projectId: string, id: string) {
   })
 }
 
+/** Live 改善要望 of the project among `ids`. */
+export function findIceboxForImport(db: Db, projectId: string, ids: readonly string[]) {
+  return db.iceboxItem.findMany({
+    where: { projectId, id: { in: [...ids] }, deletedAt: null },
+    select: { id: true, displayId: true, request: true, background: true, assignedPo: true },
+    orderBy: { displayId: "asc" },
+  })
+}
+
+/** Which of `ids` already have a board item. */
+export async function findLinkedIceboxIds(db: Db, projectId: string, ids: readonly string[]): Promise<string[]> {
+  const rows = await db.releaseBacklogItem.findMany({ where: { projectId, iceboxId: { in: [...ids] } }, select: { iceboxId: true } })
+  return rows.map((r) => r.iceboxId).filter((id): id is string => id !== null)
+}
+
+export function insertItem(db: Db, data: Prisma.ReleaseBacklogItemUncheckedCreateInput) {
+  return db.releaseBacklogItem.create({ data })
+}
+
 export function updateItem(db: Db, projectId: string, id: string, data: Prisma.ReleaseBacklogItemUncheckedUpdateInput) {
   return db.releaseBacklogItem.update({ where: { id, projectId }, data })
 }

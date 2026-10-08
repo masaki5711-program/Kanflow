@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react"
 import { useParams, usePathname, useSearchParams } from "next/navigation"
-import { Plus, Trophy } from "lucide-react"
+import { PencilLine, Plus, Inbox, Trophy } from "lucide-react"
 import { Button, EmptyState, PageHeader, SkeletonCard, useConfirm, useToast } from "@/components/ui"
 import { ExcelExportButton } from "@/components/excel/excel-export-button"
 import { useProjectDocumentTitle } from "@/components/app-shell/project-title-context"
@@ -10,6 +10,8 @@ import { apiFetch } from "@/hooks"
 import { improvementsUrl } from "@/lib/improvement/constants"
 import { useLanguage } from "@/lib/language-context"
 import { ImportDialog } from "../import-dialog"
+import { AddImprovementDialog, type NewImprovement } from "./add-dialog"
+import { RequestImportDialog } from "./request-import-dialog"
 import { DetailDialog } from "./detail-dialog"
 import { StageBoard } from "./stage-board"
 import { SummaryStrip } from "./summary-strip"
@@ -37,9 +39,14 @@ export function ImprovementBoardPage() {
   const permissions = data?.permissions ?? NO_PERMISSIONS
   const [showImport, setShowImport] = useState(false)
   const [importing, setImporting] = useState(false)
+  const [showAdd, setShowAdd] = useState(false)
+  const [showRequests, setShowRequests] = useState(false)
+  const [busyAdd, setBusyAdd] = useState(false)
   const selectedId = searchParams.get(ITEM_PARAM)
   const selected = items.find((i) => i.id === selectedId) ?? null
   const existingPbIds = useMemo(() => new Set(items.map((i) => i.pbItemId).filter((id): id is string => Boolean(id))), [items])
+
+  const existingIceboxIds = useMemo(() => new Set(items.map((i) => i.iceboxId).filter((id): id is string => Boolean(id))), [items])
 
   function openItem(id: string | null) {
     const params = new URLSearchParams(searchParams.toString())
@@ -65,6 +72,36 @@ export function ImprovementBoardPage() {
     }
   }
 
+  async function handleCreate(input: NewImprovement): Promise<boolean> {
+    setBusyAdd(true)
+    try {
+      await apiFetch(improvementsUrl(projectId), { method: "POST", json: input })
+      toast.success(t.kzAdded)
+      refetch()
+      return true
+    } catch {
+      toast.error(t.kzAddFailed)
+      return false
+    } finally {
+      setBusyAdd(false)
+    }
+  }
+
+  async function handleImportRequests(iceboxIds: string[]): Promise<boolean> {
+    setBusyAdd(true)
+    try {
+      const result = await apiFetch<{ created: number }>(`${improvementsUrl(projectId)}/import-requests`, { method: "POST", json: { iceboxIds } })
+      toast.success(t.kzRequestsImported.replace("{count}", String(result.created)))
+      refetch()
+      return true
+    } catch {
+      toast.error(t.kzRequestsImportFailed)
+      return false
+    } finally {
+      setBusyAdd(false)
+    }
+  }
+
   async function handleDelete(id: string) {
     const ok = await confirm({ message: t.releaseDeleteConfirm, confirmLabel: t.delete, cancelLabel: t.cancel, variant: "danger" })
     if (!ok) return
@@ -82,6 +119,16 @@ export function ImprovementBoardPage() {
         actions={
           <>
             <ExcelExportButton href={`${improvementsUrl(projectId)}/export`} title={t.kzExportTitle} iconOnlyOnPhone />
+            {permissions.canManage && (
+              <Button variant="secondary" leftIcon={<PencilLine className="h-4 w-4" />} onClick={() => setShowAdd(true)}>
+                {t.kzAddDirect}
+              </Button>
+            )}
+            {permissions.canManage && (
+              <Button variant="secondary" leftIcon={<Inbox className="h-4 w-4" />} onClick={() => setShowRequests(true)}>
+                {t.kzImportRequests}
+              </Button>
+            )}
             {permissions.canManage && (
               <Button leftIcon={<Plus className="h-4 w-4" />} onClick={() => setShowImport(true)}>
                 {pt.releaseImportTitle}
@@ -108,6 +155,8 @@ export function ImprovementBoardPage() {
         </>
       )}
       <ImportDialog projectId={projectId} open={showImport} existingPbIds={existingPbIds} importing={importing} onClose={() => setShowImport(false)} onImport={handleImport} />
+      <AddImprovementDialog open={showAdd} saving={busyAdd} onClose={() => setShowAdd(false)} onCreate={handleCreate} />
+      <RequestImportDialog projectId={projectId} open={showRequests} existingIds={existingIceboxIds} importing={busyAdd} onClose={() => setShowRequests(false)} onImport={handleImportRequests} />
       <DetailDialog
         projectId={projectId}
         item={selected}

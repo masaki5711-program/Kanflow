@@ -53,6 +53,25 @@ export const updateImprovementSchema = z.object({
   userStory: z.string().max(20000).nullable().optional(),
 })
 
+/** Largest number of 改善要望 one import may bring in. */
+export const IMPORT_REQUESTS_MAX = 50
+
+/** POST /improvements: an improvement written straight onto the board (no PBI). */
+export const createImprovementSchema = z.object({
+  title: z.string().trim().min(1).max(500),
+  metricCategory: z.enum(METRIC_CATEGORIES).nullable().optional(),
+  metricName: text(METRIC_NAME_MAX),
+  metricUnit: text(METRIC_UNIT_MAX),
+  direction: z.enum(METRIC_DIRECTIONS).optional(),
+  baselineValue: metricValue,
+  targetValue: metricValue,
+})
+
+/** POST /improvements/import-requests: pull 改善要望 (icebox items) onto the board. */
+export const importRequestsSchema = z.object({
+  iceboxIds: z.array(z.string().min(1).max(64)).min(1).max(IMPORT_REQUESTS_MAX),
+})
+
 export const createRolloutSchema = z.object({
   targetName: z.string().trim().min(1).max(ROLLOUT_NAME_MAX),
 })
@@ -79,6 +98,8 @@ export const recordCheckSchema = z.object({
 })
 
 export type UpdateImprovementInput = z.infer<typeof updateImprovementSchema>
+export type CreateImprovementInput = z.infer<typeof createImprovementSchema>
+export type ImportRequestsInput = z.infer<typeof importRequestsSchema>
 export type CreateRolloutInput = z.infer<typeof createRolloutSchema>
 export type UpdateRolloutInput = z.infer<typeof updateRolloutSchema>
 export type ReorderRolloutsInput = z.infer<typeof reorderRolloutsSchema>

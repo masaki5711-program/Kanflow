@@ -74,6 +74,15 @@ export const createDependencySchema = z.object({
   successorId: id,
 })
 
+/** POST /plan/:id/shift-following: move the rows after an item by its actual-vs-plan slip. */
+export const shiftFollowingSchema = z.object({
+  scope: z.enum(["dependents", "later"]),
+  /** false = preview only. */
+  apply: z.boolean(),
+  /** Override of the computed slip (days, + = later). */
+  deltaDays: z.number().int().min(-3650).max(3650).optional(),
+})
+
 export const EXPORT_LANGS = ["ja", "en", "id"] as const
 export type ExportLang = (typeof EXPORT_LANGS)[number]
 

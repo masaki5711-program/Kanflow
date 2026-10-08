@@ -46,6 +46,7 @@ export const API_ERROR_CODES = [
   "ICEBOX_ITEM_NOT_FOUND",
   "PRODUCT_GOAL_NOT_FOUND",
   "RELEASE_NO_PBI",
+  "IMPROVEMENT_NO_REQUEST",
   "PROJECT_IN_TRASH",
   /** A new PBI needs a user story or an initiative (the text the backlog list shows as its title). */
   "PBI_CONTENT_REQUIRED",

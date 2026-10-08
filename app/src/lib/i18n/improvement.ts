@@ -11,6 +11,20 @@ export interface ImprovementTranslations {
   kzReadOnly: string
   kzEmptyTitle: string
   kzEmptyDesc: string
+  kzAddDirect: string
+  kzAddDirectTitle: string
+  kzFieldTitle: string
+  kzFieldTitlePlaceholder: string
+  kzAddSubmit: string
+  kzAddFailed: string
+  kzAdded: string
+  kzImportRequests: string
+  kzImportRequestsTitle: string
+  kzImportRequestsSubmit: string
+  kzNoRequests: string
+  kzRequestsLoadFailed: string
+  kzRequestsImported: string
+  kzRequestsImportFailed: string
   kzColumnEmpty: string
   kzDeferredSection: string
   kzStageMeasuring: string
@@ -157,7 +171,21 @@ export const ja: ImprovementTranslations = {
   kzBoardDesc: "改善の効果（改善前 → 改善後）・標準化・横展開・定着確認をまとめて見られます",
   kzReadOnly: "閲覧と定着確認・横展開の状況の記録ができます（効果や段階の編集は改善オーナーが行います）",
   kzEmptyTitle: "改善成果はまだありません",
-  kzEmptyDesc: "「改善バックログから取り込み」で、終わった改善を取り込みましょう",
+  kzEmptyDesc: "「改善を追加」で直接書き込むか、改善バックログ・改善要望から取り込みましょう",
+  kzAddDirect: "改善を追加",
+  kzAddDirectTitle: "改善を直接追加",
+  kzFieldTitle: "改善内容",
+  kzFieldTitlePlaceholder: "例：治具を共通化して段取り替えを短くする",
+  kzAddSubmit: "追加する",
+  kzAddFailed: "追加に失敗しました",
+  kzAdded: "改善を追加しました",
+  kzImportRequests: "改善要望から取り込み",
+  kzImportRequestsTitle: "改善要望から取り込み",
+  kzImportRequestsSubmit: "取り込む",
+  kzNoRequests: "取り込める改善要望はありません",
+  kzRequestsLoadFailed: "改善要望の取得に失敗しました",
+  kzRequestsImported: "{count} 件の改善要望を取り込みました",
+  kzRequestsImportFailed: "改善要望の取り込みに失敗しました",
   kzColumnEmpty: "なし",
   kzDeferredSection: "延期（{n} 件）",
   kzStageMeasuring: "効果確認中",
@@ -304,7 +332,21 @@ export const en: ImprovementTranslations = {
   kzBoardDesc: "Effect (before → after), standardization, rollout and sustainment checks of every improvement in one place",
   kzReadOnly: "You can view, record sustainment checks and update rollout status (the improvement owner edits effects and stages)",
   kzEmptyTitle: "No improvement results yet",
-  kzEmptyDesc: "Use \"Import from improvement backlog\" to bring in finished improvements",
+  kzEmptyDesc: "Write one with \"Add improvement\", or bring them in from the improvement backlog or improvement requests",
+  kzAddDirect: "Add improvement",
+  kzAddDirectTitle: "Add an improvement",
+  kzFieldTitle: "Improvement",
+  kzFieldTitlePlaceholder: "e.g. Share one jig to shorten changeovers",
+  kzAddSubmit: "Add",
+  kzAddFailed: "Could not add the improvement",
+  kzAdded: "Improvement added",
+  kzImportRequests: "Import from requests",
+  kzImportRequestsTitle: "Import from improvement requests",
+  kzImportRequestsSubmit: "Import",
+  kzNoRequests: "No improvement requests to import",
+  kzRequestsLoadFailed: "Could not load improvement requests",
+  kzRequestsImported: "{count} improvement request(s) imported",
+  kzRequestsImportFailed: "Could not import improvement requests",
   kzColumnEmpty: "None",
   kzDeferredSection: "Deferred ({n})",
   kzStageMeasuring: "Measuring effect",
@@ -451,7 +493,21 @@ export const id: ImprovementTranslations = {
   kzBoardDesc: "Efek (sebelum → sesudah), standarisasi, penerapan ke tempat lain dan pengecekan keberlanjutan dalam satu tempat",
   kzReadOnly: "Anda bisa melihat, mencatat pengecekan dan status penerapan (efek dan tahap diubah oleh pemilik perbaikan)",
   kzEmptyTitle: "Belum ada hasil perbaikan",
-  kzEmptyDesc: "Gunakan \"Ambil dari backlog perbaikan\" untuk memasukkan perbaikan yang sudah selesai",
+  kzEmptyDesc: "Tulis langsung dengan \"Tambah perbaikan\", atau ambil dari backlog perbaikan atau permintaan perbaikan",
+  kzAddDirect: "Tambah perbaikan",
+  kzAddDirectTitle: "Tambah perbaikan langsung",
+  kzFieldTitle: "Isi perbaikan",
+  kzFieldTitlePlaceholder: "mis. Satu jig bersama untuk mempercepat pergantian",
+  kzAddSubmit: "Tambah",
+  kzAddFailed: "Gagal menambah perbaikan",
+  kzAdded: "Perbaikan ditambahkan",
+  kzImportRequests: "Ambil dari permintaan perbaikan",
+  kzImportRequestsTitle: "Ambil dari permintaan perbaikan",
+  kzImportRequestsSubmit: "Ambil",
+  kzNoRequests: "Tidak ada permintaan perbaikan untuk diambil",
+  kzRequestsLoadFailed: "Gagal memuat permintaan perbaikan",
+  kzRequestsImported: "{count} permintaan perbaikan diambil",
+  kzRequestsImportFailed: "Gagal mengambil permintaan perbaikan",
   kzColumnEmpty: "Tidak ada",
   kzDeferredSection: "Ditunda ({n})",
   kzStageMeasuring: "Cek efek",

@@ -33,6 +33,7 @@ const row = (over: Record<string, unknown> = {}) => ({ id: "r1", pbItem: null, r
 beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(repo.findItemState).mockResolvedValue({ ...STATE })
+  vi.mocked(repo.findProjectType).mockResolvedValue({ projectType: "process_improvement", name: "K" })
   vi.mocked(repo.updateItem).mockResolvedValue({ id: "r1" } as never)
   vi.mocked(repo.findBoardItem).mockResolvedValue(row() as never)
   vi.mocked(repo.countSustainedChecks).mockResolvedValue(0)
@@ -117,5 +118,48 @@ describe("deleteImprovement", () => {
     vi.mocked(repo.findItemState).mockResolvedValue(null)
     await expect(svc.deleteImprovement("p1", "nope")).rejects.toThrow("Not found")
     expect(releases.deleteReleaseItem).not.toHaveBeenCalled()
+  })
+})
+
+describe("createImprovement", () => {
+  it("writes a staged item with the title as its story and the metric fields, then enqueues translation", async () => {
+    vi.mocked(repo.insertItem).mockResolvedValue({ id: "n1", userStory: "Cut changeover" } as never)
+    vi.mocked(repo.findBoardItem).mockResolvedValue(row({ id: "n1" }) as never)
+    const dto = await svc.createImprovement("p1", { title: "Cut changeover", metricName: "Changeover", baselineValue: 60, targetValue: 30 }, ACTOR)
+    expect(repo.insertItem).toHaveBeenCalledWith(TX, { projectId: "p1", userStory: "Cut changeover", status: "staged", metricName: "Changeover", baselineValue: 60, targetValue: 30 })
+    expect(dto.id).toBe("n1")
+  })
+
+  it("rejects a target worse than the baseline before writing", async () => {
+    await expect(svc.createImprovement("p1", { title: "x", baselineValue: 10, targetValue: 12 }, ACTOR)).rejects.toMatchObject({ code: "IMPROVEMENT_TARGET_DIRECTION" })
+    expect(repo.insertItem).not.toHaveBeenCalled()
+  })
+})
+
+describe("importFromRequests", () => {
+  const req = (id: string, n: number) => ({ id, displayId: n, request: `req ${n}`, background: n === 1 ? "why" : null, assignedPo: null })
+
+  it("creates items for requests not yet on the board and counts the skipped ones", async () => {
+    vi.mocked(repo.findIceboxForImport).mockResolvedValue([req("i1", 1), req("i2", 2)] as never)
+    vi.mocked(repo.findLinkedIceboxIds).mockResolvedValue(["i2"])
+    vi.mocked(repo.insertItem).mockResolvedValue({ id: "n1" } as never)
+    const result = await svc.importFromRequests("p1", { iceboxIds: ["i1", "i2", "i1"] }, ACTOR)
+    expect(result).toEqual({ created: 1, skipped: 1 })
+    expect(repo.insertItem).toHaveBeenCalledTimes(1)
+    expect(repo.insertItem).toHaveBeenCalledWith(TX, { projectId: "p1", iceboxId: "i1", userStory: "req 1", poNote: "why", assignedPo: null, status: "staged" })
+  })
+
+  it("404s when none of the ids is a live request of the project", async () => {
+    vi.mocked(repo.findIceboxForImport).mockResolvedValue([])
+    vi.mocked(repo.findLinkedIceboxIds).mockResolvedValue([])
+    await expect(svc.importFromRequests("p1", { iceboxIds: ["x"] }, ACTOR)).rejects.toMatchObject({ code: "IMPROVEMENT_NO_REQUEST" })
+  })
+})
+
+describe("board project guard", () => {
+  it("creating or importing on a non-improvement project is a 404", async () => {
+    vi.mocked(repo.findProjectType).mockResolvedValue({ projectType: "software", name: "S" })
+    await expect(svc.createImprovement("p1", { title: "x" }, ACTOR)).rejects.toMatchObject({ code: "NOT_FOUND" })
+    await expect(svc.importFromRequests("p1", { iceboxIds: ["i1"] }, ACTOR)).rejects.toMatchObject({ code: "NOT_FOUND" })
   })
 })

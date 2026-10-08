@@ -2,7 +2,8 @@
 
 import { useState } from "react"
 import Link from "next/link"
-import { LayoutTemplate, Plus, Search } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { ArrowLeft, LayoutTemplate, Plus, Search } from "lucide-react"
 import { Badge, Input, PageHeader, SkeletonCard, buttonClasses } from "@/components/ui"
 import { useApiQuery, useDocumentTitle } from "@/hooks"
 import { fillTemplate } from "@/lib/fill-template"
@@ -38,8 +39,11 @@ function TemplateCard({ tpl }: { tpl: PlanTemplateSummaryDto }) {
 /** /templates: every template the user can see, grouped 共通 / 自分 / みんな, with search and "new". */
 export function TemplatesLibrary() {
   const { t } = useLanguage()
+  const router = useRouter()
   useDocumentTitle([t.tplLibraryTitle])
   const [query, setQuery] = useState("")
+  /** Back to where the user came from (the plan); home when the page was opened directly. */
+  const goBack = () => (window.history.length > 1 ? router.back() : router.push("/"))
   const list = useApiQuery<PlanTemplateSummaryDto[]>(TEMPLATES_API, { toastOnError: true })
   const groups = groupTemplates(list.data ?? [], query)
   const sections = [
@@ -50,6 +54,15 @@ export function TemplatesLibrary() {
 
   return (
     <div className="space-y-5">
+      <button
+        type="button"
+        onClick={goBack}
+        className="inline-flex min-h-8 items-center gap-1 text-caption font-medium text-primary hover:underline"
+        data-testid="tpl-library-back"
+      >
+        <ArrowLeft aria-hidden="true" className="h-4 w-4" />
+        {t.tplBackPrev}
+      </button>
       <PageHeader
         title={t.tplLibraryTitle}
         description={t.tplLibraryDesc}

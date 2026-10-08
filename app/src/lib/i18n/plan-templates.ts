@@ -84,6 +84,7 @@ export interface PlanTemplatesTranslations {
   tplUpdatedBy: string
   tplOwnerLabel: string
   tplBack: string
+  tplBackPrev: string
   tplEditorTitleNew: string
   tplEditorTitleEdit: string
   tplStages: string
@@ -222,6 +223,7 @@ export const ja: PlanTemplatesTranslations = {
   tplUpdatedBy: "{date} {name} が更新",
   tplOwnerLabel: "作成者: {name}",
   tplBack: "テンプレート一覧へ",
+  tplBackPrev: "前の画面に戻る",
   tplEditorTitleNew: "新しいテンプレート",
   tplEditorTitleEdit: "テンプレートを編集",
   tplStages: "工程",
@@ -360,6 +362,7 @@ export const en: PlanTemplatesTranslations = {
   tplUpdatedBy: "Updated {date} by {name}",
   tplOwnerLabel: "Created by {name}",
   tplBack: "Back to templates",
+  tplBackPrev: "Back to the previous page",
   tplEditorTitleNew: "New template",
   tplEditorTitleEdit: "Edit template",
   tplStages: "Stages",
@@ -498,6 +501,7 @@ export const id: PlanTemplatesTranslations = {
   tplUpdatedBy: "Diperbarui {date} oleh {name}",
   tplOwnerLabel: "Dibuat oleh {name}",
   tplBack: "Kembali ke templat",
+  tplBackPrev: "Kembali ke halaman sebelumnya",
   tplEditorTitleNew: "Templat baru",
   tplEditorTitleEdit: "Ubah templat",
   tplStages: "Tahapan",

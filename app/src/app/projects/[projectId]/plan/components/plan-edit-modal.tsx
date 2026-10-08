@@ -16,12 +16,14 @@ import {
   type PlanForm,
 } from "../lib/plan-form"
 import type { PlanDependency, PlanDraft, PlanItem, PlanItemInput, PlanItemPatch } from "../lib/plan-types"
+import { diffDays, isYmd } from "../lib/date"
 import { descendantIds } from "../lib/tree"
 import { usePlanLinks } from "../hooks/use-plan-links"
 import { PlanConflictNotice, type PlanLostEdit } from "./plan-conflict-notice"
 import { PlanDependencySection } from "./plan-dependency-section"
 import { PlanEditFields } from "./plan-edit-fields"
 import { PlanLinkSection } from "./plan-link-section"
+import { PlanShiftDialog } from "./plan-shift-dialog"
 
 export type EditorTarget = { kind: "edit"; item: PlanItem; focusLinks?: boolean } | { kind: "draft"; draft: PlanDraft }
 
@@ -43,9 +45,26 @@ interface Props {
   onDelete: (item: PlanItem) => Promise<boolean>
   onRemoveDependency: (id: string) => void
   onLinksSaved: () => void
+  /** The following plan was moved by the actual-vs-plan correction (reload the plan). */
+  onShifted: () => void
 }
 
 const FORM_ID = "plan-item-form"
+
+function patchTouchesActuals(patch: PlanItemPatch): boolean {
+  return "actualStart" in patch || "actualEnd" in patch
+}
+
+/** Days the actuals are off the plan (finished: end vs end; running: start vs start); null = nothing to correct. */
+function actualSlip(form: { plannedStart: string; plannedEnd: string; actualStart: string; actualEnd: string }): number | null {
+  const slip =
+    isYmd(form.actualEnd) && isYmd(form.plannedEnd)
+      ? diffDays(form.plannedEnd, form.actualEnd)
+      : isYmd(form.actualStart) && isYmd(form.plannedStart)
+        ? diffDays(form.plannedStart, form.actualStart)
+        : 0
+  return slip === 0 ? null : slip
+}
 
 function Footer({ saving, readOnly, onDelete }: { saving: boolean; readOnly: boolean; onDelete?: () => void }) {
   const { t } = useLanguage()
@@ -103,6 +122,7 @@ export default function PlanEditModal(props: Props) {
   const [form, setForm] = useState<PlanForm>(initial)
   const [errors, setErrors] = useState<Partial<Record<FormErrorKey, true>>>({})
   const [saving, setSaving] = useState(false)
+  const [shiftSlip, setShiftSlip] = useState<number | null>(null)
   // After a 409: the edits the reload replaced (shown with a "restore my input" action).
   const [lost, setLost] = useState<readonly PlanLostEdit[] | null>(null)
   // A 409 without a body copy: reload the form once the refetched item (new version) arrives.
@@ -176,7 +196,9 @@ export default function PlanEditModal(props: Props) {
           return
         }
       }
-      props.onClose()
+      const slip = patchTouchesActuals(patch) ? actualSlip(form) : null
+      if (slip) setShiftSlip(slip)
+      else props.onClose()
     } finally {
       setSaving(false)
     }
@@ -184,6 +206,22 @@ export default function PlanEditModal(props: Props) {
 
   async function handleDelete() {
     if (item && (await props.onDelete(item))) props.onClose()
+  }
+
+  if (item && shiftSlip !== null) {
+    return (
+      <PlanShiftDialog
+        apiBase={props.apiBase}
+        itemId={item.id}
+        slip={shiftSlip}
+        hasSuccessors={props.dependencies.some((d) => d.predecessorId === item.id)}
+        onClose={props.onClose}
+        onApplied={() => {
+          props.onShifted()
+          props.onClose()
+        }}
+      />
+    )
   }
 
   const title = item ? (readOnly ? t.planViewTitle : t.planEditTitle) : form.isMilestone ? t.planNewMilestoneTitle : t.planNewItemTitle

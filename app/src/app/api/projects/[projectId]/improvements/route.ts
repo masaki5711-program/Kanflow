@@ -1,6 +1,7 @@
 import { can, requireProject } from "@/lib/authz"
-import { jsonResponse, toHttpResponse } from "@/services/_shared"
-import { getBoard } from "@/services/improvements/improvements.service"
+import { actorFromSession, jsonResponse, toHttpResponse } from "@/services/_shared"
+import { createImprovementSchema } from "@/services/improvements/improvements.schemas"
+import { createImprovement, getBoard } from "@/services/improvements/improvements.service"
 
 /**
  * 改善成果ボード: items with rollouts / checks / photos, the summary strip and
@@ -18,5 +19,19 @@ export async function GET(_request: Request, { params }: { params: Promise<{ pro
     return jsonResponse({ ...board, permissions })
   } catch (error) {
     return toHttpResponse(error, { fallback: "取得に失敗しました", context: "Improvement board GET" })
+  }
+}
+
+/** Write an improvement straight onto the board (no PBI needed). */
+export async function POST(request: Request, { params }: { params: Promise<{ projectId: string }> }) {
+  const { projectId } = await params
+  const gate = await requireProject(projectId, "release.manage")
+  if ("error" in gate) return gate.error
+
+  try {
+    const input = createImprovementSchema.parse(await request.json())
+    return jsonResponse(await createImprovement(projectId, input, actorFromSession(gate.session)), 201)
+  } catch (error) {
+    return toHttpResponse(error, { fallback: "作成に失敗しました", context: "Improvement CREATE" })
   }
 }

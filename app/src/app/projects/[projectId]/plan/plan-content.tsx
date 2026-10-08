@@ -439,6 +439,7 @@ function PlanPage({ projectId, canEdit }: Props) {
           onDelete={requestDelete}
           onRemoveDependency={(id) => void api.removeDependency(id)}
           onLinksSaved={api.refetch}
+          onShifted={api.refetch}
         />
       )}
       {printOpen && (
