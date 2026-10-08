@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState } from "react"
 import Link from "next/link"
 import { AlertTriangle, Settings2 } from "lucide-react"
-import { Button, Field, Modal, Select, SkeletonLines, useModalClose, useToast } from "@/components/ui"
+import { Button, Field, Input, Modal, Select, SkeletonLines, useModalClose, useToast } from "@/components/ui"
 import { apiFetch, useApiQuery } from "@/hooks"
 import { fillTemplate } from "@/lib/fill-template"
 import { useLanguage } from "@/lib/language-context"
@@ -12,7 +12,9 @@ import { TemplatePickerList } from "@/components/plan-templates/template-picker-
 import { TemplateStageTree } from "@/components/plan-templates/template-stage-tree"
 import { TEMPLATES_API, type PlanTemplateDto, type PlanTemplateSummaryDto } from "@/components/plan-templates/template-groups"
 import type { ApplicationDto, ApplyResult } from "@/services/plan-templates/plan-templates.apply"
+import { isYmd } from "../lib/date"
 import { buildFlatTree } from "../lib/tree"
+import { WeekendOption } from "./weekend-option"
 import type { PlanItem } from "../lib/plan-types"
 
 interface Props {
@@ -53,6 +55,9 @@ export function TemplateLoadDialog({ projectId, items, nameOf, onClose, onApplie
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [excluded, setExcluded] = useState<ReadonlySet<string>>(new Set())
   const [parentId, setParentId] = useState("")
+  /** Optional: date the stages at load time from here ("" = load as 日程未定). */
+  const [startDate, setStartDate] = useState("")
+  const [skipWeekends, setSkipWeekends] = useState(false)
   const [busy, setBusy] = useState(false)
   const list = useApiQuery<PlanTemplateSummaryDto[]>(TEMPLATES_API, { toastOnError: true })
   const detail = useApiQuery<PlanTemplateDto>(selectedId ? `${TEMPLATES_API}/${selectedId}` : null)
@@ -81,13 +86,16 @@ export function TemplateLoadDialog({ projectId, items, nameOf, onClose, onApplie
     })
   }
 
+  const dated = startDate !== ""
+  const startInvalid = dated && !isYmd(startDate)
+
   async function submit() {
-    if (!template || count === 0) return
+    if (!template || count === 0 || startInvalid) return
     setBusy(true)
     try {
       const result = await apiFetch<ApplyResult>(`/api/projects/${projectId}/plan/templates/apply`, {
         method: "POST",
-        json: { templateId: template.id, excludePaths: [...excluded], parentId: parentId || null },
+        json: { templateId: template.id, excludePaths: [...excluded], parentId: parentId || null, ...(dated && { startDate, skipWeekends }) },
       })
       onApplied(result, template)
     } catch (err) {
@@ -114,7 +122,7 @@ export function TemplateLoadDialog({ projectId, items, nameOf, onClose, onApplie
       footer={
         <>
           <CancelButton />
-          <Button onClick={() => void submit()} disabled={!template || count === 0} loading={busy} data-testid="tpl-load-submit">
+          <Button onClick={() => void submit()} disabled={!template || count === 0 || startInvalid} loading={busy} data-testid="tpl-load-submit">
             {fillTemplate(t.tplLoadSubmit, { n: count })}
           </Button>
         </>
@@ -155,6 +163,10 @@ export function TemplateLoadDialog({ projectId, items, nameOf, onClose, onApplie
                   ))}
                 </Select>
               </Field>
+              <Field label={t.tplStartDate} hint={t.tplStartDateHint} error={startInvalid ? t.planDateRequired : undefined}>
+                <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} data-testid="tpl-start-date" />
+              </Field>
+              <WeekendOption checked={skipWeekends} onChange={setSkipWeekends} disabled={!dated} />
             </>
           )}
         </section>

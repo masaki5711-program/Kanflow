@@ -101,6 +101,22 @@ describe("TemplateLoadDialog", () => {
     expect(JSON.parse(String(post?.[1]?.body))).toEqual({ templateId: "t1", excludePaths: ["0"], parentId: "P" })
   })
 
+  it("a start date + 'weekdays only' are posted with the load; without a date neither is sent", async () => {
+    const { fetchMock, onApplied } = setup(false)
+    await userEvent.click(await screen.findByRole("button", { name: /設備導入/ }))
+    await screen.findByRole("list", { name: "設備導入" })
+    // The weekend option is meaningless without a start date.
+    expect(screen.getByTestId("tpl-skip-weekends")).toBeDisabled()
+    await userEvent.type(screen.getByTestId("tpl-start-date"), "2026-11-02")
+    const weekdays = screen.getByTestId("tpl-skip-weekends")
+    expect(weekdays).toBeEnabled()
+    await userEvent.click(weekdays)
+    await userEvent.click(screen.getByTestId("tpl-load-submit"))
+    await waitFor(() => expect(onApplied).toHaveBeenCalled())
+    const post = fetchMock.mock.calls.find(([u, init]) => String(u).endsWith("/apply") && init?.method === "POST")
+    expect(JSON.parse(String(post?.[1]?.body))).toEqual({ templateId: "t1", excludePaths: [], parentId: null, startDate: "2026-11-02", skipWeekends: true })
+  })
+
   it("warns when the template was already loaded but still allows loading", async () => {
     setup(true)
     await userEvent.click(await screen.findByRole("button", { name: /設備導入/ }))

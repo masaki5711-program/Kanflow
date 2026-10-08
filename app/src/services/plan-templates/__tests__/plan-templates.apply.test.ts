@@ -79,7 +79,7 @@ describe("plan-templates.apply", () => {
     expect(tr.enqueueIn).toHaveBeenCalledTimes(5)
     expect(act.logCreate).toHaveBeenCalledTimes(3)
     expect(act.logActivity).toHaveBeenCalledWith(TX, expect.objectContaining({ entityType: "project", diff: expect.objectContaining({ changes: { planTemplate: { from: null, to: "設備導入" } } }) }))
-    expect(out).toEqual({ applicationId: "app1", createdRootIds: ["n1", "n4", "n5"], createdCount: 5, alreadyApplied: false, hasDurations: true })
+    expect(out).toEqual({ applicationId: "app1", createdRootIds: ["n1", "n4", "n5"], createdCount: 5, alreadyApplied: false, hasDurations: true, scheduled: 0 })
   })
 
   it("excludePaths + parentId: inserts the rest under that item; reports a previous load", async () => {
@@ -93,6 +93,35 @@ describe("plan-templates.apply", () => {
     ])
     expect(planRepo.nextPlanSortOrder).toHaveBeenCalledWith(TX, "p1", "parent")
     expect(out.alreadyApplied).toBe(true)
+  })
+
+  it("with a start date the inserted stages get dates in the same transaction (weekends counted)", async () => {
+    // The rows as the insert left them: all undated; the load is scheduled from them.
+    vi.mocked(planRepo.findPlanItems).mockImplementation((async () =>
+      vi.mocked(planRepo.insertPlanItem).mock.calls.map((c, i) => ({ ...planRow(), ...(c[1] as object), id: `n${i + 1}` }))) as never)
+    // Leaves only: 見積 4 + 確定 2 + 発注 5 (+ 検収 milestone 1) from Fri 2026-10-30.
+    const out = await apply.applyTemplate("p1", { templateId: "t1", startDate: "2026-10-30" }, ACTOR)
+    const dates = Object.fromEntries(vi.mocked(planRepo.updatePlanItem).mock.calls.map((c) => [c[1], [c[2].plannedStart, c[2].plannedEnd]]))
+    expect(dates.n2).toEqual([day("2026-10-30"), day("2026-11-02")])
+    expect(dates.n3).toEqual([day("2026-11-03"), day("2026-11-04")])
+    expect(out.scheduled).toBe(4)
+  })
+
+  it("with skipWeekends the durations count weekdays only", async () => {
+    vi.mocked(planRepo.findPlanItems).mockImplementation((async () =>
+      vi.mocked(planRepo.insertPlanItem).mock.calls.map((c, i) => ({ ...planRow(), ...(c[1] as object), id: `n${i + 1}` }))) as never)
+    await apply.applyTemplate("p1", { templateId: "t1", startDate: "2026-10-30", skipWeekends: true }, ACTOR)
+    const dates = Object.fromEntries(vi.mocked(planRepo.updatePlanItem).mock.calls.map((c) => [c[1], [c[2].plannedStart, c[2].plannedEnd]]))
+    // 見積 4 weekdays from Fri: Fri, Mon, Tue, Wed.
+    expect(dates.n2).toEqual([day("2026-10-30"), day("2026-11-04")])
+    // 発注 5 weekdays never ends on a weekend.
+    expect([6, 0]).not.toContain((dates.n4[1] as Date).getUTCDay())
+  })
+
+  it("without a start date nothing is dated", async () => {
+    const out = await apply.applyTemplate("p1", { templateId: "t1" }, ACTOR)
+    expect(planRepo.updatePlanItem).not.toHaveBeenCalled()
+    expect(out.scheduled).toBe(0)
   })
 
   it("refuses an unknown insert parent, an empty selection and hidden templates", async () => {

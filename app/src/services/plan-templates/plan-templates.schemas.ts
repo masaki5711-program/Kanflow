@@ -9,6 +9,7 @@ const id = z.string().min(1).max(64)
 const name = z.string().trim().min(1).max(TEMPLATE_NAME_MAX)
 const description = z.string().max(2000).nullable().optional()
 const visibility = z.enum(TEMPLATE_VISIBILITIES)
+const ymd = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 
 /** POST /api/plan-templates. New templates are shared with everyone unless "private" (自分だけ). */
 export const createTemplateSchema = z.object({
@@ -46,6 +47,10 @@ export const applyTemplateSchema = z.object({
   excludePaths: z.array(stagePath).max(400).optional(),
   /** Insert under this live plan item; null / omitted = top level. */
   parentId: id.nullable().optional(),
+  /** Date the loaded stages from here (their 目安期間); omitted = they load as 日程未定. */
+  startDate: ymd.optional(),
+  /** With a start date: count only Monday–Friday for the durations. */
+  skipWeekends: z.boolean().optional(),
 })
 
 /** POST /api/projects/:id/plan/templates/save */
@@ -59,7 +64,9 @@ export const savePlanAsTemplateSchema = z.object({
 export const scheduleFromSchema = z.object({
   /** Subtrees to place (e.g. a load's createdRootIds); omitted = the whole plan. */
   rootIds: z.array(id).min(1).max(400).optional(),
-  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  startDate: ymd,
+  /** Count only Monday–Friday for the durations. */
+  skipWeekends: z.boolean().optional(),
 })
 
 export type CreateTemplateInput = z.infer<typeof createTemplateSchema>

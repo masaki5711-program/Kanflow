@@ -34,6 +34,28 @@ export interface ScheduledDates {
 
 const keyOf = (day: number) => toDateKey(new Date(day * DAY_MS))
 
+export interface ScheduleOptions {
+  /** Count only Monday–Friday: a 5-day item spans a weekend instead of ending on it. */
+  skipWeekends?: boolean
+}
+
+/** 1970-01-01 (day 0) was a Thursday; 0 = Sunday … 6 = Saturday. */
+const isWeekend = (day: number) => {
+  const w = (((day + 4) % 7) + 7) % 7
+  return w === 0 || w === 6
+}
+
+/** `day` itself when it is a weekday, else the following Monday. */
+const nextWeekday = (day: number): number => (isWeekend(day) ? nextWeekday(day + 1) : day)
+
+/** The day on which an item of `days` counted days, starting on `first`, ends. */
+function lastDayOf(first: number, days: number, skipWeekends: boolean): number {
+  if (!skipWeekends) return first + days - 1
+  let last = first
+  for (let left = days - 1; left > 0; left--) last = nextWeekday(last + 1)
+  return last
+}
+
 function childrenIndex(nodes: readonly ScheduleNode[]): Map<string | null, ScheduleNode[]> {
   const ids = new Set(nodes.map((n) => n.id))
   const out = new Map<string | null, ScheduleNode[]>()
@@ -50,7 +72,8 @@ function childrenIndex(nodes: readonly ScheduleNode[]): Map<string | null, Sched
  * top level in order), starting at `startKey` ("YYYY-MM-DD"). Unknown root
  * ids are ignored; an invalid start date yields no dates.
  */
-export function scheduleFrom(nodes: readonly ScheduleNode[], rootIds: readonly string[] | null, startKey: string): ScheduledDates[] {
+export function scheduleFrom(nodes: readonly ScheduleNode[], rootIds: readonly string[] | null, startKey: string, options: ScheduleOptions = {}): ScheduledDates[] {
+  const skipWeekends = options.skipWeekends === true
   const start = dateFromKey(startKey)
   if (!start) return []
   const kids = childrenIndex(nodes)
@@ -73,9 +96,10 @@ export function scheduleFrom(nodes: readonly ScheduleNode[], rootIds: readonly s
       return
     }
     const days = Math.max(1, node.durationDays ?? DEFAULT_SCHEDULE_DAYS)
-    const last = cursor + days - 1
-    out.push({ id: node.id, plannedStart: keyOf(node.isMilestone ? last : cursor), plannedEnd: keyOf(last) })
-    cursor += days
+    const first = skipWeekends ? nextWeekday(cursor) : cursor
+    const last = lastDayOf(first, days, skipWeekends)
+    out.push({ id: node.id, plannedStart: keyOf(node.isMilestone ? last : first), plannedEnd: keyOf(last) })
+    cursor = last + 1
   }
   roots.forEach(visit)
   return out

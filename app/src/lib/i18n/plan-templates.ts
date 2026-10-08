@@ -46,6 +46,10 @@ export interface PlanTemplatesTranslations {
   tplScheduleTitle: string
   tplScheduleDesc: string
   tplScheduleStart: string
+  tplStartDate: string
+  tplStartDateHint: string
+  tplSkipWeekends: string
+  tplSkipWeekendsHint: string
   tplScheduleSubmit: string
   tplScheduleSkip: string
   tplScheduled: string
@@ -180,6 +184,10 @@ export const ja: PlanTemplatesTranslations = {
   tplScheduleTitle: "開始日を入れて日程を仮置き",
   tplScheduleDesc: "目安期間をもとに、日程未定の工程へ開始日から順に日付を入れます（あとから自由に変更できます）。目安期間のない工程は1日として置きます。",
   tplScheduleStart: "開始日",
+  tplStartDate: "開始日（任意）",
+  tplStartDateHint: "入れると、各工程の目安期間をもとに、読み込みと同時に日付を入れます。空欄なら日程未定で読み込みます。",
+  tplSkipWeekends: "土日を除いて日数を数える",
+  tplSkipWeekendsHint: "例：5日の工程が金曜に始まる場合、土日をとばして翌週の水曜までの平日5日になります。",
   tplScheduleSubmit: "仮置きする",
   tplScheduleSkip: "日程未定のままにする",
   tplScheduled: "{n}項目に日程を仮置きしました",
@@ -314,6 +322,10 @@ export const en: PlanTemplatesTranslations = {
   tplScheduleTitle: "Pencil in dates from a start date",
   tplScheduleDesc: "Fills the unscheduled stages one after another from the start date, using their approximate durations (you can change them later). Stages without a duration take one day.",
   tplScheduleStart: "Start date",
+  tplStartDate: "Start date (optional)",
+  tplStartDateHint: "If set, the loaded stages are dated right away from their approximate durations. Leave it empty to load them unscheduled.",
+  tplSkipWeekends: "Count weekdays only (skip Saturdays and Sundays)",
+  tplSkipWeekendsHint: "Example: a 5-day stage starting on a Friday skips the weekend and ends on the Thursday of the next week.",
   tplScheduleSubmit: "Pencil in",
   tplScheduleSkip: "Keep unscheduled",
   tplScheduled: "Pencilled in dates for {n} items",
@@ -448,6 +460,10 @@ export const id: PlanTemplatesTranslations = {
   tplScheduleTitle: "Isi tanggal sementara dari tanggal mulai",
   tplScheduleDesc: "Mengisi tahapan yang belum dijadwalkan secara berurutan dari tanggal mulai berdasarkan perkiraan durasi (dapat diubah nanti). Tahapan tanpa durasi dihitung satu hari.",
   tplScheduleStart: "Tanggal mulai",
+  tplStartDate: "Tanggal mulai (opsional)",
+  tplStartDateHint: "Jika diisi, tahapan yang dimuat langsung diberi tanggal berdasarkan perkiraan durasinya. Kosongkan untuk memuat tanpa jadwal.",
+  tplSkipWeekends: "Hitung hari kerja saja (lewati Sabtu dan Minggu)",
+  tplSkipWeekendsHint: "Contoh: tahapan 5 hari yang dimulai hari Jumat melewati akhir pekan dan berakhir pada hari Kamis minggu berikutnya.",
   tplScheduleSubmit: "Isi sementara",
   tplScheduleSkip: "Biarkan belum dijadwalkan",
   tplScheduled: "Tanggal sementara diisi untuk {n} item",

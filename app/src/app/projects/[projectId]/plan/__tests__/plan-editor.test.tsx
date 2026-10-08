@@ -6,7 +6,7 @@ import { stubLayout } from "@/components/__tests__/helpers"
 import { resetUrl } from "@/app/projects/[projectId]/backlog/__tests__/nav-mock"
 import type { Language } from "@/lib/i18n"
 import { PlanContent } from "../plan-content"
-import { BASE, TODAY, bodyOf, callsTo, freshState, planServer, stubMatchMedia, type ServerState } from "./plan-server"
+import { BASE, bodyOf, callsTo, freshState, planServer, stubMatchMedia, type ServerState } from "./plan-server"
 import { installMemoryStorage } from "./fixtures"
 
 vi.mock("next/navigation", async () => (await import("@/app/projects/[projectId]/backlog/__tests__/nav-mock")).navigationModule({ projectId: "p1" }))
@@ -47,8 +47,9 @@ describe("draft create flow", () => {
     const fetchMock = await renderPlan()
     await user.click(screen.getByRole("button", { name: t.planAddItem }))
     let dialog = await screen.findByRole("dialog", { name: t.planNewItemTitle })
-    expect(within(dialog).getByLabelText(lbl(t.planPlannedStart))).toHaveValue(TODAY)
-    expect(within(dialog).getByLabelText(lbl(t.planPlannedEnd))).toHaveValue("2026-10-07")
+    // The calendar opens after the last top-level item (Launch ends 2026-10-25), not on today.
+    expect(within(dialog).getByLabelText(lbl(t.planPlannedStart))).toHaveValue("2026-10-26")
+    expect(within(dialog).getByLabelText(lbl(t.planPlannedEnd))).toHaveValue("2026-11-01")
     expect(within(dialog).getByText(t.planLinkAfterCreate)).toBeInTheDocument()
     await user.click(within(dialog).getByRole("button", { name: t.cancel }))
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
@@ -62,22 +63,22 @@ describe("draft create flow", () => {
     await user.type(within(dialog).getByLabelText(lbl(t.planNamePlaceholder)), "Design")
     await user.click(within(dialog).getByRole("button", { name: t.save }))
     await waitFor(() => expect(callsTo(fetchMock, "POST", BASE)).toHaveLength(1))
-    expect(bodyOf(callsTo(fetchMock, "POST", BASE)[0])).toMatchObject({ name: "Design", parentId: null, plannedStart: TODAY, plannedEnd: "2026-10-07", isMilestone: false })
+    expect(bodyOf(callsTo(fetchMock, "POST", BASE)[0])).toMatchObject({ name: "Design", parentId: null, plannedStart: "2026-10-26", plannedEnd: "2026-11-01", isMilestone: false })
     expect(await screen.findByText(t.planCreated)).toBeInTheDocument()
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
   })
 
-  it("milestone draft defaults to today with a single date", async () => {
+  it("milestone draft defaults to the day after the plan so far, with a single date", async () => {
     const user = userEvent.setup()
     const fetchMock = await renderPlan()
     await user.click(screen.getByRole("button", { name: t.planAddMilestone }))
     const dialog = await screen.findByRole("dialog", { name: t.planNewMilestoneTitle })
-    expect(within(dialog).getByLabelText(lbl(t.planMilestoneDate))).toHaveValue(TODAY)
+    expect(within(dialog).getByLabelText(lbl(t.planMilestoneDate))).toHaveValue("2026-10-26")
     expect(within(dialog).queryByLabelText(lbl(t.planPlannedEnd))).not.toBeInTheDocument()
     await user.type(within(dialog).getByLabelText(lbl(t.planNamePlaceholder)), "Go-live")
     await user.click(within(dialog).getByRole("button", { name: t.save }))
     await waitFor(() => expect(callsTo(fetchMock, "POST", BASE)).toHaveLength(1))
-    expect(bodyOf(callsTo(fetchMock, "POST", BASE)[0])).toMatchObject({ isMilestone: true, plannedStart: TODAY, plannedEnd: TODAY })
+    expect(bodyOf(callsTo(fetchMock, "POST", BASE)[0])).toMatchObject({ isMilestone: true, plannedStart: "2026-10-26", plannedEnd: "2026-10-26" })
   })
 
   it("add child from the row menu posts the parent id", async () => {

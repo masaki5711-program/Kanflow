@@ -32,8 +32,25 @@ export interface ApplyResult {
   createdCount: number
   /** The template had been loaded into this project before (the UI warned; inserted again anyway). */
   alreadyApplied: boolean
-  /** Some created stage has a 目安期間 (the UI then offers 「日程を仮置き」). */
+  /** Some created stage has a 目安期間 and was left undated (the UI then offers 「日程を仮置き」). */
   hasDurations: boolean
+  /** Stages dated at load time (a start date was given); 0 = all left 日程未定. */
+  scheduled: number
+}
+
+/**
+ * Date the undated leaves under `rootIds` (whole plan when null) from `startDate`
+ * inside the caller's transaction; returns the placed items. Parents' spans are
+ * derived by the progress recalc the caller runs.
+ */
+async function placeDates(tx: Db, projectId: string, rootIds: string[] | null, startDate: string, skipWeekends: boolean): Promise<ScheduledDates[]> {
+  const rows = await planRepo.findPlanItems(tx, projectId)
+  const nodes = rows.map((r) => ({ ...r, plannedStart: toDateKeyOrNull(r.plannedStart), plannedEnd: toDateKeyOrNull(r.plannedEnd) }))
+  const placed = scheduleFrom(nodes, rootIds, startDate, { skipWeekends })
+  for (const p of placed) {
+    await planRepo.updatePlanItem(tx, p.id, { plannedStart: dateFromKey(p.plannedStart), plannedEnd: dateFromKey(p.plannedEnd), ...BUMP_VERSION })
+  }
+  return placed
 }
 
 /** Top-level stages that get their own "create" activity row per load. */
@@ -88,6 +105,8 @@ export async function applyTemplate(projectId: string, input: ApplyTemplateInput
   const rows = buildApplyRows(content.stages, input.excludePaths ?? [])
   if (rows.length === 0) throw emptyError()
   const parentId = input.parentId ?? null
+  const startDate = input.startDate ?? null
+  if (startDate && !dateFromKey(startDate)) throw new ValidationError("日付が不正です", {}, "INVALID_DATE")
   return withTransaction(async (tx) => {
     if (parentId && !(await planRepo.findPlanItem(tx, projectId, parentId))) throw new ValidationError(PARENT_MISSING, {}, "PLAN_PARENT_NOT_FOUND")
     const alreadyApplied = (await repo.countApplications(tx, projectId, template.id)) > 0
@@ -104,6 +123,8 @@ export async function applyTemplate(projectId: string, input: ApplyTemplateInput
     const ids = await insertStages(tx, projectId, rows, parentId, app.id, actor)
     const createdRootIds = rows.filter((r) => r.parentPath === null).map((r) => ids.get(r.path) as string)
     await repo.setApplicationRoots(tx, app.id, createdRootIds)
+    // A start date dates the new stages right away (before the recalc derives the parents' spans).
+    const placed = startDate ? await placeDates(tx, projectId, createdRootIds, startDate, input.skipWeekends === true) : []
     await recalcPlanProgress(projectId, [...ids.values(), parentId], tx)
     await logActivity(tx, {
       projectId,
@@ -113,7 +134,15 @@ export async function applyTemplate(projectId: string, input: ApplyTemplateInput
       actor,
       diff: { changes: { planTemplate: { from: null, to: template.name } }, meta: { planTemplateId: template.id, applicationId: app.id, count: rows.length } },
     })
-    return { applicationId: app.id, createdRootIds, createdCount: rows.length, alreadyApplied, hasDurations: rows.some((r) => r.durationDays !== null) }
+    return {
+      applicationId: app.id,
+      createdRootIds,
+      createdCount: rows.length,
+      alreadyApplied,
+      // Dated at load time: nothing left to pencil in afterwards.
+      hasDurations: !startDate && rows.some((r) => r.durationDays !== null),
+      scheduled: placed.length,
+    }
   })
 }
 
@@ -175,12 +204,7 @@ export async function savePlanAsTemplate(projectId: string, input: SavePlanAsTem
 export async function scheduleFromStart(projectId: string, input: ScheduleFromInput, actor: Actor): Promise<{ updated: number; items: ScheduledDates[] }> {
   if (!dateFromKey(input.startDate)) throw new ValidationError("日付が不正です", {}, "INVALID_DATE")
   return withTransaction(async (tx) => {
-    const rows = await planRepo.findPlanItems(tx, projectId)
-    const nodes = rows.map((r) => ({ ...r, plannedStart: toDateKeyOrNull(r.plannedStart), plannedEnd: toDateKeyOrNull(r.plannedEnd) }))
-    const placed = scheduleFrom(nodes, input.rootIds ?? null, input.startDate)
-    for (const p of placed) {
-      await planRepo.updatePlanItem(tx, p.id, { plannedStart: dateFromKey(p.plannedStart), plannedEnd: dateFromKey(p.plannedEnd), ...BUMP_VERSION })
-    }
+    const placed = await placeDates(tx, projectId, input.rootIds ?? null, input.startDate, input.skipWeekends === true)
     if (placed.length > 0) {
       await recalcPlanProgress(projectId, placed.map((p) => p.id), tx)
       await logActivity(tx, {
@@ -189,7 +213,7 @@ export async function scheduleFromStart(projectId: string, input: ScheduleFromIn
         entityId: projectId,
         action: "update",
         actor,
-        diff: { changes: { planSchedule: { changed: true } }, meta: { count: placed.length, startDate: input.startDate } },
+        diff: { changes: { planSchedule: { changed: true } }, meta: { count: placed.length, startDate: input.startDate, skipWeekends: input.skipWeekends === true } },
       })
     }
     return { updated: placed.length, items: placed }

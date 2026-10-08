@@ -6,6 +6,7 @@ import { apiFetch } from "@/hooks"
 import { fillTemplate } from "@/lib/fill-template"
 import { useLanguage } from "@/lib/language-context"
 import { isYmd } from "../lib/date"
+import { WeekendOption } from "./weekend-option"
 
 interface Props {
   projectId: string
@@ -21,6 +22,7 @@ export function ScheduleFromDialog({ projectId, rootIds, defaultStart, onClose, 
   const { t } = useLanguage()
   const toast = useToast()
   const [start, setStart] = useState(defaultStart)
+  const [skipWeekends, setSkipWeekends] = useState(false)
   const [busy, setBusy] = useState(false)
   const valid = isYmd(start)
 
@@ -30,7 +32,7 @@ export function ScheduleFromDialog({ projectId, rootIds, defaultStart, onClose, 
     try {
       const res = await apiFetch<{ updated: number }>(`/api/projects/${projectId}/plan/schedule-from`, {
         method: "POST",
-        json: { startDate: start, ...(rootIds && { rootIds }) },
+        json: { startDate: start, skipWeekends, ...(rootIds && { rootIds }) },
       })
       toast.success(fillTemplate(t.tplScheduled, { n: res.updated }))
       onDone()
@@ -59,6 +61,9 @@ export function ScheduleFromDialog({ projectId, rootIds, defaultStart, onClose, 
       <Field label={t.tplScheduleStart} required error={valid ? undefined : t.planDateRequired}>
         <Input type="date" value={start} onChange={(e) => setStart(e.target.value)} data-autofocus />
       </Field>
+      <div className="mt-3">
+        <WeekendOption checked={skipWeekends} onChange={setSkipWeekends} />
+      </div>
     </Modal>
   )
 }

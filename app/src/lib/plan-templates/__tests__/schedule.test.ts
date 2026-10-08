@@ -66,4 +66,45 @@ describe("scheduleFrom (日程を仮置き)", () => {
   it("an invalid start date places nothing", () => {
     expect(scheduleFrom([n("a")], null, "2026-02-30")).toEqual([])
   })
+
+  describe("skipWeekends (土日を除いて数える)", () => {
+    it("counts only weekdays: 3 days from a Friday end on Tuesday", () => {
+      // 2026-10-30 is a Friday.
+      const nodes = [n("a", { sortOrder: 1, durationDays: 3 }), n("b", { sortOrder: 2, durationDays: 2 })]
+      expect(scheduleFrom(nodes, null, "2026-10-30", { skipWeekends: true })).toEqual([
+        { id: "a", plannedStart: "2026-10-30", plannedEnd: "2026-11-03" },
+        { id: "b", plannedStart: "2026-11-04", plannedEnd: "2026-11-05" },
+      ])
+    })
+
+    it("a start on a weekend moves to the next Monday", () => {
+      expect(scheduleFrom([n("a", { durationDays: 1 })], null, "2026-10-31", { skipWeekends: true })).toEqual([
+        { id: "a", plannedStart: "2026-11-02", plannedEnd: "2026-11-02" },
+      ])
+      expect(scheduleFrom([n("a", { durationDays: 1 })], null, "2026-11-01", { skipWeekends: true })[0].plannedStart).toBe("2026-11-02")
+    })
+
+    it("5 weekdays from a Monday are Monday to Friday; the next item starts the Monday after", () => {
+      const nodes = [n("a", { sortOrder: 1, durationDays: 5 }), n("b", { sortOrder: 2, durationDays: 1 })]
+      expect(scheduleFrom(nodes, null, "2026-11-02", { skipWeekends: true })).toEqual([
+        { id: "a", plannedStart: "2026-11-02", plannedEnd: "2026-11-06" },
+        { id: "b", plannedStart: "2026-11-09", plannedEnd: "2026-11-09" },
+      ])
+    })
+
+    it("a milestone sits on the last weekday of its window", () => {
+      expect(scheduleFrom([n("m", { isMilestone: true, durationDays: 2 })], null, "2026-10-30", { skipWeekends: true })).toEqual([
+        { id: "m", plannedStart: "2026-11-02", plannedEnd: "2026-11-02" },
+      ])
+    })
+
+    it("a dated leaf ending on a Friday pushes the next item to Monday", () => {
+      const nodes = [n("fixed", { sortOrder: 1, plannedStart: "2026-10-26", plannedEnd: "2026-10-30" }), n("b", { sortOrder: 2, durationDays: 1 })]
+      expect(scheduleFrom(nodes, null, "2026-10-01", { skipWeekends: true })).toEqual([{ id: "b", plannedStart: "2026-11-02", plannedEnd: "2026-11-02" }])
+    })
+
+    it("without the option weekends are counted as before", () => {
+      expect(scheduleFrom([n("a", { durationDays: 3 })], null, "2026-10-30")).toEqual([{ id: "a", plannedStart: "2026-10-30", plannedEnd: "2026-11-01" }])
+    })
+  })
 })

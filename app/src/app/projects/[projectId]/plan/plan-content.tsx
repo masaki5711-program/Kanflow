@@ -10,6 +10,7 @@ import type { ProjectMemberDto } from "@/types/api"
 import { useProjectDocumentTitle } from "@/components/app-shell/project-title-context"
 import { addDays, dayToYmd, localTodayYmd } from "./lib/date"
 import { formatShortDate } from "./lib/date-format"
+import { suggestDraftStart } from "./lib/draft-start"
 import { EMPTY_FILTER, isFilterActive, matchesFilter, type PlanFilter } from "./lib/filter"
 import { dayCenterX, spanGeometry } from "./lib/geometry"
 import type { PlanItem } from "./lib/plan-types"
@@ -203,7 +204,9 @@ function PlanPage({ projectId, canEdit }: Props) {
   }
 
   function openDraft(parentId: string | null, isMilestone: boolean) {
-    setEditor({ kind: "draft", draft: { parentId, isMilestone, plannedStart: today, plannedEnd: isMilestone ? today : addDays(today, DRAFT_DAYS - 1) } })
+    // Open the calendar where the plan already is, not on today (a long plan needs many month clicks).
+    const start = suggestDraftStart(items, parentId, today)
+    setEditor({ kind: "draft", draft: { parentId, isMilestone, plannedStart: start, plannedEnd: isMilestone ? start : addDays(start, DRAFT_DAYS - 1) } })
   }
 
   async function requestDelete(item: PlanItem): Promise<boolean> {
