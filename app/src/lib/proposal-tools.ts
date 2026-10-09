@@ -8,7 +8,9 @@ import {
   PBI_POINT_SCALE,
   parseChatProposal,
   type ChatProposal,
+  type CreateIceboxProposal,
   type CreatePbiProposal,
+  type SprintPbiProposal,
   type StatusChangeProposal,
   type TaskSplitProposal,
 } from "@/lib/chat-proposals"
@@ -24,6 +26,41 @@ import { mostSimilar, parseDisplayId, strArg, trunc } from "@/lib/tool-helpers"
  */
 
 export const PROPOSAL_TOOL_DEFS: ToolDefinition[] = [
+  {
+    type: "function",
+    function: {
+      name: "propose_icebox",
+      description:
+        "Propose adding a request/idea to the Icebox (not yet a PBI) for the user to approve. Does not write anything. Use when the user wants to park an idea or request.",
+      parameters: {
+        type: "object",
+        properties: {
+          request: { type: "string", description: "The request or idea, max 5000 chars." },
+          background: { type: "string", description: "Why it is wanted / context (optional)." },
+          reason: { type: "string", description: "One sentence on why this is proposed." },
+        },
+        required: ["request"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "propose_sprint_pbi",
+      description:
+        "Propose putting a PBI into a sprint, or taking it out (removing also deletes its tasks in that sprint). Does not write anything; the user approves on a card. Sprint omitted = the newest open sprint.",
+      parameters: {
+        type: "object",
+        properties: {
+          pbi_id: { type: "string", description: "PBI #number, e.g. #12." },
+          action: { type: "string", description: "add | remove" },
+          sprint: { type: "string", description: "Sprint name (substring). Optional." },
+          reason: { type: "string", description: "One sentence on why." },
+        },
+        required: ["pbi_id", "action"],
+      },
+    },
+  },
   {
     type: "function",
     function: {
@@ -90,26 +127,27 @@ export const PROPOSAL_TOOL_DEFS: ToolDefinition[] = [
   },
 ]
 
-const NOTE =
+export const NOTE =
   "Shown to the user as an approval card. NOTHING has been written yet. Briefly summarize the proposal and ask the user to press Approve (承認) or Reject (却下) on the card. Do not claim it was created or changed."
 
 const MAX_TASKS = 12
-const OPEN_SPRINTS = ["planning", "active", "review"]
+export const OPEN_SPRINTS = ["planning", "active", "review"]
 
 /** Stable id: same kind + payload → same id (a repeated proposal maps to one card state). */
 export function proposalIdOf(kind: string, payload: unknown): string {
   return `prop_${createHash("sha256").update(`${kind}:${JSON.stringify(payload)}`).digest("hex").slice(0, 16)}`
 }
 
-function reply(proposal: ChatProposal): string {
+export function reply(proposal: ChatProposal, extraNote = ""): string {
   // Validate our own output against the shared schema (defense in depth: the
   // client drops anything that does not parse).
   const checked = parseChatProposal(proposal)
   if (!checked) return JSON.stringify({ error: "proposal failed validation; shorten the fields and try again" })
-  return JSON.stringify({ proposal: checked, note: NOTE })
+  // The note comes first: a long proposal may be cut when the result is capped for the model.
+  return JSON.stringify({ note: extraNote ? `${NOTE} ${extraNote}` : NOTE, proposal: checked })
 }
 
-const err = (message: string) => JSON.stringify({ error: message })
+export const err = (message: string) => JSON.stringify({ error: message })
 
 // ── propose_pbi ─────────────────────────────────────────────────────────────
 
@@ -274,7 +312,79 @@ async function proposeStatusChange(projectId: string, args: Record<string, unkno
   return err("entity must be pbi | task")
 }
 
+// ── propose_icebox ──────────────────────────────────────────────────────────
+
+async function proposeIcebox(projectId: string, args: Record<string, unknown>): Promise<string> {
+  const request = strArg(args.request, 5000)
+  if (!request) return err("request is required")
+  const existing = await prisma.iceboxItem.findMany({
+    where: { projectId, status: { not: "completed" } },
+    orderBy: { createdAt: "desc" },
+    take: 200,
+    select: { displayId: true, request: true },
+  })
+  const dupes = mostSimilar(
+    request,
+    existing.map((i) => ({ key: String(i.displayId), title: trunc(i.request, 120), displayId: i.displayId })),
+    0.6,
+    3,
+  )
+  const proposal: CreateIceboxProposal = {
+    kind: "create_icebox",
+    proposalId: proposalIdOf("create_icebox", { request, background: strArg(args.background, 5000) ?? "" }),
+    request,
+    background: strArg(args.background, 5000) ?? "",
+    reason: strArg(args.reason, 1000) ?? "",
+  }
+  const note = dupes.length > 0
+    ? `Similar Icebox items already exist: ${dupes.map((d) => `#${d.displayId} ${d.title}`).join(" / ")}. Mention them to the user.`
+    : ""
+  return reply(proposal, note)
+}
+
+// ── propose_sprint_pbi ──────────────────────────────────────────────────────
+
+async function proposeSprintPbi(projectId: string, args: Record<string, unknown>): Promise<string> {
+  const action = strArg(args.action, 10)
+  if (action !== "add" && action !== "remove") return err("action must be add | remove")
+  const pbi = await findPbi(projectId, args.pbi_id)
+  if (!pbi) return err("PBI not found in this project (use its #number)")
+  const sprintName = strArg(args.sprint, 100)
+  const sprints = await prisma.sprint.findMany({
+    where: { projectId, status: { in: OPEN_SPRINTS }, ...(sprintName ? { sprintName: { contains: sprintName } } : {}) },
+    orderBy: { startDate: "desc" },
+    take: 5,
+    select: { id: true, sprintName: true },
+  })
+  if (sprints.length === 0) return err("no matching open sprint (planning / active / review)")
+  if (sprintName && sprints.length > 1) {
+    return err(`ambiguous sprint name; ask the user which one: ${sprints.map((s) => `"${trunc(s.sprintName, 40)}"`).join(", ")}`)
+  }
+  const sprint = sprints[0]
+  const rows = await prisma.sprintBacklogItem.findMany({
+    where: { sprintId: sprint.id, pbItemId: pbi.id },
+    select: { taskName: true },
+  })
+  const isMember = rows.length > 0
+  if (action === "add" && isMember) return err(`PBI #${pbi.displayId} is already in "${sprint.sprintName}"`)
+  if (action === "add" && pbi.status === "completed") return err(`PBI #${pbi.displayId} is already completed`)
+  if (action === "remove" && !isMember) return err(`PBI #${pbi.displayId} is not in "${sprint.sprintName}"`)
+  const taskCount = rows.filter((r) => (r.taskName ?? "").trim()).length
+  const proposal: SprintPbiProposal = {
+    kind: "sprint_pbi",
+    proposalId: proposalIdOf("sprint_pbi", { action, pbiId: pbi.id, sprintId: sprint.id, at: Date.now() }),
+    action,
+    pbi: { id: pbi.id, displayId: pbi.displayId, title: trunc(pbi.initiative || pbi.userStory, 120) || "(untitled)" },
+    sprint: { id: sprint.id, name: trunc(sprint.sprintName, 120) },
+    ...(action === "remove" && { taskCount }),
+    reason: strArg(args.reason, 1000) ?? "",
+  }
+  return reply(proposal, action === "remove" && taskCount > 0 ? `Removing also deletes ${taskCount} task(s); say so.` : "")
+}
+
 export const proposalHandlers: Record<string, ToolHandler> = {
+  propose_icebox: ({ projectId, args }) => proposeIcebox(projectId, args),
+  propose_sprint_pbi: ({ projectId, args }) => proposeSprintPbi(projectId, args),
   propose_pbi: ({ projectId, args }) => proposePbi(projectId, args),
   propose_task_split: ({ projectId, args }) => proposeTaskSplit(projectId, args),
   propose_status_change: ({ projectId, args }) => proposeStatusChange(projectId, args),

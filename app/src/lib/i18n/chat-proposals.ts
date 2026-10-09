@@ -35,6 +35,40 @@ export interface ChatProposalsTranslations {
   chatProposalReason: string
   chatProposalTargetPbi: string
   chatProposalTargetTask: string
+  chatProposalCreateIceboxTitle: string
+  chatProposalSprintPbiTitle: string
+  chatProposalPlanEditTitle: string
+  chatProposalSprintScheduleTitle: string
+  chatProposalCreateTemplateTitle: string
+  chatProposalIceboxCreated: string
+  chatProposalSprintPbiAdded: string
+  chatProposalSprintPbiRemoved: string
+  chatProposalPlanEdited: string
+  chatProposalSprintScheduled: string
+  chatProposalTemplateCreated: string
+  chatProposalPartial: string
+  chatProposalRequest: string
+  chatProposalBackground: string
+  chatProposalActionAdd: string
+  chatProposalActionRemove: string
+  chatProposalRemoveWarning: string
+  chatProposalOpCreate: string
+  chatProposalOpUpdate: string
+  chatProposalOpShiftLater: string
+  chatProposalOpShiftEarlier: string
+  chatProposalDurationDays: string
+  chatProposalFollowersNone: string
+  chatProposalFollowersDependents: string
+  chatProposalFollowersLater: string
+  chatProposalUndated: string
+  chatProposalParent: string
+  chatProposalMilestone: string
+  chatProposalPeriod: string
+  chatProposalStages: string
+  chatProposalVisibilityPrivate: string
+  chatProposalVisibilityPublic: string
+  chatProposalTemplateStatus: string
+  chatProposalRenameTo: string
 }
 
 export const ja: ChatProposalsTranslations = {
@@ -69,6 +103,40 @@ export const ja: ChatProposalsTranslations = {
   chatProposalReason: "理由",
   chatProposalTargetPbi: "PBI",
   chatProposalTargetTask: "タスク",
+  chatProposalCreateIceboxTitle: "Icebox 追加の提案",
+  chatProposalSprintPbiTitle: "スプリント構成変更の提案",
+  chatProposalPlanEditTitle: "全体計画の変更提案",
+  chatProposalSprintScheduleTitle: "スプリント期間の変更提案",
+  chatProposalCreateTemplateTitle: "計画テンプレート作成の提案",
+  chatProposalIceboxCreated: "Icebox に追加しました",
+  chatProposalSprintPbiAdded: "PBI をスプリントに入れました",
+  chatProposalSprintPbiRemoved: "PBI をスプリントから外しました",
+  chatProposalPlanEdited: "全体計画を {count} 件変更しました",
+  chatProposalSprintScheduled: "スプリント期間を変更しました",
+  chatProposalTemplateCreated: "テンプレートを作成しました",
+  chatProposalPartial: "{done} / {total} 件を反映したところで失敗しました。続きは画面から確認してください",
+  chatProposalRequest: "要望",
+  chatProposalBackground: "背景",
+  chatProposalActionAdd: "スプリントに入れる",
+  chatProposalActionRemove: "スプリントから外す",
+  chatProposalRemoveWarning: "タスク {count} 件も一緒に削除されます",
+  chatProposalOpCreate: "追加",
+  chatProposalOpUpdate: "変更",
+  chatProposalOpShiftLater: "{days} 日後ろへずらす",
+  chatProposalOpShiftEarlier: "{days} 日前へずらす",
+  chatProposalDurationDays: "{days} 日",
+  chatProposalFollowersNone: "後続は動かさない",
+  chatProposalFollowersDependents: "依存する後続も動かす",
+  chatProposalFollowersLater: "これより後の項目も動かす",
+  chatProposalUndated: "日程未定",
+  chatProposalParent: "親",
+  chatProposalMilestone: "マイルストーン",
+  chatProposalPeriod: "期間",
+  chatProposalStages: "段階 {count} 件",
+  chatProposalVisibilityPrivate: "自分だけ",
+  chatProposalVisibilityPublic: "全員に公開",
+  chatProposalTemplateStatus: "状態",
+  chatProposalRenameTo: "名称変更",
 }
 
 export const en: ChatProposalsTranslations = {
@@ -103,6 +171,40 @@ export const en: ChatProposalsTranslations = {
   chatProposalReason: "Reason",
   chatProposalTargetPbi: "PBI",
   chatProposalTargetTask: "Task",
+  chatProposalCreateIceboxTitle: "Proposal: add to Icebox",
+  chatProposalSprintPbiTitle: "Proposal: change sprint contents",
+  chatProposalPlanEditTitle: "Proposal: change the master plan",
+  chatProposalSprintScheduleTitle: "Proposal: change the sprint period",
+  chatProposalCreateTemplateTitle: "Proposal: create a plan template",
+  chatProposalIceboxCreated: "Added to the Icebox",
+  chatProposalSprintPbiAdded: "PBI put into the sprint",
+  chatProposalSprintPbiRemoved: "PBI taken out of the sprint",
+  chatProposalPlanEdited: "Changed {count} plan item(s)",
+  chatProposalSprintScheduled: "Sprint period changed",
+  chatProposalTemplateCreated: "Template created",
+  chatProposalPartial: "Failed after {done} of {total} changes were applied. Check the rest on screen",
+  chatProposalRequest: "Request",
+  chatProposalBackground: "Background",
+  chatProposalActionAdd: "Put into the sprint",
+  chatProposalActionRemove: "Take out of the sprint",
+  chatProposalRemoveWarning: "{count} task(s) will be deleted with it",
+  chatProposalOpCreate: "Add",
+  chatProposalOpUpdate: "Change",
+  chatProposalOpShiftLater: "Move {days} day(s) later",
+  chatProposalOpShiftEarlier: "Move {days} day(s) earlier",
+  chatProposalDurationDays: "{days} d",
+  chatProposalFollowersNone: "Leave later items",
+  chatProposalFollowersDependents: "Also move dependent items",
+  chatProposalFollowersLater: "Also move everything after it",
+  chatProposalUndated: "Undated",
+  chatProposalParent: "Parent",
+  chatProposalMilestone: "Milestone",
+  chatProposalPeriod: "Period",
+  chatProposalStages: "{count} stage(s)",
+  chatProposalVisibilityPrivate: "Only me",
+  chatProposalVisibilityPublic: "Everyone",
+  chatProposalTemplateStatus: "Status",
+  chatProposalRenameTo: "Rename to",
 }
 
 export const id: ChatProposalsTranslations = {
@@ -137,4 +239,38 @@ export const id: ChatProposalsTranslations = {
   chatProposalReason: "Alasan",
   chatProposalTargetPbi: "PBI",
   chatProposalTargetTask: "Tugas",
+  chatProposalCreateIceboxTitle: "Usulan: tambah ke Icebox",
+  chatProposalSprintPbiTitle: "Usulan: ubah isi sprint",
+  chatProposalPlanEditTitle: "Usulan: ubah rencana induk",
+  chatProposalSprintScheduleTitle: "Usulan: ubah periode sprint",
+  chatProposalCreateTemplateTitle: "Usulan: buat templat rencana",
+  chatProposalIceboxCreated: "Ditambahkan ke Icebox",
+  chatProposalSprintPbiAdded: "PBI dimasukkan ke sprint",
+  chatProposalSprintPbiRemoved: "PBI dikeluarkan dari sprint",
+  chatProposalPlanEdited: "{count} item rencana diubah",
+  chatProposalSprintScheduled: "Periode sprint diubah",
+  chatProposalTemplateCreated: "Templat dibuat",
+  chatProposalPartial: "Gagal setelah {done} dari {total} perubahan diterapkan. Periksa sisanya di layar",
+  chatProposalRequest: "Permintaan",
+  chatProposalBackground: "Latar belakang",
+  chatProposalActionAdd: "Masukkan ke sprint",
+  chatProposalActionRemove: "Keluarkan dari sprint",
+  chatProposalRemoveWarning: "{count} tugas akan ikut dihapus",
+  chatProposalOpCreate: "Tambah",
+  chatProposalOpUpdate: "Ubah",
+  chatProposalOpShiftLater: "Geser {days} hari lebih lambat",
+  chatProposalOpShiftEarlier: "Geser {days} hari lebih cepat",
+  chatProposalDurationDays: "{days} hari",
+  chatProposalFollowersNone: "Biarkan item berikutnya",
+  chatProposalFollowersDependents: "Geser juga item yang bergantung",
+  chatProposalFollowersLater: "Geser juga semua item sesudahnya",
+  chatProposalUndated: "Belum dijadwalkan",
+  chatProposalParent: "Induk",
+  chatProposalMilestone: "Milestone",
+  chatProposalPeriod: "Periode",
+  chatProposalStages: "{count} tahap",
+  chatProposalVisibilityPrivate: "Hanya saya",
+  chatProposalVisibilityPublic: "Semua orang",
+  chatProposalTemplateStatus: "Status",
+  chatProposalRenameTo: "Ubah nama menjadi",
 }

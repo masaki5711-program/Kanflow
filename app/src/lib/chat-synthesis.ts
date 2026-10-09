@@ -1,4 +1,5 @@
 import type { AILang } from "@/lib/ai-analysis"
+import { OllamaHttpError } from "@/lib/ollama/errors"
 
 /**
  * Final answer pass of the chat tool loop (pure). When the model has used up
@@ -54,6 +55,26 @@ const CONTEXT_MARGIN_TOKENS = 512
 export function wouldOverflowContext(promptTokens: number, addedChars: number, numCtx: number): boolean {
   if (promptTokens <= 0) return false // no measurement: leave it to the model
   return promptTokens + addedChars > numCtx - CONTEXT_MARGIN_TOKENS
+}
+
+/** Size of the whole conversation in characters (the 1-token-per-character worst case of the guard). */
+export function conversationChars(conversation: readonly SynthesisMessage[]): number {
+  return conversation.reduce((sum, m) => sum + m.content.length, 0)
+}
+
+/** Largest tool result handed back to the model: one big file must not fill the shared 12k context. */
+export const TOOL_RESULT_MAX_CHARS = 6000
+
+/** Shorten a tool result to `max` characters, marking the cut (pure, new string). */
+export function capToolResult(result: string, max = TOOL_RESULT_MAX_CHARS): string {
+  if (result.length <= max) return result
+  const mark = "…(truncated)"
+  return `${result.slice(0, max - mark.length)}${mark}`
+}
+
+/** The Ollama 500 raised when num_ctx overflowed and the question was dropped. */
+export function isContextOverflowError(err: unknown): boolean {
+  return err instanceof OllamaHttpError && err.status === 500 && /no user query/i.test(err.detail)
 }
 
 /** Tool results of the conversation, newest first, within the character budget. */

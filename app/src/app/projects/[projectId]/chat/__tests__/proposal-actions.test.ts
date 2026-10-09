@@ -77,3 +77,85 @@ describe("applyProposal", () => {
     expect(err).toMatchObject({ status: 403 })
   })
 })
+
+
+const ICEBOX: ChatProposal = { kind: "create_icebox", proposalId: "prop_i", request: "Dark mode", background: "Night shifts", reason: "" }
+const SPRINT_ADD: ChatProposal = {
+  kind: "sprint_pbi", proposalId: "prop_s", action: "add", pbi: { id: "pb-1", displayId: 4, title: "Login" }, sprint: { id: "s1", name: "S1" }, reason: "",
+}
+const SPRINT_REMOVE: ChatProposal = { ...SPRINT_ADD, action: "remove" } as ChatProposal
+const PLAN_EDIT: ChatProposal = {
+  kind: "plan_edit", proposalId: "prop_p", reason: "",
+  ops: [
+    { op: "create", name: "UAT", parent: { id: "pl-1", name: "Release" }, plannedStart: "2026-11-02", plannedEnd: "2026-11-06", isMilestone: false, durationDays: null },
+    { op: "update", target: { id: "pl-2", name: "Build" }, version: 3, changes: { plannedEnd: "2026-11-20" },
+      before: { name: "Build", plannedStart: "2026-11-01", plannedEnd: "2026-11-13", status: "in_progress" } },
+    { op: "shift", target: { id: "pl-3", name: "Test" }, version: 1, days: 7, followers: "dependents",
+      before: { plannedStart: "2026-12-01", plannedEnd: "2026-12-05" }, after: { plannedStart: "2026-12-08", plannedEnd: "2026-12-12" } },
+  ],
+}
+const SPRINT_SCHEDULE: ChatProposal = {
+  kind: "sprint_schedule", proposalId: "prop_ss", sprint: { id: "s1", name: "S1" }, version: 2,
+  before: { startDate: "2026-10-12", endDate: "2026-10-23" }, after: { startDate: "2026-10-19", endDate: "2026-10-30" }, reason: "",
+}
+const TEMPLATE: ChatProposal = {
+  kind: "create_template", proposalId: "prop_t", name: "Release", description: "", visibility: "private", stageCount: 1, reason: "",
+  content: { stages: [{ name: "Plan", durationDays: 5 }] },
+}
+
+describe("scheduling proposals", () => {
+  it("maps each to the route permission", () => {
+    expect(requiredAction(ICEBOX)).toBe("icebox.write")
+    expect(requiredAction(SPRINT_ADD)).toBe("sprint.manage")
+    expect(requiredAction(SPRINT_SCHEDULE)).toBe("sprint.manage")
+    expect(requiredAction(PLAN_EDIT)).toBe("plan.write")
+    expect(requiredAction(TEMPLATE)).toBe("project.view")
+  })
+
+  it("adds to the Icebox, leaving an empty background out", () => {
+    expect(proposalRequests("p1", ICEBOX)).toEqual([
+      { url: "/api/projects/p1/icebox", method: "POST", json: { request: "Dark mode", background: "Night shifts" } },
+    ])
+    expect(proposalRequests("p1", { ...ICEBOX, background: "" } as ChatProposal)[0].json).toEqual({ request: "Dark mode" })
+  })
+
+  it("puts a PBI into a sprint or takes it out", () => {
+    expect(proposalRequests("p1", SPRINT_ADD)).toEqual([
+      { url: "/api/projects/p1/sprints/s1/pbis", method: "POST", json: { pbIds: ["pb-1"] } },
+    ])
+    expect(proposalRequests("p1", SPRINT_REMOVE)).toEqual([
+      { url: "/api/projects/p1/sprints/s1/pbis", method: "DELETE", json: { pbItemId: "pb-1" } },
+    ])
+  })
+
+  it("applies plan edits in order: create, versioned update, followers before the shifted item", () => {
+    expect(proposalRequests("p1", PLAN_EDIT)).toEqual([
+      { url: "/api/projects/p1/plan", method: "POST",
+        json: { name: "UAT", parentId: "pl-1", plannedStart: "2026-11-02", plannedEnd: "2026-11-06", isMilestone: false } },
+      { url: "/api/projects/p1/plan/pl-2", method: "PATCH", json: { plannedEnd: "2026-11-20", version: 3 } },
+      { url: "/api/projects/p1/plan/pl-3/shift-following", method: "POST", json: { scope: "dependents", apply: true, deltaDays: 7 } },
+      { url: "/api/projects/p1/plan/pl-3", method: "PATCH", json: { plannedStart: "2026-12-08", plannedEnd: "2026-12-12", version: 1 } },
+    ])
+  })
+
+  it("changes the sprint dates with the proposal's version", () => {
+    expect(proposalRequests("p1", SPRINT_SCHEDULE)).toEqual([
+      { url: "/api/projects/p1/sprints/s1", method: "PATCH", json: { startDate: "2026-10-19", endDate: "2026-10-30", version: 2 } },
+    ])
+  })
+
+  it("creates a template through the shared template API", () => {
+    expect(proposalRequests("p1", TEMPLATE)).toEqual([
+      { url: "/api/plan-templates", method: "POST",
+        json: { name: "Release", description: null, visibility: "private", content: { stages: [{ name: "Plan", durationDays: 5 }] } } },
+    ])
+  })
+
+  it("links to where the result lives", () => {
+    expect(proposalResultHref("p1", ICEBOX, ["i1"])).toBe("/projects/p1/icebox")
+    expect(proposalResultHref("p1", SPRINT_ADD, [])).toBe("/projects/p1/sprints")
+    expect(proposalResultHref("p1", PLAN_EDIT, [])).toBe("/projects/p1/plan")
+    expect(proposalResultHref("p1", SPRINT_SCHEDULE, [])).toBe("/projects/p1/sprints")
+    expect(proposalResultHref("p1", TEMPLATE, ["t1"])).toBe("/templates")
+  })
+})

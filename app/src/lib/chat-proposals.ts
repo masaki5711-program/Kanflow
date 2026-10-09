@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { templateContentSchema } from "@/lib/plan-templates/schema"
 
 /**
  * Approval-based write proposals of the AI chat (P3) — shared by the server
@@ -70,15 +71,119 @@ export const statusChangeProposalSchema = z.object({
   reason: z.string().max(1000),
 })
 
+export const createIceboxProposalSchema = z.object({
+  kind: z.literal("create_icebox"),
+  proposalId: id,
+  request: z.string().min(1).max(5000),
+  background: z.string().max(5000),
+  reason: z.string().max(1000),
+})
+
+/** Put a PBI into a sprint, or take it out again. */
+export const sprintPbiProposalSchema = z.object({
+  kind: z.literal("sprint_pbi"),
+  proposalId: id,
+  action: z.enum(["add", "remove"]),
+  pbi: pbiRef,
+  sprint: z.object({ id, name: shortText }),
+  /** Tasks removed together with the PBI (action "remove"). */
+  taskCount: z.number().int().min(0).optional(),
+  reason: z.string().max(1000),
+})
+
+/** "YYYY-MM-DD"; null = 日程未定. */
+const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+const planRef = z.object({ id, name: shortText })
+const period = z.object({ plannedStart: day.nullable(), plannedEnd: day.nullable() })
+
+export const PLAN_OP_MAX = 20
+export const SHIFT_FOLLOWERS = ["none", "dependents", "later"] as const
+
+const planCreateOp = z.object({
+  op: z.literal("create"),
+  name: z.string().min(1).max(255),
+  parent: planRef.nullable(),
+  plannedStart: day.nullable(),
+  plannedEnd: day.nullable(),
+  isMilestone: z.boolean(),
+  durationDays: z.number().int().min(1).max(3650).nullable(),
+})
+
+const planUpdateOp = z.object({
+  op: z.literal("update"),
+  target: planRef,
+  /** Optimistic-lock version read when the proposal was made. */
+  version: z.number().int().min(0),
+  changes: z.object({
+    name: z.string().min(1).max(255).optional(),
+    plannedStart: day.nullable().optional(),
+    plannedEnd: day.nullable().optional(),
+    status: z.string().max(32).optional(),
+  }),
+  before: period.extend({ name: shortText, status: z.string().max(32) }),
+})
+
+/** Move one item by whole days (the server did the date arithmetic), optionally with the rows after it. */
+const planShiftOp = z.object({
+  op: z.literal("shift"),
+  target: planRef,
+  version: z.number().int().min(0),
+  days: z.number().int().min(-3650).max(3650),
+  before: period,
+  after: period,
+  followers: z.enum(SHIFT_FOLLOWERS),
+})
+
+export const planOpSchema = z.discriminatedUnion("op", [planCreateOp, planUpdateOp, planShiftOp])
+
+export const planEditProposalSchema = z.object({
+  kind: z.literal("plan_edit"),
+  proposalId: id,
+  ops: z.array(planOpSchema).min(1).max(PLAN_OP_MAX),
+  reason: z.string().max(1000),
+})
+
+export const sprintScheduleProposalSchema = z.object({
+  kind: z.literal("sprint_schedule"),
+  proposalId: id,
+  sprint: z.object({ id, name: shortText }),
+  version: z.number().int().min(0),
+  before: z.object({ startDate: day, endDate: day }),
+  after: z.object({ startDate: day, endDate: day }),
+  reason: z.string().max(1000),
+})
+
+export const createTemplateProposalSchema = z.object({
+  kind: z.literal("create_template"),
+  proposalId: id,
+  name: z.string().min(1).max(255),
+  description: z.string().max(2000),
+  visibility: z.enum(["public", "private"]),
+  content: templateContentSchema,
+  stageCount: z.number().int().min(0),
+  reason: z.string().max(1000),
+})
+
 export const chatProposalSchema = z.discriminatedUnion("kind", [
   createPbiProposalSchema,
   taskSplitProposalSchema,
   statusChangeProposalSchema,
+  createIceboxProposalSchema,
+  sprintPbiProposalSchema,
+  planEditProposalSchema,
+  sprintScheduleProposalSchema,
+  createTemplateProposalSchema,
 ])
 
 export type CreatePbiProposal = z.infer<typeof createPbiProposalSchema>
 export type TaskSplitProposal = z.infer<typeof taskSplitProposalSchema>
 export type StatusChangeProposal = z.infer<typeof statusChangeProposalSchema>
+export type CreateIceboxProposal = z.infer<typeof createIceboxProposalSchema>
+export type SprintPbiProposal = z.infer<typeof sprintPbiProposalSchema>
+export type PlanOp = z.infer<typeof planOpSchema>
+export type PlanEditProposal = z.infer<typeof planEditProposalSchema>
+export type SprintScheduleProposal = z.infer<typeof sprintScheduleProposalSchema>
+export type CreateTemplateProposal = z.infer<typeof createTemplateProposalSchema>
 export type ChatProposal = z.infer<typeof chatProposalSchema>
 export type ChatProposalKind = ChatProposal["kind"]
 
@@ -188,7 +293,16 @@ export function proposalsOf(events: readonly ChatUiEvent[]): ChatProposal[] {
 }
 
 /** Names of the tools that return a proposal (see lib/proposal-tools.ts). */
-export const PROPOSAL_TOOL_NAMES = ["propose_pbi", "propose_task_split", "propose_status_change"] as const
+export const PROPOSAL_TOOL_NAMES = [
+  "propose_pbi",
+  "propose_task_split",
+  "propose_status_change",
+  "propose_icebox",
+  "propose_sprint_pbi",
+  "propose_plan_edit",
+  "propose_sprint_schedule",
+  "propose_template",
+] as const
 
 /**
  * The proposal inside a proposal tool's JSON result (`{ proposal: {...} }`),

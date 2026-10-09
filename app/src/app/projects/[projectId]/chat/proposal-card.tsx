@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react"
 import Link from "next/link"
-import { Check, ListChecks, PlusSquare, RefreshCw, X } from "lucide-react"
+import { CalendarClock, Check, ListChecks, PlusSquare, RefreshCw, Snowflake, SquareStack, Workflow, X } from "lucide-react"
 import { Badge, Button } from "@/components/ui"
 import { useLanguage } from "@/lib/language-context"
 import type {
@@ -13,6 +13,7 @@ import type {
   TaskSplitProposal,
 } from "@/lib/chat-proposals"
 import { requiredAction } from "./proposal-actions"
+import { IceboxBody, PlanEditBody, SprintPbiBody, SprintScheduleBody, TemplateBody } from "./proposal-card-schedule"
 import { useProposalContext } from "./proposal-context"
 import { useProposalApproval } from "./use-proposal-approval"
 
@@ -58,9 +59,26 @@ const TITLE_KEY = {
   create_pbi: "chatProposalCreatePbiTitle",
   task_split: "chatProposalTaskSplitTitle",
   status_change: "chatProposalStatusChangeTitle",
+  create_icebox: "chatProposalCreateIceboxTitle",
+  sprint_pbi: "chatProposalSprintPbiTitle",
+  plan_edit: "chatProposalPlanEditTitle",
+  sprint_schedule: "chatProposalSprintScheduleTitle",
+  create_template: "chatProposalCreateTemplateTitle",
 } as const
 
-const ICON = { create_pbi: PlusSquare, task_split: ListChecks, status_change: RefreshCw } as const
+const ICON = {
+  create_pbi: PlusSquare,
+  task_split: ListChecks,
+  status_change: RefreshCw,
+  create_icebox: Snowflake,
+  sprint_pbi: SquareStack,
+  plan_edit: CalendarClock,
+  sprint_schedule: CalendarClock,
+  create_template: Workflow,
+} as const
+
+/** Proposals that make something new read "approve and create"; changes read "approve and apply". */
+const CREATES = new Set<ChatProposal["kind"]>(["create_pbi", "task_split", "create_icebox", "create_template"])
 
 function ProposalCard({ projectId, threadId, proposal, storedOutcome, pending }: CardProps) {
   const { t } = useLanguage()
@@ -88,6 +106,11 @@ function ProposalCard({ projectId, threadId, proposal, storedOutcome, pending }:
         {proposal.kind === "create_pbi" && <CreatePbiBody p={proposal} t={t} />}
         {proposal.kind === "task_split" && <TaskSplitBody p={proposal} t={t} />}
         {proposal.kind === "status_change" && <StatusChangeBody p={proposal} t={t} />}
+        {proposal.kind === "create_icebox" && <IceboxBody p={proposal} t={t} />}
+        {proposal.kind === "sprint_pbi" && <SprintPbiBody p={proposal} t={t} />}
+        {proposal.kind === "plan_edit" && <PlanEditBody p={proposal} t={t} />}
+        {proposal.kind === "sprint_schedule" && <SprintScheduleBody p={proposal} t={t} />}
+        {proposal.kind === "create_template" && <TemplateBody p={proposal} t={t} />}
         {proposal.reason && (
           <p className="text-caption text-fg-muted">
             <span className="font-medium">{t.chatProposalReason}: </span>
@@ -112,7 +135,7 @@ function ProposalCard({ projectId, threadId, proposal, storedOutcome, pending }:
             >
               {state.status === "applying"
                 ? t.chatProposalApplying
-                : proposal.kind === "status_change" ? t.chatProposalApproveApply : t.chatProposalApproveCreate}
+                : CREATES.has(proposal.kind) ? t.chatProposalApproveCreate : t.chatProposalApproveApply}
             </Button>
             <Button
               size="sm"

@@ -48,6 +48,9 @@ describe("selectPacks", () => {
     expect(selectPacks({ messages: [user("次のリリースはいつ？")] })).toEqual(["planning"])
     expect(selectPacks({ messages: [user("Compare the last two sprints")] })).toEqual(["history"])
     expect(selectPacks({ messages: [user("Buat PBI baru untuk login")] })).toEqual(["proposals"])
+    expect(selectPacks({ messages: [user("この要望をアイスボックスに追加して")] })).toEqual(["history", "proposals"])
+    expect(selectPacks({ messages: [user("テンプレートを一緒に作りたい")] })).toEqual(["schedule"])
+    expect(selectPacks({ messages: [user("Tunda jadwal sprint ini")] })).toEqual(["planning", "schedule"])
     expect(selectPacks({ messages: [user("このPBIをタスクに分割して")] })).toEqual(["proposals"])
   })
 

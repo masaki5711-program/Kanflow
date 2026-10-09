@@ -4,6 +4,8 @@ const m = vi.hoisted(() => ({
   pbiFindFirst: vi.fn(),
   pbiFindMany: vi.fn(),
   sbiFindMany: vi.fn(),
+  iceFindMany: vi.fn(),
+  sprintFindMany: vi.fn(),
 }))
 
 // Every write method throws: proposal tools must never write.
@@ -14,6 +16,8 @@ vi.mock("@/lib/prisma", () => ({
   prisma: {
     productBacklogItem: { findFirst: m.pbiFindFirst, findMany: m.pbiFindMany, create: forbidden, update: forbidden },
     sprintBacklogItem: { findMany: m.sbiFindMany, create: forbidden, update: forbidden },
+    iceboxItem: { findMany: m.iceFindMany, create: forbidden, update: forbidden },
+    sprint: { findMany: m.sprintFindMany, update: forbidden },
   },
 }))
 
@@ -25,6 +29,7 @@ const run = async (name: string, args: Record<string, unknown>) => JSON.parse(aw
 beforeEach(() => {
   vi.clearAllMocks()
   m.pbiFindMany.mockResolvedValue([])
+  m.iceFindMany.mockResolvedValue([])
 })
 
 describe("definitions", () => {
@@ -146,5 +151,68 @@ describe("proposalIdOf", () => {
   it("is deterministic per kind and payload", () => {
     expect(proposalIdOf("a", { x: 1 })).toBe(proposalIdOf("a", { x: 1 }))
     expect(proposalIdOf("a", { x: 1 })).not.toBe(proposalIdOf("b", { x: 1 }))
+  })
+})
+
+
+describe("propose_icebox", () => {
+  it("returns a valid create_icebox proposal and warns about similar items", async () => {
+    m.iceFindMany.mockResolvedValue([{ displayId: 9, request: "Dark mode for the board" }])
+    const out = await run("propose_icebox", { request: "Dark mode for the board", background: "night shifts" })
+    expect(parseChatProposal(out.proposal)).not.toBeNull()
+    expect(out.proposal).toMatchObject({ kind: "create_icebox", request: "Dark mode for the board", background: "night shifts" })
+    expect(out.note).toMatch(/NOTHING has been written/)
+    expect(out.note).toMatch(/#9/)
+  })
+
+  it("stays quiet when nothing is similar and rejects an empty request", async () => {
+    const out = await run("propose_icebox", { request: "Export to PDF" })
+    expect(out.note).not.toMatch(/Similar/)
+    expect(await run("propose_icebox", { request: " " })).toEqual({ error: "request is required" })
+  })
+})
+
+describe("propose_sprint_pbi", () => {
+  const pbi = { id: "pb1", displayId: 12, initiative: "Login", userStory: null, status: "ready", version: 3 }
+  const sprint = { id: "s1", sprintName: "Sprint 12" }
+
+  beforeEach(() => {
+    m.pbiFindFirst.mockResolvedValue(pbi)
+    m.sprintFindMany.mockResolvedValue([sprint])
+    m.sbiFindMany.mockResolvedValue([])
+  })
+
+  it("proposes adding a PBI that is not in the sprint yet", async () => {
+    const out = await run("propose_sprint_pbi", { pbi_id: "#12", action: "add" })
+    expect(parseChatProposal(out.proposal)).not.toBeNull()
+    expect(out.proposal).toMatchObject({ kind: "sprint_pbi", action: "add", pbi: { id: "pb1", displayId: 12 }, sprint: { id: "s1" } })
+    expect(out.proposal.taskCount).toBeUndefined()
+  })
+
+  it("proposes removing a member PBI and counts the tasks that go with it", async () => {
+    m.sbiFindMany.mockResolvedValue([{ taskName: null }, { taskName: "Design" }, { taskName: "Build" }])
+    const out = await run("propose_sprint_pbi", { pbi_id: "12", action: "remove" })
+    expect(out.proposal).toMatchObject({ action: "remove", taskCount: 2 })
+    expect(out.note).toMatch(/deletes 2 task/)
+  })
+
+  it("refuses what makes no sense", async () => {
+    m.sbiFindMany.mockResolvedValue([{ taskName: null }])
+    expect(await run("propose_sprint_pbi", { pbi_id: "12", action: "add" })).toEqual({ error: expect.stringContaining("already in") })
+    m.sbiFindMany.mockResolvedValue([])
+    expect(await run("propose_sprint_pbi", { pbi_id: "12", action: "remove" })).toEqual({ error: expect.stringContaining("not in") })
+    m.pbiFindFirst.mockResolvedValue({ ...pbi, status: "completed" })
+    expect(await run("propose_sprint_pbi", { pbi_id: "12", action: "add" })).toEqual({ error: expect.stringContaining("already completed") })
+    expect(await run("propose_sprint_pbi", { pbi_id: "12", action: "swap" })).toEqual({ error: "action must be add | remove" })
+    m.pbiFindFirst.mockResolvedValue(null)
+    expect(await run("propose_sprint_pbi", { pbi_id: "99", action: "add" })).toEqual({ error: expect.stringContaining("PBI not found") })
+    m.pbiFindFirst.mockResolvedValue(pbi)
+    m.sprintFindMany.mockResolvedValue([])
+    expect(await run("propose_sprint_pbi", { pbi_id: "12", action: "add" })).toEqual({ error: expect.stringContaining("no matching open sprint") })
+  })
+
+  it("asks which sprint when a name matches several", async () => {
+    m.sprintFindMany.mockResolvedValue([sprint, { id: "s2", sprintName: "Sprint 13" }])
+    expect(await run("propose_sprint_pbi", { pbi_id: "12", action: "add", sprint: "Sprint" })).toEqual({ error: expect.stringContaining("ambiguous") })
   })
 })

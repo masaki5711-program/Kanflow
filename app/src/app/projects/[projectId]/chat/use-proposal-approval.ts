@@ -5,7 +5,7 @@ import { useToast } from "@/components/ui"
 import { versionConflictOf } from "@/hooks"
 import { useLanguage } from "@/lib/language-context"
 import type { ChatProposal, ProposalOutcome } from "@/lib/chat-proposals"
-import { PartialApplyError, applyProposal } from "./proposal-actions"
+import { PartialApplyError, applyProposal, proposalResultHref } from "./proposal-actions"
 import { useProposalContext, type ProposalState } from "./proposal-context"
 import { confirmProposal, rejectProposal, releaseProposal, reserveProposal, stateFromOutcome } from "./proposal-outcome"
 
@@ -19,6 +19,16 @@ function successMessage(t: T, proposal: ChatProposal, count: number): string {
       return t.chatProposalTasksCreated.replace("{count}", String(count))
     case "status_change":
       return t.chatProposalStatusChanged
+    case "create_icebox":
+      return t.chatProposalIceboxCreated
+    case "sprint_pbi":
+      return proposal.action === "add" ? t.chatProposalSprintPbiAdded : t.chatProposalSprintPbiRemoved
+    case "plan_edit":
+      return t.chatProposalPlanEdited.replace("{count}", String(proposal.ops.length))
+    case "sprint_schedule":
+      return t.chatProposalSprintScheduled
+    case "create_template":
+      return t.chatProposalTemplateCreated
   }
 }
 
@@ -77,9 +87,10 @@ export function useProposalApproval({ projectId, threadId, proposal, storedOutco
       if (err instanceof PartialApplyError) {
         // Some rows exist: record as applied so a retry cannot duplicate them.
         if (tracked) await confirmProposal(projectId, tracked, id, err.ids[0] ?? null).catch(() => undefined)
-        const href = `/projects/${encodeURIComponent(projectId)}/sprints?task=${encodeURIComponent(err.ids[0])}`
+        const href = proposalResultHref(projectId, proposal, err.ids)
         setState(id, { status: "applied", href })
-        toast.error(t.chatProposalTasksPartial.replace("{done}", String(err.done)).replace("{total}", String(err.total)), {
+        const partial = proposal.kind === "task_split" ? t.chatProposalTasksPartial : t.chatProposalPartial
+        toast.error(partial.replace("{done}", String(err.done)).replace("{total}", String(err.total)), {
           title: t.chatProposalFailed,
         })
         return

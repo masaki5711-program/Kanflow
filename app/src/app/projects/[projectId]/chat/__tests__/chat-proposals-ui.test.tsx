@@ -235,3 +235,64 @@ describe("chat proposal cards", () => {
     expect(screen.queryByRole("heading", { name: t.chatProposalCreatePbiTitle })).not.toBeInTheDocument()
   })
 })
+
+const PLAN: ChatProposal = {
+  kind: "plan_edit", proposalId: "prop_plan", reason: "遅れ",
+  ops: [
+    { op: "create", name: "受入試験", parent: { id: "pl-1", name: "リリース" }, plannedStart: "2026-11-02", plannedEnd: "2026-11-06", isMilestone: false, durationDays: null },
+    { op: "shift", target: { id: "pl-3", name: "結合試験" }, version: 1, days: 7, followers: "dependents",
+      before: { plannedStart: "2026-12-01", plannedEnd: "2026-12-05" }, after: { plannedStart: "2026-12-08", plannedEnd: "2026-12-12" } },
+  ],
+}
+const REMOVE: ChatProposal = {
+  kind: "sprint_pbi", proposalId: "prop_remove", action: "remove", pbi: { id: "pb-1", displayId: 4, title: "Login" },
+  sprint: { id: "s1", name: "Sprint 1" }, taskCount: 3, reason: "",
+}
+const TEMPLATE: ChatProposal = {
+  kind: "create_template", proposalId: "prop_tpl", name: "リリース計画", description: "", visibility: "private", stageCount: 2, reason: "",
+  content: { stages: [{ name: "設計", durationDays: 10, children: [{ name: "仕様書" }] }] },
+}
+
+describe("scheduling proposal cards", () => {
+  it("a plan edit shows each change and approving applies them in order, followers before the shifted item", async () => {
+    stub([PLAN], (url, init) => {
+      if (url === "/api/projects/p1/plan" && init?.method === "POST") return jsonResponse({ id: "pl-new" }, 201)
+      if (url.startsWith("/api/projects/p1/plan/pl-3")) return jsonResponse({ id: "pl-3" })
+      return undefined
+    })
+    const { user, card } = await askAndGetCard(t.chatProposalPlanEditTitle)
+    expect(within(card).getByText("受入試験")).toBeInTheDocument()
+    expect(within(card).getByText("2026-12-08 – 2026-12-12")).toBeInTheDocument()
+    expect(within(card).getByText(t.chatProposalFollowersDependents)).toBeInTheDocument()
+
+    const approve = within(card).getByRole("button", { name: t.chatProposalApproveApply })
+    await waitFor(() => expect(approve).toBeEnabled())
+    await user.click(approve)
+
+    await waitFor(() => expect(within(card).getByText(t.chatProposalApplied)).toBeInTheDocument())
+    const sent = fetchMock.mock.calls
+      .map(([u, i]) => `${(i as RequestInit | undefined)?.method ?? "GET"} ${String(u)}`)
+      .filter((s) => /^(POST|PATCH) \/api\/projects\/p1\/plan/.test(s))
+    expect(sent).toEqual([
+      "POST /api/projects/p1/plan",
+      "POST /api/projects/p1/plan/pl-3/shift-following",
+      "PATCH /api/projects/p1/plan/pl-3",
+    ])
+    expect(within(card).getByRole("link", { name: t.chatProposalOpen })).toHaveAttribute("href", "/projects/p1/plan")
+  })
+
+  it("taking a PBI out of a sprint warns that its tasks go too", async () => {
+    stub([REMOVE])
+    const { card } = await askAndGetCard(t.chatProposalSprintPbiTitle)
+    expect(within(card).getByRole("note")).toHaveTextContent(t.chatProposalRemoveWarning.replace("{count}", "3"))
+    expect(within(card).getByText(t.chatProposalActionRemove)).toBeInTheDocument()
+  })
+
+  it("a template card previews the stage tree and who can see it", async () => {
+    stub([TEMPLATE])
+    const { card } = await askAndGetCard(t.chatProposalCreateTemplateTitle)
+    expect(within(card).getByText("リリース計画")).toBeInTheDocument()
+    expect(within(card).getByText("仕様書")).toBeInTheDocument()
+    expect(within(card).getByText(new RegExp(t.chatProposalVisibilityPrivate))).toBeInTheDocument()
+  })
+})

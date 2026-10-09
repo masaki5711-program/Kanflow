@@ -64,7 +64,14 @@ describe("tool packs", () => {
   it("adds the matching pack and its routing guide", async () => {
     streamWithTools.mockReturnValueOnce(turn([{ type: "text", chunk: "ok" }]))
     await (await POST(req({ messages: [{ role: "user", content: "新しいPBIを作成して" }] }), ctx)).text()
-    expect(toolNames()).toEqual(["get_sprint_metrics", "propose_pbi", "propose_task_split", "propose_status_change"])
+    expect(toolNames()).toEqual([
+      "get_sprint_metrics",
+      "propose_icebox",
+      "propose_sprint_pbi",
+      "propose_pbi",
+      "propose_task_split",
+      "propose_status_change",
+    ])
     expect(streamWithTools.mock.calls[0][0][3].content).toContain("承認")
   })
 

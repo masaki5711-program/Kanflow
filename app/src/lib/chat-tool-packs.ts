@@ -5,6 +5,7 @@ import { PLANNING_TOOL_DEFS, planningHandlers } from "@/lib/analysis-tools-plann
 import { HISTORY_TOOL_DEFS, historyHandlers } from "@/lib/analysis-tools-history"
 import { PORTFOLIO_TOOL_DEFS, canViewPortfolio, portfolioHandlers } from "@/lib/analysis-tools-portfolio"
 import { PROPOSAL_TOOL_DEFS, proposalHandlers } from "@/lib/proposal-tools"
+import { SCHEDULE_TOOL_DEFS, scheduleHandlers } from "@/lib/schedule-tools"
 
 /**
  * Optional tool packs of the chat (P3). The core pack (CHAT_TOOLS in
@@ -18,7 +19,7 @@ import { PROPOSAL_TOOL_DEFS, proposalHandlers } from "@/lib/proposal-tools"
  * rephrase with the keyword.
  */
 
-export type PackName = "planning" | "history" | "portfolio" | "proposals"
+export type PackName = "planning" | "history" | "portfolio" | "proposals" | "schedule"
 
 interface Pack {
   defs: ToolDefinition[]
@@ -61,25 +62,50 @@ export const PACKS: Readonly<Record<PackName, Pack>> = {
   proposals: {
     defs: PROPOSAL_TOOL_DEFS,
     handlers: proposalHandlers,
-    keywords: /作成|作って|追加|起票|登録|分割|分解|タスク化|ステータス|完了にし|変更して|変えて|移して|提案|create|add|draft|new pbi|split|break down|status|mark as|move to|propose|buat|tambah|pecah|ubah status|tandai|usulkan/i,
+    keywords: /作成|作って|追加|起票|登録|分割|分解|タスク化|ステータス|完了にし|変更して|変えて|移して|入れて|外して|提案|アイスボックス|icebox|create|add|draft|new pbi|split|break down|status|mark as|move to|put .* in|propose|buat|tambah|pecah|ubah status|tandai|usulkan|masukkan/i,
     guide: {
       ja:
         "### 書き込みの提案（承認制）\n" +
-        "- PBI 作成 → `propose_pbi` / タスク分割 → `propose_task_split` / ステータス変更 → `propose_status_change`\n" +
+        "- PBI 作成 → `propose_pbi` / タスク分割 → `propose_task_split` / ステータス変更 → `propose_status_change` / Icebox に追加 → `propose_icebox` / PBI をスプリントへ入れる・外す → `propose_sprint_pbi`\n" +
         "- これらは**提案のみで何も書き込まない**。画面に承認カードが出るので「カードの［承認］で反映されます」と伝える。作成・変更済みと言ってはならない。",
       en:
         "### Write proposals (approval required)\n" +
-        "- Create PBI → `propose_pbi` / split into tasks → `propose_task_split` / change status → `propose_status_change`\n" +
+        "- Create PBI → `propose_pbi` / split into tasks → `propose_task_split` / change status → `propose_status_change` / add to Icebox → `propose_icebox` / put a PBI into or out of a sprint → `propose_sprint_pbi`\n" +
         "- These only PROPOSE; nothing is written. The UI shows an approval card — tell the user to press Approve on it. Never claim it was created or changed.",
       id:
         "### Usulan penulisan (perlu persetujuan)\n" +
-        "- Buat PBI → `propose_pbi` / pecah jadi tugas → `propose_task_split` / ubah status → `propose_status_change`\n" +
+        "- Buat PBI → `propose_pbi` / pecah jadi tugas → `propose_task_split` / ubah status → `propose_status_change` / tambah ke Icebox → `propose_icebox` / masukkan atau keluarkan PBI dari sprint → `propose_sprint_pbi`\n" +
         "- Alat ini hanya MENGUSULKAN; tidak ada yang ditulis. UI menampilkan kartu persetujuan — minta pengguna menekan Setujui. Jangan mengatakan sudah dibuat/diubah.",
+    },
+  },
+  schedule: {
+    defs: SCHEDULE_TOOL_DEFS,
+    handlers: scheduleHandlers,
+    keywords: /スケジュール|日程|日付|期間|開始日|終了日|ずらし|ずらす|遅ら|前倒し|延期|後ろ倒し|テンプレート|ひな形|雛形|工程|フェーズ|schedule|reschedule|postpone|delay|bring forward|shift|template|timeline|phase|stage|jadwal|tunda|geser|majukan|templat|tahap|fase/i,
+    guide: {
+      ja:
+        "### スケジュール調整・テンプレート作成（承認制）\n" +
+        "- 現状把握が先: 全体計画 → `list_plan_schedule` / スプリントの期間と中身 → `list_sprint_schedule`。見ずに日付を提案してはならない。\n" +
+        "- 全体計画の追加・日付変更・日数ずらし → `propose_plan_edit`（日付の足し算は自分でせず、`shift` に日数を渡す）/ スプリント期間の変更 → `propose_sprint_schedule` / 計画テンプレート → `propose_template`\n" +
+        "- テンプレートは会話で作る: まず目的・段階・期間・完了条件を質問し、段階の案を箇条書きで示して合意を得てから `propose_template` を呼ぶ。公開範囲は既定で自分だけ。\n" +
+        "- 提案のみで何も書き込まない。カードの［承認］で反映されると伝え、変更済みと言ってはならない。",
+      en:
+        "### Schedule adjustment & templates (approval required)\n" +
+        "- Look first: master plan → `list_plan_schedule` / sprint periods and contents → `list_sprint_schedule`. Never propose dates without reading them.\n" +
+        "- Add stages, change dates, shift by N days → `propose_plan_edit` (never add days yourself; pass the number of days to `shift`) / sprint period → `propose_sprint_schedule` / plan template → `propose_template`\n" +
+        "- Build templates in conversation: ask the purpose, stages, durations and done criteria, show the outline as a list and get agreement before calling `propose_template`. Visibility defaults to private.\n" +
+        "- These only PROPOSE; nothing is written. Tell the user to press Approve on the card; never claim it was changed.",
+      id:
+        "### Penyesuaian jadwal & templat (perlu persetujuan)\n" +
+        "- Lihat dulu: rencana induk → `list_plan_schedule` / periode dan isi sprint → `list_sprint_schedule`. Jangan mengusulkan tanggal tanpa membacanya.\n" +
+        "- Tambah tahap, ubah tanggal, geser N hari → `propose_plan_edit` (jangan menghitung hari sendiri; berikan jumlah hari ke `shift`) / periode sprint → `propose_sprint_schedule` / templat rencana → `propose_template`\n" +
+        "- Buat templat lewat percakapan: tanyakan tujuan, tahap, durasi, kriteria selesai, tampilkan kerangka sebagai daftar dan minta persetujuan sebelum `propose_template`. Visibilitas default: pribadi.\n" +
+        "- Alat ini hanya MENGUSULKAN. Minta pengguna menekan Setujui pada kartu; jangan mengatakan sudah diubah.",
     },
   },
 }
 
-const PACK_ORDER: readonly PackName[] = ["planning", "history", "portfolio", "proposals"]
+const PACK_ORDER: readonly PackName[] = ["planning", "history", "portfolio", "proposals", "schedule"]
 
 /** How many recent user messages are scanned (follow-ups keep the pack). */
 const RECENT_USER_MESSAGES = 3

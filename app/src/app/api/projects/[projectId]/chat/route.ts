@@ -13,7 +13,13 @@ import { CHAT_TOOLS, runTool } from "@/lib/chat-tools"
 import { aiLog, aiLogTrunc } from "@/lib/ai-monitor"
 import { packGuide, packToolDefs, selectPacks } from "@/lib/chat-tool-packs"
 import { hasRepoKnowledge, REPO_KNOWLEDGE_GUIDE, REPO_KNOWLEDGE_TOOL_DEFS } from "@/lib/repo-knowledge-tools"
-import { buildSynthesisMessages, wouldOverflowContext } from "@/lib/chat-synthesis"
+import {
+  buildSynthesisMessages,
+  capToolResult,
+  conversationChars,
+  isContextOverflowError,
+  wouldOverflowContext,
+} from "@/lib/chat-synthesis"
 import { encodeChatEvent, proposalFromToolResult, sanitizeModelText, stripToolHints } from "@/lib/chat-proposals"
 import { composingStatusLabel, toolStatusLabel } from "@/lib/chat-tool-status"
 import { toHttpResponse } from "@/services/_shared/http"
@@ -296,9 +302,11 @@ ${REPO_KNOWLEDGE_GUIDE[replyLang]}` : "") },
         let promptTokens = 0
         let addedChars = 0
         for (let i = 0; i < maxIterations - 1; i++) {
-          if (i > 0 && wouldOverflowContext(promptTokens, addedChars, OLLAMA_NUM_CTX)) {
+          // Without Ollama's own count, price the whole conversation at 1 token per character.
+          const measured = promptTokens > 0 ? promptTokens + addedChars : conversationChars(conversation)
+          if (i > 0 && wouldOverflowContext(measured, 0, OLLAMA_NUM_CTX)) {
             // Another tool turn would push the question out of num_ctx (HTTP 500).
-            aiLog("CHAT_CTX_FULL", `prompt ~${promptTokens + addedChars}/${OLLAMA_NUM_CTX} tokens; answering from the gathered material`)
+            aiLog("CHAT_CTX_FULL", `prompt ~${measured}/${OLLAMA_NUM_CTX} tokens; answering from the gathered material`)
             break
           }
           let textBuf = ""
@@ -310,6 +318,7 @@ ${REPO_KNOWLEDGE_GUIDE[replyLang]}` : "") },
           const turnT0 = Date.now()
           const turn = i === 0 ? firstTurn : ollamaChatStreamWithTools(conversation, turnOptions)
 
+          try {
           for await (const event of turn) {
             if (event.type === "text") {
               // Model text can never open a server event frame (see chat-proposals.ts).
@@ -339,6 +348,15 @@ ${REPO_KNOWLEDGE_GUIDE[replyLang]}` : "") },
               promptTokens = event.promptTokens
               addedChars = 0
             }
+          }
+          } catch (turnErr) {
+            // The guard missed an overflow: Ollama dropped the question and answered 500.
+            // Nothing of this turn was shown yet, so answer from what was gathered instead of failing.
+            if (i > 0 && isContextOverflowError(turnErr) && !textBuf) {
+              aiLog("CHAT_CTX_RETRY", "Ollama reported a context overflow; answering from the gathered material")
+              break
+            }
+            throw turnErr
           }
 
           if (toolCalls.length === 0 && textBuf.trim()) {
@@ -386,10 +404,12 @@ ${REPO_KNOWLEDGE_GUIDE[replyLang]}` : "") },
             // Approval-based write proposal → out-of-band frame for the card UI.
             const proposal = proposalFromToolResult(call.function.name, result)
             if (proposal) send(encodeChatEvent({ type: "proposal", proposal }))
-            addedChars += result.length + TOOL_RESULT_FOOTER[replyLang].length
+            // One large result (a whole file, the repository map) must not fill the shared context.
+            const forModel = capToolResult(result)
+            addedChars += forModel.length + TOOL_RESULT_FOOTER[replyLang].length
             conversation.push({
               role: "tool",
-              content: result + TOOL_RESULT_FOOTER[replyLang],
+              content: forModel + TOOL_RESULT_FOOTER[replyLang],
               name: call.function.name,
               tool_call_id: call.id,
             })
