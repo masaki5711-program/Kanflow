@@ -51,6 +51,14 @@ export interface SprintTasksTranslations {
   sprintHoursUnit: string
   /** PBI task line (S-20): {done} {total} {hours}; tasks are counted, estimates are hours. */
   sprintPbiTaskSummary: string
+  /** Collapsible PBI group: toggle labels, remaining-task badge and the collapsed preview. */
+  sprintPbiCollapse: string
+  sprintPbiExpand: string
+  sprintPbiRemaining: string
+  sprintPbiAllDone: string
+  sprintPbiMoreTasks: string
+  sprintCollapseAll: string
+  sprintExpandAll: string
   sprintNoTaskName: string
   sprintAddTaskShort: string
   sprintNoTasks: string
@@ -127,6 +135,13 @@ export const ja: SprintTasksTranslations = {
   sprintActualHoursShort: "実績時間",
   sprintHoursUnit: "h",
   sprintPbiTaskSummary: "タスク {done}/{total} 件 · 見積 {hours}h",
+  sprintPbiCollapse: "タスクを折りたたむ",
+  sprintPbiExpand: "タスクを展開",
+  sprintPbiRemaining: "残り {n} 件",
+  sprintPbiAllDone: "全タスク完了",
+  sprintPbiMoreTasks: "ほか {n} 件",
+  sprintCollapseAll: "すべて折りたたむ",
+  sprintExpandAll: "すべて展開",
   sprintNoTaskName: "(タスク名なし)",
   sprintAddTaskShort: "タスク追加",
   sprintNoTasks: "タスクがありません",
@@ -203,6 +218,13 @@ export const en: SprintTasksTranslations = {
   sprintActualHoursShort: "Actual",
   sprintHoursUnit: "h",
   sprintPbiTaskSummary: "Tasks {done}/{total} · est. {hours} h",
+  sprintPbiCollapse: "Collapse tasks",
+  sprintPbiExpand: "Expand tasks",
+  sprintPbiRemaining: "{n} left",
+  sprintPbiAllDone: "All tasks done",
+  sprintPbiMoreTasks: "+{n} more",
+  sprintCollapseAll: "Collapse all",
+  sprintExpandAll: "Expand all",
   sprintNoTaskName: "(No task name)",
   sprintAddTaskShort: "Add task",
   sprintNoTasks: "No tasks",
@@ -279,6 +301,13 @@ export const id: SprintTasksTranslations = {
   sprintActualHoursShort: "Aktual",
   sprintHoursUnit: "jam",
   sprintPbiTaskSummary: "Tugas {done}/{total} · estimasi {hours} jam",
+  sprintPbiCollapse: "Ciutkan tugas",
+  sprintPbiExpand: "Bentangkan tugas",
+  sprintPbiRemaining: "Sisa {n}",
+  sprintPbiAllDone: "Semua tugas selesai",
+  sprintPbiMoreTasks: "+{n} lagi",
+  sprintCollapseAll: "Ciutkan semua",
+  sprintExpandAll: "Bentangkan semua",
   sprintNoTaskName: "(Tanpa nama tugas)",
   sprintAddTaskShort: "Tambah tugas",
   sprintNoTasks: "Tidak ada tugas",

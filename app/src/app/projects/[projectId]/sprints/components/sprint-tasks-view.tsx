@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 import { useLanguage } from "@/lib/language-context"
 import { pickText } from "@/lib/translation/pick-text"
 import { Button, EmptyState } from "@/components/ui"
@@ -11,7 +11,7 @@ import { filterTasks, isFilterActive, type FilterContext } from "./board/board-m
 import { groupTasksByPb, isRealTask, orderByPbDependency } from "../lib/sprint-metrics"
 import type { BoardViewState } from "../hooks/use-board-view-state"
 import type { Member, Sprint, SprintItem, SprintTaskActions } from "./types"
-import { CirclePlus, ClipboardList, SearchX } from "lucide-react"
+import { ChevronsDownUp, ChevronsUpDown, CirclePlus, ClipboardList, SearchX } from "lucide-react"
 
 interface Props {
   sprint: Sprint
@@ -55,6 +55,21 @@ export default function SprintTasksView({
   // Without a filter, PBIs that have no task yet still show (their placeholder row keeps the group).
   const pbGroups = useMemo(() => groupTasksByPb(filtering ? shownTasks : orderedItems), [filtering, shownTasks, orderedItems])
 
+  // PBI groups whose task list is folded (view-only state; a fresh sprint view starts expanded).
+  const [foldedPbis, setFoldedPbis] = useState<ReadonlySet<string>>(new Set())
+  const foldablePbiIds = pbGroups.filter((g) => g.tasks.some(isRealTask)).map((g) => g.pbItem.id)
+  const allFolded = foldablePbiIds.length > 0 && foldablePbiIds.every((id) => foldedPbis.has(id))
+  function toggleFolded(pbiId: string) {
+    setFoldedPbis((prev) => {
+      const next = new Set(prev)
+      if (!next.delete(pbiId)) next.add(pbiId)
+      return next
+    })
+  }
+  function toggleAllFolded() {
+    setFoldedPbis(allFolded ? new Set() : new Set(foldablePbiIds))
+  }
+
   function renderBody() {
     if (sprint.items.length === 0) {
       return (
@@ -79,7 +94,8 @@ export default function SprintTasksView({
     return pbGroups.map(({ pbItem, tasks }) => (
       <PbiGroup key={pbItem.id} sprintId={sprint.id} sprintStatus={sprint.status} canManageSprint={canManageSprint} pbItem={pbItem} tasks={tasks}
         pointUnit={pointUnit} canEditPbi={canEditPbi} editingCommentTaskId={editingCommentTaskId}
-        onOpenCommentEditor={onOpenCommentEditor} onCloseCommentEditor={onCloseCommentEditor} actions={actions} />
+        onOpenCommentEditor={onOpenCommentEditor} onCloseCommentEditor={onCloseCommentEditor} actions={actions}
+        collapsed={foldedPbis.has(pbItem.id)} onToggleCollapsed={toggleFolded} />
     ))
   }
 
@@ -87,6 +103,15 @@ export default function SprintTasksView({
     <div className="border-t border-border px-4 sm:px-6 py-4 space-y-4 bg-surface-muted">
       {sprint.items.length > 0 && (
         <BoardFilters state={viewState} members={members} shownCount={shownTasks.length} totalCount={realTasks.length} />
+      )}
+      {view === "list" && foldablePbiIds.length > 1 && (
+        <div className="flex justify-end">
+          <Button size="sm" variant="secondary"
+            leftIcon={allFolded ? <ChevronsUpDown className="w-4 h-4" /> : <ChevronsDownUp className="w-4 h-4" />}
+            onClick={toggleAllFolded}>
+            {allFolded ? t.sprintExpandAll : t.sprintCollapseAll}
+          </Button>
+        </div>
       )}
       {renderBody()}
     </div>

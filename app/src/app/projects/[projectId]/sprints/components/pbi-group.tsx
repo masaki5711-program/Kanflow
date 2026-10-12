@@ -10,7 +10,7 @@ import { GitPbiBadge } from "@/components/git-dev/git-summaries-context"
 import { PbiDependencyChips } from "@/components/pbi-dependencies/pbi-dependency-chips"
 import SprintTaskRow from "./sprint-task-row"
 import type { SprintItem, SprintPbItem, SprintTaskActions } from "./types"
-import { CirclePlus, ClipboardList, Eye, Scale, SquarePen, Trash2 } from "lucide-react"
+import { ChevronDown, ChevronRight, CirclePlus, ClipboardList, Eye, Scale, SquarePen, Trash2 } from "lucide-react"
 
 interface PbiGroupProps {
   sprintId: string
@@ -27,11 +27,18 @@ interface PbiGroupProps {
   onOpenCommentEditor: (taskId: string) => void
   onCloseCommentEditor: () => void
   actions: SprintTaskActions
+  /** The task list is folded away; the header keeps the remaining-task count and a preview. */
+  collapsed?: boolean
+  onToggleCollapsed?: (pbiId: string) => void
 }
+
+/** Remaining task names shown on a folded group before "+n more". */
+const COLLAPSED_PREVIEW = 3
 
 export default function PbiGroup({
   sprintId, sprintStatus, canManageSprint, pbItem, tasks, pointUnit, canEditPbi,
   editingCommentTaskId, onOpenCommentEditor, onCloseCommentEditor, actions,
+  collapsed = false, onToggleCollapsed,
 }: PbiGroupProps) {
   const { t, pt, language } = useLanguage()
   // Heading: initiative, falling back to the user story — each in the viewer's language.
@@ -50,6 +57,10 @@ export default function PbiGroup({
   const leftBarColor = groupAllDone ? "border-l-success" : groupStarted ? "border-l-primary" : "border-l-border-strong"
   const barColor = groupAllDone ? "bg-success" : "bg-primary"
   const pbRef = `#${pbItem.displayId}`
+  const remainingTasks = realPbTasks.filter((tsk) => tsk.status !== "done")
+  const foldable = realPbTasks.length > 0 && !!onToggleCollapsed
+  const isFolded = foldable && collapsed
+  const bodyId = `pbi-tasks-${pbItem.id}`
 
   return (
     <section aria-label={`${pbRef} ${pbHeading}`}
@@ -58,13 +69,30 @@ export default function PbiGroup({
         <div className="flex flex-wrap items-center justify-between mb-1 gap-2">
           {/* Wraps on phones: the points badge drops below the title instead of sliding under the buttons. */}
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0 flex-1">
-            <ClipboardList className="w-4 h-4 text-fg-subtle flex-shrink-0" />
+            {foldable ? (
+              <IconButton size="sm" label={isFolded ? `${t.sprintPbiExpand}: ${pbRef}` : `${t.sprintPbiCollapse}: ${pbRef}`}
+                aria-expanded={!isFolded} aria-controls={bodyId}
+                icon={isFolded ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                onClick={() => onToggleCollapsed?.(pbItem.id)} />
+            ) : (
+              <ClipboardList className="w-4 h-4 text-fg-subtle flex-shrink-0" />
+            )}
             <span className="text-caption font-mono text-fg-muted">{pbRef}</span>
             <Truncate text={pbHeading} as="h4" className="text-body font-semibold text-fg min-w-0 flex-1 basis-32" />
             <span className="inline-flex items-center gap-1 text-caption bg-warning-soft text-warning-strong border border-warning/30 px-2 py-0.5 rounded-full whitespace-nowrap">
               <Scale className="w-3.5 h-3.5" />
               {pbItem.workloadScore} {pointUnit}
             </span>
+            {taskSummary.total > 0 && (
+              <span className={cn(
+                "inline-flex items-center gap-1 text-caption border px-2 py-0.5 rounded-full whitespace-nowrap",
+                remainingTasks.length === 0
+                  ? "bg-success-soft text-success-strong border-success/30"
+                  : "bg-primary-soft text-primary-strong border-primary/30",
+              )}>
+                {remainingTasks.length === 0 ? t.sprintPbiAllDone : fillTemplate(t.sprintPbiRemaining, { n: remainingTasks.length })}
+              </span>
+            )}
             <GitPbiBadge pbiId={pbItem.id} />
             {/* Waiting for #n / prerequisites done / how many PBIs wait for this one. */}
             <PbiDependencyChips item={pbItem} />
@@ -105,7 +133,20 @@ export default function PbiGroup({
         )}
       </div>
 
-      <div className="px-3 py-2">
+      {isFolded && remainingTasks.length > 0 && (
+        <ul className="flex flex-wrap items-center gap-x-3 gap-y-0.5 px-4 py-1.5 text-caption text-fg-muted">
+          {remainingTasks.slice(0, COLLAPSED_PREVIEW).map((tsk) => (
+            <li key={tsk.id} className="min-w-0 max-w-[16rem] truncate">
+              • {pickText(tsk.i18n, "taskName", tsk.taskName, language).text || t.sprintNoTaskName}
+            </li>
+          ))}
+          {remainingTasks.length > COLLAPSED_PREVIEW && (
+            <li>{fillTemplate(t.sprintPbiMoreTasks, { n: remainingTasks.length - COLLAPSED_PREVIEW })}</li>
+          )}
+        </ul>
+      )}
+
+      <div id={bodyId} hidden={isFolded} className="px-3 py-2">
         {realPbTasks.length === 0 ? (
           <button type="button" onClick={() => actions.onOpenTaskForm(sprintId, pbItem.id)}
             className="w-full border border-dashed border-border-strong rounded-ui-sm py-3 text-caption text-fg-muted hover:border-primary hover:text-primary-strong hover:bg-primary-soft/40 transition-colors">

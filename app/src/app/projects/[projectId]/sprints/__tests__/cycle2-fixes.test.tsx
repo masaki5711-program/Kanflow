@@ -98,4 +98,25 @@ describe("PBI group labels (S-15b / S-20)", () => {
     expect(add.textContent?.trim().startsWith("+")).toBe(false)
     expect(t.sprintAddTaskShort).not.toMatch(/\+/)
   })
+
+  it("folds the task list yet keeps the remaining count and names visible", async () => {
+    const pb1 = pb("pb1", { workloadScore: 3 })
+    const s1 = sprint("s1", {
+      items: [
+        task("t1", pb1, { status: "done", taskName: "完了タスク" }),
+        task("t2", pb1, { taskName: "残りタスクA" }),
+      ],
+    })
+    stubFetch(routes([s1]))
+    renderWithProviders(<SprintsPage />)
+    const group = await screen.findByRole("region", { name: /^#1 / })
+    expect(within(group).getByText(fillTemplate(t.sprintPbiRemaining, { n: 1 }))).toBeInTheDocument()
+    await userEvent.click(within(group).getByRole("button", { name: new RegExp(`^${t.sprintPbiCollapse}`) }))
+    const toggle = within(group).getByRole("button", { name: new RegExp(`^${t.sprintPbiExpand}`) })
+    expect(toggle).toHaveAttribute("aria-expanded", "false")
+    expect(within(group).queryByText("完了タスク")).not.toBeVisible()
+    // The name also sits in the hidden task row; the folded preview is the visible one.
+    expect(within(group).getAllByText(/残りタスクA/).filter((el) => !el.closest("[hidden]"))).toHaveLength(1)
+    expect(within(group).getByText(fillTemplate(t.sprintPbiRemaining, { n: 1 }))).toBeInTheDocument()
+  })
 })
