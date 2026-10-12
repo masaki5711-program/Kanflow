@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react"
 import { useStableHandlers } from "@/hooks"
-import { addDays } from "../lib/date"
+import { addDays, diffDays } from "../lib/date"
 import {
   LONG_PRESS_MS,
   barKeyAction,
@@ -23,7 +23,12 @@ export interface LiveEdit {
   id: string
   start: Ymd
   end: Ymd
+  /** Days the end moved from where the drag began (pointer drags only). */
+  delta?: number
 }
+
+/** Shift-drag snaps a whole-bar move to full weeks. */
+export const SNAP_WEEK_DAYS = 7
 
 interface DragSession {
   item: DatedPlanItem
@@ -155,10 +160,11 @@ export function useBarDrag({ dayWidth, canEdit, onPreview, onCommit }: Options) 
       startDragging(s)
       setLive(s.latest)
     }
-    const delta = Math.round((e.clientX - s.press.x0) / dayWidth)
+    const raw = Math.round((e.clientX - s.press.x0) / dayWidth)
+    const delta = e.shiftKey && s.mode === "move" ? Math.round(raw / SNAP_WEEK_DAYS) * SNAP_WEEK_DAYS : raw
     const next = rangeFor(s.item, s.mode, delta)
     if (next.start === s.latest.start && next.end === s.latest.end) return
-    s.latest = { id: s.item.id, ...next }
+    s.latest = { id: s.item.id, ...next, delta: diffDays(s.item.plannedEnd, next.end) }
     s.moved = true
     preview(s.latest)
   }

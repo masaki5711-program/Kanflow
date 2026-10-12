@@ -55,7 +55,7 @@ describe("PlanContent — rendering", () => {
     renderPlan()
     await screen.findByTitle("Alpha")
     const row = document.querySelector<HTMLElement>('[data-plan-row="A1"]')!
-    expect(within(row).getByText("Oct 1")).toHaveAttribute("title", expect.stringContaining("October 1, 2026"))
+    expect(within(row).getByText("Oct 1").closest('[role="cell"]')).toHaveAttribute("title", expect.stringContaining("October 1, 2026"))
     expect(within(row).getByText("5d")).toBeInTheDocument()
     expect(within(row).getByText("Sato")).toBeInTheDocument()
     expect(within(document.querySelector<HTMLElement>('[data-plan-row="A"]')!).getByText(t.planScheduleAtRisk)).toBeInTheDocument()

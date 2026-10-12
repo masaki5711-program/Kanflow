@@ -138,6 +138,11 @@ describe("scheduling proposals", () => {
     ])
   })
 
+  it("applies a reflow op through POST /plan/reflow", () => {
+    const reflow: ChatProposal = { kind: "plan_edit", proposalId: "prop_r", reason: "", ops: [{ op: "reflow" }] }
+    expect(proposalRequests("p1", reflow)).toEqual([{ url: "/api/projects/p1/plan/reflow", method: "POST", json: { apply: true } }])
+  })
+
   it("changes the sprint dates with the proposal's version", () => {
     expect(proposalRequests("p1", SPRINT_SCHEDULE)).toEqual([
       { url: "/api/projects/p1/sprints/s1", method: "PATCH", json: { startDate: "2026-10-19", endDate: "2026-10-30", version: 2 } },

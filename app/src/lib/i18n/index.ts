@@ -46,6 +46,7 @@ import * as gitDev from "./git-dev"
 import * as git from "./git"
 import * as gitKnowledge from "./git-knowledge"
 import * as planTemplates from "./plan-templates"
+import * as planSchedule from "./plan-schedule"
 import * as milestones from "./milestones"
 
 export * from "./languages"
@@ -103,6 +104,7 @@ export interface Translations
     git.GitTranslations,
     gitKnowledge.GitKnowledgeTranslations,
     planTemplates.PlanTemplatesTranslations,
+    planSchedule.PlanScheduleTranslations,
     milestones.MilestonesTranslations {}
 
 /** All domain modules, exported for tests (key-set / completeness checks). */
@@ -154,6 +156,7 @@ export const domains = {
   "git": git,
   "git-knowledge": gitKnowledge,
   "plan-templates": planTemplates,
+  "plan-schedule": planSchedule,
   "milestones": milestones,
 } as const
 
@@ -205,6 +208,7 @@ const ja: Translations = {
   ...git.ja,
   ...gitKnowledge.ja,
   ...planTemplates.ja,
+  ...planSchedule.ja,
   ...milestones.ja,
 }
 
@@ -256,6 +260,7 @@ const en: Translations = {
   ...git.en,
   ...gitKnowledge.en,
   ...planTemplates.en,
+  ...planSchedule.en,
   ...milestones.en,
 }
 
@@ -307,6 +312,7 @@ const id: Translations = {
   ...git.id,
   ...gitKnowledge.id,
   ...planTemplates.id,
+  ...planSchedule.id,
   ...milestones.id,
 }
 

@@ -19,6 +19,8 @@ interface Props {
   handlers: RowHandlers
   collapsed: boolean
   renaming: boolean
+  /** Checked in multi-select mode. */
+  checked: boolean
   width: number
   hintId: string
   onHandlePointerDown: (e: PointerEvent<HTMLElement>, id: string) => void
@@ -71,7 +73,10 @@ function menuItems(row: FlatRow, env: ChartEnv, handlers: RowHandlers): CardMenu
   if (!item.isMilestone) items.push({ key: "child", label: t.planAddChild, onSelect: () => handlers.addChild(item.id) })
   items.push({ key: "successor", label: t.planAddSuccessor, onSelect: () => handlers.addSuccessor(item) })
   if (leaf) items.push({ key: "link", label: t.planLinkPbis, onSelect: () => handlers.linkPbis(item) })
-  items.push({ key: "delete", label: t.delete, onSelect: () => handlers.remove(item) })
+  items.push(
+    { key: "duplicate", label: t.pscDuplicate, onSelect: () => handlers.duplicate(item) },
+    { key: "delete", label: t.delete, onSelect: () => handlers.remove(item) },
+  )
   return items
 }
 
@@ -80,7 +85,7 @@ function menuItems(row: FlatRow, env: ChartEnv, handlers: RowHandlers): CardMenu
  * selects, Enter opens, F2 / double click renames, Alt+arrows restructure)
  * and the "…" menu.
  */
-export function PlanNameCell({ row, env, handlers, collapsed, renaming, width, hintId, onHandlePointerDown }: Props) {
+export function PlanNameCell({ row, env, handlers, collapsed, renaming, checked, width, hintId, onHandlePointerDown }: Props) {
   const { item } = row
   const { t } = env
   const name = env.nameOf(item)
@@ -97,7 +102,17 @@ export function PlanNameCell({ row, env, handlers, collapsed, renaming, width, h
 
   return (
     <div role="rowheader" className="flex h-full shrink-0 items-center gap-1 pr-1" style={{ width }}>
-      {env.canEdit ? (
+      {env.canEdit && env.selecting ? (
+        <input
+          type="checkbox"
+          checked={checked}
+          aria-label={fillTemplate(t.pscRowCheck, { name })}
+          data-plan-check={item.id}
+          onChange={() => undefined}
+          onClick={(e) => handlers.check(item.id, e.shiftKey)}
+          className="mx-0.5 h-4 w-4 shrink-0 cursor-pointer print:hidden"
+        />
+      ) : env.canEdit ? (
         <span
           role="img"
           aria-label={fillTemplate(t.planDragHandle, { name })}
@@ -132,7 +147,11 @@ export function PlanNameCell({ row, env, handlers, collapsed, renaming, width, h
         <button
           type="button"
           data-plan-name={item.id}
-          onClick={() => handlers.select(item.id, { scrollBar: true })}
+          onClick={(e) => {
+            // Ctrl / ⌘ + click starts a multi-selection; Shift + click extends it.
+            if (env.canEdit && (e.ctrlKey || e.metaKey || (env.selecting && e.shiftKey))) handlers.check(item.id, e.shiftKey)
+            else handlers.select(item.id, { scrollBar: true })
+          }}
           onDoubleClick={() => env.canEdit && handlers.startRename(item.id)}
           onKeyDown={onKeyDown}
           aria-describedby={hintId}

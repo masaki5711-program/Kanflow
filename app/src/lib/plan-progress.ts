@@ -254,6 +254,9 @@ export interface PlanCalcNode extends PlannedWindow {
   progressPct: number
   progressMode: string
   isMilestone: boolean
+  /** Only filled (never overwritten) for a linked leaf; `undefined` = not loaded, left alone. */
+  actualStart?: Date | null
+  actualEnd?: Date | null
 }
 
 export interface PlanCalcUpdate {
@@ -262,6 +265,8 @@ export interface PlanCalcUpdate {
   status?: string
   plannedStart?: Date | null
   plannedEnd?: Date | null
+  actualStart?: Date | null
+  actualEnd?: Date | null
 }
 
 export interface PlanRecalcResult {
@@ -295,9 +300,26 @@ function touchedIds(byId: ReadonlyMap<string, PlanCalcNode>, startIds: readonly 
   return Array.from(touched)
 }
 
-function leafState(node: PlanCalcNode, linked: ReadonlyMap<string, readonly LinkedPbi[]>): DerivedState | { progressPct: number; status: string } {
+/**
+ * A linked leaf whose PBIs started / finished it records the actual dates:
+ * in_progress / done fills an empty actualStart, done fills an empty
+ * actualEnd, both with `today` (Tokyo). Only NULLs are filled, never overwritten;
+ * the one exception: a leaf that is no longer done loses its actualEnd.
+ */
+function actualsFromPbis(node: PlanCalcNode, status: string, today: Date | null): Pick<PlanCalcNode, "actualStart" | "actualEnd"> {
+  const out: Pick<PlanCalcNode, "actualStart" | "actualEnd"> = {}
+  // No longer done (a PBI reopened): the recorded finish no longer holds.
+  if (status !== "done" && node.actualEnd) out.actualEnd = null
+  if (!today || (status !== "in_progress" && status !== "done")) return out
+  if (node.actualStart === null) out.actualStart = today
+  if (status === "done" && node.actualEnd === null) out.actualEnd = today
+  return out
+}
+
+function leafState(node: PlanCalcNode, linked: ReadonlyMap<string, readonly LinkedPbi[]>, today: Date | null): Partial<PlanCalcNode> & { progressPct: number; status: string } {
   const fromPbis = node.progressMode === "linked" ? deriveLinkedLeaf(linked.get(node.id) ?? []) : null
-  return fromPbis ?? { progressPct: statusToProgress(node.status), status: node.status }
+  if (fromPbis) return { ...fromPbis, ...actualsFromPbis(node, fromPbis.status, today) }
+  return { progressPct: statusToProgress(node.status), status: node.status }
 }
 
 function diffOf(before: PlanCalcNode, after: PlanCalcNode): PlanCalcUpdate | null {
@@ -306,6 +328,8 @@ function diffOf(before: PlanCalcNode, after: PlanCalcNode): PlanCalcUpdate | nul
   if (after.status !== before.status) u.status = after.status
   if (!sameDateOrNull(after.plannedStart, before.plannedStart)) u.plannedStart = after.plannedStart
   if (!sameDateOrNull(after.plannedEnd, before.plannedEnd)) u.plannedEnd = after.plannedEnd
+  if (after.actualStart !== undefined && !sameDateOrNull(after.actualStart, before.actualStart ?? null)) u.actualStart = after.actualStart
+  if (after.actualEnd !== undefined && !sameDateOrNull(after.actualEnd, before.actualEnd ?? null)) u.actualEnd = after.actualEnd
   return Object.keys(u).length > 1 ? u : null
 }
 
@@ -314,12 +338,15 @@ function diffOf(before: PlanCalcNode, after: PlanCalcNode): PlanCalcUpdate | nul
  * deepest first so each parent sees its children's fresh values. `nodes` are
  * the LIVE items of one project; `linked` = live PBIs per linked leaf.
  * Unknown start ids are ignored. Returns only the changed fields per row.
+ * `todayKey` (Asia/Tokyo, default now) dates the actuals a linked leaf gains.
  */
 export function computePlanRecalc(
   nodes: readonly PlanCalcNode[],
   linked: ReadonlyMap<string, readonly LinkedPbi[]>,
-  startIds: readonly string[] | "all"
+  startIds: readonly string[] | "all",
+  todayKey: string = tokyoDateKey(new Date())
 ): PlanRecalcResult {
+  const today = dateFromKey(todayKey)
   const byId = new Map(nodes.map((n) => [n.id, n]))
   const children = new Map<string, string[]>()
   for (const n of nodes) {
@@ -331,7 +358,7 @@ export function computePlanRecalc(
   for (const id of order) {
     const node = current.get(id) as PlanCalcNode
     const kids = (children.get(id) ?? []).map((k) => current.get(k) as PlanCalcNode)
-    const next: PlanCalcNode = kids.length === 0 ? { ...node, ...leafState(node, linked) } : { ...node, ...rollupChildren(kids) }
+    const next: PlanCalcNode = kids.length === 0 ? { ...node, ...leafState(node, linked, today) } : { ...node, ...rollupChildren(kids) }
     current.set(id, next)
     const diff = diffOf(byId.get(id) as PlanCalcNode, next)
     if (diff) updates.push(diff)
@@ -350,6 +377,8 @@ const CALC_SELECT = {
   plannedStart: true,
   plannedEnd: true,
   isMilestone: true,
+  actualStart: true,
+  actualEnd: true,
 } as const
 
 /** Live PBIs linked to the given plan items, grouped by plan item. */

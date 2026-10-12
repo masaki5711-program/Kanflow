@@ -51,7 +51,9 @@ export interface PlanHealComputation<T> {
 export function computePlanHeal<T extends PlanCalcNode>(rows: readonly T[], pbis: LinkedRows): PlanHealComputation<T> {
   if (rows.length >= LIST_LIMITS.planItems) return { items: [...rows], updates: [], capped: true }
   const linkedModeIds = new Set(rows.filter((r) => r.progressMode === "linked").map((r) => r.id))
-  const { updates, nodes } = computePlanRecalc(rows, linkedByItem(pbis, linkedModeIds), "all")
+  // The heal never invents actual dates (a backfill would stamp "today" on old rows): only write paths fill them.
+  const calcRows = rows.map((r) => ({ ...r, actualStart: undefined, actualEnd: undefined }))
+  const { updates, nodes } = computePlanRecalc(calcRows, linkedByItem(pbis, linkedModeIds), "all")
   const items = rows.map((r) => {
     const n = nodes.get(r.id) as PlanCalcNode
     return { ...r, progressPct: n.progressPct, status: n.status, plannedStart: n.plannedStart, plannedEnd: n.plannedEnd }

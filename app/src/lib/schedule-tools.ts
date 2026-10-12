@@ -48,14 +48,14 @@ export const SCHEDULE_TOOL_DEFS: ToolDefinition[] = [
     function: {
       name: "propose_plan_edit",
       description:
-        "Propose edits to the master plan (add stages, change dates/name/status, or shift an item by N days with the stages after it). Up to 20 operations in one approval card. Nothing is written until the user approves. Dates are YYYY-MM-DD.",
+        "Propose edits to the master plan (add stages, change dates/name/status, or shift an item by N days with the stages after it, or recalculate the whole plan by its dependencies). Up to 20 operations in one approval card. Nothing is written until the user approves. Dates are YYYY-MM-DD.",
       parameters: {
         type: "object",
         properties: {
           operations: {
             type: "array",
             description:
-              'Each: {"action":"create","name":"UAT","parent":"Release","start":"2026-11-02","end":"2026-11-06","milestone":false} | {"action":"update","item":"Build","start":"..","end":"..","status":"in_progress","new_name":".."} | {"action":"shift","item":"Test","days":7,"followers":"dependents"}. followers: none | dependents | later. Leave dates out for an undated stage.',
+              'Each: {"action":"create","name":"UAT","parent":"Release","start":"2026-11-02","end":"2026-11-06","milestone":false} | {"action":"update","item":"Build","start":"..","end":"..","status":"in_progress","new_name":".."} | {"action":"shift","item":"Test","days":7,"followers":"dependents"} | {"action":"reflow"} (no other fields: re-date the whole plan so every stage starts after its predecessors end; started / finished / undated stages stay; must be the only edit on the card except new stages). followers: none | dependents | later. Leave dates out for an undated stage.',
             items: { type: "object", properties: { action: { type: "string" }, item: { type: "string" }, name: { type: "string" } }, required: ["action"] },
           },
           reason: { type: "string", description: "One sentence on why." },
@@ -334,9 +334,12 @@ export function buildPlanOps(rows: readonly PlanRow[], rawOps: unknown): PlanOp[
     const op = action === "create" ? buildCreate(rows, a)
       : action === "update" ? buildUpdate(rows, hasChild, a)
       : action === "shift" ? buildShift(rows, hasChild, a)
-      : { error: "action must be create | update | shift" }
+      : action === "reflow" ? ({ op: "reflow" } as const)
+      : { error: "action must be create | update | shift | reflow" }
     if ("error" in op) return op
-    if (op.op !== "create") {
+    if (op.op === "reflow") {
+      if (ops.some((o) => o.op === "reflow")) return { error: "reflow is proposed once per card" }
+    } else if (op.op !== "create") {
       // One version per row: a second edit of the same stage would be rejected as stale.
       if (touched.has(op.target.id)) return { error: `"${trunc(op.target.name, 40)}" is edited twice; combine it into one operation` }
       touched.add(op.target.id)
@@ -345,9 +348,9 @@ export function buildPlanOps(rows: readonly PlanRow[], rawOps: unknown): PlanOp[
   }
   // Moving the following stages changes their versions (and rolls up parents): the
   // other edits of the card would then be rejected as stale, so such a shift stands alone.
-  const movesFollowers = ops.some((o) => o.op === "shift" && o.followers !== "none")
+  const movesFollowers = ops.some((o) => o.op === "reflow" || (o.op === "shift" && o.followers !== "none"))
   if (movesFollowers && ops.some((o) => o.op !== "create") && ops.filter((o) => o.op !== "create").length > 1) {
-    return { error: "a shift that also moves the following stages must be proposed on its own (new stages may accompany it)" }
+    return { error: "a shift that also moves the following stages, or a reflow, must be proposed on its own (new stages may accompany it)" }
   }
   return ops
 }
@@ -362,7 +365,7 @@ async function proposePlanEdit(projectId: string, args: Record<string, unknown>)
   if ("error" in ops) return err(ops.error)
   const proposal: PlanEditProposal = {
     kind: "plan_edit",
-    proposalId: proposalIdOf("plan_edit", { ops, versions: ops.map((o) => (o.op === "create" ? 0 : o.version)) }),
+    proposalId: proposalIdOf("plan_edit", { ops, versions: ops.map((o) => (o.op === "create" || o.op === "reflow" ? 0 : o.version)) }),
     ops,
     reason: strArg(args.reason, 1000) ?? "",
   }

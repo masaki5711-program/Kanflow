@@ -162,6 +162,19 @@ export const FAQ_ENTRIES: FaqItem[] = [
     },
     category: "other",
   },
+  {
+    question: {
+      ja: "全体計画の日程をもっと楽に入力・調整するには？",
+      en: "How can I enter and adjust master-plan dates more easily?",
+      id: "Bagaimana mengisi dan menyesuaikan tanggal rencana induk dengan lebih mudah?",
+    },
+    answer: {
+      ja: "・日付欄には「来週金曜」「+2w」「月末」「10/20」のような短縮入力ができます。開始日を変えると期間を保ったまま終了日も動き、「期間」欄に日数を入れると終了日が決まります（「営業日で数える」で土日・祝日を除外）。\n・一覧の開始・終了・日数セルをクリックすると、その場で直せます。\n・バーを動かす/伸ばすと、後続の項目も同じ日数ずらすか確認されます（プレビュー付き）。Shift を押しながらドラッグすると 1 週間単位です。\n・「複数選択」または Ctrl（⌘）+クリックで行を選び、日程の一括ずらし・担当者・ステータスの変更・複製ができます。\n・「…」メニューから、指定日以降のまとめてずらし、依存関係に合わせた再計算、Excel の表の貼り付け取り込みが使えます。",
+      en: "- Date fields accept short-hand such as \"next Fri\", \"+2w\", \"month end\" or \"10/20\". Changing the start keeps the duration (the end moves with it), and typing a number of days in \"Duration\" sets the end (tick \"Count business days\" to skip weekends and Japanese holidays).\n- Click a start, end or days cell in the list to edit it in place.\n- When you move or resize a bar you are asked whether the following items should move by the same number of days (with a preview). Hold Shift while dragging to move in whole weeks.\n- Use \"Select several\" or Ctrl (⌘) + click to pick rows, then shift dates, change the owner or status, or duplicate them in one go.\n- The \"…\" menu has \"Shift everything from a date\", \"Recalculate by dependencies\" and \"Import from a table\" (paste from Excel).",
+      id: "- Kolom tanggal menerima singkatan seperti \"Jumat depan\", \"+2w\", \"akhir bulan\" atau \"10/20\". Mengubah tanggal mulai mempertahankan durasi (tanggal selesai ikut bergeser), dan mengisi jumlah hari di \"Durasi\" menentukan tanggal selesai (centang \"Hitung hari kerja\" untuk melewati akhir pekan dan libur Jepang).\n- Klik sel mulai, selesai, atau hari di daftar untuk mengeditnya langsung.\n- Saat bar digeser atau diubah panjangnya, Anda ditanya apakah item berikutnya ikut bergeser dengan jumlah hari yang sama (dengan pratinjau). Tahan Shift saat menyeret untuk bergeser per minggu penuh.\n- Gunakan \"Pilih beberapa\" atau Ctrl (⌘) + klik untuk memilih baris, lalu geser tanggal, ubah penanggung jawab/status, atau duplikat sekaligus.\n- Menu \"…\" menyediakan \"Geser semua mulai tanggal tertentu\", \"Hitung ulang sesuai ketergantungan\", dan \"Impor dari tabel\" (tempel dari Excel).",
+    },
+    category: "other",
+  },
   // Sprint
   {
     question: {

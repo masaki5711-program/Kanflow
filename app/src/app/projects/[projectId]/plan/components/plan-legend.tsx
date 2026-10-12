@@ -96,6 +96,7 @@ export function PlanLegend({ canEdit = false }: { canEdit?: boolean }) {
           </svg>
           {t.depPlanChain}
         </span>
+        {canEdit && <span>{t.pscSnapHint}</span>}
       </p>
     </section>
   )

@@ -20,6 +20,8 @@ import { fillTemplate } from "./lib/template"
 import { ancestorIds, buildFlatTree, descendantIds, dropItem, filterVisibleIds, indentItem, moveSibling, outdentItem, parentIds } from "./lib/tree"
 import { firstViewTarget, fitTarget } from "./lib/fit-view"
 import { useBarDrag } from "./hooks/use-bar-drag"
+import { useBusinessDays } from "./hooks/use-business-days"
+import { usePlanAssist } from "./hooks/use-plan-assist"
 import { useLinkDrag } from "./hooks/use-link-drag"
 import { usePlanData } from "./hooks/use-plan-data"
 import { useNameAutoWidth } from "./hooks/use-name-auto-width"
@@ -30,6 +32,8 @@ import { usePlanViewState } from "./hooks/use-plan-view-state"
 import { useRowDrag } from "./hooks/use-row-drag"
 import { useTimelineViewport } from "./hooks/use-timeline-viewport"
 import type { ChartEnv, RowHandlers } from "./components/chart-types"
+import { PlanAssistDialogs } from "./components/plan-assist-dialogs"
+import { PlanBulkBar } from "./components/plan-bulk-bar"
 import { PlanChart, chartBodyOf } from "./components/plan-chart"
 import { PlanChartFrame } from "./components/plan-chart-frame"
 import PlanEditModal, { type EditorTarget } from "./components/plan-edit-modal"
@@ -112,6 +116,8 @@ function PlanPage({ projectId, canEdit }: Props) {
   )
   const rows = useMemo(() => buildFlatTree(items, filterOn ? new Set() : collapsed, visible), [items, collapsed, filterOn, visible])
   const rowIds = useMemo(() => rows.map((r) => r.item.id), [rows])
+  const [businessDays] = useBusinessDays()
+  const assist = usePlanAssist({ api, items, dependencies, rowIds, nameOf, onDuplicated: setSelectedId })
   // Every row (nothing collapsed) sizes the default name column, so it does not jump on expand / collapse.
   const allRows = useMemo(() => buildFlatTree(items, new Set(), null), [items])
   const autoName = useNameAutoWidth(allRows, nameOf, isWide)
@@ -139,8 +145,8 @@ function PlanPage({ projectId, canEdit }: Props) {
   const { range, dayWidth, scale, columns, gridCollapsed, nameWidth } = layout
   const gw = layout.gridWidth
   const env = useMemo<ChartEnv>(
-    () => ({ t, language, startDay: range.startDay, dayWidth, today, canEdit, columns, gridWidth: gw, nameWidth, gridCollapsed, printing: layout.printing, nameOf }),
-    [t, language, range.startDay, dayWidth, today, canEdit, columns, gw, nameWidth, gridCollapsed, layout.printing, nameOf],
+    () => ({ t, language, startDay: range.startDay, dayWidth, today, canEdit, columns, gridWidth: gw, nameWidth, gridCollapsed, printing: layout.printing, nameOf, businessDays, selecting: assist.selecting }),
+    [t, language, range.startDay, dayWidth, today, canEdit, columns, gw, nameWidth, gridCollapsed, layout.printing, nameOf, businessDays, assist.selecting],
   )
   const todayX = dayCenterX(today, range.startDay, dayWidth)
   // First view: the earliest unfinished / overdue work (or today); an empty window fits everything instead (A3-09).
@@ -160,7 +166,7 @@ function PlanPage({ projectId, canEdit }: Props) {
     dayWidth,
     canEdit,
     onPreview: api.previewDates,
-    onCommit: (item, plannedStart, plannedEnd) => void api.patchItem(item, { plannedStart, plannedEnd }),
+    onCommit: (item, plannedStart, plannedEnd) => void assist.commitDates(item, plannedStart, plannedEnd),
   })
   const rowDrag = useRowDrag({
     getBody: () => chartBodyOf(scrollRef.current),
@@ -265,6 +271,10 @@ function PlanPage({ projectId, canEdit }: Props) {
     pickArrow: (arrow) => void confirmRemoveArrow(arrow),
     linkPbis: (item) => setEditor({ kind: "edit", item, focusLinks: true }),
     remove: (item) => void requestDelete(item),
+    editDates: (item, start, end) => void assist.commitDates(item, start, end),
+    invalidDates: assist.invalidDates,
+    check: assist.check,
+    duplicate: (item) => void assist.duplicate(item),
   })
 
   // ?item=<id>: reveal, select and open the item once the plan has loaded (notifications, PBI link).
@@ -320,6 +330,11 @@ function PlanPage({ projectId, canEdit }: Props) {
         onLoadTemplate={() => setTplMode("load")}
         onSaveAsTemplate={() => setTplMode("save")}
         onScheduleUndated={() => setTplMode("schedule")}
+        onShiftFrom={() => assist.setBulk("shiftFrom")}
+        onReflow={() => assist.setReflowOpen(true)}
+        onImport={() => assist.setImportOpen(true)}
+        selecting={assist.selecting}
+        onToggleSelecting={() => assist.setSelecting(!assist.selecting)}
         hasItems={items.length > 0}
         hasUndated={items.some((i) => !i.plannedStart && !i.hasChildren)}
       />
@@ -371,6 +386,16 @@ function PlanPage({ projectId, canEdit }: Props) {
             shown={visible?.size ?? items.length}
             total={items.length}
           />
+          {canEdit && assist.selecting && (
+            <PlanBulkBar
+              count={assist.checked.size}
+              onBulk={assist.setBulk}
+              onDuplicate={() => void assist.duplicateChecked()}
+              onSelectVisible={assist.selectVisible}
+              onClear={assist.clearChecked}
+              onDone={() => assist.setSelecting(false)}
+            />
+          )}
           {rows.length === 0 ? (
             <div className="rounded-ui-lg border border-border bg-surface">
               <EmptyState compact title={t.planNoMatches} action={<Button variant="secondary" onClick={() => setFilter(EMPTY_FILTER)}>{t.planClearFilters}</Button>} />
@@ -404,6 +429,7 @@ function PlanPage({ projectId, canEdit }: Props) {
                 selectedId={selectedId}
                 collapsed={filterOn ? new Set() : collapsed}
                 renamingId={renamingId}
+                checkedIds={assist.checked}
                 todayLabel={fillTemplate(t.planTodayLabel, { date: formatShortDate(today, language) })}
                 view={layout.printing ? null : { left: viewport.scrollLeft, width: viewport.clientWidth - gw }}
                 onToggleGrid={() => view.setGridCollapsed(!gridCollapsed)}
@@ -428,6 +454,7 @@ function PlanPage({ projectId, canEdit }: Props) {
           dependencies={dependencies}
           members={members}
           readOnly={!canEdit}
+          today={today}
           nameOf={nameOf}
           onClose={() => setEditor(null)}
           onCreate={async (input) => {
@@ -442,6 +469,7 @@ function PlanPage({ projectId, canEdit }: Props) {
           onShifted={api.refetch}
         />
       )}
+      <PlanAssistDialogs assist={assist} apiBase={api.base} items={items} members={members} today={today} nameOf={nameOf} onChanged={api.refetch} />
       {printOpen && (
         <PlanPrintDialog
           ranges={{

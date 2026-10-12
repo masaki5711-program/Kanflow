@@ -1,10 +1,14 @@
 "use client"
 
-import type { ReactNode } from "react"
-import { Badge, Field, Input, Select, Textarea } from "@/components/ui"
+import { useState, type ReactNode } from "react"
+import { Badge, Button, Field, Input, Select, Textarea } from "@/components/ui"
 import { GlossaryHint } from "@/components/i18n-text"
 import { useLanguage } from "@/lib/language-context"
 import { formatShortDate } from "../lib/date-format"
+import { isYmd } from "../lib/date"
+import { durationOf, endFromDuration, endKeepingDuration, snapStart } from "../lib/duration"
+import { useBusinessDays } from "../hooks/use-business-days"
+import { PlanDateField } from "./plan-date-field"
 import type { DerivedFlags, FormErrorKey, PlanForm } from "../lib/plan-form"
 import { PLAN_STATUSES, type PlanItem } from "../lib/plan-types"
 import { itemBadge, statusLabel } from "../lib/status"
@@ -21,6 +25,8 @@ interface Props {
   errors: Partial<Record<FormErrorKey, true>>
   /** Read-only viewers get no glossary-syntax hint (A3-19). */
   readOnly?: boolean
+  /** The API's "today" (anchor of the date short-hand). */
+  today: string
 }
 
 /** Read-only value of a derived field, marked "自動". */
@@ -38,11 +44,37 @@ function Derived({ label, children }: { label: string; children: ReactNode }) {
 }
 
 /** The editable / derived fields of the plan item editor. */
-export function PlanEditFields({ form, set, flags, item, parentOptions, members, errors, readOnly = false }: Props) {
+export function PlanEditFields({ form, set, flags, item, parentOptions, members, errors, readOnly = false, today }: Props) {
   const { t, language } = useLanguage()
   const isLeaf = !item?.hasChildren
   const showMode = isLeaf && !form.isMilestone
   const derivedHint = flags.datesDerived ? t.planDerivedParentHint : flags.statusDerived ? t.planDerivedLinkedHint : null
+  const [business, setBusiness] = useBusinessDays()
+  const [durationDraft, setDurationDraft] = useState<string | null>(null)
+  const datesValid = isYmd(form.plannedStart) && isYmd(form.plannedEnd) && form.plannedEnd >= form.plannedStart
+  const duration = datesValid ? durationOf(form.plannedStart, form.plannedEnd, business) : ""
+  const sprints = item?.linked?.sprints ?? []
+
+  /** Moving the start carries the end along (the duration stays); a first start gets the end from the template's 目安期間 or one day. */
+  function changeStart(next: string) {
+    set("plannedStart", next)
+    if (!isYmd(next) || form.isMilestone) return
+    if (datesValid) set("plannedEnd", endKeepingDuration(form.plannedStart, form.plannedEnd, snapStart(next, business), business))
+    else if (!form.plannedEnd) set("plannedEnd", endFromDuration(next, item?.durationDays ?? 1, business))
+  }
+
+  function changeDuration(raw: string) {
+    const n = Number(raw)
+    if (!isYmd(form.plannedStart) || !Number.isFinite(n) || n < 1) return
+    set("plannedEnd", endFromDuration(form.plannedStart, n, business))
+  }
+
+  function applySprints() {
+    const starts = sprints.map((s) => s.startDate).sort()
+    const ends = sprints.map((s) => s.endDate).sort()
+    set("plannedStart", starts[0])
+    set("plannedEnd", ends[ends.length - 1])
+  }
 
   return (
     <div className="space-y-4">
@@ -63,7 +95,7 @@ export function PlanEditFields({ form, set, flags, item, parentOptions, members,
           </>
         ) : form.isMilestone ? (
           <Field label={t.planMilestoneDate} hint={form.plannedStart ? undefined : t.tplUndatedFieldHint} error={errors.plannedStart ? t.planDateRequired : undefined}>
-            <Input type="date" value={form.plannedStart} onChange={(e) => set("plannedStart", e.target.value)} />
+            <PlanDateField value={form.plannedStart} onChange={(v) => set("plannedStart", v)} today={today} invalid={!!errors.plannedStart} />
           </Field>
         ) : (
           <>
@@ -72,14 +104,51 @@ export function PlanEditFields({ form, set, flags, item, parentOptions, members,
               hint={!form.plannedStart && !form.plannedEnd ? t.tplUndatedFieldHint : undefined}
               error={errors.plannedStart ? t.planDateRequired : undefined}
             >
-              <Input type="date" value={form.plannedStart} onChange={(e) => set("plannedStart", e.target.value)} />
+              <PlanDateField value={form.plannedStart} onChange={changeStart} today={today} invalid={!!errors.plannedStart} />
             </Field>
             <Field
               label={t.planPlannedEnd}
               error={errors.plannedEndRequired ? t.planDateRequired : errors.plannedEnd ? t.planDateOrderError : undefined}
             >
-              <Input type="date" value={form.plannedEnd} min={form.plannedStart || undefined} onChange={(e) => set("plannedEnd", e.target.value)} />
+              <PlanDateField
+                value={form.plannedEnd}
+                onChange={(v) => set("plannedEnd", v)}
+                today={today}
+                min={form.plannedStart || undefined}
+                invalid={!!errors.plannedEnd || !!errors.plannedEndRequired}
+              />
             </Field>
+            <Field label={t.pscDuration} hint={t.pscDurationHint}>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  min={1}
+                  max={3650}
+                  inputSize="md"
+                  className="w-24"
+                  value={durationDraft ?? duration}
+                  disabled={!isYmd(form.plannedStart)}
+                  onChange={(e) => {
+                    // Keep what is typed (even an empty box) until the field is left.
+                    setDurationDraft(e.target.value)
+                    changeDuration(e.target.value)
+                  }}
+                  onBlur={() => setDurationDraft(null)}
+                />
+                <span className="text-body text-fg-muted">{business ? t.pscDurationUnitBusiness : t.pscDurationUnitDays}</span>
+              </div>
+            </Field>
+            <label className="inline-flex min-h-8 items-center gap-2 self-end pb-6 text-body text-fg">
+              <input type="checkbox" className="h-4 w-4" checked={business} onChange={(e) => setBusiness(e.target.checked)} />
+              {t.pscBusinessDays}
+            </label>
+            {sprints.length > 0 && !readOnly && (
+              <div className="sm:col-span-2">
+                <Button type="button" variant="secondary" size="sm" onClick={applySprints}>
+                  {t.pscApplySprint}
+                </Button>
+              </div>
+            )}
           </>
         )}
         {!form.isMilestone && item && (

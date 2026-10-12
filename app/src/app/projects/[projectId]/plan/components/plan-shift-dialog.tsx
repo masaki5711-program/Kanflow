@@ -22,6 +22,11 @@ interface Props {
   slip: number
   /** The item has a dependent successor (the narrower scope is then the default). */
   hasSuccessors: boolean
+  /**
+   * Set when the item's planned end itself was moved (bar drag, inline edit,
+   * editor): `slip` is then that move and is sent as the shift to apply.
+   */
+  cascade?: { name: string }
   onClose: () => void
   onApplied: () => void
 }
@@ -29,7 +34,7 @@ interface Props {
 const PREVIEW_ROWS = 6
 
 /** 実績のずれを後続の計画に反映: choose the scope, see what moves, apply. */
-export function PlanShiftDialog({ apiBase, itemId, slip, hasSuccessors, onClose, onApplied }: Props) {
+export function PlanShiftDialog({ apiBase, itemId, slip, hasSuccessors, cascade, onClose, onApplied }: Props) {
   const { t } = useLanguage()
   const toast = useToast()
   const [scope, setScope] = useState<Scope>(hasSuccessors ? "dependents" : "later")
@@ -39,18 +44,18 @@ export function PlanShiftDialog({ apiBase, itemId, slip, hasSuccessors, onClose,
 
   useEffect(() => {
     let live = true
-    apiFetch<Preview>(url, { method: "POST", json: { scope, apply: false } })
+    apiFetch<Preview>(url, { method: "POST", json: { scope, apply: false, ...(cascade ? { deltaDays: slip } : {}) } })
       .then((p) => live && setLoaded({ scope, preview: p }))
       .catch(() => live && setLoaded({ scope, preview: null }))
     return () => {
       live = false
     }
-  }, [url, scope, slip])
+  }, [url, scope, slip, cascade])
 
   async function apply() {
     setBusy(true)
     try {
-      const res = await apiFetch<Preview>(url, { method: "POST", json: { scope, apply: true } })
+      const res = await apiFetch<Preview>(url, { method: "POST", json: { scope, apply: true, ...(cascade ? { deltaDays: slip } : {}) } })
       toast.success(fillTemplate(t.planShiftDone, { n: res.moved.length }))
       onApplied()
     } catch (err) {
@@ -70,13 +75,17 @@ export function PlanShiftDialog({ apiBase, itemId, slip, hasSuccessors, onClose,
       open
       onClose={onClose}
       size="md"
-      title={t.planShiftTitle}
-      description={fillTemplate(slip > 0 ? t.planShiftLate : t.planShiftEarly, { n: days })}
+      title={cascade ? t.pscCascadeTitle : t.planShiftTitle}
+      description={
+        cascade
+          ? fillTemplate(slip > 0 ? t.pscCascadeLater : t.pscCascadeEarlier, { name: cascade.name, n: days })
+          : fillTemplate(slip > 0 ? t.planShiftLate : t.planShiftEarly, { n: days })
+      }
       footer={
         <>
-          <Button variant="secondary" onClick={onClose}>{t.planShiftSkip}</Button>
+          <Button variant="secondary" onClick={onClose}>{cascade ? t.pscCascadeSkip : t.planShiftSkip}</Button>
           <Button onClick={() => void apply()} disabled={moved.length === 0} loading={busy} data-testid="plan-shift-apply">
-            {t.planShiftApply}
+            {cascade ? t.pscCascadeApply : t.planShiftApply}
           </Button>
         </>
       }

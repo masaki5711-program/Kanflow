@@ -1,6 +1,6 @@
 "use client"
 
-import { CalendarRange, Crosshair, Diamond, LayoutTemplate, Maximize2, Plus } from "lucide-react"
+import { CalendarRange, Crosshair, Diamond, LayoutTemplate, ListChecks, Maximize2, Plus } from "lucide-react"
 import { CardMenu, type CardMenuItem } from "@/app/projects/[projectId]/backlog/card-menu"
 import { Button, PageHeader, cn } from "@/components/ui"
 import { useLanguage } from "@/lib/language-context"
@@ -25,6 +25,13 @@ interface Props {
   onLoadTemplate: () => void
   onSaveAsTemplate: () => void
   onScheduleUndated: () => void
+  /** Scheduling assists: shift everything from a date / recalculate by dependencies / import a pasted table. */
+  onShiftFrom: () => void
+  onReflow: () => void
+  onImport: () => void
+  /** Multi-select mode toggle. */
+  selecting: boolean
+  onToggleSelecting: () => void
   hasItems: boolean
   hasUndated: boolean
 }
@@ -45,6 +52,9 @@ export function PlanToolbar(props: Props) {
           { key: "clear", label: t.planBaselineClear, disabled: !props.hasBaseline, onSelect: props.onClearBaseline },
           { key: "tpl-save", label: t.tplSaveAsButton, disabled: !props.hasItems, onSelect: props.onSaveAsTemplate },
           { key: "tpl-schedule", label: t.tplScheduleTitle, disabled: !props.hasUndated, onSelect: props.onScheduleUndated },
+          { key: "shift-from", label: t.pscMenuShiftFrom, disabled: !props.hasItems, onSelect: props.onShiftFrom },
+          { key: "reflow", label: t.pscMenuReflow, disabled: !props.hasItems, onSelect: props.onReflow },
+          { key: "import", label: t.pscMenuImport, onSelect: props.onImport },
         ]
       : []),
     { key: "export", label: t.planExport, onSelect: () => window.location.assign(props.exportUrl) },
@@ -95,6 +105,9 @@ export function PlanToolbar(props: Props) {
               </Button>
               <Button variant="secondary" size="sm" leftIcon={<LayoutTemplate className="h-4 w-4" />} onClick={props.onLoadTemplate} data-testid="plan-load-template">
                 {t.tplLoadButton}
+              </Button>
+              <Button variant={props.selecting ? "primary" : "secondary"} size="sm" leftIcon={<ListChecks className="h-4 w-4" />} aria-pressed={props.selecting} onClick={props.onToggleSelecting} data-testid="plan-select-mode">
+                {t.pscSelectMode}
               </Button>
             </>
           )}

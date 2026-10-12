@@ -134,7 +134,10 @@ const planShiftOp = z.object({
   followers: z.enum(SHIFT_FOLLOWERS),
 })
 
-export const planOpSchema = z.discriminatedUnion("op", [planCreateOp, planUpdateOp, planShiftOp])
+/** 依存関係で再計算: the server moves every violating successor later (POST /plan/reflow). Stands alone on its card. */
+const planReflowOp = z.object({ op: z.literal("reflow") })
+
+export const planOpSchema = z.discriminatedUnion("op", [planCreateOp, planUpdateOp, planShiftOp, planReflowOp])
 
 export const planEditProposalSchema = z.object({
   kind: z.literal("plan_edit"),

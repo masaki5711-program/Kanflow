@@ -36,6 +36,8 @@ interface Props {
   dependencies: readonly PlanDependency[]
   members: readonly { id: string; name: string }[]
   readOnly: boolean
+  /** The API's "today" (anchor of the date short-hand). */
+  today: string
   nameOf: (item: PlanItem) => string
   onClose: () => void
   onCreate: (input: PlanItemInput) => Promise<boolean>
@@ -64,6 +66,13 @@ function actualSlip(form: { plannedStart: string; plannedEnd: string; actualStar
         ? diffDays(form.plannedStart, form.actualStart)
         : 0
   return slip === 0 ? null : slip
+}
+
+/** Days the saved patch moved the planned end (null = not moved / not a dated item). */
+function plannedEndMove(item: PlanItem, patch: PlanItemPatch): number | null {
+  if (!item.plannedEnd || !patch.plannedEnd || !isYmd(patch.plannedEnd)) return null
+  const days = diffDays(item.plannedEnd, patch.plannedEnd)
+  return days === 0 ? null : days
 }
 
 function Footer({ saving, readOnly, onDelete }: { saving: boolean; readOnly: boolean; onDelete?: () => void }) {
@@ -123,6 +132,8 @@ export default function PlanEditModal(props: Props) {
   const [errors, setErrors] = useState<Partial<Record<FormErrorKey, true>>>({})
   const [saving, setSaving] = useState(false)
   const [shiftSlip, setShiftSlip] = useState<number | null>(null)
+  // Days the planned end moved by this save (the followers can be moved by the same number).
+  const [endMove, setEndMove] = useState<number | null>(null)
   // After a 409: the edits the reload replaced (shown with a "restore my input" action).
   const [lost, setLost] = useState<readonly PlanLostEdit[] | null>(null)
   // A 409 without a body copy: reload the form once the refetched item (new version) arrives.
@@ -197,7 +208,9 @@ export default function PlanEditModal(props: Props) {
         }
       }
       const slip = patchTouchesActuals(patch) ? actualSlip(form) : null
+      const moved = plannedEndMove(item, patch)
       if (slip) setShiftSlip(slip)
+      else if (moved !== null && props.dependencies.some((d) => d.predecessorId === item.id)) setEndMove(moved)
       else props.onClose()
     } finally {
       setSaving(false)
@@ -206,6 +219,23 @@ export default function PlanEditModal(props: Props) {
 
   async function handleDelete() {
     if (item && (await props.onDelete(item))) props.onClose()
+  }
+
+  if (item && endMove !== null && shiftSlip === null) {
+    return (
+      <PlanShiftDialog
+        apiBase={props.apiBase}
+        itemId={item.id}
+        slip={endMove}
+        hasSuccessors
+        cascade={{ name: nameOf(item) }}
+        onClose={props.onClose}
+        onApplied={() => {
+          props.onShifted()
+          props.onClose()
+        }}
+      />
+    )
   }
 
   if (item && shiftSlip !== null) {
@@ -249,7 +279,7 @@ export default function PlanEditModal(props: Props) {
           />
         )}
         <fieldset disabled={readOnly} className="min-w-0">
-          <PlanEditFields form={form} set={set} flags={flags} item={item} parentOptions={parents} members={props.members} errors={errors} readOnly={readOnly} />
+          <PlanEditFields form={form} set={set} flags={flags} item={item} parentOptions={parents} members={props.members} errors={errors} readOnly={readOnly} today={props.today} />
         </fieldset>
         {canLink && item ? (
           <PlanLinkSection ref={linkRef} links={links} itemId={item.id} disabled={readOnly} backlogHref={`${props.backlogPath}?plan=${encodeURIComponent(item.id)}`} />

@@ -111,6 +111,7 @@ function planOpRequests(base: string, op: PlanOp): ProposalRequest[] {
       },
     }]
   }
+  if (op.op === "reflow") return [{ url: `${base}/plan/reflow`, method: "POST", json: { apply: true } }]
   const url = `${base}/plan/${encodeURIComponent(op.target.id)}`
   if (op.op === "update") return [{ url, method: "PATCH", json: withVersion(op.changes, op.version) }]
   const move: ProposalRequest = {

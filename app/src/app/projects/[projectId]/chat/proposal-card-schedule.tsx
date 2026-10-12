@@ -116,6 +116,14 @@ function PlanOpLine({ op, t }: { op: PlanOp; t: T }) {
       </li>
     )
   }
+  if (op.op === "reflow") {
+    return (
+      <li className="space-y-0.5">
+        <Badge tone="neutral">{t.pscReflowTitle}</Badge>
+        <div className="text-caption text-fg-muted">{t.pscReflowDesc}</div>
+      </li>
+    )
+  }
   return (
     <li className="space-y-0.5">
       <Badge tone="neutral">{fillTemplate(op.days > 0 ? t.chatProposalOpShiftLater : t.chatProposalOpShiftEarlier, { days: Math.abs(op.days) })}</Badge>{" "}

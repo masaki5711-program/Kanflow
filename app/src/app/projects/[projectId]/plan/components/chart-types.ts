@@ -23,6 +23,10 @@ export interface ChartEnv {
   printing: boolean
   /** Localized display name of an item. */
   nameOf: (item: PlanItem) => string
+  /** Durations / shifts count business days (土日・祝日を除く). */
+  businessDays: boolean
+  /** Multi-select mode: rows show a checkbox. */
+  selecting: boolean
 }
 
 export interface RowHandlers {
@@ -41,4 +45,11 @@ export interface RowHandlers {
   pickArrow: (arrow: { id: string; predecessorId: string; successorId: string }) => void
   linkPbis: (item: PlanItem) => void
   remove: (item: PlanItem) => void
+  /** Inline date edit in the grid: persist both planned dates (offers to move the followers). */
+  editDates: (item: PlanItem, start: Ymd, end: Ymd) => void
+  /** An inline entry was rejected (end before start). */
+  invalidDates: () => void
+  /** Toggle the row's checkbox (`range` = extend from the last checked row). */
+  check: (id: string, range?: boolean) => void
+  duplicate: (item: PlanItem) => void
 }

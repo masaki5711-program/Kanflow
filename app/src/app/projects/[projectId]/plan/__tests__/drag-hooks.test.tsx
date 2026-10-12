@@ -39,6 +39,22 @@ describe("useBarDrag", () => {
   beforeEach(() => vi.useFakeTimers())
   afterEach(() => vi.useRealTimers())
 
+  it("Shift-drag moves the whole bar in full weeks; resizing is not snapped", () => {
+    const { hook, onPreview } = setup()
+    const h = hook.result.current.handlers
+    const tgt = target()
+    const shifted = (x: number) => ({ ...ev(x, tgt), shiftKey: true }) as unknown as PointerEvent
+    act(() => h.onPointerDown(ev(100, tgt), item, "leaf", "move"))
+    act(() => h.onPointerMove(shifted(150))) // 5 days → snapped to 7
+    expect(onPreview).toHaveBeenLastCalledWith("i1", "2026-10-08", "2026-10-12")
+    expect(hook.result.current.live?.delta).toBe(7)
+    act(() => h.onPointerUp())
+
+    act(() => h.onPointerDown(ev(100, tgt), item, "leaf", "resize"))
+    act(() => h.onPointerMove(shifted(150)))
+    expect(onPreview).toHaveBeenLastCalledWith("i1", "2026-10-01", "2026-10-10")
+  })
+
   it("mouse: a small move is a click; a drag snaps to days and commits once", () => {
     const { hook, onPreview, onCommit } = setup()
     const h = hook.result.current.handlers
@@ -49,7 +65,7 @@ describe("useBarDrag", () => {
     expect(onPreview).not.toHaveBeenCalled()
     act(() => h.onPointerMove(ev(126, tgt)))
     expect(onPreview).toHaveBeenLastCalledWith("i1", "2026-10-04", "2026-10-08")
-    expect(hook.result.current.live).toEqual({ id: "i1", start: "2026-10-04", end: "2026-10-08" })
+    expect(hook.result.current.live).toEqual({ id: "i1", start: "2026-10-04", end: "2026-10-08", delta: 3 })
     act(() => h.onPointerUp())
     expect(onCommit).toHaveBeenCalledWith(item, "2026-10-04", "2026-10-08")
     expect(hook.result.current.live).toBeNull()

@@ -123,6 +123,14 @@ describe("buildPlanOps", () => {
     expect((buildPlanOps(ROWS, []) as { error: string }).error).toMatch(/non-empty/)
   })
 
+  it("accepts a reflow op with no other fields, once, alone (new stages may accompany it)", () => {
+    expect(buildPlanOps(ROWS, [{ action: "reflow" }])).toEqual([{ op: "reflow" }])
+    expect(buildPlanOps(ROWS, [{ action: "create", name: "X" }, { action: "reflow" }])).toMatchObject([{ op: "create" }, { op: "reflow" }])
+    const err = (ops: unknown[]) => (buildPlanOps(ROWS, ops) as { error: string }).error
+    expect(err([{ action: "reflow" }, { action: "reflow" }])).toMatch(/once per card/)
+    expect(err([{ action: "reflow" }, { action: "update", item: "Build", status: "done" }])).toMatch(/on its own/)
+  })
+
   it("rejects editing the same stage twice in one card (its version would be stale)", () => {
     const out = buildPlanOps(ROWS, [
       { action: "shift", item: "Test", days: 1 },

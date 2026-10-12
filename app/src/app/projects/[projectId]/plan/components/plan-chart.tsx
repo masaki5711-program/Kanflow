@@ -32,6 +32,8 @@ interface Props {
   selectedId: string | null
   collapsed: ReadonlySet<string>
   renamingId: string | null
+  /** Rows checked in multi-select mode. */
+  checkedIds: ReadonlySet<string>
   todayLabel: string
   /** Visible timeline window (timeline px; null while printing): keeps the today pill inside it. */
   view: { left: number; width: number } | null
@@ -185,6 +187,7 @@ export const PlanChart = forwardRef<HTMLDivElement, Props>(function PlanChart(pr
               isTabStop={row.item.id === tabStopId}
               collapsed={collapsed.has(row.item.id)}
               renaming={row.item.id === renamingId}
+              checked={props.checkedIds.has(row.item.id)}
               gridHintId={gridHintId}
               barHintId={barHintId}
               onNavigate={onNavigate}
