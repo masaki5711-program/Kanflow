@@ -2,7 +2,7 @@
 
 import { memo, useState } from "react"
 import Link from "next/link"
-import { AtSign, CornerUpLeft, FileIcon, MessageSquareQuote, Reply, Trash2 } from "lucide-react"
+import { AtSign, CornerUpLeft, FileIcon, ListPlus, MessageSquareQuote, Reply, Trash2 } from "lucide-react"
 import { IconButton, cn } from "@/components/ui"
 import { CommentBody } from "@/components/comments/comment-body"
 import { formatFullDateTime, formatRelativeTime } from "@/components/comments/relative-time"
@@ -18,6 +18,8 @@ interface Props {
   now: Date
   onReply: (m: TeamMessage) => void
   onDelete: (m: TeamMessage) => void
+  /** Present when the viewer may create a PBI / Icebox item from a message. */
+  onConvert?: (m: TeamMessage) => void
   /** Scroll to and flash the quoted message. */
   onJump: (id: string) => void
 }
@@ -30,7 +32,7 @@ const initial = (name: string | null | undefined) => name?.trim().charAt(0).toUp
  * with highlighted @mentions, attachments and the reply / delete actions.
  * Messages that mention the viewer stand out (accent bar, tint, tag).
  */
-export const MessageItem = memo(function MessageItem({ projectId, message: m, now, onReply, onDelete, onJump }: Props) {
+export const MessageItem = memo(function MessageItem({ projectId, message: m, now, onReply, onDelete, onConvert, onJump }: Props) {
   const { t, language } = useLanguage()
   const forMe = m.mentionsMe || m.repliesToMe
   return (
@@ -86,6 +88,9 @@ export const MessageItem = memo(function MessageItem({ projectId, message: m, no
       </div>
       <div className="absolute right-2 top-1.5 flex gap-0.5 rounded-ui-sm bg-surface opacity-100 shadow-ui-sm [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-focus-within:opacity-100 [@media(hover:hover)]:group-hover:opacity-100">
         <IconButton size="sm" label={`${t.talkReply}: ${m.author?.name ?? ""}`} icon={<Reply className="h-4 w-4" />} onClick={() => onReply(m)} />
+        {onConvert && m.body.trim() && (
+          <IconButton size="sm" label={t.talkConvert} icon={<ListPlus className="h-4 w-4" />} onClick={() => onConvert(m)} />
+        )}
         {m.canDelete && <IconButton size="sm" label={t.talkDelete} icon={<Trash2 className="h-4 w-4 text-danger" />} onClick={() => onDelete(m)} />}
       </div>
     </li>

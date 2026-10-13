@@ -6,7 +6,10 @@ import { MessagesSquare } from "lucide-react"
 import { Button, EmptyState, PageHeader, SkeletonLines, cn, useConfirm, useToast } from "@/components/ui"
 import { useMentionMembersState, useSignedInUserId } from "@/components/comments/use-comment-thread"
 import { useProjectDocumentTitle } from "@/components/app-shell/project-title-context"
-import { useStableHandlers } from "@/hooks"
+import { useSession } from "next-auth/react"
+import { useApiQuery, useStableHandlers } from "@/hooks"
+import { can, type ProjectActor } from "@/lib/authz/policy"
+import { ConvertMessageDialog } from "./convert-message-dialog"
 import { useLanguage } from "@/lib/language-context"
 import { ChatComposer } from "./chat-composer"
 import { MessageItem } from "./message-item"
@@ -32,6 +35,18 @@ function TalkContent() {
   const selfId = useSignedInUserId()
   const [forMe, setForMe] = useState(false)
   const [replyTo, setReplyTo] = useState<TeamMessage | null>(null)
+  const [convertMessage, setConvertMessage] = useState<TeamMessage | null>(null)
+  const { data: session } = useSession()
+  const roster = useApiQuery<{ role: string; user: { id: string } }[]>(`/api/projects/${encodeURIComponent(projectId)}/members`)
+  // UI hints from the shared authz policy; the create APIs enforce the same rules.
+  const actor: ProjectActor = {
+    userId: selfId ?? "",
+    systemRole: (session?.user as { role?: string } | undefined)?.role ?? "member",
+    projectRole: roster.data?.find((m) => m.user.id === selfId)?.role ?? null,
+    isSectionManagerOfProject: false,
+  }
+  const canPbi = can(actor, "backlog.write")
+  const canIcebox = can(actor, "icebox.write")
   const [now] = useState(() => new Date())
   const chat = useTeamChat(projectId, forMe)
   const mention = useMentionMembersState(projectId)
@@ -86,6 +101,7 @@ function TalkContent() {
   // Stable identities keep the memoized message rows from re-rendering on every poll.
   const rowHandlers = useStableHandlers({
     onReply: (m: TeamMessage) => setReplyTo(m),
+    onConvert: (m: TeamMessage) => setConvertMessage(m),
     onDelete: (m: TeamMessage) => void deleteMessage(m),
     onJump: (id: string) => jump(id),
   })
@@ -131,13 +147,16 @@ function TalkContent() {
             <ol className="space-y-1">
               {chat.messages.map((m, i) => (
                 <MessageRow key={m.id} showDivider={i === unreadAt} label={t.talkUnreadDivider}>
-                  <MessageItem projectId={projectId} message={m} now={now} {...rowHandlers} />
+                  <MessageItem projectId={projectId} message={m} now={now} {...rowHandlers} onConvert={canPbi || canIcebox ? rowHandlers.onConvert : undefined} />
                 </MessageRow>
               ))}
             </ol>
           </>
         )}
       </div>
+      {convertMessage && (
+        <ConvertMessageDialog projectId={projectId} message={convertMessage} canPbi={canPbi} canIcebox={canIcebox} onClose={() => setConvertMessage(null)} />
+      )}
       <ChatComposer members={mention.members} membersLoading={mention.isLoading} replyTo={replyTo} onCancelReply={() => setReplyTo(null)} onSend={send} />
     </div>
   )

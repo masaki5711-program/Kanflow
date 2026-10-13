@@ -19,6 +19,20 @@ export interface TeamChatTranslations {
   talkDelete: string
   talkDeleteConfirm: string
   talkDeleted: string
+  /** "Make this message an item": menu entry, dialog and result texts. */
+  talkConvert: string
+  talkConvertTitle: string
+  talkConvertDesc: string
+  talkConvertTarget: string
+  talkConvertToPbi: string
+  talkConvertToIcebox: string
+  talkConvertText: string
+  talkConvertLinkLabel: string
+  talkConvertSubmit: string
+  talkConvertDonePbi: string
+  talkConvertDoneIcebox: string
+  talkConvertOpen: string
+  talkConvertFailed: string
   talkReplyingTo: string
   talkReplyCancel: string
   talkReplyAlsoThread: string
@@ -63,6 +77,19 @@ export const ja: TeamChatTranslations = {
   talkDelete: "削除",
   talkDeleteConfirm: "このメッセージを削除しますか？",
   talkDeleted: "メッセージを削除しました",
+  talkConvert: "項目にする",
+  talkConvertTitle: "メッセージから項目を作る",
+  talkConvertDesc: "このメッセージの内容を、バックログのPBIまたはIceboxの要望として登録します。元メッセージへのリンクも残ります。",
+  talkConvertTarget: "登録先",
+  talkConvertToPbi: "PBI(プロダクトバックログ)",
+  talkConvertToIcebox: "Icebox(要望)",
+  talkConvertText: "内容",
+  talkConvertLinkLabel: "チャットの元メッセージ",
+  talkConvertSubmit: "登録する",
+  talkConvertDonePbi: "PBIを作成しました",
+  talkConvertDoneIcebox: "Iceboxに登録しました",
+  talkConvertOpen: "開く",
+  talkConvertFailed: "登録に失敗しました",
   talkReplyingTo: "{name} さんへの返信",
   talkReplyCancel: "返信をやめる",
   talkReplyAlsoThread: "この返信は「{source}」のコメントにも書き込まれます",
@@ -107,6 +134,19 @@ export const en: TeamChatTranslations = {
   talkDelete: "Delete",
   talkDeleteConfirm: "Delete this message?",
   talkDeleted: "Message deleted",
+  talkConvert: "Make it an item",
+  talkConvertTitle: "Create an item from this message",
+  talkConvertDesc: "Registers this message as a backlog PBI or an Icebox request. A link back to the message is kept.",
+  talkConvertTarget: "Register as",
+  talkConvertToPbi: "PBI (product backlog)",
+  talkConvertToIcebox: "Icebox (request)",
+  talkConvertText: "Content",
+  talkConvertLinkLabel: "Original chat message",
+  talkConvertSubmit: "Register",
+  talkConvertDonePbi: "PBI created",
+  talkConvertDoneIcebox: "Added to Icebox",
+  talkConvertOpen: "Open",
+  talkConvertFailed: "Could not register",
   talkReplyingTo: "Replying to {name}",
   talkReplyCancel: "Cancel reply",
   talkReplyAlsoThread: "This reply is also posted to the comments of \"{source}\"",
@@ -151,6 +191,19 @@ export const id: TeamChatTranslations = {
   talkDelete: "Hapus",
   talkDeleteConfirm: "Hapus pesan ini?",
   talkDeleted: "Pesan dihapus",
+  talkConvert: "Jadikan item",
+  talkConvertTitle: "Buat item dari pesan ini",
+  talkConvertDesc: "Mendaftarkan pesan ini sebagai PBI backlog atau permintaan Icebox. Tautan ke pesan asli tetap disimpan.",
+  talkConvertTarget: "Daftarkan sebagai",
+  talkConvertToPbi: "PBI (product backlog)",
+  talkConvertToIcebox: "Icebox (permintaan)",
+  talkConvertText: "Isi",
+  talkConvertLinkLabel: "Pesan obrolan asli",
+  talkConvertSubmit: "Daftarkan",
+  talkConvertDonePbi: "PBI dibuat",
+  talkConvertDoneIcebox: "Ditambahkan ke Icebox",
+  talkConvertOpen: "Buka",
+  talkConvertFailed: "Gagal mendaftarkan",
   talkReplyingTo: "Membalas {name}",
   talkReplyCancel: "Batal membalas",
   talkReplyAlsoThread: "Balasan ini juga dikirim ke komentar \"{source}\"",
