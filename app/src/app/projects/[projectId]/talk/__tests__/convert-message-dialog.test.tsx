@@ -56,7 +56,7 @@ describe("ConvertMessageDialog", () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ id: "pb1" }), { status: 201, headers: { "content-type": "application/json" } }))
     vi.stubGlobal("fetch", fetchMock)
     const onClose = vi.fn()
-    renderWithProviders(<ConvertMessageDialog projectId="p1" message={msg()} canPbi canIcebox onClose={onClose} />)
+    renderWithProviders(<ConvertMessageDialog projectId="p1" message={msg()} canPbi canIcebox canTask onClose={onClose} />)
 
     await userEvent.click(screen.getByTestId("talk-convert-submit"))
     await waitFor(() => expect(onClose).toHaveBeenCalled())
@@ -66,8 +66,31 @@ describe("ConvertMessageDialog", () => {
     expect(JSON.parse(String(init.body))).toMatchObject({ initiative: "ログイン画面を直したい" })
   })
 
+  it("adds a sprint task: running sprint first, PBI picker, first line as the task name", async () => {
+    const sprints = [
+      { id: "s0", sprintName: "Done one", status: "done", items: [] },
+      { id: "s2", sprintName: "Next", status: "planning", items: [] },
+      { id: "s1", sprintName: "Now", status: "active", items: [{ pbItem: { id: "pb1", displayId: 4, initiative: "ログイン" } }, { pbItem: { id: "pb1", displayId: 4, initiative: "ログイン" } }] },
+    ]
+    const fetchMock = vi.fn(async (url: string) =>
+      new Response(JSON.stringify(url.endsWith("/sprints") ? sprints : { id: "t1" }), { status: url.endsWith("/tasks") ? 201 : 200, headers: { "content-type": "application/json" } }))
+    vi.stubGlobal("fetch", fetchMock)
+    const onClose = vi.fn()
+    renderWithProviders(<ConvertMessageDialog projectId="p1" message={msg()} canPbi canIcebox canTask onClose={onClose} />)
+
+    await userEvent.click(screen.getByLabelText(t.talkConvertToTask))
+    const sprintSelect = await screen.findByLabelText(t.talkConvertSprint)
+    expect(sprintSelect).toHaveValue("s1")
+    expect(screen.getAllByRole("option", { name: /^#4 / })).toHaveLength(1)
+    await userEvent.click(screen.getByTestId("talk-convert-submit"))
+    await waitFor(() => expect(onClose).toHaveBeenCalled())
+    const post = fetchMock.mock.calls.find(([u]) => String(u).endsWith("/tasks")) as unknown as [string, RequestInit]
+    expect(post[0]).toBe("/api/projects/p1/sprints/s1/tasks")
+    expect(JSON.parse(String(post[1].body))).toEqual({ pbItemId: "pb1", taskName: "ログイン画面を直したい" })
+  })
+
   it("offers only the targets the viewer may write", () => {
-    renderWithProviders(<ConvertMessageDialog projectId="p1" message={msg()} canPbi={false} canIcebox onClose={vi.fn()} />)
+    renderWithProviders(<ConvertMessageDialog projectId="p1" message={msg()} canPbi={false} canIcebox canTask={false} onClose={vi.fn()} />)
     expect(screen.queryByLabelText(t.talkConvertToPbi)).not.toBeInTheDocument()
     expect(screen.getByLabelText(t.talkConvertToIcebox)).toBeChecked()
   })

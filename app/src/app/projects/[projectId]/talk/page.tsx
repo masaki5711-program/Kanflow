@@ -47,6 +47,7 @@ function TalkContent() {
   }
   const canPbi = can(actor, "backlog.write")
   const canIcebox = can(actor, "icebox.write")
+  const canTask = can(actor, "task.write")
   const [now] = useState(() => new Date())
   const chat = useTeamChat(projectId, forMe)
   const mention = useMentionMembersState(projectId)
@@ -147,7 +148,7 @@ function TalkContent() {
             <ol className="space-y-1">
               {chat.messages.map((m, i) => (
                 <MessageRow key={m.id} showDivider={i === unreadAt} label={t.talkUnreadDivider}>
-                  <MessageItem projectId={projectId} message={m} now={now} {...rowHandlers} onConvert={canPbi || canIcebox ? rowHandlers.onConvert : undefined} />
+                  <MessageItem projectId={projectId} message={m} now={now} {...rowHandlers} onConvert={canPbi || canIcebox || canTask ? rowHandlers.onConvert : undefined} />
                 </MessageRow>
               ))}
             </ol>
@@ -155,7 +156,7 @@ function TalkContent() {
         )}
       </div>
       {convertMessage && (
-        <ConvertMessageDialog projectId={projectId} message={convertMessage} canPbi={canPbi} canIcebox={canIcebox} onClose={() => setConvertMessage(null)} />
+        <ConvertMessageDialog projectId={projectId} message={convertMessage} canPbi={canPbi} canIcebox={canIcebox} canTask={canTask} onClose={() => setConvertMessage(null)} />
       )}
       <ChatComposer members={mention.members} membersLoading={mention.isLoading} replyTo={replyTo} onCancelReply={() => setReplyTo(null)} onSend={send} />
     </div>

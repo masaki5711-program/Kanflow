@@ -32,6 +32,11 @@ export interface TeamChatTranslations {
   talkConvertDonePbi: string
   talkConvertDoneIcebox: string
   talkConvertOpen: string
+  talkConvertToTask: string
+  talkConvertSprint: string
+  talkConvertPbi: string
+  talkConvertNoSprint: string
+  talkConvertDoneTask: string
   talkConvertFailed: string
   talkReplyingTo: string
   talkReplyCancel: string
@@ -89,6 +94,11 @@ export const ja: TeamChatTranslations = {
   talkConvertDonePbi: "PBIを作成しました",
   talkConvertDoneIcebox: "Iceboxに登録しました",
   talkConvertOpen: "開く",
+  talkConvertToTask: "スプリントのタスク",
+  talkConvertSprint: "スプリント",
+  talkConvertPbi: "PBI",
+  talkConvertNoSprint: "タスクを追加できるスプリントがありません",
+  talkConvertDoneTask: "タスクを追加しました",
   talkConvertFailed: "登録に失敗しました",
   talkReplyingTo: "{name} さんへの返信",
   talkReplyCancel: "返信をやめる",
@@ -146,6 +156,11 @@ export const en: TeamChatTranslations = {
   talkConvertDonePbi: "PBI created",
   talkConvertDoneIcebox: "Added to Icebox",
   talkConvertOpen: "Open",
+  talkConvertToTask: "Sprint task",
+  talkConvertSprint: "Sprint",
+  talkConvertPbi: "PBI",
+  talkConvertNoSprint: "No sprint to add a task to",
+  talkConvertDoneTask: "Task added",
   talkConvertFailed: "Could not register",
   talkReplyingTo: "Replying to {name}",
   talkReplyCancel: "Cancel reply",
@@ -203,6 +218,11 @@ export const id: TeamChatTranslations = {
   talkConvertDonePbi: "PBI dibuat",
   talkConvertDoneIcebox: "Ditambahkan ke Icebox",
   talkConvertOpen: "Buka",
+  talkConvertToTask: "Tugas sprint",
+  talkConvertSprint: "Sprint",
+  talkConvertPbi: "PBI",
+  talkConvertNoSprint: "Tidak ada sprint untuk menambah tugas",
+  talkConvertDoneTask: "Tugas ditambahkan",
   talkConvertFailed: "Gagal mendaftarkan",
   talkReplyingTo: "Membalas {name}",
   talkReplyCancel: "Batal membalas",
