@@ -54,6 +54,8 @@ export function notesToChecklist(notes: string | null | undefined): string[] {
 /** One plan item a template load creates (parents always precede their children). */
 export interface ApplyRow {
   path: string
+  /** The stage's dependency key (null = takes part in no dependency). */
+  key: string | null
   /** Path of the parent row, null = attach under the load's insert position. */
   parentPath: string | null
   name: string
@@ -78,6 +80,7 @@ export function buildApplyRows(nodes: readonly TemplateNode[], excludePaths: rea
       const children = walk(node.children ?? [], path)
       const row: ApplyRow = {
         path,
+        key: node.key ?? null,
         parentPath,
         name: node.name.trim(),
         description: node.description?.trim() || null,

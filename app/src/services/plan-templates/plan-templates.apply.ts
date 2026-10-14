@@ -8,6 +8,7 @@
  * later template edits never change the plan and the 検収 board can find the
  * stages and the checks / documents they came from.
  */
+import type { TemplateLink } from "@/lib/plan-templates/links"
 import { buildApplyRows } from "@/lib/plan-templates/tree"
 import { planToStages } from "@/lib/plan-templates/from-plan"
 import { scheduleFrom, type ScheduledDates } from "@/lib/plan-templates/schedule"
@@ -46,7 +47,8 @@ export interface ApplyResult {
 async function placeDates(tx: Db, projectId: string, rootIds: string[] | null, startDate: string, skipWeekends: boolean): Promise<ScheduledDates[]> {
   const rows = await planRepo.findPlanItems(tx, projectId)
   const nodes = rows.map((r) => ({ ...r, plannedStart: toDateKeyOrNull(r.plannedStart), plannedEnd: toDateKeyOrNull(r.plannedEnd) }))
-  const placed = scheduleFrom(nodes, rootIds, startDate, { skipWeekends })
+  const dependencies = await planRepo.findDependencies(tx, projectId)
+  const placed = scheduleFrom(nodes, rootIds, startDate, { skipWeekends, dependencies })
   for (const p of placed) {
     await planRepo.updatePlanItem(tx, p.id, { plannedStart: dateFromKey(p.plannedStart), plannedEnd: dateFromKey(p.plannedEnd), ...BUMP_VERSION })
   }
@@ -95,6 +97,24 @@ async function insertStages(
 }
 
 /**
+ * The template's dependencies as plan dependencies between the created stages.
+ * A link whose end was excluded from this load is skipped; the template's own
+ * validation already ruled out cycles and ancestor links. Returns the count.
+ */
+async function insertLinks(tx: Db, projectId: string, links: readonly TemplateLink[], rows: ReturnType<typeof buildApplyRows>, ids: Map<string, string>): Promise<number> {
+  const idByKey = new Map(rows.flatMap((r) => (r.key && ids.has(r.path) ? [[r.key, ids.get(r.path) as string] as const] : [])))
+  let count = 0
+  for (const l of links) {
+    const predecessorId = idByKey.get(l.from)
+    const successorId = idByKey.get(l.to)
+    if (!predecessorId || !successorId) continue
+    await planRepo.insertDependency(tx, { projectId, predecessorId, successorId })
+    count += 1
+  }
+  return count
+}
+
+/**
  * POST /plan/templates/apply: the template's stages (minus `excludePaths`)
  * as undated plan items under `parentId` (top level when null), after the
  * existing siblings, in one transaction.
@@ -123,6 +143,7 @@ export async function applyTemplate(projectId: string, input: ApplyTemplateInput
     const ids = await insertStages(tx, projectId, rows, parentId, app.id, actor)
     const createdRootIds = rows.filter((r) => r.parentPath === null).map((r) => ids.get(r.path) as string)
     await repo.setApplicationRoots(tx, app.id, createdRootIds)
+    const linked = await insertLinks(tx, projectId, content.links ?? [], rows, ids)
     // A start date dates the new stages right away (before the recalc derives the parents' spans).
     const placed = startDate ? await placeDates(tx, projectId, createdRootIds, startDate, input.skipWeekends === true) : []
     await recalcPlanProgress(projectId, [...ids.values(), parentId], tx)
@@ -132,7 +153,7 @@ export async function applyTemplate(projectId: string, input: ApplyTemplateInput
       entityId: projectId,
       action: "update",
       actor,
-      diff: { changes: { planTemplate: { from: null, to: template.name } }, meta: { planTemplateId: template.id, applicationId: app.id, count: rows.length } },
+      diff: { changes: { planTemplate: { from: null, to: template.name } }, meta: { planTemplateId: template.id, applicationId: app.id, count: rows.length, dependencies: linked } },
     })
     return {
       applicationId: app.id,
@@ -189,10 +210,11 @@ export async function savePlanAsTemplate(projectId: string, input: SavePlanAsTem
   const items = await planRepo.findPlanItems(defaultDb, projectId)
   const result = planToStages(
     items.map((i) => ({ ...i, plannedStart: toDateKeyOrNull(i.plannedStart), plannedEnd: toDateKeyOrNull(i.plannedEnd) })),
+    await planRepo.findDependencies(defaultDb, projectId),
   )
   if (!result.ok && result.reason === "empty") throw new ValidationError("保存する計画がありません", {}, "PLAN_TEMPLATE_EMPTY")
   if (!result.ok) throw new ValidationError("計画が大きすぎます", {}, "PLAN_TEMPLATE_TOO_LARGE")
-  const content: PlanTemplateContent = { stages: result.stages }
+  const content: PlanTemplateContent = { stages: result.stages, ...(result.links.length > 0 && { links: result.links }) }
   contentJson(content)
   const row = await withTransaction((tx) =>
     insertUserTemplate(tx, { name: input.name, description: input.description ?? null, visibility: input.visibility, content }, actor, "create"),

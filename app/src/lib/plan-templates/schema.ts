@@ -8,6 +8,7 @@
  * uses), never i18n. Pure and client-safe (zod only).
  */
 import { z } from "zod"
+import { firstLinkProblem, type TemplateLink } from "./links"
 
 /** Stage nesting: top level = depth 1. */
 export const TEMPLATE_MAX_DEPTH = 3
@@ -20,8 +21,13 @@ export const TEMPLATE_NAME_MAX = 255
 const LIST_MAX = 50
 const CHECKLIST_MAX = 30
 const DESCRIPTION_MAX = 2000
+/** Dependencies (先行 → 後続) per template. */
+export const TEMPLATE_MAX_LINKS = 400
+const KEY_PATTERN = /^[A-Za-z0-9_-]{1,40}$/
 
 export interface TemplateNode {
+  /** Stable id that `links` refer to; only stages that take part in a dependency carry one. */
+  key?: string
   name: string
   description?: string
   isMilestone?: boolean
@@ -39,6 +45,8 @@ export interface TemplateCheck {
 
 export interface PlanTemplateContent {
   stages: TemplateNode[]
+  /** 依存関係: finish-to-start between stages (by `key`); they become plan dependencies on load. */
+  links?: TemplateLink[]
   /** 呼び名 of the check items (検収 / テスト / 評価 / 竣工検査 …). */
   checkLabel?: string
   checks?: TemplateCheck[]
@@ -52,6 +60,7 @@ const name = z.string().trim().min(1).max(TEMPLATE_NAME_MAX)
 
 export const templateNodeSchema: z.ZodType<TemplateNode> = z.lazy(() =>
   z.object({
+    key: z.string().regex(KEY_PATTERN).optional(),
     name,
     description: text(DESCRIPTION_MAX).optional(),
     isMilestone: z.boolean().optional(),
@@ -74,6 +83,7 @@ export function countNodes(nodes: readonly TemplateNode[]): number {
 export const templateContentSchema = z
   .object({
     stages: z.array(templateNodeSchema).max(TEMPLATE_MAX_NODES),
+    links: z.array(z.object({ from: z.string().regex(KEY_PATTERN), to: z.string().regex(KEY_PATTERN) })).max(TEMPLATE_MAX_LINKS).optional(),
     checkLabel: text(40).optional(),
     checks: z.array(z.object({ name, criterion: text(1000).optional() })).max(LIST_MAX).optional(),
     documents: z.array(name).max(LIST_MAX).optional(),
@@ -86,6 +96,8 @@ export const templateContentSchema = z
     if (countNodes(c.stages) > TEMPLATE_MAX_NODES) {
       ctx.addIssue({ code: "custom", path: ["stages"], message: `At most ${TEMPLATE_MAX_NODES} stages` })
     }
+    const linkProblem = firstLinkProblem(c.stages, c.links ?? [])
+    if (linkProblem) ctx.addIssue({ code: "custom", path: ["links"], message: linkProblem })
   })
 
 /** Parse stored JSON text; invalid / legacy content reads as an empty template (never throws). */

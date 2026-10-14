@@ -142,6 +142,22 @@ export interface PlanTemplatesTranslations {
   tplLoadListFailed: string
   tplSaveFailed: string
   tplUnknownUser: string
+  tplViewSwitch: string
+  tplViewList: string
+  tplViewVisual: string
+  tplVisualHint: string
+  tplScheduleRule: string
+  tplTimelineLabel: string
+  tplBarTitle: string
+  tplLinkHandle: string
+  tplLinkRemove: string
+  tplLinkBlockHierarchy: string
+  tplLinkBlockExisting: string
+  tplLinkBlockCycle: string
+  tplResizeDuration: string
+  tplPredecessors: string
+  tplPredecessorsNone: string
+  tplLinksCount: string
 }
 
 export const ja: PlanTemplatesTranslations = {
@@ -281,6 +297,22 @@ export const ja: PlanTemplatesTranslations = {
   tplLoadListFailed: "テンプレートを取得できませんでした",
   tplSaveFailed: "テンプレートを保存できませんでした",
   tplUnknownUser: "（不明）",
+  tplViewSwitch: "工程の編集表示",
+  tplViewList: "リスト",
+  tplViewVisual: "ビジュアル",
+  tplVisualHint: "バーの右端の●から別の工程のバーへドラッグすると、「先行 → 後続」の依存関係を設定できます。矢印をクリックすると削除、バーの右端をドラッグすると目安期間を変更できます。キーボードで設定する場合は「リスト」表示の各工程の詳細にある「先行工程」を使います。",
+  tplScheduleRule: "並びは「日程を仮置き」と同じ規則です。先行工程のある工程は先行の完了翌日から、それ以外は上から順に並びます。",
+  tplTimelineLabel: "工程の日程プレビュー",
+  tplBarTitle: "{name}・{start}〜{end}日目（{n}日）",
+  tplLinkHandle: "依存関係を追加（{name} の後に続く工程へドラッグ）",
+  tplLinkRemove: "依存関係を削除: {from} → {to}",
+  tplLinkBlockHierarchy: "親子の工程の間には依存関係を設定できません",
+  tplLinkBlockExisting: "この依存関係はすでに設定されています",
+  tplLinkBlockCycle: "循環してしまうため設定できません",
+  tplResizeDuration: "目安期間を変更: {name}",
+  tplPredecessors: "先行工程（完了後に開始）",
+  tplPredecessorsNone: "先行にできる工程がありません",
+  tplLinksCount: "依存関係 {n} 件",
 }
 
 export const en: PlanTemplatesTranslations = {
@@ -414,6 +446,22 @@ export const en: PlanTemplatesTranslations = {
   tplHistoryVersion: "Version {n}",
   tplHistoryEntry: "{date} · {name} · {action}",
   tplNoStages: "No stages yet. Use \"Add stage\".",
+  tplViewSwitch: "Stage editor view",
+  tplViewList: "List",
+  tplViewVisual: "Visual",
+  tplVisualHint: "Drag from the ● at the right end of a bar to another stage's bar to set a \"predecessor → successor\" dependency. Click an arrow to remove it; drag the right edge of a bar to change the estimated duration. To use the keyboard, set \"Predecessor stages\" in a stage's details in the List view.",
+  tplScheduleRule: "Bars follow the same rule as \"Place dates provisionally\": a stage with a predecessor starts the day after it finishes; the others run in order from the top.",
+  tplTimelineLabel: "Stage schedule preview",
+  tplBarTitle: "{name} · day {start}–{end} ({n} days)",
+  tplLinkHandle: "Add dependency (drag to a stage that follows {name})",
+  tplLinkRemove: "Remove dependency: {from} → {to}",
+  tplLinkBlockHierarchy: "A dependency cannot be set between a stage and its parent or child",
+  tplLinkBlockExisting: "This dependency is already set",
+  tplLinkBlockCycle: "It would create a cycle, so it cannot be set",
+  tplResizeDuration: "Change estimated duration: {name}",
+  tplPredecessors: "Predecessor stages (start after they finish)",
+  tplPredecessorsNone: "No stage can be a predecessor",
+  tplLinksCount: "{n} dependencies",
   tplStagesRequired: "Add at least one stage",
   tplLimitReached: "At most 200 stages",
   tplNotFound: "Template not found",
@@ -553,6 +601,22 @@ export const id: PlanTemplatesTranslations = {
   tplHistoryVersion: "Versi {n}",
   tplHistoryEntry: "{date} · {name} · {action}",
   tplNoStages: "Belum ada tahapan. Gunakan \"Tambah tahapan\".",
+  tplViewSwitch: "Tampilan editor tahapan",
+  tplViewList: "Daftar",
+  tplViewVisual: "Visual",
+  tplVisualHint: "Seret dari ● di ujung kanan batang ke batang tahapan lain untuk mengatur ketergantungan \"sebelum → sesudah\". Klik panah untuk menghapus, seret ujung kanan batang untuk mengubah perkiraan durasi. Untuk keyboard, gunakan \"Tahapan pendahulu\" pada detail tahapan di tampilan Daftar.",
+  tplScheduleRule: "Urutannya mengikuti aturan \"Tempatkan jadwal sementara\". Tahapan dengan pendahulu mulai sehari setelah pendahulunya selesai; yang lain berurutan dari atas.",
+  tplTimelineLabel: "Pratinjau jadwal tahapan",
+  tplBarTitle: "{name} • hari ke-{start}–{end} ({n} hari)",
+  tplLinkHandle: "Tambah ketergantungan (seret ke tahapan setelah {name})",
+  tplLinkRemove: "Hapus ketergantungan: {from} → {to}",
+  tplLinkBlockHierarchy: "Ketergantungan tidak dapat diatur antara tahapan induk dan anak",
+  tplLinkBlockExisting: "Ketergantungan ini sudah diatur",
+  tplLinkBlockCycle: "Tidak dapat diatur karena akan membentuk lingkaran",
+  tplResizeDuration: "Ubah perkiraan durasi: {name}",
+  tplPredecessors: "Tahapan pendahulu (mulai setelah selesai)",
+  tplPredecessorsNone: "Tidak ada tahapan yang dapat menjadi pendahulu",
+  tplLinksCount: "{n} ketergantungan",
   tplStagesRequired: "Tambahkan minimal satu tahapan",
   tplLimitReached: "Maksimal 200 tahapan",
   tplNotFound: "Templat tidak ditemukan",

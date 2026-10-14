@@ -161,6 +161,31 @@ describe("plan-templates.apply", () => {
     await expect(apply.savePlanAsTemplate("p1", { name: "x", visibility: "public" }, ACTOR)).rejects.toMatchObject({ code: "PLAN_TEMPLATE_EMPTY" })
   })
 
+  it("save-as-template keeps the plan's dependencies as links between keyed stages", async () => {
+    vi.mocked(planRepo.findPlanItems).mockResolvedValue([planRow({ id: "a", name: "準備" }), planRow({ id: "b", name: "本番", sortOrder: 2 })] as never)
+    vi.mocked(planRepo.findDependencies).mockResolvedValue([{ id: "d1", predecessorId: "a", successorId: "b" }] as never)
+    vi.mocked(repo.insertTemplate).mockImplementation((async (_db: unknown, data: object) => ({ ...template({ builtinKey: null }), ...data, id: "new" })) as never)
+    vi.mocked(repo.insertRevision).mockResolvedValue({ id: "r" })
+    const out = await apply.savePlanAsTemplate("p1", { name: "依存あり", visibility: "public" }, ACTOR)
+    // durationDays 10 is the fixture row's default.
+    expect(out.content).toEqual({ stages: [{ key: "s1", name: "準備", durationDays: 10 }, { key: "s2", name: "本番", durationDays: 10 }], links: [{ from: "s1", to: "s2" }] })
+  })
+
+  it("a load creates the template's dependencies between the new stages and skips links to excluded ones", async () => {
+    const linked = { stages: [{ key: "s1", name: "A" }, { key: "s2", name: "B" }, { key: "s3", name: "C" }], links: [{ from: "s1", to: "s2" }, { from: "s2", to: "s3" }] }
+    vi.mocked(repo.findTemplate).mockResolvedValue(template({ content: JSON.stringify(linked) }) as never)
+    vi.mocked(planRepo.insertDependency).mockResolvedValue({ id: "d", predecessorId: "x", successorId: "y" })
+    await apply.applyTemplate("p1", { templateId: "t1" }, ACTOR)
+    expect(vi.mocked(planRepo.insertDependency).mock.calls.map((c) => c[1])).toEqual([
+      { projectId: "p1", predecessorId: "n1", successorId: "n2" },
+      { projectId: "p1", predecessorId: "n2", successorId: "n3" },
+    ])
+
+    vi.mocked(planRepo.insertDependency).mockClear()
+    await apply.applyTemplate("p1", { templateId: "t1", excludePaths: ["2"] }, ACTOR)
+    expect(vi.mocked(planRepo.insertDependency)).toHaveBeenCalledTimes(1)
+  })
+
   it("lists the loads and exposes the content snapshot of one load (for the 検収 board)", async () => {
     vi.mocked(repo.findApplications).mockResolvedValue([
       { id: "app1", templateId: "t1", templateName: "設備導入", templateVersion: 4, createdRootIds: '["n1","n4"]', appliedById: "u1", appliedByName: "Alice", appliedAt: day("2026-10-02") },

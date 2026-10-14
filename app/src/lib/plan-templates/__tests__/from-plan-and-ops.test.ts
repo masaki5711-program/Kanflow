@@ -32,6 +32,22 @@ describe("planToStages (save the plan as a template)", () => {
         { name: "B", isMilestone: true },
         { name: "ORPHAN" },
       ],
+      links: [],
+    })
+  })
+
+  it("keeps the plan's dependencies as links between keyed stages", () => {
+    const res = planToStages(
+      [item("a", { sortOrder: 1 }), item("b", { sortOrder: 2 }), item("c", { sortOrder: 3 })],
+      [
+        { predecessorId: "a", successorId: "c" },
+        { predecessorId: "a", successorId: "missing" },
+      ],
+    )
+    expect(res).toEqual({
+      ok: true,
+      stages: [{ key: "s1", name: "A" }, { name: "B" }, { key: "s2", name: "C" }],
+      links: [{ from: "s1", to: "s2" }],
     })
   })
 
@@ -84,5 +100,12 @@ describe("stage-ops (editor)", () => {
     expect(removeNode<N>([{ name: "p", children: [{ name: "only" }] }], [0, 0]).focus).toEqual([0])
     expect(updateNode(original, [0, 1], (n) => ({ ...n, name: "renamed" }))[0].children?.[1].name).toBe("renamed")
     expect(original[0].children?.[1].name).toBe("a2")
+  })
+})
+
+describe("planToStages with a stale dependency", () => {
+  it("drops a dependency whose ends became parent and child", () => {
+    const res = planToStages([item("a"), item("b", { parentId: "a" })], [{ predecessorId: "a", successorId: "b" }])
+    expect(res).toMatchObject({ ok: true, links: [] })
   })
 })

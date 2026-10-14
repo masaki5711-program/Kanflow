@@ -1,13 +1,15 @@
 "use client"
 
+import { useState } from "react"
 import Link from "next/link"
 import { AlertTriangle, ArrowLeft, Copy, LayoutTemplate, RotateCcw, Trash2 } from "lucide-react"
-import { Badge, Button, EmptyState, Field, Input, PageHeader, SkeletonLines, Textarea } from "@/components/ui"
+import { Badge, Button, EmptyState, Field, Input, PageHeader, SkeletonLines, Textarea, cn } from "@/components/ui"
 import { useDocumentTitle, useUnsavedChangesGuard } from "@/hooks"
 import { useLanguage } from "@/lib/language-context"
 import type { Translations } from "@/lib/i18n"
 import { VisibilityField } from "@/components/plan-templates/visibility-field"
 import type { FormError } from "./lib/editor-state"
+import { StageTimelineEditor } from "./stage-timeline-editor"
 import { StageTreeEditor } from "./stage-tree-editor"
 import { TemplateExtrasEditor } from "./template-extras-editor"
 import { TemplateHistory } from "./template-history"
@@ -31,6 +33,7 @@ function errorText(t: Translations, e: FormError | null): string | null {
 /** /templates/new and /templates/[id]: the template editor (stages, 検収 settings, history). */
 export function TemplateEditor({ id }: { id: string | null }) {
   const { t } = useLanguage()
+  const [view, setView] = useState<"visual" | "list">("visual")
   const ed = useTemplateEditor(id)
   const { template, form, set } = ed
   useUnsavedChangesGuard(ed.dirty)
@@ -109,10 +112,34 @@ export function TemplateEditor({ id }: { id: string | null }) {
               <VisibilityField value={form.visibility} onChange={(v) => set("visibility", v)} disabled={!!template && !template.canChangeVisibility} name="tpl-editor-visibility" />
             )}
           </section>
-          <section aria-labelledby="tpl-stages-title" className="space-y-2 rounded-ui-lg border border-border bg-surface p-4">
-            <h2 id="tpl-stages-title" className="text-body font-semibold text-fg">{t.tplStages}</h2>
+          <section aria-labelledby="tpl-stages-title" className="min-w-0 space-y-2 rounded-ui-lg border border-border bg-surface p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 id="tpl-stages-title" className="text-body font-semibold text-fg">{t.tplStages}</h2>
+              <div role="group" aria-label={t.tplViewSwitch} className="inline-flex rounded-ui-md bg-surface-sunken p-0.5 text-caption font-medium">
+                {(["visual", "list"] as const).map((v) => (
+                  <button
+                    key={v}
+                    type="button"
+                    aria-pressed={view === v}
+                    data-testid={`tpl-view-${v}`}
+                    onClick={() => setView(v)}
+                    className={cn("min-h-8 rounded-ui-sm px-3", view === v ? "bg-surface text-primary-active shadow-ui-sm" : "text-fg-muted hover:text-fg")}
+                  >
+                    {v === "visual" ? t.tplViewVisual : t.tplViewList}
+                  </button>
+                ))}
+              </div>
+            </div>
             <p className="text-caption text-fg-muted">{t.tplStagesHint}</p>
-            <StageTreeEditor stages={form.stages} onChange={(stages) => set("stages", stages)} disabled={ed.busy} />
+            {view === "visual" ? (
+              <>
+                <p className="text-caption text-fg-muted">{t.tplVisualHint}</p>
+                <p className="text-caption text-fg-subtle">{t.tplScheduleRule}</p>
+                <StageTimelineEditor stages={form.stages} onStagesChange={(stages) => set("stages", stages)} links={form.links} onLinksChange={(links) => set("links", links)} disabled={ed.busy} />
+              </>
+            ) : (
+              <StageTreeEditor stages={form.stages} onChange={(stages) => set("stages", stages)} links={form.links} onLinksChange={(links) => set("links", links)} disabled={ed.busy} />
+            )}
           </section>
           <TemplateExtrasEditor form={form} set={set} disabled={ed.busy} />
         </div>

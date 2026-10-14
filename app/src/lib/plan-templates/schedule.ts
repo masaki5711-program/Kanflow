@@ -32,11 +32,37 @@ export interface ScheduledDates {
   plannedEnd: string
 }
 
+/** True when `id` can reach itself over the "waits for" edges (cycle-safe). */
+function waitsForItself(id: string, waitingOn: ReadonlyMap<string, readonly string[]>): boolean {
+  const seen = new Set<string>()
+  const queue = [...(waitingOn.get(id) ?? [])]
+  while (queue.length > 0) {
+    const cur = queue.shift() as string
+    if (cur === id) return true
+    if (seen.has(cur)) continue
+    seen.add(cur)
+    queue.push(...(waitingOn.get(cur) ?? []))
+  }
+  return false
+}
+
 const keyOf = (day: number) => toDateKey(new Date(day * DAY_MS))
+
+export interface ScheduleDependency {
+  predecessorId: string
+  successorId: string
+}
 
 export interface ScheduleOptions {
   /** Count only Monday–Friday: a 5-day item spans a weekend instead of ending on it. */
   skipWeekends?: boolean
+  /**
+   * Finish-to-start dependencies. An undated leaf that has a predecessor starts
+   * the day after the latest predecessor ends (it may run beside the leaves
+   * placed before it); a dependency on a parent covers all of the parent's
+   * leaves. Leaves without a predecessor keep following each other in order.
+   */
+  dependencies?: readonly ScheduleDependency[]
 }
 
 /** 1970-01-01 (day 0) was a Thursday; 0 = Sunday … 6 = Saturday. */
@@ -79,28 +105,60 @@ export function scheduleFrom(nodes: readonly ScheduleNode[], rootIds: readonly s
   const kids = childrenIndex(nodes)
   const byId = new Map(nodes.map((n) => [n.id, n]))
   const roots = rootIds === null ? (kids.get(null) ?? []) : rootIds.flatMap((id) => byId.get(id) ?? []).toSorted((a, b) => a.sortOrder - b.sortOrder)
-  const out: ScheduledDates[] = []
-  const seen = new Set<string>()
-  let cursor = dayIndex(start)
 
-  const visit = (node: ScheduleNode): void => {
+  // Leaves in display order, each with the ids of its ancestors (a dependency on a parent covers its leaves).
+  const order: { leaf: ScheduleNode; chain: string[] }[] = []
+  const seen = new Set<string>()
+  const collect = (node: ScheduleNode, chain: string[]): void => {
     if (seen.has(node.id)) return
     seen.add(node.id)
     const children = kids.get(node.id) ?? []
-    if (children.length > 0) {
-      children.forEach(visit)
-      return
-    }
-    if (node.plannedStart && node.plannedEnd) {
-      cursor = Math.max(cursor, dayIndex(dateFromKey(node.plannedEnd) ?? start) + 1)
-      return
-    }
-    const days = Math.max(1, node.durationDays ?? DEFAULT_SCHEDULE_DAYS)
-    const first = skipWeekends ? nextWeekday(cursor) : cursor
-    const last = lastDayOf(first, days, skipWeekends)
-    out.push({ id: node.id, plannedStart: keyOf(node.isMilestone ? last : first), plannedEnd: keyOf(last) })
-    cursor = last + 1
+    if (children.length === 0) order.push({ leaf: node, chain: [...chain, node.id] })
+    else children.forEach((c) => collect(c, [...chain, node.id]))
   }
-  roots.forEach(visit)
+  roots.forEach((r) => collect(r, []))
+
+  const leavesUnder = new Map<string, string[]>()
+  for (const { leaf, chain } of order) for (const id of chain) leavesUnder.set(id, [...(leavesUnder.get(id) ?? []), leaf.id])
+  const predsOf = new Map<string, string[]>()
+  for (const d of options.dependencies ?? []) predsOf.set(d.successorId, [...(predsOf.get(d.successorId) ?? []), d.predecessorId])
+  /** Predecessor leaves of a leaf: those of the leaf itself and of every ancestor. */
+  const predLeaves = (chain: readonly string[], self: string): string[] =>
+    chain.flatMap((id) => predsOf.get(id) ?? []).flatMap((p) => leavesUnder.get(p) ?? []).filter((id) => id !== self)
+
+  const out: ScheduledDates[] = []
+  const endOf = new Map<string, number>()
+  const done = new Set<string>()
+  const startDay = dayIndex(start)
+  let cursor = startDay
+
+  const place = ({ leaf, chain }: { leaf: ScheduleNode; chain: string[] }): void => {
+    done.add(leaf.id)
+    if (leaf.plannedStart && leaf.plannedEnd) {
+      const end = dayIndex(dateFromKey(leaf.plannedEnd) ?? start)
+      endOf.set(leaf.id, end)
+      cursor = Math.max(cursor, end + 1)
+      return
+    }
+    const ends = predLeaves(chain, leaf.id).flatMap((id) => endOf.get(id) ?? [])
+    const wanted = ends.length > 0 ? Math.max(startDay, ...ends.map((e) => e + 1)) : cursor
+    const days = Math.max(1, leaf.durationDays ?? DEFAULT_SCHEDULE_DAYS)
+    const first = skipWeekends ? nextWeekday(wanted) : wanted
+    const last = lastDayOf(first, days, skipWeekends)
+    out.push({ id: leaf.id, plannedStart: keyOf(leaf.isMilestone ? last : first), plannedEnd: keyOf(last) })
+    endOf.set(leaf.id, last)
+    cursor = Math.max(cursor, last + 1)
+  }
+
+  // Display order; a leaf whose predecessor is not placed yet waits (a cycle just stops waiting).
+  const pending = [...order]
+  const inScope = new Set(order.map((o) => o.leaf.id))
+  while (pending.length > 0) {
+    const waitingOn = new Map(pending.map((o) => [o.leaf.id, predLeaves(o.chain, o.leaf.id).filter((id) => !done.has(id) && inScope.has(id))]))
+    let ready = pending.findIndex((o) => waitingOn.get(o.leaf.id)?.length === 0)
+    // Nothing is ready only inside a cycle: release the first leaf that (transitively) waits for itself.
+    if (ready < 0) ready = Math.max(0, pending.findIndex((o) => waitsForItself(o.leaf.id, waitingOn)))
+    place(pending.splice(ready, 1)[0])
+  }
   return out
 }
