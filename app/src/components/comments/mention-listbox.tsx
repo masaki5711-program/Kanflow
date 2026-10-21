@@ -100,6 +100,7 @@ export function MentionListbox({ id, anchorRef, suggestions, active, optionId, l
             onClick={() => onPick(m)}
             className={cn("cursor-pointer px-3 py-1.5 text-body", i === active ? "bg-primary-soft text-primary-strong" : "text-fg hover:bg-surface-muted")}>
             @{m.name}
+            {m.hint && <span className="ml-2 text-caption text-fg-muted">{m.hint}</span>}
           </li>
         ))
       )}

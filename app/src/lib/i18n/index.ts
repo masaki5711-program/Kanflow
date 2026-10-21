@@ -43,6 +43,7 @@ import * as teamChat from "./team-chat"
 import * as pbiAttachments from "./pbi-attachments"
 import * as improvement from "./improvement"
 import * as gitDev from "./git-dev"
+import * as sprintUx from "./sprint-ux"
 import * as git from "./git"
 import * as gitKnowledge from "./git-knowledge"
 import * as planTemplates from "./plan-templates"
@@ -101,6 +102,7 @@ export interface Translations
     pbiAttachments.PbiAttachmentsTranslations,
     improvement.ImprovementTranslations,
     gitDev.GitDevTranslations,
+    sprintUx.SprintUxTranslations,
     git.GitTranslations,
     gitKnowledge.GitKnowledgeTranslations,
     planTemplates.PlanTemplatesTranslations,
@@ -153,6 +155,7 @@ export const domains = {
   "pbi-attachments": pbiAttachments,
   "improvement": improvement,
   "git-dev": gitDev,
+  "sprint-ux": sprintUx,
   "git": git,
   "git-knowledge": gitKnowledge,
   "plan-templates": planTemplates,
@@ -205,6 +208,7 @@ const ja: Translations = {
   ...pbiAttachments.ja,
   ...improvement.ja,
   ...gitDev.ja,
+  ...sprintUx.ja,
   ...git.ja,
   ...gitKnowledge.ja,
   ...planTemplates.ja,
@@ -257,6 +261,7 @@ const en: Translations = {
   ...pbiAttachments.en,
   ...improvement.en,
   ...gitDev.en,
+  ...sprintUx.en,
   ...git.en,
   ...gitKnowledge.en,
   ...planTemplates.en,
@@ -309,6 +314,7 @@ const id: Translations = {
   ...pbiAttachments.id,
   ...improvement.id,
   ...gitDev.id,
+  ...sprintUx.id,
   ...git.id,
   ...gitKnowledge.id,
   ...planTemplates.id,

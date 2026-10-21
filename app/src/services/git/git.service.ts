@@ -358,6 +358,26 @@ export async function getGitSummaries(projectId: string, backlogItemIds: readonl
   return { enabled: true, summaries: Object.fromEntries([...grouped].map(([id, links]) => [id, summarize(links)])) }
 }
 
+/** Most MRs counted for the sidebar pill (the pill shows 99+ beyond this anyway). */
+const NEW_MR_CAP = 100
+
+/**
+ * Open merge requests that came into the project after `since` (the viewer's
+ * last visit to the Git page; null = never visited, so every open one counts).
+ * "Came in" = first linked to a PBI (createdAt), not GitLab's own updated date.
+ * One MR linked to several PBIs counts once.
+ */
+export async function getNewMrCount(projectId: string, since: Date | null): Promise<{ enabled: boolean; count: number }> {
+  if (!(await isGitEnabled(projectId))) return { enabled: false, count: 0 }
+  const rows = await prisma.gitLink.findMany({
+    where: { projectId, kind: "mr", state: { in: ["opened", "locked"] }, ...(since && { createdAt: { gt: since } }) },
+    select: { repositoryId: true, ref: true },
+    distinct: ["repositoryId", "ref"],
+    take: NEW_MR_CAP,
+  })
+  return { enabled: true, count: rows.length }
+}
+
 export interface GitOverviewDto {
   enabled: boolean
   repositories: GitRepositoryDto[]

@@ -12,6 +12,7 @@ import { useBodyScrollLock, useFocusTrap, useMediaQuery } from "@/hooks"
 import { useSidebarDrawer } from "@/components/app-shell/sidebar-drawer"
 import { buildSidebarGroups, buildSidebarHome, buildSidebarTalk } from "@/components/app-shell/sidebar-nav"
 import { useTeamChatSummary } from "@/components/updates/use-team-chat-summary"
+import { useNewMrCount } from "@/components/git-dev/use-new-mr-count"
 import { useProjectUpdateSummary } from "@/components/updates/use-project-updates"
 import { SidebarSections } from "@/components/app-shell/sidebar-group"
 import { SidebarRailNav } from "@/components/app-shell/sidebar-rail-nav"
@@ -141,7 +142,14 @@ function SidebarContent({ projectId, projectName, projectI18n, showTrash = false
   const pathname = usePathname()
   const { t, pt } = useLanguage()
   const shownName = useI18nText(projectI18n, "name", projectName).text
-  const groups = buildSidebarGroups(projectId, t, pt, { showTrash, showSettings, showChat, showGit })
+  const gitHref = `/projects/${projectId}/git`
+  const newMrs = useNewMrCount(projectId, showGit, pathname === gitHref || pathname.startsWith(`${gitHref}/`))
+  const groups = buildSidebarGroups(projectId, t, pt, { showTrash, showSettings, showChat, showGit }).map((g) => ({
+    ...g,
+    items: g.items.map((item) => item.href === gitHref && newMrs > 0
+      ? { ...item, badge: { count: newMrs, label: t.gitNavBadge.replace("{n}", String(newMrs)), tone: "danger" as const } }
+      : item),
+  }))
   const summary = useProjectUpdateSummary(projectId, pathname)
   const newCount = summary ? summary.unread + summary.newActivity : 0
   const home = { ...buildSidebarHome(projectId, t), badge: { count: newCount, label: t.updatesSidebarBadge.replace("{n}", String(newCount)) } }

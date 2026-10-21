@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { json, pb, renderWithProviders, sprint, stubFetch, t, task } from "./helpers"
+import { json, pb, pickMenuItem, renderWithProviders, sprint, stubFetch, t, task } from "./helpers"
 import SprintProgress from "../components/sprint-progress"
 import SprintStatusDialog from "../components/sprint-status-dialog"
 import { computeSprintMetrics } from "../lib/sprint-metrics"
@@ -85,7 +85,7 @@ describe("task edit after a 409 (S-09)", () => {
       [`PATCH ${BASE}/sprints/s1/tasks/t1`]: () => json({ error: "stale", code: "VERSION_CONFLICT", current }, 409),
     })
     renderWithProviders(<SprintsPage />)
-    await userEvent.click(await screen.findByRole("button", { name: t.sprintTaskEditNamed.replace("{name}", "Task t1") }))
+    await pickMenuItem("Task t1", t.sprintTaskEditNamed.replace("{name}", "Task t1"))
     const dialog = await screen.findByRole("dialog")
     await userEvent.type(within(dialog).getByDisplayValue("Task t1"), " (PO edit)")
     await userEvent.click(within(dialog).getByRole("button", { name: t.update }))

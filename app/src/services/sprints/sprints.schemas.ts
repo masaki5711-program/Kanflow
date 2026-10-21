@@ -10,6 +10,14 @@ export const createSprintSchema = z.object({
   sprintGoal: z.string().max(5000).optional(),
   capacity: z.number().int().min(0).optional(),
   selectedPbIds: z.array(z.string()).optional(),
+  /**
+   * Unfinished work of an earlier sprint to continue in the new one: its open
+   * tasks of these PBIs are copied (the earlier sprint keeps its own record).
+   */
+  carryOver: z.object({
+    fromSprintId: z.string().min(1),
+    pbItemIds: z.array(z.string()).max(500),
+  }).optional(),
 })
 
 export const updateSprintSchema = z.object({

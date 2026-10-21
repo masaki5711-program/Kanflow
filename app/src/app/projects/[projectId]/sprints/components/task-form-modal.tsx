@@ -95,7 +95,7 @@ export default function TaskFormModal({
   }
 
   return (
-    <Modal open onClose={onClose} size="lg" isDirty={isDirty && !busy}
+    <Modal open onClose={onClose} variant="side" size="lg" isDirty={isDirty && !busy}
       title={isEdit ? t.sprintTaskEdit : t.sprintAddTask} description={sprintName}
       footer={
         <>

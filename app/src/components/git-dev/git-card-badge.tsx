@@ -23,17 +23,23 @@ export function GitCardBadge({ summary, className }: Props) {
   const label = badgeLabel(summary, t)
   const main = badgeMain(summary)
   const pipeline = summary.pipeline ? pipelineInfo(summary.pipeline, t) : null
+  const short =
+    main === "open" ? t.gitDevBadgeShortOpen.replace("{count}", String(summary.openMrs))
+      : main === "merged" ? t.gitDevBadgeShortMerged
+        : t.gitDevBadgeShortBranches.replace("{count}", String(summary.branches))
 
   return (
-    <span title={label} data-git-badge=""
+    <span title={label} data-git-badge={main}
       className={cn(
-        "inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-surface-sunken px-1.5 py-0.5 text-caption font-medium text-fg-muted",
+        "inline-flex items-center gap-1 whitespace-nowrap rounded-full px-1.5 py-0.5 text-caption font-medium",
+        main === "open" ? "bg-primary-soft text-primary-active" : main === "merged" ? "bg-success-soft text-success-hover" : "bg-surface-sunken text-fg-muted",
         className,
       )}>
       <span aria-hidden="true" className="inline-flex items-center gap-1">
-        {main === "open" && (<><GitPullRequest className="h-3.5 w-3.5 text-primary" />{summary.openMrs}</>)}
-        {main === "merged" && <GitMerge className="h-3.5 w-3.5 text-success" />}
-        {main === "branches" && (<><GitBranch className="h-3.5 w-3.5" />{summary.branches}</>)}
+        {main === "open" && <GitPullRequest className="h-3.5 w-3.5" />}
+        {main === "merged" && <GitMerge className="h-3.5 w-3.5" />}
+        {main === "branches" && <GitBranch className="h-3.5 w-3.5" />}
+        {short}
         {pipeline && <span className={cn("h-2 w-2 rounded-full", TONE_DOT[pipeline.tone])} />}
       </span>
       <span className="sr-only">{label}</span>

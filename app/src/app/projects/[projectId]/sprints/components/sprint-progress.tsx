@@ -2,20 +2,29 @@
 
 import { useLanguage } from "@/lib/language-context"
 import { cn, TaskStatusIcon } from "@/components/ui"
-import type { SprintMetrics } from "../lib/sprint-metrics"
-import { Gauge } from "lucide-react"
+import type { SprintAttention, SprintMetrics } from "../lib/sprint-metrics"
+import { Gauge, TriangleAlert } from "lucide-react"
 interface Props {
   capacity: number
   metrics: SprintMetrics
+  /** Things worth a look (unassigned work, PBIs waiting, over capacity); omitted for finished sprints. */
+  attention?: SprintAttention
 }
 
 /** Capacity gauge (committed band + done band) and task status counts. */
-export default function SprintProgress({ capacity, metrics: m }: Props) {
+export default function SprintProgress({ capacity, metrics: m, attention }: Props) {
   const { t } = useLanguage()
   // The load % (workload / capacity) sits next to the workload it describes, never
   // next to the consumed score, so it cannot be read as "% done".
   const loadPct = t.sprintProgressLoadPct.replace("{pct}", String(m.progress))
   const donePct = m.totalTasks > 0 ? Math.round((m.doneTasks / m.totalTasks) * 100) : 0
+  const flags = attention
+    ? [
+        attention.isOver && t.sprintUxAttentionOver,
+        attention.unassigned > 0 && t.sprintUxAttentionUnassigned.replace("{n}", String(attention.unassigned)),
+        attention.waitingPbis > 0 && t.sprintUxAttentionWaiting.replace("{n}", String(attention.waitingPbis)),
+      ].filter((f): f is string => !!f)
+    : []
   return (
     <div className="px-6 pb-4 space-y-3">
       <div>
@@ -36,6 +45,16 @@ export default function SprintProgress({ capacity, metrics: m }: Props) {
             style={{ transform: `scaleX(${m.doneProgress / 100})` }} />
         </div>
       </div>
+      {flags.length > 0 && (
+        <ul className="flex flex-wrap items-center gap-1.5" data-sprint-attention="">
+          {flags.map((f) => (
+            <li key={f} className="inline-flex items-center gap-1 rounded-full border border-warning/30 bg-warning-soft px-2.5 py-0.5 text-caption font-medium text-warning-strong">
+              <TriangleAlert className="h-3.5 w-3.5" aria-hidden="true" />
+              {f}
+            </li>
+          ))}
+        </ul>
+      )}
       <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-body">
         <span className="text-fg-muted">{t.sprintTasks}: {m.totalTasks}</span>
         {m.totalTasks > 0 && (

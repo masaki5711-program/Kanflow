@@ -95,7 +95,7 @@ function RailLink({ item, active, onShow, onHide }: RailLinkProps) {
           aria-hidden="true"
           className={cn(
             "absolute -right-1 -top-1 min-w-[18px] rounded-full px-1 text-center text-[10px] font-semibold leading-[18px] tabular-nums text-white ring-2 ring-surface",
-            badge.tone === "alert" ? "bg-danger" : "bg-primary",
+            badge.tone === "alert" || badge.tone === "danger" ? "bg-danger" : "bg-primary",
           )}
         >
           {badge.tone === "alert" ? "@" : badge.count > 99 ? "99+" : badge.count}

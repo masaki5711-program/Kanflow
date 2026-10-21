@@ -28,6 +28,14 @@ const SIZE: Record<ModalSize, string> = {
   full: "sm:max-w-none sm:w-[calc(100vw-2rem)] sm:h-[calc(100dvh-2rem)]",
 }
 
+const SIDE_SIZE: Record<ModalSize, string> = {
+  sm: "sm:max-w-sm",
+  md: "sm:max-w-md",
+  lg: "sm:max-w-xl",
+  xl: "sm:max-w-2xl",
+  full: "sm:max-w-3xl",
+}
+
 export interface ModalProps {
   open: boolean
   /**
@@ -45,6 +53,12 @@ export interface ModalProps {
   /** Extra controls rendered in the header, left of the close button. */
   headerActions?: ReactNode
   size?: ModalSize
+  /**
+   * "side": a panel docked to the right edge (full height, `sm`+) that becomes a
+   * bottom sheet on phones — for editing next to the list instead of over it.
+   * Width follows `size` (sm/md = narrow, lg and up = wide). Default "center".
+   */
+  variant?: "center" | "side"
   /** Close when the backdrop is clicked. Default false (drag-selecting text out of a dialog must not close it). */
   closeOnOverlayClick?: boolean
   /** Close on Escape. Default true. */
@@ -98,6 +112,7 @@ function ModalPanel({
   footer,
   headerActions,
   size = "md",
+  variant = "center",
   closeOnOverlayClick = false,
   closeOnEsc = true,
   isDirty = false,
@@ -152,7 +167,10 @@ function ModalPanel({
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-stretch justify-center bg-black/40 backdrop-blur-[2px] animate-fade-in sm:items-center sm:p-4"
+      className={cn(
+        "fixed inset-0 z-[100] flex justify-center bg-black/40 backdrop-blur-[2px] animate-fade-in",
+        variant === "side" ? "items-end sm:items-stretch sm:justify-end" : "items-stretch sm:items-center sm:p-4",
+      )}
       onMouseDown={(e) => {
         overlayPressRef.current = e.target === e.currentTarget
       }}
@@ -174,8 +192,9 @@ function ModalPanel({
         tabIndex={-1}
         className={cn(
           "flex w-full flex-col overflow-hidden bg-surface shadow-ui-overlay animate-in outline-none",
-          "h-full max-h-dvh sm:h-auto sm:max-h-[calc(100dvh-2rem)] sm:rounded-ui-lg",
-          SIZE[size],
+          variant === "side"
+            ? cn("max-h-[90dvh] rounded-t-ui-lg sm:h-full sm:max-h-dvh sm:rounded-none sm:rounded-l-ui-lg", SIDE_SIZE[size])
+            : cn("h-full max-h-dvh sm:h-auto sm:max-h-[calc(100dvh-2rem)] sm:rounded-ui-lg", SIZE[size]),
           className,
         )}
       >

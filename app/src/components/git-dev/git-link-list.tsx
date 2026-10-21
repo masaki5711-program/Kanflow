@@ -4,7 +4,7 @@ import { useState } from "react"
 import { useLanguage } from "@/lib/language-context"
 import { formatDateTime, formatRelative } from "@/lib/format-date"
 import { Badge, Button, cn } from "@/components/ui"
-import { KIND_ICON, mrStateInfo, pipelineInfo, TONE_TEXT, type RepositoryGroup } from "./git-format"
+import { isOpenMr, KIND_ICON, mrStateInfo, pipelineInfo, TONE_TEXT, type RepositoryGroup } from "./git-format"
 import type { GitLinkDto } from "./git-client-state"
 
 /** Commits shown per repository before 「さらに表示」. */
@@ -44,7 +44,11 @@ function LinkRow({ link }: { link: GitLinkDto }) {
       : link.kind === "branch" ? link.ref
         : `${link.ref.slice(0, 8)} ${link.title}`
   return (
-    <li className="flex items-start gap-2 rounded-ui-sm bg-surface-muted px-2 py-1.5" data-git-link={link.kind}>
+    <li data-git-link={link.kind}
+      className={cn(
+        "flex items-start gap-2 rounded-ui-sm px-2 py-1.5",
+        link.kind === "mr" && isOpenMr(link.state) ? "bg-primary-soft ring-1 ring-primary/20" : "bg-surface-muted",
+      )}>
       <Icon aria-hidden="true" className={cn("mt-0.5 h-4 w-4 shrink-0", mr ? TONE_TEXT[mr.tone] : "text-fg-subtle")} />
       <div className="min-w-0 flex-1">
         <a href={link.url} target="_blank" rel="noopener noreferrer"
@@ -56,6 +60,7 @@ function LinkRow({ link }: { link: GitLinkDto }) {
         </a>
         <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-caption text-fg-muted">
           {mr && <Badge tone={mr.tone} size="sm">{mr.label}</Badge>}
+          {link.kind === "mr" && link.sourceBranch && <span className="max-w-full truncate font-mono" title={link.sourceBranch}>{link.sourceBranch}</span>}
           {link.pipeline && <PipelineStatus status={link.pipeline} />}
           {link.kind === "branch" && link.title && link.title !== link.ref && <span className="truncate">{link.title}</span>}
           <Meta link={link} />

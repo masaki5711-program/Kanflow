@@ -285,7 +285,7 @@ export async function createComment(
   const row = await withTransaction(async (tx) => {
     const members = await repo.findMentionCandidates(tx, projectId)
     const target = await loadTarget(tx, projectId, input.entityType, input.entityId, members)
-    const mentionIds = resolveMentionUserIds(body, members)
+    const mentionIds = resolveMentionUserIds(body, members, actor.userId)
     const { id } = await repo.createComment(tx, {
       projectId,
       entityType: input.entityType,
@@ -339,7 +339,7 @@ export async function updateComment(
     const members = await repo.findMentionCandidates(tx, projectId)
     const target = await loadTarget(tx, projectId, current.entityType as CommentEntityType, current.entityId, members)
     const before = current.mentions.map((m) => m.user.id)
-    const mentionIds = resolveMentionUserIds(body, members)
+    const mentionIds = resolveMentionUserIds(body, members, actor.userId)
     await repo.updateCommentBody(tx, commentId, body, now)
     await repo.replaceMentions(tx, commentId, mentionIds)
     await enqueueIn(tx, "comment", commentId, { body })

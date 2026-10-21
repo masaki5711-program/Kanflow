@@ -138,7 +138,7 @@ export async function createMessage(projectId: string, input: CreateMessageInput
   const files = await saveFiles(projectId, input.files)
   const id = await withTransaction(async (tx) => {
     const members = await findMentionCandidates(tx, projectId)
-    const mentionIds = resolveMentionUserIds(body, members)
+    const mentionIds = resolveMentionUserIds(body, members, actor.userId)
     const { id } = await repo.insertMessage(tx, { projectId, authorId: actor.userId, body, replyToId: replyTo?.id ?? null, commentId: threadComment?.id ?? null })
     await repo.insertMentions(tx, id, mentionIds)
     await repo.insertAttachments(tx, id, files)

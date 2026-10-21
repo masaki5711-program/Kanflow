@@ -8,6 +8,7 @@ vi.mock("@/lib/pbi-status-sync", () => ({
   syncPbiStatusFromTasks: vi.fn(async () => undefined),
   isRealTask: (t: { taskName: string | null }) => !!t.taskName?.trim(),
 }))
+vi.mock("@/lib/sprint-score", () => ({ recalcSprintActualScore: vi.fn(async () => 0) }))
 vi.mock("../sprint-completion-review", () => ({ launchSprintCompletionReview: vi.fn() }))
 vi.mock("../sprints.repository")
 vi.mock("@/services/backlog/backlog.dependencies", () => ({ loadDependencies: vi.fn(async () => new Map()) }))
@@ -65,6 +66,30 @@ describe("sprints.service", () => {
     await svc.createSprint("p1", { ...createInput, selectedPbIds: ["b1", "foreign", "b2"] }, ACTOR)
     expect(repo.insertSprint).toHaveBeenCalledWith(TX, expect.objectContaining({ status: "planning", capacity: 0 }), ["b1", "b2"])
     expect(tr.enqueueIn).toHaveBeenCalledWith(TX, "sprint", "s1", { id: "s1" })
+  })
+
+  it("carries the open tasks of an earlier sprint and does not add the same PBI a second time", async () => {
+    vi.mocked(repo.findOpenSprint).mockResolvedValue(null)
+    vi.mocked(repo.findCarryOverSource).mockResolvedValue({
+      id: "s0", status: "archived",
+      items: [
+        { id: "r1", pbItemId: "b1", taskName: "build", status: "todo", assignee: null, estimatedHours: 2, assignees: [], carriedCopies: [] },
+        { id: "r2", pbItemId: "b2", taskName: null, status: "todo", assignee: null, estimatedHours: null, assignees: [], carriedCopies: [] },
+      ],
+    } as never)
+    vi.mocked(repo.findProjectPbiIds).mockResolvedValue([{ id: "b3" }])
+    vi.mocked(repo.insertSprint).mockResolvedValue({ id: "s1" } as never)
+    vi.mocked(repo.insertCarriedTask).mockResolvedValue({ id: "t1" } as never)
+    vi.mocked(repo.findSprintDetail).mockResolvedValue({ id: "s1", items: [{ id: "t1" }] } as never)
+    const out = await svc.createSprint("p1", {
+      ...createInput, selectedPbIds: ["b1", "b3"], carryOver: { fromSprintId: "s0", pbItemIds: ["b1", "b2"] },
+    }, ACTOR)
+    // b1 arrives with its task (no extra placeholder); b2 had none, so its bare membership is copied.
+    expect(repo.findProjectPbiIds).toHaveBeenCalledWith(TX, "p1", ["b3"])
+    expect(repo.insertSprint).toHaveBeenCalledWith(TX, expect.anything(), ["b3"])
+    expect(repo.insertCarriedTask).toHaveBeenCalledWith(TX, expect.objectContaining({ sprintId: "s1", carriedFromId: "r1", pbItemId: "b1", taskName: "build" }), [])
+    expect(repo.insertCarriedTask).toHaveBeenCalledWith(TX, expect.objectContaining({ carriedFromId: "r2", pbItemId: "b2", taskName: null }), [])
+    expect(out).toMatchObject({ id: "s1", items: [{ id: "t1" }] })
   })
 
   it("rejects invalid dates before touching the DB", async () => {

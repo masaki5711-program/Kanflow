@@ -6,7 +6,7 @@ import { useLanguage } from "@/lib/language-context"
 import { messageOf } from "../lib/errors"
 import { patchTask, removeTask } from "../lib/sprint-metrics"
 import { buildTaskCreate, buildTaskPatch } from "../lib/task-payload"
-import type { Sprint, SprintItem, TaskFormState } from "../components/types"
+import type { Sprint, SprintItem, TaskFieldPatch, TaskFormState } from "../components/types"
 import type { SprintsData } from "./use-sprints-data"
 
 type Deps = Pick<SprintsData, "sprints" | "refetchSprints" | "mutateSprints">
@@ -62,6 +62,33 @@ export function useTaskActions(projectId: string, { sprints, refetchSprints, mut
     } catch (err) {
       if (conflictReloads(err, onConflict)) return false
       toast.error(messageOf(err, t.error), { title: taskId ? t.sprintUpdateFailed : t.sprintAddFailed })
+      return false
+    }
+  }
+
+  /** In-place edit of one task (name, estimate, owner). Reloads so translations and assignee names are fresh. */
+  async function patchTaskFields(sprintId: string, taskId: string, patch: TaskFieldPatch): Promise<boolean> {
+    try {
+      await apiFetch(`${tasksUrl(sprintId)}/${taskId}`, { method: "PATCH", json: withVersion({ ...patch }, versionOf(sprintId, taskId)) })
+      refetchSprints()
+      return true
+    } catch (err) {
+      if (conflictReloads(err)) return false
+      toast.error(messageOf(err, t.error), { title: t.sprintUpdateFailed })
+      return false
+    }
+  }
+
+  /** The quick-add row: one named, unassigned task under a PBI. */
+  async function quickAddTask(sprintId: string, pbItemId: string, taskName: string): Promise<boolean> {
+    const name = taskName.trim()
+    if (!name) return false
+    try {
+      await apiFetch(tasksUrl(sprintId), { method: "POST", json: { pbItemId, taskName: name, assigneeIds: [], estimatedHours: null } })
+      refetchSprints()
+      return true
+    } catch (err) {
+      toast.error(messageOf(err, t.error), { title: t.sprintAddFailed })
       return false
     }
   }
@@ -161,5 +188,5 @@ export function useTaskActions(projectId: string, { sprints, refetchSprints, mut
     }
   }
 
-  return { saveTask, bulkAddTasks, deleteTask, quickUpdateTaskStatus, editCompletionComment, sendToIcebox }
+  return { saveTask, patchTaskFields, quickAddTask, bulkAddTasks, deleteTask, quickUpdateTaskStatus, editCompletionComment, sendToIcebox }
 }

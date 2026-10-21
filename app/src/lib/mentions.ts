@@ -73,12 +73,32 @@ export function extractMentionNames(body: string): string[] {
   return names
 }
 
-/** Distinct user ids of the members mentioned in `body` (unknown / ambiguous names dropped). */
-export function resolveMentionUserIds(body: string, members: readonly AssigneeCandidate[]): string[] {
+/**
+ * Reserved names that mention every project member (`@全員`, `@all`, `@everyone`,
+ * `@semua`). A member who is really called that still wins (resolved by name first).
+ */
+export const MENTION_ALL_NAMES: readonly string[] = ["全員", "all", "everyone", "semua"]
+
+const foldName = (s: string) => s.normalize("NFKC").toLowerCase().replace(/\s+/g, "")
+
+/** True when the mention name is one of the "everyone" keywords. */
+export function isMentionAll(name: string): boolean {
+  return MENTION_ALL_NAMES.includes(foldName(name))
+}
+
+/**
+ * Distinct user ids of the members mentioned in `body` (unknown / ambiguous names dropped).
+ * `@全員` / `@all` expands to every member except `exceptUserId` (the author).
+ */
+export function resolveMentionUserIds(body: string, members: readonly AssigneeCandidate[], exceptUserId?: string | null): string[] {
   const ids: string[] = []
+  const add = (id: string) => {
+    if (!ids.includes(id)) ids.push(id)
+  }
   for (const name of extractMentionNames(body)) {
     const match = matchAssigneeName(name, members)
-    if (match.status === "matched" && !ids.includes(match.userId)) ids.push(match.userId)
+    if (match.status === "matched") add(match.userId)
+    else if (match.status === "unmatched" && isMentionAll(name)) members.forEach((m) => m.id !== exceptUserId && add(m.id))
   }
   return ids
 }

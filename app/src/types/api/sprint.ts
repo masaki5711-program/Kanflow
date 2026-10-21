@@ -28,6 +28,8 @@ export interface SprintTaskDto {
   actualHours: number | null
   status: string
   completionComment?: string | null
+  /** Carry-over: the task of an earlier sprint this one was copied from (that original counts as taken over). */
+  carriedFromId?: string | null
   pbItem: SprintPbItemDto
   /** Optimistic-lock version (send it back on PATCH / DELETE; stale → 409 VERSION_CONFLICT). */
   version?: number

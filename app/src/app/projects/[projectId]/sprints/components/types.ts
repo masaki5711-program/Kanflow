@@ -63,6 +63,13 @@ export interface TaskFormState {
   status: string
 }
 
+/** Fields a task row edits in place (assignees as user ids; hours null = clear). */
+export interface TaskFieldPatch {
+  taskName?: string
+  estimatedHours?: number | null
+  assigneeIds?: string[]
+}
+
 /** Callbacks shared by SprintCard → PbiGroup → SprintTaskRow. */
 export interface SprintTaskActions {
   onRequestComplete: (task: SprintItem) => void
@@ -76,6 +83,10 @@ export interface SprintTaskActions {
   onOpenTaskForm: (sprintId: string, pbItemId?: string) => void
   onRemovePbi: (sprintId: string, pbItemId: string) => void
   onViewPbiDetail: (pbiId: string) => void
+  /** In-place edit of a task row. Resolves true when saved (errors are toasted by the caller). */
+  onPatchTask: (sprintId: string, taskId: string, patch: TaskFieldPatch) => Promise<boolean>
+  /** Quick-add row: a named task under a PBI. Resolves true when created. */
+  onQuickAddTask: (sprintId: string, pbItemId: string, taskName: string) => Promise<boolean>
 }
 
 /** Sprint-level callbacks used by SprintCard (in addition to the task actions). */

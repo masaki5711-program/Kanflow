@@ -7,7 +7,8 @@ import { isFilterActive, SWIMLANE_MODES, type SwimlaneMode } from "./board-model
 import { MAX_QUERY_LENGTH, type SprintView } from "./board-url-state"
 import type { BoardViewState } from "../../hooks/use-board-view-state"
 import type { Member } from "../types"
-import { Columns3, List, Search, X } from "lucide-react"
+import type { ListPrefs } from "../../hooks/use-list-prefs"
+import { Columns3, List, Search, User, X } from "lucide-react"
 
 /** Typing pause before the text filter is written to the URL. */
 export const QUERY_DEBOUNCE_MS = 250
@@ -17,6 +18,32 @@ interface Props {
   members: readonly Member[]
   shownCount: number
   totalCount: number
+  /** The viewer's open tasks in this sprint (null = not signed in: no "my tasks" chip). */
+  myOpenCount?: number | null
+  /** List-view display options (grouping, density); absent on the board. */
+  listPrefs?: ListPrefs & { setGroupBy: (g: ListPrefs["groupBy"]) => void; setDensity: (d: ListPrefs["density"]) => void }
+}
+
+/** Two-way segmented control with the same look as the list / board toggle. */
+function Segmented<T extends string>({ label, value, options, onChange }: {
+  label: string
+  value: T
+  options: readonly { value: T; label: string }[]
+  onChange: (v: T) => void
+}) {
+  return (
+    <div role="group" aria-label={label} className="inline-flex rounded-ui-sm border border-border-strong bg-surface p-0.5">
+      {options.map((o) => (
+        <button key={o.value} type="button" aria-pressed={value === o.value} onClick={() => onChange(o.value)}
+          className={cn(
+            "inline-flex min-h-8 items-center rounded-[6px] px-2.5 text-caption font-medium",
+            value === o.value ? "bg-primary text-primary-fg shadow-ui-sm" : "text-fg-muted hover:bg-surface-muted hover:text-fg",
+          )}>
+          {o.label}
+        </button>
+      ))}
+    </div>
+  )
 }
 
 function ViewToggle({ view, onChange }: { view: SprintView; onChange: (v: SprintView) => void }) {
@@ -75,7 +102,7 @@ function QueryInput({ value, onCommit }: { value: string; onCommit: (q: string) 
 }
 
 /** View toggle, swimlanes (board only), assignee and text filters of a sprint. */
-export default function BoardFilters({ state, members, shownCount, totalCount }: Props) {
+export default function BoardFilters({ state, members, shownCount, totalCount, myOpenCount = null, listPrefs }: Props) {
   const { t } = useLanguage()
   const swimId = useId()
   const assigneeId = useId()
@@ -88,6 +115,28 @@ export default function BoardFilters({ state, members, shownCount, totalCount }:
   return (
     <div role="group" aria-label={t.sprintBoardToolbar} className="flex flex-wrap items-center gap-x-3 gap-y-2">
       <ViewToggle view={state.view} onChange={state.setView} />
+      {myOpenCount !== null && (
+        <button type="button" aria-pressed={state.filter.assignee === "me"}
+          onClick={() => state.setAssignee(state.filter.assignee === "me" ? "" : "me")}
+          title={myOpenCount === 0 ? t.sprintUxMyOpenNone : undefined}
+          className={cn(
+            "inline-flex min-h-8 items-center gap-1.5 rounded-full border px-3 text-body font-medium transition-colors",
+            state.filter.assignee === "me"
+              ? "border-primary bg-primary-soft text-primary-active"
+              : "border-border-strong bg-surface text-fg-muted hover:bg-surface-muted hover:text-fg",
+          )}>
+          <User className="h-4 w-4" aria-hidden="true" />
+          {t.sprintUxMyOpen.replace("{n}", String(myOpenCount))}
+        </button>
+      )}
+      {listPrefs && (
+        <>
+          <Segmented label={t.sprintUxGroupBy} value={listPrefs.groupBy} onChange={listPrefs.setGroupBy}
+            options={[{ value: "pbi", label: t.sprintUxGroupPbi }, { value: "assignee", label: t.sprintUxGroupAssignee }]} />
+          <Segmented label={t.sprintUxDensity} value={listPrefs.density} onChange={listPrefs.setDensity}
+            options={[{ value: "normal", label: t.sprintUxDensityNormal }, { value: "compact", label: t.sprintUxDensityCompact }]} />
+        </>
+      )}
       {state.view === "board" && (
         <span className={labelClass}>
           <label htmlFor={swimId}>{t.sprintBoardSwimlane}</label>

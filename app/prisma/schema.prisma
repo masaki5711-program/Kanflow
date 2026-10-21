@@ -736,9 +736,16 @@ model SprintBacklogItem {
   /// Normalized assignees (P2). The legacy `assignee` string (comma-separated
   /// names) stays during the transition; backfilled by scripts/migrate-assignees.ts.
   assignees         TaskAssignee[]
+  /// Carry-over: the task of an earlier sprint this one was copied from. The
+  /// original stays as that sprint's record; once it has a copy it no longer
+  /// counts against its PBI and is not offered for carry-over again.
+  carriedFromId     String?
+  carriedFrom       SprintBacklogItem?  @relation("TaskCarryOver", fields: [carriedFromId], references: [id], onDelete: SetNull)
+  carriedCopies     SprintBacklogItem[] @relation("TaskCarryOver")
 
   @@index([sprintId])
   @@index([pbItemId])
+  @@index([carriedFromId])
   @@fulltext([taskName], map: "ft_task_name")
 }
 

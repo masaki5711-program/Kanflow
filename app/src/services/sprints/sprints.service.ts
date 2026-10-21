@@ -12,6 +12,7 @@ import { withAssigneeRefs } from "@/services/sprint-backlog/task-assignees"
 import { loadDependencies, type PbiDependenciesDto } from "@/services/backlog/backlog.dependencies"
 import { computeBurndown, type BurndownData } from "./burndown"
 import { launchSprintCompletionReview } from "./sprint-completion-review"
+import { EMPTY_CARRY, insertCarriedTasks, planCarryOver } from "./sprints.carry-over"
 import * as repo from "./sprints.repository"
 import type { CreateSprintInput, UpdateSprintInput } from "./sprints.schemas"
 
@@ -72,7 +73,9 @@ export async function createSprint(projectId: string, input: CreateSprintInput, 
   return withTransaction(async (tx) => {
     const blocker = await repo.findOpenSprint(tx, projectId)
     if (blocker) throw new ConflictError("進行中または計画中のスプリントが既にあります", { blocker }, "SPRINT_ACTIVE_EXISTS")
-    const requested = data.selectedPbIds ?? []
+    const carry = data.carryOver ? await planCarryOver(tx, projectId, data.carryOver) : EMPTY_CARRY
+    const carried = new Set(carry.pbIds)
+    const requested = (data.selectedPbIds ?? []).filter((id) => !carried.has(id))
     const valid = requested.length
       ? new Set((await repo.findProjectPbiIds(tx, projectId, requested)).map((p) => p.id))
       : new Set<string>()
@@ -87,8 +90,17 @@ export async function createSprint(projectId: string, input: CreateSprintInput, 
       status: "planning",
     }, pbIds)
     await enqueueIn(tx, "sprint", sprint.id, sprint)
-    await logCreate(tx, { projectId, entityType: "sprint", entityId: sprint.id, actor, row: sprint, meta: { pbCount: pbIds.length } })
-    return sprint
+    await logCreate(tx, {
+      projectId, entityType: "sprint", entityId: sprint.id, actor, row: sprint,
+      meta: {
+        pbCount: pbIds.length + carry.pbIds.length,
+        ...(carry.pbIds.length > 0 && { carriedPbCount: carry.pbIds.length, carriedTaskCount: carry.tasks.length }),
+      },
+    })
+    if (carry.pbIds.length === 0) return sprint
+    await insertCarriedTasks(tx, sprint.id, carry)
+    // The row insertSprint returned predates the copied tasks.
+    return (await repo.findSprintDetail(tx, projectId, sprint.id)) ?? sprint
   })
 }
 

@@ -3,10 +3,10 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react"
 import { Send } from "lucide-react"
 import { useLanguage } from "@/lib/language-context"
-import { activeMentionQuery, mentionTokenName, toComposerText, toStoredMentions } from "@/lib/mentions"
+import { activeMentionQuery, MENTION_ALL_NAMES, mentionTokenName, toComposerText, toStoredMentions } from "@/lib/mentions"
 import { Button, Field, Textarea } from "@/components/ui"
 import { MentionListbox } from "./mention-listbox"
-import { COMMENT_BODY_MAX, type MentionMember } from "./types"
+import { COMMENT_BODY_MAX, MENTION_ALL_ID, type MentionMember } from "./types"
 
 /** Suggestions shown at once. */
 const MAX_SUGGESTIONS = 8
@@ -37,6 +37,12 @@ export function filterMembers(members: readonly MentionMember[], query: string):
   const hits = members.filter((m) => fold(m.name).includes(q))
   const starts = hits.filter((m) => fold(m.name).startsWith(q))
   return [...starts, ...hits.filter((m) => !starts.includes(m))].slice(0, MAX_SUGGESTIONS)
+}
+
+/** True when the @-query is empty or the start of the "everyone" name / one of its keywords. */
+export function matchesMentionAll(query: string, displayName: string): boolean {
+  const q = fold(query)
+  return q === "" || [displayName, ...MENTION_ALL_NAMES].some((n) => fold(n).startsWith(q))
 }
 
 /** True when the @-query is a mention already picked, followed by more text (the list stays closed). */
@@ -75,7 +81,11 @@ export function CommentComposer({ members, membersLoading = false, onSubmit, lab
   const query = activeMentionQuery(value, caret)
   const mention = query && !isCompletedMention(query.query, names) ? query : null
   const isOpen = !!mention && mention.start !== dismissedAt
-  const suggestions = isOpen ? filterMembers(members, mention.query) : []
+  // "@全員" heads the list while the query still fits it (or any "everyone" keyword) and there is someone to notify.
+  const allEntry: MentionMember = { id: MENTION_ALL_ID, name: t.commentsMentionAllName, hint: t.commentsMentionAllHint }
+  const suggestions = isOpen
+    ? [...(members.length > 0 && matchesMentionAll(mention.query, allEntry.name) ? [allEntry] : []), ...filterMembers(members, mention.query)]
+    : []
   const active = suggestions.length > 0 ? Math.min(activeIndex, suggestions.length - 1) : -1
   const tooLong = value.length > COMMENT_BODY_MAX
   const canSubmit = (value.trim().length > 0 || allowEmpty) && !tooLong && !submitting && (allowEmpty || value !== initial.text)

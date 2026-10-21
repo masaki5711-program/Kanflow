@@ -1,5 +1,6 @@
 // Pure sprint calculations shared by the sprint card and its tests.
 import { dependencyOrder, waitingOn } from "@/lib/pbi-dependencies"
+import { CARRY_SOURCE_STATUSES, unfinishedByPbi, withoutTakenOver } from "@/lib/sprint-carry-over"
 import type { Sprint, SprintItem, SprintPbItem } from "../components/types"
 
 /** Sprint lifecycle: planning → active → review → done (auto-archives).
@@ -149,6 +150,142 @@ export function unfinishedWork(items: readonly SprintItem[]): UnfinishedWork {
   }).length
   const tasks = items.filter((i) => isRealTask(i) && i.status !== "done").length
   return { tasks, pbis }
+}
+
+export interface CarryCandidate {
+  pbItem: SprintPbItem
+  /** Real tasks of the PBI that are not done (copied into the new sprint). */
+  openTasks: number
+}
+
+export interface CarryOverSource {
+  sprint: Sprint
+  candidates: CarryCandidate[]
+}
+
+/**
+ * The newest sprint that is in review or ended and still has unfinished work,
+ * with the PBIs to offer for carrying over into the next sprint (rule shared
+ * with the server: lib/sprint-carry-over). Null when nothing is left over.
+ */
+export function carryOverSource(sprints: readonly Sprint[]): CarryOverSource | null {
+  // A task some later sprint already copied has been carried over: it is neither offered again nor counted.
+  const takenOver = new Set(sprints.flatMap((s) => s.items.flatMap((i) => (i.carriedFromId ? [i.carriedFromId] : []))))
+  const newestFirst = sprints
+    .filter((s) => CARRY_SOURCE_STATUSES.includes(s.status))
+    .toSorted((a, b) => b.startDate.localeCompare(a.startDate) || b.endDate.localeCompare(a.endDate))
+  for (const sprint of newestFirst) {
+    const pbItems = new Map(sprint.items.map((i) => [i.pbItem.id, i.pbItem]))
+    const candidates = unfinishedByPbi(withoutTakenOver(sprint.items, takenOver), (i) => ({ pbId: i.pbItem.id, taskName: i.taskName, status: i.status }))
+      .map((g) => ({ pbItem: pbItems.get(g.pbId)!, openTasks: g.placeholder ? 0 : g.tasks.length }))
+    if (candidates.length > 0) return { sprint, candidates }
+  }
+  return null
+}
+
+// ---------------------------------------------------------------- tabs, time, attention
+
+export type SprintTab = "current" | "planning" | "past"
+
+/** Which tab a sprint lives under: running / in review, being planned, or finished. */
+export function sprintTabOf(status: string): SprintTab {
+  if (status === "planning") return "planning"
+  if (status === "done" || status === "archived") return "past"
+  return "current"
+}
+
+/** The tab to open first: running work, else the plan being made, else history. */
+export function defaultSprintTab(sprints: readonly Pick<Sprint, "status">[]): SprintTab {
+  const has = (tab: SprintTab) => sprints.some((s) => sprintTabOf(s.status) === tab)
+  return has("current") ? "current" : has("planning") ? "planning" : "past"
+}
+
+export type SprintTime =
+  | { kind: "startsIn"; days: number }
+  | { kind: "daysLeft"; days: number }
+  | { kind: "lastDay" }
+  | { kind: "over" }
+
+const DAY_MS = 86_400_000
+
+/** Calendar day number (UTC midnight) of an ISO date or datetime string. */
+function dayNumber(iso: string): number {
+  const [y, m, d] = iso.slice(0, 10).split("-").map(Number)
+  return Math.floor(Date.UTC(y, m - 1, d) / DAY_MS)
+}
+
+/** `now` as a calendar day number in the viewer's local time zone. */
+function localDayNumber(now: Date): number {
+  return Math.floor(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()) / DAY_MS)
+}
+
+/** Where "today" falls in the sprint's period (calendar days, inclusive of the last day). */
+export function sprintTime(sprint: Pick<Sprint, "startDate" | "endDate">, now: Date = new Date()): SprintTime {
+  const today = localDayNumber(now)
+  const start = dayNumber(sprint.startDate)
+  const end = dayNumber(sprint.endDate)
+  if (today < start) return { kind: "startsIn", days: start - today }
+  if (today > end) return { kind: "over" }
+  return today === end ? { kind: "lastDay" } : { kind: "daysLeft", days: end - today }
+}
+
+export interface SprintAttention {
+  /** Open real tasks nobody is assigned to. */
+  unassigned: number
+  /** PBIs that still wait for an unfinished prerequisite and have open work. */
+  waitingPbis: number
+  isOver: boolean
+}
+
+/** What needs a look in a sprint, for the header badges (zero everywhere = nothing to flag). */
+export function sprintAttention(sprint: Pick<Sprint, "items" | "capacity">): SprintAttention {
+  const open = sprint.items.filter((i) => isRealTask(i) && i.status !== "done")
+  const hasAssignee = (i: SprintItem) => (i.assignees?.length ?? 0) > 0 || (i.assignee ?? "").trim().length > 0
+  const waiting = groupTasksByPb(sprint.items).filter(({ pbItem, tasks }) =>
+    waitingOn(pbItem).length > 0 && tasks.some((t) => isRealTask(t) && t.status !== "done"),
+  )
+  return {
+    unassigned: open.filter((i) => !hasAssignee(i)).length,
+    waitingPbis: waiting.length,
+    isOver: computeSprintMetrics(sprint).isOver,
+  }
+}
+
+/** The viewer's own open (not done) real tasks. */
+export function myOpenTasks(items: readonly SprintItem[], userId: string | null | undefined): SprintItem[] {
+  if (!userId) return []
+  return items.filter((i) => isRealTask(i) && i.status !== "done" && (i.assignees ?? []).some((a) => a.id === userId))
+}
+
+export interface AssigneeGroup {
+  /** User id, or null for the unassigned bucket. */
+  key: string | null
+  name: string | null
+  tasks: SprintItem[]
+}
+
+/** Real tasks grouped by assignee (a task with several assignees appears under each); unassigned last. */
+export function groupTasksByAssignee(items: readonly SprintItem[]): AssigneeGroup[] {
+  const order: string[] = []
+  const groups = new Map<string, AssigneeGroup>()
+  const unassigned: SprintItem[] = []
+  for (const item of items.filter(isRealTask)) {
+    const owners = item.assignees ?? []
+    if (owners.length === 0) {
+      unassigned.push(item)
+      continue
+    }
+    for (const a of owners) {
+      const existing = groups.get(a.id)
+      if (existing) groups.set(a.id, { ...existing, tasks: [...existing.tasks, item] })
+      else {
+        order.push(a.id)
+        groups.set(a.id, { key: a.id, name: a.name, tasks: [item] })
+      }
+    }
+  }
+  const named = order.map((id) => groups.get(id)!).sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""))
+  return unassigned.length > 0 ? [...named, { key: null, name: null, tasks: unassigned }] : named
 }
 
 export interface PbTaskSummary {

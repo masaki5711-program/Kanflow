@@ -29,7 +29,12 @@ export interface Page<T> {
 export interface MentionMember {
   id: string
   name: string
+  /** Short note under the name in the suggestion list (the "everyone" entry). */
+  hint?: string
 }
+
+/** Id of the "everyone" entry in the suggestion list (never a real user id). */
+export const MENTION_ALL_ID = "__all__"
 
 /** Same limit as the server schema (COMMENT_BODY_MAX). */
 export const COMMENT_BODY_MAX = 10_000

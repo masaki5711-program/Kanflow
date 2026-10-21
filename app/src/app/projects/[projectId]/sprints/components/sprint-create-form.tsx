@@ -4,6 +4,8 @@ import { useId, useState } from "react"
 import { useLanguage } from "@/lib/language-context"
 import { Button, Field, Input, Textarea } from "@/components/ui"
 import { toLocalIsoDate } from "../lib/locale"
+import type { CarryOverSource } from "../lib/sprint-metrics"
+import CarryOverList from "./carry-over-list"
 import PbSelectionList from "./pb-selection-list"
 import type { ProjectSettings, ReadyPbItem } from "./types"
 import type { CreateSprintInput } from "../hooks/use-sprint-actions"
@@ -11,6 +13,8 @@ import { Calendar, ChartColumn, Gauge, Plus, Tag, Target } from "lucide-react"
 
 interface Props {
   readyPbItems: ReadyPbItem[]
+  /** Unfinished work of the previous sprint, offered for carrying over (null = nothing left). */
+  carryOverSource?: CarryOverSource | null
   settings: ProjectSettings | null
   pointUnitLabel: string
   /** Average actual score of finished sprints (null when there are none). */
@@ -70,7 +74,7 @@ function IconLabel({ icon, children }: { icon: React.ReactNode; children: React.
 
 /** Inline "new sprint" card: basic fields + Ready PB import with a capacity meter. */
 export default function SprintCreateForm({
-  readyPbItems, settings, pointUnitLabel, avgActual, doneSprintCount, onCreate, onClose, onViewPbi,
+  readyPbItems, carryOverSource = null, settings, pointUnitLabel, avgActual, doneSprintCount, onCreate, onClose, onViewPbi,
 }: Props) {
   const { t, pt } = useLanguage()
   const headingId = useId()
@@ -91,7 +95,15 @@ export default function SprintCreateForm({
     if (seeded.length > 0) setTouched((prev) => new Set([...prev, ...seeded]))
   }
   const [selectedPbIds, setSelectedPbIds] = useState<ReadonlySet<string>>(() => new Set())
+  // Unfinished PBIs of the previous sprint are carried unless the user unticks them.
+  const [skippedCarryIds, setSkippedCarryIds] = useState<ReadonlySet<string>>(() => new Set())
   const [saving, setSaving] = useState(false)
+  const carried = (carryOverSource?.candidates ?? []).filter((c) => !skippedCarryIds.has(c.pbItem.id))
+  const carriedIds = new Set(carried.map((c) => c.pbItem.id))
+  const carriedWorkload = carried.reduce((sum, c) => sum + (c.pbItem.workloadScore ?? 0), 0)
+  // A PBI taken over from the previous sprint is not offered a second time from the backlog.
+  const pickableItems = readyPbItems.filter((item) => !carriedIds.has(item.id))
+  const pickedIds = Array.from(selectedPbIds).filter((id) => !carriedIds.has(id))
 
   const avgLabel = avgActual !== null
     ? `${t.sprintAvgScore.replace("{count}", String(doneSprintCount))}: `
@@ -106,10 +118,25 @@ export default function SprintCreateForm({
     })
   }
 
+  function toggleCarry(id: string) {
+    setSkippedCarryIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setSaving(true)
-    const ok = await onCreate({ ...form, selectedPbIds: Array.from(selectedPbIds) })
+    const ok = await onCreate({
+      ...form,
+      selectedPbIds: pickedIds,
+      ...(carryOverSource && carried.length > 0
+        ? { carryOver: { fromSprintId: carryOverSource.sprint.id, pbItemIds: carried.map((c) => c.pbItem.id) } }
+        : {}),
+    })
     setSaving(false)
     if (ok) onClose()
   }
@@ -154,13 +181,17 @@ export default function SprintCreateForm({
               onChange={(e) => edit({ sprintGoal: e.target.value })} />
           </Field>
 
-          <PbSelectionList items={readyPbItems} selectedIds={selectedPbIds} capacity={form.capacity}
-            onToggle={toggle} onViewPbi={onViewPbi} />
+          {carryOverSource && (
+            <CarryOverList source={carryOverSource} skippedIds={skippedCarryIds} onToggle={toggleCarry} onViewPbi={onViewPbi} />
+          )}
+
+          <PbSelectionList items={pickableItems} selectedIds={selectedPbIds} capacity={form.capacity}
+            extraWorkload={carriedWorkload} onToggle={toggle} onViewPbi={onViewPbi} />
 
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="secondary" onClick={onClose} disabled={saving}>{t.cancel}</Button>
             <Button type="submit" loading={saving} leftIcon={<Plus className="w-4 h-4" />}>
-              {t.sprintCreateWithCount.replace("{count}", String(selectedPbIds.size))}
+              {t.sprintCreateWithCount.replace("{count}", String(pickedIds.length + carried.length))}
             </Button>
           </div>
         </form>

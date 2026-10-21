@@ -4,7 +4,7 @@ import { useCallback, useMemo, useState } from "react"
 import { useLanguage } from "@/lib/language-context"
 import { I18nText } from "@/components/i18n-text"
 import { pickText } from "@/lib/translation/pick-text"
-import { DisclosureChevron } from "@/components/ui"
+import { Modal } from "@/components/ui"
 import DailyScrumPanel from "./daily-scrum-panel"
 import TaskCompleteDialog from "./task-complete-dialog"
 import SprintEditDialog from "./sprint-edit-dialog"
@@ -12,10 +12,11 @@ import SprintTasksView from "./sprint-tasks-view"
 import SprintCardHeader from "./sprint-card-header"
 import SprintRetroSummary from "./sprint-retro-summary"
 import SprintProgress from "./sprint-progress"
+import SprintStepper from "./sprint-stepper"
 import { SprintGoal } from "./sprint-goal"
 import { CommentsProvider } from "@/components/comments/comments-provider"
 import { GitSummariesProvider } from "@/components/git-dev/git-summaries-context"
-import { computeSprintMetrics, isRealTask } from "../lib/sprint-metrics"
+import { computeSprintMetrics, isRealTask, sprintAttention } from "../lib/sprint-metrics"
 import { dateLocale } from "../lib/locale"
 import type { BoardViewState } from "../hooks/use-board-view-state"
 import type { CalendarEvent, Member, Sprint, SprintCardActions, SprintItem, SprintTaskActions } from "./types"
@@ -48,12 +49,13 @@ export default function SprintCard({
   // API call fires only once the dialog is confirmed.
   const [pendingDoneTask, setPendingDoneTask] = useState<SprintItem | null>(null)
   const [showSprintEdit, setShowSprintEdit] = useState(false)
-  // Daily Scrum is collapsed by default so the PBI/task list comes first.
+  // Daily Scrum opens in a side panel, so the PBI/task list stays where it is.
   const [showDaily, setShowDaily] = useState(false)
   // Only one completion-comment editor per card; the draft lives in the row.
   const [editingCommentTaskId, setEditingCommentTaskId] = useState<string | null>(null)
 
   const metrics = computeSprintMetrics(sprint)
+  const attention = sprintAttention(sprint)
   const sprintEvents = events.filter((ev) => ev.sprintId === sprint.id)
   const locale = dateLocale(language)
   const dailyId = `sprint-daily-${sprint.id}`
@@ -69,8 +71,10 @@ export default function SprintCard({
 
       <SprintGoal sprint={sprint} />
 
+      <SprintStepper sprint={sprint} />
+
       <SprintRetroSummary sprint={sprint} />
-      <SprintProgress capacity={sprint.capacity} metrics={metrics} />
+      <SprintProgress capacity={sprint.capacity} metrics={metrics} attention={sprint.status === "done" || sprint.status === "archived" ? undefined : attention} />
 
       {isExpanded && (
         <CommentsProvider projectId={projectId} entityType="sprint_task" entityIds={taskIds}>
@@ -78,18 +82,18 @@ export default function SprintCard({
           <GitSummariesProvider projectId={projectId} pbiIds={pbiIds}>
           <div id={`sprint-body-${sprint.id}`}>
             <div className="border-t border-border px-6 py-2.5 bg-surface-muted">
-              <button type="button" onClick={() => setShowDaily((v) => !v)} aria-expanded={showDaily} aria-controls={dailyId}
+              <button type="button" onClick={() => setShowDaily(true)} aria-haspopup="dialog" title={t.sprintUxDailyOpenHint}
                 className="flex items-center gap-2 w-full min-h-8 text-body font-medium text-fg-muted hover:text-fg transition-colors">
-                <DisclosureChevron open={showDaily} className="w-4 h-4" />
                 <MessageSquareText className="w-4 h-4 text-fg-subtle" />
                 {t.sprintDailyScrum}
               </button>
-              {showDaily && (
-                <div id={dailyId} className="pt-3">
+              <Modal open={showDaily} onClose={() => setShowDaily(false)} variant="side" size="lg" title={t.sprintDailyScrum}
+                description={pickText(sprint.i18n, "sprintName", sprint.sprintName, language).text || sprint.sprintName}>
+                <div id={dailyId}>
                   <DailyScrumPanel projectId={projectId} sprintId={sprint.id} sprintStartDate={sprint.startDate}
                     sprintEndDate={sprint.endDate} readOnly={sprint.status === "archived"} />
                 </div>
-              )}
+              </Modal>
             </div>
 
             <SprintTasksView sprint={sprint} sprintName={pickText(sprint.i18n, "sprintName", sprint.sprintName, language).text || sprint.sprintName}

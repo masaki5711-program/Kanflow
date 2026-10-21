@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { Sprint, SprintItem } from "../components/types"
-import { computeSprintMetrics, groupTasksByPb, nextTaskStatus, orderByPbDependency, patchTask, removeTask, summarizePbTasks, unfinishedWork } from "./sprint-metrics"
+import { carryOverSource, computeSprintMetrics, defaultSprintTab, groupTasksByAssignee, groupTasksByPb, myOpenTasks, sprintAttention, sprintTabOf, sprintTime, nextTaskStatus, orderByPbDependency, patchTask, removeTask, summarizePbTasks, unfinishedWork } from "./sprint-metrics"
 
 function pb(id: string, workloadScore: number) {
   return { id, displayId: 1, initiative: null, epic: null, userStory: null, workloadScore }
@@ -144,5 +144,98 @@ describe("orderByPbDependency", () => {
     const items = [task("a", "p1", 1, "todo"), task("b", "p2", 1, "todo")]
     expect(orderByPbDependency(items).map((i) => i.id)).toEqual(["a", "b"])
     expect(items.map((i) => i.id)).toEqual(["a", "b"])
+  })
+})
+
+describe("carryOverSource", () => {
+  const ended = (id: string, startDate: string, status: string, items: SprintItem[]): Sprint => ({
+    ...sprint(items), id, startDate, endDate: startDate, status,
+  })
+
+  it("offers the unfinished PBIs of the newest ended sprint that has any", () => {
+    const newest = ended("s3", "2026-03-01", "archived", [task("a", "p1", 3, "done"), task("b", "p2", 2, "todo"), task("c", "p2", 2, "done"), task("d", "p3", 1, "todo", null)])
+    const older = ended("s2", "2026-02-01", "archived", [task("e", "p9", 1, "todo")])
+    const source = carryOverSource([older, newest])
+    expect(source?.sprint.id).toBe("s3")
+    expect(source?.candidates.map((c) => [c.pbItem.id, c.openTasks])).toEqual([["p2", 1], ["p3", 0]])
+  })
+
+  it("skips a newer sprint with nothing left and ignores a sprint still in progress", () => {
+    const clean = ended("s3", "2026-03-01", "archived", [task("a", "p1", 3, "done")])
+    const older = ended("s2", "2026-02-01", "done", [task("e", "p9", 1, "todo")])
+    const running = ended("s4", "2026-04-01", "active", [task("f", "p8", 1, "todo")])
+    expect(carryOverSource([running, clean, older])?.sprint.id).toBe("s2")
+    expect(carryOverSource([running, clean])).toBeNull()
+  })
+
+  it("does not offer work a later sprint already took over, even after that copy was finished", () => {
+    const original = ended("s2", "2026-02-01", "archived", [task("x", "p1", 3, "todo")])
+    const copy = { ...task("x2", "p1", 3, "done"), carriedFromId: "x" }
+    const later = ended("s3", "2026-03-01", "archived", [copy])
+    expect(carryOverSource([original, later])).toBeNull()
+  })
+})
+
+describe("sprint tabs", () => {
+  it("files running / review work as current, planning as planning, finished as past", () => {
+    expect(["active", "review", "planning", "done", "archived"].map(sprintTabOf)).toEqual(["current", "current", "planning", "past", "past"])
+  })
+
+  it("opens the most relevant tab first", () => {
+    expect(defaultSprintTab([{ status: "done" }, { status: "active" }])).toBe("current")
+    expect(defaultSprintTab([{ status: "done" }, { status: "planning" }])).toBe("planning")
+    expect(defaultSprintTab([{ status: "archived" }])).toBe("past")
+    expect(defaultSprintTab([])).toBe("past")
+  })
+})
+
+describe("sprintTime", () => {
+  const period = { startDate: "2026-09-10T00:00:00.000Z", endDate: "2026-09-14T00:00:00.000Z" }
+  const at = (day: number) => new Date(2026, 8, day, 12)
+
+  it("counts calendar days around the period, the last day included", () => {
+    expect(sprintTime(period, at(7))).toEqual({ kind: "startsIn", days: 3 })
+    expect(sprintTime(period, at(10))).toEqual({ kind: "daysLeft", days: 4 })
+    expect(sprintTime(period, at(13))).toEqual({ kind: "daysLeft", days: 1 })
+    expect(sprintTime(period, at(14))).toEqual({ kind: "lastDay" })
+    expect(sprintTime(period, at(15))).toEqual({ kind: "over" })
+  })
+})
+
+describe("sprintAttention", () => {
+  it("flags open unassigned tasks and ignores done ones and placeholders", () => {
+    const owned = { ...task("a", "p1", 3, "todo"), assignees: [{ id: "u1", name: "Ann" }] }
+    const legacy = { ...task("b", "p1", 3, "todo"), assignee: "Bob" }
+    const open = task("c", "p1", 3, "todo")
+    const done = task("d", "p1", 3, "done")
+    const placeholder = task("e", "p2", 3, "todo", null)
+    const a = sprintAttention({ items: [owned, legacy, open, done, placeholder], capacity: 100 })
+    expect(a).toEqual({ unassigned: 1, waitingPbis: 0, isOver: false })
+  })
+
+  it("flags a sprint loaded beyond its capacity", () => {
+    expect(sprintAttention({ items: [task("a", "p1", 8, "todo")], capacity: 5 }).isOver).toBe(true)
+  })
+})
+
+describe("my tasks and assignee groups", () => {
+  const ann = { id: "u1", name: "Ann" }
+  const bob = { id: "u2", name: "Bob" }
+  const items = [
+    { ...task("a", "p1", 1, "todo"), assignees: [ann] },
+    { ...task("b", "p1", 1, "done"), assignees: [ann] },
+    { ...task("c", "p2", 1, "in_progress"), assignees: [bob, ann] },
+    task("d", "p2", 1, "todo"),
+    task("e", "p3", 1, "todo", null),
+  ]
+
+  it("lists only the viewer's open real tasks", () => {
+    expect(myOpenTasks(items, "u1").map((i) => i.id)).toEqual(["a", "c"])
+    expect(myOpenTasks(items, null)).toEqual([])
+  })
+
+  it("groups real tasks by owner (shared tasks under each), unassigned last", () => {
+    const groups = groupTasksByAssignee(items)
+    expect(groups.map((g) => [g.name, g.tasks.map((i) => i.id)])).toEqual([["Ann", ["a", "b", "c"]], ["Bob", ["c"]], [null, ["d"]]])
   })
 })

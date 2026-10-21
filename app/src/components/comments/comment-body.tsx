@@ -2,7 +2,7 @@
 
 import { useState, type ReactNode } from "react"
 import { useLanguage } from "@/lib/language-context"
-import { splitMentionSegments } from "@/lib/mentions"
+import { isMentionAll, splitMentionSegments } from "@/lib/mentions"
 import { pickText } from "@/lib/translation/pick-text"
 import type { EntityI18n } from "@/lib/translation/types"
 import { OriginalToggle, PendingBadge } from "@/components/i18n-text"
@@ -31,7 +31,7 @@ function fold(value: string): string {
 /** Mentions highlighted, URLs linked, everything else plain (escaped) text. */
 function renderSegments(text: string, known: ReadonlySet<string>): ReactNode[] {
   return splitMentionSegments(text).map((seg, i) => {
-    if (seg.type === "mention" && (seg.bracket || known.has(fold(seg.name)))) {
+    if (seg.type === "mention" && (seg.bracket || known.has(fold(seg.name)) || isMentionAll(seg.name))) {
       return (
         <span key={i} className="rounded-ui-sm bg-primary-soft px-1 font-medium text-primary-strong" data-mention>
           @{seg.name}

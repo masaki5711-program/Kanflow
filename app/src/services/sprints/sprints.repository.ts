@@ -69,6 +69,47 @@ export function insertSprint(db: Db, data: Prisma.SprintUncheckedCreateInput, pb
   })
 }
 
+/** A sprint the unfinished work is carried over from, with the rows the carry-over rule reads. */
+export function findCarryOverSource(db: Db, projectId: string, sprintId: string) {
+  return db.sprint.findFirst({
+    where: { id: sprintId, projectId },
+    select: {
+      id: true,
+      status: true,
+      items: {
+        where: LIVE_PBI,
+        orderBy: { createdAt: "asc" },
+        select: {
+          id: true,
+          pbItemId: true,
+          taskName: true,
+          assignee: true,
+          estimatedHours: true,
+          status: true,
+          assignees: { select: { userId: true } },
+          // A row that already has a copy was carried over before.
+          carriedCopies: { select: { id: true }, take: 1 },
+        },
+      },
+    },
+  })
+}
+
+/** One carried-over task: a fresh "todo" row linked to its original (hours worked and completion notes are not copied). */
+export function insertCarriedTask(
+  db: Db,
+  task: { sprintId: string; pbItemId: string; taskName: string | null; assignee: string | null; estimatedHours: number | null; carriedFromId: string },
+  assigneeIds: readonly string[],
+) {
+  return db.sprintBacklogItem.create({
+    data: {
+      ...task,
+      status: "todo",
+      assignees: assigneeIds.length > 0 ? { create: assigneeIds.map((userId) => ({ userId })) } : undefined,
+    },
+  })
+}
+
 /**
  * Optimistic-lock update: matches `version` when given and always bumps it.
  * The updated sprint (with items), or null when nothing matched (missing or

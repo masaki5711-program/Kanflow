@@ -487,6 +487,30 @@ describe("getGitSummaries", () => {
   })
 })
 
+describe("getNewMrCount", () => {
+  it("is off without querying while the integration is off", async () => {
+    expect(await svc.getNewMrCount(PROJECT_ID, null)).toEqual({ enabled: false, count: 0 })
+    expect(gitLinkFindMany).not.toHaveBeenCalled()
+  })
+
+  it("counts open MRs that were linked after the last visit, once per MR", async () => {
+    gitIntegrationFindUnique.mockResolvedValue({ enabled: true })
+    gitLinkFindMany.mockResolvedValue([{ repositoryId: "r1", ref: "4" }, { repositoryId: "r1", ref: "7" }])
+    const since = new Date("2026-10-20T00:00:00Z")
+    expect(await svc.getNewMrCount(PROJECT_ID, since)).toEqual({ enabled: true, count: 2 })
+    expect(gitLinkFindMany.mock.calls[0][0]).toMatchObject({
+      where: { projectId: PROJECT_ID, kind: "mr", state: { in: ["opened", "locked"] }, createdAt: { gt: since } },
+      distinct: ["repositoryId", "ref"],
+    })
+  })
+
+  it("counts every open MR when the viewer never visited", async () => {
+    gitIntegrationFindUnique.mockResolvedValue({ enabled: true })
+    await svc.getNewMrCount(PROJECT_ID, null)
+    expect(gitLinkFindMany.mock.calls[0][0].where).not.toHaveProperty("createdAt")
+  })
+})
+
 describe("getGitOverview", () => {
   it("enabled: false short-circuits before reading links", async () => {
     const overview = await svc.getGitOverview(PROJECT_ID)

@@ -36,10 +36,26 @@ export function derivePbiStatusChange(currentStatus: string, tasks: readonly Tas
   return null
 }
 
+export interface SyncRow extends TaskState {
+  /** Copies made of this task by a carry-over (absent / empty = none). */
+  carriedCopies?: readonly unknown[]
+}
+
+/**
+ * Pure: drops the unfinished tasks that a carry-over has taken into a later
+ * sprint. The copy now stands for that work, so the original (kept in the
+ * earlier sprint as its record) must not hold the PBI back from completing.
+ * Deleting the copy clears the link and the original counts again.
+ */
+export function withoutSupersededTasks<T extends SyncRow>(rows: readonly T[]): T[] {
+  return rows.filter((r) => !(isRealTask(r) && r.status !== "done" && (r.carriedCopies?.length ?? 0) > 0))
+}
+
 /**
  * Reconcile a PBI's `status` with the state of its sprint tasks (scanned
  * ACROSS sprints — a carried-over PBI isn't complete until every real task is
- * done). Runs after any sprint task create/update/delete and after a PBI is
+ * done, except an original that a carry-over has copied — see withoutSupersededTasks).
+ * Runs after any sprint task create/update/delete and after a PBI is
  * removed from a sprint. Safe to call when the PBI no longer exists or is in
  * the trash (then nothing is written). Pass a
  * transaction client to run inside the caller's transaction.
@@ -56,9 +72,9 @@ export async function syncPbiStatusFromTasks(pbItemId: string, db: Db = prisma):
 
   const rows = await db.sprintBacklogItem.findMany({
     where: { pbItemId },
-    select: { taskName: true, status: true },
+    select: { taskName: true, status: true, carriedCopies: { select: { id: true }, take: 1 } },
   })
-  const change = derivePbiStatusChange(pbi.status, rows)
+  const change = derivePbiStatusChange(pbi.status, withoutSupersededTasks(rows))
   // A status change is a real edit: bump the optimistic-lock version (P2).
   if (change) await db.productBacklogItem.update({ where: { id: pbItemId }, data: { ...change, version: { increment: 1 } } })
   if (pbi.planItemId) await recalcPlanItems([pbi.planItemId], db)

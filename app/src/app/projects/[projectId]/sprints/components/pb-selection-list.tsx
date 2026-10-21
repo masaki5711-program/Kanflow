@@ -11,6 +11,8 @@ interface Props {
   items: ReadyPbItem[]
   selectedIds: ReadonlySet<string>
   capacity: number
+  /** Workload already committed elsewhere in the form (carried-over PBIs); counts toward the meter. */
+  extraWorkload?: number
   onToggle: (id: string) => void
   onViewPbi: (pbiId: string) => void
 }
@@ -18,10 +20,10 @@ interface Props {
 const WARN_RATIO = 0.8
 
 /** Ready-PB checklist with a live "selected workload / capacity" meter. */
-export default function PbSelectionList({ items, selectedIds, capacity, onToggle, onViewPbi }: Props) {
+export default function PbSelectionList({ items, selectedIds, capacity, extraWorkload = 0, onToggle, onViewPbi }: Props) {
   const { t, language } = useLanguage()
   const labelId = useId()
-  const selectedWorkload = items
+  const selectedWorkload = extraWorkload + items
     .filter((item) => selectedIds.has(item.id))
     .reduce((sum, item) => sum + item.workloadScore, 0)
   const isOver = selectedWorkload > capacity

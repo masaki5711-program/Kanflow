@@ -35,6 +35,8 @@ export interface CommentsTranslations {
   commentsOpenFor: string
   commentsMentionListLabel: string
   commentsMentionNoMatch: string
+  commentsMentionAllName: string
+  commentsMentionAllHint: string
   /** {max} = maximum characters. */
   commentsTooLong: string
   commentsUnknownUser: string
@@ -97,6 +99,8 @@ export const ja: CommentsTranslations = {
   commentsOpenFor: "コメント: {name}",
   commentsMentionListLabel: "メンション候補",
   commentsMentionNoMatch: "一致するメンバーがいません",
+  commentsMentionAllName: "全員",
+  commentsMentionAllHint: "プロジェクトの全メンバーに通知",
   commentsTooLong: "{max} 文字以内で入力してください",
   commentsUnknownUser: "不明なユーザー",
   commentsBodyLabel: "新しいコメント",
@@ -154,6 +158,8 @@ export const en: CommentsTranslations = {
   commentsOpenFor: "Comments: {name}",
   commentsMentionListLabel: "Mention suggestions",
   commentsMentionNoMatch: "No matching members",
+  commentsMentionAllName: "all",
+  commentsMentionAllHint: "Notify every project member",
   commentsTooLong: "Use at most {max} characters",
   commentsUnknownUser: "Unknown user",
   commentsBodyLabel: "New comment",
@@ -211,6 +217,8 @@ export const id: CommentsTranslations = {
   commentsOpenFor: "Komentar: {name}",
   commentsMentionListLabel: "Saran sebutan",
   commentsMentionNoMatch: "Tidak ada anggota yang cocok",
+  commentsMentionAllName: "semua",
+  commentsMentionAllHint: "Beri tahu semua anggota proyek",
   commentsTooLong: "Maksimal {max} karakter",
   commentsUnknownUser: "Pengguna tidak dikenal",
   commentsBodyLabel: "Komentar baru",

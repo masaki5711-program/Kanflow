@@ -40,6 +40,10 @@ export interface GitDevTranslations {
   gitDevBadgeOpenMrs: string
   gitDevBadgeMerged: string
   gitDevBadgeBranches: string
+  gitNavBadge: string
+  gitDevBadgeShortOpen: string
+  gitDevBadgeShortMerged: string
+  gitDevBadgeShortBranches: string
   gitDevListSeparator: string
 }
 
@@ -79,6 +83,10 @@ export const ja: GitDevTranslations = {
   gitDevBadgeOpenMrs: "マージリクエスト {count} 件オープン",
   gitDevBadgeMerged: "マージ済み",
   gitDevBadgeBranches: "ブランチ {count} 件",
+  gitNavBadge: "新着マージリクエスト {n} 件",
+  gitDevBadgeShortOpen: "MR {count} 件",
+  gitDevBadgeShortMerged: "MR マージ済み",
+  gitDevBadgeShortBranches: "ブランチ {count}",
   gitDevListSeparator: "、",
 }
 
@@ -118,6 +126,10 @@ export const en: GitDevTranslations = {
   gitDevBadgeOpenMrs: "{count} open merge request(s)",
   gitDevBadgeMerged: "Merged",
   gitDevBadgeBranches: "{count} branch(es)",
+  gitDevBadgeShortOpen: "{count} MR",
+  gitNavBadge: "{n} new merge request(s)",
+  gitDevBadgeShortMerged: "MR merged",
+  gitDevBadgeShortBranches: "{count} branch",
   gitDevListSeparator: ", ",
 }
 
@@ -157,5 +169,9 @@ export const id: GitDevTranslations = {
   gitDevBadgeOpenMrs: "{count} merge request terbuka",
   gitDevBadgeMerged: "Sudah di-merge",
   gitDevBadgeBranches: "{count} branch",
+  gitDevBadgeShortOpen: "{count} MR",
+  gitNavBadge: "{n} merge request baru",
+  gitDevBadgeShortMerged: "MR di-merge",
+  gitDevBadgeShortBranches: "{count} branch",
   gitDevListSeparator: ", ",
 }

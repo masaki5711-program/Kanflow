@@ -73,6 +73,28 @@ describe("resolveMentionUserIds", () => {
   })
 })
 
+describe("@全員 / @all", () => {
+  it("expands every keyword (any case, bracket or bare) to all members except the author", () => {
+    const everyone = ["u2", "u3", "u4", "u5"]
+    for (const body of ["@全員 お願いします", "@[全員]", "@all", "@ALL", "@Everyone", "@semua"]) {
+      expect(resolveMentionUserIds(body, MEMBERS, "u1")).toEqual(everyone)
+    }
+    expect(resolveMentionUserIds("@all", MEMBERS)).toHaveLength(5)
+  })
+
+  it("keeps explicit mentions first and does not duplicate them", () => {
+    expect(resolveMentionUserIds("@Hanako @all", MEMBERS, "u1")).toEqual(["u2", "u3", "u4", "u5"])
+  })
+
+  it("a member really named like a keyword wins over the expansion", () => {
+    expect(resolveMentionUserIds("@all", [...MEMBERS, { id: "u9", name: "All" }])).toEqual(["u9"])
+  })
+
+  it("an empty project expands to nobody", () => {
+    expect(resolveMentionUserIds("@all", [])).toEqual([])
+  })
+})
+
 describe("helpers", () => {
   it("mentionToken drops closing brackets and line breaks", () => {
     expect(mentionToken("Taro Yamada")).toBe("@[Taro Yamada]")

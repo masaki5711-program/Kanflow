@@ -18,6 +18,8 @@ export interface CreateSprintInput {
   sprintGoal: string
   capacity: number
   selectedPbIds: string[]
+  /** Unfinished PBIs (and their open tasks) of an earlier sprint to continue in this one. */
+  carryOver?: { fromSprintId: string; pbItemIds: string[] }
 }
 
 type Deps = Pick<SprintsData, "sprints" | "refetchSprints" | "refetchReady" | "mutateSprints">

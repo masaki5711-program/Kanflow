@@ -23,6 +23,26 @@ function renderComposer(props: Partial<React.ComponentProps<typeof CommentCompos
   return { onSubmit: (props.onSubmit as typeof onSubmit | undefined) ?? onSubmit, box: screen.getByLabelText("New comment") }
 }
 
+describe("CommentComposer @all entry", () => {
+  it("offers 'all' first for a bare @ or a matching prefix, and stores it as a bracket token", async () => {
+    const { box, onSubmit } = renderComposer()
+    await userEvent.type(box, "@")
+    const list = screen.getByRole("listbox", { name: t.commentsMentionListLabel })
+    expect(within(list).getAllByRole("option")[0].textContent).toBe(`@${t.commentsMentionAllName}${t.commentsMentionAllHint}`)
+    await userEvent.keyboard("{Enter}")
+    expect(box).toHaveValue(`@${t.commentsMentionAllName} `)
+    await userEvent.type(box, "please review")
+    await userEvent.click(screen.getByRole("button", { name: "Send" }))
+    expect(onSubmit).toHaveBeenCalledWith(`@[${t.commentsMentionAllName}] please review`)
+  })
+
+  it("is not offered once the query stops fitting it", async () => {
+    const { box } = renderComposer()
+    await userEvent.type(box, "@Han")
+    expect(within(screen.getByRole("listbox")).getAllByRole("option").map((o) => o.textContent)).toEqual(["@Hanako"])
+  })
+})
+
 describe("CommentComposer mention autocomplete", () => {
   it("lists filtered members after @ and inserts @Name (no raw token) with Enter", async () => {
     const { box } = renderComposer()

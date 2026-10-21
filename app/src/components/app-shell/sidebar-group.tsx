@@ -166,7 +166,7 @@ function SidebarLink({ item, active, idPrefix }: { item: SidebarNavItem; active:
         />
         <span className="min-w-0 truncate">{item.label}</span>
         {item.badge && item.badge.count > 0 && (
-          <span data-sidebar-badge="" data-tone={item.badge.tone ?? "primary"} title={item.badge.label} className={cn("ml-auto shrink-0 rounded-full px-1.5 text-caption font-semibold leading-5 tabular-nums text-white", item.badge.tone === "alert" ? "bg-danger" : "bg-primary")}>
+          <span data-sidebar-badge="" data-tone={item.badge.tone ?? "primary"} title={item.badge.label} className={cn("ml-auto shrink-0 rounded-full px-1.5 text-caption font-semibold leading-5 tabular-nums text-white", item.badge.tone === "alert" || item.badge.tone === "danger" ? "bg-danger" : "bg-primary")}>
             {item.badge.tone === "alert" && <span aria-hidden="true">@</span>}
             <span aria-hidden="true">{item.badge.count > 99 ? "99+" : item.badge.count}</span>
             <span className="sr-only">{item.badge.label}</span>

@@ -1,5 +1,6 @@
 import type { ReactElement, ReactNode } from "react"
-import { render } from "@testing-library/react"
+import { render, screen } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { vi } from "vitest"
 import { ConfirmProvider, ToastProvider } from "@/components/ui"
 import { LanguageProvider } from "@/lib/language-context"
@@ -76,6 +77,22 @@ export function sprint(id: string, over: Partial<Sprint> = {}): Sprint {
     sprintGoal: null, capacity: 20, actualScore: 0, status: "active", reviewComment: null, retrospectiveMemo: null,
     retrospectiveKeep: null, retrospectiveProblem: null, retrospectiveTry: null, items: [], ...over,
   }
+}
+
+/** Opens the "⋯" menu of a task ("Task t1") or PBI ("#1") and clicks the entry with the given name. */
+export async function pickMenuItem(owner: string, itemName: string) {
+  await userEvent.click(await screen.findByRole("button", { name: t.sprintUxMoreActions.replace("{name}", owner) }))
+  await userEvent.click(await screen.findByRole("menuitem", { name: itemName }))
+}
+
+/** Unfolds a PBI group (all-done groups start folded). */
+export async function expandPbi(ref = "#1") {
+  await userEvent.click(await screen.findByRole("button", { name: `${t.sprintPbiExpand}: ${ref}` }))
+}
+
+/** A finished sprint is one line in the 過去 tab: opens it into the full card. */
+export async function openPastSprint(name: string) {
+  await userEvent.click(await screen.findByRole("button", { name: new RegExp(name) }))
 }
 
 export function deferred<T>() {

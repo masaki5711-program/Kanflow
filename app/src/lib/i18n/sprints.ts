@@ -61,6 +61,10 @@ export interface SprintsTranslations {
   sprintCompleteAllDone: string
   sprintCompleteArchiveNote: string
   sprintCompleteCarryOverNote: string
+  sprintCarryOver: string
+  sprintCarryOverHint: string
+  sprintCarryOverOpenTasks: string
+  sprintCarryOverNoTasks: string
   sprintProgressLoadPct: string
   sprintProgressDoneTasks: string
   /** {name} */
@@ -135,7 +139,11 @@ export const ja: SprintsTranslations = {
   sprintCompleteUnfinished: "未完了のタスクが {tasks} 件、未完了のPBIが {pbis} 件あります。",
   sprintCompleteAllDone: "すべてのタスクが完了しています。",
   sprintCompleteArchiveNote: "完了するとスプリントはアーカイブされ、AIによるスプリントレビューが自動で作成されます。",
-  sprintCompleteCarryOverNote: "未完了のPBIはバックログに「Ready」のまま残り、次のスプリントに取り込めます。未完了のタスクはアーカイブされたスプリントに残ります。",
+  sprintCompleteCarryOverNote: "未完了のPBIとタスクは、次のスプリントを作るときに引き継げます（このスプリントの記録はそのまま残ります）。",
+  sprintCarryOver: "前スプリントから引き継ぎ（未完了の PBI）",
+  sprintCarryOverHint: "「{sprint}」の未完了のタスクを新しいスプリントにコピーします。元のスプリントの記録は変わりません。",
+  sprintCarryOverOpenTasks: "未完了 {count} タスク",
+  sprintCarryOverNoTasks: "タスク未登録",
   sprintProgressLoadPct: "（容量の{pct}%）",
   sprintProgressDoneTasks: "完了タスク {done}/{total}（{pct}%）",
   sprintStartConfirmTitle: "スプリント「{name}」を開始しますか？",
@@ -206,7 +214,11 @@ export const en: SprintsTranslations = {
   sprintCompleteUnfinished: "{tasks} unfinished task(s) and {pbis} unfinished PBI(s) remain.",
   sprintCompleteAllDone: "All tasks are done.",
   sprintCompleteArchiveNote: "Completing archives the sprint and starts an automatic AI sprint review.",
-  sprintCompleteCarryOverNote: "Unfinished PBIs stay in the backlog as Ready and can be pulled into the next sprint. Unfinished tasks stay in the archived sprint.",
+  sprintCompleteCarryOverNote: "Unfinished PBIs and tasks can be carried over when you create the next sprint (this sprint's record stays as it is).",
+  sprintCarryOver: "Carry over from the previous sprint (unfinished PBIs)",
+  sprintCarryOverHint: "Copies the unfinished tasks of \"{sprint}\" into the new sprint. The earlier sprint's record does not change.",
+  sprintCarryOverOpenTasks: "{count} open tasks",
+  sprintCarryOverNoTasks: "No tasks yet",
   sprintProgressLoadPct: "({pct}% of capacity)",
   sprintProgressDoneTasks: "Tasks done {done}/{total} ({pct}%)",
   sprintStartConfirmTitle: "Start sprint \"{name}\"?",
@@ -277,7 +289,11 @@ export const id: SprintsTranslations = {
   sprintCompleteUnfinished: "Masih ada {tasks} tugas dan {pbis} PBI yang belum selesai.",
   sprintCompleteAllDone: "Semua tugas sudah selesai.",
   sprintCompleteArchiveNote: "Menyelesaikan akan mengarsipkan sprint dan memulai tinjauan sprint AI secara otomatis.",
-  sprintCompleteCarryOverNote: "PBI yang belum selesai tetap di backlog sebagai Siap dan dapat dimasukkan ke sprint berikutnya. Tugas yang belum selesai tetap di sprint yang diarsipkan.",
+  sprintCompleteCarryOverNote: "PBI dan tugas yang belum selesai dapat dibawa ke sprint berikutnya saat Anda membuatnya (catatan sprint ini tidak berubah).",
+  sprintCarryOver: "Bawa dari sprint sebelumnya (PBI belum selesai)",
+  sprintCarryOverHint: "Menyalin tugas yang belum selesai dari \"{sprint}\" ke sprint baru. Catatan sprint sebelumnya tidak berubah.",
+  sprintCarryOverOpenTasks: "{count} tugas terbuka",
+  sprintCarryOverNoTasks: "Belum ada tugas",
   sprintProgressLoadPct: "({pct}% dari kapasitas)",
   sprintProgressDoneTasks: "Tugas selesai {done}/{total} ({pct}%)",
   sprintStartConfirmTitle: "Mulai sprint \"{name}\"?",

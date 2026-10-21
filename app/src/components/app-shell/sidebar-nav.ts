@@ -27,8 +27,8 @@ export interface SidebarNavItem {
   Icon: ComponentType<{ className?: string; "aria-hidden"?: boolean }>
   /** Exact match only (the dashboard is the project root). */
   exact?: boolean
-  /** Count pill after the label (new updates / unread chat); with its accessible text. "alert" = something is addressed to the viewer. */
-  badge?: { count: number; label: string; tone?: "primary" | "alert" }
+  /** Count pill after the label (new updates / unread chat); with its accessible text. "alert" = something is addressed to the viewer (red, with "@"); "danger" = red count without "@" (new merge requests). */
+  badge?: { count: number; label: string; tone?: "primary" | "alert" | "danger" }
 }
 
 export interface SidebarNavGroup {

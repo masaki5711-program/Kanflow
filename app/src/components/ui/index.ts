@@ -19,6 +19,7 @@ export { PageHeader, type PageHeaderProps } from "./page-header"
 export { ToastProvider, useToast, useOptionalToast, type ToastApi, type ToastOptions, type ToastActionButton } from "./toast"
 export { Truncate, type TruncateProps } from "./truncate"
 export { VisuallyHidden } from "./visually-hidden"
+export { ActionMenu, type ActionMenuItem } from "./action-menu"
 export { Modal, useModalClose, type ModalProps, type ModalSize, type ModalCloseReason } from "./modal"
 export { ConfirmProvider, useConfirm, useOptionalConfirm, type ConfirmOptions } from "../confirm-dialog"
 export {

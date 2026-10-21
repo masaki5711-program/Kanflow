@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { deferred, json, pb, renderWithProviders, sprint, stubFetch, t, task, type Routes } from "./helpers"
+import { deferred, expandPbi, json, openPastSprint, pb, pickMenuItem, renderWithProviders, sprint, stubFetch, t, task, type Routes } from "./helpers"
 
 const session = vi.hoisted(() => ({ current: { user: { id: "u1", role: "admin" } } as unknown }))
 
@@ -160,6 +160,7 @@ describe("SprintsPage", () => {
       [`PATCH ${BASE}/sprints/s1/tasks/t1`]: () => patch.promise,
     }))
     renderWithProviders(<SprintsPage />)
+    await expandPbi()
     await userEvent.click(await screen.findByRole("button", { name: toggleLabel("Task t1", t.taskDone) }))
     // Leaving "done" asks first.
     expect(await screen.findByText(t.sprintReopenTaskConfirm)).toBeInTheDocument()
@@ -182,10 +183,9 @@ describe("SprintsPage", () => {
       },
     }))
     renderWithProviders(<SprintsPage />)
-    // Finished sprints start collapsed.
-    const details = await screen.findByRole("button", { name: t.sprintToggleDetails.replace("{name}", "Sprint s1") })
-    expect(details).toHaveAttribute("aria-expanded", "false")
-    await userEvent.click(details)
+    // A finished sprint is one line in the 過去 tab until it is opened.
+    await openPastSprint("Sprint s1")
+    await expandPbi()
     await userEvent.click(await screen.findByRole("button", { name: toggleLabel("Task t1", t.taskDone) }))
     // Leaving "done" asks first.
     expect(await screen.findByText(t.sprintReopenTaskConfirm)).toBeInTheDocument()
@@ -204,8 +204,17 @@ describe("SprintsPage", () => {
     renderWithProviders(<SprintsPage />)
     const expanded = (id: string) =>
       screen.getByRole("button", { name: t.sprintToggleDetails.replace("{name}", `Sprint ${id}`) }).getAttribute("aria-expanded")
-    await screen.findByText("Sprint s4")
-    expect(["s1", "s2", "s3", "s4"].map(expanded)).toEqual(["true", "true", "true", "false"])
+    // Running work first: planning and finished sprints sit under their own tabs.
+    await screen.findByText("Sprint s2")
+    expect(["s2", "s3"].map(expanded)).toEqual(["true", "true"])
+    expect(screen.queryByText("Sprint s1")).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole("tab", { name: new RegExp(t.sprintUxTabPlanning) }))
+    expect(expanded("s1")).toBe("true")
+    // A finished sprint is a single line until it is opened.
+    await userEvent.click(screen.getByRole("tab", { name: new RegExp(t.sprintUxTabPast) }))
+    expect(screen.queryByRole("button", { name: t.sprintToggleDetails.replace("{name}", "Sprint s4") })).not.toBeInTheDocument()
+    await openPastSprint("Sprint s4")
+    expect(expanded("s4")).toBe("true")
   })
 
   it("requests only READY backlog items for sprint planning", async () => {
@@ -245,6 +254,7 @@ describe("SprintsPage", () => {
       [`POST ${BASE}/icebox`]: {},
     }))
     renderWithProviders(<SprintsPage />)
+    await expandPbi()
     expect(await screen.findByText("old note")).toBeInTheDocument()
     await userEvent.click(screen.getByRole("button", { name: t.sprintTaskEditComment }))
     const textarea = screen.getByPlaceholderText(t.sprintTaskCompletionCommentPlaceholder)
@@ -269,6 +279,7 @@ describe("SprintsPage", () => {
       [`POST ${BASE}/icebox`]: () => json({ error: "y" }, 500),
     }))
     renderWithProviders(<SprintsPage />)
+    await expandPbi()
     await userEvent.click(await screen.findByRole("button", { name: t.sprintTaskEditComment }))
     await userEvent.click(screen.getByRole("button", { name: t.save }))
     expect(await screen.findByText(t.sprintTaskCommentSaveFailed)).toBeInTheDocument()
@@ -285,6 +296,7 @@ describe("SprintsPage", () => {
     const s1 = sprint("s1", { status: "done" })
     const { calls } = stubFetch(baseRoutes([s1], { [`DELETE ${BASE}/sprints/s1`]: () => json(undefined, 204) }))
     renderWithProviders(<SprintsPage />)
+    await openPastSprint("Sprint s1")
     const del = await screen.findByRole("button", { name: t.sprintDeleteNamed.replace("{name}", "Sprint s1") })
 
     await userEvent.click(del)
@@ -306,6 +318,7 @@ describe("SprintsPage", () => {
   it("restores the sprint when the delete request fails", async () => {
     stubFetch(baseRoutes([sprint("s1", { status: "done" })], { [`DELETE ${BASE}/sprints/s1`]: () => json({ error: "locked" }, 409) }))
     renderWithProviders(<SprintsPage />)
+    await openPastSprint("Sprint s1")
     await userEvent.click(await screen.findByRole("button", { name: t.sprintDeleteNamed.replace("{name}", "Sprint s1") }))
     await userEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: t.delete }))
     expect(await screen.findByText("locked")).toBeInTheDocument()
@@ -318,6 +331,7 @@ describe("SprintsPage", () => {
       [`PATCH ${BASE}/sprints/s2`]: {},
     }))
     renderWithProviders(<SprintsPage />)
+    await userEvent.click(await screen.findByRole("tab", { name: new RegExp(t.sprintUxTabPlanning) }))
     const startButton = await screen.findByRole("button", { name: t.sprintMoveToStatus.replace("{status}", t.sprintStatusActive) })
     await userEvent.click(startButton)
     const confirmStart = await screen.findByRole("alertdialog")
@@ -331,6 +345,7 @@ describe("SprintsPage", () => {
     await waitFor(() => expect(calls.find((c) => c.url === `${BASE}/sprints/s1`)?.body).toEqual({ status: "active" }))
     expect(await screen.findByText(t.sprintStatusChangedActive.replace("{name}", "Sprint s1"))).toBeInTheDocument()
 
+    await userEvent.click(screen.getByRole("tab", { name: new RegExp(t.sprintUxTabCurrent) }))
     await userEvent.click(screen.getByRole("button", { name: t.sprintMoveToStatus.replace("{status}", t.sprintStatusReview) }))
     const dialog = await screen.findByRole("dialog")
     expect(within(dialog).getByText(t.sprintReviewDialogTitle)).toBeInTheDocument()
@@ -414,7 +429,7 @@ describe("SprintsPage", () => {
       [`${BASE}/backlog/pb1`]: () => json({ error: "gone" }, 404),
     }))
     renderWithProviders(<SprintsPage />)
-    await userEvent.click(await screen.findByRole("button", { name: t.sprintTaskEditNamed.replace("{name}", "Task t1") }))
+    await pickMenuItem("Task t1", t.sprintTaskEditNamed.replace("{name}", "Task t1"))
     const dialog = await screen.findByRole("dialog")
     expect(within(dialog).getByText(t.sprintTaskEdit)).toBeInTheDocument()
     await userEvent.click(within(dialog).getByRole("button", { name: t.update }))
@@ -426,10 +441,10 @@ describe("SprintsPage", () => {
     const s1 = sprint("s1", { items: [task("t1", pb1)] })
     stubFetch(baseRoutes([s1], { [`DELETE ${BASE}/sprints/s1/tasks/t1`]: () => json({ error: "x" }, 500) }))
     renderWithProviders(<SprintsPage />)
-    const del = await screen.findByRole("button", { name: t.sprintTaskDeleteNamed.replace("{name}", "Task t1") })
-    await userEvent.click(del)
+    const del = () => pickMenuItem("Task t1", t.sprintTaskDeleteNamed.replace("{name}", "Task t1"))
+    await del()
     await userEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: t.cancel }))
-    await userEvent.click(del)
+    await del()
     await userEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: t.delete }))
     expect(await screen.findByText(t.sprintTaskDeleteFailed)).toBeInTheDocument()
     expect(screen.getByText("Task t1")).toBeInTheDocument()
@@ -439,7 +454,7 @@ describe("SprintsPage", () => {
     const s1 = sprint("s1", { items: [task("t1", pb1, { version: 7 })] })
     const { calls } = stubFetch(baseRoutes([s1], { [`DELETE ${BASE}/sprints/s1/tasks/t1?version=7`]: {} }))
     renderWithProviders(<SprintsPage />)
-    await userEvent.click(await screen.findByRole("button", { name: t.sprintTaskDeleteNamed.replace("{name}", "Task t1") }))
+    await pickMenuItem("Task t1", t.sprintTaskDeleteNamed.replace("{name}", "Task t1"))
     await userEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: t.delete }))
     await waitFor(() => expect(calls.some((c) => c.method === "DELETE" && c.url.endsWith("?version=7"))).toBe(true))
   })
@@ -448,7 +463,7 @@ describe("SprintsPage", () => {
     const s1 = sprint("s1", { items: [task("t1", pb1)] })
     const { calls } = stubFetch(baseRoutes([s1], { [`DELETE ${BASE}/sprints/s1/tasks/t1`]: {} }))
     renderWithProviders(<SprintsPage />)
-    await userEvent.click(await screen.findByRole("button", { name: t.sprintTaskDeleteNamed.replace("{name}", "Task t1") }))
+    await pickMenuItem("Task t1", t.sprintTaskDeleteNamed.replace("{name}", "Task t1"))
     await userEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: t.delete }))
     await waitFor(() => expect(calls.some((c) => c.method === "DELETE")).toBe(true))
   })
@@ -458,14 +473,14 @@ describe("SprintsPage", () => {
     let fail = true
     const { calls } = stubFetch(baseRoutes([s1], { [`DELETE ${BASE}/sprints/s1/pbis`]: () => (fail ? json({ error: "x" }, 500) : json({})) }))
     renderWithProviders(<SprintsPage />)
-    const btn = await screen.findByRole("button", { name: `${t.sprintRemovePbi}: #1` })
-    await userEvent.click(btn)
+    const btn = () => pickMenuItem("#1", `${t.sprintRemovePbi}: #1`)
+    await btn()
     await userEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: t.cancel }))
-    await userEvent.click(btn)
+    await btn()
     await userEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: t.delete }))
     expect(await screen.findByText(t.sprintRemovePbiFailed)).toBeInTheDocument()
     fail = false
-    await userEvent.click(btn)
+    await btn()
     await userEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: t.delete }))
     await waitFor(() => expect(calls.filter((c) => c.method === "DELETE")).toHaveLength(2))
     expect(calls.find((c) => c.method === "DELETE")?.body).toEqual({ pbItemId: "pb1" })
@@ -497,18 +512,16 @@ describe("SprintsPage", () => {
     expect(screen.queryByText("Task t1")).not.toBeInTheDocument()
   })
 
-  it("lists archived sprints collapsed with a toggle and shows the average score", async () => {
+  it("lists finished sprints as one-line rows under the 過去 tab and shows the average score", async () => {
     stubFetch(baseRoutes([sprint("s1", { status: "archived", actualScore: 10 }), sprint("s2", { status: "done", actualScore: 20 })]))
     renderWithProviders(<SprintsPage />)
+    // Only finished sprints exist, so the history tab opens by itself.
     await screen.findByText("Sprint s2")
     expect(screen.getByText(`${t.sprintAvgScore.replace("{count}", "2")}: 15`, { exact: false })).toBeInTheDocument()
-    const section = screen.getByRole("region", { name: t.sprintArchivedSprints })
-    const toggle = within(section).getAllByRole("button")[0]
-    expect(toggle).toHaveAttribute("aria-expanded", "false")
-    expect(screen.queryByText("Sprint s1")).not.toBeInTheDocument()
-    await userEvent.click(toggle)
+    expect(screen.getByRole("tab", { name: new RegExp(t.sprintUxTabPast) })).toHaveAttribute("aria-selected", "true")
     expect(screen.getByText("Sprint s1")).toBeInTheDocument()
-    await userEvent.click(screen.getByRole("button", { name: t.sprintToggleDetails.replace("{name}", "Sprint s1") }))
+    expect(screen.queryByRole("button", { name: t.sprintToggleDetails.replace("{name}", "Sprint s1") })).not.toBeInTheDocument()
+    await openPastSprint("Sprint s1")
     expect(screen.getAllByText(t.sprintNoTasks).length).toBeGreaterThan(0)
   })
 

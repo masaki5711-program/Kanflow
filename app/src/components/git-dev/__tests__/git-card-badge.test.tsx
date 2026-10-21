@@ -25,6 +25,17 @@ describe("GitCardBadge", () => {
     const badge = document.querySelector("[data-git-badge]") as HTMLElement
     expect(badge).toHaveAttribute("title", "マージリクエスト 2 件オープン、パイプライン: 失敗")
     expect(badge.querySelector(".bg-danger")).not.toBeNull()
+    // The badge says "MR" in words, not just an icon and a number.
+    expect(badge).toHaveTextContent("MR 2 件")
+    expect(badge).toHaveAttribute("data-git-badge", "open")
+  })
+
+  it("spells out merged and branch-only states in the visible text", () => {
+    const { unmount } = renderWithProviders(<GitCardBadge summary={summary({ mergedMrs: 1 })} />, "ja")
+    expect(document.querySelector("[data-git-badge]")).toHaveTextContent("MR マージ済み")
+    unmount()
+    renderWithProviders(<GitCardBadge summary={summary({ branches: 2 })} />, "ja")
+    expect(document.querySelector("[data-git-badge]")).toHaveTextContent("ブランチ 2")
   })
 
   it("shows merged when every MR is merged, with a green dot for a passed pipeline", () => {

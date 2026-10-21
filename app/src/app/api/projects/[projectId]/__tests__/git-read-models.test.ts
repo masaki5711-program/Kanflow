@@ -6,7 +6,7 @@ vi.mock("@/lib/prisma", async () => (await import("./route-harness")).prismaModu
 vi.mock("@/lib/logger", async () => (await import("./route-harness")).loggerModule)
 vi.mock("@/services/git/git.service", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/services/git/git.service")>()
-  return { ...actual, getPbiGitPanel: vi.fn(), getGitOverview: vi.fn(), getGitSummaries: vi.fn() }
+  return { ...actual, getPbiGitPanel: vi.fn(), getGitOverview: vi.fn(), getGitSummaries: vi.fn(), getNewMrCount: vi.fn() }
 })
 
 const svc = await import("@/services/git/git.service")
@@ -69,6 +69,27 @@ describe("GET /git/overview", () => {
     asRole(null)
     expect((await overviewRoute.GET(req("GET"), ctx())).status).toBe(404)
     expect(svc.getGitOverview).not.toHaveBeenCalled()
+  })
+})
+
+describe("GET /git/new-mrs", () => {
+  it("passes the last-visit time to the count, and null when absent or garbled", async () => {
+    asRole("dev")
+    vi.mocked(svc.getNewMrCount).mockResolvedValue({ enabled: true, count: 3 })
+    const route = await import("@/app/api/projects/[projectId]/git/new-mrs/route")
+    const res = await route.GET(urlReq("/git/new-mrs?since=2026-10-20T00:00:00.000Z"), ctx())
+    expect(await read(res)).toEqual({ status: 200, body: { enabled: true, count: 3 } })
+    expect(svc.getNewMrCount).toHaveBeenLastCalledWith(PROJECT_ID, new Date("2026-10-20T00:00:00.000Z"))
+    await route.GET(urlReq("/git/new-mrs"), ctx())
+    expect(svc.getNewMrCount).toHaveBeenLastCalledWith(PROJECT_ID, null)
+    await route.GET(urlReq("/git/new-mrs?since=nonsense"), ctx())
+    expect(svc.getNewMrCount).toHaveBeenLastCalledWith(PROJECT_ID, null)
+  })
+
+  it("404 for a non-member", async () => {
+    asRole(null)
+    const route = await import("@/app/api/projects/[projectId]/git/new-mrs/route")
+    expect((await route.GET(urlReq("/git/new-mrs"), ctx())).status).toBe(404)
   })
 })
 
