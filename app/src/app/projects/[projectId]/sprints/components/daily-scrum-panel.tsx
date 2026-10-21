@@ -22,7 +22,7 @@ interface Props {
  * archived notes collapsible at the bottom. Archive/delete are optimistic.
  */
 export default function DailyScrumPanel({ projectId, sprintId, sprintStartDate, sprintEndDate, readOnly = false }: Props) {
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
   const toast = useToast()
   const confirm = useConfirm()
   const url = `/api/projects/${projectId}/sprints/${sprintId}/daily-scrums`
@@ -43,6 +43,17 @@ export default function DailyScrumPanel({ projectId, sprintId, sprintStartDate, 
     } catch (err) {
       toast.error(messageOf(err, t.error), { title: t.sprintDailyScrumSaveFailed })
       return false
+    }
+  }
+
+  /** Git activity of the sprint's PBIs; null when Git is off or the lookup fails (the button just does nothing). */
+  async function loadGitDraft(): Promise<string | null> {
+    try {
+      const out = await apiFetch<{ enabled: boolean; text: string }>(`/api/projects/${projectId}/sprints/${sprintId}/git?view=draft&lang=${language}`)
+      return out.enabled ? out.text : null
+    } catch {
+      toast.error(t.sprintUxGitDraftFailed)
+      return null
     }
   }
 
@@ -102,7 +113,7 @@ export default function DailyScrumPanel({ projectId, sprintId, sprintStartDate, 
       {!readOnly && (
         <DailyScrumForm className="mb-4 p-3 bg-primary-soft/30 border border-primary/20 rounded-ui-sm"
           initial={{ date: defaultDateInRange(toLocalIsoDate(), minDate, maxDate), content: "" }} minDate={minDate} maxDate={maxDate}
-          submitLabel={t.add} resetOnSuccess onSubmit={(draft) => save("POST", url, draft)} />
+          submitLabel={t.add} resetOnSuccess onDraft={loadGitDraft} onSubmit={(draft) => save("POST", url, draft)} />
       )}
 
       {isLoading ? (

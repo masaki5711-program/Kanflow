@@ -80,8 +80,6 @@ export default function SprintsPage() {
     { id: "past", label: t.sprintUxTabPast, count: sprintsOf("past").length },
   ]
   const emptyTabText = { current: t.sprintUxNoCurrent, planning: t.sprintUxNoPlanning, past: t.sprintUxNoPast }[tab]
-  // One sprint in flight at a time keeps the backlog from being split.
-  const isCreateBlocked = sprints.some((s) => s.status === "active" || s.status === "planning")
   // The create form seeds its dates and capacity from the project defaults (S-16).
   const isCreateLoading = settings === null
 
@@ -188,10 +186,10 @@ export default function SprintsPage() {
       <SprintsHeader projectId={projectId} avgActual={avgActual} doneSprintCount={doneSprints.length}
         archivedCount={archivedSprints.length} showArchived={tab === "past"}
         onToggleArchived={() => setPickedTab(tab === "past" ? (sprintsOf("current").length > 0 ? "current" : "planning") : "past")}
-        isCreateBlocked={isCreateBlocked} canCreate={canManageSprint} isCreateLoading={isCreateLoading}
+        canCreate={canManageSprint} isCreateLoading={isCreateLoading}
         onCreate={() => setShowForm(true)} />
 
-      {showForm && canManageSprint && !isCreateBlocked && (
+      {showForm && canManageSprint && (
         <SprintCreateForm readyPbItems={data.readyPbItems} carryOverSource={carryOverSource(sprints)} settings={settings} pointUnitLabel={pointUnit}
           avgActual={avgActual} doneSprintCount={doneSprints.length}
           onCreate={sprintActions.createSprint} onClose={() => setShowForm(false)} onViewPbi={setDetailPbiId} />
@@ -206,7 +204,7 @@ export default function SprintsPage() {
         // The open create form replaces the "no sprints yet" empty state.
         showForm ? null : (
           <EmptyState icon={<Zap className="w-6 h-6" />} title={t.sprintNoSprints} description={t.sprintNoSprintsHint}
-            action={canManageSprint && !isCreateBlocked ? (
+            action={canManageSprint ? (
               <Button onClick={() => setShowForm(true)} disabled={isCreateLoading} leftIcon={<Plus className="w-4 h-4" />}>{t.sprintCreate}</Button>
             ) : undefined} />
         )
@@ -226,6 +224,14 @@ export default function SprintsPage() {
             ))}
           </div>
           <div role="tabpanel" id="sprint-tabpanel" aria-labelledby={`sprint-tab-${tab}`}>
+            {tab === "planning" && canManageSprint && !showForm && (
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-caption text-fg-muted">{t.sprintUxPlanningHint}</p>
+                <Button size="sm" onClick={() => setShowForm(true)} disabled={isCreateLoading} leftIcon={<Plus className="w-4 h-4" />}>
+                  {t.sprintUxAddPlanning}
+                </Button>
+              </div>
+            )}
             {tabSprints.length === 0 ? (
               <p className="rounded-ui-md border border-dashed border-border-strong px-4 py-8 text-center text-body text-fg-muted">{emptyTabText}</p>
             ) : (

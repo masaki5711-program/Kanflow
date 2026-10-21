@@ -44,10 +44,10 @@ export function findSprintId(db: Db, projectId: string, sprintId: string) {
   return db.sprint.findFirst({ where: { id: sprintId, projectId }, select: { id: true } })
 }
 
-/** A planning / active sprint blocks creating another one. */
-export function findOpenSprint(db: Db, projectId: string) {
+/** The sprint (other than `exceptId`) that is already running: only one may be active at a time. */
+export function findRunningSprint(db: Db, projectId: string, exceptId: string) {
   return db.sprint.findFirst({
-    where: { projectId, status: { in: ["planning", "active"] } },
+    where: { projectId, status: "active", id: { not: exceptId } },
     select: { id: true, sprintName: true, status: true },
   })
 }

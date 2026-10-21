@@ -15,8 +15,6 @@ interface Props {
   archivedCount: number
   showArchived: boolean
   onToggleArchived: () => void
-  /** True while an active/planning sprint exists — creating another is blocked. */
-  isCreateBlocked: boolean
   /** sprint.manage — without it the create button is hidden. */
   canCreate: boolean
   /** True until the project defaults (dates, capacity) are loaded — the create button waits for them (S-16). */
@@ -25,7 +23,7 @@ interface Props {
 }
 
 export default function SprintsHeader({
-  projectId, avgActual, doneSprintCount, archivedCount, showArchived, onToggleArchived, isCreateBlocked, canCreate,
+  projectId, avgActual, doneSprintCount, archivedCount, showArchived, onToggleArchived, canCreate,
   isCreateLoading = false, onCreate,
 }: Props) {
   const { t, pt } = useLanguage()
@@ -57,19 +55,11 @@ export default function SprintsHeader({
             <span className={PHONE_ICON_ONLY_LABEL}>{t.sprintArchivedSprints}</span>
             {archivedCount > 0 && <Badge tone="neutral" size="sm">{archivedCount}</Badge>}
           </Button>
-          {canCreate && <Button onClick={onCreate} disabled={isCreateBlocked || isCreateLoading} leftIcon={<Plus className="w-4 h-4" />}
-            title={isCreateBlocked ? t.sprintCreateBlocked : undefined}
-            aria-describedby={isCreateBlocked ? "sprint-create-blocked-hint" : undefined}>
+          {canCreate && <Button onClick={onCreate} disabled={isCreateLoading} leftIcon={<Plus className="w-4 h-4" />}>
             {t.sprintCreate}
           </Button>}
         </div>
       }
-    >
-      {canCreate && isCreateBlocked && (
-        <p id="sprint-create-blocked-hint" className="w-full text-right text-caption text-fg-muted">
-          {t.sprintCreateBlocked}
-        </p>
-      )}
-    </PageHeader>
+    />
   )
 }

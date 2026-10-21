@@ -13,6 +13,8 @@ import SprintCardHeader from "./sprint-card-header"
 import SprintRetroSummary from "./sprint-retro-summary"
 import SprintProgress from "./sprint-progress"
 import SprintStepper from "./sprint-stepper"
+import GitInsightsPanel from "./git-insights-panel"
+import ReleaseNoteButton from "./release-note-button"
 import { SprintGoal } from "./sprint-goal"
 import { CommentsProvider } from "@/components/comments/comments-provider"
 import { GitSummariesProvider } from "@/components/git-dev/git-summaries-context"
@@ -76,6 +78,10 @@ export default function SprintCard({
       <SprintRetroSummary sprint={sprint} />
       <SprintProgress capacity={sprint.capacity} metrics={metrics} attention={sprint.status === "done" || sprint.status === "archived" ? undefined : attention} />
 
+      {(sprint.status === "active" || sprint.status === "review") && (
+        <GitInsightsPanel projectId={projectId} sprintId={sprint.id} canAct={canManageSprint} onApplied={actions.onSprintUpdated} />
+      )}
+
       {isExpanded && (
         <CommentsProvider projectId={projectId} entityType="sprint_task" entityIds={taskIds}>
           {/* Git badges of the cards: one request for the sprint's PBIs (nothing when Git is off). */}
@@ -94,6 +100,12 @@ export default function SprintCard({
                     sprintEndDate={sprint.endDate} readOnly={sprint.status === "archived"} />
                 </div>
               </Modal>
+              {sprint.status !== "planning" && (
+                <div className="mt-1 flex justify-end">
+                  <ReleaseNoteButton projectId={projectId} sprintId={sprint.id}
+                    sprintName={pickText(sprint.i18n, "sprintName", sprint.sprintName, language).text || sprint.sprintName} />
+                </div>
+              )}
             </div>
 
             <SprintTasksView sprint={sprint} sprintName={pickText(sprint.i18n, "sprintName", sprint.sprintName, language).text || sprint.sprintName}

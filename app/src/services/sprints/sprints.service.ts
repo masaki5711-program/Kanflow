@@ -63,16 +63,15 @@ async function sprintWriteMiss(tx: Db, projectId: string, sprintId: string) {
 }
 
 /**
- * Guard against sprint sprawl: no new sprint while a planning / active one
- * exists (409 with the blocker). Selected PBIs outside the project are ignored.
+ * New sprints always start as "planning", so several can be prepared ahead
+ * while one runs; only starting a second sprint is refused (see updateSprint).
+ * Selected PBIs outside the project are ignored.
  */
 export async function createSprint(projectId: string, input: CreateSprintInput, actor: Actor) {
   const data = await prepareText(input, actor.userId)
   const startDate = parseDateOrThrow(data.startDate)
   const endDate = parseDateOrThrow(data.endDate)
   return withTransaction(async (tx) => {
-    const blocker = await repo.findOpenSprint(tx, projectId)
-    if (blocker) throw new ConflictError("進行中または計画中のスプリントが既にあります", { blocker }, "SPRINT_ACTIVE_EXISTS")
     const carry = data.carryOver ? await planCarryOver(tx, projectId, data.carryOver) : EMPTY_CARRY
     const carried = new Set(carry.pbIds)
     const requested = (data.selectedPbIds ?? []).filter((id) => !carried.has(id))
@@ -158,6 +157,10 @@ export async function updateSprint(projectId: string, sprintId: string, input: U
   const data = await prepareText(fields, actor.userId)
   const sprint = await withTransaction(async (tx) => {
     const before = await loadSnapshot(tx, "sprint", sprintId)
+    if (data.status === "active") {
+      const blocker = await repo.findRunningSprint(tx, projectId, sprintId)
+      if (blocker) throw new ConflictError("実行中のスプリントが既にあります", { blocker }, "SPRINT_ACTIVE_EXISTS")
+    }
     const updated = await repo.updateSprint(tx, projectId, sprintId, buildSprintUpdate(data), version)
     if (!updated) throw await sprintWriteMiss(tx, projectId, sprintId)
     await enqueueIn(tx, "sprint", updated.id, data)

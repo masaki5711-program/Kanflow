@@ -26,6 +26,7 @@ export interface NotificationsTranslations {
   notifAiReportReady: string
   notifAiReportFailed: string
   notifImprovementCheckDue: string
+  notifGitPipelineFailed: string
   notifMentioned: string
   notifComment: string
   notifUnknown: string
@@ -52,6 +53,7 @@ export interface NotificationsTranslations {
   notifTypeAiReportReady: string
   notifTypeAiReportFailed: string
   notifTypeImprovementCheckDue: string
+  notifTypeGitPipelineFailed: string
   notifTabsLabel: string
   notifTabAll: string
   notifTabPersonal: string
@@ -82,6 +84,7 @@ export const ja: NotificationsTranslations = {
   notifAiReportReady: "AI レポート「{title}」ができました",
   notifAiReportFailed: "AI レポート（{kind}）を生成できませんでした",
   notifImprovementCheckDue: "定着確認の期限です：{label}（{kind}・{date}）",
+  notifGitPipelineFailed: "「{label}」のマージリクエスト !{mr} のパイプラインが失敗しました",
   notifMentioned: "{actor} さんが「{label}」のコメントであなたをメンションしました",
   notifComment: "{actor} さんが「{label}」にコメントしました",
   notifUnknown: "新しいお知らせがあります",
@@ -108,6 +111,7 @@ export const ja: NotificationsTranslations = {
   notifTypeAiReportReady: "依頼した AI レポートができたとき",
   notifTypeAiReportFailed: "依頼した AI レポートの生成に失敗したとき",
   notifTypeImprovementCheckDue: "改善成果の定着確認の期限が来たとき（改善オーナー）",
+  notifTypeGitPipelineFailed: "担当 PBI のマージリクエストでパイプラインが失敗したとき",
   notifTabsLabel: "通知の絞り込み",
   notifTabAll: "すべて",
   notifTabPersonal: "メンション・自分宛",
@@ -138,6 +142,7 @@ export const en: NotificationsTranslations = {
   notifAiReportReady: "Your AI report “{title}” is ready",
   notifAiReportFailed: "Your AI report ({kind}) could not be generated",
   notifImprovementCheckDue: "A sustainment check is due: {label} ({kind}, {date})",
+  notifGitPipelineFailed: "The pipeline of merge request !{mr} for \"{label}\" failed",
   notifMentioned: "{actor} mentioned you in a comment on “{label}”",
   notifComment: "{actor} commented on “{label}”",
   notifUnknown: "You have a new notification",
@@ -164,6 +169,7 @@ export const en: NotificationsTranslations = {
   notifTypeAiReportReady: "When an AI report I requested is ready",
   notifTypeAiReportFailed: "When an AI report I requested fails",
   notifTypeImprovementCheckDue: "When a sustainment check of an improvement is due (improvement owner)",
+  notifTypeGitPipelineFailed: "When a pipeline fails on a merge request of a PBI you work on",
   notifTabsLabel: "Filter notifications",
   notifTabAll: "All",
   notifTabPersonal: "Mentions & for me",
@@ -194,6 +200,7 @@ export const id: NotificationsTranslations = {
   notifAiReportReady: "Laporan AI “{title}” sudah siap",
   notifAiReportFailed: "Laporan AI ({kind}) tidak dapat dibuat",
   notifImprovementCheckDue: "Pengecekan keberlanjutan jatuh tempo: {label} ({kind}, {date})",
+  notifGitPipelineFailed: "Pipeline merge request !{mr} untuk \"{label}\" gagal",
   notifMentioned: "{actor} menyebut Anda dalam komentar di “{label}”",
   notifComment: "{actor} mengomentari “{label}”",
   notifUnknown: "Ada notifikasi baru",
@@ -220,6 +227,7 @@ export const id: NotificationsTranslations = {
   notifTypeAiReportReady: "Saat laporan AI yang saya minta sudah siap",
   notifTypeAiReportFailed: "Saat laporan AI yang saya minta gagal dibuat",
   notifTypeImprovementCheckDue: "Saat pengecekan keberlanjutan perbaikan jatuh tempo (pemilik perbaikan)",
+  notifTypeGitPipelineFailed: "Saat pipeline gagal pada merge request PBI yang Anda kerjakan",
   notifTabsLabel: "Saring notifikasi",
   notifTabAll: "Semua",
   notifTabPersonal: "Sebutan & untuk saya",

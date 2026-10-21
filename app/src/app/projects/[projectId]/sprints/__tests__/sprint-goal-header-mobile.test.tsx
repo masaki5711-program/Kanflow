@@ -41,7 +41,7 @@ describe("SprintGoal on phones (A3-17)", () => {
 describe("SprintsHeader actions on phones (A3-17)", () => {
   it("keeps calendar, burndown and archive as icon buttons with accessible names below sm", () => {
     wrap(<SprintsHeader projectId="p1" avgActual={null} doneSprintCount={0} archivedCount={8} showArchived={false}
-      onToggleArchived={vi.fn()} isCreateBlocked={false} canCreate={false} onCreate={vi.fn()} />)
+      onToggleArchived={vi.fn()} canCreate={false} onCreate={vi.fn()} />)
     for (const name of [t.calendarTitle, t.burndownOpenPage]) {
       const link = screen.getByRole("link", { name })
       expect(link).toHaveAttribute("title", name)
@@ -55,7 +55,7 @@ describe("SprintsHeader actions on phones (A3-17)", () => {
 
   it("lets the average-points badge wrap instead of running off a phone screen", () => {
     wrap(<SprintsHeader projectId="p1" avgActual={11} doneSprintCount={8} archivedCount={0} showArchived={false}
-      onToggleArchived={vi.fn()} isCreateBlocked={false} canCreate={false} onCreate={vi.fn()} />)
+      onToggleArchived={vi.fn()} canCreate={false} onCreate={vi.fn()} />)
     const badge = screen.getByText(/: 11$/)
     expect(badge.className).toContain("whitespace-normal")
     expect(badge.className).not.toContain("whitespace-nowrap")

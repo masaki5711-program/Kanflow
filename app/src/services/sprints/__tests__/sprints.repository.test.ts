@@ -27,11 +27,11 @@ describe("sprints.repository", () => {
     expect(db.fn("sprint.findFirst")).toHaveBeenNthCalledWith(2, { where: { id: "s1", projectId: "p1" }, select: { id: true } })
   })
 
-  it("findOpenSprint looks for planning / active sprints in the project", async () => {
+  it("findRunningSprint looks for another active sprint in the project", async () => {
     const db = fakeDb()
-    await repo.findOpenSprint(db.client, "p1")
+    await repo.findRunningSprint(db.client, "p1", "s9")
     expect(db.fn("sprint.findFirst")).toHaveBeenCalledWith({
-      where: { projectId: "p1", status: { in: ["planning", "active"] } },
+      where: { projectId: "p1", status: "active", id: { not: "s9" } },
       select: { id: true, sprintName: true, status: true },
     })
   })

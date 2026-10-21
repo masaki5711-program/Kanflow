@@ -196,6 +196,9 @@ export function describeNotification(n: NotificationItem, t: Translations, langu
     case "improvement_check_due":
       text = fillTemplate(t.notifImprovementCheckDue, { label, kind: checkKindLabel(str(p, "kind") ?? "custom", t), date })
       break
+    case "git_pipeline_failed":
+      text = fillTemplate(t.notifGitPipelineFailed, { label, mr: str(p, "mr") ?? "?" })
+      break
     case "mentioned":
       text = fillTemplate(t.notifMentioned, { actor, label })
       break

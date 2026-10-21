@@ -156,4 +156,52 @@ describe("sprint tab usability", () => {
     await userEvent.click(await screen.findByRole("tab", { name: new RegExp(t.sprintUxTabPlanning) }))
     expect(screen.getByText(t.sprintUxNoPlanning)).toBeInTheDocument()
   })
+
+  it("lets a planned sprint be added from the planning tab while one is running", async () => {
+    stubFetch(routes([sprint("s1", { status: "active" })]))
+    renderWithProviders(<SprintsPage />)
+    await userEvent.click(await screen.findByRole("tab", { name: new RegExp(t.sprintUxTabPlanning) }))
+    await userEvent.click(screen.getByRole("button", { name: t.sprintUxAddPlanning }))
+    expect(await screen.findByText(t.sprintNewSprint)).toBeInTheDocument()
+  })
+
+  it("offers Git's suggestions on the running sprint and applies one", async () => {
+    const hint = { kind: "complete", action: "complete", pbItemId: "pb1", displayId: 1, title: "Login", taskCount: 1 }
+    const { calls } = stubFetch(routes([sprint("s1", { status: "active", items: [task("t1", pb1)] })], {
+      [`${BASE}/sprints/s1/git`]: { enabled: true, hints: [hint] },
+      [`POST ${BASE}/sprints/s1/git`]: { updated: 1 },
+    }))
+    renderWithProviders(<SprintsPage />)
+    const text = t.sprintUxGitComplete.replace("{n}", "1").replace("{title}", "Login")
+    expect(await screen.findByText(text)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole("button", { name: t.sprintUxGitCompleteAction }))
+    await waitFor(() => expect(calls.find((c) => c.method === "POST" && c.url.endsWith("/git"))?.body).toEqual({ pbItemId: "pb1", action: "complete" }))
+  })
+
+  it("shows no Git panel when the integration is off", async () => {
+    stubFetch(routes([sprint("s1", { status: "active", items: [task("t1", pb1)] })], { [`${BASE}/sprints/s1/git`]: { enabled: false, hints: [] } }))
+    renderWithProviders(<SprintsPage />)
+    await screen.findByText("Task t1")
+    expect(screen.queryByRole("region", { name: t.sprintUxGitTitle })).not.toBeInTheDocument()
+  })
+
+  it("opens the release note of a sprint from its merged MRs", async () => {
+    const note = { enabled: true, text: "# S release notes\n- [!5](https://g/5) do A", mergedCount: 1 }
+    stubFetch(routes([sprint("s1", { status: "active", items: [task("t1", pb1)] })], { [`${BASE}/sprints/s1/git?view=release&lang=ja`]: note }))
+    renderWithProviders(<SprintsPage />)
+    await userEvent.click(await screen.findByRole("button", { name: t.sprintUxReleaseNote }))
+    expect(await screen.findByText(/do A/)).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: t.sprintUxReleaseAi })).toBeInTheDocument()
+  })
+
+  it("starts a Daily Scrum note from Git activity", async () => {
+    stubFetch(routes([sprint("s1")], {
+      [`${BASE}/sprints/s1/daily-scrums`]: [],
+      [`${BASE}/sprints/s1/git?view=draft&lang=ja`]: { enabled: true, text: "【Git の動き】\n- PBI-1 Login: コミット 2 件" },
+    }))
+    renderWithProviders(<SprintsPage />)
+    await userEvent.click(await screen.findByRole("button", { name: t.sprintDailyScrum }))
+    await userEvent.click(await screen.findByRole("button", { name: t.sprintUxGitDraft }))
+    await waitFor(() => expect(screen.getByRole("textbox", { name: new RegExp(t.sprintDailyScrumContentLabel) })).toHaveValue("【Git の動き】\n- PBI-1 Login: コミット 2 件"))
+  })
 })

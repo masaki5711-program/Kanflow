@@ -83,17 +83,6 @@ describe("SprintsPage", () => {
     await waitFor(() => expect(screen.queryByText(t.sprintNewSprint)).not.toBeInTheDocument())
   })
 
-  it("shows the blocked message when creating conflicts (409)", async () => {
-    stubFetch(baseRoutes([], { [`POST ${BASE}/sprints`]: () => json({ error: "x" }, 409) }))
-    renderWithProviders(<SprintsPage />)
-    await screen.findByText(t.sprintNoSprints)
-    await userEvent.click(screen.getAllByRole("button", { name: t.sprintCreate })[0])
-    await userEvent.type(screen.getByPlaceholderText("Sprint-2026-03-W1"), "S")
-    await userEvent.click(screen.getByRole("button", { name: t.sprintCreateWithCount.replace("{count}", "0") }))
-    expect(await screen.findByText(t.sprintCreateBlocked)).toBeInTheDocument()
-    expect(screen.getByText(t.sprintNewSprint)).toBeInTheDocument()
-  })
-
   it("toasts a generic create failure and cancel closes the form", async () => {
     stubFetch(baseRoutes([], { [`POST ${BASE}/sprints`]: () => json({ error: "bad input" }, 400) }))
     renderWithProviders(<SprintsPage />)

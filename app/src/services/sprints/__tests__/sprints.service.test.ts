@@ -52,15 +52,21 @@ describe("sprints.service", () => {
     await expect(svc.getSprint("p1", "s")).rejects.toMatchObject({ status: 404 })
   })
 
-  it("refuses a second open sprint with the blocker in the body", async () => {
+  it("creates a planning sprint without checking for a running one", async () => {
+    vi.mocked(repo.insertSprint).mockResolvedValue({ id: "s1" } as never)
+    await svc.createSprint("p1", createInput, ACTOR)
+    expect(repo.insertSprint).toHaveBeenCalledWith(TX, expect.objectContaining({ status: "planning" }), [])
+    expect(repo.findRunningSprint).not.toHaveBeenCalled()
+  })
+
+  it("refuses to start a second sprint, with the running one in the body", async () => {
     const blocker = { id: "s0", sprintName: "Old", status: "active" }
-    vi.mocked(repo.findOpenSprint).mockResolvedValue(blocker)
-    await expect(svc.createSprint("p1", createInput, ACTOR)).rejects.toMatchObject({ status: 409, extra: { blocker } })
-    expect(repo.insertSprint).not.toHaveBeenCalled()
+    vi.mocked(repo.findRunningSprint).mockResolvedValueOnce(blocker)
+    await expect(svc.updateSprint("p1", "s1", { status: "active" }, ACTOR)).rejects.toMatchObject({ status: 409, extra: { blocker } })
+    expect(repo.updateSprint).not.toHaveBeenCalled()
   })
 
   it("creates with only the project's PBIs, keeping the requested order", async () => {
-    vi.mocked(repo.findOpenSprint).mockResolvedValue(null)
     vi.mocked(repo.findProjectPbiIds).mockResolvedValue([{ id: "b2" }, { id: "b1" }])
     vi.mocked(repo.insertSprint).mockResolvedValue({ id: "s1" } as never)
     await svc.createSprint("p1", { ...createInput, selectedPbIds: ["b1", "foreign", "b2"] }, ACTOR)
@@ -69,7 +75,6 @@ describe("sprints.service", () => {
   })
 
   it("carries the open tasks of an earlier sprint and does not add the same PBI a second time", async () => {
-    vi.mocked(repo.findOpenSprint).mockResolvedValue(null)
     vi.mocked(repo.findCarryOverSource).mockResolvedValue({
       id: "s0", status: "archived",
       items: [
@@ -94,7 +99,7 @@ describe("sprints.service", () => {
 
   it("rejects invalid dates before touching the DB", async () => {
     await expect(svc.createSprint("p1", { ...createInput, endDate: "bad" }, ACTOR)).rejects.toMatchObject({ status: 400 })
-    expect(repo.findOpenSprint).not.toHaveBeenCalled()
+    expect(repo.insertSprint).not.toHaveBeenCalled()
   })
 
   it("buildSprintUpdate promotes done to archived and converts dates", () => {

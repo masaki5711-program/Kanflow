@@ -35,7 +35,6 @@ describe("sprints.service activity + notifications", () => {
   beforeEach(() => vi.clearAllMocks())
 
   it("createSprint logs create", async () => {
-    vi.mocked(repo.findOpenSprint).mockResolvedValue(null)
     vi.mocked(repo.insertSprint).mockResolvedValue(sprintRow("planning") as never)
     await svc.createSprint("p1", { sprintName: "S1", startDate: "2026-10-01", endDate: "2026-10-14" }, ACTOR)
     expect(act.logCreate).toHaveBeenCalledWith(TX, expect.objectContaining({ entityType: "sprint", entityId: "s1", meta: { pbCount: 0 } }))

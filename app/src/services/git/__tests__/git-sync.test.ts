@@ -11,6 +11,9 @@ const gitLinkDeleteMany = vi.fn()
 const sprintBacklogItemFindMany = vi.fn()
 const openMock = vi.fn()
 const updateTaskMock = vi.fn()
+const taskAssigneeFindMany = vi.fn()
+const productBacklogItemFindUnique = vi.fn()
+const notifyMock = vi.fn()
 const noopLog = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), child: () => noopLog }
 
 vi.mock("@/lib/prisma", () => ({
@@ -20,7 +23,8 @@ vi.mock("@/lib/prisma", () => ({
       update: (...a: unknown[]) => gitRepositoryUpdate(...a),
       findMany: (...a: unknown[]) => gitRepositoryFindMany(...a),
     },
-    productBacklogItem: { findMany: (...a: unknown[]) => productBacklogItemFindMany(...a) },
+    productBacklogItem: { findMany: (...a: unknown[]) => productBacklogItemFindMany(...a), findUnique: (...a: unknown[]) => productBacklogItemFindUnique(...a) },
+    taskAssignee: { findMany: (...a: unknown[]) => taskAssigneeFindMany(...a) },
     gitLink: {
       findUnique: (...a: unknown[]) => gitLinkFindUnique(...a),
       upsert: (...a: unknown[]) => gitLinkUpsert(...a),
@@ -30,6 +34,7 @@ vi.mock("@/lib/prisma", () => ({
     sprintBacklogItem: { findMany: (...a: unknown[]) => sprintBacklogItemFindMany(...a) },
   },
 }))
+vi.mock("@/services/_shared/notifications", () => ({ notify: (...a: unknown[]) => notifyMock(...a) }))
 vi.mock("@/lib/secret-box", () => ({ open: (...a: unknown[]) => openMock(...a) }))
 vi.mock("@/lib/logger", () => ({ logger: noopLog }))
 vi.mock("@/services/sprint-backlog/sprint-backlog.service", () => ({ updateTask: (...a: unknown[]) => updateTaskMock(...a) }))
@@ -252,6 +257,36 @@ describe("syncRepository — full success: links, pipelines, pruning, auto-compl
     })
     expect(updateTaskMock).toHaveBeenCalledWith("p1", "s1", "t1", { status: "done" }, GIT_ACTOR)
     expect(result.completedTasks).toBe(1)
+  })
+
+  it("tells the PBI's assignees when an open MR's pipeline newly fails, once per push", async () => {
+    gitRepositoryFindUnique.mockResolvedValue(repoRow({ externalId: 7 }))
+    productBacklogItemFindMany.mockResolvedValue([{ id: "b-42", displayId: 42 }])
+    productBacklogItemFindUnique.mockResolvedValue({ displayId: 42, initiative: "Login", userStory: null })
+    taskAssigneeFindMany.mockResolvedValue([{ userId: "u1" }, { userId: "u2" }])
+    gitLinkFindUnique.mockResolvedValue({ state: "opened", pipeline: "running" })
+    const client = emptyClient({
+      listMergeRequests: vi.fn().mockResolvedValue([buildMr(1, 42, "opened")]),
+      getMergeRequestPipeline: vi.fn().mockResolvedValue("failed"),
+    })
+    await syncRepository("r1", () => client, NOW)
+    expect(notifyMock).toHaveBeenCalledTimes(1)
+    expect(notifyMock.mock.calls[0][1]).toMatchObject({
+      recipientIds: ["u1", "u2"], type: "git_pipeline_failed", projectId: "p1", entityType: "pbi", entityId: "b-42",
+      payload: { entityLabel: "Login", displayId: 42, mr: "1" },
+    })
+  })
+
+  it("does not notify again while the pipeline stays failed", async () => {
+    gitRepositoryFindUnique.mockResolvedValue(repoRow({ externalId: 7 }))
+    productBacklogItemFindMany.mockResolvedValue([{ id: "b-42", displayId: 42 }])
+    gitLinkFindUnique.mockResolvedValue({ state: "opened", pipeline: "failed" })
+    const client = emptyClient({
+      listMergeRequests: vi.fn().mockResolvedValue([buildMr(1, 42, "opened")]),
+      getMergeRequestPipeline: vi.fn().mockResolvedValue("failed"),
+    })
+    await syncRepository("r1", () => client, NOW)
+    expect(notifyMock).not.toHaveBeenCalled()
   })
 
   it("does not auto-complete when the option is off, even if a merge request is newly merged", async () => {

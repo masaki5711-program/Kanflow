@@ -112,10 +112,10 @@ describe("localizeApiError", () => {
   const en = getTranslations("en")
 
   it("maps a known code to the message of the given language", () => {
-    const err = new ApiError("進行中または計画中のスプリントが既にあります", 409, undefined, "SPRINT_ACTIVE_EXISTS")
+    const err = new ApiError("実行中のスプリントが既にあります", 409, undefined, "SPRINT_ACTIVE_EXISTS")
     expect(localizeApiError(err, id)).toBe(id.apiErrSprintActiveExists)
-    expect(localizeApiError(err, en)).toBe("An active or planned sprint already exists")
-    expect(localizeApiError(err, ja)).toBe("進行中または計画中のスプリントが既にあります")
+    expect(localizeApiError(err, en)).toBe("Another sprint is already running. Finish it first")
+    expect(localizeApiError(err, ja)).toBe("実行中のスプリントが既にあります。先にそのスプリントを完了してください")
   })
 
   it("falls back to the raw server message for unknown or missing codes", () => {

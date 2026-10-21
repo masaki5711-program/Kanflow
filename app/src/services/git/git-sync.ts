@@ -4,6 +4,7 @@ import { createGitLabClient, GitLabError, type GitLabClient } from "@/lib/git/gi
 import { logger } from "@/lib/logger"
 import { publishAfterCommit } from "@/lib/realtime/after-commit"
 import { updateTask } from "@/services/sprint-backlog/sprint-backlog.service"
+import { notify } from "@/services/_shared/notifications"
 import type { Actor } from "@/services/_shared/actor"
 import { allMergeRequestsMerged, linksFromBranch, linksFromCommit, linksFromMergeRequest, type LinkDraft } from "./git-links"
 
@@ -62,7 +63,7 @@ export async function syncRepository(repositoryId: string, factory: ClientFactor
     const pbiIds = await resolvePbis(repo.projectId, drafts)
     await attachPipelines(client, externalId, mrDrafts.filter((d) => pbiIds.has(d.pbiNumber)))
 
-    const { written, changed, newlyMerged } = await writeLinks(repo.projectId, repo.id, drafts, pbiIds)
+    const { written, changed, newlyMerged, newlyFailed } = await writeLinks(repo.projectId, repo.id, drafts, pbiIds)
     const pruned = await pruneBranches(repo.id, branchDrafts, pbiIds)
     // Git panels / badges of the project refresh live, only when a link actually changed.
     if (changed + pruned > 0) publishAfterCommit({ type: "git", projectId: repo.projectId, action: "sync" })
@@ -70,6 +71,7 @@ export async function syncRepository(repositoryId: string, factory: ClientFactor
       where: { id: repo.id },
       data: { externalId, syncedAt: now, syncCursor: now, lastError: null, lastErrorAt: null },
     })
+    await notifyFailedPipelines(repo.projectId, newlyFailed)
     const completedTasks = integration.autoCompleteOnMerge ? await autoComplete(repo.projectId, newlyMerged) : 0
     return { repositoryId, ok: true, links: written, completedTasks }
   } catch (err) {
@@ -140,6 +142,15 @@ interface WriteResult {
   changed: number
   /** PBI ids with a merge request that turned merged in this sync. */
   newlyMerged: Set<string>
+  /** Open merge requests whose pipeline turned "failed" in this sync. */
+  newlyFailed: FailedPipeline[]
+}
+
+interface FailedPipeline {
+  backlogItemId: string
+  repositoryId: string
+  ref: string
+  occurredAt: Date
 }
 
 /** Stored columns a sync writes (compared to skip rewriting an unchanged link). */
@@ -156,6 +167,7 @@ export function isSameLink(before: Partial<LinkData> | null, data: LinkData): bo
 
 async function writeLinks(projectId: string, repositoryId: string, drafts: readonly LinkDraft[], pbiIds: Map<number, string>): Promise<WriteResult> {
   const newlyMerged = new Set<string>()
+  const newlyFailed: FailedPipeline[] = []
   let written = 0
   let changed = 0
   for (const d of drafts) {
@@ -180,8 +192,41 @@ async function writeLinks(projectId: string, repositoryId: string, drafts: reado
     await prisma.gitLink.upsert({ where, create: { projectId, ...key, ...data }, update: data })
     changed++
     if (d.kind === "mr" && d.state === "merged" && before?.state !== "merged") newlyMerged.add(backlogItemId)
+    if (d.kind === "mr" && data.pipeline === "failed" && before?.pipeline !== "failed" && (d.state === "opened" || d.state === "locked")) {
+      newlyFailed.push({ backlogItemId, repositoryId, ref: d.ref, occurredAt: d.occurredAt })
+    }
   }
-  return { written, changed, newlyMerged }
+  return { written, changed, newlyMerged, newlyFailed }
+}
+
+/**
+ * A failed pipeline reaches the people working on the PBI (assignees of its
+ * tasks in the active sprint). A new push that fails again notifies again.
+ */
+async function notifyFailedPipelines(projectId: string, failures: readonly FailedPipeline[]): Promise<void> {
+  for (const f of failures) {
+    try {
+      const [pbi, assignees] = await Promise.all([
+        prisma.productBacklogItem.findUnique({ where: { id: f.backlogItemId }, select: { displayId: true, initiative: true, userStory: true } }),
+        prisma.taskAssignee.findMany({
+          where: { task: { pbItemId: f.backlogItemId, status: { not: "done" }, sprint: { projectId, status: "active" } } },
+          select: { userId: true },
+        }),
+      ])
+      if (!pbi) continue
+      await notify(prisma, {
+        recipientIds: assignees.map((a) => a.userId),
+        type: "git_pipeline_failed",
+        projectId,
+        entityType: "pbi",
+        entityId: f.backlogItemId,
+        payload: { entityLabel: pbi.initiative || pbi.userStory?.slice(0, 80) || `PBI-${pbi.displayId}`, displayId: pbi.displayId, mr: f.ref },
+        dedupeKey: `git_pipeline_failed:${f.repositoryId}:${f.ref}:${f.occurredAt.getTime()}`,
+      })
+    } catch (err) {
+      log.warn("pipeline-failure notification skipped", { ref: f.ref, error: err instanceof Error ? err.message : String(err) })
+    }
+  }
 }
 
 /** Branch links mirror the current branch list: deleted / merged-away branches disappear. */

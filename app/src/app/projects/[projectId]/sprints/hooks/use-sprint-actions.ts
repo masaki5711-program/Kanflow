@@ -1,7 +1,7 @@
 "use client"
 
 import { useToast, useConfirm } from "@/components/ui"
-import { apiFetch, isApiError, useVersionConflict, versionParam, withVersion } from "@/hooks"
+import { apiFetch, useVersionConflict, versionParam, withVersion } from "@/hooks"
 import { useLanguage } from "@/lib/language-context"
 import { fillTemplate } from "@/lib/fill-template"
 import { pickText } from "@/lib/translation/pick-text"
@@ -44,8 +44,7 @@ export function useSprintActions(projectId: string, { sprints, refetchSprints, r
       refetchReady()
       return true
     } catch (err) {
-      if (isApiError(err) && err.status === 409) toast.error(t.sprintCreateBlocked)
-      else toast.error(messageOf(err, t.error), { title: t.sprintCreateFailed })
+      toast.error(messageOf(err, t.error), { title: t.sprintCreateFailed })
       return false
     }
   }

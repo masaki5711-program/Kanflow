@@ -37,6 +37,8 @@ export const NOTIFICATION_TYPES = [
   "ai_report_failed",
   /** A 定着確認 of the 改善成果ボード is due (to the project's POs; payload: entityLabel, dueDate, kind). */
   "improvement_check_due",
+  /** A merge request of a PBI the user works on has a failed pipeline (payload: entityLabel, mr). */
+  "git_pipeline_failed",
 ] as const
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number]
 

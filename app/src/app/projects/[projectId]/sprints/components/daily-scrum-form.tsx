@@ -21,16 +21,30 @@ interface Props {
   onSubmit: (draft: DailyScrumDraft) => Promise<boolean>
   onCancel?: () => void
   resetOnSuccess?: boolean
+  /** Fetches a text to start the note from (Git activity). Absent / resolves null = no draft button. */
+  onDraft?: () => Promise<string | null>
   className?: string
 }
 
 /** Date + notes form used both for adding and for editing a Daily Scrum note. */
 export default function DailyScrumForm({
-  initial, minDate, maxDate, submitLabel, onSubmit, onCancel, resetOnSuccess = false, className,
+  initial, minDate, maxDate, submitLabel, onSubmit, onCancel, resetOnSuccess = false, onDraft, className,
 }: Props) {
   const { t } = useLanguage()
   const [draft, setDraft] = useState(initial)
   const [saving, setSaving] = useState(false)
+  const [drafting, setDrafting] = useState(false)
+
+  async function handleDraft() {
+    if (!onDraft || drafting) return
+    setDrafting(true)
+    const text = await onDraft()
+    setDrafting(false)
+    if (!text) return
+    setDraft((d) => ({ ...d, content: (d.content ? `${d.content}
+
+${text}` : text).slice(0, MAX_LEN) }))
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -57,6 +71,7 @@ export default function DailyScrumForm({
       </Field>
       <GlossaryHint />
       <div className="flex justify-end gap-2">
+        {onDraft && <Button size="sm" variant="ghost" type="button" onClick={() => void handleDraft()} loading={drafting} className="mr-auto">{t.sprintUxGitDraft}</Button>}
         {onCancel && <Button size="sm" variant="secondary" onClick={onCancel} disabled={saving}>{t.cancel}</Button>}
         <Button size="sm" type="submit" loading={saving} disabled={!draft.content.trim()}>{submitLabel}</Button>
       </div>

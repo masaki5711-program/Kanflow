@@ -46,6 +46,24 @@ export interface SprintUxTranslations {
   sprintUxTabPast: string
   sprintUxNoCurrent: string
   sprintUxNoPlanning: string
+  sprintUxAddPlanning: string
+  sprintUxPlanningHint: string
+  sprintUxGitTitle: string
+  sprintUxGitStart: string
+  sprintUxGitStartAction: string
+  sprintUxGitComplete: string
+  sprintUxGitCompleteAction: string
+  sprintUxGitFailed: string
+  sprintUxGitStale: string
+  sprintUxGitApplied: string
+  sprintUxGitDraft: string
+  sprintUxGitDraftFailed: string
+  sprintUxReleaseNote: string
+  sprintUxReleaseTitle: string
+  sprintUxReleaseCopy: string
+  sprintUxReleaseCopied: string
+  sprintUxReleaseAi: string
+  sprintUxReleaseLoadFailed: string
   sprintUxNoPast: string
   /** {done} {total} {pct} {score} */
   sprintUxPastSummary: string
@@ -84,6 +102,24 @@ export const ja: SprintUxTranslations = {
   sprintUxTabPast: "過去",
   sprintUxNoCurrent: "進行中のスプリントはありません",
   sprintUxNoPlanning: "計画中のスプリントはありません",
+  sprintUxAddPlanning: "計画中のスプリントを追加",
+  sprintUxPlanningHint: "実行できるスプリントは 1 つですが、次以降のスプリントは先に計画できます",
+  sprintUxGitTitle: "Git からの提案",
+  sprintUxGitStart: "PBI-{n}「{title}」にブランチ／MR があります。タスクを進行中にしますか？",
+  sprintUxGitStartAction: "進行中にする",
+  sprintUxGitComplete: "PBI-{n}「{title}」の MR はすべてマージ済みです。タスクを完了にしますか？",
+  sprintUxGitCompleteAction: "完了にする",
+  sprintUxGitFailed: "PBI-{n}「{title}」: MR !{mr} のパイプラインが失敗しています",
+  sprintUxGitStale: "PBI-{n}「{title}」: MR !{mr} が {days} 日間動いていません（レビュー待ち）",
+  sprintUxGitApplied: "{n} 件のタスクを更新しました",
+  sprintUxGitDraft: "Git の動きから下書き",
+  sprintUxGitDraftFailed: "Git の動きを取得できませんでした",
+  sprintUxReleaseNote: "リリースノート",
+  sprintUxReleaseTitle: "{sprint} のリリースノート",
+  sprintUxReleaseCopy: "コピー",
+  sprintUxReleaseCopied: "コピーしました",
+  sprintUxReleaseAi: "AI で要約",
+  sprintUxReleaseLoadFailed: "リリースノートを取得できませんでした",
   sprintUxNoPast: "過去のスプリントはまだありません",
   sprintUxPastSummary: "タスク {done}/{total}（{pct}%）· 完了ポイント {score}",
   sprintUxDailyOpenHint: "サイドパネルで開きます",
@@ -121,6 +157,24 @@ export const en: SprintUxTranslations = {
   sprintUxTabPast: "Past",
   sprintUxNoCurrent: "No sprint is running",
   sprintUxNoPlanning: "No sprint is being planned",
+  sprintUxAddPlanning: "Add a planned sprint",
+  sprintUxPlanningHint: "Only one sprint can run at a time, but you can plan the next ones ahead",
+  sprintUxGitTitle: "Suggestions from Git",
+  sprintUxGitStart: "PBI-{n} \"{title}\" has a branch or MR. Move its tasks to In progress?",
+  sprintUxGitStartAction: "Start",
+  sprintUxGitComplete: "All MRs of PBI-{n} \"{title}\" are merged. Mark its tasks done?",
+  sprintUxGitCompleteAction: "Mark done",
+  sprintUxGitFailed: "PBI-{n} \"{title}\": the pipeline of MR !{mr} failed",
+  sprintUxGitStale: "PBI-{n} \"{title}\": MR !{mr} has not moved for {days} days (waiting for review)",
+  sprintUxGitApplied: "{n} task(s) updated",
+  sprintUxGitDraft: "Draft from Git activity",
+  sprintUxGitDraftFailed: "Could not load Git activity",
+  sprintUxReleaseNote: "Release notes",
+  sprintUxReleaseTitle: "{sprint} release notes",
+  sprintUxReleaseCopy: "Copy",
+  sprintUxReleaseCopied: "Copied",
+  sprintUxReleaseAi: "Summarize with AI",
+  sprintUxReleaseLoadFailed: "Could not load the release notes",
   sprintUxNoPast: "No past sprints yet",
   sprintUxPastSummary: "Tasks {done}/{total} ({pct}%) · completed points {score}",
   sprintUxDailyOpenHint: "Opens in a side panel",
@@ -158,6 +212,24 @@ export const id: SprintUxTranslations = {
   sprintUxTabPast: "Lalu",
   sprintUxNoCurrent: "Tidak ada sprint yang berjalan",
   sprintUxNoPlanning: "Tidak ada sprint dalam perencanaan",
+  sprintUxAddPlanning: "Tambah sprint terencana",
+  sprintUxPlanningHint: "Hanya satu sprint yang bisa berjalan, tetapi sprint berikutnya bisa direncanakan lebih dulu",
+  sprintUxGitTitle: "Saran dari Git",
+  sprintUxGitStart: "PBI-{n} \"{title}\" punya branch/MR. Pindahkan tugasnya ke Sedang dikerjakan?",
+  sprintUxGitStartAction: "Mulai",
+  sprintUxGitComplete: "Semua MR PBI-{n} \"{title}\" sudah di-merge. Tandai tugasnya selesai?",
+  sprintUxGitCompleteAction: "Tandai selesai",
+  sprintUxGitFailed: "PBI-{n} \"{title}\": pipeline MR !{mr} gagal",
+  sprintUxGitStale: "PBI-{n} \"{title}\": MR !{mr} tidak bergerak {days} hari (menunggu review)",
+  sprintUxGitApplied: "{n} tugas diperbarui",
+  sprintUxGitDraft: "Draf dari aktivitas Git",
+  sprintUxGitDraftFailed: "Aktivitas Git tidak dapat dimuat",
+  sprintUxReleaseNote: "Catatan rilis",
+  sprintUxReleaseTitle: "Catatan rilis {sprint}",
+  sprintUxReleaseCopy: "Salin",
+  sprintUxReleaseCopied: "Disalin",
+  sprintUxReleaseAi: "Ringkas dengan AI",
+  sprintUxReleaseLoadFailed: "Catatan rilis tidak dapat dimuat",
   sprintUxNoPast: "Belum ada sprint sebelumnya",
   sprintUxPastSummary: "Tugas {done}/{total} ({pct}%) · poin selesai {score}",
   sprintUxDailyOpenHint: "Dibuka di panel samping",

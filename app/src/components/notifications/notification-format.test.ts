@@ -198,4 +198,11 @@ describe("background AI report notifications", () => {
     expect(d.text).toContain("定着確認の期限です：段取り短縮（1 か月後・")
     expect(d.href).toBe("/projects/p1/releases?item=r1")
   })
+
+  it("git_pipeline_failed → names the PBI and the MR, opens the PBI", () => {
+    const n = item("git_pipeline_failed", { entityLabel: "ログイン", displayId: 12, mr: "34" }, { entityType: "pbi", entityId: "b1" })
+    const d = describeNotification(n, ja, "ja")
+    expect(d.text).toBe("「#12 ログイン」のマージリクエスト !34 のパイプラインが失敗しました")
+    expect(d.href).toContain("b1")
+  })
 })
