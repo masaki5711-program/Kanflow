@@ -3,9 +3,10 @@
 import { Suspense, useMemo, useState } from "react"
 import { useParams } from "next/navigation"
 import { useLanguage } from "@/lib/language-context"
-import { Button, EmptyState, SkeletonCard, useConfirm, PageHeader } from "@/components/ui"
+import { Button, EmptyState, SkeletonCard, useConfirm, useToast, PageHeader } from "@/components/ui"
 import { UNCATEGORIZED, groupByVersion, type ReleaseEditForm, type ReleaseItem } from "./release-types"
 import { useReleases } from "./use-releases"
+import { useReleaseGit } from "./use-release-git"
 import { ChevronIcon, VersionGroup } from "./version-group"
 import { ImportDialog } from "./import-dialog"
 import { EditDialog } from "./edit-dialog"
@@ -55,7 +56,10 @@ function SoftwareReleasesPage() {
   const { t, pt } = useLanguage()
   useProjectDocumentTitle(pt.releaseTitle)
   const confirm = useConfirm()
-  const { items, isLoading, save, remove, importItems, bulkRelease } = useReleases(projectId)
+  const { items, isLoading, save, remove, importItems, bulkRelease, refetch } = useReleases(projectId)
+  const gitStatus = useReleaseGit(projectId)
+  const [markingVersion, setMarkingVersion] = useState<string | null>(null)
+  const toast = useToast()
 
   const [showImport, setShowImport] = useState(false)
   const [editingItem, setEditingItem] = useState<ReleaseItem | null>(null)
@@ -118,13 +122,41 @@ function SoftwareReleasesPage() {
       (i) => (i.planVersion ?? UNCATEGORIZED) === version && i.status !== "released",
     ).length
     if (count === 0) return
+    const pending = gitStatus.byVersion.get(version)?.pending.length ?? 0
+    const warn = pending > 0 ? `
+${t.releaseGitPendingWarn.replace("{n}", String(pending))}` : ""
     const ok = await confirm({
-      message: `${count} ${t.releaseBulkConfirm}`,
+      message: `${count} ${t.releaseBulkConfirm}${warn}`,
       confirmLabel: t.confirm,
       cancelLabel: t.cancel,
       variant: "warning",
     })
     if (ok) await bulkRelease(version)
+  }
+
+  async function handleMarkReleased(version: string) {
+    const git = gitStatus.byVersion.get(version)
+    if (!git?.tag) return
+    const open = items.filter((i) => i.planVersion === version && (i.status === "staged" || i.status === "ready")).length
+    const warn = git.pending.length > 0 ? `
+${t.releaseGitPendingWarn.replace("{n}", String(git.pending.length))}` : ""
+    const ok = await confirm({
+      message: `${t.releaseGitMarkConfirm.replace("{n}", String(open))}${warn}`,
+      confirmLabel: t.confirm,
+      cancelLabel: t.cancel,
+      variant: "warning",
+    })
+    if (!ok) return
+    setMarkingVersion(version)
+    try {
+      const updated = await gitStatus.markReleased(version)
+      toast.success(t.releaseBulkDone.replace("{count}", String(updated)))
+      refetch()
+    } catch {
+      toast.error(t.releaseSaveFailed)
+    } finally {
+      setMarkingVersion(null)
+    }
   }
 
   const renderGroup = ([version, groupItems]: [string, ReleaseItem[]], isReleased: boolean) => (
@@ -137,6 +169,10 @@ function SoftwareReleasesPage() {
       onToggle={toggleVersionCollapse}
       onBulkRelease={handleBulkRelease}
       onEdit={setEditingItem}
+      git={gitStatus.byVersion.get(version)}
+      projectId={projectId}
+      onMarkReleased={handleMarkReleased}
+      marking={markingVersion === version}
     />
   )
 

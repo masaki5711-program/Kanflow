@@ -66,6 +66,19 @@ export interface GitLabCommit {
   committed_date: string
 }
 
+export interface GitLabTag {
+  name: string
+  commit?: { committed_date?: string; created_at?: string } | null
+}
+
+export interface GitLabRelease {
+  tag_name: string
+  name: string | null
+  description: string | null
+  released_at: string | null
+  created_at?: string | null
+}
+
 /** One entry of a recursive repository tree listing. */
 export interface GitLabTreeEntry {
   id: string
@@ -175,6 +188,8 @@ export function createGitLabClient({ apiBase, token, fetchImpl = fetch, timeoutM
       const mr = (await request<{ head_pipeline?: { status?: string } | null }>(`${project(id)}/merge_requests/${iid}`)).data
       return mr.head_pipeline?.status ?? null
     },
+    listTags: (id: number, maxPages = 3) => paged<GitLabTag>(`${project(id)}/repository/tags`, { order_by: "updated", sort: "desc" }, maxPages),
+    listReleases: (id: number, maxPages = 3) => paged<GitLabRelease>(`${project(id)}/releases`, { order_by: "released_at", sort: "desc" }, maxPages),
     /** True when the token can read the repository contents (a Guest on a private project cannot). */
     canReadRepository: async (id: number): Promise<boolean> => {
       try {

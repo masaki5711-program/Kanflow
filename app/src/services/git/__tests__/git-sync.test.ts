@@ -14,6 +14,9 @@ const updateTaskMock = vi.fn()
 const taskAssigneeFindMany = vi.fn()
 const productBacklogItemFindUnique = vi.fn()
 const notifyMock = vi.fn()
+const gitReleaseFindMany = vi.fn()
+const gitReleaseUpsert = vi.fn()
+const gitReleaseDeleteMany = vi.fn()
 const noopLog = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), child: () => noopLog }
 
 vi.mock("@/lib/prisma", () => ({
@@ -32,6 +35,11 @@ vi.mock("@/lib/prisma", () => ({
       deleteMany: (...a: unknown[]) => gitLinkDeleteMany(...a),
     },
     sprintBacklogItem: { findMany: (...a: unknown[]) => sprintBacklogItemFindMany(...a) },
+    gitRelease: {
+      findMany: (...a: unknown[]) => gitReleaseFindMany(...a),
+      upsert: (...a: unknown[]) => gitReleaseUpsert(...a),
+      deleteMany: (...a: unknown[]) => gitReleaseDeleteMany(...a),
+    },
   },
 }))
 vi.mock("@/services/_shared/notifications", () => ({ notify: (...a: unknown[]) => notifyMock(...a) }))
@@ -66,6 +74,8 @@ function emptyClient(overrides: Record<string, unknown> = {}) {
     listMergeRequests: vi.fn().mockResolvedValue([]),
     listCommits: vi.fn().mockResolvedValue([]),
     listBranches: vi.fn().mockResolvedValue([]),
+    listTags: vi.fn().mockResolvedValue([]),
+    listReleases: vi.fn().mockResolvedValue([]),
     getMergeRequestPipeline: vi.fn().mockResolvedValue(null),
     canReadRepository: vi.fn().mockResolvedValue(true),
     latestCommitSha: vi.fn(),
@@ -87,6 +97,9 @@ beforeEach(() => {
   gitLinkDeleteMany.mockResolvedValue({ count: 0 })
   sprintBacklogItemFindMany.mockResolvedValue([])
   updateTaskMock.mockResolvedValue({})
+  gitReleaseFindMany.mockResolvedValue([])
+  gitReleaseUpsert.mockResolvedValue({})
+  gitReleaseDeleteMany.mockResolvedValue({ count: 0 })
 })
 
 describe("syncRepository — disabled paths", () => {
@@ -475,5 +488,18 @@ describe("syncProject", () => {
   it("returns an empty array when the project has no repositories", async () => {
     gitRepositoryFindMany.mockResolvedValue([])
     expect(await syncProject("p1", vi.fn())).toEqual([])
+  })
+})
+
+describe("syncRepository — tags", () => {
+  it("stores the repository's tags and still succeeds when the tag lookup fails", async () => {
+    gitRepositoryFindUnique.mockResolvedValue(repoRow({ externalId: 9, webUrl: "https://gitlab.example/g/r" }))
+    const ok = emptyClient({ listTags: vi.fn().mockResolvedValue([{ name: "v1.0.0", commit: { committed_date: "2026-09-30T00:00:00Z" } }]) })
+    expect((await syncRepository("r1", () => ok, NOW)).ok).toBe(true)
+    expect(gitReleaseUpsert).toHaveBeenCalledWith(expect.objectContaining({ create: expect.objectContaining({ tag: "v1.0.0", projectId: "p1", repositoryId: "r1" }) }))
+    expect(publishAfterCommit).toHaveBeenCalledWith({ type: "git", projectId: "p1", action: "sync" })
+
+    const broken = emptyClient({ listTags: vi.fn().mockRejectedValue(new Error("boom")) })
+    expect((await syncRepository("r1", () => broken, NOW)).ok).toBe(true)
   })
 })

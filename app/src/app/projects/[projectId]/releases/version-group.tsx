@@ -5,6 +5,8 @@ import { useId } from "react"
 import { Badge, Button, Truncate } from "@/components/ui"
 import { I18nText } from "@/components/i18n-text"
 import { useLanguage } from "@/lib/language-context"
+import { VersionGitRow } from "./version-git-row"
+import type { VersionGit } from "./use-release-git"
 import { STATUS_TONE, UNCATEGORIZED, releaseItemText, type ReleaseItem } from "./release-types"
 
 interface VersionGroupProps {
@@ -15,6 +17,11 @@ interface VersionGroupProps {
   onToggle: (version: string) => void
   onBulkRelease: (version: string) => void
   onEdit: (item: ReleaseItem) => void
+  /** Git facts of this version; absent when Git is off for the project. */
+  git?: VersionGit
+  projectId: string
+  onMarkReleased: (version: string) => void
+  marking: boolean
 }
 
 export function ChevronIcon({ open, className = "" }: { open: boolean; className?: string }) {
@@ -42,6 +49,10 @@ export function VersionGroup({
   onToggle,
   onBulkRelease,
   onEdit,
+  git,
+  projectId,
+  onMarkReleased,
+  marking,
 }: VersionGroupProps) {
   const { t, pt, language } = useLanguage()
   const listId = useId()
@@ -79,6 +90,9 @@ export function VersionGroup({
           </Button>
         )}
       </div>
+      {git && version !== UNCATEGORIZED && (
+        <VersionGitRow projectId={projectId} version={version} git={git} onMarkReleased={onMarkReleased} marking={marking} />
+      )}
       {!isCollapsed && (
         <ul id={listId} className="divide-y divide-border">
           {items.map((item) => (

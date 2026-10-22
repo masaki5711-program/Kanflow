@@ -6,6 +6,7 @@ import { publishAfterCommit } from "@/lib/realtime/after-commit"
 import { updateTask } from "@/services/sprint-backlog/sprint-backlog.service"
 import { notify } from "@/services/_shared/notifications"
 import type { Actor } from "@/services/_shared/actor"
+import { syncReleases } from "./git-release-sync"
 import { allMergeRequestsMerged, linksFromBranch, linksFromCommit, linksFromMergeRequest, type LinkDraft } from "./git-links"
 
 /**
@@ -65,8 +66,9 @@ export async function syncRepository(repositoryId: string, factory: ClientFactor
 
     const { written, changed, newlyMerged, newlyFailed } = await writeLinks(repo.projectId, repo.id, drafts, pbiIds)
     const pruned = await pruneBranches(repo.id, branchDrafts, pbiIds)
+    const releases = await syncReleasesSafely(client, repo, externalId, now)
     // Git panels / badges of the project refresh live, only when a link actually changed.
-    if (changed + pruned > 0) publishAfterCommit({ type: "git", projectId: repo.projectId, action: "sync" })
+    if (changed + pruned + releases > 0) publishAfterCommit({ type: "git", projectId: repo.projectId, action: "sync" })
     await prisma.gitRepository.update({
       where: { id: repo.id },
       data: { externalId, syncedAt: now, syncCursor: now, lastError: null, lastErrorAt: null },
@@ -226,6 +228,16 @@ async function notifyFailedPipelines(projectId: string, failures: readonly Faile
     } catch (err) {
       log.warn("pipeline-failure notification skipped", { ref: f.ref, error: err instanceof Error ? err.message : String(err) })
     }
+  }
+}
+
+/** Tags are an add-on to the PBI links: a failure here must not fail the sync. */
+async function syncReleasesSafely(client: GitLabClient, repo: { id: string; projectId: string; webUrl: string }, externalId: number, now: Date): Promise<number> {
+  try {
+    return await syncReleases(client, repo, externalId, now)
+  } catch (err) {
+    log.warn("tag sync skipped", { repositoryId: repo.id, error: err instanceof Error ? err.message : String(err) })
+    return 0
   }
 }
 

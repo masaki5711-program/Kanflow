@@ -322,6 +322,7 @@ model Project {
   gitIntegration  GitIntegration?
   gitRepositories GitRepository[]
   gitLinks        GitLink[]
+  gitReleases     GitRelease[]
   repoChunks      RepoChunk[]
 
   /// Plan template loads into this project's 全体計画.
@@ -1285,6 +1286,7 @@ model GitRepository {
   updatedAt      DateTime    @updatedAt
   project        Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
   links          GitLink[]
+  releases       GitRelease[]
   chunks         RepoChunk[]
 
   @@index([projectId])
@@ -1586,4 +1588,28 @@ model Reaction {
   @@unique([targetType, targetId, userId, emoji])
   @@index([projectId, targetType, targetId])
   @@map("reaction")
+}
+
+/// A tag (and its GitLab release, when one exists) of a project's repository.
+/// Matched to the release tab's versions by name ("v1.4.0" = "1.4.0").
+model GitRelease {
+  id           String        @id @default(cuid())
+  projectId    String
+  repositoryId String
+  tag          String        @db.VarChar(255)
+  /// GitLab release title; null for a bare tag.
+  name         String?       @db.VarChar(255)
+  /// GitLab release description (Markdown); null for a bare tag.
+  description  String?       @db.Text
+  url          String        @db.VarChar(1024)
+  /// Release date on GitLab, else the tagged commit's date.
+  releasedAt   DateTime
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  project      Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  repository   GitRepository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+
+  @@unique([repositoryId, tag])
+  @@index([projectId, releasedAt])
+  @@map("git_release")
 }
