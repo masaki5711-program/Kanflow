@@ -1,8 +1,9 @@
 "use client"
 
-import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react"
+import { useEffect, useId, useRef, useState, type ReactNode } from "react"
 import { MoreHorizontal } from "lucide-react"
 import { cn } from "./cn"
+import { useAnchoredPosition } from "./use-anchored-position"
 import { IconButton } from "./button"
 
 export interface ActionMenuItem {
@@ -36,22 +37,8 @@ export function ActionMenu({ label, items, className }: ActionMenuProps) {
   const listRef = useRef<HTMLUListElement>(null)
   const listId = useId()
 
-  // Open upwards when the list would run past the bottom of the viewport
-  // (positioned on the DOM node directly: no extra render, no flash).
-  useLayoutEffect(() => {
-    if (!open) return
-    const list = listRef.current
-    const button = buttonRef.current
-    if (!list || !button) return
-    const rect = button.getBoundingClientRect()
-    const below = window.innerHeight - rect.bottom
-    if (list.offsetHeight + 8 > below && rect.top > below) {
-      list.style.top = "auto"
-      list.style.bottom = "100%"
-      list.style.marginTop = "0"
-      list.style.marginBottom = "0.25rem"
-    }
-  }, [open])
+  // Keeps the list on screen (opens upwards / shrinks near the bottom edge).
+  useAnchoredPosition(open, buttonRef, listRef, "right", () => setOpen(false))
 
   useEffect(() => {
     if (!open) return
@@ -92,7 +79,7 @@ export function ActionMenu({ label, items, className }: ActionMenuProps) {
         onClick={() => setOpen((v) => !v)} />
       {open && (
         <ul ref={listRef} id={listId} role="menu" aria-label={label}
-          className="absolute right-0 top-full z-30 mt-1 w-max min-w-32 max-w-[min(16rem,calc(100vw-2rem))] rounded-ui-sm border border-border bg-surface p-1 shadow-ui-md">
+          className="absolute right-0 top-full z-30 mt-1 w-max min-w-32 overflow-auto max-w-[min(16rem,calc(100vw-2rem))] rounded-ui-sm border border-border bg-surface p-1 shadow-ui-md">
           {items.map((item) => (
             <li key={item.key} role="none">
               <button type="button" role="menuitem" aria-label={item.ariaLabel}

@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef, useState } from "react"
 import { useLanguage } from "@/lib/language-context"
 import { Input, cn } from "@/components/ui"
+import { useAnchoredPosition } from "@/components/ui/use-anchored-position"
 import { Clock, User } from "lucide-react"
 import { displayAssignees } from "../lib/task-payload"
 import type { Member, SprintItem } from "./types"
@@ -115,7 +116,10 @@ export function TaskAssigneeCell({ task, members, label, onSave }: AssigneeCellP
   const { t } = useLanguage()
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  const listRef = useRef<HTMLUListElement>(null)
   const listId = useId()
+  useAnchoredPosition(open, buttonRef, listRef, "left", () => setOpen(false))
   const assignees = displayAssignees(task)
   const currentIds = (task.assignees ?? []).map((a) => a.id)
 
@@ -136,7 +140,7 @@ export function TaskAssigneeCell({ task, members, label, onSave }: AssigneeCellP
 
   return (
     <div ref={rootRef} className="relative" onKeyDown={(e) => { if (e.key === "Escape" && open) { e.stopPropagation(); setOpen(false) } }}>
-      <button type="button" onClick={() => setOpen((v) => !v)} aria-label={label} aria-haspopup="listbox"
+      <button ref={buttonRef} type="button" onClick={() => setOpen((v) => !v)} aria-label={label} aria-haspopup="listbox"
         aria-expanded={open} aria-controls={open ? listId : undefined}
         className="inline-flex min-h-8 flex-wrap items-center gap-1 rounded-ui-sm px-1 hover:bg-surface-sunken">
         {assignees.length > 0 ? assignees.map((a) => (
@@ -146,7 +150,7 @@ export function TaskAssigneeCell({ task, members, label, onSave }: AssigneeCellP
         )) : <span className="px-1 text-caption text-fg-subtle">{t.sprintUnassigned}</span>}
       </button>
       {open && (
-        <ul id={listId} role="listbox" aria-label={t.sprintAssignee}
+        <ul ref={listRef} id={listId} role="listbox" aria-label={t.sprintAssignee}
           className="absolute left-0 top-full z-30 mt-1 max-h-56 min-w-44 overflow-auto rounded-ui-sm border border-border bg-surface p-1 shadow-ui-md">
           {members.map((m) => {
             const selected = currentIds.includes(m.user.id)
