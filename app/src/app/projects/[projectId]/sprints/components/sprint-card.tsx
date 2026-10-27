@@ -51,7 +51,7 @@ export default function SprintCard({
   // API call fires only once the dialog is confirmed.
   const [pendingDoneTask, setPendingDoneTask] = useState<SprintItem | null>(null)
   const [showSprintEdit, setShowSprintEdit] = useState(false)
-  // Daily Scrum opens in a side panel, so the PBI/task list stays where it is.
+  // Daily Scrum opens as a full-screen dialog.
   const [showDaily, setShowDaily] = useState(false)
   // Only one completion-comment editor per card; the draft lives in the row.
   const [editingCommentTaskId, setEditingCommentTaskId] = useState<string | null>(null)
@@ -93,7 +93,7 @@ export default function SprintCard({
                 <MessageSquareText className="w-4 h-4 text-fg-subtle" />
                 {t.sprintDailyScrum}
               </button>
-              <Modal open={showDaily} onClose={() => setShowDaily(false)} variant="side" size="lg" title={t.sprintDailyScrum}
+              <Modal open={showDaily} onClose={() => setShowDaily(false)} size="full" title={t.sprintDailyScrum}
                 description={pickText(sprint.i18n, "sprintName", sprint.sprintName, language).text || sprint.sprintName}>
                 <div id={dailyId}>
                   <DailyScrumPanel projectId={projectId} sprintId={sprint.id} sprintStartDate={sprint.startDate}

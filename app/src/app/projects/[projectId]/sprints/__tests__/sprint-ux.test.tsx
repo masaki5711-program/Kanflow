@@ -143,7 +143,7 @@ describe("sprint tab usability", () => {
     expect(JSON.parse(window.localStorage.getItem("kanflow:sprintListPrefs") ?? "{}")).toMatchObject({ groupBy: "assignee" })
   })
 
-  it("opens the daily scrum in a side panel", async () => {
+  it("opens the daily scrum as a full-screen dialog", async () => {
     stubFetch(routes([sprint("s1")], { [`${BASE}/sprints/s1/daily-scrum`]: [], [`${BASE}/sprints/s1/daily-scrums`]: [] }))
     renderWithProviders(<SprintsPage />)
     await userEvent.click(await screen.findByRole("button", { name: t.sprintDailyScrum }))
