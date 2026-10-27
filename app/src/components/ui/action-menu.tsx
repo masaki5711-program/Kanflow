@@ -35,20 +35,22 @@ export function ActionMenu({ label, items, className }: ActionMenuProps) {
   const buttonRef = useRef<HTMLButtonElement>(null)
   const listRef = useRef<HTMLUListElement>(null)
   const listId = useId()
-  // Open upwards when the list would run past the bottom of the viewport.
-  const [openUp, setOpenUp] = useState(false)
 
+  // Open upwards when the list would run past the bottom of the viewport
+  // (positioned on the DOM node directly: no extra render, no flash).
   useLayoutEffect(() => {
-    if (!open) {
-      setOpenUp(false)
-      return
-    }
+    if (!open) return
     const list = listRef.current
     const button = buttonRef.current
     if (!list || !button) return
-    const below = window.innerHeight - button.getBoundingClientRect().bottom
-    const above = button.getBoundingClientRect().top
-    setOpenUp(list.offsetHeight + 8 > below && above > below)
+    const rect = button.getBoundingClientRect()
+    const below = window.innerHeight - rect.bottom
+    if (list.offsetHeight + 8 > below && rect.top > below) {
+      list.style.top = "auto"
+      list.style.bottom = "100%"
+      list.style.marginTop = "0"
+      list.style.marginBottom = "0.25rem"
+    }
   }, [open])
 
   useEffect(() => {
@@ -90,10 +92,7 @@ export function ActionMenu({ label, items, className }: ActionMenuProps) {
         onClick={() => setOpen((v) => !v)} />
       {open && (
         <ul ref={listRef} id={listId} role="menu" aria-label={label}
-          className={cn(
-            "absolute right-0 z-30 w-max min-w-32 max-w-[min(16rem,calc(100vw-2rem))] rounded-ui-sm border border-border bg-surface p-1 shadow-ui-md",
-            openUp ? "bottom-full mb-1" : "top-full mt-1",
-          )}>
+          className="absolute right-0 top-full z-30 mt-1 w-max min-w-32 max-w-[min(16rem,calc(100vw-2rem))] rounded-ui-sm border border-border bg-surface p-1 shadow-ui-md">
           {items.map((item) => (
             <li key={item.key} role="none">
               <button type="button" role="menuitem" aria-label={item.ariaLabel}
