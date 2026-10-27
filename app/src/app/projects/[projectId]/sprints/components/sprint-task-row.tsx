@@ -54,9 +54,9 @@ const SprintTaskRow = memo(function SprintTaskRow({
   }
 
   const menu: ActionMenuItem[] = [
-    { key: "rename", label: t.sprintUxRenameTask.replace("{name}", name), icon: <Pencil className="h-4 w-4" aria-hidden="true" />, onSelect: () => setRenaming(true) },
-    { key: "edit", label: t.sprintTaskEditNamed.replace("{name}", name), icon: <SquarePen className="h-4 w-4" aria-hidden="true" />, onSelect: () => actions.onStartEditTask(sprintId, task) },
-    { key: "delete", label: t.sprintTaskDeleteNamed.replace("{name}", name), icon: <Trash2 className="h-4 w-4" aria-hidden="true" />, danger: true, onSelect: () => actions.onDeleteTask(sprintId, task.id) },
+    { key: "rename", label: t.sprintMenuRename, ariaLabel: t.sprintUxRenameTask.replace("{name}", name), icon: <Pencil className="h-4 w-4" aria-hidden="true" />, onSelect: () => setRenaming(true) },
+    { key: "edit", label: t.sprintMenuEdit, ariaLabel: t.sprintTaskEditNamed.replace("{name}", name), icon: <SquarePen className="h-4 w-4" aria-hidden="true" />, onSelect: () => actions.onStartEditTask(sprintId, task) },
+    { key: "delete", label: t.sprintMenuDelete, ariaLabel: t.sprintTaskDeleteNamed.replace("{name}", name), icon: <Trash2 className="h-4 w-4" aria-hidden="true" />, danger: true, onSelect: () => actions.onDeleteTask(sprintId, task.id) },
   ]
 
   return (

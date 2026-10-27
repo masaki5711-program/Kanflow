@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useId, useRef, useState, type ReactNode } from "react"
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react"
 import { MoreHorizontal } from "lucide-react"
 import { cn } from "./cn"
 import { IconButton } from "./button"
@@ -8,6 +8,8 @@ import { IconButton } from "./button"
 export interface ActionMenuItem {
   key: string
   label: string
+  /** Longer accessible name when the visible `label` is kept short (e.g. names the target). */
+  ariaLabel?: string
   icon?: ReactNode
   onSelect: () => void
   /** Destructive entry (red). */
@@ -31,7 +33,23 @@ export function ActionMenu({ label, items, className }: ActionMenuProps) {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
+  const listRef = useRef<HTMLUListElement>(null)
   const listId = useId()
+  // Open upwards when the list would run past the bottom of the viewport.
+  const [openUp, setOpenUp] = useState(false)
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setOpenUp(false)
+      return
+    }
+    const list = listRef.current
+    const button = buttonRef.current
+    if (!list || !button) return
+    const below = window.innerHeight - button.getBoundingClientRect().bottom
+    const above = button.getBoundingClientRect().top
+    setOpenUp(list.offsetHeight + 8 > below && above > below)
+  }, [open])
 
   useEffect(() => {
     if (!open) return
@@ -71,11 +89,14 @@ export function ActionMenu({ label, items, className }: ActionMenuProps) {
         aria-haspopup="menu" aria-expanded={open} aria-controls={open ? listId : undefined}
         onClick={() => setOpen((v) => !v)} />
       {open && (
-        <ul id={listId} role="menu" aria-label={label}
-          className="absolute right-0 top-full z-30 mt-1 min-w-44 rounded-ui-sm border border-border bg-surface p-1 shadow-ui-md">
+        <ul ref={listRef} id={listId} role="menu" aria-label={label}
+          className={cn(
+            "absolute right-0 z-30 w-max min-w-32 max-w-[min(16rem,calc(100vw-2rem))] rounded-ui-sm border border-border bg-surface p-1 shadow-ui-md",
+            openUp ? "bottom-full mb-1" : "top-full mt-1",
+          )}>
           {items.map((item) => (
             <li key={item.key} role="none">
-              <button type="button" role="menuitem"
+              <button type="button" role="menuitem" aria-label={item.ariaLabel}
                 className={cn(
                   "flex min-h-9 w-full items-center gap-2 rounded-ui-sm px-2 text-left text-body",
                   item.danger ? "text-danger-strong hover:bg-danger-soft" : "text-fg hover:bg-surface-muted",

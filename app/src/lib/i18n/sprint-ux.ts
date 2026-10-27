@@ -35,6 +35,9 @@ export interface SprintUxTranslations {
   sprintUxQuickAddPlaceholder: string
   /** {name} */
   sprintUxRenameTask: string
+  sprintMenuRename: string
+  sprintMenuEdit: string
+  sprintMenuDelete: string
   /** {name} */
   sprintUxEditHours: string
   /** {name} */
@@ -93,6 +96,9 @@ export const ja: SprintUxTranslations = {
   sprintUxQuickAddLabel: "{pbi} にタスクを追加",
   sprintUxQuickAddPlaceholder: "タスク名を入力して Enter で追加",
   sprintUxRenameTask: "タスク名を編集: {name}",
+  sprintMenuRename: "名前を変更",
+  sprintMenuEdit: "編集",
+  sprintMenuDelete: "削除",
   sprintUxEditHours: "見積時間を編集: {name}",
   sprintUxChangeAssignee: "担当者を変更: {name}",
   sprintUxNoHours: "見積 -",
@@ -148,6 +154,9 @@ export const en: SprintUxTranslations = {
   sprintUxQuickAddLabel: "Add a task to {pbi}",
   sprintUxQuickAddPlaceholder: "Type a task name and press Enter",
   sprintUxRenameTask: "Rename task: {name}",
+  sprintMenuRename: "Rename",
+  sprintMenuEdit: "Edit",
+  sprintMenuDelete: "Delete",
   sprintUxEditHours: "Edit estimate: {name}",
   sprintUxChangeAssignee: "Change assignee: {name}",
   sprintUxNoHours: "Est. -",
@@ -203,6 +212,9 @@ export const id: SprintUxTranslations = {
   sprintUxQuickAddLabel: "Tambah tugas ke {pbi}",
   sprintUxQuickAddPlaceholder: "Ketik nama tugas lalu tekan Enter",
   sprintUxRenameTask: "Ubah nama tugas: {name}",
+  sprintMenuRename: "Ubah nama",
+  sprintMenuEdit: "Ubah",
+  sprintMenuDelete: "Hapus",
   sprintUxEditHours: "Ubah estimasi: {name}",
   sprintUxChangeAssignee: "Ganti penanggung jawab: {name}",
   sprintUxNoHours: "Est. -",
