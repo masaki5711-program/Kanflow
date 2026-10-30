@@ -25,7 +25,7 @@ for other MCP clients.
 
 1. Kanflow → My page (`/me`) → API tokens: issue a token. Pick the scopes the
    work needs (preset "Developer" = `read`, `task:write`, `comment:write`,
-   `icebox:write`, `daily:write`, `write:dev`) and, if you like, limit it to projects.
+   `icebox:write`, `daily:write`, `dev:write`) and, if you like, limit it to projects.
 2. Put the token into the **environment variable** `KANFLOW_TOKEN` (never into a
    file in the repository, never into the chat).
 3. Register the server in the project's `.mcp.json` (or `claude mcp add`):
@@ -108,10 +108,10 @@ Lists that are cut at a limit say so with `truncated: true` and `limit`.
 | `create_icebox_item` | `icebox:write` | as `POST /icebox` |
 | `post_daily_scrum` | `daily:write`, members | `sprintId`, `date`, `content` |
 | `list_claims` | read | open work claims of a project (`pbi`, `taskId` filters); stale ones flagged `stale: true` |
-| `claim_work` | `write:dev`, members | `pbi` **or** `taskId`, `sessionId`, `branch?`, `takeover?` — 作業の宣言; repeat as heartbeat |
-| `release_claim` | `write:dev`, owner | `claimId`, `projectId` |
-| `post_progress` | `write:dev`, members | `entityType` (`pbi` / `sprint_task`), `entityId`, `body` — a comment marked "via MCP (AI)" |
-| `link_merge_request` | `write:dev`, members | `pbi`, `url` (MR of a registered repository), `title?` |
+| `claim_work` | `dev:write`, members | `pbi` **or** `taskId`, `sessionId`, `branch?`, `takeover?` — 作業の宣言; repeat as heartbeat |
+| `release_claim` | `dev:write`, owner | `claimId`, `projectId` |
+| `post_progress` | `dev:write`, members | `entityType` (`pbi` / `sprint_task`), `entityId`, `body` — a comment marked "via MCP (AI)" |
+| `link_merge_request` | `dev:write`, members | `pbi`, `url` (MR of a registered repository), `title?` |
 
 There are **no delete tools**, and no tool moves a task / PBI to another status
 or sprint on behalf of the developer tools: `claim_work` declares work, it does
@@ -123,7 +123,9 @@ server instructions tell the agent to read the backlog / the existing tasks
 first. `create_task` additionally answers `similar` (same PBI, same name —
 NFKC, case and spacing ignored) without blocking the create.
 
-### Development tools (`write:dev`, K5)
+### Development tools (`dev:write`, K5)
+
+Naming: GitStation's plan documents (06 §4.1, 02 §12–13) call this scope `write:dev`; the implemented name is **`dev:write`** (same `<area>:write` pattern as the other scopes).
 
 Details and payloads: [api-v1.md](api-v1.md) "Development" (same operations,
 `app/src/app/api/mcp/_lib/dev-tools.ts` → `v1-dev-handlers.ts` →

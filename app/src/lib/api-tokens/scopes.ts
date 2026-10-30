@@ -20,7 +20,7 @@ export const API_TOKEN_SCOPES = [
   "comment:write",
   "icebox:write",
   "daily:write",
-  "write:dev",
+  "dev:write",
 ] as const
 export type ApiTokenScope = (typeof API_TOKEN_SCOPES)[number]
 
@@ -34,14 +34,14 @@ export const SCOPE_ACTION: Record<ApiTokenScope, ProjectAction> = {
   "comment:write": "comment.write",
   "icebox:write": "icebox.write",
   "daily:write": "dailyScrum.write",
-  // Named after the plan (GitStation docs/plan/06 §4.1), unlike the "<area>:write" scopes above.
-  "write:dev": "dev.write",
+  // GitStation's plan documents (06 §4.1, 02 §12) call it "write:dev"; the implemented name follows "<area>:write".
+  "dev:write": "dev.write",
 }
 
 /** Ready-made scope sets for the token form. */
 export const API_TOKEN_SCOPE_PRESETS = {
   readOnly: ["read"],
-  developer: ["read", "task:write", "comment:write", "icebox:write", "daily:write", "write:dev"],
+  developer: ["read", "task:write", "comment:write", "icebox:write", "daily:write", "dev:write"],
   all: API_TOKEN_SCOPES,
 } as const satisfies Record<string, readonly ApiTokenScope[]>
 

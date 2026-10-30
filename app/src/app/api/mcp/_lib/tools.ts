@@ -46,7 +46,7 @@ import { CREATE_NOTE, DATA_NOTICE, definedOnly, guard, mcpWrite, pbiIdIn, pbiSco
  * through resolveV1ProjectActor (via projectScope / pbiScope), every write
  * goes through runV1Write (scope ∩ role, write budget, idempotency, the UI
  * schemas and services, activity `via: "mcp"`). No delete tools. The
- * developer tools (write:dev) live in dev-tools.ts.
+ * developer tools (dev:write) live in dev-tools.ts.
  */
 
 const id = z.string().min(1).max(191)
@@ -407,6 +407,6 @@ export function registerKanflowTools(server: McpServer, principal: ApiPrincipal)
       })
   )
 
-  // ------------------------------------------- development (write:dev, K5)
+  // ------------------------------------------- development (dev:write, K5)
   registerDevTools(server, principal)
 }

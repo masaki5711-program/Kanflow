@@ -11,7 +11,7 @@ import type { V1WriteInput } from "./v1-handlers"
 import { V1Reply } from "./v1-route"
 
 /**
- * Developer operations (scope write:dev, action "dev.write"; docs/api-v1.md
+ * Developer operations (scope dev:write, action "dev.write"; docs/api-v1.md
  * "Development") shared by the /api/v1/projects/:projectId/dev/* routes and
  * the matching MCP tools. Authorization is the caller's (runV1Write).
  */

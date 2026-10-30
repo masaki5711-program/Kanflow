@@ -2,7 +2,7 @@ import { z } from "zod"
 import { COMMENT_BODY_MAX } from "@/services/comments/comments.schemas"
 
 /**
- * Bodies of the developer writes (scope write:dev, docs/api-v1.md
+ * Bodies of the developer writes (scope dev:write, docs/api-v1.md
  * "Development"). Shared by /api/v1 and the MCP tools.
  */
 

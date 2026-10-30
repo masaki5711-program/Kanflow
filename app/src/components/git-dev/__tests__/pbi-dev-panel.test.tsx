@@ -101,7 +101,7 @@ describe("PbiDevPanel", () => {
     expect(within(live).queryByText(ja.gitDevBranchGone)).not.toBeInTheDocument()
   })
 
-  it("marks a merge request linked by a developer (write:dev) as linked manually", async () => {
+  it("marks a merge request linked by a developer (dev:write) as linked manually", async () => {
     linksBody = panel({
       links: [
         link({ kind: "mr", ref: "21", title: "!21", state: null, declared: true }),

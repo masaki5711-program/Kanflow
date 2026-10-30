@@ -60,7 +60,7 @@ const MAX_IID = 2_147_483_647
 /**
  * A merge request URL (https://host/group/sub/repo/-/merge_requests/12, optionally
  * followed by a sub-page such as /diffs, a query or a fragment) on an allowed host,
- * or null. Used for links a developer declares (write:dev): only the repository
+ * or null. Used for links a developer declares (dev:write): only the repository
  * and the number are kept, the URL is rebuilt, so nothing else of the input is stored.
  */
 export function parseMergeRequestUrl(input: string, hosts: readonly string[] = allowedHosts()): MergeRequestLocation | null {

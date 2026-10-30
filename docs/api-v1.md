@@ -33,12 +33,12 @@ Authorization: Bearer kfl_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
   Every v1 endpoint needs only `project.view`.
 - **Scopes** (chosen at creation, `read` is always included): `read`,
   `backlog:write`, `backlog:reorder`, `sprint:write`, `task:write`,
-  `comment:write`, `icebox:write`, `daily:write`, `write:dev` (developer
+  `comment:write`, `icebox:write`, `daily:write`, `dev:write` (developer
   writes of AI sessions, see "Development"). A write needs the scope
   **and** the owner's project role (docs/authorization.md): a dev's token
   never creates PBIs or sprints. Missing scope → `403 INSUFFICIENT_SCOPE`
   with `requiredScope`. The form offers presets: read only / developer
-  (`read`, `task:write`, `comment:write`, `icebox:write`, `daily:write`, `write:dev`) /
+  (`read`, `task:write`, `comment:write`, `icebox:write`, `daily:write`, `dev:write`) /
   PO・SM (all).
 - **Project restriction** (optional): limit a token to some projects; every
   other project answers 404 and is left out of `/projects`.
@@ -173,10 +173,12 @@ No deletes through the API.
   (`requiredScope`), `403 FORBIDDEN` (role), `404 PBI_NOT_FOUND` /
   `SPRINT_NOT_FOUND` / ..., `409 VERSION_CONFLICT` / `CONFLICT`.
 
-## Development (`write:dev`)
+## Development (`dev:write`)
+
+Naming: GitStation's plan documents (06 §4.1, 02 §12–13) call this scope `write:dev`; the implemented name is **`dev:write`** (same `<area>:write` pattern as the other scopes).
 
 Writes of developers' AI sessions (GitStation plan 06 §4.1 / 02 §12–13, Kanflow
-step K5). Scope **`write:dev`** (no other scope grants it; part of the
+step K5). Scope **`dev:write`** (no other scope grants it; part of the
 "developer" preset) **and** a project member role (action `dev.write`: PO, SM,
 Dev; not section managers). Same write budget, idempotency and error shape as
 the other writes; changes carry `via = "api"` / `"mcp"`. **None of them changes
@@ -187,11 +189,11 @@ handlers `app/src/app/api/v1/_lib/v1-dev-handlers.ts`.
 | Method & path (under `/api/v1/projects/:projectId`) | Scope | Body / query | Answer |
 |---|---|---|---|
 | `GET /dev/claims` | `read` | `pbi` (id / `12` / `PBI-12`), `taskId` | open claims, newest heartbeat first: active ones and stale ones (`stale: true`, heartbeat within the last 7 days); at most 200 (`truncated`, `limit`); `staleAfterHours` |
-| `POST /dev/claims` | `write:dev` | exactly one of `pbi` / `taskId`; `sessionId` (1–100 visible ASCII); `branch?`; `takeover?` (boolean) | `201 { data: claim, created: true, takenOver: [] }`; `200` (`created: false`) when the same user + session already claims the same target (heartbeat); `409 TASK_CLAIMED` |
-| `PATCH /dev/claims/:claimId` | `write:dev` | `branch?` | heartbeat of the claim's owner: `{ data: claim }`; `403 FORBIDDEN` for another user's claim, `409 CLAIM_RELEASED` for a released / taken-over one, `409 TASK_CLAIMED` when a stale claim was claimed by someone else meanwhile |
-| `POST /dev/claims/:claimId/release` | `write:dev` | — | `{ data: claim }` (owner only; releasing again answers the released claim) |
-| `POST /dev/progress` | `write:dev` | `entityType` (`pbi` / `sprint_task`), `entityId` (PBI id / `12` / `PBI-12`, or task id), `body` | `201 { data: comment }` — a normal comment (mentions, notifications, translation, activity) whose row records `via`; the thread shows the "via MCP (AI)" / "via API" badge. `Idempotency-Key` honoured |
-| `POST /dev/mr-links` | `write:dev` | `pbi`, `url`, `title?` (shown until the sync reads the MR; default `!<iid>`) | `201 { data: link, created: true }` / `200 … created: false` when that MR is already linked to the PBI (by the sync or a developer) |
+| `POST /dev/claims` | `dev:write` | exactly one of `pbi` / `taskId`; `sessionId` (1–100 visible ASCII); `branch?`; `takeover?` (boolean) | `201 { data: claim, created: true, takenOver: [] }`; `200` (`created: false`) when the same user + session already claims the same target (heartbeat); `409 TASK_CLAIMED` |
+| `PATCH /dev/claims/:claimId` | `dev:write` | `branch?` | heartbeat of the claim's owner: `{ data: claim }`; `403 FORBIDDEN` for another user's claim, `409 CLAIM_RELEASED` for a released / taken-over one, `409 TASK_CLAIMED` when a stale claim was claimed by someone else meanwhile |
+| `POST /dev/claims/:claimId/release` | `dev:write` | — | `{ data: claim }` (owner only; releasing again answers the released claim) |
+| `POST /dev/progress` | `dev:write` | `entityType` (`pbi` / `sprint_task`), `entityId` (PBI id / `12` / `PBI-12`, or task id), `body` | `201 { data: comment }` — a normal comment (mentions, notifications, translation, activity) whose row records `via`; the thread shows the "via MCP (AI)" / "via API" badge. `Idempotency-Key` honoured |
+| `POST /dev/mr-links` | `dev:write` | `pbi`, `url`, `title?` (shown until the sync reads the MR; default `!<iid>`) | `201 { data: link, created: true }` / `200 … created: false` when that MR is already linked to the PBI (by the sync or a developer) |
 
 **Work claims (作業の宣言)** — `claim`: `id, projectId, pbi {id, displayId, title},
 task {id, name, sprintId} | null` (null = the whole PBI), `user {id, name},

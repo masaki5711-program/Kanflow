@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 /**
- * MCP developer tools (K5, scope write:dev): wiring to the dev-work service through
+ * MCP developer tools (K5, scope dev:write): wiring to the dev-work service through
  * the shared write path (scope ∩ role, via "mcp", idempotency), project resolution
  * from the PBI / task, and the error shape. The service itself is mocked.
  */
@@ -80,7 +80,7 @@ beforeEach(() => {
   delete (globalThis as { __kanflowRateLimiters?: unknown }).__kanflowRateLimiters
   resetApiTokenTouchCache()
   resetIdempotencyStore()
-  withScopes('["read","write:dev"]')
+  withScopes('["read","dev:write"]')
   vi.mocked(repo.touchLastUsed).mockResolvedValue({ count: 1 })
   m.loadUserAuthState.mockResolvedValue({ isActive: true, role: "member", tokenVersion: 0 })
   m.projectFindFirst.mockResolvedValue({ id: "p1" })
@@ -114,18 +114,18 @@ describe("tool list", () => {
   })
 })
 
-describe("scope write:dev", () => {
+describe("scope dev:write", () => {
   it.each([
     ["claim_work", { pbi: "PBI-12", projectId: "p1", sessionId: "s-1" }],
     ["release_claim", { claimId: "c1", projectId: "p1" }],
     ["post_progress", { entityType: "pbi", entityId: "PBI-12", projectId: "p1", body: "done" }],
     ["link_merge_request", { pbi: "PBI-12", projectId: "p1", url: MR_URL }],
-  ])("%s without write:dev (every other scope) → INSUFFICIENT_SCOPE naming write:dev, service not called", async (tool, args) => {
+  ])("%s without dev:write (every other scope) → INSUFFICIENT_SCOPE naming dev:write, service not called", async (tool, args) => {
     withScopes('["read","backlog:write","backlog:reorder","sprint:write","task:write","comment:write","icebox:write","daily:write"]')
     const r = await callTool(tool, args)
     expect(r.isError).toBe(true)
-    expect(r.payload).toMatchObject({ code: "INSUFFICIENT_SCOPE", requiredScope: "write:dev" })
-    expect(String(r.payload.hint)).toContain("write:dev")
+    expect(r.payload).toMatchObject({ code: "INSUFFICIENT_SCOPE", requiredScope: "dev:write" })
+    expect(String(r.payload.hint)).toContain("dev:write")
     for (const fn of [dev.claimWork, dev.releaseClaim, dev.postProgress, dev.linkMergeRequest]) expect(fn).not.toHaveBeenCalled()
   })
 
@@ -184,7 +184,7 @@ describe("claim_work / release_claim", () => {
   })
 
   it("NOT_FOUND for a project outside the token's restriction", async () => {
-    withScopes('["read","write:dev"]', '["p9"]')
+    withScopes('["read","dev:write"]', '["p9"]')
     expect((await callTool("release_claim", { claimId: "c1", projectId: "p1" })).payload.code).toBe("NOT_FOUND")
     expect((await callTool("list_claims", { projectId: "p1" })).payload.code).toBe("NOT_FOUND")
   })

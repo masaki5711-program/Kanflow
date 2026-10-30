@@ -161,7 +161,7 @@ function CommentItem({ projectId, comment, members, membersLoading, onUpdate, on
     <li className="group rounded-ui-md border border-border bg-surface px-3 py-2">
       <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1">
         <span className="text-body font-semibold text-fg">{author}</span>
-        {/* Posted by a script / an AI session with the author's token (progress comments of write:dev, comment:write). */}
+        {/* Posted by a script / an AI session with the author's token (progress comments of dev:write, comment:write). */}
         <ViaBadge via={comment.via ?? null} />
         <time dateTime={comment.createdAt} title={formatFullDateTime(comment.createdAt, language)} className="text-caption text-fg-muted">
           {formatRelativeTime(comment.createdAt, new Date(), language)}

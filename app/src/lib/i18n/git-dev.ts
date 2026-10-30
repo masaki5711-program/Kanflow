@@ -22,7 +22,7 @@ export interface GitDevTranslations {
   gitDevSectionBranches: string
   gitDevBranchGone: string
   gitDevBranchGoneTitle: string
-  /** MR linked by a developer's AI session (write:dev) instead of found by the sync. */
+  /** MR linked by a developer's AI session (dev:write) instead of found by the sync. */
   gitDevDeclared: string
   gitDevDeclaredTitle: string
   gitDevSectionCommits: string

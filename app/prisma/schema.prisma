@@ -39,9 +39,9 @@ model User {
   aiJobs            AiJob[]
   ownedPlanItems    PlanItem[]               @relation("PlanItemOwner")
   apiTokens         ApiToken[]
-  /// Work claims (作業の宣言) made through a write:dev token.
+  /// Work claims (作業の宣言) made through a dev:write token.
   workClaims        WorkClaim[]
-  /// Merge request links declared through a write:dev token.
+  /// Merge request links declared through a dev:write token.
   declaredGitLinks  GitLink[]                @relation("GitLinkDeclaredBy")
 
   projectVisits ProjectVisit[]
@@ -558,7 +558,7 @@ model ProductBacklogItem {
   attachments        PbiAttachment[]
   /// GitLab merge requests / branches / commits naming this PBI (PBI-<displayId>).
   gitLinks           GitLink[]
-  /// Who is working on this PBI (or one of its tasks) right now (作業の宣言, write:dev).
+  /// Who is working on this PBI (or one of its tasks) right now (作業の宣言, dev:write).
   workClaims         WorkClaim[]
 
   @@unique([projectId, displayId])
@@ -1383,7 +1383,7 @@ model GitLink {
   /// Branch links only: when the branch was no longer in GitLab's (complete) branch list.
   /// Kept (shown as 削除済み on the PBI) instead of deleted; cleared if the branch comes back.
   goneAt        DateTime?
-  /// Declared by a developer (write:dev, POST /api/v1/.../dev/mr-links) rather than found by the
+  /// Declared by a developer (dev:write, POST /api/v1/.../dev/mr-links) rather than found by the
   /// sync; null = found by the sync. The sync keeps refreshing state / title of a declared MR.
   declaredById  String?
   declaredAt    DateTime?
@@ -1403,7 +1403,7 @@ model GitLink {
 
 /// 作業の宣言 (work claim, K5): a developer's AI session declares it is working on a PBI
 /// (taskId null) or one of its sprint tasks, from which session and on which branch
-/// (services/dev-work, docs/api-v1.md "Development (write:dev)"). Active = not released and
+/// (services/dev-work, docs/api-v1.md "Development (dev:write)"). Active = not released and
 /// heartbeatAt within the stale window (DEV_CLAIM_STALE_HOURS); stale rows are kept as history.
 model WorkClaim {
   id            String             @id @default(cuid())

@@ -1,5 +1,5 @@
--- Developer writes through the API (K5, scope write:dev; docs/api-v1.md
--- "Development (write:dev)", docs/mcp.md):
+-- Developer writes through the API (K5, scope dev:write; docs/api-v1.md
+-- "Development (dev:write)", docs/mcp.md):
 --
 --   * work_claim            作業の宣言: who works on a PBI (taskId null) or one
 --                           of its sprint tasks, from which session, on which

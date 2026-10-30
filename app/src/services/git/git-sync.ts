@@ -72,7 +72,7 @@ export async function syncRepository(repositoryId: string, factory: ClientFactor
     if (!read.failures.some((f) => f.kind === "mr")) await attachPipelines(source, repositoryId, lookups)
 
     const { written, changed: linkChanges, newlyMerged, newlyFailed } = await writeLinks(repo.projectId, repo.id, drafts, pbiIds)
-    // Links a developer declared (write:dev) whose MR does not name the PBI: kept current here.
+    // Links a developer declared (dev:write) whose MR does not name the PBI: kept current here.
     const declared = await refreshDeclaredLinks(repo.id, read.mrs, mrDrafts, pbiIds, now)
     for (const id of declared.newlyMerged) newlyMerged.add(id)
     const changed = linkChanges + declared.changed

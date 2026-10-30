@@ -1,7 +1,7 @@
 /**
- * Developer writes of AI sessions (K5, token scope write:dev — docs/api-v1.md
+ * Developer writes of AI sessions (K5, token scope dev:write — docs/api-v1.md
  * "Development", docs/mcp.md). Authorization is the caller's (runV1Write:
- * scope write:dev ∩ project role "dev.write"); `actor` is the token owner.
+ * scope dev:write ∩ project role "dev.write"); `actor` is the token owner.
  *
  * - 作業の宣言 (work claims): who works on a PBI or one of its tasks, from which
  *   session, on which branch. One active claim per target: claiming what another
@@ -251,7 +251,7 @@ export interface DeclaredLinkDto {
   state: string | null
   repository: { id: string; name: string }
   pbi: { id: string; displayId: number }
-  /** true = linked by a developer (write:dev); false = found by the sync. */
+  /** true = linked by a developer (dev:write); false = found by the sync. */
   declared: boolean
   declaredAt: string | null
   declaredBy: { id: string; name: string } | null

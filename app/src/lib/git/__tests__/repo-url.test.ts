@@ -124,7 +124,7 @@ describe("parseRepoUrl — SSRF guard (host allowlist) and rejected forms", () =
   })
 })
 
-describe("parseMergeRequestUrl (write:dev MR links)", () => {
+describe("parseMergeRequestUrl (dev:write MR links)", () => {
   const MR = `https://${HOST}/group/sub/repo/-/merge_requests/42`
 
   it("parses an MR URL and rebuilds it canonically (sub-page, query and fragment dropped)", async () => {

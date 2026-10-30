@@ -14,10 +14,10 @@ import {
 import { CREATE_NOTE, DATA_NOTICE, definedOnly, guard, mcpWrite, pbiIdIn, pbiScope, projectScope, toolOk } from "./tool-kit"
 
 /**
- * Developer tools of the Kanflow MCP server (K5, scope write:dev; docs/mcp.md
+ * Developer tools of the Kanflow MCP server (K5, scope dev:write; docs/mcp.md
  * "Development tools"): 作業の宣言, progress comments, MR links. Same operations
  * as /api/v1/projects/:projectId/dev/* (v1-dev-handlers) through the same
- * write path (runV1Write: scope write:dev ∩ role, write budget, via "mcp").
+ * write path (runV1Write: scope dev:write ∩ role, write budget, via "mcp").
  * Nothing here moves a task or PBI status: that stays a human decision.
  */
 
@@ -48,7 +48,7 @@ export function registerDevTools(server: McpServer, principal: ApiPrincipal): vo
     "claim_work",
     {
       description: describe(
-        "Declare that you (the token user) are working on a PBI or one sprint task, from this session and branch (作業の宣言; scope write:dev, team members). " +
+        "Declare that you (the token user) are working on a PBI or one sprint task, from this session and branch (作業の宣言; scope dev:write, team members). " +
           "Give exactly one of pbi / taskId. Call it again with the same sessionId at least every couple of hours as a heartbeat (a claim without heartbeat goes stale after DEV_CLAIM_STALE_HOURS, default 4 h). " +
           "One active claim per task: if another user or session holds the task (or the whole PBI) you get TASK_CLAIMED with `holders` (name, session, branch, claimedAt, lastHeartbeatAt) — stop and tell the user; do not work on it in parallel. " +
           "takeover: true ends the other claim only when it is stale or your own other session (otherwise still TASK_CLAIMED); the previous holder is notified. It does not change the task status.",
@@ -75,7 +75,7 @@ export function registerDevTools(server: McpServer, principal: ApiPrincipal): vo
   server.registerTool(
     "release_claim",
     {
-      description: describe("Release your work claim when you stop or finish (scope write:dev; only the claim's owner). Releasing twice is harmless."),
+      description: describe("Release your work claim when you stop or finish (scope dev:write; only the claim's owner). Releasing twice is harmless."),
       inputSchema: { claimId: id.describe("The claim id from claim_work / list_claims."), projectId: id.describe("The claim's projectId.") },
       annotations: IDEMPOTENT_WRITE,
     },
@@ -104,7 +104,7 @@ export function registerDevTools(server: McpServer, principal: ApiPrincipal): vo
     "post_progress",
     {
       description: describe(
-        `Post a progress comment on a PBI or a sprint task as the token user (scope write:dev; team members). It appears in the item's comment thread marked "via MCP (AI)". Keep it short and factual (what is done, what is next, blockers).\n\n${CREATE_NOTE}`,
+        `Post a progress comment on a PBI or a sprint task as the token user (scope dev:write; team members). It appears in the item's comment thread marked "via MCP (AI)". Keep it short and factual (what is done, what is next, blockers).\n\n${CREATE_NOTE}`,
       ),
       inputSchema: {
         entityType: z.enum(PROGRESS_ENTITY_TYPES),
@@ -135,7 +135,7 @@ export function registerDevTools(server: McpServer, principal: ApiPrincipal): vo
     "link_merge_request",
     {
       description: describe(
-        "Link a merge request to a PBI (scope write:dev; team members). The URL must be a merge request of a repository registered in the project's Git integration " +
+        "Link a merge request to a PBI (scope dev:write; team members). The URL must be a merge request of a repository registered in the project's Git integration " +
           "(https://<host>/<group>/<repo>/-/merge_requests/<number>); other URLs are refused (MR_URL_INVALID / MR_REPOSITORY_NOT_REGISTERED). Linking the same MR again answers the existing link (created: false).",
       ),
       inputSchema: {

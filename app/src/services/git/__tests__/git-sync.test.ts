@@ -1085,7 +1085,7 @@ describe("syncRepository — tags", () => {
   })
 })
 
-describe("syncRepository — merge requests declared by a developer (write:dev)", () => {
+describe("syncRepository — merge requests declared by a developer (dev:write)", () => {
   const declaredRow = (over: Record<string, unknown> = {}) => ({
     id: "l-decl", ref: "5", kind: "mr", backlogItemId: "b-9", declaredAt: NOW,
     title: "!5", url: "https://gitlab/mr/5", state: null, pipeline: "success", author: null, sourceBranch: null, occurredAt: NOW, mergedAt: null, goneAt: null, ...over,

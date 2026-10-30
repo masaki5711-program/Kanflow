@@ -69,7 +69,7 @@ export interface ApiTokensTranslations {
   apiTokenScopeCommentWrite: string
   apiTokenScopeIceboxWrite: string
   apiTokenScopeDailyWrite: string
-  /** write:dev — work claims (作業の宣言), progress comments, MR links of AI sessions (K5). */
+  /** dev:write — work claims (作業の宣言), progress comments, MR links of AI sessions (K5). */
   apiTokenScopeDevWrite: string
   apiTokenProjects: string
   apiTokenProjectsAll: string

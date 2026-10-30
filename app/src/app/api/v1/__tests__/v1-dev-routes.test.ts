@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 /**
- * /api/v1/projects/:projectId/dev/* (K5, scope write:dev): the token scope ∩ project role
+ * /api/v1/projects/:projectId/dev/* (K5, scope dev:write): the token scope ∩ project role
  * guard (allow and deny), the 409 TASK_CLAIMED shape of a held target (holders), the
  * service errors' codes, idempotency and the write budget. The service is mocked; its
  * rules are tested in services/dev-work.
@@ -50,7 +50,7 @@ const mrLinksRoute = await import("@/app/api/v1/projects/[projectId]/dev/mr-link
 const token = generateApiToken()
 const BASE = "http://localhost/api/v1/projects/p1"
 const EVERY_OTHER_SCOPE = '["read","backlog:write","backlog:reorder","sprint:write","task:write","comment:write","icebox:write","daily:write"]'
-const DEV_SCOPES = '["read","write:dev"]'
+const DEV_SCOPES = '["read","dev:write"]'
 const API_ACTOR = { userId: "u1", userName: "Dev One", systemRole: "member", via: "api" as const }
 const MR_URL = "https://gitlab.scm.service.infosys.yamaha.com/grp/api/-/merge_requests/7"
 const CLAIM = { id: "c1", projectId: "p1", pbi: { id: "b1", displayId: 12, title: "Login" }, task: null, sessionId: "s-1", active: true }
@@ -99,19 +99,19 @@ beforeEach(() => {
   vi.mocked(dev.listClaims).mockResolvedValue({ data: [CLAIM], staleAfterHours: 4 } as never)
 })
 
-describe("scope write:dev ∩ project role", () => {
-  it.each(WRITES)("$name: a developer with write:dev may do it (2xx), as the token owner via api", async ({ call }) => {
+describe("scope dev:write ∩ project role", () => {
+  it.each(WRITES)("$name: a developer with dev:write may do it (2xx), as the token owner via api", async ({ call }) => {
     const res = await call()
     expect(res.status).toBeLessThan(300)
     expect(v1.loadApiActor).toHaveBeenCalledWith(expect.objectContaining({ userId: "u1" }))
   })
 
-  it.each(WRITES)("$name: 403 INSUFFICIENT_SCOPE (requiredScope write:dev) for a token with every other scope, even as PO", async ({ call }) => {
+  it.each(WRITES)("$name: 403 INSUFFICIENT_SCOPE (requiredScope dev:write) for a token with every other scope, even as PO", async ({ call }) => {
     withScopes(EVERY_OTHER_SCOPE)
     asRole("po")
     const res = await call()
     expect(res.status).toBe(403)
-    expect(await res.json()).toEqual({ error: "Insufficient scope", code: "INSUFFICIENT_SCOPE", requiredScope: "write:dev" })
+    expect(await res.json()).toEqual({ error: "Insufficient scope", code: "INSUFFICIENT_SCOPE", requiredScope: "dev:write" })
   })
 
   it.each(WRITES)("$name: 403 FORBIDDEN for a section manager who is not a project member, despite the scope", async ({ call }) => {

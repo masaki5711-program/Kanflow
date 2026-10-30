@@ -30,7 +30,7 @@ Claude Code で `/kanflow setup` と入力すると、1〜4 を対話で案内�
    | プリセット | スコープ | 向いている人 |
    |---|---|---|
    | 閲覧のみ | `read` | PBI や受入条件を読ませるだけ |
-   | **Developer 向け** | `read`, `task:write`, `comment:write`, `icebox:write`, `daily:write`, `write:dev` | Claude Code で開発する Developer（タスク更新・コメント・デイリースクラム・作業の宣言・進捗コメント・MR のリンク） |
+   | **Developer 向け** | `read`, `task:write`, `comment:write`, `icebox:write`, `daily:write`, `dev:write` | Claude Code で開発する Developer（タスク更新・コメント・デイリースクラム・作業の宣言・進捗コメント・MR のリンク） |
    | PO / SM 向け（すべて） | 上記 + `backlog:write`, `backlog:reorder`, `sprint:write` | PBI やスプリントも Claude Code から作る PO / SM |
 
    - `read` は常に含まれます。
@@ -123,7 +123,8 @@ node scripts/kanflow-setup.js --url https://<kanflow-host>
 
 - Claude Code からの変更は Kanflow の変更履歴とダッシュボードの「最近の動き」に **「MCP 経由（AI）」バッジ**付きで表示されます
   （REST API からの変更は「API 経由」）。誰がいつ AI 経由で変えたかを画面で確認できます。
-- **作業の宣言（`write:dev`）**: 1 つのタスク（または PBI 全体）を作業中にできるのは 1 つのセッションだけです。他の人・別のセッションが作業中なら
+- 名前について: GitStation の計画文書（06 §4.1、02 §12–13）ではこのスコープを `write:dev` と書いていますが、実装の名前は **`dev:write`** です（他のスコープと同じ `<領域>:write` の形）。
+- **作業の宣言（`dev:write`）**: 1 つのタスク（または PBI 全体）を作業中にできるのは 1 つのセッションだけです。他の人・別のセッションが作業中なら
   `TASK_CLAIMED` で断られ、作業中の人の名前・セッション・ブランチ・最後の生存通知の時刻が返ります（AI は無人で動くので、警告ではなく拒否にしています）。
   Claude はそこで止まって知らせます。2 時間に 1 回ほど `claim_work` を呼び直して生存を知らせ、`DEV_CLAIM_STALE_HOURS`（既定 4 時間）通知がない宣言は期限切れになり、
   誰の作業も止めません。期限切れの宣言か自分の別セッションの宣言だけは `takeover: true` で引き継げます（前の持ち主に通知、変更履歴に記録）。

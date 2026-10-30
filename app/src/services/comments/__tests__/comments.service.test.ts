@@ -190,7 +190,7 @@ describe("getCommentCounts", () => {
 describe("createComment", () => {
   const input = { entityType: "pbi" as const, entityId: "b1", body: "cc @[Taro Yamada] @Nobody\nplease check" }
 
-  it("records via on the comment row when the actor came through a token (progress comments of write:dev)", async () => {
+  it("records via on the comment row when the actor came through a token (progress comments of dev:write)", async () => {
     vi.mocked(repo.findComment).mockResolvedValue(row("c1", { body: input.body, via: "mcp" }) as never)
     const dto = await svc.createComment("p1", input, { ...ACTOR, via: "mcp" })
     expect(repo.createComment).toHaveBeenCalledWith(TX, expect.objectContaining({ authorId: "u1", via: "mcp" }))

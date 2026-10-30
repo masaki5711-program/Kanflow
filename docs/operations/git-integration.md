@@ -275,7 +275,7 @@ syncing, hides the UI and the AI stops using the passages). Migrations
 `syncCursor`, `syncGeneration`, `git_link.goneAt`),
 `20261030140000_git_integration_provider` (`git_integration.provider`, default
 `gitlab`), `20261030160000_dev_work_claims` (`git_link.declaredById /
-declaredAt`: merge requests linked by a developer through `write:dev`, kept
+declaredAt`: merge requests linked by a developer through `dev:write` (`write:dev` in GitStation's plan documents), kept
 current by the sync even when the MR does not name the PBI — docs/api-v1.md
 "Development"). `syncCursor` is deprecated: still written
 (the earlier of the two cursors) for one release so a rollback re-reads rather

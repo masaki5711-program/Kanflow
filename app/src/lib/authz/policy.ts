@@ -84,7 +84,7 @@ export const PROJECT_ACTIONS = [
   /** Ask for an immediate GitLab sync ("今すぐ同期"). */
   "git.sync",
   /**
-   * Developer writes of an AI session (token scope write:dev only, docs/api-v1.md
+   * Developer writes of an AI session (token scope dev:write only, docs/api-v1.md
    * "Development"): declare / release work on a PBI or task (作業の宣言), post a
    * progress comment, link a merge request of a registered repository to a PBI.
    */

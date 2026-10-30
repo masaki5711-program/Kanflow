@@ -63,7 +63,7 @@ const WRITE_TOOLS = [
   "add_comment",
   "create_icebox_item",
   "post_daily_scrum",
-  // Development (write:dev, K5) — mcp-dev-tools.test.ts
+  // Development (dev:write, K5) — mcp-dev-tools.test.ts
   "claim_work",
   "release_claim",
   "post_progress",
