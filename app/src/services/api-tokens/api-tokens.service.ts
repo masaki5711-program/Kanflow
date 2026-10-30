@@ -8,9 +8,20 @@
  * redaction does not blank the prefix either).
  */
 import { API_TOKEN_EXPIRY_DAYS, loadApiTokenConfig } from "@/lib/api-tokens/config"
-import { generateApiToken, parseScopes, serializeScopes, tokenState, type ApiTokenScope, type TokenState } from "@/lib/api-tokens/token"
+import { normalizeScopes } from "@/lib/api-tokens/scopes"
+import {
+  generateApiToken,
+  parseProjectIds,
+  parseScopes,
+  serializeProjectIds,
+  serializeScopes,
+  tokenState,
+  type ApiTokenScope,
+  type TokenState,
+} from "@/lib/api-tokens/token"
 import { logger } from "@/lib/logger"
 import { defaultDb, withTransaction, type Db } from "@/services/_shared/db"
+import { loadProjectListScope, projectListWhere } from "@/services/projects/project-list"
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "@/services/_shared/errors"
 import * as repo from "./api-tokens.repository"
 import type { CreateApiTokenInput } from "./api-tokens.schemas"
@@ -23,6 +34,8 @@ export interface ApiTokenDto {
   name: string
   prefix: string
   scopes: ApiTokenScope[]
+  /** Projects the token is limited to; null = every project the owner can access. */
+  projectIds: string[] | null
   createdAt: string
   lastUsedAt: string | null
   expiresAt: string | null
@@ -38,6 +51,7 @@ interface TokenRow {
   name: string
   prefix: string
   scopes: string
+  projectIds: string | null
   createdAt: Date
   lastUsedAt: Date | null
   expiresAt: Date | null
@@ -53,6 +67,7 @@ export function toTokenDto(row: TokenRow, now: Date): ApiTokenDto {
     name: row.name,
     prefix: row.prefix,
     scopes: parseScopes(row.scopes),
+    projectIds: parseProjectIds(row.projectIds),
     createdAt: row.createdAt.toISOString(),
     lastUsedAt: iso(row.lastUsedAt),
     expiresAt: iso(row.expiresAt),
@@ -63,14 +78,18 @@ export function toTokenDto(row: TokenRow, now: Date): ApiTokenDto {
 export interface OwnTokensDto {
   config: { enabled: boolean; maxPerUser: number; allowNoExpiry: boolean; expiryDays: readonly number[] }
   tokens: ApiTokenDto[]
+  /** Active projects the user can access: the choices for a token's project restriction. */
+  projects: { id: string; name: string }[]
 }
 
-export async function getOwnTokens(userId: string, now: Date = new Date()): Promise<OwnTokensDto> {
+export async function getOwnTokens(user: { id: string; role: string }, now: Date = new Date()): Promise<OwnTokensDto> {
   const cfg = loadApiTokenConfig()
-  const rows = await repo.findUserTokens(defaultDb, userId)
+  const [rows, scope] = await Promise.all([repo.findUserTokens(defaultDb, user.id), loadProjectListScope(user)])
+  const projects = await repo.findProjectChoices(defaultDb, projectListWhere(scope, "active"))
   return {
     config: { enabled: cfg.enabled, maxPerUser: cfg.maxPerUser, allowNoExpiry: cfg.allowNoExpiry, expiryDays: API_TOKEN_EXPIRY_DAYS },
     tokens: rows.map((r) => toTokenDto(r, now)),
+    projects,
   }
 }
 
@@ -79,11 +98,27 @@ export interface CreatedTokenDto extends ApiTokenDto {
   token: string
 }
 
+/**
+ * A token may only be limited to active projects its owner can open now (the
+ * same list as the project picker); unknown, trashed, archived and foreign
+ * projects get the same 400 (existence not revealed).
+ */
+async function assertAccessibleProjects(db: Db, user: { id: string; role: string }, projectIds: readonly string[]): Promise<void> {
+  if (projectIds.length === 0) return
+  const scope = await loadProjectListScope(user, db)
+  const found = await repo.findProjectChoices(db, { AND: [projectListWhere(scope, "active"), { id: { in: [...projectIds] } }] })
+  const ok = new Set(found.map((p) => p.id))
+  const missing = projectIds.find((id) => !ok.has(id))
+  if (missing) throw new ValidationError("Unknown project", { projectId: missing })
+}
+
 export async function createOwnToken(userId: string, input: CreateApiTokenInput, now: Date = new Date()): Promise<CreatedTokenDto> {
   const cfg = loadApiTokenConfig()
   if (!cfg.enabled) throw new ForbiddenError("API tokens are disabled")
   if (input.expiresInDays === null && !cfg.allowNoExpiry) throw new ValidationError("An expiry is required")
 
+  const scopes = normalizeScopes(input.scopes ?? [])
+  const projectIds = [...new Set(input.projectIds ?? [])]
   const generated = generateApiToken()
   const created = await withTransaction(async (tx) => {
     const user = await repo.findUserTokenVersion(tx, userId)
@@ -91,17 +126,26 @@ export async function createOwnToken(userId: string, input: CreateApiTokenInput,
     if ((await repo.countActiveTokens(tx, userId, now)) >= cfg.maxPerUser) {
       throw new ConflictError(`Token limit reached (${cfg.maxPerUser})`, { maxPerUser: cfg.maxPerUser })
     }
+    await assertAccessibleProjects(tx, { id: userId, role: user.role }, projectIds)
     return repo.insertToken(tx, {
       userId,
       name: input.name,
       tokenHash: generated.hash,
       prefix: generated.prefix,
-      scopes: serializeScopes(["read"]),
+      scopes: serializeScopes(scopes),
+      projectIds: serializeProjectIds(projectIds),
       userTokenVersion: user.tokenVersion,
       expiresAt: input.expiresInDays === null ? null : new Date(now.getTime() + input.expiresInDays * DAY_MS),
     })
   })
-  log.info("api token created", { userId, patId: created.id, patPrefix: created.prefix, expiresAt: iso(created.expiresAt) })
+  log.info("api token created", {
+    userId,
+    patId: created.id,
+    patPrefix: created.prefix,
+    expiresAt: iso(created.expiresAt),
+    scopes,
+    projectCount: projectIds.length,
+  })
   return { ...toTokenDto(created, now), token: generated.token }
 }
 

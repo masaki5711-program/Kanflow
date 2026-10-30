@@ -38,6 +38,7 @@ export interface ApiErrorsTranslations {
   apiErrUserNotFound: string
   apiErrUserInactive: string
   apiErrDuplicateName: string
+  apiErrInsufficientScope: string
   apiErrProgressPoOnly: string
   apiErrSectionsPoOrAdmin: string
   apiErrSectionNotFound: string
@@ -141,6 +142,7 @@ export const API_ERROR_MESSAGE_KEYS: Readonly<Record<ApiErrorCode, ApiErrorMessa
   USER_NOT_FOUND: "apiErrUserNotFound",
   USER_INACTIVE: "apiErrUserInactive",
   DUPLICATE_NAME: "apiErrDuplicateName",
+  INSUFFICIENT_SCOPE: "apiErrInsufficientScope",
   PROGRESS_PO_ONLY: "apiErrProgressPoOnly",
   SECTIONS_PO_OR_ADMIN: "apiErrSectionsPoOrAdmin",
   SECTION_NOT_FOUND: "apiErrSectionNotFound",
@@ -251,6 +253,7 @@ export const ja: ApiErrorsTranslations = {
   apiErrUserNotFound: "ユーザーが見つかりません",
   apiErrUserInactive: "無効化されたユーザーです",
   apiErrDuplicateName: "同じ名前が既に存在します",
+  apiErrInsufficientScope: "このトークンにはこの操作の権限（スコープ）がありません",
   apiErrProgressPoOnly: "進捗の編集は PO のみが行えます",
   apiErrSectionsPoOrAdmin: "セクションの変更は PO または管理者が行えます",
   apiErrSectionNotFound: "指定されたセクションが見つかりません",
@@ -355,6 +358,7 @@ export const en: ApiErrorsTranslations = {
   apiErrUserNotFound: "User not found",
   apiErrUserInactive: "This user is deactivated",
   apiErrDuplicateName: "The same name already exists",
+  apiErrInsufficientScope: "This token does not have the scope for this action",
   apiErrProgressPoOnly: "Only the PO can edit the progress",
   apiErrSectionsPoOrAdmin: "Only the PO or an administrator can change sections",
   apiErrSectionNotFound: "The specified section was not found",
@@ -459,6 +463,7 @@ export const id: ApiErrorsTranslations = {
   apiErrUserNotFound: "Pengguna tidak ditemukan",
   apiErrUserInactive: "Pengguna ini telah dinonaktifkan",
   apiErrDuplicateName: "Nama yang sama sudah ada",
+  apiErrInsufficientScope: "Token ini tidak memiliki cakupan untuk tindakan ini",
   apiErrProgressPoOnly: "Hanya PO yang dapat mengubah progres",
   apiErrSectionsPoOrAdmin: "Hanya PO atau administrator yang dapat mengubah seksi",
   apiErrSectionNotFound: "Seksi yang ditentukan tidak ditemukan",

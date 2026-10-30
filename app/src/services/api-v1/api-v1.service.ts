@@ -39,9 +39,11 @@ export async function getMe(userId: string) {
   return { data: me }
 }
 
-export async function listProjects(user: { id: string; role: string }, query: V1ProjectsQuery) {
+/** `projectIds` = the token's project restriction (null = none). */
+export async function listProjects(user: { id: string; role: string }, query: V1ProjectsQuery, projectIds: string[] | null = null) {
   const scope = await loadProjectListScope(user)
-  const rows = await repo.findProjects(defaultDb, projectListWhere(scope, query.status))
+  const where = projectListWhere(scope, query.status)
+  const rows = await repo.findProjects(defaultDb, projectIds ? { AND: [where, { id: { in: projectIds } }] } : where)
   return { data: rows.map(isoDates) }
 }
 

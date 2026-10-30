@@ -8,6 +8,7 @@ const TOKEN_LIST_SELECT = {
   name: true,
   prefix: true,
   scopes: true,
+  projectIds: true,
   createdAt: true,
   lastUsedAt: true,
   expiresAt: true,
@@ -22,7 +23,7 @@ export function countActiveTokens(db: Db, userId: string, now: Date): Promise<nu
 }
 
 export function findUserTokenVersion(db: Db, userId: string) {
-  return db.user.findUnique({ where: { id: userId }, select: { tokenVersion: true, isActive: true } })
+  return db.user.findUnique({ where: { id: userId }, select: { tokenVersion: true, isActive: true, role: true } })
 }
 
 export function insertToken(
@@ -33,6 +34,7 @@ export function insertToken(
     tokenHash: string
     prefix: string
     scopes: string
+    projectIds: string | null
     userTokenVersion: number
     expiresAt: Date | null
   }
@@ -84,6 +86,7 @@ export function findTokenByHash(db: Db, tokenHash: string) {
       userId: true,
       prefix: true,
       scopes: true,
+      projectIds: true,
       userTokenVersion: true,
       expiresAt: true,
       revokedAt: true,
@@ -94,4 +97,17 @@ export function findTokenByHash(db: Db, tokenHash: string) {
 
 export function touchLastUsed(db: Db, id: string, now: Date) {
   return db.apiToken.updateMany({ where: { id }, data: { lastUsedAt: now } })
+}
+
+/** Upper bound of the projects offered for a token's project restriction. */
+export const TOKEN_PROJECT_CHOICES_LIMIT = 1000
+
+/** Projects (id, name) for the token form, by a project-list where (services/projects/project-list). */
+export function findProjectChoices(db: Db, where: object) {
+  return db.project.findMany({
+    where,
+    select: { id: true, name: true },
+    orderBy: [{ name: "asc" }, { id: "asc" }],
+    take: TOKEN_PROJECT_CHOICES_LIMIT,
+  })
 }

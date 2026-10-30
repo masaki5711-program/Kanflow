@@ -1,5 +1,5 @@
 /**
- * Bearer-token authentication for the read-only REST API (/api/v1).
+ * Bearer-token authentication for the REST API (/api/v1) and the MCP endpoint.
  *
  * Only `Authorization: Bearer kfl_...` is accepted — session cookies are
  * ignored, so CSRF does not apply. Every failure of the credential itself
@@ -13,7 +13,15 @@
  * (written at most once per minute per token).
  */
 import { loadApiTokenConfig } from "@/lib/api-tokens/config"
-import { bearerToken, hashApiToken, isWellFormedToken, parseScopes, tokenState, type ApiTokenScope } from "@/lib/api-tokens/token"
+import {
+  bearerToken,
+  hashApiToken,
+  isWellFormedToken,
+  parseProjectIds,
+  parseScopes,
+  tokenState,
+  type ApiTokenScope,
+} from "@/lib/api-tokens/token"
 import { checkTokenAgainstUser, loadUserAuthState } from "@/lib/authz/session-validity"
 import { logger } from "@/lib/logger"
 import { clientIpFromHeaders, getRateLimiter, type RateLimitStatus } from "@/lib/rate-limit"
@@ -39,6 +47,8 @@ export interface ApiPrincipal {
   tokenId: string
   tokenPrefix: string
   scopes: ApiTokenScope[]
+  /** Projects the token is limited to; null = every project the owner can access. */
+  projectIds: string[] | null
 }
 
 export interface AuthFailure {
@@ -143,7 +153,14 @@ export async function authenticateApiRequest(request: Request, now: () => number
   maybeTouchLastUsed(row, nowMs)
   return {
     ok: true,
-    principal: { userId: row.userId, role: user.role, tokenId: row.id, tokenPrefix: row.prefix, scopes },
+    principal: {
+      userId: row.userId,
+      role: user.role,
+      tokenId: row.id,
+      tokenPrefix: row.prefix,
+      scopes,
+      projectIds: parseProjectIds(row.projectIds),
+    },
     rate: { ...rate, limit: cfg.ratePerMinute },
   }
 }

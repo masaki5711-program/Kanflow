@@ -1,4 +1,5 @@
 import crypto from "node:crypto"
+import { isApiTokenScope, type ApiTokenScope } from "./scopes"
 
 /**
  * Personal access tokens (pure helpers, no I/O).
@@ -17,8 +18,10 @@ const RANDOM_CHARS = 43
 const DISPLAY_PREFIX_LENGTH = 12
 const TOKEN_PATTERN = new RegExp(`^${TOKEN_PREFIX}[A-Za-z0-9_-]{${RANDOM_CHARS}}$`)
 
-export const API_TOKEN_SCOPES = ["read"] as const
-export type ApiTokenScope = (typeof API_TOKEN_SCOPES)[number]
+export { API_TOKEN_SCOPES, type ApiTokenScope } from "./scopes"
+
+/** Upper bound of projects a token can be restricted to. */
+export const API_TOKEN_MAX_PROJECTS = 50
 
 export interface GeneratedToken {
   /** Plain token: returned to the user once, never stored or logged. */
@@ -61,7 +64,27 @@ export function parseScopes(text: string): ApiTokenScope[] {
   try {
     const parsed: unknown = JSON.parse(text)
     if (!Array.isArray(parsed)) return []
-    return parsed.filter((s): s is ApiTokenScope => (API_TOKEN_SCOPES as readonly unknown[]).includes(s))
+    return parsed.filter(isApiTokenScope)
+  } catch {
+    return []
+  }
+}
+
+/** Project restriction → ApiToken.projectIds (null = every project the owner can access). */
+export function serializeProjectIds(projectIds: readonly string[] | null): string | null {
+  return projectIds && projectIds.length > 0 ? JSON.stringify(projectIds) : null
+}
+
+/**
+ * Stored ApiToken.projectIds → the allowed project ids, or null for "no
+ * restriction". Malformed text fails closed (an empty list = no project).
+ */
+export function parseProjectIds(text: string | null): string[] | null {
+  if (text === null) return null
+  try {
+    const parsed: unknown = JSON.parse(text)
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter((p): p is string => typeof p === "string" && p.length > 0)
   } catch {
     return []
   }

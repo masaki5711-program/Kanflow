@@ -30,7 +30,16 @@ Authorization: Bearer kfl_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
   role is read from the database on every request (cached up to 30 s), and
   project access follows the same rules as the UI (docs/authorization.md).
   Every v1 endpoint needs only `project.view`.
-- Scope: `read` (the only scope today).
+- **Scopes** (chosen at creation, `read` is always included): `read`,
+  `backlog:write`, `backlog:reorder`, `sprint:write`, `task:write`,
+  `comment:write`, `icebox:write`, `daily:write`. A write needs the scope
+  **and** the owner's project role (docs/authorization.md): a dev's token
+  never creates PBIs or sprints. Missing scope → `403 INSUFFICIENT_SCOPE`
+  with `requiredScope`. The form offers presets: read only / developer
+  (`read`, `task:write`, `comment:write`, `icebox:write`, `daily:write`) /
+  PO・SM (all).
+- **Project restriction** (optional): limit a token to some projects; every
+  other project answers 404 and is left out of `/projects`.
 - Revoke a token on `/me` (own tokens) or `/admin/api-tokens` (admins, any
   token). Tokens are also **revoked automatically** when an admin deactivates
   the user, changes their system role or resets their password (the same
@@ -56,8 +65,9 @@ Errors: `{ "error": "<message>", "code": "<CODE>" }`
 |---|---|---|
 | 400 | `VALIDATION` | Bad query parameter (unknown `status`, `limit` out of range, malformed `cursor`) |
 | 401 | `UNAUTHORIZED` | Missing / malformed / unknown / revoked / expired token, or the owner is deactivated or had their sessions revoked. Always the same body; `WWW-Authenticate: Bearer realm="kanflow"` |
-| 403 | `FORBIDDEN` | The API is disabled (`API_TOKENS_ENABLED=off`), or the token lacks the `read` scope |
-| 404 | `NOT_FOUND` / `SPRINT_NOT_FOUND` | The project does not exist, is in the trash, or the token owner has no access to it (existence is not revealed); unknown sprint of the project |
+| 403 | `FORBIDDEN` | The API is disabled (`API_TOKENS_ENABLED=off`), the token lacks the `read` scope, or (writes) the owner's project role does not allow the action |
+| 403 | `INSUFFICIENT_SCOPE` | (writes) The token lacks the scope of the action; the body names it in `requiredScope` |
+| 404 | `NOT_FOUND` / `SPRINT_NOT_FOUND` | The project does not exist, is in the trash, the token owner has no access to it, or the token is limited to other projects (existence is not revealed); unknown sprint of the project |
 | 429 | `RATE_LIMITED` | Rate limit exceeded; see `Retry-After` |
 | 500 | `INTERNAL` | Server error (details only in the server log) |
 
@@ -163,4 +173,5 @@ Invoke-RestMethod -Headers $h "$base/api/v1/projects" | Select-Object -ExpandPro
 | `API_TOKEN_ALLOW_NO_EXPIRY` | `false` | Allow tokens without an expiry |
 | `API_V1_RATE_LIMIT_PER_MIN` | `120` | Requests per token per minute |
 
-Schema: table `ApiToken` (migration `20261005000000_api_tokens_metrics`).
+Schema: table `ApiToken` (migrations `20261005000000_api_tokens_metrics`,
+`20261030000000_api_token_scopes` for `projectIds`).

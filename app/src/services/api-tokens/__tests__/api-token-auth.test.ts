@@ -31,6 +31,7 @@ function tokenRow(over: Record<string, unknown> = {}) {
     userId: "u1",
     prefix: token.prefix,
     scopes: '["read"]',
+    projectIds: null,
     userTokenVersion: 2,
     expiresAt: new Date(NOW + 86_400_000),
     revokedAt: null,
@@ -100,6 +101,16 @@ describe("authenticateApiRequest", () => {
   it("403 when the token lacks the read scope", async () => {
     vi.mocked(repo.findTokenByHash).mockResolvedValue(tokenRow({ scopes: "[]" }) as never)
     expect(await authenticateApiRequest(req(`Bearer ${token.token}`), clock)).toMatchObject({ ok: false, status: 403 })
+  })
+
+  it("carries the scopes and project restriction on the principal", async () => {
+    vi.mocked(repo.findTokenByHash).mockResolvedValue(
+      tokenRow({ scopes: '["read","task:write","bogus"]', projectIds: '["p1"]' }) as never
+    )
+    expect(await authenticateApiRequest(req(`Bearer ${token.token}`), clock)).toMatchObject({
+      ok: true,
+      principal: { scopes: ["read", "task:write"], projectIds: ["p1"] },
+    })
   })
 
   it("403 when the API is disabled", async () => {

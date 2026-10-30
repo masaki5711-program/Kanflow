@@ -49,11 +49,31 @@ export interface ApiTokensTranslations {
   apiTokenColOwner: string
   apiTokenOwnerInactive: string
   apiTokenAdminRevokeMessage: string
+  /** Token scopes (create form) and project restriction. */
+  apiTokenScopes: string
+  apiTokenScopesHint: string
+  apiTokenPresetReadOnly: string
+  apiTokenPresetDeveloper: string
+  apiTokenPresetAll: string
+  apiTokenScopeRead: string
+  apiTokenScopeBacklogWrite: string
+  apiTokenScopeBacklogReorder: string
+  apiTokenScopeSprintWrite: string
+  apiTokenScopeTaskWrite: string
+  apiTokenScopeCommentWrite: string
+  apiTokenScopeIceboxWrite: string
+  apiTokenScopeDailyWrite: string
+  apiTokenProjects: string
+  apiTokenProjectsAll: string
+  apiTokenProjectsSelected: string
+  apiTokenProjectsPickOne: string
+  apiTokenProjectsEmpty: string
+  apiTokenProjectCount: string
 }
 
 export const ja: ApiTokensTranslations = {
   apiTokenSectionTitle: "個人アクセストークン",
-  apiTokenSectionHint: "読み取り専用 REST API（/api/v1）を外部ツールから呼び出すためのトークンです。あなたと同じ閲覧権限を持つので、第三者に渡さないでください。",
+  apiTokenSectionHint: "REST API（/api/v1）や Claude Code（Kanflow MCP）から Kanflow を使うためのトークンです。あなたの権限で動くので、第三者に渡さないでください。",
   apiTokenDocsLink: "API の使い方",
   apiTokenUsageBaseUrl: "ベース URL",
   apiTokenUsageAuth: "発行したトークンを Authorization ヘッダーに付けて呼び出します（読み取り専用・JSON）。",
@@ -96,11 +116,30 @@ export const ja: ApiTokensTranslations = {
   apiTokenColOwner: "所有者",
   apiTokenOwnerInactive: "無効ユーザー",
   apiTokenAdminRevokeMessage: "{owner} のトークン「{name}」を失効します。",
+  apiTokenScopes: "権限（スコープ）",
+  apiTokenScopesHint: "チェックした操作だけがこのトークンで行えます。実際に許可されるのは、各プロジェクトでのあなたの役割（PO / SM / Dev）で許される範囲までです。",
+  apiTokenPresetReadOnly: "閲覧のみ",
+  apiTokenPresetDeveloper: "Developer 向け",
+  apiTokenPresetAll: "PO / SM 向け（すべて）",
+  apiTokenScopeRead: "閲覧（常に含まれます）",
+  apiTokenScopeBacklogWrite: "PBI の作成・編集",
+  apiTokenScopeBacklogReorder: "PBI の並べ替え",
+  apiTokenScopeSprintWrite: "スプリントの作成・編集・PBI 取り込み",
+  apiTokenScopeTaskWrite: "タスクの作成・更新",
+  apiTokenScopeCommentWrite: "コメントの書き込み",
+  apiTokenScopeIceboxWrite: "アイスボックスへの起票",
+  apiTokenScopeDailyWrite: "デイリースクラムの記入",
+  apiTokenProjects: "使えるプロジェクト",
+  apiTokenProjectsAll: "アクセスできるすべてのプロジェクト",
+  apiTokenProjectsSelected: "選んだプロジェクトだけ",
+  apiTokenProjectsPickOne: "プロジェクトを 1 つ以上選んでください",
+  apiTokenProjectsEmpty: "参加しているプロジェクトがありません",
+  apiTokenProjectCount: "{count} プロジェクト限定",
 }
 
 export const en: ApiTokensTranslations = {
   apiTokenSectionTitle: "Personal access tokens",
-  apiTokenSectionHint: "Tokens let external tools call the read-only REST API (/api/v1). A token can read everything you can, so never share it.",
+  apiTokenSectionHint: "Tokens let the REST API (/api/v1) and Claude Code (Kanflow MCP) use Kanflow. A token acts with your rights, so never share it.",
   apiTokenDocsLink: "How to use the API",
   apiTokenUsageBaseUrl: "Base URL",
   apiTokenUsageAuth: "Send the token in the Authorization header (read-only, JSON responses).",
@@ -143,11 +182,30 @@ export const en: ApiTokensTranslations = {
   apiTokenColOwner: "Owner",
   apiTokenOwnerInactive: "Inactive user",
   apiTokenAdminRevokeMessage: "The token \"{name}\" of {owner} will be revoked.",
+  apiTokenScopes: "Scopes",
+  apiTokenScopesHint: "Only the checked actions are possible with this token, and only as far as your role (PO / SM / Dev) in each project allows.",
+  apiTokenPresetReadOnly: "Read only",
+  apiTokenPresetDeveloper: "For developers",
+  apiTokenPresetAll: "For PO / SM (all)",
+  apiTokenScopeRead: "Read (always included)",
+  apiTokenScopeBacklogWrite: "Create and edit PBIs",
+  apiTokenScopeBacklogReorder: "Reorder PBIs",
+  apiTokenScopeSprintWrite: "Create and edit sprints, add PBIs",
+  apiTokenScopeTaskWrite: "Create and update tasks",
+  apiTokenScopeCommentWrite: "Write comments",
+  apiTokenScopeIceboxWrite: "Submit Icebox items",
+  apiTokenScopeDailyWrite: "Write daily scrums",
+  apiTokenProjects: "Projects",
+  apiTokenProjectsAll: "Every project you can access",
+  apiTokenProjectsSelected: "Selected projects only",
+  apiTokenProjectsPickOne: "Select at least one project",
+  apiTokenProjectsEmpty: "You are not in any project",
+  apiTokenProjectCount: "Limited to {count} project(s)",
 }
 
 export const id: ApiTokensTranslations = {
   apiTokenSectionTitle: "Token akses pribadi",
-  apiTokenSectionHint: "Token dipakai alat eksternal untuk memanggil REST API baca-saja (/api/v1). Token dapat membaca semua yang bisa Anda baca, jadi jangan dibagikan.",
+  apiTokenSectionHint: "Token dipakai REST API (/api/v1) dan Claude Code (Kanflow MCP) untuk menggunakan Kanflow. Token bertindak dengan hak Anda, jadi jangan dibagikan.",
   apiTokenDocsLink: "Cara menggunakan API",
   apiTokenUsageBaseUrl: "URL dasar",
   apiTokenUsageAuth: "Kirim token di header Authorization (hanya baca, respons JSON).",
@@ -190,4 +248,23 @@ export const id: ApiTokensTranslations = {
   apiTokenColOwner: "Pemilik",
   apiTokenOwnerInactive: "Pengguna nonaktif",
   apiTokenAdminRevokeMessage: "Token \"{name}\" milik {owner} akan dicabut.",
+  apiTokenScopes: "Cakupan",
+  apiTokenScopesHint: "Hanya tindakan yang dicentang yang dapat dilakukan dengan token ini, dan hanya sejauh peran Anda (PO / SM / Dev) di setiap proyek mengizinkannya.",
+  apiTokenPresetReadOnly: "Hanya baca",
+  apiTokenPresetDeveloper: "Untuk developer",
+  apiTokenPresetAll: "Untuk PO / SM (semua)",
+  apiTokenScopeRead: "Baca (selalu disertakan)",
+  apiTokenScopeBacklogWrite: "Membuat dan mengedit PBI",
+  apiTokenScopeBacklogReorder: "Mengurutkan PBI",
+  apiTokenScopeSprintWrite: "Membuat dan mengedit sprint, menambahkan PBI",
+  apiTokenScopeTaskWrite: "Membuat dan memperbarui tugas",
+  apiTokenScopeCommentWrite: "Menulis komentar",
+  apiTokenScopeIceboxWrite: "Mengajukan item Icebox",
+  apiTokenScopeDailyWrite: "Menulis daily scrum",
+  apiTokenProjects: "Proyek",
+  apiTokenProjectsAll: "Semua proyek yang dapat Anda akses",
+  apiTokenProjectsSelected: "Hanya proyek yang dipilih",
+  apiTokenProjectsPickOne: "Pilih setidaknya satu proyek",
+  apiTokenProjectsEmpty: "Anda belum tergabung dalam proyek mana pun",
+  apiTokenProjectCount: "Terbatas pada {count} proyek",
 }

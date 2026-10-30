@@ -13,6 +13,10 @@ function tokens(over: Partial<OwnApiTokens["config"]> = {}, list: OwnApiTokens["
   return {
     config: { enabled: true, maxPerUser: 5, allowNoExpiry: false, expiryDays: [30, 90, 365], ...over },
     tokens: list,
+    projects: [
+      { id: "p1", name: "Alpha" },
+      { id: "p2", name: "Beta" },
+    ],
   }
 }
 
@@ -21,6 +25,7 @@ const existing = {
   name: "CI",
   prefix: "kfl_ABCDEFGH",
   scopes: ["read"],
+  projectIds: null,
   createdAt: "2026-10-01T00:00:00.000Z",
   lastUsedAt: null,
   expiresAt: "2026-12-30T00:00:00.000Z",
@@ -69,11 +74,42 @@ describe("ApiTokensSection", () => {
     const panel = await screen.findByRole("group", { name: t.apiTokenShownOnce })
     expect(panel).toHaveTextContent(t.apiTokenShownOnce)
     expect(within(panel).getByRole("textbox")).toHaveValue(PLAIN)
-    expect(bodies(fetchMock, "POST")).toEqual([{ name: "Report", expiresInDays: 90 }])
+    expect(bodies(fetchMock, "POST")).toEqual([{ name: "Report", expiresInDays: 90, scopes: ["read"], projectIds: null }])
     expect(within(screen.getByRole("list", { name: t.apiTokenListLabel })).getByText("Report")).toBeInTheDocument()
 
     await userEvent.click(within(panel).getByRole("button", { name: t.apiTokenDone }))
     expect(screen.queryByDisplayValue(PLAIN)).not.toBeInTheDocument()
+  })
+
+  it("sends the developer preset plus a checked scope, limited to the picked projects", async () => {
+    const fetchMock = setup(tokens())
+    renderWithProviders(<ApiTokensSection />)
+    await userEvent.type(await screen.findByLabelText(new RegExp(t.apiTokenName)), "Claude Code")
+    expect(screen.getByRole("checkbox", { name: new RegExp(t.apiTokenScopeRead) })).toBeDisabled()
+    await userEvent.click(screen.getByRole("button", { name: t.apiTokenPresetDeveloper }))
+    await userEvent.click(screen.getByRole("checkbox", { name: new RegExp(t.apiTokenScopeSprintWrite) }))
+    await userEvent.click(screen.getByRole("radio", { name: t.apiTokenProjectsSelected }))
+    expect(screen.getByText(t.apiTokenProjectsPickOne)).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: t.apiTokenCreate })).toBeDisabled()
+    await userEvent.click(screen.getByRole("checkbox", { name: "Beta" }))
+    await userEvent.click(screen.getByRole("button", { name: t.apiTokenCreate }))
+    await screen.findByRole("group", { name: t.apiTokenShownOnce })
+    expect(bodies(fetchMock, "POST")).toEqual([
+      {
+        name: "Claude Code",
+        expiresInDays: 30,
+        scopes: ["read", "sprint:write", "task:write", "comment:write", "icebox:write", "daily:write"],
+        projectIds: ["p2"],
+      },
+    ])
+  })
+
+  it("shows each token's scopes and project restriction", async () => {
+    setup(tokens({}, [{ ...existing, scopes: ["read", "task:write"], projectIds: ["p1", "p2"] }]))
+    renderWithProviders(<ApiTokensSection />)
+    const item = within(await screen.findByRole("list", { name: t.apiTokenListLabel })).getByRole("listitem")
+    expect(item).toHaveTextContent("task:write")
+    expect(item).toHaveTextContent(t.apiTokenProjectCount.replace("{count}", "2"))
   })
 
   it("copies the new token to the clipboard", async () => {

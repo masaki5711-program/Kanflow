@@ -44,7 +44,7 @@ describe("/api/user/api-tokens", () => {
     vi.mocked(svc.getOwnTokens).mockResolvedValue({ config: {}, tokens: [] } as never)
     const res = (await userRoute.GET())!
     expect(res.status).toBe(200)
-    expect(svc.getOwnTokens).toHaveBeenCalledWith("u1")
+    expect(svc.getOwnTokens).toHaveBeenCalledWith({ id: "u1", role: "member" })
   })
 
   it("creates a token (201) after validating the body", async () => {
@@ -59,6 +59,18 @@ describe("/api/user/api-tokens", () => {
     authMock.mockResolvedValue(member)
     expect((await userRoute.POST(post({ name: "CI", expiresInDays: 7 })))!.status).toBe(400)
     expect((await userRoute.POST(post({ name: "", expiresInDays: 30 })))!.status).toBe(400)
+    expect(svc.createOwnToken).not.toHaveBeenCalled()
+  })
+
+  it("passes scopes / projectIds through; an unknown scope or an empty project list is a 400", async () => {
+    authMock.mockResolvedValue(member)
+    vi.mocked(svc.createOwnToken).mockResolvedValue({ id: "t1", token: "kfl_x" } as never)
+    const body = { name: "MCP", expiresInDays: 30, scopes: ["task:write"], projectIds: ["p1"] }
+    expect((await userRoute.POST(post(body)))!.status).toBe(201)
+    expect(svc.createOwnToken).toHaveBeenCalledWith("u1", body)
+    vi.mocked(svc.createOwnToken).mockClear()
+    expect((await userRoute.POST(post({ ...body, scopes: ["admin"] })))!.status).toBe(400)
+    expect((await userRoute.POST(post({ ...body, projectIds: [] })))!.status).toBe(400)
     expect(svc.createOwnToken).not.toHaveBeenCalled()
   })
 

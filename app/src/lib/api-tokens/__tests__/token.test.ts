@@ -6,7 +6,9 @@ import {
   generateApiToken,
   hashApiToken,
   isWellFormedToken,
+  parseProjectIds,
   parseScopes,
+  serializeProjectIds,
   serializeScopes,
   tokenState,
 } from "../token"
@@ -70,6 +72,21 @@ describe("scopes", () => {
     expect(parseScopes("not json")).toEqual([])
     expect(parseScopes('{"a":1}')).toEqual([])
     expect(parseScopes('["read", 3, "admin"]')).toEqual(["read"])
+  })
+})
+
+describe("project restriction", () => {
+  it("stores null for no restriction and round-trips a list", () => {
+    expect(serializeProjectIds(null)).toBeNull()
+    expect(serializeProjectIds([])).toBeNull()
+    expect(parseProjectIds(null)).toBeNull()
+    expect(parseProjectIds(serializeProjectIds(["p1", "p2"]))).toEqual(["p1", "p2"])
+  })
+
+  it("fails closed on malformed text (no project allowed)", () => {
+    expect(parseProjectIds("not json")).toEqual([])
+    expect(parseProjectIds('{"a":1}')).toEqual([])
+    expect(parseProjectIds('["p1", 3, ""]')).toEqual(["p1"])
   })
 })
 

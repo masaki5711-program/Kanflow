@@ -7,6 +7,8 @@ export interface ApiTokenView {
   name: string
   prefix: string
   scopes: string[]
+  /** null = every project the owner can access. */
+  projectIds: string[] | null
   createdAt: string
   lastUsedAt: string | null
   expiresAt: string | null
@@ -16,6 +18,8 @@ export interface ApiTokenView {
 export interface OwnApiTokens {
   config: { enabled: boolean; maxPerUser: number; allowNoExpiry: boolean; expiryDays: number[] }
   tokens: ApiTokenView[]
+  /** Choices for a token's project restriction. */
+  projects: { id: string; name: string }[]
 }
 
 export interface CreatedApiToken extends ApiTokenView {

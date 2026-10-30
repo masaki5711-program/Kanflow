@@ -10,13 +10,32 @@ import {
   type OwnApiTokens,
 } from "@/components/api-tokens/api-token-types"
 import { apiFetch, useApiMutation, useApiQuery } from "@/hooks"
+import { API_TOKEN_SCOPES, API_TOKEN_SCOPE_PRESETS, normalizeScopes, type ApiTokenScope } from "@/lib/api-tokens/scopes"
+import type { ApiTokensTranslations } from "@/lib/i18n/api-tokens"
 import { useLanguage } from "@/lib/language-context"
 import { ApiUsageHelp } from "./api-usage-help"
 
 const URL_BASE = "/api/user/api-tokens"
 const NO_EXPIRY = "none"
 
-/** `/me`: create, list and revoke personal access tokens for the read-only REST API. */
+const SCOPE_LABEL: Record<ApiTokenScope, keyof ApiTokensTranslations> = {
+  read: "apiTokenScopeRead",
+  "backlog:write": "apiTokenScopeBacklogWrite",
+  "backlog:reorder": "apiTokenScopeBacklogReorder",
+  "sprint:write": "apiTokenScopeSprintWrite",
+  "task:write": "apiTokenScopeTaskWrite",
+  "comment:write": "apiTokenScopeCommentWrite",
+  "icebox:write": "apiTokenScopeIceboxWrite",
+  "daily:write": "apiTokenScopeDailyWrite",
+}
+
+const PRESETS: { key: keyof typeof API_TOKEN_SCOPE_PRESETS; label: keyof ApiTokensTranslations }[] = [
+  { key: "readOnly", label: "apiTokenPresetReadOnly" },
+  { key: "developer", label: "apiTokenPresetDeveloper" },
+  { key: "all", label: "apiTokenPresetAll" },
+]
+
+/** `/me`: create, list and revoke personal access tokens for the REST API and the Kanflow MCP. */
 export function ApiTokensSection() {
   const { t } = useLanguage()
   const confirm = useConfirm()
@@ -54,6 +73,7 @@ export function ApiTokensSection() {
       name: tok.name,
       prefix: tok.prefix,
       scopes: tok.scopes,
+      projectIds: tok.projectIds,
       createdAt: tok.createdAt,
       lastUsedAt: tok.lastUsedAt,
       expiresAt: tok.expiresAt,
@@ -80,7 +100,7 @@ export function ApiTokensSection() {
           {created ? (
             <CreatedTokenPanel token={created} onDone={() => setCreated(null)} />
           ) : data.config.enabled ? (
-            <CreateTokenForm config={data.config} activeCount={data.tokens.filter((x) => x.state === "active").length} onCreated={handleCreated} />
+            <CreateTokenForm config={data.config} projects={data.projects} activeCount={data.tokens.filter((x) => x.state === "active").length} onCreated={handleCreated} />
           ) : (
             <p role="status" className="rounded-ui-md bg-warning-soft px-3 py-2 text-body text-fg">
               {t.apiTokenDisabled}
@@ -95,25 +115,50 @@ export function ApiTokensSection() {
 
 interface CreateFormProps {
   config: OwnApiTokens["config"]
+  projects: OwnApiTokens["projects"]
   activeCount: number
   onCreated: (token: CreatedApiToken) => void
 }
 
-function CreateTokenForm({ config, activeCount, onCreated }: CreateFormProps) {
+interface CreateTokenBody {
+  name: string
+  expiresInDays: number | null
+  scopes: ApiTokenScope[]
+  projectIds: string[] | null
+}
+
+function CreateTokenForm({ config, projects, activeCount, onCreated }: CreateFormProps) {
   const { t } = useLanguage()
   const [name, setName] = useState("")
   const [expiry, setExpiry] = useState(String(config.expiryDays[0] ?? 30))
+  const [scopes, setScopes] = useState<ApiTokenScope[]>(["read"])
+  const [limitProjects, setLimitProjects] = useState(false)
+  const [projectIds, setProjectIds] = useState<string[]>([])
   const create = useApiMutation(
-    (body: { name: string; expiresInDays: number | null }) => apiFetch<CreatedApiToken>(URL_BASE, { method: "POST", json: body }),
+    (body: CreateTokenBody) => apiFetch<CreatedApiToken>(URL_BASE, { method: "POST", json: body }),
     { toastOnSuccess: t.apiTokenCreated, toastOnError: (e) => `${t.apiTokenCreateFailed}: ${e.message}` }
   )
   const atLimit = activeCount >= config.maxPerUser
+  const missingProjects = limitProjects && projectIds.length === 0
+
+  function toggleScope(scope: ApiTokenScope, on: boolean) {
+    setScopes((prev) => normalizeScopes(on ? [...prev, scope] : prev.filter((s) => s !== scope)))
+  }
+
+  function toggleProject(id: string, on: boolean) {
+    setProjectIds((prev) => (on ? [...prev, id] : prev.filter((p) => p !== id)))
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     const trimmed = name.trim()
-    if (!trimmed || atLimit || create.isPending) return
-    const result = await create.mutate({ name: trimmed, expiresInDays: expiry === NO_EXPIRY ? null : Number(expiry) })
+    if (!trimmed || atLimit || missingProjects || create.isPending) return
+    const result = await create.mutate({
+      name: trimmed,
+      expiresInDays: expiry === NO_EXPIRY ? null : Number(expiry),
+      scopes,
+      projectIds: limitProjects ? projectIds : null,
+    })
     if (result) {
       setName("")
       onCreated(result)
@@ -137,12 +182,70 @@ function CreateTokenForm({ config, activeCount, onCreated }: CreateFormProps) {
           </Select>
         </Field>
       </div>
+
+      <fieldset disabled={atLimit} className="space-y-2">
+        <legend className="text-body font-medium text-fg">{t.apiTokenScopes}</legend>
+        <p className="text-caption text-fg-muted">{t.apiTokenScopesHint}</p>
+        <div className="flex flex-wrap gap-2">
+          {PRESETS.map((p) => (
+            <Button key={p.key} type="button" variant="secondary" size="sm" onClick={() => setScopes([...API_TOKEN_SCOPE_PRESETS[p.key]])}>
+              {t[p.label]}
+            </Button>
+          ))}
+        </div>
+        <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+          {API_TOKEN_SCOPES.map((scope) => (
+            <label key={scope} className="flex items-center gap-2 text-body text-fg">
+              <input
+                type="checkbox"
+                className="h-4 w-4"
+                checked={scopes.includes(scope)}
+                disabled={scope === "read"}
+                onChange={(e) => toggleScope(scope, e.target.checked)}
+              />
+              <span>{t[SCOPE_LABEL[scope]]}</span>
+              <code className="text-caption text-fg-muted">{scope}</code>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+
+      <fieldset disabled={atLimit} className="space-y-2">
+        <legend className="text-body font-medium text-fg">{t.apiTokenProjects}</legend>
+        <label className="flex items-center gap-2 text-body text-fg">
+          <input type="radio" name="api-token-projects" className="h-4 w-4" checked={!limitProjects} onChange={() => setLimitProjects(false)} />
+          {t.apiTokenProjectsAll}
+        </label>
+        <label className="flex items-center gap-2 text-body text-fg">
+          <input type="radio" name="api-token-projects" className="h-4 w-4" checked={limitProjects} onChange={() => setLimitProjects(true)} />
+          {t.apiTokenProjectsSelected}
+        </label>
+        {limitProjects &&
+          (projects.length === 0 ? (
+            <p className="text-caption text-fg-muted">{t.apiTokenProjectsEmpty}</p>
+          ) : (
+            <div role="group" aria-label={t.apiTokenProjectsSelected} className="max-h-48 space-y-1 overflow-y-auto rounded-ui-md border border-border p-2">
+              {projects.map((p) => (
+                <label key={p.id} className="flex items-center gap-2 text-body text-fg">
+                  <input type="checkbox" className="h-4 w-4" checked={projectIds.includes(p.id)} onChange={(e) => toggleProject(p.id, e.target.checked)} />
+                  <span className="break-all">{p.name}</span>
+                </label>
+              ))}
+            </div>
+          ))}
+        {missingProjects && (
+          <p role="status" className="text-caption text-warning">
+            {t.apiTokenProjectsPickOne}
+          </p>
+        )}
+      </fieldset>
+
       {atLimit && (
         <p role="status" className="text-caption text-warning">
           {t.apiTokenLimitReached.replace("{max}", String(config.maxPerUser))}
         </p>
       )}
-      <Button type="submit" loading={create.isPending} disabled={atLimit || !name.trim()} leftIcon={<KeyRound aria-hidden className="h-4 w-4" />}>
+      <Button type="submit" loading={create.isPending} disabled={atLimit || !name.trim() || missingProjects} leftIcon={<KeyRound aria-hidden className="h-4 w-4" />}>
         {t.apiTokenCreate}
       </Button>
     </form>
@@ -210,6 +313,14 @@ function TokenList({ tokens, busy, onRevoke }: TokenListProps) {
               <span className="break-all">{tok.name}</span>
               <code className="rounded bg-surface-muted px-1.5 py-0.5 text-caption text-fg-muted">{tok.prefix}…</code>
               {tok.state === "expired" && <Badge tone="warning">{t.apiTokenStateExpired}</Badge>}
+            </p>
+            <p className="mt-1 flex flex-wrap gap-1">
+              {tok.scopes.map((scope) => (
+                <code key={scope} className="rounded bg-surface-muted px-1.5 py-0.5 text-caption text-fg-muted">
+                  {scope}
+                </code>
+              ))}
+              {tok.projectIds && <Badge>{t.apiTokenProjectCount.replace("{count}", String(tok.projectIds.length))}</Badge>}
             </p>
             <p className="mt-0.5 text-caption text-fg-muted">
               {t.apiTokenColCreated}: {formatTokenDate(tok.createdAt, language)}

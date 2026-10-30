@@ -55,7 +55,7 @@ const project = (projectId = "p1") => ({ params: Promise.resolve({ projectId }) 
 
 function tokenRow(over: Record<string, unknown> = {}) {
   return {
-    id: "t1", userId: "u1", prefix: token.prefix, scopes: '["read"]', userTokenVersion: 0,
+    id: "t1", userId: "u1", prefix: token.prefix, scopes: '["read"]', projectIds: null, userTokenVersion: 0,
     expiresAt: null, revokedAt: null, lastUsedAt: null, ...over,
   }
 }
@@ -127,13 +127,75 @@ describe("GET /api/v1/* authentication", () => {
   })
 })
 
+describe("token project restriction", () => {
+  it("404s a project outside the token's list without any project lookup", async () => {
+    vi.mocked(repo.findTokenByHash).mockResolvedValue(tokenRow({ projectIds: '["p1"]' }) as never)
+    const res = await projectRoute.GET(get("/projects/p2"), project("p2"))
+    expect(res.status).toBe(404)
+    expect(m.memberFindFirst).not.toHaveBeenCalled()
+    expect(v1.getProject).not.toHaveBeenCalled()
+  })
+
+  it("serves a listed project and passes the list to the project list", async () => {
+    vi.mocked(repo.findTokenByHash).mockResolvedValue(tokenRow({ projectIds: '["p1"]' }) as never)
+    vi.mocked(v1.getProject).mockResolvedValue({ data: { id: "p1" } } as never)
+    expect((await projectRoute.GET(get("/projects/p1"), project())).status).toBe(200)
+    vi.mocked(v1.listProjects).mockResolvedValue({ data: [] } as never)
+    await projectsRoute.GET(get("/projects"), none)
+    expect(v1.listProjects).toHaveBeenCalledWith({ id: "u1", role: "member" }, { status: "active" }, ["p1"])
+  })
+})
+
+describe("assertV1Action (token scope ∩ project role)", () => {
+  const principal = (scopes: string[]) =>
+    ({ userId: "u1", role: "member", tokenId: "t1", tokenPrefix: "kfl_x", scopes, projectIds: null }) as never
+  const actor = (projectRole: string) => ({ userId: "u1", systemRole: "member", projectRole, isSectionManagerOfProject: false })
+
+  it("403 INSUFFICIENT_SCOPE naming the scope when the token lacks it, even for a PO", async () => {
+    const { assertV1Action } = await import("@/app/api/v1/_lib/v1-route")
+    expect(() => assertV1Action(principal(["read"]), actor("po"), "backlog.write")).toThrow(
+      expect.objectContaining({ status: 403, code: "INSUFFICIENT_SCOPE", extra: { requiredScope: "backlog:write" } })
+    )
+  })
+
+  it("403 FORBIDDEN when the scope is there but the role is not (dev creating a PBI)", async () => {
+    const { assertV1Action } = await import("@/app/api/v1/_lib/v1-route")
+    expect(() => assertV1Action(principal(["read", "backlog:write"]), actor("dev"), "backlog.write")).toThrow(
+      expect.objectContaining({ status: 403, code: "FORBIDDEN" })
+    )
+  })
+
+  it("v1 bodies keep requiredScope but drop other service extras", async () => {
+    const { ForbiddenError, ValidationError } = await import("@/services/_shared/errors")
+    vi.mocked(v1.getProject).mockRejectedValueOnce(new ForbiddenError("Insufficient scope", { requiredScope: "task:write" }, "INSUFFICIENT_SCOPE"))
+    let res = await projectRoute.GET(get("/projects/p1"), project())
+    expect(await res.json()).toEqual({ error: "Insufficient scope", code: "INSUFFICIENT_SCOPE", requiredScope: "task:write" })
+    vi.mocked(v1.getProject).mockRejectedValueOnce(new ValidationError("Bad", { otherPbiId: "x" }, "VALIDATION"))
+    res = await projectRoute.GET(get("/projects/p1"), project())
+    expect(await res.json()).toEqual({ error: "Bad", code: "VALIDATION" })
+  })
+
+  it("passes when both allow it", async () => {
+    const { assertV1Action } = await import("@/app/api/v1/_lib/v1-route")
+    expect(() => assertV1Action(principal(["read", "task:write"]), actor("dev"), "task.write")).not.toThrow()
+    expect(() => assertV1Action(principal(["read", "sprint:write"]), actor("sm"), "sprint.manage")).not.toThrow()
+  })
+
+  it("no token may do an action without a scope (e.g. project.delete)", async () => {
+    const { assertV1Action } = await import("@/app/api/v1/_lib/v1-route")
+    expect(() => assertV1Action(principal(["read"]), actor("po"), "project.delete")).toThrow(
+      expect.objectContaining({ code: "INSUFFICIENT_SCOPE" })
+    )
+  })
+})
+
 describe("project routes", () => {
   it("lists accessible projects with the DB role", async () => {
     m.loadUserAuthState.mockResolvedValue({ isActive: true, role: "section_manager", tokenVersion: 0 })
     vi.mocked(v1.listProjects).mockResolvedValue({ data: [] } as never)
     const res = await projectsRoute.GET(get("/projects?status=archived"), none)
     expect(res.status).toBe(200)
-    expect(v1.listProjects).toHaveBeenCalledWith({ id: "u1", role: "section_manager" }, { status: "archived" })
+    expect(v1.listProjects).toHaveBeenCalledWith({ id: "u1", role: "section_manager" }, { status: "archived" }, null)
   })
 
   it("400 { error, code } for a bad query", async () => {

@@ -1,14 +1,15 @@
 import { NextResponse } from "next/server"
 import { ZodError } from "zod"
-import { accessVia, can, isProjectLive, loadProjectActor, type ProjectActor } from "@/lib/authz"
+import { scopeForAction } from "@/lib/api-tokens/scopes"
+import { accessVia, can, isProjectLive, loadProjectActor, type ProjectAction, type ProjectActor } from "@/lib/authz"
 import { logger } from "@/lib/logger"
 import { searchParamsObject } from "@/services/_shared/cursor"
 import type { ApiErrorCode } from "@/services/_shared/error-codes"
-import { isServiceError, NotFoundError } from "@/services/_shared/errors"
+import { ForbiddenError, isServiceError, NotFoundError } from "@/services/_shared/errors"
 import { authenticateApiRequest, type ApiPrincipal } from "@/services/api-tokens/api-token-auth"
 
 /**
- * Route wrapper of the read-only REST API (/api/v1). See docs/api-v1.md.
+ * Route wrapper of the REST API (/api/v1). See docs/api-v1.md.
  *
  * - Authentication: `Authorization: Bearer kfl_...` only (session cookies are
  *   never consulted, so CSRF does not apply). 401 / 403 / 429 from
@@ -16,9 +17,14 @@ import { authenticateApiRequest, type ApiPrincipal } from "@/services/api-tokens
  * - Project routes additionally resolve the token user's project actor with
  *   the same policy as the UI (lib/authz): no path into the project, a
  *   missing or trashed project → 404 (existence not revealed). Every v1
- *   endpoint needs only `project.view`.
+ *   endpoint needs `project.view`; a write additionally calls
+ *   `assertV1Action` (token scope **and** the owner's project role).
+ * - A token limited to some projects (`projectIds`) sees the others as 404.
+ *   Every token path into a project MUST go through resolveV1ProjectActor
+ *   (also when the project is derived from a PBI / task / comment id): it is
+ *   the only place that enforces the restriction.
  * - Success: `{ data, nextCursor? }` + X-RateLimit-* headers, never cached.
- * - Errors: `{ error, code }` with the HTTP status.
+ * - Errors: `{ error, code }` with the HTTP status; `INSUFFICIENT_SCOPE` adds `requiredScope`.
  */
 
 const log = logger.child({ module: "api-v1" })
@@ -39,8 +45,14 @@ export interface V1ProjectContext<P> extends V1Context<P> {
 type RouteSegment<P> = { params: Promise<P> }
 type V1Handler<P> = (request: Request, segment: RouteSegment<P>) => Promise<NextResponse>
 
-export function v1ErrorResponse(status: number, error: string, code: ApiErrorCode, headers?: Record<string, string>): NextResponse {
-  return NextResponse.json({ error, code }, { status, headers: { "Cache-Control": "no-store", ...headers } })
+export function v1ErrorResponse(
+  status: number,
+  error: string,
+  code: ApiErrorCode,
+  headers?: Record<string, string>,
+  extra: object = {}
+): NextResponse {
+  return NextResponse.json({ ...extra, error, code }, { status, headers: { "Cache-Control": "no-store", ...headers } })
 }
 
 function zodMessage(error: ZodError): string {
@@ -50,9 +62,17 @@ function zodMessage(error: ZodError): string {
   return `Invalid request: ${at}${first.message}`
 }
 
+/**
+ * Codes whose `extra` reaches token clients. Service errors carry UI-oriented
+ * extras (ids, counts, state); only allowlisted ones are part of the v1 contract.
+ */
+const V1_EXTRA_CODES: ReadonlySet<ApiErrorCode> = new Set<ApiErrorCode>(["INSUFFICIENT_SCOPE"])
+
 /** Any thrown error → `{ error, code }` (details only for expected errors). */
 export function v1ErrorFrom(error: unknown, headers: Record<string, string>): NextResponse {
-  if (isServiceError(error)) return v1ErrorResponse(error.status, error.message, error.code, headers)
+  if (isServiceError(error)) {
+    return v1ErrorResponse(error.status, error.message, error.code, headers, V1_EXTRA_CODES.has(error.code) ? error.extra : {})
+  }
   if (error instanceof ZodError) return v1ErrorResponse(400, zodMessage(error), "VALIDATION", headers)
   log.error("v1 request failed", { error: error instanceof Error ? error.message : String(error) })
   return v1ErrorResponse(500, "Internal error", "INTERNAL", headers)
@@ -85,8 +105,9 @@ export function v1Route<P extends Record<string, string> = Record<string, never>
   }
 }
 
-/** The token user's actor for the project, or 404 (no access / missing / trashed). */
+/** The token user's actor for the project, or 404 (no access / missing / trashed / outside the token's projects). */
 export async function resolveV1ProjectActor(principal: ApiPrincipal, projectId: string): Promise<ProjectActor> {
+  if (principal.projectIds && !principal.projectIds.includes(projectId)) throw new NotFoundError()
   const [live, actor] = await Promise.all([
     isProjectLive(projectId),
     loadProjectActor(principal.userId, principal.role, projectId),
@@ -103,4 +124,17 @@ export function v1ProjectRoute<P extends { projectId: string }>(
     const actor = await resolveV1ProjectActor(ctx.principal, projectId)
     return handler({ ...ctx, projectId, actor })
   })
+}
+
+/**
+ * A write through a token needs both: the token's scope for the action
+ * (403 INSUFFICIENT_SCOPE, naming the missing scope) and the owner's project
+ * role allowing it (403 FORBIDDEN) — the same matrix as the UI.
+ */
+export function assertV1Action(principal: ApiPrincipal, actor: ProjectActor, action: ProjectAction): void {
+  const scope = scopeForAction(action)
+  if (!scope || !principal.scopes.includes(scope)) {
+    throw new ForbiddenError("Insufficient scope", { requiredScope: scope }, "INSUFFICIENT_SCOPE")
+  }
+  if (!can(actor, action)) throw new ForbiddenError("Forbidden", {}, "FORBIDDEN")
 }

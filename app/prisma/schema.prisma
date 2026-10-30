@@ -1203,6 +1203,8 @@ model ApiToken {
   tokenHash        String    @unique @db.Char(64)
   prefix           String    @db.VarChar(16)
   scopes           String    @db.VarChar(191)
+  /// JSON array of project ids the token is limited to; null = every project the owner can access.
+  projectIds       String?   @db.Text
   userTokenVersion Int       @default(0)
   expiresAt        DateTime?
   lastUsedAt       DateTime?

@@ -13,7 +13,7 @@ function list(over: Partial<AdminApiTokens> = {}): AdminApiTokens {
     enabled: true,
     tokens: [
       {
-        id: "t1", name: "CI", prefix: "kfl_ABCDEFGH", scopes: ["read"], createdAt: "2026-10-01T00:00:00.000Z",
+        id: "t1", name: "CI", prefix: "kfl_ABCDEFGH", scopes: ["read"], projectIds: null, createdAt: "2026-10-01T00:00:00.000Z",
         lastUsedAt: "2026-10-02T03:04:00.000Z", expiresAt: null, state: "active",
         user: { id: "u2", name: "Bob", email: "bob@example.com", isActive: false },
       },

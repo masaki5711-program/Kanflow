@@ -34,6 +34,8 @@ export const API_ERROR_CODES = [
   "USER_NOT_FOUND",
   "USER_INACTIVE",
   "DUPLICATE_NAME",
+  /** API token: the token lacks the scope for the action (the owner's role may still allow it). */
+  "INSUFFICIENT_SCOPE",
   // Project / members
   "PROGRESS_PO_ONLY",
   "SECTIONS_PO_OR_ADMIN",

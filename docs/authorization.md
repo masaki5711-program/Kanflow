@@ -235,13 +235,27 @@ project routes gated by `plan.write` (see the table above); the template itself 
 visible to the caller (else 404). Template writes are rate limited per user (60 / min) and
 bodies are size-bounded (413). Editing a template never changes plans already loaded from it.
 
-## Read-only REST API and access tokens (P4, 2026-10)
+## REST API and access tokens (P4, 2026-10; scopes 2026-10-30)
 
 `/api/v1/**` (docs/api-v1.md) authenticates **only** with a personal access token (`Authorization: Bearer kfl_...`); session cookies are ignored there, and tokens are not accepted anywhere else. Wrapper: `src/app/api/v1/_lib/v1-route.ts`.
 
 - **Actor**: the token's owner, with `User.role` read from the database (never from the token). The token is refused (401, same body for every reason) when it is unknown, revoked, expired, the owner is deactivated or deleted, or the owner's `tokenVersion` differs from the one pinned on the token at creation (`ApiToken.userTokenVersion`, checked with `checkTokenAgainstUser` from `lib/authz/session-validity.ts`).
 - **Projects**: the same actor resolution as the UI (`loadProjectActor` + `isProjectLive`); every v1 endpoint needs `project.view`. No path into the project, a missing or trashed project → 404 (admins included for trashed ones). There is no 403 per project (every route is read-only).
-- **Scope**: tokens carry `scopes` (JSON array); v1 requires `read` (403 otherwise). Write scopes do not exist.
+- **Scope**: tokens carry `scopes` (JSON array, `src/lib/api-tokens/scopes.ts`); every request requires `read` (403 otherwise, and every token has it). A write additionally goes through `assertV1Action(principal, actor, action)`: the token must carry the scope of the action (403 `INSUFFICIENT_SCOPE` with `requiredScope`) **and** the owner's project role must allow it (`can`, 403 `FORBIDDEN`). A scope never grants more than the matrix above: a dev's token with `backlog:write` still cannot create a PBI.
+
+  | Scope | Action |
+  |---|---|
+  | `read` | `project.view` |
+  | `backlog:write` | `backlog.write` |
+  | `backlog:reorder` | `backlog.reorder` |
+  | `sprint:write` | `sprint.manage` |
+  | `task:write` | `task.write` |
+  | `comment:write` | `comment.write` |
+  | `icebox:write` | `icebox.write` |
+  | `daily:write` | `dailyScrum.write` |
+
+  Actions without a scope (delete, trash, members, settings, ...) cannot be done with a token.
+- **Project restriction**: a token may be limited to some projects (`ApiToken.projectIds`, chosen at creation from the active projects the owner can open; anything else → 400 `Unknown project`). Other projects answer 404 and are left out of `/api/v1/projects`. The restriction only narrows: losing access to a listed project still closes it. It is enforced only in `resolveV1ProjectActor`, so every token path into a project — also one that derives the project from a PBI / task / comment id — must go through it. `projectIds: []` on creation is a 400 (never read as "all projects").
 - **Revocation**: `DELETE /api/user/api-tokens/:id` (owner; another user's token → 404) and `DELETE /api/admin/api-tokens/:id` (`requireAdmin()`). The users service revokes all of a user's tokens in the same transaction as a deactivation, a system-role change or an admin password reset.
 - **Management routes**: `GET/POST /api/user/api-tokens` (`requireAuth()`, own tokens only), `GET /api/admin/api-tokens` (`requireAdmin()`).
 - **Audit**: create / revoke are logged (`module: api-tokens`, `userId`, `patId`, `patPrefix`, `by`); tokens are user-level, so they are not in the project ActivityLog.
