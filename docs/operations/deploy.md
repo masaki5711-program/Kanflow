@@ -378,6 +378,47 @@ mysql -u scrum_app -p scrum_tool -e "SHOW COLUMNS FROM PlanItem; SHOW TABLES LIK
 - **ロールバック**: ビルドを戻すだけなら列・表は残してかまいません（旧ビルドは新列を参照しない）。ただし旧ビルドはゴミ箱の計画項目
   （`deletedAt` あり）も表示してしまうため、戻す前にゴミ箱の計画項目を復元するか完全削除してください。`'delayed'` と時刻部分は復元できません。
 
+## 5e. API トークンのスコープと Kanflow MCP（`20261030000000_api_token_scopes`）
+
+書き込み API（`/api/v1` の POST / PATCH）と MCP サーバー（`/api/mcp`、Claude Code 用）を有効にするリリースです。
+仕様: [../mcp.md](../mcp.md)、[../api-v1.md](../api-v1.md)。開発者向け手順: [../mcp-setup-guide.md](../mcp-setup-guide.md)。
+
+- **マイグレーション**: `ApiToken.projectIds`（TEXT NULL）を 1 列追加するだけです。既存トークンは `NULL`（= 全プロジェクト）と
+  既存のスコープ `["read"]` のままなので、挙動は変わりません。通常の `npx prisma migrate deploy` で適用されます（数秒）。
+  - **コードとの順序**: 新ビルドは新列を読み書きします。**マイグレーションを先に適用**してください（未適用だとトークンの認証・発行・一覧が失敗し、`/api/v1` と `/api/mcp` がすべて 500 になります）。
+  - 確認（読み取りのみ）: `mysql -u scrum_app -p scrum_tool -e "SHOW COLUMNS FROM ApiToken LIKE 'projectIds'"`
+  - ロールバック: ビルドを戻すだけなら列は残してかまいません（旧ビルドは参照しない）。列を消す場合のみ `ALTER TABLE ApiToken DROP COLUMN projectIds`。
+    旧ビルドに戻すと、プロジェクト限定のトークンで**全プロジェクトを読み取れる**状態になる点に注意してください（限定は新ビルドだけが強制します。旧ビルドに書き込み API はありません）。
+    戻すときは限定付きトークン（`projectIds IS NOT NULL`）を失効させるか、`API_TOKENS_ENABLED=off` にしてください。
+- **リバースプロキシ**（Kanflow の前段に置く場合。UI と同じ HTTPS の入口に載せ、UI より広く公開しない）:
+  - `Authorization` ヘッダーをそのまま Kanflow へ渡す（削除・書き換えをしない）。認証は Bearer トークンのみで、Cookie は使いません。
+  - `POST /api/mcp` を許可し、**本文 1 MiB まで**通す（Kanflow 側の上限が 1 MiB で、超えると Kanflow が JSON の 413 を返します。
+    プロキシの上限はそれ以上にする。例: nginx `client_max_body_size 2m;`、IIS `requestFiltering` の `maxAllowedContentLength` ≥ 1048576）。
+  - `application/json` / `text/event-stream` の応答を変換・バッファ加工しない。`GET` / `DELETE /api/mcp` は Kanflow が 405 を返すので、プロキシで塞ぐ必要はありません。
+  - 開発者のセットアップスクリプトは **https の URL を要求**します（http はループバックのみ。`--allow-http` は暗号化なしの一時措置）。
+    社内向けの HTTPS（証明書）を用意し、その URL を開発者に案内してください。
+- **設定**（`app\.env`。すべて任意、既定値で動きます。変更はサービス再起動で反映）:
+
+  | 変数 | 既定 | 内容 |
+  |---|---|---|
+  | `API_TOKENS_ENABLED` | `on` | `off` で `/api/v1`・`/api/mcp` が 403、トークン発行不可（緊急停止用） |
+  | `API_V1_RATE_LIMIT_PER_MIN` | `120` | トークンごとのリクエスト数/分（MCP は HTTP リクエスト 1 回 = 1） |
+  | `API_V1_WRITE_RATE_LIMIT_PER_MIN` | `30` | トークンごとの書き込み数/分（REST の POST / PATCH と MCP の書き込みツール。上の上限に加えて数える） |
+  | `GIT_ALLOWED_HOSTS` | — | MCP の `resolve_project`（git remote URL → プロジェクト）が受け付ける GitLab ホスト |
+
+- **再起動で消えるもの**: 冪等性の記録（`Idempotency-Key` と MCP 作成系の重複排除、最大 24 時間）とレート制限のカウンターは
+  **Web プロセスのメモリ**にあり、再起動・デプロイで消えます。再起動をまたいだクライアントの再試行は、同じタスクやコメントを
+  もう 1 件作ることがあります（データ破損ではありません。重複は画面から削除できます）。メンテナンスは利用の少ない時間帯に。
+- **確認**（デプロイ後）:
+  1. `/me` でトークン発行画面にスコープ・プリセット・プロジェクト選択が出ること。
+  2. 発行したトークンで `curl -H "Authorization: Bearer kfl_…" https://<kanflow-host>/api/v1/me` → 200。
+  3. MCP: `curl -X POST https://<kanflow-host>/api/mcp -H "Authorization: Bearer kfl_…" -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\",\"params\":{}}"`
+     → 200 で 20 ツールの一覧。トークン無しで 401（プロキシ経由でも 401 の JSON が返ること = ヘッダーが渡っている）。
+  4. 確認用トークンは `/me` で失効しておく。
+- **ログ**: MCP の失敗は `module: "api-v1"`, `surface: "mcp"`, `tool`（DB エラーはクラス名と Prisma コードのみ）。
+  トークンの発行・失効は `module: "api-tokens"`。管理者は `/admin/api-tokens` で全ユーザーのトークンを確認・失効できます。
+- **E2E**（テスト DB のみ）: `E2E_ALLOW_WRITE=1` + `E2E_USER` / `E2E_PASSWORD` で `npx playwright test e2e/flows/mcp-flow.spec.ts`。
+
 ## 6. ロールバック
 
 ```powershell

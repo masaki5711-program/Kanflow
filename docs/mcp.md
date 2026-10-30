@@ -16,6 +16,13 @@ server: nothing leaves the company network.
 
 ## Connect Claude Code
 
+**Developers: follow the step-by-step guide [mcp-setup-guide.md](mcp-setup-guide.md)**
+(Japanese — token presets, the agent-model setup script
+`node scripts/kanflow-setup.js --url https://<kanflow-host>` on Windows /
+macOS / Linux, `.kanflow.json`, verification, common errors, security notes).
+The steps below are what that script and the agent model's `.mcp.json` do,
+for other MCP clients.
+
 1. Kanflow → My page (`/me`) → API tokens: issue a token. Pick the scopes the
    work needs (preset "Developer" = `read`, `task:write`, `comment:write`,
    `icebox:write`, `daily:write`) and, if you like, limit it to projects.
@@ -63,7 +70,12 @@ Exactly the REST API's rules (docs/api-v1.md, docs/authorization.md):
   schemas and services as the UI and `/api/v1`, so validation, notifications
   and the activity log are identical.
 - Changes are recorded in the activity log with **`meta.via = "mcp"`**
-  (`"api"` for `/api/v1`), so AI-made edits can be told apart.
+  (`"api"` for `/api/v1`), so AI-made edits can be told apart. The UI shows
+  them with a badge — "MCP 経由（AI）" / "via MCP (AI)" / "melalui MCP (AI)"
+  (REST: "API 経由" / "via API" / "melalui API") — in an item's change history
+  (`components/activity/entity-history.tsx`) and in the dashboard activity feed
+  and "what's new" panel (`dashboard/activity-feed.tsx`); component
+  `components/activity/via-badge.tsx`, attribute `data-via`.
 
 ## Tools
 
@@ -167,3 +179,12 @@ store (in memory per web process; a restart forgets it):
   `-32600`, so every message is charged to the per-token request budget.
 - A reverse proxy in front of Kanflow must pass the `Authorization` header and
   must not buffer-transform `application/json` / `text/event-stream`.
+- Idempotency records live in the web process's memory: a restart or a deploy
+  forgets them (a client retry across a restart can create a second item).
+- Deploy checklist (migration `20261030000000_api_token_scopes`, proxy
+  settings, rate limits, verification):
+  [operations/deploy.md](operations/deploy.md) §5e.
+- E2E: `app/e2e/flows/mcp-flow.spec.ts` (token issue on `/me` → MCP
+  `initialize` / `tools/call` with the token only → the change appears in the
+  activity feed with the via-MCP badge). A write flow: runs only with
+  `E2E_ALLOW_WRITE=1`, `E2E_USER`, `E2E_PASSWORD` against a test database.

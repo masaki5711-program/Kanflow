@@ -22,6 +22,16 @@
 
 詳細仕様: [SPECIFICATION.md](SPECIFICATION.md)
 
+### Claude Code から使う（Kanflow MCP）
+
+Kanflow 本体の `/api/mcp`（MCP サーバー）と `/api/v1`（REST API）に、マイページ（`/me`）で発行する個人アクセストークンで接続できます。
+Claude Code から PBI・受入条件・担当タスクを読み、タスク更新・コメント・デイリースクラムなどを**本人の権限のまま**行えます
+（変更履歴には「MCP 経由（AI）」と表示）。
+
+- 開発者向けセットアップ: [docs/mcp-setup-guide.md](docs/mcp-setup-guide.md)
+- 仕様（ツール一覧・エラー・冪等性）: [docs/mcp.md](docs/mcp.md)、REST API: [docs/api-v1.md](docs/api-v1.md)
+- デプロイ時の注意（マイグレーション・リバースプロキシ・レート制限）: [docs/operations/deploy.md](docs/operations/deploy.md) §5e
+
 ## 技術スタック（本番の実態）
 
 | レイヤー | 技術 |

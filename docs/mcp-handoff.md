@@ -1,6 +1,6 @@
 # Kanflow MCP 構築 — 引き継ぎメモ
 
-最終更新: 2026-10-30 / ブランチ: `feat/L4-mcp-server`（`feat/L4-mcp-write-api` の `df9e3ba` から分岐。その元は `feat/L4-chat-message-to-item`。`main` にはトークン機能がまだ無いため）
+最終更新: 2026-10-30 / ブランチ: `feat/L4-mcp-docs-ops`（`feat/L4-mcp-server` の `81dca6a` から分岐。その元は `feat/L4-mcp-write-api` → `feat/L4-chat-message-to-item`。`main` にはトークン機能がまだ無いため）
 
 ## ゴール
 
@@ -26,9 +26,30 @@ AI が Kanflow の内容を読んで Claude Code 上で開発を進められる�
 |---|---|---|---|
 | 1 | トークンのスコープ + プロジェクト限定 | ✅ 完了 | `ef8a2fa` |
 | 2 | `/api/v1` 書き込み API | ✅ 完了 | `df9e3ba` |
-| 3 | MCP サーバー `/api/mcp` | ✅ 完了（ブランチ `feat/L4-mcp-server`） | `feat(mcp): ...` |
-| 4 | エージェントモデル側（2 リポジトリ） | ⏳ 次にやる | |
-| 5 | ドキュメント・E2E・運用 | 一部（api-v1.md / authorization.md / mcp.md は更新済み） | |
+| 3 | MCP サーバー `/api/mcp` | ✅ 完了（ブランチ `feat/L4-mcp-server`） | `4ffbcc4`, `81dca6a` |
+| 4 | エージェントモデル側（2 リポジトリ） | ✅ 完了（エージェントモデル側のブランチ `feat/Lcross-NOPBI-kanflow-mcp`。Kanflow リポジトリの変更なし） | — |
+| 5 | ドキュメント・E2E・運用 | ✅ 完了（ブランチ `feat/L4-mcp-docs-ops`）。E2E は未実行（下記） | `c8ae984`, `c603462`, `5142283` + docs |
+
+### ステップ5（完了）の要点
+- **`/me` の説明**（`app/src/app/me/api-usage-help.tsx`、`app/src/lib/i18n/api-tokens.ts`）: 「読み取り専用」を撤回し、読み取り/書き込みの条件（スコープ ∩ 役割）、主な書き込みエンドポイント、
+  MCP の URL（`<origin>/api/mcp`）、プリセットの選び方とプロジェクト限定、セットアップコマンド `node scripts/kanflow-setup.js --url <origin>`（`mcpSetupCommand`）、
+  再起動 → `/kanflow status`、「トークンをチャットやファイルに貼らない／貼ったら失効」を ja / en / id で表示。リポジトリのパスは出さない（P-09）
+- **履歴 UI**: `components/activity/via-badge.tsx`（`ViaBadge`、`data-via`）+ `history-format.ts` の `activityVia()`（`meta.via` が `api` / `mcp` のときだけ）。
+  PBI 詳細の変更履歴（`entity-history.tsx`）とダッシュボードの「最近の動き」・「新着」パネル（`activity-feed.tsx` の `FeedItem`）に表示。
+  文言は `comments.ts` の `historyViaApi` / `historyViaMcp`（+ `*Hint` = ツールチップ）: 「API 経由」「MCP 経由（AI）」/ "via API" "via MCP (AI)" / "melalui API" "melalui MCP (AI)"
+- **E2E**: `app/e2e/flows/mcp-flow.spec.ts`（`/me` でプロジェクト限定・Developer プリセットのトークン発行 → Cookie なしのコンテキストから `POST /api/mcp`
+  で `initialize` / `whoami` / `update_task` / `add_comment`、`create_pbi` が `INSUFFICIENT_SCOPE` + `requiredScope`、トークン無しで 401 →
+  ダッシュボードのフィードで MCP の 2 件にバッジ、UI で作ったタスク作成にはバッジ無し）。後片付けでトークン失効 + プロジェクト削除。
+  **未実行**: クラウド環境に MariaDB / MySQL と Docker デーモン、Playwright の Chromium が無いため。`npx playwright test e2e/flows/mcp-flow.spec.ts --list` で 4 件の収集、tsc / eslint は通過。
+  開発機でテスト DB に向けて `E2E_ALLOW_WRITE=1 E2E_USER=... E2E_PASSWORD=... npx playwright test e2e/flows/mcp-flow.spec.ts` を一度流すこと
+- **ドキュメント**: 開発者向け手順 `docs/mcp-setup-guide.md`（日本語。`docs/mcp.md` と README からリンク）、
+  運用 `docs/operations/deploy.md` §5e（マイグレーション `20261030000000_api_token_scopes` の順序と確認・ロールバック時の注意、リバースプロキシ
+  〔Authorization を通す・`POST /api/mcp` 本文 1 MiB 以上を許可・変換しない・https〕、`API_V1_WRITE_RATE_LIMIT_PER_MIN` 等、冪等性の記録は再起動で消える、デプロイ後の確認 curl、ログ）、
+  `app/.env.example` に `API_V1_WRITE_RATE_LIMIT_PER_MIN` を追記
+- **残り / 要確認**
+  - E2E の実行（上記）
+  - エージェントモデル側の文言の食い違い: `.claude/skills/kanflow-integration/SKILL.md` と `.claude/commands/kanflow.md` が作成系の重複排除を「10 分」と書いているが、サーバーは **2 分**（ステップ3 のレビューで短縮）。エージェントモデル側で直す
+  - 本番に HTTPS の入口があるか（セットアップスクリプトは https 必須。無ければ証明書の用意か、暫定で `--allow-http`）
 
 ### ステップ1（完了）の要点
 - `app/src/lib/api-tokens/scopes.ts` — スコープ一覧、`SCOPE_ACTION`（スコープ→プロジェクトアクション）、プリセット、`normalizeScopes`、`scopeForAction`
@@ -95,7 +116,7 @@ AI が Kanflow の内容を読んで Claude Code 上で開発を進められる�
 - 不足スコープのときは `requiredScope` を返し、ユーザーに「トークンに ○○ を付けて再発行」と案内できるようにする
 - 書き込み系ツールは作成時に Idempotency-Key 相当を内部で扱う（MCP のリトライで二重作成しない）
 
-### ステップ4: エージェントモデル側（**2 リポジトリ両方**）
+### ステップ4: エージェントモデル側（**2 リポジトリ両方**）— ✅ 完了（エージェントモデル側のブランチ `feat/Lcross-NOPBI-kanflow-mcp`。以下は当初の計画）
 対象: `D:\app\agents_skills_claudecode_ver2.0` と `D:\app\agents_skills_claudecode(tmux)`
 （クラウドセッションから触れない場合はローカルで実施。リポジトリの GitLab URL はローカルで `git remote -v` で確認）
 
@@ -108,7 +129,7 @@ AI が Kanflow の内容を読んで Claude Code 上で開発を進められる�
 - オンプレなので `scripts/hooks/pre-mcp-egress-guard.js` の対象には**入れない**
 - 付随: `.claude/rules/iotpf-agents-skills.md`、`evals/specs/`、`docs/asset-inventory.md`（`node scripts/gen-asset-inventory.js`）、変更履歴、`VERSION`
 
-### ステップ5
+### ステップ5 — ✅ 完了（上記「ステップ5（完了）の要点」。E2E の実行だけ残り）
 - `/me` の API 使い方の説明文（`app/src/lib/i18n/api-tokens.ts` の `apiTokenUsageAuth` 等）がまだ「読み取り専用」のまま → MCP の接続手順に合わせて更新
 - Developer 向けセットアップ手順書、E2E（トークン発行 → MCP 接続 → タスク更新 → UI 反映）
 - 管理画面で API 経由の書き込みを見える化（変更履歴の `meta.via = "api"` を表示）
