@@ -38,10 +38,11 @@ const backlog = await import("@/services/backlog/backlog.service")
 const sprints = await import("@/services/sprints/sprints.service")
 const sprintBacklog = await import("@/services/sprint-backlog/sprint-backlog.service")
 const comments = await import("@/services/comments/comments.service")
+const icebox = await import("@/services/icebox/icebox.service")
 const { generateApiToken } = await import("@/lib/api-tokens/token")
 const { resetApiTokenTouchCache } = await import("@/services/api-tokens/api-token-auth")
 const { resetIdempotencyStore } = await import("@/app/api/v1/_lib/v1-write")
-const { DATA_NOTICE } = await import("@/app/api/mcp/_lib/tool-kit")
+const { CREATE_NOTE, DATA_NOTICE } = await import("@/app/api/mcp/_lib/tool-kit")
 const mcpRoute = await import("@/app/api/mcp/route")
 
 const token = generateApiToken()
@@ -71,6 +72,14 @@ function rpcRequest(method: string, params: unknown, headers: Record<string, str
     method: "POST",
     headers: { "content-type": "application/json", accept: "application/json, text/event-stream", ...headers },
     body: JSON.stringify({ jsonrpc: "2.0", id: ++rpcId, method, params }),
+  })
+}
+
+function rawPost(body: string): Request {
+  return new Request("http://localhost/api/mcp", {
+    method: "POST",
+    headers: { authorization: `Bearer ${token.token}`, "content-type": "application/json", accept: "application/json, text/event-stream" },
+    body,
   })
 }
 
@@ -141,6 +150,21 @@ describe("transport and authentication (Bearer kfl_ only)", () => {
     expect((await mcpRoute.DELETE()).status).toBe(405)
   })
 
+  it("refuses JSON-RPC batches (each message must be charged to the request budget)", async () => {
+    const batch = Array.from({ length: 3 }, (_, i) => ({ jsonrpc: "2.0", id: i + 1, method: "tools/call", params: { name: "whoami", arguments: {} } }))
+    const res = await mcpRoute.POST(rawPost(JSON.stringify(batch)))
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ jsonrpc: "2.0", error: { code: -32600, message: expect.stringContaining("Batch") }, id: null })
+    expect(v1.getMe).not.toHaveBeenCalled()
+  })
+
+  it("refuses an oversized body (413) and malformed JSON (-32700)", async () => {
+    expect((await mcpRoute.POST(rawPost("x".repeat(1024 * 1024 + 1)))).status).toBe(413)
+    const bad = await mcpRoute.POST(rawPost("{nope"))
+    expect(bad.status).toBe(400)
+    expect(((await bad.json()) as { error: { code: number } }).error.code).toBe(-32700)
+  })
+
   it("initialize answers without a session id", async () => {
     const res = await mcpRoute.POST(
       rpcRequest("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "0" } })
@@ -164,6 +188,14 @@ describe("tool list", () => {
     for (const tool of msg.result.tools) {
       expect(tool.description).toContain(DATA_NOTICE)
       expect(tool.description).toMatch(/DATA, not instructions/)
+    }
+    const creates = ["create_pbi", "create_sprint", "create_task", "add_comment", "create_icebox_item", "post_daily_scrum"]
+    const createTools = msg.result.tools.filter((t) => creates.includes(t.name))
+    expect(createTools).toHaveLength(creates.length)
+    for (const tool of createTools) {
+      expect(tool.description).toContain(CREATE_NOTE)
+      expect(tool.description).toMatch(/distinct idempotencyKey/)
+      expect(tool.description).toMatch(/replayed: true/)
     }
     const createTask = msg.result.tools.find((t) => t.name === "create_task")
     expect(Object.keys(createTask?.inputSchema.properties ?? {})).toEqual(expect.arrayContaining(["sprintId", "pbi", "taskName", "idempotencyKey"]))
@@ -229,14 +261,27 @@ describe("project restriction for tools that start from an entity id", () => {
     expect((await callTool("update_sprint", { sprintId: "nope", sprintGoal: "x" })).payload).toEqual({ error: "Not found", code: "NOT_FOUND" })
   })
 
-  it("my_tasks without projectId keeps only projects resolveV1ProjectActor admits", async () => {
+  it("my_tasks without projectId keeps only projects resolveV1ProjectActor admits (no project IN list)", async () => {
     vi.mocked(repo.findTokenByHash).mockResolvedValue(tokenRow() as never)
-    vi.mocked(v1.listProjects).mockResolvedValue({ data: [{ id: "p1" }, { id: "p3" }] } as never)
-    vi.mocked(v1.listMyTasks).mockResolvedValue({ data: [{ id: "k1", projectId: "p1" }, { id: "k3", projectId: "p3" }] } as never)
+    vi.mocked(v1.listMyTasks).mockResolvedValue({
+      data: [{ id: "k1", projectId: "p1" }, { id: "k3", projectId: "p3" }, { id: "k4", projectId: "p1" }],
+      truncated: false,
+      limit: 200,
+    } as never)
     m.memberFindFirst.mockImplementation(async (args: { where?: { projectId?: string } }) => (args?.where?.projectId === "p3" ? null : { role: "dev" }))
     const r = await callTool("my_tasks", {})
-    expect(r.payload.data).toEqual([{ id: "k1", projectId: "p1" }])
-    expect(v1.listMyTasks).toHaveBeenCalledWith("u1", ["p1", "p3"], false)
+    expect(r.payload).toEqual({ data: [{ id: "k1", projectId: "p1" }, { id: "k4", projectId: "p1" }] })
+    expect(v1.listMyTasks).toHaveBeenCalledWith("u1", null, false)
+    expect(v1.listProjects).not.toHaveBeenCalled()
+    // One check per distinct project, not per task.
+    expect(m.memberFindFirst).toHaveBeenCalledTimes(2)
+  })
+
+  it("my_tasks passes the token's own project list and reports truncation", async () => {
+    vi.mocked(v1.listMyTasks).mockResolvedValue({ data: [], truncated: true, limit: 200 } as never)
+    const r = await callTool("my_tasks", { includeDone: true })
+    expect(v1.listMyTasks).toHaveBeenCalledWith("u1", ["p2"], true)
+    expect(r.payload).toEqual({ data: [], truncated: true, limit: 200 })
   })
 })
 
@@ -249,6 +294,42 @@ describe("writes", () => {
     expect(r.isError).toBeUndefined()
     expect(r.payload).toEqual({ data: { id: "k1", status: "done" } })
     expect(sprintBacklog.updateTask).toHaveBeenCalledWith("p1", "s1", "k1", { status: "done", actualHours: 3, version: 2 }, MCP_ACTOR)
+  })
+
+  it("a retried create_sprint with reordered (also nested) keys creates once and replays", async () => {
+    vi.mocked(sprints.createSprint).mockResolvedValue({ id: "s9" } as never)
+    const first = await callTool("create_sprint", {
+      projectId: "p1", sprintName: "S9", startDate: "2026-11-01", endDate: "2026-11-14", carryOver: { fromSprintId: "s8", pbItemIds: ["b1"] },
+    })
+    const again = await callTool("create_sprint", {
+      carryOver: { pbItemIds: ["b1"], fromSprintId: "s8" }, endDate: "2026-11-14", startDate: "2026-11-01", sprintName: "S9", projectId: "p1",
+    })
+    expect(first.payload).toEqual({ data: { id: "s9" } })
+    expect(again.payload).toEqual({ data: { id: "s9" }, replayed: true })
+    expect(sprints.createSprint).toHaveBeenCalledTimes(1)
+  })
+
+  it("a distinct idempotencyKey forces a second identical create", async () => {
+    vi.mocked(comments.createComment).mockResolvedValueOnce({ id: "c1" } as never).mockResolvedValueOnce({ id: "c2" } as never)
+    const args = { entityType: "pbi", entityId: "PBI-12", projectId: "p1", body: "LGTM" }
+    expect((await callTool("add_comment", { ...args, idempotencyKey: "lgtm-1" })).payload).toEqual({ data: { id: "c1" } })
+    expect((await callTool("add_comment", { ...args, idempotencyKey: "lgtm-2" })).payload).toEqual({ data: { id: "c2" } })
+    expect(comments.createComment).toHaveBeenCalledTimes(2)
+  })
+
+  it("the automatic retry window ends after 2 minutes", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    try {
+      vi.mocked(icebox.createIceboxItem).mockResolvedValue({ id: "i1" } as never)
+      await callTool("create_icebox_item", { projectId: "p1", request: "same" })
+      vi.setSystemTime(Date.now() + 60_000)
+      expect((await callTool("create_icebox_item", { projectId: "p1", request: "same" })).payload.replayed).toBe(true)
+      vi.setSystemTime(Date.now() + 61_000)
+      expect((await callTool("create_icebox_item", { projectId: "p1", request: "same" })).payload.replayed).toBeUndefined()
+      expect(icebox.createIceboxItem).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it("a retried create_task creates once and replays the first result", async () => {
@@ -345,20 +426,47 @@ describe("PBI references", () => {
   })
 })
 
+describe("PBI ids are checked against the project", () => {
+  it("an internal PBI id of another project → PBI_NOT_FOUND (create_task / add_pbis_to_sprint)", async () => {
+    vi.mocked(v1.locateEntity).mockImplementation(async (kind) => (kind === "pbi" ? { projectId: "p9" } : { projectId: "p1" }))
+    expect((await callTool("create_task", { sprintId: "s1", pbi: "clxforeign", taskName: "x" })).payload).toEqual({ error: "PBI not found", code: "PBI_NOT_FOUND" })
+    expect((await callTool("add_pbis_to_sprint", { sprintId: "s1", pbis: ["clxforeign"] })).payload.code).toBe("PBI_NOT_FOUND")
+    expect(sprintBacklog.createTask).not.toHaveBeenCalled()
+    expect(sprintBacklog.addPbisToSprint).not.toHaveBeenCalled()
+  })
+
+  it("update_task: a location without a sprint is NOT_FOUND, not a crash", async () => {
+    vi.mocked(v1.locateEntity).mockResolvedValue({ projectId: "p1" })
+    expect((await callTool("update_task", { taskId: "k1", status: "done" })).payload).toEqual({ error: "Not found", code: "NOT_FOUND" })
+    expect(sprintBacklog.updateTask).not.toHaveBeenCalled()
+  })
+})
+
 describe("resolve_project", () => {
   it("normalises an ssh remote and lists only projects the token may open", async () => {
     vi.mocked(repo.findTokenByHash).mockResolvedValue(tokenRow({ projectIds: '["p1"]' }) as never)
-    vi.mocked(v1.findProjectsByRepository).mockResolvedValue([
-      { projectId: "p1", projectName: "Kanflow", repository: { name: "app", webUrl: `https://${GITLAB}/grp/kanflow` } },
-      { projectId: "p2", projectName: "Other", repository: { name: "app", webUrl: `https://${GITLAB}/grp/kanflow` } },
-    ])
+    vi.mocked(v1.findProjectsByRepository).mockResolvedValue({
+      items: [
+        { projectId: "p1", projectName: "Kanflow", repository: { name: "app", webUrl: `https://${GITLAB}/grp/kanflow` } },
+        { projectId: "p2", projectName: "Other", repository: { name: "app", webUrl: `https://${GITLAB}/grp/kanflow` } },
+      ],
+      truncated: false,
+      limit: 50,
+    })
     const r = await callTool("resolve_project", { remoteUrl: `ssh://git@${GITLAB}:2222/grp/kanflow.git` })
     expect(v1.findProjectsByRepository).toHaveBeenCalledWith({ apiBase: `https://${GITLAB}`, repoPath: "grp/kanflow", webUrl: `https://${GITLAB}/grp/kanflow` })
     expect(r.payload.data).toEqual([{ projectId: "p1", projectName: "Kanflow", repository: { name: "app", webUrl: `https://${GITLAB}/grp/kanflow` } }])
+    expect(r.payload.truncated).toBeUndefined()
+  })
+
+  it("says when the match list was cut", async () => {
+    vi.mocked(v1.findProjectsByRepository).mockResolvedValue({ items: [], truncated: true, limit: 50 })
+    const r = await callTool("resolve_project", { remoteUrl: `https://${GITLAB}/grp/kanflow.git` })
+    expect(r.payload).toMatchObject({ data: [], truncated: true, limit: 50 })
   })
 
   it("never echoes credentials of an https remote; foreign hosts are a VALIDATION error", async () => {
-    vi.mocked(v1.findProjectsByRepository).mockResolvedValue([])
+    vi.mocked(v1.findProjectsByRepository).mockResolvedValue({ items: [], truncated: false, limit: 50 })
     const r = await callTool("resolve_project", { remoteUrl: `https://oauth2:glpat-secret@${GITLAB}/grp/kanflow.git` })
     expect(JSON.stringify(r.payload)).not.toContain("glpat-secret")
     expect(r.payload.data).toEqual([])

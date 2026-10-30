@@ -94,8 +94,21 @@ export function v1ErrorBody(error: unknown, logContext: Record<string, unknown> 
     return { status: error.status, body: { ...extra, error: error.message, code: error.code } }
   }
   if (error instanceof ZodError) return { status: 400, body: { error: zodMessage(error), code: "VALIDATION" } }
-  log.error("v1 request failed", { ...logContext, error: error instanceof Error ? error.message : String(error) })
+  log.error("v1 request failed", { ...logContext, ...describeUnexpected(error) })
   return { status: 500, body: { error: "Internal error", code: "INTERNAL" } }
+}
+
+/**
+ * Pure: log fields of an unexpected error. Prisma errors are logged by class
+ * name and error code only: their messages can quote the query and its values.
+ */
+export function describeUnexpected(error: unknown): Record<string, string> {
+  if (!(error instanceof Error)) return { error: String(error) }
+  if (error.name.startsWith("PrismaClient")) {
+    const code = (error as { code?: unknown }).code
+    return { errorName: error.name, ...(typeof code === "string" ? { errorCode: code } : {}) }
+  }
+  return { errorName: error.name, error: error.message }
 }
 
 /** Any thrown error → `{ error, code }` response (see v1ErrorBody). */

@@ -222,6 +222,21 @@ describe("Idempotency-Key", () => {
     expect(sprintBacklog.createTask).toHaveBeenCalledTimes(1)
   })
 
+  it("a retry whose JSON only reorders keys is the same request: replayed, not 409", async () => {
+    const first = await tasksRoute.POST(
+      send("POST", "/sprints/s1/tasks", '{"pbItemId":"b1","taskName":"API","assigneeIds":["u1"],"estimatedHours":2}', { "Idempotency-Key": "reorder" }),
+      seg({ sprintId: "s1" })
+    )
+    const again = await tasksRoute.POST(
+      send("POST", "/sprints/s1/tasks", '{"estimatedHours":2,"assigneeIds":["u1"],"taskName":"API","pbItemId":"b1"}', { "Idempotency-Key": "reorder" }),
+      seg({ sprintId: "s1" })
+    )
+    expect(first.status).toBe(201)
+    expect(again.status).toBe(201)
+    expect(again.headers.get("Idempotent-Replayed")).toBe("true")
+    expect(sprintBacklog.createTask).toHaveBeenCalledTimes(1)
+  })
+
   it("concurrent retries share one creation", async () => {
     const [a, b] = await Promise.all([create("same"), create("same")])
     expect([a.status, b.status]).toEqual([201, 201])

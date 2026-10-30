@@ -65,10 +65,11 @@ AI が Kanflow の内容を読んで Claude Code 上で開発を進められる�
 - プロジェクト限定: すべてのツールが `resolveV1ProjectActor` を通る。エンティティ ID 起点のツール（`update_task` の taskId、sprintId、PBI の内部 id、Icebox / コメント対象）は `locateEntity()`（`api-v1.service.ts`）でプロジェクトを引いてから通す。エンティティ無し・`projectId` 不一致・限定外はすべて同じ `NOT_FOUND`
 - 変更履歴: **`via: "mcp"`** を採用（`Actor.via` を `"api" | "mcp"` に拡張）。履歴 UI はまだ `meta.via` を表示しておらず、`withVia` はそのまま通すだけなので UI・テストへの影響なし
 - 不足スコープ: ツールエラー本文に `requiredScope` と `hint`（再発行の案内）。レート超過は `retryAfterSec`
-- 冪等性ルール（`docs/mcp.md`）: 作成系 6 ツールは、`idempotencyKey` 指定時は 24h、未指定時は「ツール + プロジェクト + パス ID + 正規化した引数」から鍵を導出し **10 分間**同一呼び出しを再実行せず最初の結果を `replayed: true` で返す。更新系は重複排除しない（`version` 付きの再試行は `VERSION_CONFLICT` になり得る → 再読込）。`add_pbis_to_sprint` は元々冪等
+- 冪等性ルール（`docs/mcp.md`）: 作成系 6 ツールは、`idempotencyKey` 指定時は 24h、未指定時は「ツール + プロジェクト + パス ID + 正規化した引数」から鍵を導出し **2 分間**（レビュー指摘で 10 分から短縮。クライアントの再試行だけを吸収し、意図的な同一作成を潰さないため）同一呼び出しを再実行せず最初の結果を `replayed: true`（= 何も作成していない）で返す。意図的に同じものを作るときは別の `idempotencyKey` を渡す（作成系ツールの説明文に明記）。更新系は重複排除しない（`version` 付きの再試行は `VERSION_CONFLICT` になり得る → 再読込）。`add_pbis_to_sprint` は元々冪等
 - 既知の挙動: ツールの入力スキーマ違反は SDK が `Input validation error: ...` の**平文**で返す（`isError: true`、内部情報なし）。Kanflow 側のエラーはすべて v1 形式の JSON
 - `resolve_project`: `git remote get-url origin` の https / `ssh://` / `git@host:` 形式を正規化（URL 内の認証情報・ポートは捨て、応答に出さない）→ `parseRepoUrl`（`GIT_ALLOWED_HOSTS`）→ 登録済み `GitRepository`（`apiBase` + `repoPath`）から検索。外部への通信はしない
 - `my_tasks`: `projectId` 省略時はトークンで開ける全プロジェクトの「planning / active / review」スプリントから自分の担当タスク（既定で done 除外）
+- レビュー対応（2 コミット目）: `MCP_MAX_BODY_BYTES` を `_lib/server.ts` へ移動（route.ts から export すると `next build` が失敗するため）／JSON-RPC バッチ（配列）を 400 + `-32600` で拒否（1 POST = 1 メッセージ = 読み取りレート 1 回）／`my_tasks`・`resolve_project` は上限で切ったとき `truncated: true` + `limit`、`my_tasks` は全プロジェクトの IN 句を作らず担当タスクから引き、プロジェクト判定は `resolveV1ProjectActor` を並列度 4 で（`visibleProjects`）／内部 PBI id がプロジェクト外なら `PBI_NOT_FOUND`／Prisma エラーはクラス名とコードだけをログに出す（`describeUnexpected`）
 - テスト: `app/src/app/api/mcp/__tests__/mcp-route.test.ts`（26 件）、`tool-kit.test.ts`（5 件）、`api-v1.service.test.ts` に 4 件追加。v1 ルートテスト 48 件は無変更で通過
 
 ### ステップ4 向けメモ（ステップ3 から）

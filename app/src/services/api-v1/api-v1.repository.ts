@@ -247,13 +247,13 @@ export function findIceboxProjectId(db: Db, id: string) {
 /** Upper bound of projects one repository URL may resolve to. */
 export const V1_REPOSITORY_MATCH_LIMIT = 50
 
-/** Registered GitLab repositories at this location, in live projects. */
+/** Registered GitLab repositories at this location, in live projects (one row more than the limit, to detect truncation). */
 export function findRepositoriesAt(db: Db, apiBase: string, repoPath: string) {
   return db.gitRepository.findMany({
     where: { apiBase, repoPath, project: { deletedAt: null } },
     select: { projectId: true, name: true, webUrl: true, project: { select: { name: true } } },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-    take: V1_REPOSITORY_MATCH_LIMIT,
+    take: V1_REPOSITORY_MATCH_LIMIT + 1,
   })
 }
 
@@ -262,15 +262,22 @@ export const V1_MY_TASKS_LIMIT = 200
 /** Sprints whose tasks count as current work. */
 export const OPEN_SPRINT_STATUSES = ["planning", "active", "review"] as const
 
-/** Tasks assigned to the user in open sprints of the given projects. */
-export function findMyTasks(db: Db, userId: string, projectIds: string[], includeDone: boolean) {
+/**
+ * Tasks assigned to the user in open sprints (one row more than the limit,
+ * to detect truncation). `projectIds` null = any live, active project
+ * (the caller still checks each project through resolveV1ProjectActor).
+ */
+export function findMyTasks(db: Db, userId: string, projectIds: string[] | null, includeDone: boolean) {
+  const openSprint = { status: { in: [...OPEN_SPRINT_STATUSES] } }
   return db.sprintBacklogItem.findMany({
     where: {
       assignees: { some: { userId } },
       taskName: { not: null },
       ...LIVE_PBI,
       ...(includeDone ? {} : { status: { not: "done" } }),
-      sprint: { projectId: { in: projectIds }, status: { in: [...OPEN_SPRINT_STATUSES] } },
+      sprint: projectIds
+        ? { ...openSprint, projectId: { in: projectIds } }
+        : { ...openSprint, project: { deletedAt: null, status: "active" } },
     },
     select: {
       id: true,
@@ -286,6 +293,6 @@ export function findMyTasks(db: Db, userId: string, projectIds: string[], includ
       sprint: { select: { id: true, sprintName: true, status: true, projectId: true } },
     },
     orderBy: OLDEST_FIRST,
-    take: V1_MY_TASKS_LIMIT,
+    take: V1_MY_TASKS_LIMIT + 1,
   })
 }

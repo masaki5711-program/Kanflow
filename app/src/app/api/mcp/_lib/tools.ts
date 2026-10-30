@@ -38,8 +38,7 @@ import {
   updateTaskOp,
   v1UpdatePbiSchema,
 } from "@/app/api/v1/_lib/v1-handlers"
-import { resolveV1ProjectActor } from "@/app/api/v1/_lib/v1-route"
-import { DATA_NOTICE, definedOnly, guard, mcpWrite, pbiIdIn, pbiScope, projectScope, toolOk } from "./tool-kit"
+import { CREATE_NOTE, DATA_NOTICE, definedOnly, guard, mcpWrite, pbiIdIn, pbiScope, projectScope, toolOk, visibleProjects } from "./tool-kit"
 
 /**
  * The Kanflow MCP tools (docs/mcp.md). Every tool resolves its project
@@ -59,7 +58,7 @@ const idempotencyKeyArg = z
   .regex(/^[\x21-\x7e]{1,200}$/)
   .optional()
   .describe(
-    "Optional. Reuse the same key when retrying the same create; without it an identical call within 10 minutes returns the first result (replayed: true) instead of creating twice."
+    "Optional. Same key = same create (kept 24 h; reuse it when retrying). A new, distinct key forces a second create even with identical arguments. Without a key, an identical call within 2 minutes is treated as a retry (replayed: true, nothing new created)."
   )
 
 const READ = { readOnlyHint: true, openWorldHint: false } as const
@@ -67,6 +66,7 @@ const CREATE = { readOnlyHint: false, destructiveHint: false, idempotentHint: tr
 const UPDATE = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false } as const
 
 const describe = (text: string) => `${text}\n\n${DATA_NOTICE}`
+const describeCreate = (text: string) => `${text}\n\n${CREATE_NOTE}\n\n${DATA_NOTICE}`
 
 const COMMENT_KIND = { pbi: "pbi", sprint_task: "task", icebox: "icebox" } as const
 
@@ -108,7 +108,7 @@ export function registerKanflowTools(server: McpServer, principal: ApiPrincipal)
     "resolve_project",
     {
       description: describe(
-        "Find the Kanflow project(s) linked to a git repository through Kanflow's GitLab integration. Pass the output of `git remote get-url origin` (https or ssh form; credentials in the URL are ignored and never echoed)."
+        "Find the Kanflow project(s) linked to a git repository through Kanflow's GitLab integration. Pass the output of `git remote get-url origin` (https or ssh form; credentials in the URL are ignored and never echoed). At most 50 matches; truncated: true when more exist."
       ),
       inputSchema: { remoteUrl: z.string().min(1).max(1000).describe("The git remote URL.") },
       annotations: READ,
@@ -117,20 +117,13 @@ export function registerKanflowTools(server: McpServer, principal: ApiPrincipal)
       guard("resolve_project", async () => {
         const location = parseRepoUrl(normalizeRemoteUrl(remoteUrl))
         if (!location) throw new ValidationError("Not a repository URL on the configured GitLab host", {}, "VALIDATION")
-        const candidates = await findProjectsByRepository(location)
-        const visible = []
-        const seen = new Set<string>()
-        for (const c of candidates) {
-          if (seen.has(c.projectId)) continue
-          seen.add(c.projectId)
-          try {
-            await resolveV1ProjectActor(principal, c.projectId)
-            visible.push(c)
-          } catch (error) {
-            if (!(error instanceof NotFoundError)) throw error
-          }
-        }
-        return toolOk({ data: visible, repository: { repoPath: location.repoPath } })
+        const found = await findProjectsByRepository(location)
+        const allowed = await visibleProjects(principal, found.items.map((c) => c.projectId))
+        return toolOk({
+          data: found.items.filter((c) => allowed.has(c.projectId)),
+          repository: { repoPath: location.repoPath },
+          ...(found.truncated ? { truncated: true, limit: found.limit } : {}),
+        })
       })
   )
 
@@ -191,7 +184,7 @@ export function registerKanflowTools(server: McpServer, principal: ApiPrincipal)
   server.registerTool(
     "my_tasks",
     {
-      description: describe("Tasks assigned to the token user in open sprints (planning / active / review), in one project or in every project the token can open."),
+      description: describe("Tasks assigned to the token user in open sprints (planning / active / review), in one project or in every active project the token can open. At most 200, oldest first; truncated: true when more exist."),
       inputSchema: { projectId: id.optional(), includeDone: z.boolean().optional().describe("Also list done tasks (default false).") },
       annotations: READ,
     },
@@ -199,21 +192,17 @@ export function registerKanflowTools(server: McpServer, principal: ApiPrincipal)
       guard("my_tasks", async () => {
         if (projectId !== undefined) {
           const scope = await projectScope(principal, projectId)
-          return toolOk(await listMyTasks(principal.userId, [scope.projectId], includeDone ?? false))
+          const found = await listMyTasks(principal.userId, [scope.projectId], includeDone ?? false)
+          return toolOk({ data: found.data, ...(found.truncated ? { truncated: true, limit: found.limit } : {}) })
         }
-        const { data: projects } = await listProjects(user, { status: "active" }, principal.projectIds)
-        const found = await listMyTasks(principal.userId, projects.map((p) => p.id), includeDone ?? false)
-        // Keep only projects resolveV1ProjectActor admits (the single enforcement point).
-        const allowed = new Set<string>()
-        for (const pid of new Set(found.data.map((t) => t.projectId))) {
-          try {
-            await resolveV1ProjectActor(principal, pid)
-            allowed.add(pid)
-          } catch (error) {
-            if (!(error instanceof NotFoundError)) throw error
-          }
-        }
-        return toolOk({ data: found.data.filter((t) => allowed.has(t.projectId)) })
+        // No IN list of every project: the query is bounded by the user's assignments (and the token's own
+        // project list), then each project found goes through resolveV1ProjectActor (the single enforcement point).
+        const found = await listMyTasks(principal.userId, principal.projectIds, includeDone ?? false)
+        const allowed = await visibleProjects(principal, found.data.map((t) => t.projectId))
+        return toolOk({
+          data: found.data.filter((t) => allowed.has(t.projectId)),
+          ...(found.truncated ? { truncated: true, limit: found.limit } : {}),
+        })
       })
   )
 
@@ -256,7 +245,7 @@ export function registerKanflowTools(server: McpServer, principal: ApiPrincipal)
   server.registerTool(
     "create_pbi",
     {
-      description: describe("Create a PBI (scope backlog:write; Product Owner / Scrum Master). Needs a userStory or an initiative."),
+      description: describeCreate("Create a PBI (scope backlog:write; Product Owner / Scrum Master). Needs a userStory or an initiative."),
       inputSchema: { projectId: projectIdArg, ...createBacklogItemSchema.shape, idempotencyKey: idempotencyKeyArg },
       annotations: CREATE,
     },
@@ -284,7 +273,7 @@ export function registerKanflowTools(server: McpServer, principal: ApiPrincipal)
   server.registerTool(
     "create_sprint",
     {
-      description: describe("Create a sprint (scope sprint:write; Product Owner / Scrum Master). Dates as YYYY-MM-DD; selectedPbIds are internal PBI ids."),
+      description: describeCreate("Create a sprint (scope sprint:write; Product Owner / Scrum Master). Dates as YYYY-MM-DD; selectedPbIds are internal PBI ids."),
       inputSchema: { projectId: projectIdArg, ...createSprintSchema.shape, idempotencyKey: idempotencyKeyArg },
       annotations: CREATE,
     },
@@ -329,7 +318,7 @@ export function registerKanflowTools(server: McpServer, principal: ApiPrincipal)
   server.registerTool(
     "create_task",
     {
-      description: describe("Create a task under a PBI of a sprint (scope task:write; team members). assigneeIds are user ids (whoami gives yours)."),
+      description: describeCreate("Create a task under a PBI of a sprint (scope task:write; team members). assigneeIds are user ids (whoami gives yours)."),
       inputSchema: { sprintId: id, pbi: pbiRef, projectId: optionalProjectId, ...createTaskFields, idempotencyKey: idempotencyKeyArg },
       annotations: CREATE,
     },
@@ -353,7 +342,9 @@ export function registerKanflowTools(server: McpServer, principal: ApiPrincipal)
     ({ taskId, projectId, ...fields }) =>
       guard("update_task", async () => {
         const scope = await projectScope(principal, projectId, { kind: "task", id: taskId })
-        const sprintId = scope.sprintId as string
+        const sprintId = scope.sprintId
+        // locateEntity always returns the sprint of a task; treat anything else as not found.
+        if (!sprintId) throw new NotFoundError()
         return mcpWrite(principal, { tool: "update_task", scope, action: "task.write", body: definedOnly(fields), params: { sprintId, taskId }, op: updateTaskOp })
       })
   )
@@ -361,7 +352,7 @@ export function registerKanflowTools(server: McpServer, principal: ApiPrincipal)
   server.registerTool(
     "add_comment",
     {
-      description: describe("Comment on a PBI, a sprint task or an Icebox item (scope comment:write; team members). @mentions notify as in the UI."),
+      description: describeCreate("Comment on a PBI, a sprint task or an Icebox item (scope comment:write; team members). @mentions notify as in the UI."),
       inputSchema: {
         entityType: z.enum(COMMENT_ENTITY_TYPES),
         entityId: id.describe('Id of the PBI / task / Icebox item (a PBI may be "PBI-12" with projectId).'),
@@ -389,7 +380,7 @@ export function registerKanflowTools(server: McpServer, principal: ApiPrincipal)
   server.registerTool(
     "create_icebox_item",
     {
-      description: describe("Submit a request (idea, improvement, bug report) to the project's Icebox (scope icebox:write)."),
+      description: describeCreate("Submit a request (idea, improvement, bug report) to the project's Icebox (scope icebox:write)."),
       inputSchema: { projectId: projectIdArg, ...createIceboxItemSchema.shape, idempotencyKey: idempotencyKeyArg },
       annotations: CREATE,
     },
@@ -403,7 +394,7 @@ export function registerKanflowTools(server: McpServer, principal: ApiPrincipal)
   server.registerTool(
     "post_daily_scrum",
     {
-      description: describe("Post a daily scrum note to a sprint (scope daily:write; team members). date as YYYY-MM-DD."),
+      description: describeCreate("Post a daily scrum note to a sprint (scope daily:write; team members). date as YYYY-MM-DD."),
       inputSchema: { sprintId: id, projectId: optionalProjectId, ...createDailyScrumSchema.shape, idempotencyKey: idempotencyKeyArg },
       annotations: CREATE,
     },

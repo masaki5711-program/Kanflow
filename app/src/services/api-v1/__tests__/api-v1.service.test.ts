@@ -168,14 +168,34 @@ describe("Kanflow MCP helpers", () => {
 
   it("findProjectsByRepository flattens the rows", async () => {
     vi.mocked(repo.findRepositoriesAt).mockResolvedValue([{ projectId: "p1", name: "API", webUrl: "https://h/g/r", project: { name: "Kanflow" } }])
-    expect(await v1.findProjectsByRepository({ apiBase: "https://h", repoPath: "g/r" })).toEqual([
-      { projectId: "p1", projectName: "Kanflow", repository: { name: "API", webUrl: "https://h/g/r" } },
-    ])
+    expect(await v1.findProjectsByRepository({ apiBase: "https://h", repoPath: "g/r" })).toEqual({
+      items: [{ projectId: "p1", projectName: "Kanflow", repository: { name: "API", webUrl: "https://h/g/r" } }],
+      truncated: false,
+      limit: repo.V1_REPOSITORY_MATCH_LIMIT,
+    })
     expect(repo.findRepositoriesAt).toHaveBeenCalledWith(DEFAULT_DB, "https://h", "g/r")
   })
 
+  it("findProjectsByRepository / listMyTasks cut at the limit and say so", async () => {
+    const repoRow = { projectId: "p1", name: "API", webUrl: "https://h/g/r", project: { name: "Kanflow" } }
+    vi.mocked(repo.findRepositoriesAt).mockResolvedValue(Array.from({ length: repo.V1_REPOSITORY_MATCH_LIMIT + 1 }, () => repoRow))
+    const repos = await v1.findProjectsByRepository({ apiBase: "https://h", repoPath: "g/r" })
+    expect(repos.items).toHaveLength(repo.V1_REPOSITORY_MATCH_LIMIT)
+    expect(repos.truncated).toBe(true)
+
+    const task = {
+      id: "k", taskName: "t", status: "todo", estimatedHours: null, actualHours: null, completedAt: null, version: 0, createdAt: T, updatedAt: T,
+      pbItem: { id: "b1", displayId: 1, initiative: "I", userStory: null }, sprint: { id: "s1", sprintName: "S", status: "active", projectId: "p1" },
+    }
+    vi.mocked(repo.findMyTasks).mockResolvedValue(Array.from({ length: repo.V1_MY_TASKS_LIMIT + 1 }, () => task))
+    const mine = await v1.listMyTasks("u1", null, false)
+    expect(repo.findMyTasks).toHaveBeenCalledWith(DEFAULT_DB, "u1", null, false)
+    expect(mine.data).toHaveLength(repo.V1_MY_TASKS_LIMIT)
+    expect(mine).toMatchObject({ truncated: true, limit: repo.V1_MY_TASKS_LIMIT })
+  })
+
   it("listMyTasks: no projects → no query; rows carry project, sprint and PBI title", async () => {
-    expect(await v1.listMyTasks("u1", [], false)).toEqual({ data: [] })
+    expect(await v1.listMyTasks("u1", [], false)).toEqual({ data: [], truncated: false, limit: repo.V1_MY_TASKS_LIMIT })
     expect(repo.findMyTasks).not.toHaveBeenCalled()
     vi.mocked(repo.findMyTasks).mockResolvedValue([
       {

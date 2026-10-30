@@ -169,18 +169,41 @@ export function normalizeRemoteUrl(raw: string): string {
   }
 }
 
+/** A list cut at `limit`: `truncated` says more rows exist. */
+export interface V1Bounded<T> {
+  items: T[]
+  truncated: boolean
+  limit: number
+}
+
+function bounded<T>(rows: T[], limit: number): V1Bounded<T> {
+  return { items: rows.slice(0, limit), truncated: rows.length > limit, limit }
+}
+
 /** Projects with a registered GitLab repository at `location` (no access check: see locateEntity). */
 export async function findProjectsByRepository(location: { apiBase: string; repoPath: string }) {
   const rows = await repo.findRepositoriesAt(defaultDb, location.apiBase, location.repoPath)
-  return rows.map((r) => ({ projectId: r.projectId, projectName: r.project.name, repository: { name: r.name, webUrl: r.webUrl } }))
+  const page = bounded(rows, repo.V1_REPOSITORY_MATCH_LIMIT)
+  return {
+    ...page,
+    items: page.items.map((r) => ({ projectId: r.projectId, projectName: r.project.name, repository: { name: r.name, webUrl: r.webUrl } })),
+  }
 }
 
-/** Tasks assigned to the user in open sprints (planning / active / review) of `projectIds`. */
-export async function listMyTasks(userId: string, projectIds: string[], includeDone: boolean) {
-  if (projectIds.length === 0) return { data: [] }
+/**
+ * Tasks assigned to the user in open sprints (planning / active / review),
+ * oldest first, at most V1_MY_TASKS_LIMIT (`truncated` when cut). `projectIds`
+ * null = any active project (no access check: the caller filters each
+ * project through resolveV1ProjectActor).
+ */
+export async function listMyTasks(userId: string, projectIds: string[] | null, includeDone: boolean) {
+  if (projectIds && projectIds.length === 0) return { data: [], truncated: false, limit: repo.V1_MY_TASKS_LIMIT }
   const rows = await repo.findMyTasks(defaultDb, userId, projectIds, includeDone)
+  const page = bounded(rows, repo.V1_MY_TASKS_LIMIT)
   return {
-    data: rows.map(({ pbItem, sprint, ...task }) => ({
+    truncated: page.truncated,
+    limit: page.limit,
+    data: page.items.map(({ pbItem, sprint, ...task }) => ({
       ...isoDates(task),
       projectId: sprint.projectId,
       sprint: { id: sprint.id, name: sprint.sprintName, status: sprint.status },

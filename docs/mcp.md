@@ -69,18 +69,20 @@ Exactly the REST API's rules (docs/api-v1.md, docs/authorization.md):
 
 All results are JSON text: the `/api/v1` envelope `{ "data": ..., "nextCursor"? }`.
 `projectId` is optional on tools that start from an entity id; a PBI may be
-given as its internal id, `12` or `PBI-12` (numbers need `projectId`).
+given as its internal id, `12` or `PBI-12` (numbers need `projectId`); an
+internal PBI id that belongs to another project answers `PBI_NOT_FOUND`.
+Lists that are cut at a limit say so with `truncated: true` and `limit`.
 
 | Tool | Scope / role | What |
 |---|---|---|
 | `whoami` | read | the token owner, the token's scopes and project restriction |
 | `list_projects` | read | projects the token can open (`status` active / archived) |
-| `resolve_project` | read | `git remote get-url origin` → the Kanflow project(s) whose GitLab integration registers that repository (https / ssh / `git@host:` forms; credentials in the URL are ignored; host must be in `GIT_ALLOWED_HOSTS`) |
+| `resolve_project` | read | `git remote get-url origin` → the Kanflow project(s) whose GitLab integration registers that repository (https / ssh / `git@host:` forms; credentials in the URL are ignored; host must be in `GIT_ALLOWED_HOSTS`); at most 50 matches, `truncated: true` + `limit` when cut |
 | `get_backlog` | read | PBIs of a project (`status`, `cursor`, `limit`) |
 | `get_pbi` | read | one PBI with acceptance criteria, sprint tasks and the first page of comments |
 | `list_sprints` | read | sprints, newest first |
 | `get_sprint_tasks` | read | tasks of a sprint (with `version`) |
-| `my_tasks` | read | the owner's tasks in open sprints (planning / active / review), one project or all; `includeDone` |
+| `my_tasks` | read | the owner's tasks in open sprints (planning / active / review), one project or every active project the token can open; `includeDone`; at most 200 (oldest first), `truncated: true` + `limit` when cut |
 | `get_activity` | read | change history (`entityType`, `cursor`, `limit`) |
 | `list_comments` | read | one thread (`entityType` pbi / sprint_task / icebox, `entityId`) |
 | `create_pbi` | `backlog:write`, PO / SM | as `POST /backlog` |
@@ -118,10 +120,15 @@ A failed tool call is a tool result with `isError: true` whose text is the
 - `NOT_FOUND` / `PBI_NOT_FOUND` / `SPRINT_NOT_FOUND`, `VALIDATION`,
   `VERSION_CONFLICT` (re-read, then retry with the new `version`), `CONFLICT`.
 - Unexpected failures answer `{"error":"Internal error","code":"INTERNAL"}`
-  only; the details go to the server log (`module: "api-v1"`, `surface: "mcp"`, `tool`).
-- Arguments that do not match a tool's input schema are refused by the MCP
-  layer itself with a plain-text `Input validation error: ...` (still
-  `isError: true`, no internals) before any Kanflow code runs.
+  only; the details go to the server log (`module: "api-v1"`, `surface: "mcp"`, `tool`;
+  database errors by class name and Prisma code only, never their message).
+- **Client note — the one non-JSON error:** arguments that do not match a
+  tool's input schema (unknown enum value, wrong type, missing required
+  argument) are refused by the MCP SDK itself, before any Kanflow code runs,
+  with a **plain-text** result `MCP error -32602: Input validation error: ...`
+  (`isError: true`, no internals). Clients and skills must not assume every
+  error text parses as JSON: treat a non-JSON error text as `VALIDATION`.
+  The server instructions say the same.
 
 ## Idempotency (no double creation on retry)
 
@@ -130,11 +137,17 @@ Create tools (`create_pbi`, `create_sprint`, `create_task`, `add_comment`,
 store (in memory per web process; a restart forgets it):
 
 - **Without `idempotencyKey`**: the key is derived from the call (tool,
-  project, path ids and the canonical arguments). The **same call within 10
-  minutes** returns the first result with `"replayed": true` instead of
-  creating again — so an MCP retry after a lost response is harmless. To
-  create the same thing twice on purpose within 10 minutes, change the text or
-  pass distinct `idempotencyKey`s.
+  project, path ids and the canonical arguments). The **same call within 2
+  minutes** returns the first result with `"replayed": true` — meaning
+  **nothing new was created** — so an MCP retry after a lost or timed-out
+  response is harmless. Why 2 minutes: the window only has to cover a retry of
+  the same call. The TypeScript SDK client does not retry `tools/call` by
+  itself; a retry comes from the agent re-issuing the call after a
+  transport error or timeout, i.e. within seconds to about a minute. A longer
+  window would silently merge deliberate repeats (a second "LGTM" comment, a
+  second "Review" task) and return a stale object.
+- **To create an identical item on purpose**, pass a distinct `idempotencyKey`
+  per item (every create tool's description says so).
 - **With `idempotencyKey`** (1–200 visible ASCII characters): kept 24 h; the
   same key with other arguments → `CONFLICT`.
 - Failed calls are not remembered (a retry runs again).
@@ -148,6 +161,9 @@ store (in memory per web process; a restart forgets it):
   `API_V1_RATE_LIMIT_PER_MIN` (counts each MCP HTTP request),
   `API_V1_WRITE_RATE_LIMIT_PER_MIN` (counts each write tool call),
   `GIT_ALLOWED_HOSTS` (for `resolve_project`).
-- Request body limit: 1 MiB per JSON-RPC request.
+- Request body limit: 1 MiB per JSON-RPC request (413 above it).
+- **One JSON-RPC message per POST.** Batches (a JSON array; removed from MCP
+  in protocol 2025-06-18) are refused with HTTP 400 and JSON-RPC error
+  `-32600`, so every message is charged to the per-token request budget.
 - A reverse proxy in front of Kanflow must pass the `Authorization` header and
   must not buffer-transform `application/json` / `text/event-stream`.
