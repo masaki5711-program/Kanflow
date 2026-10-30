@@ -98,7 +98,7 @@ describe("ApiTokensSection", () => {
       {
         name: "Claude Code",
         expiresInDays: 30,
-        scopes: ["read", "sprint:write", "task:write", "comment:write", "icebox:write", "daily:write"],
+        scopes: ["read", "sprint:write", "task:write", "comment:write", "icebox:write", "daily:write", "dev:write"],
         projectIds: ["p2"],
       },
     ])

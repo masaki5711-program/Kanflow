@@ -16,6 +16,7 @@ export const COMMENT_SELECT = {
   createdAt: true,
   editedAt: true,
   deletedAt: true,
+  via: true,
   author: { select: { id: true, name: true } },
   mentions: { select: { user: { select: { id: true, name: true } } } },
 } as const
@@ -61,6 +62,8 @@ export interface NewComment {
   entityId: string
   authorId: string
   body: string
+  /** "api" / "mcp" when posted with an access token (absent = the UI). */
+  via?: "api" | "mcp"
 }
 
 export function createComment(db: Db, data: NewComment) {

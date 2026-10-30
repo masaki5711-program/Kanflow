@@ -123,3 +123,54 @@ describe("parseRepoUrl — SSRF guard (host allowlist) and rejected forms", () =
     expect(parseRepoUrl(`https://${HOST}/group/repo name`, HOSTS)).toBeNull()
   })
 })
+
+describe("parseMergeRequestUrl (dev:write MR links)", () => {
+  const MR = `https://${HOST}/group/sub/repo/-/merge_requests/42`
+
+  it("parses an MR URL and rebuilds it canonically (sub-page, query and fragment dropped)", async () => {
+    const { parseMergeRequestUrl } = await import("../repo-url")
+    const expected = { apiBase: `https://${HOST}`, repoPath: "group/sub/repo", webUrl: `https://${HOST}/group/sub/repo`, iid: 42, url: MR }
+    expect(parseMergeRequestUrl(MR, HOSTS)).toEqual(expected)
+    expect(parseMergeRequestUrl(`${MR}/diffs?view=inline#note_1`, HOSTS)).toEqual(expected)
+    expect(parseMergeRequestUrl(`  ${MR}  `, HOSTS)).toEqual(expected)
+  })
+
+  it.each([
+    ["a foreign host", "https://gitlab.com/group/repo/-/merge_requests/1"],
+    ["a look-alike host", `https://${HOST}.evil.example/group/repo/-/merge_requests/1`],
+    ["http", `http://${HOST}/group/repo/-/merge_requests/1`],
+    ["credentials", `https://user:pw@${HOST}/group/repo/-/merge_requests/1`],
+    ["a port", `https://${HOST}:8443/group/repo/-/merge_requests/1`],
+    ["no number", `https://${HOST}/group/repo/-/merge_requests/`],
+    ["number 0", `https://${HOST}/group/repo/-/merge_requests/0`],
+    ["a huge number", `https://${HOST}/group/repo/-/merge_requests/99999999999`],
+    ["an issue", `https://${HOST}/group/repo/-/issues/3`],
+    ["a repository page only", `https://${HOST}/group/repo`],
+    ["no repository", `https://${HOST}/-/merge_requests/3`],
+    ["a nested /-/ path", `https://${HOST}/group/repo/-/tree/main/-/merge_requests/3`],
+    ["javascript:", "javascript:alert(1)"],
+    ["not a URL", "!42"],
+    ["empty", ""],
+    ["a malformed escape", `https://${HOST}/group/re%E0%A4po/-/merge_requests/1`],
+    ["a lone %", `https://${HOST}/group/re%po/-/merge_requests/1`],
+    ["an encoded slash", `https://${HOST}/group%2Frepo/x/-/merge_requests/1`],
+    ["a . segment", `https://${HOST}/group/./repo/-/merge_requests/1`],
+    ["an encoded .. segment", `https://${HOST}/group/%2E%2E/repo/-/merge_requests/1`],
+  ])("refuses %s", async (_label, url) => {
+    const { parseMergeRequestUrl } = await import("../repo-url")
+    expect(parseMergeRequestUrl(url, HOSTS)).toBeNull()
+  })
+})
+
+describe("parseRepoUrl — hardening", () => {
+  it.each([
+    ["a malformed escape (no throw)", `https://${HOST}/group/re%E0%A4po`],
+    ["an encoded slash", `https://${HOST}/group%2Fsub/repo`],
+    ["an encoded backslash", `https://${HOST}/group%5Csub/repo`],
+    ["a .. segment (encoded)", `https://${HOST}/group/%2e%2e/repo`],
+    ["a . segment (encoded)", `https://${HOST}/group/%2e/repo`],
+  ])("returns null for %s", (_label, url) => {
+    expect(() => parseRepoUrl(url, HOSTS)).not.toThrow()
+    expect(parseRepoUrl(url, HOSTS)).toBeNull()
+  })
+})

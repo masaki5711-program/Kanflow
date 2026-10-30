@@ -27,6 +27,8 @@ export interface NotificationsTranslations {
   notifAiReportFailed: string
   notifImprovementCheckDue: string
   notifGitPipelineFailed: string
+  notifWorkClaimSuperseded: string
+  notifWorkClaimEndedByModerator: string
   notifMentioned: string
   notifComment: string
   notifUnknown: string
@@ -54,6 +56,7 @@ export interface NotificationsTranslations {
   notifTypeAiReportFailed: string
   notifTypeImprovementCheckDue: string
   notifTypeGitPipelineFailed: string
+  notifTypeWorkClaimEnded: string
   notifTabsLabel: string
   notifTabAll: string
   notifTabPersonal: string
@@ -85,6 +88,8 @@ export const ja: NotificationsTranslations = {
   notifAiReportFailed: "AI レポート（{kind}）を生成できませんでした",
   notifImprovementCheckDue: "定着確認の期限です：{label}（{kind}・{date}）",
   notifGitPipelineFailed: "「{label}」のマージリクエスト !{mr} のパイプラインが失敗しました",
+  notifWorkClaimSuperseded: "「{label}」のあなたの作業の宣言は期限切れのため、{actor} の宣言に置き換わりました",
+  notifWorkClaimEndedByModerator: "{actor} が「{label}」のあなたの作業の宣言を解除しました",
   notifMentioned: "{actor} さんが「{label}」のコメントであなたをメンションしました",
   notifComment: "{actor} さんが「{label}」にコメントしました",
   notifUnknown: "新しいお知らせがあります",
@@ -112,6 +117,7 @@ export const ja: NotificationsTranslations = {
   notifTypeAiReportFailed: "依頼した AI レポートの生成に失敗したとき",
   notifTypeImprovementCheckDue: "改善成果の定着確認の期限が来たとき（改善オーナー）",
   notifTypeGitPipelineFailed: "担当 PBI のマージリクエストでパイプラインが失敗したとき",
+  notifTypeWorkClaimEnded: "自分の作業の宣言（AI セッション）が、期限切れで置き換わったときや PO / SM に解除されたとき",
   notifTabsLabel: "通知の絞り込み",
   notifTabAll: "すべて",
   notifTabPersonal: "メンション・自分宛",
@@ -143,6 +149,8 @@ export const en: NotificationsTranslations = {
   notifAiReportFailed: "Your AI report ({kind}) could not be generated",
   notifImprovementCheckDue: "A sustainment check is due: {label} ({kind}, {date})",
   notifGitPipelineFailed: "The pipeline of merge request !{mr} for \"{label}\" failed",
+  notifWorkClaimSuperseded: "Your stale work claim on \"{label}\" was superseded by {actor}'s claim",
+  notifWorkClaimEndedByModerator: "{actor} released your work claim on \"{label}\"",
   notifMentioned: "{actor} mentioned you in a comment on “{label}”",
   notifComment: "{actor} commented on “{label}”",
   notifUnknown: "You have a new notification",
@@ -170,6 +178,7 @@ export const en: NotificationsTranslations = {
   notifTypeAiReportFailed: "When an AI report I requested fails",
   notifTypeImprovementCheckDue: "When a sustainment check of an improvement is due (improvement owner)",
   notifTypeGitPipelineFailed: "When a pipeline fails on a merge request of a PBI you work on",
+  notifTypeWorkClaimEnded: "When your work claim (AI session) is superseded after going stale or released by a PO / SM",
   notifTabsLabel: "Filter notifications",
   notifTabAll: "All",
   notifTabPersonal: "Mentions & for me",
@@ -201,6 +210,8 @@ export const id: NotificationsTranslations = {
   notifAiReportFailed: "Laporan AI ({kind}) tidak dapat dibuat",
   notifImprovementCheckDue: "Pengecekan keberlanjutan jatuh tempo: {label} ({kind}, {date})",
   notifGitPipelineFailed: "Pipeline merge request !{mr} untuk \"{label}\" gagal",
+  notifWorkClaimSuperseded: "Klaim pekerjaan Anda yang kedaluwarsa pada \"{label}\" digantikan oleh klaim {actor}",
+  notifWorkClaimEndedByModerator: "{actor} melepas klaim pekerjaan Anda pada \"{label}\"",
   notifMentioned: "{actor} menyebut Anda dalam komentar di “{label}”",
   notifComment: "{actor} mengomentari “{label}”",
   notifUnknown: "Ada notifikasi baru",
@@ -228,6 +239,7 @@ export const id: NotificationsTranslations = {
   notifTypeAiReportFailed: "Saat laporan AI yang saya minta gagal dibuat",
   notifTypeImprovementCheckDue: "Saat pengecekan keberlanjutan perbaikan jatuh tempo (pemilik perbaikan)",
   notifTypeGitPipelineFailed: "Saat pipeline gagal pada merge request PBI yang Anda kerjakan",
+  notifTypeWorkClaimEnded: "Saat klaim pekerjaan Anda (sesi AI) digantikan setelah kedaluwarsa atau dilepas oleh PO / SM",
   notifTabsLabel: "Saring notifikasi",
   notifTabAll: "Semua",
   notifTabPersonal: "Sebutan & untuk saya",

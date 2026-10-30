@@ -18,6 +18,8 @@ export interface CommentDto {
   canDelete: boolean
   /** Both-language body (field "body"); `{}` / absent when untranslated or deleted. */
   i18n?: EntityI18n
+  /** Posted with an access token: "api" (REST) or "mcp" (Kanflow MCP, AI); null / absent = the UI. */
+  via?: "api" | "mcp" | null
 }
 
 export interface Page<T> {

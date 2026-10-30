@@ -59,6 +59,18 @@ function renderThread() {
 }
 
 describe("CommentThread", () => {
+  it("marks comments posted through MCP (AI) / the API with the via badge, UI comments without", async () => {
+    routes[`GET ${LIST}`] = () =>
+      jsonResponse({ items: [comment("ai", { body: "Progress: API done", via: "mcp" }), comment("rest", { via: "api" }), comment("ui")], nextCursor: null })
+    renderThread()
+    const ai = (await screen.findByText("Progress: API done")).closest("li")!
+    expect(within(ai).getByText(t.historyViaMcp)).toHaveAttribute("data-via", "mcp")
+    const rest = screen.getByText("Body rest").closest("li")!
+    expect(within(rest).getByText(t.historyViaApi)).toBeInTheDocument()
+    const ui = screen.getByText("Body ui").closest("li")!
+    expect(ui.querySelector("[data-via]")).toBeNull()
+  })
+
   it("shows the empty state, then posts a comment that appears at the end", async () => {
     routes[`GET ${LIST}`] = () => jsonResponse({ items: [], nextCursor: null })
     routes[`POST ${BASE}`] = () =>

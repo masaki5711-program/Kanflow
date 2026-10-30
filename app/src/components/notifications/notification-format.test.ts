@@ -205,4 +205,11 @@ describe("background AI report notifications", () => {
     expect(d.text).toBe("「#12 ログイン」のマージリクエスト !34 のパイプラインが失敗しました")
     expect(d.href).toContain("b1")
   })
+
+  it("work_claim_ended → stale superseded vs released by a PO / SM", () => {
+    const stale = item("work_claim_ended", { entityLabel: "API", actorName: "Dev Two", reason: "stale" }, { entityType: "pbi", entityId: "b1" })
+    expect(describeNotification(stale, ja, "ja").text).toBe("「API」のあなたの作業の宣言は期限切れのため、Dev Two の宣言に置き換わりました")
+    const mod = item("work_claim_ended", { entityLabel: "API", actorName: "PO", reason: "moderator" }, { entityType: "pbi", entityId: "b1" })
+    expect(describeNotification(mod, ja, "ja").text).toBe("PO が「API」のあなたの作業の宣言を解除しました")
+  })
 })

@@ -13,7 +13,7 @@ AI が Kanflow の内容を読んで Claude Code 上で開発を進められる�
 |---|---|
 | 権限 | **Kanflow の仕様に準じる**。MCP 独自の権限は作らない。「トークンのスコープ ∩ プロジェクトでの役割（`can(actor, action)`）」で判定。Dev は PBI・スプリントを作れない（権限表どおり） |
 | 設置場所 | **社内オンプレ**。社外送信扱いにしない（エージェント側の egress-guard 対象外） |
-| スコープ | **最初から細かく**: `read`（常に付与）, `backlog:write`, `backlog:reorder`, `sprint:write`, `task:write`, `comment:write`, `icebox:write`, `daily:write` |
+| スコープ | **最初から細かく**: `read`（常に付与）, `backlog:write`, `backlog:reorder`, `sprint:write`, `task:write`, `comment:write`, `icebox:write`, `daily:write`, `dev:write`（K5: 作業の宣言・進捗コメント・MR リンク。GitStation の計画文書では `write:dev` と表記、実装名は `dev:write`） |
 | 接続 | トークンを発行してトークンを入力し、プロジェクトとつなぐ（プロジェクト限定トークンも可） |
 | MCP 方式 | Kanflow 本体に `/api/mcp`（Streamable HTTP, stateless）として載せる。各自は URL とトークンを登録するだけ |
 | PBI 番号 | ブランチを PBI 番号付きで切る / MR を出すとき、**Claude が自動で Kanflow から PBI を取得して書き出す**（ユーザーに聞かない） |

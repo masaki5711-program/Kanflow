@@ -39,6 +39,10 @@ model User {
   aiJobs            AiJob[]
   ownedPlanItems    PlanItem[]               @relation("PlanItemOwner")
   apiTokens         ApiToken[]
+  /// Work claims (作業の宣言) made through a dev:write token.
+  workClaims        WorkClaim[]
+  /// Merge request links declared through a dev:write token.
+  declaredGitLinks  GitLink[]                @relation("GitLinkDeclaredBy")
 
   projectVisits ProjectVisit[]
 
@@ -323,6 +327,7 @@ model Project {
   gitRepositories GitRepository[]
   gitLinks        GitLink[]
   gitReleases     GitRelease[]
+  workClaims      WorkClaim[]
   repoChunks      RepoChunk[]
 
   /// Plan template loads into this project's 全体計画.
@@ -553,6 +558,8 @@ model ProductBacklogItem {
   attachments        PbiAttachment[]
   /// GitLab merge requests / branches / commits naming this PBI (PBI-<displayId>).
   gitLinks           GitLink[]
+  /// Who is working on this PBI (or one of its tasks) right now (作業の宣言, dev:write).
+  workClaims         WorkClaim[]
 
   @@unique([projectId, displayId])
   @@index([projectId])
@@ -718,22 +725,22 @@ model DailyScrumNote {
 }
 
 model SprintBacklogItem {
-  id                String             @id @default(cuid())
+  id                String              @id @default(cuid())
   sprintId          String
   pbItemId          String
   taskName          String?
   assignee          String?
   estimatedHours    Float?
   actualHours       Float?
-  status            String             @default("todo")
+  status            String              @default("todo")
   completedAt       DateTime?
-  completionComment String?            @db.Text
+  completionComment String?             @db.Text
   /// Optimistic-lock counter: bumped on every update; stale writes get 409.
-  version           Int                @default(0)
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
-  pbItem            ProductBacklogItem @relation(fields: [pbItemId], references: [id], onDelete: Cascade)
-  sprint            Sprint             @relation(fields: [sprintId], references: [id], onDelete: Cascade)
+  version           Int                 @default(0)
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  pbItem            ProductBacklogItem  @relation(fields: [pbItemId], references: [id], onDelete: Cascade)
+  sprint            Sprint              @relation(fields: [sprintId], references: [id], onDelete: Cascade)
   /// Normalized assignees (P2). The legacy `assignee` string (comma-separated
   /// names) stays during the transition; backfilled by scripts/migrate-assignees.ts.
   assignees         TaskAssignee[]
@@ -743,6 +750,7 @@ model SprintBacklogItem {
   carriedFromId     String?
   carriedFrom       SprintBacklogItem?  @relation("TaskCarryOver", fields: [carriedFromId], references: [id], onDelete: SetNull)
   carriedCopies     SprintBacklogItem[] @relation("TaskCarryOver")
+  workClaims        WorkClaim[]
 
   @@index([sprintId])
   @@index([pbItemId])
@@ -1077,6 +1085,8 @@ model Comment {
   updatedAt  DateTime         @updatedAt
   editedAt   DateTime?
   deletedAt  DateTime?
+  /// "api" (REST /api/v1) | "mcp" (Kanflow MCP, AI) when posted with an access token; null = the UI.
+  via        String?          @db.VarChar(8)
   project    Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
   author     User             @relation(fields: [authorId], references: [id], onDelete: Restrict)
   mentions   CommentMention[]
@@ -1373,16 +1383,58 @@ model GitLink {
   /// Branch links only: when the branch was no longer in GitLab's (complete) branch list.
   /// Kept (shown as 削除済み on the PBI) instead of deleted; cleared if the branch comes back.
   goneAt        DateTime?
+  /// Declared by a developer (dev:write, POST /api/v1/.../dev/mr-links) rather than found by the
+  /// sync; null = found by the sync. The sync keeps refreshing state / title of a declared MR.
+  declaredById  String?
+  declaredAt    DateTime?
   createdAt     DateTime           @default(now())
   updatedAt     DateTime           @updatedAt
   project       Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
   repository    GitRepository      @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
   backlogItem   ProductBacklogItem @relation(fields: [backlogItemId], references: [id], onDelete: Cascade)
+  declaredBy    User?              @relation("GitLinkDeclaredBy", fields: [declaredById], references: [id], onDelete: SetNull)
 
   @@unique([repositoryId, kind, ref, backlogItemId])
   @@index([backlogItemId])
   @@index([projectId, occurredAt])
+  @@index([declaredById])
   @@map("git_link")
+}
+
+/// 作業の宣言 (work claim, K5): a developer's AI session declares it is working on a PBI
+/// (taskId null) or one of its sprint tasks, from which session and on which branch
+/// (services/dev-work, docs/api-v1.md "Development (dev:write)"). Active = not released and
+/// heartbeatAt within the stale window (DEV_CLAIM_STALE_HOURS); stale rows are kept as history.
+model WorkClaim {
+  id            String             @id @default(cuid())
+  projectId     String
+  backlogItemId String
+  /// null = the claim covers the whole PBI.
+  taskId        String?
+  /// The token owner who claimed (created by).
+  userId        String
+  /// Client-chosen session id (e.g. the Claude Code session), 1-100 visible ASCII characters.
+  sessionId     String             @db.VarChar(100)
+  branch        String?            @db.VarChar(255)
+  heartbeatAt   DateTime
+  releasedAt    DateTime?
+  /// Why it ended: "released" (owner) | "takeover" (owner's other session) |
+  /// "stale" (superseded by a new claim after the stale window) | "moderator" (PO / SM / admin).
+  releaseReason String?            @db.VarChar(16)
+  /// Who ended it when not the owner (moderator / the user whose claim superseded it).
+  releasedById  String?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  project       Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  backlogItem   ProductBacklogItem @relation(fields: [backlogItemId], references: [id], onDelete: Cascade)
+  task          SprintBacklogItem? @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user          User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, releasedAt, heartbeatAt])
+  @@index([backlogItemId, releasedAt])
+  @@index([taskId])
+  @@index([userId, sessionId])
+  @@map("work_claim")
 }
 
 // ─── マイルストーン・検収ボード (general projects, 2026-10) ────────────────

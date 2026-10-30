@@ -123,6 +123,8 @@ export async function getSprintReleaseNote(projectId: string, sprintId: string, 
       projectId,
       kind: "mr",
       state: "merged",
+      // Declared-only links (dev:write) are display, never delivery evidence.
+      declaredAt: null,
       backlogItemId: { in: pbis.map((p) => p.id) },
       mergedAt: { gte: sprint.startDate, lt: new Date(sprint.endDate.getTime() + DAY_MS) },
     },

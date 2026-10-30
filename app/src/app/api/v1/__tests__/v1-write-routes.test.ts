@@ -206,6 +206,25 @@ describe("write input", () => {
   })
 })
 
+describe("duplicate hint on task create", () => {
+  it("returns existing same-named tasks of the PBI in `similar`, still creating the task (no block)", async () => {
+    vi.mocked(sprintBacklog.createTask).mockResolvedValue({ id: "k9" } as never)
+    vi.mocked(v1.findSimilarTasks).mockResolvedValue([{ id: "k1", taskName: "API", status: "todo" }] as never)
+    const res = await tasksRoute.POST(send("POST", "/sprints/s1/tasks", { pbItemId: "b1", taskName: "api" }), seg({ sprintId: "s1" }))
+    expect(res.status).toBe(201)
+    expect(await res.json()).toEqual({ data: { id: "k9" }, similar: [{ id: "k1", taskName: "API", status: "todo" }] })
+    expect(v1.findSimilarTasks).toHaveBeenCalledWith("p1", "s1", "b1", "api")
+    expect(sprintBacklog.createTask).toHaveBeenCalled()
+  })
+
+  it("no similar field when there is none", async () => {
+    vi.mocked(sprintBacklog.createTask).mockResolvedValue({ id: "k9" } as never)
+    vi.mocked(v1.findSimilarTasks).mockResolvedValue([])
+    const res = await tasksRoute.POST(send("POST", "/sprints/s1/tasks", { pbItemId: "b1", taskName: "new" }), seg({ sprintId: "s1" }))
+    expect(await res.json()).toEqual({ data: { id: "k9" } })
+  })
+})
+
 describe("Idempotency-Key", () => {
   const create = (key: string, body: unknown = { pbItemId: "b1", taskName: "API" }) =>
     tasksRoute.POST(send("POST", "/sprints/s1/tasks", body, { "Idempotency-Key": key }), seg({ sprintId: "s1" }))

@@ -83,6 +83,12 @@ export const PROJECT_ACTIONS = [
   "git.configure",
   /** Ask for an immediate GitLab sync ("今すぐ同期"). */
   "git.sync",
+  /**
+   * Developer writes of an AI session (token scope dev:write only, docs/api-v1.md
+   * "Development"): declare / release work on a PBI or task (作業の宣言), post a
+   * progress comment, link a merge request of a registered repository to a PBI.
+   */
+  "dev.write",
 ] as const
 export type ProjectAction = (typeof PROJECT_ACTIONS)[number]
 
@@ -127,6 +133,7 @@ const POLICY: Readonly<Record<ProjectAction, readonly Grantee[]>> = {
   "surveillance.configure": PO,
   "git.configure": PO_SM,
   "git.sync": MEMBER,
+  "dev.write": MEMBER,
 }
 
 export function isSystemAdmin(actor: Pick<ProjectActor, "systemRole">): boolean {

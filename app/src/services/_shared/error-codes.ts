@@ -130,6 +130,16 @@ export const API_ERROR_CODES = [
   "GIT_PROVIDER_UNSUPPORTED",
   /** One ingestion source per project: the provider cannot change while repositories exist. */
   "GIT_SOURCE_LOCKED",
+  /** dev:write MR link: not a merge request URL (https://<allowed host>/<group>/<repo>/-/merge_requests/<iid>). */
+  "MR_URL_INVALID",
+  /** dev:write MR link: the MR's repository is not registered in this project's (enabled) Git integration. */
+  "MR_REPOSITORY_NOT_REGISTERED",
+  /** dev:write work claim: the claim was released (start a new one instead of a heartbeat). */
+  "CLAIM_RELEASED",
+  /** dev:write work claim: another user / session holds an active claim on the target (body: `holders`). */
+  "TASK_CLAIMED",
+  /** dev:write work claim: the user already holds DEV_CLAIM_MAX_OPEN_PER_USER active claims in the project. */
+  "CLAIM_LIMIT_REACHED",
   // Client-side only (set by apiFetch, never sent by the server)
   "NETWORK_ERROR",
 ] as const

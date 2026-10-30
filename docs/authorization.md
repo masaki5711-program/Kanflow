@@ -74,6 +74,7 @@ System admins skip the membership lookup; every request (admins included) does o
 | `surveillance.configure` | Y | Y | - | - | - |
 | `git.configure` | Y | Y | Y | - | - |
 | `git.sync` | Y | Y | Y | Y | - |
+| `dev.write` | Y | Y | Y | Y | - |
 
 ## Route → action
 
@@ -253,6 +254,7 @@ bodies are size-bounded (413). Editing a template never changes plans already lo
   | `comment:write` | `comment.write` |
   | `icebox:write` | `icebox.write` |
   | `daily:write` | `dailyScrum.write` |
+  | `dev:write` | `dev.write` (named `write:dev` in GitStation's plan documents; token-only: work claims, progress comments, MR links of AI sessions — `/api/v1/projects/:projectId/dev/*` and the MCP developer tools; no UI route uses it) |
 
   Actions without a scope (delete, trash, members, settings, ...) cannot be done with a token.
 - **Project restriction**: a token may be limited to some projects (`ApiToken.projectIds`, chosen at creation from the active projects the owner can open; anything else → 400 `Unknown project`). Other projects answer 404 and are left out of `/api/v1/projects`. The restriction only narrows: losing access to a listed project still closes it. It is enforced only in `resolveV1ProjectActor`, so every token path into a project — also one that derives the project from a PBI / task / comment id — must go through it. `projectIds: []` on creation is a 400 (never read as "all projects").

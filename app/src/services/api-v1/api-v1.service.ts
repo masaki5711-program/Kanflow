@@ -216,3 +216,20 @@ export async function listActivity(projectId: string, query: ProjectActivityQuer
   const page = await listProjectActivity(projectId, query)
   return { data: page.items, nextCursor: page.nextCursor }
 }
+
+/** Pure: a task name for duplicate comparison (Unicode NFKC, case and whitespace folded). */
+export function normalizeTaskName(name: string | null | undefined): string {
+  return (name ?? "").normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase()
+}
+
+/**
+ * Existing tasks of the same PBI in the sprint whose normalized name equals
+ * `taskName` — the duplicate hint of a task create (`similar`, never a refusal:
+ * two tasks may legitimately share a name).
+ */
+export async function findSimilarTasks(projectId: string, sprintId: string, pbItemId: string, taskName: string | undefined) {
+  const wanted = normalizeTaskName(taskName)
+  if (!wanted) return []
+  const rows = await repo.findPbiTasksInSprint(defaultDb, projectId, sprintId, pbItemId)
+  return rows.filter((t) => normalizeTaskName(t.taskName) === wanted)
+}

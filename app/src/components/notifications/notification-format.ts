@@ -199,6 +199,9 @@ export function describeNotification(n: NotificationItem, t: Translations, langu
     case "git_pipeline_failed":
       text = fillTemplate(t.notifGitPipelineFailed, { label, mr: str(p, "mr") ?? "?" })
       break
+    case "work_claim_ended":
+      text = fillTemplate(str(p, "reason") === "moderator" ? t.notifWorkClaimEndedByModerator : t.notifWorkClaimSuperseded, { actor, label })
+      break
     case "mentioned":
       text = fillTemplate(t.notifMentioned, { actor, label })
       break

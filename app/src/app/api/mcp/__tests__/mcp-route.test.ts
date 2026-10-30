@@ -51,7 +51,7 @@ const API_ACTOR = { userId: "u1", userName: "Dev One", systemRole: "member", via
 const MCP_ACTOR = { ...API_ACTOR, via: "mcp" }
 const GITLAB = "gitlab.scm.service.infosys.yamaha.com"
 
-const READ_TOOLS = ["whoami", "list_projects", "resolve_project", "get_backlog", "get_pbi", "list_sprints", "get_sprint_tasks", "my_tasks", "get_activity", "list_comments"]
+const READ_TOOLS = ["whoami", "list_projects", "resolve_project", "get_backlog", "get_pbi", "list_sprints", "get_sprint_tasks", "my_tasks", "get_activity", "list_comments", "list_claims"]
 const WRITE_TOOLS = [
   "create_pbi",
   "update_pbi",
@@ -63,6 +63,11 @@ const WRITE_TOOLS = [
   "add_comment",
   "create_icebox_item",
   "post_daily_scrum",
+  // Development (dev:write, K5) — mcp-dev-tools.test.ts
+  "claim_work",
+  "release_claim",
+  "post_progress",
+  "link_merge_request",
 ]
 
 let rpcId = 0

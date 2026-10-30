@@ -62,6 +62,11 @@ function LinkRow({ link }: { link: GitLinkDto }) {
         </a>
         <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-caption text-fg-muted">
           {mr && <Badge tone={mr.tone} size="sm">{mr.label}</Badge>}
+          {link.kind === "mr" && link.declared && (
+            <span data-git-declared="" title={t.gitDevDeclaredTitle}>
+              <Badge tone="neutral" size="sm">{t.gitDevDeclared}</Badge>
+            </span>
+          )}
           {gone && (
             <span data-git-gone="" title={t.gitDevBranchGoneTitle.replace("{date}", formatDateTime(gone, language))}>
               <Badge tone="neutral" size="sm">{t.gitDevBranchGone}</Badge>

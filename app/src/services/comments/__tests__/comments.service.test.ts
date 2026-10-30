@@ -73,7 +73,15 @@ describe("toCommentDto", () => {
       canEdit: true,
       canDelete: true,
       i18n: {},
+      via: null,
     })
+  })
+
+  it("carries how a token-made comment arrived (api / mcp); anything else is the UI", () => {
+    const viewer = { userId: "u1", canModerate: false }
+    expect(svc.toCommentDto(row("c1", { via: "mcp" }), viewer).via).toBe("mcp")
+    expect(svc.toCommentDto(row("c1", { via: "api" }), viewer).via).toBe("api")
+    expect(svc.toCommentDto(row("c1", { via: "other" }), viewer).via).toBeNull()
   })
 
   it("hides the body of a deleted comment and allows nothing", () => {
@@ -181,6 +189,13 @@ describe("getCommentCounts", () => {
 
 describe("createComment", () => {
   const input = { entityType: "pbi" as const, entityId: "b1", body: "cc @[Taro Yamada] @Nobody\nplease check" }
+
+  it("records via on the comment row when the actor came through a token (progress comments of dev:write)", async () => {
+    vi.mocked(repo.findComment).mockResolvedValue(row("c1", { body: input.body, via: "mcp" }) as never)
+    const dto = await svc.createComment("p1", input, { ...ACTOR, via: "mcp" })
+    expect(repo.createComment).toHaveBeenCalledWith(TX, expect.objectContaining({ authorId: "u1", via: "mcp" }))
+    expect(dto.via).toBe("mcp")
+  })
 
   it("stores the comment + mentions, logs activity and notifies in one transaction", async () => {
     vi.mocked(repo.findComment).mockResolvedValue(row("c1", { body: input.body, mentions: [{ user: { id: "u2", name: "Taro Yamada" } }] }) as never)

@@ -25,6 +25,16 @@ const TX_OPTIONS = { maxWait: 5_000, timeout: 20_000 } as const
  * events published inside the body (`publishAfterCommit`) go out only after
  * the commit and are dropped on rollback (lib/realtime/after-commit.ts).
  */
-export function withTransaction<T>(fn: (tx: Db) => Promise<T>): Promise<T> {
-  return runWithCommitScope(() => prisma.$transaction((tx) => fn(tx), TX_OPTIONS))
+export function withTransaction<T>(fn: (tx: Db) => Promise<T>, options: TransactionOptions = {}): Promise<T> {
+  return runWithCommitScope(() => prisma.$transaction((tx) => fn(tx), { ...TX_OPTIONS, ...options }))
+}
+
+export interface TransactionOptions {
+  /**
+   * "ReadCommitted": every statement reads the latest committed rows instead of the
+   * snapshot taken at the transaction's first read (MariaDB's default REPEATABLE
+   * READ). Needed when a row lock serializes a check-then-insert (work claims):
+   * the reads after the lock must see what the previous lock holder committed.
+   */
+  isolationLevel?: "ReadCommitted"
 }

@@ -20,6 +20,7 @@ export function link(over: Partial<GitLinkDto> & Pick<GitLinkDto, "kind">): GitL
     occurredAt: "2026-10-01T09:00:00.000Z",
     mergedAt: null,
     goneAt: null,
+    declared: false,
     repository: REPO_WEB,
     ...over,
   }
