@@ -110,6 +110,14 @@ const PER_PAGE = 100
 
 type FetchLike = typeof fetch
 
+/** One bounded listing: `truncated` = stopped at the page cap while GitLab had more. */
+export interface Paged<T> {
+  items: T[]
+  truncated: boolean
+  /** Pages actually requested. */
+  pages: number
+}
+
 export interface GitLabClientOptions {
   apiBase: string
   token: string
@@ -166,30 +174,40 @@ export function createGitLabClient({ apiBase, token, fetchImpl = fetch, timeoutM
     return { kind: "ok", data: Buffer.concat(parts) }
   }
 
-  /** All pages up to `maxPages` (the rest is picked up by the next sync). */
-  async function paged<T>(path: string, query: Query, maxPages: number): Promise<T[]> {
-    const out: T[] = []
+  /**
+   * Pages up to `maxPages`. `truncated` is true when GitLab still had another
+   * page: the caller must not treat the listing as complete (e.g. must not move
+   * a sync watermark past it).
+   */
+  async function paged<T>(path: string, query: Query, maxPages: number): Promise<Paged<T>> {
+    const items: T[] = []
     let page: number | null = 1
-    for (let i = 0; i < maxPages && page; i++) {
+    let pages = 0
+    while (pages < maxPages && page) {
       const r: { data: T[]; nextPage: number | null } = await request<T[]>(path, { ...query, per_page: PER_PAGE, page })
-      out.push(...r.data)
+      items.push(...r.data)
       page = r.nextPage
+      pages++
     }
-    return out
+    return { items, truncated: page !== null, pages }
   }
+
+  /** For listings whose callers take the first pages as a bounded sample. */
+  const itemsOf = <T>(p: Promise<Paged<T>>): Promise<T[]> => p.then((r) => r.items)
 
   const project = (id: number | string) => `/projects/${encodeURIComponent(String(id))}`
 
   return {
     getProject: async (pathOrId: string | number) => (await request<GitLabProject>(project(pathOrId))).data,
-    listMergeRequests: (id: number, updatedAfter: Date, maxPages = 5) =>
+    /** Ascending by updated_at, so a truncated listing is complete up to its last item's updated_at. */
+    listMergeRequests: (id: number, updatedAfter: Date, maxPages = 5): Promise<Paged<GitLabMergeRequest>> =>
       paged<GitLabMergeRequest>(`${project(id)}/merge_requests`, { scope: "all", state: "all", order_by: "updated_at", sort: "asc", updated_after: updatedAfter.toISOString() }, maxPages),
     getMergeRequestPipeline: async (id: number, iid: number): Promise<string | null> => {
       const mr = (await request<{ head_pipeline?: { status?: string } | null }>(`${project(id)}/merge_requests/${iid}`)).data
       return mr.head_pipeline?.status ?? null
     },
-    listTags: (id: number, maxPages = 3) => paged<GitLabTag>(`${project(id)}/repository/tags`, { order_by: "updated", sort: "desc" }, maxPages),
-    listReleases: (id: number, maxPages = 3) => paged<GitLabRelease>(`${project(id)}/releases`, { order_by: "released_at", sort: "desc" }, maxPages),
+    listTags: (id: number, maxPages = 3) => itemsOf(paged<GitLabTag>(`${project(id)}/repository/tags`, { order_by: "updated", sort: "desc" }, maxPages)),
+    listReleases: (id: number, maxPages = 3) => itemsOf(paged<GitLabRelease>(`${project(id)}/releases`, { order_by: "released_at", sort: "desc" }, maxPages)),
     /** True when the token can read the repository contents (a Guest on a private project cannot). */
     canReadRepository: async (id: number): Promise<boolean> => {
       try {
@@ -200,9 +218,14 @@ export function createGitLabClient({ apiBase, token, fetchImpl = fetch, timeoutM
         throw err
       }
     },
-    listBranches: (id: number, search: string, maxPages = 3) => paged<GitLabBranch>(`${project(id)}/repository/branches`, { search }, maxPages),
-    listCommits: (id: number, since: Date, maxPages = 3) =>
-      paged<GitLabCommit>(`${project(id)}/repository/commits`, { since: since.toISOString(), all: true }, maxPages),
+    listBranches: (id: number, search: string, maxPages = 3) => itemsOf(paged<GitLabBranch>(`${project(id)}/repository/branches`, { search }, maxPages)),
+    /**
+     * Commits of every branch committed in [since, until] (until omitted = up to now).
+     * Newest first; with all=true the order is not strictly by date, so only an
+     * untruncated listing proves its whole window was read.
+     */
+    listCommits: (id: number, since: Date, until?: Date, maxPages = 3): Promise<Paged<GitLabCommit>> =>
+      paged<GitLabCommit>(`${project(id)}/repository/commits`, { since: since.toISOString(), until: until?.toISOString(), all: true }, maxPages),
     /** Newest commit id of the default branch, or null for an empty repository. */
     latestCommitSha: async (id: number): Promise<string | null> => {
       const r = await request<Array<{ id: string }>>(`${project(id)}/repository/commits`, { per_page: 1 })
@@ -210,7 +233,7 @@ export function createGitLabClient({ apiBase, token, fetchImpl = fetch, timeoutM
     },
     /** Every entry of the tree at `ref`, recursively (up to maxPages × 100 entries). */
     listTree: (id: number, ref: string, maxPages: number) =>
-      paged<GitLabTreeEntry>(`${project(id)}/repository/tree`, { ref, recursive: true }, maxPages),
+      itemsOf(paged<GitLabTreeEntry>(`${project(id)}/repository/tree`, { ref, recursive: true }, maxPages)),
     compare: async (id: number, from: string, to: string): Promise<GitLabCompare> =>
       (await request<GitLabCompare>(`${project(id)}/repository/compare`, { from, to }, DOWNLOAD_TIMEOUT_MS)).data,
     /** Raw content of one file at `ref` (the path is encoded as one segment, as GitLab requires). */

@@ -107,6 +107,19 @@ describe("createGitLabClient — pagination", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(3)
   })
 
+  it("paged reports truncation at the page cap", async () => {
+    const more = vi.fn<typeof fetch>(async () => jsonResponse([{ iid: 1 }], 200, { "x-next-page": "99" }))
+    const cut = await createGitLabClient({ apiBase: API_BASE, token: TOKEN, fetchImpl: more }).listMergeRequests(1, new Date(0), 2)
+    expect(cut).toEqual({ items: [{ iid: 1 }, { iid: 1 }], truncated: true, pages: 2 })
+
+    const last = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse([{ iid: 1 }], 200, { "x-next-page": "2" }))
+      .mockResolvedValueOnce(jsonResponse([{ iid: 2 }], 200, {}))
+    const whole = await createGitLabClient({ apiBase: API_BASE, token: TOKEN, fetchImpl: last }).listMergeRequests(1, new Date(0), 2)
+    expect(whole).toEqual({ items: [{ iid: 1 }, { iid: 2 }], truncated: false, pages: 2 })
+  })
+
   it("treats a non-numeric or zero x-next-page as 'no more pages'", async () => {
     const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse([{ iid: 1 }], 200, { "x-next-page": "not-a-number" }))
     const client = createGitLabClient({ apiBase: API_BASE, token: TOKEN, fetchImpl })
@@ -149,6 +162,18 @@ describe("createGitLabClient — endpoint query shapes", () => {
     expect(url.pathname).toBe("/api/v4/projects/5/repository/commits")
     expect(url.searchParams.get("since")).toBe(since.toISOString())
     expect(url.searchParams.get("all")).toBe("true")
+    expect(url.searchParams.has("until")).toBe(false)
+  })
+
+  it("listCommits bounds the window with until when given", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse([]))
+    const client = createGitLabClient({ apiBase: API_BASE, token: TOKEN, fetchImpl })
+    const since = new Date("2026-02-02T00:00:00.000Z")
+    const until = new Date("2026-02-03T00:00:00.000Z")
+    expect(await client.listCommits(5, since, until)).toEqual({ items: [], truncated: false, pages: 1 })
+    const url = new URL(String(fetchImpl.mock.calls[0][0]))
+    expect(url.searchParams.get("since")).toBe(since.toISOString())
+    expect(url.searchParams.get("until")).toBe(until.toISOString())
   })
 
   it("getMergeRequestPipeline reads head_pipeline.status", async () => {

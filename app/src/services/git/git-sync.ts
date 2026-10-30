@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma"
 import { open } from "@/lib/secret-box"
-import { createGitLabClient, GitLabError, type GitLabClient } from "@/lib/git/gitlab-client"
+import { createGitLabClient, GitLabError, type GitLabClient, type GitLabCommit, type GitLabMergeRequest } from "@/lib/git/gitlab-client"
 import { logger } from "@/lib/logger"
 import { publishAfterCommit } from "@/lib/realtime/after-commit"
 import { updateTask } from "@/services/sprint-backlog/sprint-backlog.service"
@@ -22,6 +22,10 @@ const FIRST_SYNC_DAYS = 30
 const OVERLAP_MS = 5 * 60_000
 /** Pipeline lookups per sync (one extra request per merge request). */
 const MAX_PIPELINE_LOOKUPS = 25
+/** Commit listings per sync (each up to 3 pages); a backlog beyond that resumes next sync. */
+const MAX_COMMIT_REQUESTS = 4
+/** A commit window this short is not split further even when cut off. */
+const MIN_COMMIT_WINDOW_MS = 60_000
 
 /** Who the activity log shows for automatic task completion. */
 export const GIT_ACTOR: Actor = { userId: "", userName: "GitLab", systemRole: "member" }
@@ -52,26 +56,30 @@ export async function syncRepository(repositoryId: string, factory: ClientFactor
   try {
     const client = factory(repo.apiBase, token)
     const externalId = repo.externalId ?? (await client.getProject(repo.repoPath)).id
-    const since = new Date((repo.syncCursor ?? new Date(now.getTime() - FIRST_SYNC_DAYS * 86_400_000)).getTime() - OVERLAP_MS)
+    // `base` is the last point up to which everything was read; re-read a little before it.
+    const base = repo.syncCursor ?? new Date(now.getTime() - FIRST_SYNC_DAYS * 86_400_000)
+    const since = new Date(base.getTime() - OVERLAP_MS)
     const [mrs, commits, branches] = await Promise.all([
-      client.listMergeRequests(externalId, since),
-      client.listCommits(externalId, since),
+      readMergeRequests(client, externalId, repositoryId, since, base, now),
+      readCommits(client, externalId, repositoryId, since, base, now),
       client.listBranches(externalId, "pbi"),
     ])
-    const mrDrafts = mrs.flatMap((mr) => linksFromMergeRequest(mr, now))
+    const mrDrafts = mrs.items.flatMap((mr) => linksFromMergeRequest(mr, now))
     const branchDrafts = branches.flatMap((b) => linksFromBranch(b, now))
-    const drafts = [...mrDrafts, ...commits.flatMap((c) => linksFromCommit(c, now)), ...branchDrafts]
+    const drafts = [...mrDrafts, ...commits.items.flatMap((c) => linksFromCommit(c, now)), ...branchDrafts]
     const pbiIds = await resolvePbis(repo.projectId, drafts)
-    await attachPipelines(client, externalId, mrDrafts.filter((d) => pbiIds.has(d.pbiNumber)))
+    await attachPipelines(client, externalId, repositoryId, mrDrafts.filter((d) => pbiIds.has(d.pbiNumber)))
 
     const { written, changed, newlyMerged, newlyFailed } = await writeLinks(repo.projectId, repo.id, drafts, pbiIds)
     const pruned = await pruneBranches(repo.id, branchDrafts, pbiIds)
     const releases = await syncReleasesSafely(client, repo, externalId, now)
     // Git panels / badges of the project refresh live, only when a link actually changed.
     if (changed + pruned + releases > 0) publishAfterCommit({ type: "git", projectId: repo.projectId, action: "sync" })
+    // One watermark for both listings: the earlier of the two, so neither skips what it has not read.
+    const syncCursor = new Date(Math.min(mrs.readUpTo.getTime(), commits.readUpTo.getTime()))
     await prisma.gitRepository.update({
       where: { id: repo.id },
-      data: { externalId, syncedAt: now, syncCursor: now, lastError: null, lastErrorAt: null },
+      data: { externalId, syncedAt: now, syncCursor, lastError: null, lastErrorAt: null },
     })
     await notifyFailedPipelines(repo.projectId, newlyFailed)
     const completedTasks = integration.autoCompleteOnMerge ? await autoComplete(repo.projectId, newlyMerged) : 0
@@ -125,15 +133,81 @@ async function resolvePbis(projectId: string, drafts: readonly LinkDraft[]): Pro
   return new Map(rows.map((r) => [r.displayId, r.id]))
 }
 
-async function attachPipelines(client: GitLabClient, externalId: number, drafts: LinkDraft[]): Promise<void> {
+/** What one listing of this sync read, and up to when it read everything. */
+interface Listing<T> {
+  items: T[]
+  /** The watermark this listing allows: everything changed before it has been read. */
+  readUpTo: Date
+}
+
+/**
+ * Merge requests come oldest-change first. When the listing stops at its page
+ * cap, everything up to the last fetched updated_at has been read, so the
+ * watermark stops there and the next sync continues from it.
+ */
+async function readMergeRequests(
+  client: GitLabClient,
+  externalId: number,
+  repositoryId: string,
+  since: Date,
+  base: Date,
+  now: Date,
+): Promise<Listing<GitLabMergeRequest>> {
+  const r = await client.listMergeRequests(externalId, since)
+  if (!r.truncated) return { items: r.items, readUpTo: now }
+  log.warn("git sync truncated", { repositoryId, kind: "mr", pages: r.pages })
+  const last = new Date(r.items.at(-1)?.updated_at ?? Number.NaN)
+  return { items: r.items, readUpTo: Number.isNaN(last.getTime()) ? base : later(base, last) }
+}
+
+/**
+ * Commits are read in time windows [start, end]. Only a window whose listing
+ * was not cut off counts as read; a cut-off window is halved and retried, at
+ * most MAX_COMMIT_REQUESTS times per sync. The watermark advances to the end of
+ * the last fully read window, and the next sync resumes from there.
+ */
+async function readCommits(client: GitLabClient, externalId: number, repositoryId: string, since: Date, base: Date, now: Date): Promise<Listing<GitLabCommit>> {
+  const byId = new Map<string, GitLabCommit>()
+  let readUpTo = base
+  let start = since
+  let end = now
+  let pages = 0
+  for (let i = 0; i < MAX_COMMIT_REQUESTS; i++) {
+    const r = await client.listCommits(externalId, start, end)
+    pages += r.pages
+    // Keep what a cut-off read returned too (writes are idempotent); only the watermark is held back.
+    for (const c of r.items) byId.set(c.id, c)
+    const span = end.getTime() - start.getTime()
+    if (r.truncated && span > MIN_COMMIT_WINDOW_MS) {
+      end = new Date(start.getTime() + Math.floor(span / 2))
+      continue
+    }
+    if (r.truncated) {
+      // More commits than one read can hold, committed within one minute (e.g. a large rebase):
+      // move on rather than stall the repository forever, and say so.
+      log.warn("git sync truncated", { repositoryId, kind: "commit", pages: r.pages, windowStart: start.toISOString(), windowEnd: end.toISOString(), skipped: true })
+    }
+    readUpTo = later(readUpTo, end)
+    if (end.getTime() >= now.getTime()) return { items: [...byId.values()], readUpTo: now }
+    start = end
+    end = now
+  }
+  log.warn("git sync truncated", { repositoryId, kind: "commit", pages })
+  return { items: [...byId.values()], readUpTo }
+}
+
+const later = (a: Date, b: Date) => (b.getTime() > a.getTime() ? b : a)
+
+async function attachPipelines(client: GitLabClient, externalId: number, repositoryId: string, drafts: LinkDraft[]): Promise<void> {
   const byIid = new Map<string, LinkDraft[]>()
   for (const d of drafts) byIid.set(d.ref, [...(byIid.get(d.ref) ?? []), d])
   for (const [iid, group] of [...byIid].slice(-MAX_PIPELINE_LOOKUPS)) {
     try {
       const status = await client.getMergeRequestPipeline(externalId, Number(iid))
       for (const d of group) d.pipeline = status
-    } catch {
-      // Pipeline status is decoration: keep the link without it.
+    } catch (err) {
+      // Pipeline status is decoration: keep the link (and its last known status) without it.
+      log.warn("git pipeline lookup failed", { repositoryId, iid: Number(iid), error: err instanceof Error ? err.message : String(err) })
     }
   }
 }
