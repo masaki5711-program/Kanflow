@@ -18,22 +18,25 @@
  * - MR links: a merge request of a repository registered in the project's
  *   (enabled) Git integration becomes a git_link of kind "mr" marked declared
  *   (declaredBy / declaredAt). Idempotent on (repository, MR, PBI); an MR the
- *   sync already linked is answered as is. The sync keeps refreshing its
- *   title / state (git-sync refreshDeclaredLinks).
+ *   sync already linked is answered as is. Its data comes from the sync (the
+ *   same MR linked to another PBI, else title "!<iid>" and state null until the
+ *   next sync); the sync keeps it current. A declared-only link is display: it
+ *   never drives auto-complete, release readiness or delivery insights.
  */
 import { parseMergeRequestUrl } from "@/lib/git/repo-url"
+import { logger } from "@/lib/logger"
 import { publishAfterCommit } from "@/lib/realtime/after-commit"
 import type { Actor } from "@/services/_shared/actor"
 import { LABEL_MAX, logActivity } from "@/services/_shared/activity"
 import { defaultDb, withTransaction, type Db } from "@/services/_shared/db"
-import { ConflictError, ForbiddenError, isUniqueViolation, NotFoundError, ValidationError } from "@/services/_shared/errors"
+import { ConflictError, ForbiddenError, isUniqueViolation, NotFoundError, StatusError, ValidationError } from "@/services/_shared/errors"
 import { notify } from "@/services/_shared/notifications"
 import { createComment } from "@/services/comments/comments.service"
 import * as repo from "./dev-work.repository"
 import {
   canTakeOver,
   claimConflicts,
-  claimStaleHours,
+  claimSettings,
   isClaimActive,
   overlappingClaims,
   staleBefore,
@@ -41,10 +44,13 @@ import {
   toHolderDto,
   type ClaimDto,
   type ClaimRow,
+  type ClaimSettings,
 } from "./dev-work.rules"
 import type { ClaimWorkInput, HeartbeatClaimInput, ListClaimsQuery, MrLinkInput, ProgressCommentInput } from "./dev-work.schemas"
 
 export type { ClaimDto, ClaimHolderDto } from "./dev-work.rules"
+
+const log = logger.child({ module: "dev-work" })
 
 /** "12" / "PBI-12" → number, anything else → internal id (same rule as /api/v1 PBI refs). */
 function pbiRef(ref: string): { id: string } | { displayId: number } {
@@ -69,19 +75,41 @@ function pbiLabel(pbi: { displayId: number; initiative: string | null; userStory
 /** Unreleased claims older than this are no longer listed (they are history). */
 const CLAIM_LIST_LOOKBACK_HOURS = 7 * 24
 
+/** Claim transactions read after the PBI lock; see repo.lockPbi. */
+const CLAIM_TX = { isolationLevel: "ReadCommitted" } as const
+
+let warnedSettings = false
+
+/** The claim settings; an unusable env value is logged once per process (the default is used). */
+function settings(): ClaimSettings {
+  const s = claimSettings()
+  if (s.invalid.length > 0 && !warnedSettings) {
+    warnedSettings = true
+    log.warn("invalid work-claim setting ignored, default used", { variables: s.invalid, staleHours: s.staleHours, maxOpenPerUser: s.maxOpenPerUser })
+  }
+  return s
+}
+
+/** Test helper: log the invalid-settings warning again. */
+export function resetClaimSettingsWarning(): void {
+  warnedSettings = false
+}
+
 export interface ClaimResult {
   claim: ClaimDto
   /** false = the caller's existing claim (same user, session and target) was refreshed. */
   created: boolean
-  /** Claims this call ended with `takeover: true` (stale ones, or the caller's other sessions). */
+  /** The caller's other sessions' claims this call ended with `takeover: true`. */
   takenOver: ClaimDto[]
+  /** Stale claims (any user) on the target that this new claim superseded. */
+  superseded: ClaimDto[]
 }
 
 /** 409 TASK_CLAIMED naming who holds the target (AI sessions run unattended: a refusal, not a warning). */
-function claimedError(blockers: readonly ClaimRow[], hours: number): ConflictError {
+function claimedError(blockers: readonly ClaimRow[], hours: number, viewerId: string): ConflictError {
   return new ConflictError(
     "Someone else (or another session) is working on this. Coordinate with them, or pass takeover: true if the claim is your own other session.",
-    { holders: blockers.map((b) => toHolderDto(b, hours)) },
+    { holders: blockers.map((b) => toHolderDto(b, hours, viewerId)) },
     "TASK_CLAIMED",
   )
 }
@@ -94,10 +122,12 @@ function claimEntity(claim: ClaimRow): { entityType: "sprint_task" | "pbi"; enti
   return { entityType: "pbi", entityId: claim.backlogItemId, label: pbiLabel(claim.backlogItem) }
 }
 
-/** Activity row + notification to the previous holder (notify never notifies the actor: a user's own session gets none). */
-async function recordTakeover(tx: Db, projectId: string, previous: ClaimRow, sessionId: string, actor: Actor, now: Date, hours: number): Promise<void> {
+/**
+ * A claim ended by someone else than its session: activity row on the task / PBI and,
+ * for another user's claim, a notification (notify never notifies the actor).
+ */
+async function recordEnd(tx: Db, projectId: string, previous: ClaimRow, reason: "takeover" | "stale" | "moderator", actor: Actor, newSessionId: string | null): Promise<void> {
   const target = claimEntity(previous)
-  const stale = !isClaimActive(previous, now, hours)
   await logActivity(tx, {
     projectId,
     entityType: target.entityType,
@@ -106,34 +136,54 @@ async function recordTakeover(tx: Db, projectId: string, previous: ClaimRow, ses
     actor,
     diff: {
       label: target.label,
-      meta: { claimTakeover: { claimId: previous.id, from: { userId: previous.userId, userName: previous.user.name, sessionId: previous.sessionId }, toSessionId: sessionId, stale } },
+      meta: { claimEnded: { claimId: previous.id, reason, from: { userId: previous.userId, userName: previous.user.name }, ...(newSessionId ? { toSessionId: newSessionId } : {}) } },
     },
   })
+  if (reason === "takeover") return
   await notify(tx, {
     recipientIds: [previous.userId],
     actorId: actor.userId,
-    type: "work_claim_taken_over",
+    type: "work_claim_ended",
     projectId,
     entityType: target.entityType,
     entityId: target.entityId,
-    payload: { entityLabel: target.label, actorName: actor.userName, sessionId: previous.sessionId, ...(previous.task ? { sprintId: previous.task.sprintId } : {}) },
-    dedupeKey: `work_claim_taken_over:${previous.id}`,
+    payload: { entityLabel: target.label, actorName: actor.userName, reason, ...(previous.task ? { sprintId: previous.task.sprintId } : {}) },
+    dedupeKey: `work_claim_ended:${previous.id}`,
   })
 }
 
+/** Active claims on the PBI for a blocking decision; more than the bound is an error, never a silent miss. */
+async function activeClaimsOnPbi(tx: Db, backlogItemId: string, since: Date): Promise<ClaimRow[]> {
+  const rows = await repo.findActiveClaimsOnPbi(tx, backlogItemId, since)
+  if (rows.length > repo.ACTIVE_CLAIMS_PER_PBI_LIMIT) {
+    log.error("too many active work claims on one PBI to decide safely", { backlogItemId, limit: repo.ACTIVE_CLAIMS_PER_PBI_LIMIT })
+    throw new StatusError(503, "Too many active work claims on this PBI; release stale ones and retry", {}, "SERVICE_UNAVAILABLE")
+  }
+  return rows
+}
+
 /**
- * Declare work on a PBI (`pbi`) or one sprint task (`taskId`). One active claim per
- * target: an overlapping active claim of another user or session → 409 TASK_CLAIMED
- * (holders). `takeover: true` ends the overlapping claims instead — only when every
- * active one is the caller's own other session (stale claims never block anyway);
- * each one ended is logged and its holder notified. Same user + session + target
- * refreshes the claim (200).
+ * Declare work on a PBI (`pbi`) or one sprint task (`taskId`):
+ * - one active claim per target: an overlapping active claim of another user or of
+ *   another session → 409 TASK_CLAIMED (holders; another user's session id hidden);
+ * - `takeover: true` ends the overlapping active claims only when all are the caller's
+ *   own other sessions (another user's active claim: still 409);
+ * - stale overlapping claims (any user) never block; a new or refreshed claim supersedes
+ *   them (ended with reason "stale", logged, holder notified);
+ * - same user + session + target refreshes (and revives) the claim (200);
+ * - at most DEV_CLAIM_MAX_OPEN_PER_USER active claims per user and project (409 CLAIM_LIMIT_REACHED).
+ *
+ * Concurrency: READ COMMITTED transaction; the PBI row lock is taken before any claim
+ * row is read, so concurrent claims of one PBI are decided one after another on
+ * committed data (repo.lockPbi).
  */
 export async function claimWork(projectId: string, input: ClaimWorkInput, actor: Actor, now: Date = new Date()): Promise<ClaimResult> {
-  const hours = claimStaleHours()
+  const { staleHours: hours, maxOpenPerUser } = settings()
+  const since = staleBefore(now, hours)
   return withTransaction(async (tx) => {
     let backlogItemId: string
     let taskId: string | null = null
+    // Only resolves ids (no claim data): what decides is read after the lock.
     if (input.taskId !== undefined) {
       const task = await repo.findTask(tx, projectId, input.taskId)
       if (!task) throw new NotFoundError("Task not found")
@@ -143,46 +193,59 @@ export async function claimWork(projectId: string, input: ClaimWorkInput, actor:
       backlogItemId = (await loadPbi(tx, projectId, input.pbi ?? "")).id
     }
     await repo.lockPbi(tx, backlogItemId)
-    const open = await repo.findOpenClaimsOnPbi(tx, backlogItemId)
-    const own = open.find((c) => c.userId === actor.userId && c.sessionId === input.sessionId && c.taskId === taskId)
-    const candidate = { id: own?.id ?? "", backlogItemId, taskId, userId: actor.userId, sessionId: input.sessionId, heartbeatAt: now, releasedAt: null }
-    const blockers = claimConflicts(candidate, open, now, hours)
-    if (blockers.length > 0 && !(input.takeover && canTakeOver(blockers, actor.userId))) throw claimedError(blockers, hours)
-    const superseded = input.takeover ? overlappingClaims(candidate, open) : []
-    if (superseded.length > 0) {
-      await repo.releaseClaims(tx, superseded.map((c) => c.id), now)
-      for (const previous of superseded) await recordTakeover(tx, projectId, previous, input.sessionId, actor, now, hours)
+    const key = { userId: actor.userId, sessionId: input.sessionId, backlogItemId, taskId }
+    const own = await repo.findOwnOpenClaim(tx, key)
+    const candidate = { ...key, id: own?.id ?? "", heartbeatAt: now, releasedAt: null }
+    const blockers = claimConflicts(candidate, await activeClaimsOnPbi(tx, backlogItemId, since), now, hours)
+    if (blockers.length > 0 && !(input.takeover && canTakeOver(blockers, actor.userId))) throw claimedError(blockers, hours, actor.userId)
+    const stale = overlappingClaims(candidate, await repo.findStaleClaimsOnPbi(tx, backlogItemId, since))
+
+    const ended: Array<{ row: ClaimRow; reason: "takeover" | "stale" }> = [
+      ...blockers.map((row) => ({ row, reason: "takeover" as const })),
+      ...stale.map((row) => ({ row, reason: "stale" as const })),
+    ]
+    for (const { row, reason } of ended) {
+      if ((await repo.endClaims(tx, [row.id], { releasedAt: now, releaseReason: reason, releasedById: actor.userId })) === 0) continue
+      await recordEnd(tx, projectId, row, reason, actor, input.sessionId)
     }
-    const claim = own
-      ? await repo.updateClaim(tx, own.id, { heartbeatAt: now, ...(input.branch !== undefined ? { branch: input.branch } : {}) })
-      : await repo.createClaim(tx, {
-          projectId,
-          backlogItemId,
-          taskId,
-          userId: actor.userId,
-          sessionId: input.sessionId,
-          branch: input.branch ?? null,
-          heartbeatAt: now,
-        })
+
+    let claim: ClaimRow
+    if (own) {
+      const branch = input.branch !== undefined ? { branch: input.branch } : {}
+      if ((await repo.touchOpenClaim(tx, own.id, { heartbeatAt: now, ...branch })) === 0) throw releasedError()
+      claim = await reloadClaim(tx, projectId, own.id)
+    } else {
+      if ((await repo.countActiveClaimsOfUser(tx, projectId, actor.userId, since)) >= maxOpenPerUser) {
+        throw new ConflictError(`You already hold ${maxOpenPerUser} active work claims in this project; release finished work first`, { limit: maxOpenPerUser }, "CLAIM_LIMIT_REACHED")
+      }
+      claim = await repo.createClaim(tx, { projectId, ...key, branch: input.branch ?? null, heartbeatAt: now })
+    }
+    const asEnded = (r: ClaimRow, reason: string) => toClaimDto({ ...r, releasedAt: now, releaseReason: reason }, now, hours, actor.userId)
     return {
-      claim: toClaimDto(claim, now, hours),
+      claim: toClaimDto(claim, now, hours, actor.userId),
       created: !own,
-      takenOver: superseded.map((c) => toClaimDto({ ...c, releasedAt: now }, now, hours)),
+      takenOver: blockers.map((r) => asEnded(r, "takeover")),
+      superseded: stale.map((r) => asEnded(r, "stale")),
     }
-  })
+  }, CLAIM_TX)
 }
 
-async function ownClaim(projectId: string, claimId: string, actor: Actor): Promise<ClaimRow> {
-  const claim = await repo.findClaim(defaultDb, projectId, claimId)
-  if (!claim) throw new NotFoundError("Claim not found")
-  if (claim.userId !== actor.userId) throw new ForbiddenError("Only the user who made the claim can change it", {}, "FORBIDDEN")
-  return claim
+function releasedError(): ConflictError {
+  return new ConflictError("The claim was released or taken over; claim the work again", {}, "CLAIM_RELEASED")
+}
+
+async function reloadClaim(db: Db, projectId: string, claimId: string): Promise<ClaimRow> {
+  const row = await repo.findClaim(db, projectId, claimId)
+  if (!row) throw new NotFoundError("Claim not found")
+  return row
 }
 
 /**
- * Heartbeat of the owner (optionally a new branch). A stale claim is revived only
- * while nobody else claimed the target meanwhile (else 409 TASK_CLAIMED); a claim
- * that was released or taken over → 409 CLAIM_RELEASED.
+ * Heartbeat (optionally a new branch) by any token of the claim's user — claims belong
+ * to the user, the session id only tells the user's sessions apart. Inside the locked
+ * READ COMMITTED transaction: a claim released or taken over meanwhile → 409
+ * CLAIM_RELEASED (conditional update); a stale claim is revived only while nobody else
+ * claimed the target (else 409 TASK_CLAIMED).
  */
 export async function heartbeatClaim(
   projectId: string,
@@ -191,42 +254,65 @@ export async function heartbeatClaim(
   actor: Actor,
   now: Date = new Date(),
 ): Promise<{ claim: ClaimDto }> {
-  const hours = claimStaleHours()
-  const claim = await ownClaim(projectId, claimId, actor)
-  if (claim.releasedAt) throw new ConflictError("The claim was released or taken over; claim the work again", {}, "CLAIM_RELEASED")
+  const { staleHours: hours } = settings()
+  const first = await reloadClaim(defaultDb, projectId, claimId)
+  if (first.userId !== actor.userId) throw new ForbiddenError("Only the user who made the claim can change it", {}, "FORBIDDEN")
   return withTransaction(async (tx) => {
+    await repo.lockPbi(tx, first.backlogItemId)
+    const claim = await reloadClaim(tx, projectId, claimId)
+    if (claim.releasedAt) throw releasedError()
     if (!isClaimActive(claim, now, hours)) {
-      await repo.lockPbi(tx, claim.backlogItemId)
-      const blockers = claimConflicts(claim, await repo.findOpenClaimsOnPbi(tx, claim.backlogItemId), now, hours)
-      if (blockers.length > 0) throw claimedError(blockers, hours)
+      const blockers = claimConflicts(claim, await activeClaimsOnPbi(tx, claim.backlogItemId, staleBefore(now, hours)), now, hours)
+      if (blockers.length > 0) throw claimedError(blockers, hours, actor.userId)
     }
-    const updated = await repo.updateClaim(tx, claim.id, { heartbeatAt: now, ...(input.branch !== undefined ? { branch: input.branch } : {}) })
-    return { claim: toClaimDto(updated, now, hours) }
-  })
+    const branch = input.branch !== undefined ? { branch: input.branch } : {}
+    if ((await repo.touchOpenClaim(tx, claim.id, { heartbeatAt: now, ...branch })) === 0) throw releasedError()
+    return { claim: toClaimDto(await reloadClaim(tx, projectId, claim.id), now, hours, actor.userId) }
+  }, CLAIM_TX)
 }
 
-/** The owner releases the claim. Releasing a released claim answers it unchanged (retry-safe). */
-export async function releaseClaim(projectId: string, claimId: string, actor: Actor, now: Date = new Date()): Promise<{ claim: ClaimDto }> {
-  const hours = claimStaleHours()
-  const claim = await ownClaim(projectId, claimId, actor)
-  if (claim.releasedAt) return { claim: toClaimDto(claim, now, hours) }
-  return { claim: toClaimDto(await repo.updateClaim(defaultDb, claim.id, { releasedAt: now }), now, hours) }
+/**
+ * Release a claim. Its user (any of their sessions) may always; a PO / SM / admin
+ * (`canModerate`, the route checks sprint.manage) may release anyone's claim — logged on
+ * the task / PBI and the holder notified. Releasing a released claim answers it unchanged.
+ */
+export async function releaseClaim(
+  projectId: string,
+  claimId: string,
+  actor: Actor,
+  options: { canModerate: boolean },
+  now: Date = new Date(),
+): Promise<{ claim: ClaimDto }> {
+  const { staleHours: hours } = settings()
+  const first = await reloadClaim(defaultDb, projectId, claimId)
+  const own = first.userId === actor.userId
+  if (!own && !options.canModerate) {
+    throw new ForbiddenError("Only the claim's user, or a Product Owner / Scrum Master, can release it", {}, "FORBIDDEN")
+  }
+  return withTransaction(async (tx) => {
+    await repo.lockPbi(tx, first.backlogItemId)
+    const reason = own ? "released" : "moderator"
+    const count = await repo.endClaims(tx, [claimId], { releasedAt: now, releaseReason: reason, releasedById: own ? null : actor.userId })
+    const claim = await reloadClaim(tx, projectId, claimId)
+    if (count > 0 && !own) await recordEnd(tx, projectId, claim, "moderator", actor, null)
+    return { claim: toClaimDto(claim, now, hours, actor.userId) }
+  }, CLAIM_TX)
 }
 
 /**
  * Open claims of the project, newest heartbeat first: active ones and stale ones
  * (`stale: true`, heartbeat within the last 7 days), at most CLAIM_LIST_LIMIT
- * (`truncated` when cut).
+ * (`truncated` when cut). Session ids only on the viewer's own claims.
  */
-export async function listClaims(projectId: string, query: ListClaimsQuery, now: Date = new Date()) {
-  const hours = claimStaleHours()
+export async function listClaims(projectId: string, query: ListClaimsQuery, viewerId: string, now: Date = new Date()) {
+  const { staleHours: hours } = settings()
   const filter: { backlogItemId?: string; taskId?: string } = {}
   if (query.pbi !== undefined) filter.backlogItemId = (await loadPbi(defaultDb, projectId, query.pbi)).id
   if (query.taskId !== undefined) filter.taskId = query.taskId
   const rows = await repo.findOpenClaims(defaultDb, projectId, staleBefore(now, CLAIM_LIST_LOOKBACK_HOURS), filter)
   const truncated = rows.length > repo.CLAIM_LIST_LIMIT
   return {
-    data: rows.slice(0, repo.CLAIM_LIST_LIMIT).map((r) => toClaimDto(r, now, hours)),
+    data: rows.slice(0, repo.CLAIM_LIST_LIMIT).map((r) => toClaimDto(r, now, hours, viewerId)),
     staleAfterHours: hours,
     ...(truncated ? { truncated: true, limit: repo.CLAIM_LIST_LIMIT } : {}),
   }
@@ -291,16 +377,18 @@ export async function linkMergeRequest(projectId: string, input: MrLinkInput, ac
   const key: repo.LinkKey = { repositoryId: repository.id, kind: "mr", ref: String(mr.iid), backlogItemId: pbi.id }
   const existing = await repo.findLink(defaultDb, key)
   if (existing) return { link: toLinkDto(existing, pbi), created: false }
+  // The sync may already know this MR (linked to another PBI): start from its real data.
+  // Otherwise title "!<iid>" and state null (unknown) until the next sync reads the MR.
+  const synced = await repo.findSyncedMergeRequest(defaultDb, repository.id, key.ref)
   try {
     const row = await withTransaction(async (tx) => {
       const created = await repo.createDeclaredLink(tx, {
         projectId,
         ...key,
-        title: input.title ?? `!${mr.iid}`,
         url: mr.url,
-        occurredAt: now,
         declaredById: actor.userId,
         declaredAt: now,
+        ...(synced ?? { title: `!${mr.iid}`, occurredAt: now }),
       })
       await logActivity(tx, {
         projectId,

@@ -30,7 +30,7 @@ const TYPE_LABEL: Record<string, keyof Translations> = {
   ai_report_failed: "notifTypeAiReportFailed",
   improvement_check_due: "notifTypeImprovementCheckDue",
   git_pipeline_failed: "notifTypeGitPipelineFailed",
-  work_claim_taken_over: "notifTypeWorkClaimTakenOver",
+  work_claim_ended: "notifTypeWorkClaimEnded",
 }
 
 /**

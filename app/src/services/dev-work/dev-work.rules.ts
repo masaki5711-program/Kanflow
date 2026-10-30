@@ -22,12 +22,40 @@ export const DEFAULT_CLAIM_STALE_HOURS = 4
 const MAX_CLAIM_STALE_HOURS = 168
 const HOUR_MS = 3_600_000
 
+export const DEFAULT_MAX_OPEN_CLAIMS_PER_USER = 20
+const MAX_MAX_OPEN_CLAIMS_PER_USER = 1000
+
+type Env = Readonly<Record<string, string | undefined>>
+
+/** An integer setting in [min, max]; `invalid` = set but unusable (the caller warns once). */
+function intSetting(raw: string | undefined, min: number, max: number, fallback: number): { value: number; invalid: boolean } {
+  const v = raw?.trim()
+  if (!v) return { value: fallback, invalid: false }
+  const n = /^\d+$/.test(v) ? Number(v) : Number.NaN
+  return n >= min && n <= max ? { value: n, invalid: false } : { value: fallback, invalid: true }
+}
+
+export interface ClaimSettings {
+  staleHours: number
+  maxOpenPerUser: number
+  /** Names of variables that were set to an unusable value (defaults used instead). */
+  invalid: string[]
+}
+
+/** DEV_CLAIM_STALE_HOURS (1-168, default 4) and DEV_CLAIM_MAX_OPEN_PER_USER (1-1000, default 20). */
+export function claimSettings(env: Env = process.env): ClaimSettings {
+  const stale = intSetting(env.DEV_CLAIM_STALE_HOURS, 1, MAX_CLAIM_STALE_HOURS, DEFAULT_CLAIM_STALE_HOURS)
+  const cap = intSetting(env.DEV_CLAIM_MAX_OPEN_PER_USER, 1, MAX_MAX_OPEN_CLAIMS_PER_USER, DEFAULT_MAX_OPEN_CLAIMS_PER_USER)
+  return {
+    staleHours: stale.value,
+    maxOpenPerUser: cap.value,
+    invalid: [...(stale.invalid ? ["DEV_CLAIM_STALE_HOURS"] : []), ...(cap.invalid ? ["DEV_CLAIM_MAX_OPEN_PER_USER"] : [])],
+  }
+}
+
 /** Stale window in hours from DEV_CLAIM_STALE_HOURS (1-168; anything else → the default). */
-export function claimStaleHours(env: Readonly<Record<string, string | undefined>> = process.env): number {
-  const raw = env.DEV_CLAIM_STALE_HOURS?.trim()
-  if (!raw || !/^\d+$/.test(raw)) return DEFAULT_CLAIM_STALE_HOURS
-  const n = Number(raw)
-  return n >= 1 && n <= MAX_CLAIM_STALE_HOURS ? n : DEFAULT_CLAIM_STALE_HOURS
+export function claimStaleHours(env: Env = process.env): number {
+  return claimSettings(env).staleHours
 }
 
 /** Heartbeats before this instant are stale. */
@@ -46,6 +74,8 @@ export interface ClaimRow {
   branch: string | null
   heartbeatAt: Date
   releasedAt: Date | null
+  /** "released" | "takeover" | "stale" | "moderator"; null while open (repository ClaimEndReason). */
+  releaseReason?: string | null
   createdAt: Date
   backlogItem: { id: string; displayId: number; initiative: string | null; userStory: string | null }
   task: { id: string; taskName: string | null; sprintId: string } | null
@@ -77,7 +107,11 @@ export function claimConflicts<T extends ClaimKey>(claim: ClaimKey, others: read
   return overlappingClaims(claim, others).filter((o) => isClaimActive(o, now, staleHours))
 }
 
-/** May `userId` take over these blockers? Only when all of them are the user's own (other sessions). */
+/**
+ * May `userId` take over these active blockers? Only when all of them are the user's own
+ * (other sessions). Another user's claim is never taken over; their STALE claims do not
+ * block and are superseded by any new claim (dev-work.service), not by takeover.
+ */
 export function canTakeOver(blockers: readonly Pick<ClaimKey, "userId">[], userId: string): boolean {
   return blockers.every((b) => b.userId === userId)
 }
@@ -89,13 +123,16 @@ export interface ClaimDto {
   /** null = the claim covers the whole PBI. */
   task: { id: string; name: string | null; sprintId: string } | null
   user: { id: string; name: string }
-  sessionId: string
+  /** Only on the viewer's own claims (another user's session id is not shown); null otherwise. */
+  sessionId: string | null
   branch: string | null
   startedAt: string
   heartbeatAt: string
   /** When the claim stops counting without another heartbeat. */
   staleAt: string
   releasedAt: string | null
+  /** Why it ended (released / takeover / stale / moderator); null while open. */
+  releaseReason: string | null
   active: boolean
   /** Not released but without a heartbeat for the stale window: no longer blocks anyone. */
   stale: boolean
@@ -105,7 +142,8 @@ export interface ClaimDto {
 export interface ClaimHolderDto {
   claimId: string
   user: { id: string; name: string }
-  sessionId: string
+  /** Only when the holder is the viewer (their other session); null for other users. */
+  sessionId: string | null
   branch: string | null
   pbi: { id: string; displayId: number }
   task: { id: string; name: string | null } | null
@@ -116,7 +154,8 @@ export interface ClaimHolderDto {
 
 const TITLE_MAX = 120
 
-export function toClaimDto(row: ClaimRow, now: Date, staleHours: number): ClaimDto {
+/** `viewerId`: the token user; another user's session id is hidden. */
+export function toClaimDto(row: ClaimRow, now: Date, staleHours: number, viewerId: string): ClaimDto {
   const title = row.backlogItem.initiative || row.backlogItem.userStory?.slice(0, TITLE_MAX) || null
   return {
     id: row.id,
@@ -124,22 +163,23 @@ export function toClaimDto(row: ClaimRow, now: Date, staleHours: number): ClaimD
     pbi: { id: row.backlogItem.id, displayId: row.backlogItem.displayId, title },
     task: row.task ? { id: row.task.id, name: row.task.taskName, sprintId: row.task.sprintId } : null,
     user: row.user,
-    sessionId: row.sessionId,
+    sessionId: row.userId === viewerId ? row.sessionId : null,
     branch: row.branch,
     startedAt: row.createdAt.toISOString(),
     heartbeatAt: row.heartbeatAt.toISOString(),
     staleAt: new Date(row.heartbeatAt.getTime() + staleHours * HOUR_MS).toISOString(),
     releasedAt: row.releasedAt?.toISOString() ?? null,
+    releaseReason: row.releaseReason ?? null,
     active: isClaimActive(row, now, staleHours),
     stale: row.releasedAt === null && !isClaimActive(row, now, staleHours),
   }
 }
 
-export function toHolderDto(row: ClaimRow, staleHours: number): ClaimHolderDto {
+export function toHolderDto(row: ClaimRow, staleHours: number, viewerId: string): ClaimHolderDto {
   return {
     claimId: row.id,
     user: row.user,
-    sessionId: row.sessionId,
+    sessionId: row.userId === viewerId ? row.sessionId : null,
     branch: row.branch,
     pbi: { id: row.backlogItem.id, displayId: row.backlogItem.displayId },
     task: row.task ? { id: row.task.id, name: row.task.taskName } : null,

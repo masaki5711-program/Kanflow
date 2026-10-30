@@ -18,11 +18,15 @@ import { V1Reply } from "./v1-route"
 
 /**
  * Claim a PBI / task: 201 new claim, 200 the caller's claim refreshed, 409 TASK_CLAIMED
- * (`holders`) when another user / session holds it; `takenOver` = claims ended by `takeover`.
+ * (`holders`) when another user / session holds it; `takenOver` = the caller's other sessions
+ * ended by `takeover`, `superseded` = stale claims the new claim replaced.
  */
 export async function claimWorkOp({ projectId, body, serviceActor }: V1WriteInput) {
   const result = await claimWork(projectId, claimWorkSchema.parse(body), serviceActor)
-  return new V1Reply({ data: result.claim, created: result.created, takenOver: result.takenOver }, result.created ? 201 : 200)
+  return new V1Reply(
+    { data: result.claim, created: result.created, takenOver: result.takenOver, superseded: result.superseded },
+    result.created ? 201 : 200,
+  )
 }
 
 /** Heartbeat of the owner (optionally a new branch). */
@@ -31,14 +35,17 @@ export async function heartbeatClaimOp({ projectId, params, body, serviceActor }
   return { data: result.claim }
 }
 
-/** Release (owner only; releasing again is a no-op). */
-export async function releaseClaimOp({ projectId, params, serviceActor }: V1WriteInput<{ claimId: string }>) {
-  return { data: (await releaseClaim(projectId, params.claimId, serviceActor)).claim }
+/**
+ * Release: the claim's user, or a PO / SM / admin for anyone's claim (`sprint.manage`,
+ * the role that runs the sprint's work; logged and the holder notified). Releasing again is a no-op.
+ */
+export async function releaseClaimOp({ projectId, params, serviceActor, actor }: V1WriteInput<{ claimId: string }>) {
+  return { data: (await releaseClaim(projectId, params.claimId, serviceActor, { canModerate: can(actor, "sprint.manage") })).claim }
 }
 
-/** Active claims of the project (read). */
-export async function listClaimsOp(projectId: string, query: unknown) {
-  return listClaims(projectId, listClaimsQuerySchema.parse(query))
+/** Open claims of the project (read); session ids only on the viewer's own claims. */
+export async function listClaimsOp(projectId: string, query: unknown, viewerId: string) {
+  return listClaims(projectId, listClaimsQuerySchema.parse(query), viewerId)
 }
 
 /** A progress comment on a PBI / sprint task as the token user (comment row carries via). */

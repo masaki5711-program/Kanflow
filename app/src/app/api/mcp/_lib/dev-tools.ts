@@ -50,15 +50,17 @@ export function registerDevTools(server: McpServer, principal: ApiPrincipal): vo
       description: describe(
         "Declare that you (the token user) are working on a PBI or one sprint task, from this session and branch (作業の宣言; scope dev:write, team members). " +
           "Give exactly one of pbi / taskId. Call it again with the same sessionId at least every couple of hours as a heartbeat (a claim without heartbeat goes stale after DEV_CLAIM_STALE_HOURS, default 4 h). " +
-          "One active claim per task: if another user or session holds the task (or the whole PBI) you get TASK_CLAIMED with `holders` (name, session, branch, claimedAt, lastHeartbeatAt) — stop and tell the user; do not work on it in parallel. " +
-          "takeover: true ends the other claim only when it is stale or your own other session (otherwise still TASK_CLAIMED); the previous holder is notified. It does not change the task status.",
+          "One active claim per task: if another user or session holds the task (or the whole PBI) you get TASK_CLAIMED with `holders` (user name, branch, claimedAt, lastHeartbeatAt) — stop and tell the user; do not work on it in parallel. " +
+          "A stale claim (no heartbeat for the window) never blocks: your claim supersedes it and its user is notified (`superseded`). " +
+          "takeover: true ends only YOUR OWN other sessions' active claims on the target (`takenOver`); another user's active claim is never taken over. " +
+          "At most DEV_CLAIM_MAX_OPEN_PER_USER (default 20) active claims per project (CLAIM_LIMIT_REACHED). It does not change the task status.",
       ),
       inputSchema: {
         pbi: pbiArg.optional(),
         taskId: id.optional().describe("A sprint task id (from get_sprint_tasks / my_tasks / get_pbi)."),
         sessionId: devSessionId.describe("Your session id (e.g. the Claude Code session id); 1-100 visible ASCII characters."),
         branch: devBranch.optional().describe("The git branch you work on."),
-        takeover: z.boolean().optional().describe("End a stale claim or your own other session's claim on the target (never another user's active claim)."),
+        takeover: z.boolean().optional().describe("End your own other sessions' active claims on the target (never another user's)."),
         projectId: optionalProjectId,
       },
       annotations: IDEMPOTENT_WRITE,
@@ -75,7 +77,9 @@ export function registerDevTools(server: McpServer, principal: ApiPrincipal): vo
   server.registerTool(
     "release_claim",
     {
-      description: describe("Release your work claim when you stop or finish (scope dev:write; only the claim's owner). Releasing twice is harmless."),
+      description: describe(
+        "Release your work claim when you stop or finish (scope dev:write; any session of the claim's user). A Product Owner / Scrum Master may release anyone's claim (the holder is notified) — only on the user's explicit request. Releasing twice is harmless.",
+      ),
       inputSchema: { claimId: id.describe("The claim id from claim_work / list_claims."), projectId: id.describe("The claim's projectId.") },
       annotations: IDEMPOTENT_WRITE,
     },
@@ -96,7 +100,7 @@ export function registerDevTools(server: McpServer, principal: ApiPrincipal): vo
     ({ projectId, pbi, taskId }) =>
       guard("list_claims", async () => {
         const scope = await projectScope(principal, projectId)
-        return toolOk(await listClaimsOp(scope.projectId, definedOnly({ pbi, taskId })))
+        return toolOk(await listClaimsOp(scope.projectId, definedOnly({ pbi, taskId }), principal.userId))
       }),
   )
 
@@ -136,20 +140,19 @@ export function registerDevTools(server: McpServer, principal: ApiPrincipal): vo
     {
       description: describe(
         "Link a merge request to a PBI (scope dev:write; team members). The URL must be a merge request of a repository registered in the project's Git integration " +
-          "(https://<host>/<group>/<repo>/-/merge_requests/<number>); other URLs are refused (MR_URL_INVALID / MR_REPOSITORY_NOT_REGISTERED). Linking the same MR again answers the existing link (created: false).",
+          "(https://<host>/<group>/<repo>/-/merge_requests/<number>); other URLs are refused (MR_URL_INVALID / MR_REPOSITORY_NOT_REGISTERED). Linking the same MR again answers the existing link (created: false). The link shows the MR's synced title and state (\"!<number>\" and no state until the next Git sync reads it) and is display only: it never completes tasks or marks a release ready — only MRs whose title / branch name the PBI do.",
       ),
       inputSchema: {
         pbi: pbiArg,
         url: z.string().min(1).max(1000).describe("The merge request URL."),
-        title: z.string().min(1).max(500).optional().describe('Shown until the next Git sync reads the MR (default "!<number>").'),
         projectId: optionalProjectId,
       },
       annotations: IDEMPOTENT_WRITE,
     },
-    ({ pbi, url, title, projectId }) =>
+    ({ pbi, url, projectId }) =>
       guard("link_merge_request", async () => {
         const scope = await pbiScope(principal, projectId, pbi)
-        const body = definedOnly({ pbi: await pbiIdIn(scope.projectId, pbi), url, title })
+        const body = { pbi: await pbiIdIn(scope.projectId, pbi), url }
         return mcpWrite(principal, { tool: "link_merge_request", scope, action: "dev.write", body, params: {}, op: linkMergeRequestOp })
       }),
   )

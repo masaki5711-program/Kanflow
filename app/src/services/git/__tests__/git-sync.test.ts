@@ -828,6 +828,17 @@ describe("syncRepository — full success: links, pipelines, gone branches, auto
     expect(result.completedTasks).toBe(1)
   })
 
+  it("auto-complete reads only Git-derived MR links (declared-only links never decide delivery)", async () => {
+    gitRepositoryFindUnique.mockResolvedValue(
+      repoRow({ externalId: 7, project: { deletedAt: null, gitIntegration: { enabled: true, provider: "gitlab", tokenCipher: "sealed-integration-token", autoCompleteOnMerge: true } } }),
+    )
+    productBacklogItemFindMany.mockResolvedValue([{ id: "b-42", displayId: 42 }])
+    gitLinkFindMany.mockResolvedValue([])
+    const client = emptyClient({ listMergeRequestPage: vi.fn().mockResolvedValue(mrPage([buildMr(1, 42, "merged")])) })
+    await syncRepository("r1", () => client, NOW)
+    expect(gitLinkFindMany).toHaveBeenCalledWith({ where: { backlogItemId: "b-42", kind: "mr", declaredAt: null }, select: { state: true } })
+  })
+
   it("tells the PBI's assignees when an open MR's pipeline newly fails, once per push", async () => {
     gitRepositoryFindUnique.mockResolvedValue(repoRow({ externalId: 7 }))
     productBacklogItemFindMany.mockResolvedValue([{ id: "b-42", displayId: 42 }])
@@ -996,7 +1007,7 @@ describe("syncRepository — full success: links, pipelines, gone branches, auto
   })
 
   it("isSameLink compares every written column (dates by time, null ≡ undefined)", () => {
-    const data = { title: "t", url: "u", state: null, pipeline: "success", author: "a", sourceBranch: null, occurredAt: new Date(NOW), mergedAt: null, goneAt: null }
+    const data = { title: "t", url: "u", state: null, pipeline: "success", author: "a", sourceBranch: null, occurredAt: new Date(NOW), mergedAt: null, goneAt: null, declaredAt: null }
     expect(isSameLink(null, data)).toBe(false)
     expect(isSameLink({ ...data, occurredAt: new Date(NOW.getTime()) }, data)).toBe(true)
     expect(isSameLink({ ...data, mergedAt: undefined }, data)).toBe(true)
@@ -1086,6 +1097,30 @@ describe("syncRepository — tags", () => {
 })
 
 describe("syncRepository — merge requests declared by a developer (dev:write)", () => {
+  it("a declared MR turning merged never triggers auto-complete (display only)", async () => {
+    gitRepositoryFindUnique.mockResolvedValue(
+      repoRow({ externalId: 7, project: { deletedAt: null, gitIntegration: { enabled: true, provider: "gitlab", tokenCipher: "sealed-integration-token", autoCompleteOnMerge: true } } }),
+    )
+    gitLinkFindMany.mockImplementation(async (args: { where: { declaredAt?: unknown } }) =>
+      args.where.declaredAt ? [{ id: "l-decl", ref: "5", kind: "mr", backlogItemId: "b-9", declaredAt: NOW, title: "!5", url: "u", state: "opened", pipeline: null, author: null, sourceBranch: null, occurredAt: NOW, mergedAt: null, goneAt: null }] : [],
+    )
+    const client = emptyClient({ listMergeRequestPage: vi.fn().mockResolvedValue(mrPage([mrAt(5, 0, "2026-09-30T10:00:00Z", "merged", "Refactor login")])) })
+    const result = await syncRepository("r1", () => client, NOW)
+    expect(gitLinkUpdateMany).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "l-decl" }, data: expect.objectContaining({ state: "merged", declaredAt: NOW }) }))
+    expect(sprintBacklogItemFindMany).not.toHaveBeenCalled()
+    expect(updateTaskMock).not.toHaveBeenCalled()
+    expect(result.completedTasks).toBe(0)
+  })
+
+  it("when Git itself names the PBI, the declared link becomes Git-derived (declared marker cleared)", async () => {
+    gitRepositoryFindUnique.mockResolvedValue(repoRow({ externalId: 7 }))
+    productBacklogItemFindMany.mockResolvedValue([{ id: "b-42", displayId: 42 }])
+    gitLinkFindUnique.mockResolvedValue({ title: "!1", url: "u", state: null, pipeline: null, author: null, sourceBranch: null, occurredAt: NOW, mergedAt: null, goneAt: null, declaredAt: NOW })
+    const client = emptyClient({ listMergeRequestPage: vi.fn().mockResolvedValue(mrPage([mrAt(1, 42, NOW, "opened")])) })
+    await syncRepository("r1", () => client, NOW)
+    expect(gitLinkUpsert).toHaveBeenCalledWith(expect.objectContaining({ update: expect.objectContaining({ declaredAt: null, declaredById: null }) }))
+  })
+
   const declaredRow = (over: Record<string, unknown> = {}) => ({
     id: "l-decl", ref: "5", kind: "mr", backlogItemId: "b-9", declaredAt: NOW,
     title: "!5", url: "https://gitlab/mr/5", state: null, pipeline: "success", author: null, sourceBranch: null, occurredAt: NOW, mergedAt: null, goneAt: null, ...over,

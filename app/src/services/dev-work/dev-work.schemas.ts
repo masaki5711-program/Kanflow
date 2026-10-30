@@ -10,19 +10,25 @@ import { COMMENT_BODY_MAX } from "@/services/comments/comments.schemas"
 export const devPbiRef = z.string().trim().min(1).max(191)
 /** Client-chosen session id (e.g. the Claude Code session id): visible ASCII, no spaces. */
 export const devSessionId = z.string().regex(/^[\x21-\x7e]{1,100}$/, "1-100 visible ASCII characters, no spaces")
-/** A git branch name (no spaces / control characters / the characters git refuses in refs). */
+/**
+ * A git branch name, git-ref-safe and safe to show: no whitespace / control characters,
+ * none of ~ ^ : ? * [ \\ (refused by git) and none of < > " ' ` (never needed in a branch
+ * name, risky wherever it is rendered); no "..", "@{", leading "-" or "/", trailing "/",
+ * "." or ".lock".
+ */
 export const devBranch = z
   .string()
   .trim()
   .min(1)
   .max(255)
-  .regex(/^[^\s~^:?*[\\\x00-\x1f\x7f]+$/, "not a valid branch name")
+  .regex(/^[^\s~^:?*[\\<>"'`\x00-\x1f\x7f]+$/, "not a valid branch name")
+  .refine((b) => !b.includes("..") && !b.includes("@{") && !/^[-/]/.test(b) && !/(\/|\.|\.lock)$/.test(b), "not a valid branch name")
 const taskId = z.string().trim().min(1).max(191)
 
 /**
  * POST /dev/claims — exactly one of `pbi` (the whole PBI) and `taskId` (one sprint task).
- * `takeover`: end overlapping claims instead of 409 — allowed when they are stale or
- * the caller's own other sessions (dev-work.rules).
+ * `takeover`: end the caller's own other sessions' active claims on the target instead
+ * of 409 (another user's active claim is never taken over; stale claims never block).
  */
 export const claimWorkSchema = z
   .object({
@@ -50,12 +56,13 @@ export const progressCommentSchema = z.object({
   body: z.string().trim().min(1).max(COMMENT_BODY_MAX),
 })
 
-/** POST /dev/mr-links — link a merge request of a registered repository to a PBI. */
+/**
+ * POST /dev/mr-links — link a merge request of a registered repository to a PBI. No
+ * title: the link shows the synced MR's title, or "!<iid>" until the sync reads it.
+ */
 export const mrLinkSchema = z.object({
   pbi: devPbiRef,
   url: z.string().trim().min(1).max(1000),
-  /** Shown until the sync reads the merge request (default "!<iid>"). */
-  title: z.string().trim().min(1).max(500).optional(),
 })
 
 export type ClaimWorkInput = z.infer<typeof claimWorkSchema>

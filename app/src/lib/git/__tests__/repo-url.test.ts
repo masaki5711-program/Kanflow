@@ -151,8 +151,26 @@ describe("parseMergeRequestUrl (dev:write MR links)", () => {
     ["javascript:", "javascript:alert(1)"],
     ["not a URL", "!42"],
     ["empty", ""],
+    ["a malformed escape", `https://${HOST}/group/re%E0%A4po/-/merge_requests/1`],
+    ["a lone %", `https://${HOST}/group/re%po/-/merge_requests/1`],
+    ["an encoded slash", `https://${HOST}/group%2Frepo/x/-/merge_requests/1`],
+    ["a . segment", `https://${HOST}/group/./repo/-/merge_requests/1`],
+    ["an encoded .. segment", `https://${HOST}/group/%2E%2E/repo/-/merge_requests/1`],
   ])("refuses %s", async (_label, url) => {
     const { parseMergeRequestUrl } = await import("../repo-url")
     expect(parseMergeRequestUrl(url, HOSTS)).toBeNull()
+  })
+})
+
+describe("parseRepoUrl — hardening", () => {
+  it.each([
+    ["a malformed escape (no throw)", `https://${HOST}/group/re%E0%A4po`],
+    ["an encoded slash", `https://${HOST}/group%2Fsub/repo`],
+    ["an encoded backslash", `https://${HOST}/group%5Csub/repo`],
+    ["a .. segment (encoded)", `https://${HOST}/group/%2e%2e/repo`],
+    ["a . segment (encoded)", `https://${HOST}/group/%2e/repo`],
+  ])("returns null for %s", (_label, url) => {
+    expect(() => parseRepoUrl(url, HOSTS)).not.toThrow()
+    expect(parseRepoUrl(url, HOSTS)).toBeNull()
   })
 })

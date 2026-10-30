@@ -10,12 +10,15 @@ vi.mock("@/services/_shared/notifications", () => ({ notify: vi.fn(async () => u
 vi.mock("@/services/_shared/activity", () => ({ LABEL_MAX: 120, logActivity: vi.fn(async () => undefined) }))
 const publishAfterCommit = vi.fn()
 vi.mock("@/lib/realtime/after-commit", () => ({ publishAfterCommit: (...a: unknown[]) => publishAfterCommit(...a) }))
+const log = vi.hoisted(() => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }))
+vi.mock("@/lib/logger", () => ({ logger: { child: () => log } }))
 
 const repo = await import("../dev-work.repository")
 const svc = await import("../dev-work.service")
 const comments = await import("@/services/comments/comments.service")
 const activity = await import("@/services/_shared/activity")
 const notifications = await import("@/services/_shared/notifications")
+const db = await import("@/services/_shared/db")
 const { DEFAULT_DB, TX } = await import("@/services/__tests__/support")
 const { ConflictError, ForbiddenError, NotFoundError, ValidationError } = await import("@/services/_shared/errors")
 
@@ -37,6 +40,7 @@ function claim(over: Partial<Row> = {}): Row {
     branch: null,
     heartbeatAt: new Date(NOW.getTime() - HOUR),
     releasedAt: null,
+    releaseReason: null,
     createdAt: new Date(NOW.getTime() - 2 * HOUR),
     backlogItem: PBI,
     task: null,
@@ -50,92 +54,147 @@ beforeEach(() => {
   vi.unstubAllEnvs()
   vi.stubEnv("GIT_ALLOWED_HOSTS", HOST)
   vi.mocked(repo.findPbi).mockResolvedValue(PBI)
-  vi.mocked(repo.findOpenClaimsOnPbi).mockResolvedValue([])
+  vi.mocked(repo.findOwnOpenClaim).mockResolvedValue(null)
+  vi.mocked(repo.findActiveClaimsOnPbi).mockResolvedValue([])
+  vi.mocked(repo.findStaleClaimsOnPbi).mockResolvedValue([])
+  vi.mocked(repo.countActiveClaimsOfUser).mockResolvedValue(0)
+  vi.mocked(repo.endClaims).mockResolvedValue(0)
+  vi.mocked(repo.findClaim).mockResolvedValue(claim())
+  svc.resetClaimSettingsWarning()
 })
 
+/** Call position (invocationCallOrder) of a mock's first call; Infinity when never called. */
+function order(fn: unknown): number {
+  return (fn as { mock: { invocationCallOrder: number[] } }).mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY
+}
+
 describe("claimWork (作業の宣言): one active claim per target", () => {
-  it("creates a PBI claim for the token user under a PBI row lock, inside a transaction (created)", async () => {
+  it("creates a PBI claim under the PBI lock, READ COMMITTED, and the lock comes before any claim read", async () => {
     vi.mocked(repo.createClaim).mockResolvedValue(claim({ id: "new", heartbeatAt: NOW, createdAt: NOW, branch: "feat/x" }))
     const out = await svc.claimWork("p1", { pbi: "PBI-12", sessionId: "s-1", branch: "feat/x" }, ACTOR, NOW)
+    expect(db.withTransaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: "ReadCommitted" })
     expect(repo.findPbi).toHaveBeenCalledWith(TX, "p1", { displayId: 12 })
+    const lock = order(repo.lockPbi)
+    for (const read of [repo.findOwnOpenClaim, repo.findActiveClaimsOnPbi, repo.findStaleClaimsOnPbi, repo.countActiveClaimsOfUser, repo.createClaim]) {
+      expect(order(read)).toBeGreaterThan(lock)
+    }
     expect(repo.lockPbi).toHaveBeenCalledWith(TX, "b1")
+    expect(repo.findActiveClaimsOnPbi).toHaveBeenCalledWith(TX, "b1", new Date(NOW.getTime() - 4 * HOUR))
     expect(repo.createClaim).toHaveBeenCalledWith(TX, {
       projectId: "p1", backlogItemId: "b1", taskId: null, userId: "u1", sessionId: "s-1", branch: "feat/x", heartbeatAt: NOW,
     })
-    expect(out).toMatchObject({ created: true, takenOver: [], claim: { id: "new", active: true, stale: false, pbi: { displayId: 12 }, branch: "feat/x" } })
+    expect(out).toMatchObject({ created: true, takenOver: [], superseded: [], claim: { id: "new", active: true, stale: false, sessionId: "s-1" } })
   })
 
-  it("409 TASK_CLAIMED with the holder (name, session, branch, claimed / last heartbeat) when another user is active on the task", async () => {
+  it("a task claim: the task is resolved first (ids only), then the lock, then the claims", async () => {
+    vi.mocked(repo.findTask).mockResolvedValue({ id: "k1", pbItemId: "b1" })
+    vi.mocked(repo.createClaim).mockResolvedValue(claim({ id: "mine", taskId: "k1" }))
+    await svc.claimWork("p1", { taskId: "k1", sessionId: "s-1" }, ACTOR, NOW)
+    expect(order(repo.findTask)).toBeLessThan(order(repo.lockPbi))
+    expect(order(repo.lockPbi)).toBeLessThan(order(repo.findActiveClaimsOnPbi))
+  })
+
+  it("409 TASK_CLAIMED with the holder (name, branch, times; another user's session id hidden)", async () => {
     vi.mocked(repo.findTask).mockResolvedValue({ id: "k1", pbItemId: "b1" })
     const theirs = claim({ id: "theirs", taskId: "k1", userId: "u2", sessionId: "other", branch: "feat/theirs", user: { id: "u2", name: "Dev Two" } })
-    vi.mocked(repo.findOpenClaimsOnPbi).mockResolvedValue([theirs])
+    vi.mocked(repo.findActiveClaimsOnPbi).mockResolvedValue([theirs])
     const err = await svc.claimWork("p1", { taskId: "k1", sessionId: "s-1" }, ACTOR, NOW).catch((e: unknown) => e)
     expect(err).toBeInstanceOf(ConflictError)
     expect(err).toMatchObject({ status: 409, code: "TASK_CLAIMED" })
     expect((err as { extra: unknown }).extra).toEqual({
       holders: [{
-        claimId: "theirs", user: { id: "u2", name: "Dev Two" }, sessionId: "other", branch: "feat/theirs", pbi: { id: "b1", displayId: 12 }, task: null,
+        claimId: "theirs", user: { id: "u2", name: "Dev Two" }, sessionId: null, branch: "feat/theirs", pbi: { id: "b1", displayId: 12 }, task: null,
         claimedAt: "2026-10-30T10:00:00.000Z", lastHeartbeatAt: "2026-10-30T11:00:00.000Z", staleAt: "2026-10-30T15:00:00.000Z",
       }],
     })
-    expect(repo.findTask).toHaveBeenCalledWith(TX, "p1", "k1")
     expect(repo.createClaim).not.toHaveBeenCalled()
   })
 
-  it("takeover cannot override another user's active claim (still 409), and a whole-PBI claim blocks its tasks", async () => {
+  it("takeover never overrides another user's active claim (still 409); a whole-PBI claim blocks its tasks", async () => {
     vi.mocked(repo.findTask).mockResolvedValue({ id: "k1", pbItemId: "b1" })
-    vi.mocked(repo.findOpenClaimsOnPbi).mockResolvedValue([claim({ id: "whole", userId: "u2", sessionId: "z" })])
+    vi.mocked(repo.findActiveClaimsOnPbi).mockResolvedValue([claim({ id: "whole", userId: "u2", sessionId: "z" })])
     await expect(svc.claimWork("p1", { taskId: "k1", sessionId: "s-1", takeover: true }, ACTOR, NOW)).rejects.toMatchObject({ code: "TASK_CLAIMED" })
-    expect(repo.releaseClaims).not.toHaveBeenCalled()
+    expect(repo.endClaims).not.toHaveBeenCalled()
     expect(notifications.notify).not.toHaveBeenCalled()
   })
 
-  it("a second session of the same user is refused without takeover, and takes over its own other session with it", async () => {
+  it("the caller's other session: 409 without takeover (own session id shown), ended with takeover (logged, no notification)", async () => {
     const first = claim({ id: "first", sessionId: "s-0" })
-    vi.mocked(repo.findOpenClaimsOnPbi).mockResolvedValue([first])
-    await expect(svc.claimWork("p1", { pbi: "b1", sessionId: "s-1" }, ACTOR, NOW)).rejects.toMatchObject({ code: "TASK_CLAIMED" })
+    vi.mocked(repo.findActiveClaimsOnPbi).mockResolvedValue([first])
+    const err = await svc.claimWork("p1", { pbi: "b1", sessionId: "s-1" }, ACTOR, NOW).catch((e: unknown) => e)
+    expect((err as { extra: { holders: Array<{ sessionId: string | null }> } }).extra.holders[0].sessionId).toBe("s-0")
+    vi.mocked(repo.endClaims).mockResolvedValue(1)
+    vi.mocked(repo.countActiveClaimsOfUser).mockResolvedValue(0)
     vi.mocked(repo.createClaim).mockResolvedValue(claim({ id: "second" }))
     const out = await svc.claimWork("p1", { pbi: "b1", sessionId: "s-1", takeover: true }, ACTOR, NOW)
-    expect(repo.releaseClaims).toHaveBeenCalledWith(TX, ["first"], NOW)
-    expect(out.created).toBe(true)
-    expect(out.takenOver).toEqual([expect.objectContaining({ id: "first", releasedAt: NOW.toISOString(), active: false })])
+    expect(repo.endClaims).toHaveBeenCalledWith(TX, ["first"], { releasedAt: NOW, releaseReason: "takeover", releasedById: "u1" })
+    expect(out.takenOver).toEqual([expect.objectContaining({ id: "first", releasedAt: NOW.toISOString(), releaseReason: "takeover", active: false })])
     expect(activity.logActivity).toHaveBeenCalledWith(TX, expect.objectContaining({
       entityType: "pbi", entityId: "b1", action: "update",
-      diff: expect.objectContaining({ meta: { claimTakeover: { claimId: "first", from: { userId: "u1", userName: "Dev One", sessionId: "s-0" }, toSessionId: "s-1", stale: false } } }),
+      diff: expect.objectContaining({ meta: { claimEnded: { claimId: "first", reason: "takeover", from: { userId: "u1", userName: "Dev One" }, toSessionId: "s-1" } } }),
     }))
+    expect(notifications.notify).not.toHaveBeenCalled()
   })
 
-  it("a stale claim never blocks; with takeover it is ended, logged on the task and its holder notified", async () => {
+  it("another user's stale claim never blocks: the new claim supersedes it (reason stale, logged, holder notified) without takeover", async () => {
     vi.mocked(repo.findTask).mockResolvedValue({ id: "k1", pbItemId: "b1" })
     const stale = claim({ id: "old", taskId: "k1", task: { id: "k1", taskName: "API", sprintId: "s1" }, userId: "u2", sessionId: "gone", user: { id: "u2", name: "Dev Two" }, heartbeatAt: new Date(NOW.getTime() - 5 * HOUR) })
-    vi.mocked(repo.findOpenClaimsOnPbi).mockResolvedValue([stale])
+    vi.mocked(repo.findStaleClaimsOnPbi).mockResolvedValue([stale])
+    vi.mocked(repo.endClaims).mockResolvedValue(1)
+    vi.mocked(repo.countActiveClaimsOfUser).mockResolvedValue(0)
     vi.mocked(repo.createClaim).mockResolvedValue(claim({ id: "mine", taskId: "k1" }))
-    const plain = await svc.claimWork("p1", { taskId: "k1", sessionId: "s-1" }, ACTOR, NOW)
-    expect(plain.takenOver).toEqual([])
-    expect(repo.releaseClaims).not.toHaveBeenCalled()
-
-    const out = await svc.claimWork("p1", { taskId: "k1", sessionId: "s-1", takeover: true }, ACTOR, NOW)
-    expect(repo.releaseClaims).toHaveBeenCalledWith(TX, ["old"], NOW)
-    expect(out.takenOver.map((c) => c.id)).toEqual(["old"])
+    const out = await svc.claimWork("p1", { taskId: "k1", sessionId: "s-1" }, ACTOR, NOW)
+    expect(repo.findStaleClaimsOnPbi).toHaveBeenCalledWith(TX, "b1", new Date(NOW.getTime() - 4 * HOUR))
+    expect(repo.endClaims).toHaveBeenCalledWith(TX, ["old"], { releasedAt: NOW, releaseReason: "stale", releasedById: "u1" })
+    expect(out.superseded).toEqual([expect.objectContaining({ id: "old", releaseReason: "stale", sessionId: null })])
     expect(activity.logActivity).toHaveBeenCalledWith(TX, expect.objectContaining({ entityType: "sprint_task", entityId: "k1", diff: expect.objectContaining({ label: "API" }) }))
     expect(notifications.notify).toHaveBeenCalledWith(TX, {
-      recipientIds: ["u2"], actorId: "u1", type: "work_claim_taken_over", projectId: "p1", entityType: "sprint_task", entityId: "k1",
-      payload: { entityLabel: "API", actorName: "Dev One", sessionId: "gone", sprintId: "s1" }, dedupeKey: "work_claim_taken_over:old",
+      recipientIds: ["u2"], actorId: "u1", type: "work_claim_ended", projectId: "p1", entityType: "sprint_task", entityId: "k1",
+      payload: { entityLabel: "API", actorName: "Dev One", reason: "stale", sprintId: "s1" }, dedupeKey: "work_claim_ended:old",
     })
   })
 
-  it("the same user + session + target refreshes the existing claim (200, heartbeat, branch) instead of a duplicate", async () => {
-    vi.mocked(repo.findOpenClaimsOnPbi).mockResolvedValue([claim({ id: "own" })])
-    vi.mocked(repo.updateClaim).mockResolvedValue(claim({ id: "own", heartbeatAt: NOW, branch: "feat/y" }))
+  it("a stale claim already ended by a concurrent call is not logged twice", async () => {
+    vi.mocked(repo.findStaleClaimsOnPbi).mockResolvedValue([claim({ id: "old", userId: "u2", sessionId: "z", heartbeatAt: new Date(NOW.getTime() - 9 * HOUR) })])
+    vi.mocked(repo.endClaims).mockResolvedValue(0)
+    vi.mocked(repo.countActiveClaimsOfUser).mockResolvedValue(0)
+    vi.mocked(repo.createClaim).mockResolvedValue(claim({ id: "mine" }))
+    await svc.claimWork("p1", { pbi: "b1", sessionId: "s-1" }, ACTOR, NOW)
+    expect(activity.logActivity).not.toHaveBeenCalled()
+    expect(notifications.notify).not.toHaveBeenCalled()
+  })
+
+  it("the same user + session + target refreshes (and revives) the existing claim (200) with a conditional update", async () => {
+    vi.mocked(repo.findOwnOpenClaim).mockResolvedValue(claim({ id: "own", heartbeatAt: new Date(NOW.getTime() - 9 * HOUR) }))
+    vi.mocked(repo.touchOpenClaim).mockResolvedValue(1)
+    vi.mocked(repo.findClaim).mockResolvedValue(claim({ id: "own", heartbeatAt: NOW, branch: "feat/y" }))
     const out = await svc.claimWork("p1", { pbi: "b1", sessionId: "s-1", branch: "feat/y" }, ACTOR, NOW)
+    expect(repo.findOwnOpenClaim).toHaveBeenCalledWith(TX, { userId: "u1", sessionId: "s-1", backlogItemId: "b1", taskId: null })
     expect(repo.createClaim).not.toHaveBeenCalled()
-    expect(repo.updateClaim).toHaveBeenCalledWith(TX, "own", { heartbeatAt: NOW, branch: "feat/y" })
-    expect(out).toMatchObject({ created: false, claim: { id: "own" } })
+    expect(repo.touchOpenClaim).toHaveBeenCalledWith(TX, "own", { heartbeatAt: NOW, branch: "feat/y" })
+    expect(out).toMatchObject({ created: false, claim: { id: "own", active: true } })
+  })
+
+  it("409 CLAIM_LIMIT_REACHED at DEV_CLAIM_MAX_OPEN_PER_USER active claims (a refresh is not counted)", async () => {
+    vi.stubEnv("DEV_CLAIM_MAX_OPEN_PER_USER", "2")
+    vi.mocked(repo.countActiveClaimsOfUser).mockResolvedValue(2)
+    const err = await svc.claimWork("p1", { pbi: "b1", sessionId: "s-1" }, ACTOR, NOW).catch((e: unknown) => e)
+    expect(err).toMatchObject({ status: 409, code: "CLAIM_LIMIT_REACHED" })
+    expect(repo.countActiveClaimsOfUser).toHaveBeenCalledWith(TX, "p1", "u1", new Date(NOW.getTime() - 4 * HOUR))
+    expect(repo.createClaim).not.toHaveBeenCalled()
+  })
+
+  it("fails loudly (logged 503) instead of deciding on a cut list of active claims", async () => {
+    vi.mocked(repo.findActiveClaimsOnPbi).mockResolvedValue(Array.from({ length: repo.ACTIVE_CLAIMS_PER_PBI_LIMIT + 1 }, (_, i) => claim({ id: `x${i}`, taskId: `k${i}`, userId: "u2" })))
+    await expect(svc.claimWork("p1", { pbi: "b1", sessionId: "s-1" }, ACTOR, NOW)).rejects.toMatchObject({ status: 503 })
+    expect(log.error).toHaveBeenCalledWith("too many active work claims on one PBI to decide safely", { backlogItemId: "b1", limit: repo.ACTIVE_CLAIMS_PER_PBI_LIMIT })
+    expect(repo.createClaim).not.toHaveBeenCalled()
   })
 
   it("different tasks of one PBI are parallel work, not a conflict", async () => {
     vi.mocked(repo.findTask).mockResolvedValue({ id: "k1", pbItemId: "b1" })
-    vi.mocked(repo.findOpenClaimsOnPbi).mockResolvedValue([claim({ id: "t2", taskId: "k2", userId: "u2" })])
+    vi.mocked(repo.findActiveClaimsOnPbi).mockResolvedValue([claim({ id: "t2", taskId: "k2", userId: "u2" })])
+    vi.mocked(repo.countActiveClaimsOfUser).mockResolvedValue(0)
     vi.mocked(repo.createClaim).mockResolvedValue(claim({ id: "mine", taskId: "k1" }))
     expect((await svc.claimWork("p1", { taskId: "k1", sessionId: "s-1" }, ACTOR, NOW)).created).toBe(true)
   })
@@ -147,78 +206,103 @@ describe("claimWork (作業の宣言): one active claim per target", () => {
     await expect(svc.claimWork("p1", { taskId: "kx", sessionId: "s" }, ACTOR, NOW)).rejects.toBeInstanceOf(NotFoundError)
     expect(repo.createClaim).not.toHaveBeenCalled()
   })
+
+  it("an invalid setting is warned about once per process", async () => {
+    vi.stubEnv("DEV_CLAIM_STALE_HOURS", "lots")
+    svc.resetClaimSettingsWarning()
+    vi.mocked(repo.createClaim).mockResolvedValue(claim())
+    vi.mocked(repo.findOpenClaims).mockResolvedValue([])
+    await svc.claimWork("p1", { pbi: "b1", sessionId: "s-1" }, ACTOR, NOW)
+    await svc.listClaims("p1", {}, "u1", NOW)
+    expect(log.warn).toHaveBeenCalledTimes(1)
+    expect(log.warn).toHaveBeenCalledWith("invalid work-claim setting ignored, default used", { variables: ["DEV_CLAIM_STALE_HOURS"], staleHours: 4, maxOpenPerUser: 20 })
+  })
 })
 
 describe("heartbeatClaim / releaseClaim", () => {
-  it("a heartbeat moves heartbeatAt (and the branch) of an active claim", async () => {
+  it("a heartbeat runs under the PBI lock with a conditional update", async () => {
     vi.mocked(repo.findClaim).mockResolvedValue(claim())
-    vi.mocked(repo.updateClaim).mockResolvedValue(claim({ heartbeatAt: NOW, branch: "b2" }))
+    vi.mocked(repo.touchOpenClaim).mockResolvedValue(1)
     const out = await svc.heartbeatClaim("p1", "c1", { branch: "b2" }, ACTOR, NOW)
-    expect(repo.findClaim).toHaveBeenCalledWith(DEFAULT_DB, "p1", "c1")
-    expect(repo.updateClaim).toHaveBeenCalledWith(TX, "c1", { heartbeatAt: NOW, branch: "b2" })
-    expect(repo.findOpenClaimsOnPbi).not.toHaveBeenCalled()
-    expect(out.claim.heartbeatAt).toBe(NOW.toISOString())
+    expect(db.withTransaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: "ReadCommitted" })
+    expect(order(repo.lockPbi)).toBeLessThan(order(repo.touchOpenClaim))
+    expect(repo.touchOpenClaim).toHaveBeenCalledWith(TX, "c1", { heartbeatAt: NOW, branch: "b2" })
+    expect(repo.findActiveClaimsOnPbi).not.toHaveBeenCalled()
+    expect(out.claim.id).toBe("c1")
   })
 
-  it("a stale claim is revived by its owner's heartbeat while nobody else claimed it", async () => {
-    vi.mocked(repo.findClaim).mockResolvedValue(claim({ heartbeatAt: new Date(NOW.getTime() - 10 * HOUR) }))
-    vi.mocked(repo.updateClaim).mockResolvedValue(claim({ heartbeatAt: NOW }))
-    const out = await svc.heartbeatClaim("p1", "c1", {}, ACTOR, NOW)
-    expect(repo.lockPbi).toHaveBeenCalledWith(TX, "b1")
-    expect(repo.updateClaim).toHaveBeenCalledWith(TX, "c1", { heartbeatAt: NOW })
-    expect(out.claim.active).toBe(true)
+  it("a claim released / taken over between the read and the update → 409 CLAIM_RELEASED (conditional update hit 0 rows)", async () => {
+    vi.mocked(repo.findClaim).mockResolvedValue(claim())
+    vi.mocked(repo.touchOpenClaim).mockResolvedValue(0)
+    await expect(svc.heartbeatClaim("p1", "c1", {}, ACTOR, NOW)).rejects.toMatchObject({ code: "CLAIM_RELEASED" })
   })
 
-  it("a stale claim someone else claimed meanwhile cannot be revived (409 TASK_CLAIMED)", async () => {
+  it("a stale claim is revived only while nobody else claimed it (else 409 TASK_CLAIMED)", async () => {
     vi.mocked(repo.findClaim).mockResolvedValue(claim({ heartbeatAt: new Date(NOW.getTime() - 10 * HOUR) }))
-    vi.mocked(repo.findOpenClaimsOnPbi).mockResolvedValue([claim({ id: "new", userId: "u2", sessionId: "z", heartbeatAt: NOW })])
+    vi.mocked(repo.touchOpenClaim).mockResolvedValue(1)
+    await svc.heartbeatClaim("p1", "c1", {}, ACTOR, NOW)
+    expect(repo.touchOpenClaim).toHaveBeenCalledWith(TX, "c1", { heartbeatAt: NOW })
+    vi.mocked(repo.touchOpenClaim).mockClear()
+    vi.mocked(repo.findActiveClaimsOnPbi).mockResolvedValue([claim({ id: "new", userId: "u2", sessionId: "z", heartbeatAt: NOW })])
     await expect(svc.heartbeatClaim("p1", "c1", {}, ACTOR, NOW)).rejects.toMatchObject({ code: "TASK_CLAIMED" })
-    expect(repo.updateClaim).not.toHaveBeenCalled()
+    expect(repo.touchOpenClaim).not.toHaveBeenCalled()
   })
 
-  it("only the owner may heartbeat or release; a released (or taken over) claim refuses a heartbeat (409 CLAIM_RELEASED)", async () => {
+  it("only the claim's user may heartbeat (any of their sessions); a released claim → 409 CLAIM_RELEASED; unknown → 404", async () => {
     vi.mocked(repo.findClaim).mockResolvedValue(claim({ userId: "u2" }))
     await expect(svc.heartbeatClaim("p1", "c1", {}, ACTOR, NOW)).rejects.toBeInstanceOf(ForbiddenError)
-    await expect(svc.releaseClaim("p1", "c1", ACTOR, NOW)).rejects.toBeInstanceOf(ForbiddenError)
     vi.mocked(repo.findClaim).mockResolvedValue(claim({ releasedAt: NOW }))
-    const err = await svc.heartbeatClaim("p1", "c1", {}, ACTOR, NOW).catch((e: unknown) => e)
-    expect(err).toBeInstanceOf(ConflictError)
-    expect(err).toMatchObject({ code: "CLAIM_RELEASED" })
+    await expect(svc.heartbeatClaim("p1", "c1", {}, ACTOR, NOW)).rejects.toMatchObject({ code: "CLAIM_RELEASED" })
     vi.mocked(repo.findClaim).mockResolvedValue(null)
-    await expect(svc.releaseClaim("p1", "nope", ACTOR, NOW)).rejects.toBeInstanceOf(NotFoundError)
-    expect(repo.updateClaim).not.toHaveBeenCalled()
+    await expect(svc.releaseClaim("p1", "nope", ACTOR, { canModerate: false }, NOW)).rejects.toBeInstanceOf(NotFoundError)
+    expect(repo.touchOpenClaim).not.toHaveBeenCalled()
   })
 
-  it("release sets releasedAt once; releasing again answers the released claim unchanged", async () => {
+  it("the owner's release ends the claim conditionally (reason released); again = unchanged, no log", async () => {
     vi.mocked(repo.findClaim).mockResolvedValue(claim())
-    vi.mocked(repo.updateClaim).mockResolvedValue(claim({ releasedAt: NOW }))
-    const first = await svc.releaseClaim("p1", "c1", ACTOR, NOW)
-    expect(repo.updateClaim).toHaveBeenCalledWith(DEFAULT_DB, "c1", { releasedAt: NOW })
-    expect(first.claim).toMatchObject({ releasedAt: NOW.toISOString(), active: false, stale: false })
-    vi.mocked(repo.updateClaim).mockClear()
-    vi.mocked(repo.findClaim).mockResolvedValue(claim({ releasedAt: NOW }))
-    const again = await svc.releaseClaim("p1", "c1", ACTOR, new Date(NOW.getTime() + HOUR))
-    expect(repo.updateClaim).not.toHaveBeenCalled()
-    expect(again.claim.releasedAt).toBe(NOW.toISOString())
+    vi.mocked(repo.endClaims).mockResolvedValue(1)
+    await svc.releaseClaim("p1", "c1", ACTOR, { canModerate: false }, NOW)
+    expect(order(repo.lockPbi)).toBeLessThan(order(repo.endClaims))
+    expect(repo.endClaims).toHaveBeenCalledWith(TX, ["c1"], { releasedAt: NOW, releaseReason: "released", releasedById: null })
+    vi.mocked(repo.endClaims).mockResolvedValue(0)
+    vi.mocked(repo.findClaim).mockResolvedValue(claim({ releasedAt: NOW, releaseReason: "released" }))
+    const again = await svc.releaseClaim("p1", "c1", ACTOR, { canModerate: false }, NOW)
+    expect(again.claim).toMatchObject({ releasedAt: NOW.toISOString(), releaseReason: "released", active: false, stale: false })
+    expect(activity.logActivity).not.toHaveBeenCalled()
+  })
+
+  it("another user's claim: 403 for a member, released by a PO / SM (reason moderator, logged, holder notified)", async () => {
+    const theirs = claim({ userId: "u2", sessionId: "z", user: { id: "u2", name: "Dev Two" } })
+    vi.mocked(repo.findClaim).mockResolvedValue(theirs)
+    await expect(svc.releaseClaim("p1", "c1", ACTOR, { canModerate: false }, NOW)).rejects.toBeInstanceOf(ForbiddenError)
+    vi.mocked(repo.endClaims).mockResolvedValue(1)
+    const out = await svc.releaseClaim("p1", "c1", ACTOR, { canModerate: true }, NOW)
+    expect(repo.endClaims).toHaveBeenCalledWith(TX, ["c1"], { releasedAt: NOW, releaseReason: "moderator", releasedById: "u1" })
+    expect(out.claim.sessionId).toBeNull()
+    expect(activity.logActivity).toHaveBeenCalledWith(TX, expect.objectContaining({ diff: expect.objectContaining({ meta: { claimEnded: expect.objectContaining({ reason: "moderator" }) } }) }))
+    expect(notifications.notify).toHaveBeenCalledWith(TX, expect.objectContaining({ recipientIds: ["u2"], type: "work_claim_ended", payload: expect.objectContaining({ reason: "moderator" }) }))
   })
 })
 
 describe("listClaims", () => {
-  it("lists open claims of the last 7 days, stale ones flagged (window from DEV_CLAIM_STALE_HOURS), filtered by PBI, with truncated", async () => {
+  it("lists open claims of the last 7 days, stale ones flagged, others' session ids hidden, filtered by PBI, with truncated", async () => {
     vi.stubEnv("DEV_CLAIM_STALE_HOURS", "2")
-    const rows = Array.from({ length: repo.CLAIM_LIST_LIMIT + 1 }, (_, i) => claim({ id: `c${i}`, heartbeatAt: new Date(NOW.getTime() - (i === 1 ? 3 : 1) * HOUR) }))
+    const rows = Array.from({ length: repo.CLAIM_LIST_LIMIT + 1 }, (_, i) =>
+      claim({ id: `c${i}`, userId: i === 2 ? "u2" : "u1", heartbeatAt: new Date(NOW.getTime() - (i === 1 ? 3 : 1) * HOUR) }),
+    )
     vi.mocked(repo.findOpenClaims).mockResolvedValue(rows)
-    const out = await svc.listClaims("p1", { pbi: "12" }, NOW)
+    const out = await svc.listClaims("p1", { pbi: "12" }, "u1", NOW)
     expect(repo.findOpenClaims).toHaveBeenCalledWith(DEFAULT_DB, "p1", new Date(NOW.getTime() - 7 * 24 * HOUR), { backlogItemId: "b1" })
     expect(out.data).toHaveLength(repo.CLAIM_LIST_LIMIT)
-    expect(out.data[0]).toMatchObject({ active: true, stale: false })
+    expect(out.data[0]).toMatchObject({ active: true, stale: false, sessionId: "s-1" })
     expect(out.data[1]).toMatchObject({ active: false, stale: true })
+    expect(out.data[2].sessionId).toBeNull()
     expect(out).toMatchObject({ truncated: true, limit: repo.CLAIM_LIST_LIMIT, staleAfterHours: 2 })
   })
 
   it("filters by task without a PBI lookup; no truncation flag when everything fits", async () => {
     vi.mocked(repo.findOpenClaims).mockResolvedValue([claim()])
-    const out = await svc.listClaims("p1", { taskId: "k1" }, NOW)
+    const out = await svc.listClaims("p1", { taskId: "k1" }, "u1", NOW)
     expect(repo.findPbi).not.toHaveBeenCalled()
     expect(repo.findOpenClaims).toHaveBeenCalledWith(DEFAULT_DB, "p1", expect.any(Date), { taskId: "k1" })
     expect(out).toEqual({ data: [expect.objectContaining({ id: "c1" })], staleAfterHours: 4 })
@@ -268,15 +352,17 @@ describe("linkMergeRequest", () => {
     expect(repo.createDeclaredLink).not.toHaveBeenCalled()
   })
 
-  it("creates a declared MR link (canonical URL, default title), logs it on the PBI and refreshes Git panels", async () => {
+  it("creates a declared MR link (canonical URL, title !<iid>, state unknown until the sync), logs it on the PBI and refreshes Git panels", async () => {
     vi.mocked(repo.findRegisteredRepository).mockResolvedValue(REPO)
     vi.mocked(repo.findLink).mockResolvedValue(null)
+    vi.mocked(repo.findSyncedMergeRequest).mockResolvedValue(null)
     vi.mocked(repo.createDeclaredLink).mockResolvedValue(link())
     const out = await svc.linkMergeRequest("p1", { pbi: "PBI-12", url: `${URL_OK}/diffs#note_3` }, ACTOR, NOW)
     expect(repo.createDeclaredLink).toHaveBeenCalledWith(TX, {
       projectId: "p1", repositoryId: "r1", kind: "mr", ref: "7", backlogItemId: "b1",
       title: "!7", url: URL_OK, occurredAt: NOW, declaredById: "u1", declaredAt: NOW,
     })
+    expect(repo.findSyncedMergeRequest).toHaveBeenCalledWith(DEFAULT_DB, "r1", "7")
     expect(activity.logActivity).toHaveBeenCalledWith(TX, {
       projectId: "p1", entityType: "pbi", entityId: "b1", action: "update", actor: ACTOR,
       diff: { label: "#12 Login", meta: { gitLink: { kind: "mr", ref: "7", repository: "API", url: URL_OK } } },
@@ -289,7 +375,7 @@ describe("linkMergeRequest", () => {
   it("is idempotent: an existing link (declared or synced) is answered as is, nothing written", async () => {
     vi.mocked(repo.findRegisteredRepository).mockResolvedValue(REPO)
     vi.mocked(repo.findLink).mockResolvedValue(link({ declaredAt: null, declaredBy: null, title: "PBI-12 login", state: "opened" }))
-    const out = await svc.linkMergeRequest("p1", { pbi: "12", url: URL_OK, title: "mine" }, ACTOR, NOW)
+    const out = await svc.linkMergeRequest("p1", { pbi: "12", url: URL_OK }, ACTOR, NOW)
     expect(repo.createDeclaredLink).not.toHaveBeenCalled()
     expect(activity.logActivity).not.toHaveBeenCalled()
     expect(out).toMatchObject({ created: false, link: { title: "PBI-12 login", state: "opened", declared: false } })
@@ -302,6 +388,18 @@ describe("linkMergeRequest", () => {
     const out = await svc.linkMergeRequest("p1", { pbi: "12", url: URL_OK }, ACTOR, NOW)
     expect(out.created).toBe(false)
     expect(out.link.id).toBe("l1")
+  })
+
+  it("an MR the sync already knows (linked to another PBI) starts with its real title / state / dates", async () => {
+    const synced = { title: "Login API", state: "merged", pipeline: "success", author: "Dev", sourceBranch: "feat/x", occurredAt: new Date("2026-10-29T00:00:00Z"), mergedAt: new Date("2026-10-29T00:00:00Z") }
+    vi.mocked(repo.findRegisteredRepository).mockResolvedValue(REPO)
+    vi.mocked(repo.findLink).mockResolvedValue(null)
+    vi.mocked(repo.findSyncedMergeRequest).mockResolvedValue(synced)
+    vi.mocked(repo.createDeclaredLink).mockResolvedValue(link({ title: "Login API", state: "merged" }))
+    await svc.linkMergeRequest("p1", { pbi: "12", url: URL_OK }, ACTOR, NOW)
+    expect(repo.createDeclaredLink).toHaveBeenCalledWith(TX, {
+      projectId: "p1", repositoryId: "r1", kind: "mr", ref: "7", backlogItemId: "b1", url: URL_OK, declaredById: "u1", declaredAt: NOW, ...synced,
+    })
   })
 
   it("404 PBI_NOT_FOUND for a PBI outside the project", async () => {

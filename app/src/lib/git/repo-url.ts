@@ -9,6 +9,9 @@
  */
 export const DEFAULT_GIT_ALLOWED_HOSTS = "gitlab.scm.service.infosys.yamaha.com"
 
+/** "." / ".." path segments, also percent-encoded: the URL parser would silently resolve them. */
+const DOT_SEGMENT = /\/(?:\.|%2e){1,2}(?=\/|$|[?#])/i
+
 export interface RepoLocation {
   /** https://host */
   apiBase: string
@@ -30,6 +33,7 @@ export function parseRepoUrl(input: string, hosts: readonly string[] = allowedHo
   const raw = input.trim()
   if (!raw || raw.length > 1000) return null
   const ssh = /^git@([^:/\s]+):(.+)$/.exec(raw)
+  if (DOT_SEGMENT.test(ssh ? `/${ssh[2]}` : raw)) return null
   let url: URL
   try {
     url = new URL(ssh ? `https://${ssh[1]}/${ssh[2]}` : raw)
@@ -39,12 +43,21 @@ export function parseRepoUrl(input: string, hosts: readonly string[] = allowedHo
   if (url.protocol !== "https:" || url.username || url.password || url.port) return null
   const host = url.hostname.toLowerCase()
   if (!hosts.includes(host)) return null
-  const path = decodeURIComponent(url.pathname)
+  // An encoded "/" would hide a path separator; a malformed escape is no repository URL.
+  if (/%2f|%5c/i.test(url.pathname)) return null
+  let decoded: string
+  try {
+    decoded = decodeURIComponent(url.pathname)
+  } catch {
+    return null
+  }
+  const path = decoded
     .split("/-/")[0]
     .replace(/\.git$/i, "")
     .replace(/^\/+|\/+$/g, "")
   const segments = path.split("/")
-  if (segments.length < 2 || segments.some((s) => !/^[A-Za-z0-9_.][A-Za-z0-9_.-]*$/.test(s))) return null
+  const badSegment = (seg: string) => seg === "." || seg === ".." || !/^[A-Za-z0-9_.][A-Za-z0-9_.-]*$/.test(seg)
+  if (segments.length < 2 || segments.some(badSegment)) return null
   return { apiBase: `https://${host}`, repoPath: segments.join("/"), webUrl: `https://${host}/${segments.join("/")}` }
 }
 
@@ -66,6 +79,7 @@ const MAX_IID = 2_147_483_647
 export function parseMergeRequestUrl(input: string, hosts: readonly string[] = allowedHosts()): MergeRequestLocation | null {
   const raw = input.trim()
   if (!raw || raw.length > 1000) return null
+  if (DOT_SEGMENT.test(raw)) return null
   let url: URL
   try {
     url = new URL(raw)

@@ -117,6 +117,7 @@ export interface ApiErrorsTranslations {
   apiErrMrRepositoryNotRegistered: string
   apiErrClaimReleased: string
   apiErrTaskClaimed: string
+  apiErrClaimLimitReached: string
   apiErrNetwork: string
 }
 
@@ -227,6 +228,7 @@ export const API_ERROR_MESSAGE_KEYS: Readonly<Record<ApiErrorCode, ApiErrorMessa
   MR_REPOSITORY_NOT_REGISTERED: "apiErrMrRepositoryNotRegistered",
   CLAIM_RELEASED: "apiErrClaimReleased",
   TASK_CLAIMED: "apiErrTaskClaimed",
+  CLAIM_LIMIT_REACHED: "apiErrClaimLimitReached",
   NETWORK_ERROR: "apiErrNetwork",
 }
 
@@ -344,6 +346,7 @@ export const ja: ApiErrorsTranslations = {
   apiErrMrRepositoryNotRegistered: "このマージリクエストのリポジトリは、このプロジェクトの Git 連携に登録されていません",
   apiErrClaimReleased: "この作業の宣言はすでに解除されています。もう一度宣言してください",
   apiErrTaskClaimed: "このタスクは他の人（または別のセッション）が作業中です",
+  apiErrClaimLimitReached: "このプロジェクトで同時に宣言できる作業の上限に達しています。終わった作業を解除してください",
   apiErrNetwork: "サーバーに接続できません。ネットワークを確認してください",
 }
 
@@ -455,6 +458,7 @@ export const en: ApiErrorsTranslations = {
   apiErrMrRepositoryNotRegistered: "The merge request's repository is not registered in this project's Git integration",
   apiErrClaimReleased: "This work claim was already released. Claim the work again",
   apiErrTaskClaimed: "Someone else (or another session) is already working on this",
+  apiErrClaimLimitReached: "You already hold the maximum number of active work claims in this project. Release finished work first",
   apiErrNetwork: "Cannot reach the server. Please check your network",
 }
 
@@ -566,5 +570,6 @@ export const id: ApiErrorsTranslations = {
   apiErrMrRepositoryNotRegistered: "Repositori merge request ini tidak terdaftar di integrasi Git proyek ini",
   apiErrClaimReleased: "Klaim pekerjaan ini sudah dilepas. Klaim pekerjaan lagi",
   apiErrTaskClaimed: "Orang lain (atau sesi lain) sedang mengerjakan ini",
+  apiErrClaimLimitReached: "Anda sudah memegang jumlah maksimum klaim pekerjaan aktif di proyek ini. Lepaskan pekerjaan yang selesai terlebih dahulu",
   apiErrNetwork: "Tidak dapat terhubung ke server. Periksa jaringan Anda",
 }

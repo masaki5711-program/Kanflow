@@ -125,10 +125,13 @@ node scripts/kanflow-setup.js --url https://<kanflow-host>
   （REST API からの変更は「API 経由」）。誰がいつ AI 経由で変えたかを画面で確認できます。
 - 名前について: GitStation の計画文書（06 §4.1、02 §12–13）ではこのスコープを `write:dev` と書いていますが、実装の名前は **`dev:write`** です（他のスコープと同じ `<領域>:write` の形）。
 - **作業の宣言（`dev:write`）**: 1 つのタスク（または PBI 全体）を作業中にできるのは 1 つのセッションだけです。他の人・別のセッションが作業中なら
-  `TASK_CLAIMED` で断られ、作業中の人の名前・セッション・ブランチ・最後の生存通知の時刻が返ります（AI は無人で動くので、警告ではなく拒否にしています）。
-  Claude はそこで止まって知らせます。2 時間に 1 回ほど `claim_work` を呼び直して生存を知らせ、`DEV_CLAIM_STALE_HOURS`（既定 4 時間）通知がない宣言は期限切れになり、
-  誰の作業も止めません。期限切れの宣言か自分の別セッションの宣言だけは `takeover: true` で引き継げます（前の持ち主に通知、変更履歴に記録）。
+  `TASK_CLAIMED` で断られ、作業中の人の名前・ブランチ・宣言の時刻・最後の生存通知の時刻が返ります（他の人のセッション ID は返しません。AI は無人で動くので、警告ではなく拒否にしています）。
+  Claude はそこで止まって知らせます。2 時間に 1 回ほど `claim_work` を呼び直して生存を知らせます。`DEV_CLAIM_STALE_HOURS`（既定 4 時間）通知がない宣言は期限切れになり、
+  誰の作業も止めません。期限切れの宣言は、次にそのタスクを宣言した人の宣言に置き換わります（前の持ち主に通知、変更履歴に記録）。
+  `takeover: true` で終わらせられるのは自分の別セッションの宣言だけです。他の人の宣言は、本人か PO / SM（`release_claim`）が解除します。
+  宣言は 1 人 1 プロジェクトあたり同時に `DEV_CLAIM_MAX_OPEN_PER_USER`（既定 20）件までです（`CLAIM_LIMIT_REACHED`）。
   作業の宣言はタスクの状態（進行中など）を変えません。状態の変更は今までどおり人が確認して行います。
+- **MR のリンク**は表示用です。完了の自動化・リリースの判定に使うのは、タイトルかブランチ名に PBI 番号がある MR だけです。リンクの題名と状態は Git の同期で入ります（それまでは `!<番号>`、状態なし）。
 - タスクを作る前に既存のタスクを確認します。同じ PBI に同じ名前のタスクがあると、作成結果の `similar` にそれが返ります（作成は止めません）。
 - 作成系の操作（タスク・コメントなど）は、通信エラー後の再試行で二重に作られないよう、同じ内容の呼び出しを **2 分間**まとめます（[mcp.md](mcp.md)「Idempotency」）。
 
@@ -143,8 +146,9 @@ node scripts/kanflow-setup.js --url https://<kanflow-host>
 | `NOT_FOUND` / `PBI_NOT_FOUND` / `SPRINT_NOT_FOUND` | ID の誤り、別プロジェクトの ID、**プロジェクト限定トークンの対象外** | `.kanflow.json` の `projectId` とトークンの限定（`whoami` の `projectIds`）を確認 |
 | `RATE_LIMITED` / HTTP `429`（`retryAfterSec`） | 1 トークンあたりの上限（既定: リクエスト 120 回/分、書き込み 30 回/分）を超えた | `retryAfterSec` 秒待って再実行。大量の一括作成は分けて行う |
 | HTTP `403`（API 無効） | サーバーで `API_TOKENS_ENABLED=off` | 管理者に問い合わせる |
-| `TASK_CLAIMED`（`holders` 付き） | 他の人・別のセッションがそのタスク（または PBI 全体）を作業中 | `holders` の人と相談する。自分の別セッションや期限切れの宣言なら `takeover: true` |
-| `CLAIM_RELEASED` | 生存通知を送った宣言が解除済み・引き継ぎ済み | `claim_work` で宣言し直す（引き継がれていれば `TASK_CLAIMED` になる） |
+| `TASK_CLAIMED`（`holders` 付き） | 他の人・別のセッションがそのタスク（または PBI 全体）を作業中 | `holders` の人と相談する（または PO / SM に解除を依頼）。自分の別セッションなら `takeover: true` |
+| `CLAIM_LIMIT_REACHED` | 同じプロジェクトで有効な作業の宣言が上限（既定 20）に達した | 終わった作業を `release_claim` で解除する |
+| `CLAIM_RELEASED` | 生存通知を送った宣言が解除済み・引き継ぎ済み・置き換え済み | `claim_work` で宣言し直す（引き継がれていれば `TASK_CLAIMED` になる） |
 | `MR_URL_INVALID` / `MR_REPOSITORY_NOT_REGISTERED` | MR の URL でない、許可されていないホスト、またはプロジェクトの Git 連携に登録されていないリポジトリ | `https://<host>/<group>/<repo>/-/merge_requests/<番号>` の形で、登録済みリポジトリの MR を指定する |
 | `VERSION_CONFLICT` | 読み込んだ後に誰かが同じタスク / PBI を更新した | 読み直して差分を確認し、新しい `version` で再実行 |
 | `CONFLICT`（`idempotencyKey` 付き） | 同じキーを別の内容で使った | 別のキーを使う |

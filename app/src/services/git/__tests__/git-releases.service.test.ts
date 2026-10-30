@@ -65,6 +65,15 @@ describe("getReleaseGitStatus", () => {
     gitLinkFindMany.mockResolvedValue([mr("b1", "merged", "2026-08-20T00:00:00Z")])
     expect((await svc.getReleaseGitStatus("p1")).versions[0]).toMatchObject({ canRelease: false, merged: 1 })
   })
+
+  it("release readiness reads only Git-derived MR links (declared-only links are display)", async () => {
+    gitReleaseFindMany.mockResolvedValue([tagRow("v1.0.0", "2026-09-01T00:00:00Z")])
+    releaseItemFindMany.mockResolvedValue([item("i1", "1.0.0", "ready", "b1")])
+    pbiFindMany.mockResolvedValue([pbi("b1", 1)])
+    gitLinkFindMany.mockResolvedValue([])
+    await svc.getReleaseGitStatus("p1")
+    for (const call of gitLinkFindMany.mock.calls) expect(call[0].where).toMatchObject({ kind: "mr", declaredAt: null })
+  })
 })
 
 describe("releaseVersionFromTag", () => {

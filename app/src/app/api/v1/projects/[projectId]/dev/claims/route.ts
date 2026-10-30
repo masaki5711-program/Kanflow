@@ -3,7 +3,7 @@ import { v1ProjectRoute } from "../../../../_lib/v1-route"
 import { v1ProjectWrite } from "../../../../_lib/v1-write"
 
 /** GET /api/v1/projects/:projectId/dev/claims?pbi=&taskId= — active work claims (作業の宣言), newest heartbeat first. */
-export const GET = v1ProjectRoute<{ projectId: string }>(async ({ projectId, query }) => listClaimsOp(projectId, query))
+export const GET = v1ProjectRoute<{ projectId: string }>(async ({ projectId, query, principal }) => listClaimsOp(projectId, query, principal.userId))
 
 /**
  * POST /api/v1/projects/:projectId/dev/claims `{ pbi | taskId, sessionId, branch? }` (`dev:write`; members).

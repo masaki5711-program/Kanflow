@@ -4,6 +4,7 @@ import {
   claimConflicts,
   overlappingClaims,
   toHolderDto,
+  claimSettings,
   claimStaleHours,
   DEFAULT_CLAIM_STALE_HOURS,
   isClaimActive,
@@ -44,6 +45,16 @@ describe("claimStaleHours (DEV_CLAIM_STALE_HOURS)", () => {
 
   it.each(["0", "-1", "169", "2.5", "abc", ""])("falls back to the default for %j", (raw) => {
     expect(claimStaleHours({ DEV_CLAIM_STALE_HOURS: raw })).toBe(DEFAULT_CLAIM_STALE_HOURS)
+  })
+})
+
+describe("claimSettings", () => {
+  it("defaults, accepted values and the names of unusable ones (the service warns once)", () => {
+    expect(claimSettings({})).toEqual({ staleHours: 4, maxOpenPerUser: 20, invalid: [] })
+    expect(claimSettings({ DEV_CLAIM_STALE_HOURS: "6", DEV_CLAIM_MAX_OPEN_PER_USER: "3" })).toEqual({ staleHours: 6, maxOpenPerUser: 3, invalid: [] })
+    expect(claimSettings({ DEV_CLAIM_STALE_HOURS: "abc", DEV_CLAIM_MAX_OPEN_PER_USER: "0" })).toEqual({
+      staleHours: 4, maxOpenPerUser: 20, invalid: ["DEV_CLAIM_STALE_HOURS", "DEV_CLAIM_MAX_OPEN_PER_USER"],
+    })
   })
 })
 
@@ -103,7 +114,7 @@ describe("claimConflicts", () => {
 
 describe("toClaimDto", () => {
   it("renders a PBI-level claim with its expiry and active flag", () => {
-    expect(toClaimDto(claim(), NOW, 4)).toEqual({
+    expect(toClaimDto(claim(), NOW, 4, "u1")).toEqual({
       id: "c1",
       projectId: "p1",
       pbi: { id: "b1", displayId: 12, title: "Login" },
@@ -115,14 +126,21 @@ describe("toClaimDto", () => {
       heartbeatAt: "2026-10-30T11:00:00.000Z",
       staleAt: "2026-10-30T15:00:00.000Z",
       releasedAt: null,
+      releaseReason: null,
       active: true,
       stale: false,
     })
-    expect(toClaimDto(claim({ heartbeatAt: new Date(NOW.getTime() - 5 * HOUR) }), NOW, 4)).toMatchObject({ active: false, stale: true })
+    expect(toClaimDto(claim({ heartbeatAt: new Date(NOW.getTime() - 5 * HOUR) }), NOW, 4, "u1")).toMatchObject({ active: false, stale: true })
+  })
+
+  it("hides another user's session id (claims and holders); the viewer's own stays visible", () => {
+    expect(toClaimDto(claim(), NOW, 4, "u2").sessionId).toBeNull()
+    expect(toHolderDto(claim(), 4, "u2").sessionId).toBeNull()
+    expect(toHolderDto(claim(), 4, "u1").sessionId).toBe("s-1")
   })
 
   it("renders the holder shown in 409 TASK_CLAIMED (name, session, branch, claimed / last heartbeat)", () => {
-    expect(toHolderDto(claim({ taskId: "k1", task: { id: "k1", taskName: "API", sprintId: "s1" } }), 4)).toEqual({
+    expect(toHolderDto(claim({ taskId: "k1", task: { id: "k1", taskName: "API", sprintId: "s1" } }), 4, "u1")).toEqual({
       claimId: "c1",
       user: { id: "u1", name: "Dev One" },
       sessionId: "s-1",
@@ -136,7 +154,8 @@ describe("toClaimDto", () => {
   })
 
   it("renders a task claim and a released one", () => {
-    const dto = toClaimDto(claim({ taskId: "k1", task: { id: "k1", taskName: "API", sprintId: "s1" }, releasedAt: NOW }), NOW, 4)
+    const dto = toClaimDto(claim({ taskId: "k1", task: { id: "k1", taskName: "API", sprintId: "s1" }, releasedAt: NOW, releaseReason: "stale" }), NOW, 4, "u1")
+    expect(dto.releaseReason).toBe("stale")
     expect(dto.task).toEqual({ id: "k1", name: "API", sprintId: "s1" })
     expect(dto.releasedAt).toBe(NOW.toISOString())
     expect(dto.active).toBe(false)

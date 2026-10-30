@@ -144,7 +144,7 @@ describe("scope dev:write ∩ project role", () => {
     const res = await claimsRoute.GET(send("GET", "/dev/claims?pbi=PBI-12"), seg({}))
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ data: [CLAIM], staleAfterHours: 4 })
-    expect(dev.listClaims).toHaveBeenCalledWith("p1", { pbi: "PBI-12" })
+    expect(dev.listClaims).toHaveBeenCalledWith("p1", { pbi: "PBI-12" }, "u1")
   })
 })
 
@@ -178,6 +178,10 @@ describe("work claims (作業の宣言)", () => {
     ["no session id", { pbi: "12" }],
     ["a branch with spaces", { pbi: "12", sessionId: "s", branch: "feat x" }],
     ["a non-boolean takeover", { pbi: "12", sessionId: "s", takeover: "yes" }],
+    ["a branch with markup characters", { pbi: "12", sessionId: "s", branch: 'feat/<img src=x>"' }],
+    ["a branch with ..", { pbi: "12", sessionId: "s", branch: "feat/../main" }],
+    ["a branch starting with -", { pbi: "12", sessionId: "s", branch: "-rf" }],
+    ["a branch ending with .lock", { pbi: "12", sessionId: "s", branch: "feat/x.lock" }],
   ])("400 VALIDATION for %s", async (_label, body) => {
     const res = await claimsRoute.POST(send("POST", "/dev/claims", body), seg({}))
     expect(res.status).toBe(400)
@@ -194,7 +198,11 @@ describe("work claims (作業の宣言)", () => {
     expect(((await res.json()) as { code: string }).code).toBe("CLAIM_RELEASED")
     const rel = await releaseRoute.POST(send("POST", "/dev/claims/c1/release"), seg({ claimId: "c1" }))
     expect(rel.status).toBe(200)
-    expect(dev.releaseClaim).toHaveBeenCalledWith("p1", "c1", API_ACTOR)
+    expect(dev.releaseClaim).toHaveBeenCalledWith("p1", "c1", API_ACTOR, { canModerate: false })
+    asRole("sm")
+    await releaseRoute.POST(send("POST", "/dev/claims/c1/release"), seg({ claimId: "c1" }))
+    // A PO / SM (sprint.manage) may release anyone's claim; the service decides with this flag.
+    expect(dev.releaseClaim).toHaveBeenLastCalledWith("p1", "c1", API_ACTOR, { canModerate: true })
   })
 })
 
@@ -224,9 +232,10 @@ describe("progress comment and MR link", () => {
   })
 
   it("MR link: 201 linked now, 200 already linked (naturally idempotent)", async () => {
+    // A client title is not accepted (the link shows the synced MR's title): it is dropped.
     const res = await mrLinksRoute.POST(send("POST", "/dev/mr-links", { pbi: "PBI-12", url: MR_URL, title: "Login API" }), seg({}))
     expect(res.status).toBe(201)
-    expect(dev.linkMergeRequest).toHaveBeenCalledWith("p1", { pbi: "PBI-12", url: MR_URL, title: "Login API" }, API_ACTOR)
+    expect(dev.linkMergeRequest).toHaveBeenCalledWith("p1", { pbi: "PBI-12", url: MR_URL }, API_ACTOR)
     vi.mocked(dev.linkMergeRequest).mockResolvedValue({ link: { id: "l1" }, created: false } as never)
     const again = await mrLinksRoute.POST(send("POST", "/dev/mr-links", { pbi: "PBI-12", url: MR_URL }), seg({}))
     expect(again.status).toBe(200)

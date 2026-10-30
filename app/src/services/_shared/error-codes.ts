@@ -138,6 +138,8 @@ export const API_ERROR_CODES = [
   "CLAIM_RELEASED",
   /** dev:write work claim: another user / session holds an active claim on the target (body: `holders`). */
   "TASK_CLAIMED",
+  /** dev:write work claim: the user already holds DEV_CLAIM_MAX_OPEN_PER_USER active claims in the project. */
+  "CLAIM_LIMIT_REACHED",
   // Client-side only (set by apiFetch, never sent by the server)
   "NETWORK_ERROR",
 ] as const

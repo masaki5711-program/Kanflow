@@ -61,7 +61,8 @@ async function loadItems(projectId: string): Promise<PlannedItem[]> {
 /** Merged MRs in (from, to], with the PBI they belong to. */
 async function mergedBetween(projectId: string, from: Date | null, to: Date) {
   return prisma.gitLink.findMany({
-    where: { projectId, kind: "mr", state: "merged", mergedAt: { ...(from ? { gt: from } : {}), lte: to } },
+    // Declared-only links (dev:write) are display, never delivery evidence.
+    where: { projectId, kind: "mr", state: "merged", declaredAt: null, mergedAt: { ...(from ? { gt: from } : {}), lte: to } },
     select: { backlogItemId: true, ref: true, title: true, url: true, author: true, backlogItem: { select: { displayId: true, initiative: true, userStory: true, deletedAt: true } } },
     orderBy: { mergedAt: "asc" },
   })
@@ -73,7 +74,7 @@ export async function getReleaseGitStatus(projectId: string): Promise<{ enabled:
   const versions = [...new Set(items.map((i) => i.planVersion).filter((v): v is string => !!v))]
   const plannedIds = [...new Set(items.map((i) => i.pbItemId).filter((id): id is string => !!id))]
   const [links, pbis] = await Promise.all([
-    prisma.gitLink.findMany({ where: { projectId, kind: "mr", backlogItemId: { in: plannedIds } }, select: { backlogItemId: true, state: true, mergedAt: true } }),
+    prisma.gitLink.findMany({ where: { projectId, kind: "mr", declaredAt: null, backlogItemId: { in: plannedIds } }, select: { backlogItemId: true, state: true, mergedAt: true } }),
     prisma.productBacklogItem.findMany({ where: { id: { in: plannedIds }, deletedAt: null }, select: { id: true, displayId: true, initiative: true, userStory: true } }),
   ])
   const pbiById = new Map(pbis.map((p) => [p.id, p]))

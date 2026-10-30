@@ -1418,6 +1418,11 @@ model WorkClaim {
   branch        String?            @db.VarChar(255)
   heartbeatAt   DateTime
   releasedAt    DateTime?
+  /// Why it ended: "released" (owner) | "takeover" (owner's other session) |
+  /// "stale" (superseded by a new claim after the stale window) | "moderator" (PO / SM / admin).
+  releaseReason String?            @db.VarChar(16)
+  /// Who ended it when not the owner (moderator / the user whose claim superseded it).
+  releasedById  String?
   createdAt     DateTime           @default(now())
   updatedAt     DateTime           @updatedAt
   project       Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)

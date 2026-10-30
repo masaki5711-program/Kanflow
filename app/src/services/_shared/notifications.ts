@@ -39,8 +39,12 @@ export const NOTIFICATION_TYPES = [
   "improvement_check_due",
   /** A merge request of a PBI the user works on has a failed pipeline (payload: entityLabel, mr). */
   "git_pipeline_failed",
-  /** Another session took over the user's work claim (作業の宣言, dev:write; payload: entityLabel, actorName, sessionId). */
-  "work_claim_taken_over",
+  /**
+   * Someone else ended the user's work claim (作業の宣言, dev:write): a new claim superseded
+   * the stale claim (reason "stale") or a PO / SM / admin released it (reason "moderator").
+   * Payload: entityLabel, actorName, reason.
+   */
+  "work_claim_ended",
 ] as const
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number]
 

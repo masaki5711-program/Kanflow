@@ -72,10 +72,10 @@ export async function syncRepository(repositoryId: string, factory: ClientFactor
     if (!read.failures.some((f) => f.kind === "mr")) await attachPipelines(source, repositoryId, lookups)
 
     const { written, changed: linkChanges, newlyMerged, newlyFailed } = await writeLinks(repo.projectId, repo.id, drafts, pbiIds)
-    // Links a developer declared (dev:write) whose MR does not name the PBI: kept current here.
+    // Links a developer declared (dev:write) whose MR does not name the PBI: kept current for
+    // display only — they never trigger auto-complete (only Git-derived links do).
     const declared = await refreshDeclaredLinks(repo.id, read.mrs, mrDrafts, pbiIds, now)
-    for (const id of declared.newlyMerged) newlyMerged.add(id)
-    const changed = linkChanges + declared.changed
+    const changed = linkChanges + declared
     // `branches` is null when that listing failed: then nothing is marked gone.
     const gone = read.branches ? await markGoneBranches(repo.id, read.branches, branchDrafts, pbiIds, now) : 0
     const releases = await syncReleasesSafely(source, repo, now)
@@ -204,7 +204,7 @@ interface FailedPipeline {
 }
 
 /** Stored columns a sync writes (compared to skip rewriting an unchanged link). */
-const LINK_SELECT = { title: true, url: true, state: true, pipeline: true, author: true, sourceBranch: true, occurredAt: true, mergedAt: true, goneAt: true } as const
+const LINK_SELECT = { title: true, url: true, state: true, pipeline: true, author: true, sourceBranch: true, occurredAt: true, mergedAt: true, goneAt: true, declaredAt: true } as const
 type LinkData = Record<keyof typeof LINK_SELECT, unknown>
 
 const comparable = (v: unknown) => (v instanceof Date ? v.getTime() : (v ?? null))
@@ -238,10 +238,13 @@ async function writeLinks(projectId: string, repositoryId: string, drafts: reado
       mergedAt: d.mergedAt,
       // Seen in this sync: a branch marked gone that came back is live again.
       goneAt: null,
+      // Git itself names the PBI now: a link a developer declared becomes a Git-derived one
+      // (from here on it may drive auto-complete and release readiness).
+      declaredAt: null,
     }
     written++
     if (isSameLink(before, data)) continue
-    await prisma.gitLink.upsert({ where, create: { projectId, ...key, ...data }, update: data })
+    await prisma.gitLink.upsert({ where, create: { projectId, ...key, ...data }, update: { ...data, declaredById: null } })
     changed++
     if (d.kind === "mr" && d.state === "merged" && before?.state !== "merged") newlyMerged.add(backlogItemId)
     if (d.kind === "mr" && data.pipeline === "failed" && before?.pipeline !== "failed" && (d.state === "opened" || d.state === "locked")) {
@@ -256,6 +259,8 @@ async function writeLinks(projectId: string, repositoryId: string, drafts: reado
  * /api/v1/.../dev/mr-links) get no draft when the MR's title / branch does not
  * name the PBI; their title / state / dates are refreshed from the MRs this sync
  * read (pipeline kept). Links that also have a draft were written by writeLinks.
+ * Display only: a declared-only link never drives auto-complete, release readiness or
+ * delivery insights (they filter declaredAt: null). Returns the number of links changed.
  */
 async function refreshDeclaredLinks(
   repositoryId: string,
@@ -263,26 +268,24 @@ async function refreshDeclaredLinks(
   mrDrafts: readonly LinkDraft[],
   pbiIds: Map<number, string>,
   now: Date,
-): Promise<{ changed: number; newlyMerged: Set<string> }> {
-  const newlyMerged = new Set<string>()
-  if (mrs.length === 0) return { changed: 0, newlyMerged }
+): Promise<number> {
+  if (mrs.length === 0) return 0
   const byRef = new Map(mrs.map((mr) => [mr.ref, mr]))
   const drafted = new Set(mrDrafts.filter((d) => pbiIds.has(d.pbiNumber)).map((d) => `${d.ref}|${pbiIds.get(d.pbiNumber)}`))
   const rows = await prisma.gitLink.findMany({
     where: { repositoryId, kind: "mr", declaredAt: { not: null }, ref: { in: [...byRef.keys()] } },
-    select: { id: true, ref: true, kind: true, backlogItemId: true, declaredAt: true, ...LINK_SELECT },
+    select: { id: true, ref: true, kind: true, backlogItemId: true, ...LINK_SELECT },
   })
   let changed = 0
   for (const row of rows) {
     const mr = byRef.get(row.ref)
     if (!mr || row.kind !== "mr" || !row.declaredAt || drafted.has(`${row.ref}|${row.backlogItemId}`)) continue
-    const data = { ...mergeRequestFields(mr, now), pipeline: row.pipeline, goneAt: null }
+    const data = { ...mergeRequestFields(mr, now), pipeline: row.pipeline, goneAt: null, declaredAt: row.declaredAt }
     if (isSameLink(row, data)) continue
     await prisma.gitLink.updateMany({ where: { id: row.id }, data })
     changed++
-    if (data.state === "merged" && row.state !== "merged") newlyMerged.add(row.backlogItemId)
   }
-  return { changed, newlyMerged }
+  return changed
 }
 
 /**
@@ -352,7 +355,8 @@ async function markGoneBranches(
 async function autoComplete(projectId: string, pbiIds: ReadonlySet<string>): Promise<number> {
   let done = 0
   for (const backlogItemId of pbiIds) {
-    const mrs = await prisma.gitLink.findMany({ where: { backlogItemId, kind: "mr" }, select: { state: true } })
+    // Only Git-derived links decide delivery: a declared-only link is display (refreshDeclaredLinks).
+    const mrs = await prisma.gitLink.findMany({ where: { backlogItemId, kind: "mr", declaredAt: null }, select: { state: true } })
     if (!allMergeRequestsMerged(mrs.map((m) => m.state))) continue
     const tasks = await prisma.sprintBacklogItem.findMany({
       where: { pbItemId: backlogItemId, status: "in_progress", sprint: { projectId, status: "active" } },

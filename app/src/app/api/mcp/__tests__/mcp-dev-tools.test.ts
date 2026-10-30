@@ -133,7 +133,7 @@ describe("scope dev:write", () => {
     withScopes('["read"]')
     const r = await callTool("list_claims", { projectId: "p1", pbi: "PBI-12" })
     expect(r).toEqual({ isError: undefined, payload: { data: [CLAIM], staleAfterHours: 4 } })
-    expect(dev.listClaims).toHaveBeenCalledWith("p1", { pbi: "PBI-12" })
+    expect(dev.listClaims).toHaveBeenCalledWith("p1", { pbi: "PBI-12" }, "u1")
   })
 })
 
@@ -180,7 +180,7 @@ describe("claim_work / release_claim", () => {
   it("release_claim runs for the claim's project as the token user", async () => {
     const r = await callTool("release_claim", { claimId: "c1", projectId: "p1" })
     expect(r.payload).toEqual({ data: { ...CLAIM, active: false } })
-    expect(dev.releaseClaim).toHaveBeenCalledWith("p1", "c1", MCP_ACTOR)
+    expect(dev.releaseClaim).toHaveBeenCalledWith("p1", "c1", MCP_ACTOR, { canModerate: false })
   })
 
   it("NOT_FOUND for a project outside the token's restriction", async () => {
@@ -209,9 +209,9 @@ describe("post_progress / link_merge_request", () => {
   })
 
   it("links an MR; the service's URL refusals come back as tool errors with their code", async () => {
-    const ok = await callTool("link_merge_request", { pbi: "PBI-12", projectId: "p1", url: MR_URL, title: "Login API" })
+    const ok = await callTool("link_merge_request", { pbi: "PBI-12", projectId: "p1", url: MR_URL })
     expect(ok.payload).toEqual({ data: { id: "l1", ref: "7", declared: true }, created: true })
-    expect(dev.linkMergeRequest).toHaveBeenCalledWith("p1", { pbi: "b1", url: MR_URL, title: "Login API" }, MCP_ACTOR)
+    expect(dev.linkMergeRequest).toHaveBeenCalledWith("p1", { pbi: "b1", url: MR_URL }, MCP_ACTOR)
     vi.mocked(dev.linkMergeRequest).mockRejectedValue(new ValidationError("not registered", {}, "MR_REPOSITORY_NOT_REGISTERED"))
     const bad = await callTool("link_merge_request", { pbi: "PBI-12", projectId: "p1", url: "https://gitlab.scm.service.infosys.yamaha.com/x/y/-/merge_requests/1" })
     expect(bad).toEqual({ isError: true, payload: { error: "not registered", code: "MR_REPOSITORY_NOT_REGISTERED" } })
