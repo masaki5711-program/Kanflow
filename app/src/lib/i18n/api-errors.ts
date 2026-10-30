@@ -111,6 +111,8 @@ export interface ApiErrorsTranslations {
   apiErrCollaboraNotConfigured: string
   apiErrCollaboraUnreachable: string
   apiErrCollaboraFailed: string
+  apiErrGitProviderUnsupported: string
+  apiErrGitSourceLocked: string
   apiErrNetwork: string
 }
 
@@ -215,6 +217,8 @@ export const API_ERROR_MESSAGE_KEYS: Readonly<Record<ApiErrorCode, ApiErrorMessa
   wopi_token_missing: "apiErrCollaboraNotConfigured",
   collabora_unreachable: "apiErrCollaboraUnreachable",
   collabora_error: "apiErrCollaboraFailed",
+  GIT_PROVIDER_UNSUPPORTED: "apiErrGitProviderUnsupported",
+  GIT_SOURCE_LOCKED: "apiErrGitSourceLocked",
   NETWORK_ERROR: "apiErrNetwork",
 }
 
@@ -326,6 +330,8 @@ export const ja: ApiErrorsTranslations = {
   apiErrCollaboraNotConfigured: "オンライン編集が設定されていません。管理者に連絡してください",
   apiErrCollaboraUnreachable: "Collabora Online サーバーに接続できません。ファイルをダウンロードしてローカルのアプリケーションで編集してください。",
   apiErrCollaboraFailed: "Collaboraエディタの起動に失敗しました",
+  apiErrGitProviderUnsupported: "この取り込み元には対応していません（現在は GitLab のみ）",
+  apiErrGitSourceLocked: "取り込み元はプロジェクトごとに 1 つです。切り替えるには先にリポジトリを外してください",
   apiErrNetwork: "サーバーに接続できません。ネットワークを確認してください",
 }
 
@@ -431,6 +437,8 @@ export const en: ApiErrorsTranslations = {
   apiErrCollaboraNotConfigured: "Online editing is not configured. Please contact an administrator",
   apiErrCollaboraUnreachable: "Cannot connect to the Collabora Online server. Download the file and edit it locally.",
   apiErrCollaboraFailed: "Failed to start the Collabora editor",
+  apiErrGitProviderUnsupported: "This source is not supported (currently GitLab only)",
+  apiErrGitSourceLocked: "A project reads from one source only. Remove its repositories before switching the source",
   apiErrNetwork: "Cannot reach the server. Please check your network",
 }
 
@@ -536,5 +544,7 @@ export const id: ApiErrorsTranslations = {
   apiErrCollaboraNotConfigured: "Pengeditan online belum dikonfigurasi. Silakan hubungi administrator",
   apiErrCollaboraUnreachable: "Tidak dapat terhubung ke server Collabora Online. Unduh file dan edit secara lokal.",
   apiErrCollaboraFailed: "Gagal membuka editor Collabora",
+  apiErrGitProviderUnsupported: "Sumber ini tidak didukung (saat ini hanya GitLab)",
+  apiErrGitSourceLocked: "Satu proyek hanya membaca dari satu sumber. Hapus repositorinya terlebih dahulu sebelum mengganti sumber",
   apiErrNetwork: "Tidak dapat terhubung ke server. Periksa jaringan Anda",
 }

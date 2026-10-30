@@ -10,6 +10,7 @@ export interface GitTranslations {
   gitStatusSynced: string
   gitStatusNever: string
   gitStatusError: string
+  gitSyncCursorInvalid: string
   gitOwnToken: string
   gitOpenInGitLab: string
   gitSetTitle: string
@@ -119,6 +120,7 @@ export const ja: GitTranslations = {
   gitStatusSynced: "最終同期 {time}",
   gitStatusNever: "まだ同期していません",
   gitStatusError: "同期エラー（{time}）",
+  gitSyncCursorInvalid: "同期位置の記録を読み取れません。リポジトリの「過去分を再同期」でやり直してください。",
   gitOwnToken: "専用トークン",
   gitOpenInGitLab: "GitLab で開く（新しいタブ）",
   gitSetTitle: "Git 連携（GitLab）",
@@ -232,6 +234,7 @@ export const en: GitTranslations = {
   gitStatusSynced: "Last synced {time}",
   gitStatusNever: "Not synced yet",
   gitStatusError: "Sync error ({time})",
+  gitSyncCursorInvalid: "The stored sync position cannot be read. Use “Resync history” on the repository to start over.",
   gitOwnToken: "Own token",
   gitOpenInGitLab: "Open in GitLab (new tab)",
   gitSetTitle: "Git integration (GitLab)",
@@ -345,6 +348,7 @@ export const id: GitTranslations = {
   gitStatusSynced: "Terakhir disinkronkan {time}",
   gitStatusNever: "Belum pernah disinkronkan",
   gitStatusError: "Gagal sinkronisasi ({time})",
+  gitSyncCursorInvalid: "Posisi sinkronisasi yang tersimpan tidak dapat dibaca. Gunakan “Sinkronkan ulang riwayat” pada repositori untuk mengulang.",
   gitOwnToken: "Token sendiri",
   gitOpenInGitLab: "Buka di GitLab (tab baru)",
   gitSetTitle: "Integrasi Git (GitLab)",

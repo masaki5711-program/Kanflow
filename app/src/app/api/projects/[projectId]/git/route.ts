@@ -16,7 +16,7 @@ export async function GET(_request: Request, { params }: Params) {
   }
 }
 
-/** `{ enabled?, token? (null = remove), autoCompleteOnMerge? }` (PO / SM / admin). */
+/** `{ enabled?, token? (null = remove), autoCompleteOnMerge?, provider? ("gitlab" only; one source per project) }` (PO / SM / admin). */
 export async function PUT(request: Request, { params }: Params) {
   const { projectId } = await params
   const gate = await requireProject(projectId, "git.configure")

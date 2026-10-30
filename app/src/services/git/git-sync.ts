@@ -1,36 +1,33 @@
 import { prisma } from "@/lib/prisma"
 import { open } from "@/lib/secret-box"
-import { createGitLabClient, GitLabError, type GitLabBranch, type GitLabClient, type GitLabCommit, type GitLabMergeRequest, type Paged } from "@/lib/git/gitlab-client"
 import { logger } from "@/lib/logger"
 import { publishAfterCommit } from "@/lib/realtime/after-commit"
 import { updateTask } from "@/services/sprint-backlog/sprint-backlog.service"
 import { notify } from "@/services/_shared/notifications"
 import type { Actor } from "@/services/_shared/actor"
-import { syncReleases } from "./git-release-sync"
+import { devSourceFor, type DevBranchListing, type DevChanges, type DevCursor, type DevListingFailure, type DevListingKind, type DevSource } from "./dev-source"
+import { readableProvider, UnsupportedProviderError } from "./git-provider"
+import { writeReleases } from "./git-release-sync"
 import { allMergeRequestsMerged, linksFromBranch, linksFromCommit, linksFromMergeRequest, type LinkDraft } from "./git-links"
-import { cursorsFromRow, cursorsToRow, DAY_MS, INITIAL_WINDOW_SEC, type SyncCursors } from "./git-sync-cursors"
-import { COMMIT_LAG_MS, MAX_COMMIT_LISTINGS, MAX_LOOKBACK_LISTINGS, readMergeRequests, scanCommits } from "./git-sync-listings"
+import { defaultClientFactory, type ClientFactory } from "./gitlab-source"
 
 /**
- * Polling sync of one repository (GitLab cannot reach the LAN, so no webhooks):
- * merge requests and commits changed since their cursors, plus the current PBI
- * branches, become git_link rows of the PBIs they name. One cursor per listing
- * (git-sync-cursors): merge requests by GitLab's updated_at + tie-breaker,
- * commits by resumable time windows, plus a daily look-back for late pushes.
+ * Polling sync of one repository: merge requests and commits changed since the
+ * repository's cursor, plus the current PBI branches, become git_link rows of
+ * the PBIs they name. What is read, and how, is the project's DevSource
+ * (dev-source; GitLab today): the sync only stores the source's opaque cursor
+ * and hands it back, never looking inside it.
  */
 const log = logger.child({ module: "git-sync" })
 
 /** Pipeline lookups per sync (one extra request per merge request). */
 const MAX_PIPELINE_LOOKUPS = 25
-/** Daily look-back: re-read this many days of commits (late-pushed commits; docs/operations/git-integration.md). */
-export const LOOKBACK_DAYS = 14
-const LOOKBACK_EVERY_MS = DAY_MS
+
+export { LOOKBACK_DAYS, syncErrorMessage, type ClientFactory } from "./gitlab-source"
 
 /** Who the activity log shows for automatic task completion. */
 export const GIT_ACTOR: Actor = { userId: "", userName: "GitLab", systemRole: "member" }
 
-export type ClientFactory = (apiBase: string, token: string) => GitLabClient
-export const defaultClientFactory: ClientFactory = (apiBase, token) => createGitLabClient({ apiBase, token })
 const defaultFactory = defaultClientFactory
 
 export interface SyncResult {
@@ -48,16 +45,22 @@ export async function syncRepository(repositoryId: string, factory: ClientFactor
   })
   const integration = repo?.project.gitIntegration
   if (!repo || repo.project.deletedAt || !integration?.enabled) return { repositoryId, ok: false, links: 0, error: "disabled" }
+  // A provider Kanflow cannot read is never sent to GitLab instead (logged once per repository).
+  const provider = readableProvider(repositoryId, integration.provider, "sync")
+  if (!provider) return fail(repositoryId, "provider", new UnsupportedProviderError(integration.provider).message)
+  const kind = devSourceFor(provider)
   const sealed = repo.tokenCipher ?? integration.tokenCipher
   const token = sealed ? open(sealed) : null
   if (!token) return fail(repositoryId, "token", "アクセストークンが未設定か、読み取れません。設定画面で入れ直してください。")
 
+  let source: DevSource | null = null
   try {
-    const client = factory(repo.apiBase, token)
-    const externalId = repo.externalId ?? (await client.getProject(repo.repoPath)).id
+    source = kind.connect({ repositoryId, apiBase: repo.apiBase, repoPath: repo.repoPath, externalId: repo.externalId, token }, { gitlab: factory })
+    const externalId = await source.locate()
     // 過去分を再同期 bumps the generation; cursors read under an older one are not written back.
     const generation = repo.syncGeneration ?? null
-    const read = await readAll(client, externalId, repositoryId, cursorsFromRow(repo, now), now)
+    const read = await readAll(source, kind.cursors.fromRow(repo, now), now)
+    for (const f of read.failures) logFailure(source, repositoryId, f)
 
     const mrDrafts = read.mrs.flatMap((mr) => linksFromMergeRequest(mr, now))
     const branchDrafts = (read.branches?.items ?? []).flatMap((b) => linksFromBranch(b, now))
@@ -65,29 +68,29 @@ export async function syncRepository(repositoryId: string, factory: ClientFactor
     const pbiIds = await resolvePbis(repo.projectId, drafts)
     // Pipelines only for merge requests read for the first time (not the overlap re-read), and not
     // after the merge request listing failed (the lookups would most likely fail the same way).
-    const lookups = mrDrafts.filter((d) => pbiIds.has(d.pbiNumber) && read.freshMrIids.has(Number(d.ref)))
-    if (!read.failures.some((f) => f.kind === "mr")) await attachPipelines(client, externalId, repositoryId, lookups)
+    const lookups = mrDrafts.filter((d) => pbiIds.has(d.pbiNumber) && read.freshMrRefs.has(d.ref))
+    if (!read.failures.some((f) => f.kind === "mr")) await attachPipelines(source, repositoryId, lookups)
 
     const { written, changed, newlyMerged, newlyFailed } = await writeLinks(repo.projectId, repo.id, drafts, pbiIds)
     // `branches` is null when that listing failed: then nothing is marked gone.
     const gone = read.branches ? await markGoneBranches(repo.id, read.branches, branchDrafts, pbiIds, now) : 0
-    const releases = await syncReleasesSafely(client, repo, externalId, now)
+    const releases = await syncReleasesSafely(source, repo, now)
     // Git panels / badges of the project refresh live, only when a link actually changed.
     if (changed + gone + releases > 0) publishAfterCommit({ type: "git", projectId: repo.projectId, action: "sync" })
-    // Links are written before the cursors move: a cursor never passes anything unwritten.
-    const status = read.failures.length > 0 ? { lastError: failureMessage(read.failures).slice(0, 500), lastErrorAt: now } : { syncedAt: now, lastError: null, lastErrorAt: null }
-    const save = saveProgress(repositoryId, generation, { externalId, ...cursorsToRow(read.cursors) }, status)
+    // Links are written before the cursor moves: a cursor never passes anything unwritten.
+    const status = read.failures.length > 0 ? { lastError: failureMessage(read.failures, source).slice(0, 500), lastErrorAt: now } : { syncedAt: now, lastError: null, lastErrorAt: null }
+    const save = saveProgress(repositoryId, generation, { externalId, ...kind.cursors.toRow(read.cursor) }, status)
     if (read.failures.length > 0) await save.catch((err) => log.error("git sync progress not saved", { repositoryId, error: err instanceof Error ? err.message : String(err) }))
     else await save
     await notifyFailedPipelines(repo.projectId, newlyFailed)
     const completedTasks = integration.autoCompleteOnMerge ? await autoComplete(repo.projectId, newlyMerged) : 0
     const first = read.failures[0]
-    if (first) return { repositoryId, ok: false, links: written, error: first.error instanceof GitLabError ? first.error.kind : "http" }
+    if (first) return { repositoryId, ok: false, links: written, error: source.describeError(first.error).kind }
     return { repositoryId, ok: true, links: written, completedTasks }
   } catch (err) {
-    const kind = err instanceof GitLabError ? err.kind : "http"
-    if (!(err instanceof GitLabError)) log.error("git sync failed", { repositoryId, error: err instanceof Error ? err.message : String(err) })
-    return fail(repositoryId, kind, syncErrorMessage(err))
+    const info = source ? source.describeError(err) : { kind: "http", expected: false, message: "同期中にエラーが発生しました" }
+    if (!info.expected) log.error("git sync failed", { repositoryId, error: err instanceof Error ? err.message : String(err) })
+    return fail(repositoryId, info.kind, info.message)
   }
 }
 
@@ -103,165 +106,54 @@ async function saveProgress(repositoryId: string, generation: number | null, cur
   await prisma.gitRepository.update({ where: { id: repositoryId }, data: status })
 }
 
-type ListingKind = "mr" | "commit" | "commit-lookback" | "branch"
-
-interface ListingFailure {
-  kind: ListingKind
-  error: unknown
-}
-
-const LISTING_LABEL: Record<ListingKind, string> = { mr: "マージリクエスト", commit: "コミット", "commit-lookback": "コミット（読み直し）", branch: "ブランチ" }
+const LISTING_LABEL: Record<DevListingKind, string> = { mr: "マージリクエスト", commit: "コミット", "commit-lookback": "コミット（読み直し）", branch: "ブランチ" }
 
 /** Stored on the repository: every failed listing, grouped by message ("マージリクエスト・コミット: …"). */
-export function failureMessage(failures: readonly ListingFailure[]): string {
+export function failureMessage(failures: readonly DevListingFailure[], source: Pick<DevSource, "describeError">): string {
   const byMessage = new Map<string, string[]>()
   for (const f of failures) {
-    const message = syncErrorMessage(f.error)
+    const message = source.describeError(f.error).message
     byMessage.set(message, [...(byMessage.get(message) ?? []), LISTING_LABEL[f.kind]])
   }
   return [...byMessage].map(([message, labels]) => `${labels.join("・")}: ${message}`).join(" / ")
 }
 
-/** Each failed listing is logged once, here (GitLab answers as a warning, anything else as an error). */
-function logFailure(repositoryId: string, kind: ListingKind, error: unknown): void {
-  if (error instanceof GitLabError) log.warn("git sync listing failed", { repositoryId, kind, errorKind: error.kind, status: error.status })
-  else log.error("git sync failed", { repositoryId, kind, error: error instanceof Error ? error.message : String(error) })
+/** Each failed listing is logged once, here (an answer of the source as a warning, anything else as an error). */
+function logFailure(source: DevSource, repositoryId: string, failure: DevListingFailure): void {
+  const info = source.describeError(failure.error)
+  if (info.expected) log.warn("git sync listing failed", { repositoryId, kind: failure.kind, errorKind: info.kind, status: info.status })
+  else log.error("git sync failed", { repositoryId, kind: failure.kind, error: failure.error instanceof Error ? failure.error.message : String(failure.error) })
 }
 
 interface ReadResult {
-  mrs: GitLabMergeRequest[]
+  mrs: DevChanges["mergeRequests"]
   /** Merge requests past the stored cursor (not only re-read by the overlap page). */
-  freshMrIids: Set<number>
-  commits: GitLabCommit[]
+  freshMrRefs: ReadonlySet<string>
+  commits: DevChanges["commits"]
   /** null when the branch listing failed. */
-  branches: Paged<GitLabBranch> | null
-  cursors: SyncCursors
-  failures: ListingFailure[]
+  branches: DevBranchListing | null
+  cursor: DevCursor
+  failures: readonly DevListingFailure[]
 }
 
-/** When the branch-list-truncated warning was last logged per repository (once a day). */
-const branchTruncationWarned = new Map<string, number>()
-
-/**
- * The listings of one sync, one after another but independent of each other:
- * a failing one (e.g. merge requests disabled in the project → 403) keeps its
- * cursor at its last completed page / window and the others still run.
- */
-async function readAll(client: GitLabClient, externalId: number, repositoryId: string, start: SyncCursors, now: Date): Promise<ReadResult> {
-  const failures: ListingFailure[] = []
-  const failed = (kind: ListingKind, error: unknown) => {
-    failures.push({ kind, error })
-    logFailure(repositoryId, kind, error)
-  }
-
-  const mr = await readMergeRequests(client, externalId, repositoryId, start.mr)
-  if (mr.error !== undefined) failed("mr", mr.error)
-
-  // GitLab's clock bounds the commit windows (Kanflow's may be off); Kanflow's only when GitLab sent none.
-  if (!mr.serverTime) log.warn("git sync uses Kanflow's clock", { repositoryId, reason: "no usable Date header from GitLab" })
-  const gitlabNow = mr.serverTime ?? now
-  const forward = await scanCommits(client, externalId, {
-    repositoryId,
-    pass: "commit",
-    scan: start.commit,
-    skips: start.commit.skips,
-    until: new Date(gitlabNow.getTime() - COMMIT_LAG_MS),
-    readTo: gitlabNow,
-    budget: MAX_COMMIT_LISTINGS,
-  })
-  if (forward.error !== undefined) failed("commit", forward.error)
-  else if (!forward.done) log.info("git sync backlog", { repositoryId, kind: "commit", cursorAt: forward.scan.at.toISOString(), windowSec: forward.scan.widthSec })
-  const commit = { ...forward.scan, skips: forward.skips }
-
-  const lookback = await readLookback(client, externalId, repositoryId, start.lookback, commit.at, gitlabNow)
-  if (lookback.error !== undefined) failed("commit-lookback", lookback.error)
-
-  let branches: Paged<GitLabBranch> | null = null
+/** The cursor-driven listings, then the branches; a failing one does not stop the others. */
+async function readAll(source: DevSource, cursor: DevCursor, now: Date): Promise<ReadResult> {
+  const changes = await source.readChanges(cursor, now)
+  const failures: DevListingFailure[] = [...changes.failures]
+  let branches: DevBranchListing | null = null
   try {
-    branches = await client.listBranches(externalId, "pbi")
-    if (branches.truncated && now.getTime() - (branchTruncationWarned.get(repositoryId) ?? Number.NEGATIVE_INFINITY) >= DAY_MS) {
-      branchTruncationWarned.set(repositoryId, now.getTime())
-      log.warn("git sync truncated", { repositoryId, kind: "branch", pages: branches.pages, markedGone: false })
-    }
+    branches = await source.listBranches(now)
   } catch (error) {
-    failed("branch", error)
+    failures.push({ kind: "branch", error })
   }
-
-  const startMs = start.mr.at.getTime()
-  const fresh = mr.items.filter((m) => {
-    const t = new Date(m.updated_at).getTime()
-    return Number.isNaN(t) || t > startMs || (t === startMs && start.mr.seen === 0)
-  })
-  return {
-    mrs: mr.items,
-    freshMrIids: new Set(fresh.map((m) => m.iid)),
-    commits: [...forward.items, ...lookback.items],
-    branches,
-    cursors: { mr: mr.cursor, commit, lookback: lookback.state },
-    failures,
-  }
-}
-
-/**
- * Look-back pass: once a day the last LOOKBACK_DAYS of commits are read again,
- * up to the forward cursor (a commit pushed days after it was made carries its
- * old date, so its window had already been read without it). 過去分を再同期
- * starts the same pass 90 days back. Bounded per sync; resumes where it stopped.
- */
-async function readLookback(
-  client: GitLabClient,
-  externalId: number,
-  repositoryId: string,
-  start: SyncCursors["lookback"],
-  forwardAt: Date,
-  gitlabNow: Date,
-): Promise<{ items: GitLabCommit[]; state: SyncCursors["lookback"]; error?: unknown }> {
-  let state = start
-  const due = !state.startedAt || gitlabNow.getTime() - state.startedAt.getTime() >= LOOKBACK_EVERY_MS
-  if (!state.scan && due) state = { scan: { at: new Date(gitlabNow.getTime() - LOOKBACK_DAYS * DAY_MS), widthSec: INITIAL_WINDOW_SEC }, startedAt: gitlabNow }
-  if (!state.scan) return { items: [], state }
-  const r = await scanCommits(client, externalId, {
-    repositoryId,
-    pass: "commit-lookback",
-    scan: state.scan,
-    skips: 0,
-    until: forwardAt,
-    readTo: forwardAt,
-    budget: MAX_LOOKBACK_LISTINGS,
-  })
-  if (r.done) log.info("git sync look-back done", { repositoryId, listings: r.listings, skipped: r.skipped })
-  const next = { scan: r.done ? null : r.scan, startedAt: state.startedAt }
-  return r.error !== undefined ? { items: r.items, state: next, error: r.error } : { items: r.items, state: next }
-}
-
-/** 403 on code / merge requests: the token is valid but its owner's role (e.g. Guest) cannot read them. */
-export const FORBIDDEN_MESSAGE =
-  "トークンの持ち主に、このリポジトリのコードやマージリクエストを読む権限がありません（GitLab のロールが「ゲスト」など）。" +
-  "GitLab でレポーター以上のロールを付けてもらうか、レポーター以上の人のトークン（read_api）を設定してください。"
-
-/** Japanese message stored on the repository (shown in settings and on the Git page). */
-export function syncErrorMessage(err: unknown): string {
-  if (!(err instanceof GitLabError)) return "同期中にエラーが発生しました"
-  switch (err.kind) {
-    case "auth":
-      return "GitLab がトークンを拒否しました（無効または期限切れ）。read_api 権限の新しいトークンを設定してください。"
-    case "forbidden":
-      return FORBIDDEN_MESSAGE
-    case "not_found":
-      return "リポジトリが見つからないか、このトークンでは見えません。URL とトークンの権限を確認してください。"
-    case "rate_limited":
-      return "GitLab の利用制限に達しました。次回の同期で再試行します。"
-    case "network":
-      return "GitLab に接続できませんでした。次回の同期で再試行します。"
-    default:
-      return `GitLab がエラーを返しました（${err.status ?? "?"}）。次回の同期で再試行します。`
-  }
+  return { mrs: changes.mergeRequests, freshMrRefs: changes.freshMergeRequestRefs, commits: changes.commits, branches, cursor: changes.cursor, failures }
 }
 
 async function fail(repositoryId: string, kind: string, message: string): Promise<SyncResult> {
+  // The failure itself is the result; a lost status write is logged, not rethrown.
   await prisma.gitRepository
     .update({ where: { id: repositoryId }, data: { lastError: message.slice(0, 500), lastErrorAt: new Date() } })
-    .catch(() => undefined)
+    .catch((err: unknown) => log.error("git sync status not saved", { repositoryId, error: err instanceof Error ? err.message : String(err) }))
   return { repositoryId, ok: false, links: 0, error: kind }
 }
 
@@ -276,16 +168,16 @@ async function resolvePbis(projectId: string, drafts: readonly LinkDraft[]): Pro
   return new Map(rows.map((r) => [r.displayId, r.id]))
 }
 
-async function attachPipelines(client: GitLabClient, externalId: number, repositoryId: string, drafts: LinkDraft[]): Promise<void> {
-  const byIid = new Map<string, LinkDraft[]>()
-  for (const d of drafts) byIid.set(d.ref, [...(byIid.get(d.ref) ?? []), d])
-  for (const [iid, group] of [...byIid].slice(-MAX_PIPELINE_LOOKUPS)) {
+async function attachPipelines(source: DevSource, repositoryId: string, drafts: LinkDraft[]): Promise<void> {
+  const byRef = new Map<string, LinkDraft[]>()
+  for (const d of drafts) byRef.set(d.ref, [...(byRef.get(d.ref) ?? []), d])
+  for (const [ref, group] of [...byRef].slice(-MAX_PIPELINE_LOOKUPS)) {
     try {
-      const status = await client.getMergeRequestPipeline(externalId, Number(iid))
+      const status = await source.pipelineStatus(ref)
       for (const d of group) d.pipeline = status
     } catch (err) {
       // Pipeline status is decoration: keep the link (and its last known status) without it.
-      log.warn("git pipeline lookup failed", { repositoryId, iid: Number(iid), error: err instanceof Error ? err.message : String(err) })
+      log.warn("git pipeline lookup failed", { repositoryId, iid: Number(ref), error: err instanceof Error ? err.message : String(err) })
     }
   }
 }
@@ -386,9 +278,9 @@ async function notifyFailedPipelines(projectId: string, failures: readonly Faile
 }
 
 /** Tags are an add-on to the PBI links: a failure here must not fail the sync. */
-async function syncReleasesSafely(client: GitLabClient, repo: { id: string; projectId: string; webUrl: string }, externalId: number, now: Date): Promise<number> {
+async function syncReleasesSafely(source: DevSource, repo: { id: string; projectId: string; webUrl: string }, now: Date): Promise<number> {
   try {
-    return await syncReleases(client, repo, externalId, now)
+    return await writeReleases(repo, await source.listReleaseTags(repo.webUrl, now))
   } catch (err) {
     log.warn("tag sync skipped", { repositoryId: repo.id, error: err instanceof Error ? err.message : String(err) })
     return 0
@@ -402,12 +294,12 @@ async function syncReleasesSafely(client: GitLabClient, repo: { id: string; proj
  */
 async function markGoneBranches(
   repositoryId: string,
-  listing: Paged<GitLabBranch>,
+  listing: DevBranchListing,
   branchDrafts: readonly LinkDraft[],
   pbiIds: Map<number, string>,
   now: Date,
 ): Promise<number> {
-  if (listing.truncated) return 0
+  if (!listing.complete) return 0
   const keep = new Set(branchDrafts.filter((d) => pbiIds.has(d.pbiNumber)).map((d) => `${d.ref}|${pbiIds.get(d.pbiNumber)}`))
   const live = await prisma.gitLink.findMany({ where: { repositoryId, kind: "branch", goneAt: null }, select: { id: true, ref: true, backlogItemId: true } })
   const gone = live.filter((l) => !keep.has(`${l.ref}|${l.backlogItemId}`)).map((l) => l.id)

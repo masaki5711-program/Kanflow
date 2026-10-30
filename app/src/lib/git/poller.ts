@@ -38,7 +38,8 @@ export async function runGitSyncTick(sync: typeof syncRepository = syncRepositor
     })
     for (const r of repos) {
       const result = await sync(r.id)
-      if (!result.ok && result.error !== "disabled") log.warn("repository sync failed", { repositoryId: r.id, error: result.error })
+      // "provider": the sync refused a provider Kanflow cannot read and logged it once already.
+      if (!result.ok && result.error !== "disabled" && result.error !== "provider") log.warn("repository sync failed", { repositoryId: r.id, error: result.error })
     }
     return repos.length
   } catch (err) {

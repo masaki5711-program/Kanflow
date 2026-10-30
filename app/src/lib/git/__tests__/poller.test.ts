@@ -65,6 +65,13 @@ describe("runGitSyncTick", () => {
     expect(noopLog.warn).not.toHaveBeenCalled()
   })
 
+  it("does not warn every tick for a provider Kanflow cannot read (the sync refused it and logged it once)", async () => {
+    gitRepositoryFindMany.mockResolvedValue([{ id: "r1" }])
+    const sync = vi.fn().mockResolvedValue({ repositoryId: "r1", ok: false, links: 0, error: "provider" })
+    await runGitSyncTick(sync)
+    expect(noopLog.warn).not.toHaveBeenCalled()
+  })
+
   it("returns 0 and logs an error when the repository lookup itself fails", async () => {
     gitRepositoryFindMany.mockRejectedValue(new Error("db down"))
     const sync = vi.fn()
