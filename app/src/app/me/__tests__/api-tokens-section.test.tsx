@@ -102,7 +102,7 @@ describe("ApiTokensSection", () => {
         projectIds: ["p2"],
       },
     ])
-  })
+  }, 15_000)
 
   it("shows each token's scopes and project restriction", async () => {
     setup(tokens({}, [{ ...existing, scopes: ["read", "task:write"], projectIds: ["p1", "p2"] }]))

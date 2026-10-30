@@ -65,7 +65,7 @@ describe("projects", () => {
 describe("backlog pagination", () => {
   const pbi = (id: string, minute: number) => ({
     id, displayId: 1, status: "ready", initiative: null, epic: null, userStory: "s", acceptanceCriteria: null,
-    workloadScore: 3, assignedPo: null, sortOrder: 1, productGoalId: null, planItemId: null, completedAt: null,
+    workloadScore: 3, assignedPo: null, sortOrder: 1, productGoalId: null, planItemId: null, completedAt: null, version: 0,
     createdAt: new Date(T.getTime() + minute * 60_000), updatedAt: T,
   })
 
@@ -98,7 +98,7 @@ describe("sprints and tasks", () => {
     vi.mocked(repo.findSprintId).mockResolvedValue({ id: "s1" })
     vi.mocked(repo.findSprintTasks).mockResolvedValue([
       {
-        id: "t1", taskName: "Do", status: "todo", estimatedHours: 1, actualHours: null, completedAt: null, createdAt: T, updatedAt: T,
+        id: "t1", taskName: "Do", status: "todo", estimatedHours: 1, actualHours: null, completedAt: null, version: 0, createdAt: T, updatedAt: T,
         pbItem: { id: "b1", displayId: 4 }, assignees: [{ user: { id: "u1", name: "A" } }],
       },
     ] as never)

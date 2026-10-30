@@ -7,6 +7,8 @@
  *   API_TOKEN_MAX_PER_USER     active (not revoked, not expired) tokens per user, default 5
  *   API_TOKEN_ALLOW_NO_EXPIRY  false (default) | true — allow tokens without expiry
  *   API_V1_RATE_LIMIT_PER_MIN  requests per token per minute, default 120
+ *   API_V1_WRITE_RATE_LIMIT_PER_MIN  writes (POST / PATCH) per token per minute,
+ *                              default 30, counted on top of the request limit
  */
 
 export const API_TOKEN_EXPIRY_DAYS = [30, 90, 365] as const
@@ -17,10 +19,12 @@ export interface ApiTokenConfig {
   maxPerUser: number
   allowNoExpiry: boolean
   ratePerMinute: number
+  writeRatePerMinute: number
 }
 
 const DEFAULT_MAX_PER_USER = 5
 const DEFAULT_RATE_PER_MINUTE = 120
+const DEFAULT_WRITE_RATE_PER_MINUTE = 30
 const FALSY = new Set(["0", "false", "off", "no", "disabled"])
 const TRUTHY = new Set(["1", "true", "on", "yes", "enabled"])
 
@@ -43,5 +47,6 @@ export function loadApiTokenConfig(env: Readonly<Record<string, string | undefin
     maxPerUser: positiveInt(env.API_TOKEN_MAX_PER_USER, DEFAULT_MAX_PER_USER),
     allowNoExpiry: flag(env.API_TOKEN_ALLOW_NO_EXPIRY, false),
     ratePerMinute: positiveInt(env.API_V1_RATE_LIMIT_PER_MIN, DEFAULT_RATE_PER_MINUTE),
+    writeRatePerMinute: positiveInt(env.API_V1_WRITE_RATE_LIMIT_PER_MIN, DEFAULT_WRITE_RATE_PER_MINUTE),
   }
 }

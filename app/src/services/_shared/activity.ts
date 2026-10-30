@@ -261,6 +261,12 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
+/** Pure: marks a change made through an access token (`meta.via = "api"`), so the feed can tell AI / script edits apart. */
+export function withVia(diff: ActivityDiff | null | undefined, actor: Actor | null): ActivityDiff | null | undefined {
+  if (!actor?.via) return diff
+  return { ...diff, meta: { ...diff?.meta, via: actor.via } }
+}
+
 /** Record one activity row within `tx`. Never throws. */
 export async function logActivity(tx: Db, input: ActivityInput): Promise<void> {
   try {
@@ -273,7 +279,7 @@ export async function logActivity(tx: Db, input: ActivityInput): Promise<void> {
         // "" = a system actor (e.g. the GitLab sync): no user row to point at.
         actorId: input.actor?.userId || null,
         actorName: input.actor?.userName ?? null,
-        diff: serializeDiff(input.diff),
+        diff: serializeDiff(withVia(input.diff, input.actor)),
       },
     })
     // Live refresh of the project's open screens (ids only; delivered after the commit).

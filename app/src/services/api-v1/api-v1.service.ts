@@ -1,9 +1,11 @@
 /**
- * Read-only REST API (/api/v1) use cases. Authorization happens in the route
+ * REST API (/api/v1) read use cases (writes reuse the UI services through
+ * src/app/api/v1/_lib/v1-write.ts). Authorization happens in the route
  * wrapper (src/app/api/v1/_lib/v1-route.ts): by the time these run, the
  * token's user has `project.view` on `projectId`. Responses use the envelope
  * `{ data, nextCursor? }`; dates are ISO strings.
  */
+import type { Actor } from "@/services/_shared/actor"
 import { toPage } from "@/services/_shared/cursor"
 import { defaultDb } from "@/services/_shared/db"
 import { NotFoundError } from "@/services/_shared/errors"
@@ -13,6 +15,7 @@ import type { ProjectActivityQuery } from "@/services/activity/activity.schemas"
 import { loadProjectListScope, projectListWhere } from "@/services/projects/project-list"
 import * as repo from "./api-v1.repository"
 import type { V1BacklogQuery, V1ProjectsQuery } from "./api-v1.schemas"
+import type { ApiPrincipal } from "@/services/api-tokens/api-token-auth"
 
 export interface V1Envelope<T> {
   data: T
@@ -64,6 +67,30 @@ export async function listBacklog(projectId: string, query: V1BacklogQuery) {
   const rows = await repo.findBacklogPage(defaultDb, projectId, query)
   const page = toPage(rows, query.limit, isoDates)
   return { data: page.items, nextCursor: page.nextCursor }
+}
+
+/** `ref`: the PBI id, its display number ("12") or "PBI-12". */
+export function parsePbiRef(ref: string): { id: string } | { displayId: number } {
+  const m = /^(?:pbi-?)?(\d{1,9})$/i.exec(ref.trim())
+  return m ? { displayId: Number(m[1]) } : { id: ref }
+}
+
+export async function getPbi(projectId: string, ref: string) {
+  const row = await repo.findPbi(defaultDb, projectId, parsePbiRef(ref))
+  if (!row) throw new NotFoundError("PBI not found", {}, "PBI_NOT_FOUND")
+  const { sprintItems, ...pbi } = row
+  return {
+    data: {
+      ...isoDates(pbi),
+      tasks: sprintItems.map(({ assignees, ...t }) => ({ ...t, assignees: assignees.map((a) => a.user) })),
+    },
+  }
+}
+
+/** The service actor of a token request: the owner, marked `via: "api"` for the activity log. */
+export async function loadApiActor(principal: Pick<ApiPrincipal, "userId" | "role">): Promise<Actor> {
+  const user = await repo.findUserName(defaultDb, principal.userId)
+  return { userId: principal.userId, userName: user?.name ?? null, systemRole: principal.role, via: "api" }
 }
 
 export async function listSprints(projectId: string) {

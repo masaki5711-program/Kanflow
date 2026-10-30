@@ -1,11 +1,12 @@
-# Kanflow read-only REST API (v1)
+# Kanflow REST API (v1)
 
-A read-only JSON API under `/api/v1` for scripts, reports and integrations
-(Excel / Power Query, BI tools, CI jobs). It exposes the same data a user can
-see in the UI, with the same project permissions. Nothing can be changed
-through it.
+A JSON API under `/api/v1` for scripts, reports, integrations (Excel / Power
+Query, BI tools, CI jobs) and the Kanflow MCP server (Claude Code). It
+exposes the same data a user can see in the UI, with the same project
+permissions. Writes (see "Writes") need a write scope on the token **and**
+the owner's project role.
 
-- Code: routes `app/src/app/api/v1/**`, wrapper `app/src/app/api/v1/_lib/v1-route.ts`,
+- Code: routes `app/src/app/api/v1/**`, wrappers `app/src/app/api/v1/_lib/v1-route.ts` (reads) and `v1-write.ts` (writes),
   auth `app/src/services/api-tokens/api-token-auth.ts`, queries `app/src/services/api-v1/`
 - Tokens: `app/src/services/api-tokens/`, UI `/me` (own tokens) and `/admin/api-tokens` (all tokens)
 
@@ -105,7 +106,7 @@ done
 
 ## Endpoints
 
-All `GET`. `:projectId` / `:sprintId` are the ids returned by the list endpoints.
+Reads (`GET`). `:projectId` / `:sprintId` are the ids returned by the list endpoints.
 
 | Endpoint | Returns | Query |
 |---|---|---|
@@ -121,6 +122,47 @@ All `GET`. `:projectId` / `:sprintId` are the ids returned by the list endpoints
 
 Free-text fields are returned as stored (original language); translations are
 not part of v1.
+
+Also: `GET /api/v1/projects/:projectId/backlog/:itemId` (one PBI with
+`referenceDoc`, `poNote`, `notReadyReason`, `iceboxItemId`, `version` and its
+`tasks[] {id, sprintId, taskName, status, estimatedHours, actualHours, version, assignees}`;
+`:itemId` = id, `12` or `PBI-12`) and
+`GET /api/v1/projects/:projectId/comments?entityType=pbi|sprint_task|icebox&entityId=&cursor=&limit=`
+(a thread, oldest first, paginated). Backlog and task rows carry `version`.
+
+## Writes
+
+Body: JSON, validated by the **same schema as the UI API** and executed by the
+same service (same rules, notifications and activity log). Response:
+`{ "data": <the created / updated object as the UI API returns it> }`.
+Changes are recorded in the activity log with `meta.via = "api"`.
+
+| Method & path (under `/api/v1/projects/:projectId`) | Scope | Roles | Body |
+|---|---|---|---|
+| `POST /backlog` → 201 | `backlog:write` | PO, SM | `userStory` or `initiative` (required), `epic`, `acceptanceCriteria`, `referenceDoc`, `workloadScore`, `status`, `productGoalId`, `iceboxItemId`, `assignedPo`, `poNote`, `notReadyReason` |
+| `PATCH /backlog/:itemId` | `backlog:write` | PO, SM | any of the above, `planItemId`, `version` (`sortOrder` is ignored) |
+| `POST /sprints` → 201 | `sprint:write` | PO, SM | `sprintName`, `startDate`, `endDate`, `sprintGoal`, `capacity`, `selectedPbIds[]`, `carryOver {fromSprintId, pbItemIds[]}` |
+| `PATCH /sprints/:sprintId` | `sprint:write` | PO, SM | `sprintName`, `startDate`, `endDate`, `sprintGoal`, `capacity`, `status`, review / retrospective fields, `version` |
+| `POST /sprints/:sprintId/pbis` → 201 (200 if nothing new) | `sprint:write` | PO, SM | `pbIds[]` (1–50) |
+| `POST /sprints/:sprintId/tasks` → 201 | `task:write` | members | `pbItemId`, `taskName`, `assigneeIds[]`, `estimatedHours` |
+| `PATCH /sprints/:sprintId/tasks/:taskId` | `task:write` | members | `status` (`todo`/`in_progress`/`review`/`done`), `actualHours`, `estimatedHours`, `taskName`, `assigneeIds[]`, `completionComment`, `version` |
+| `POST /sprints/:sprintId/daily-scrums` → 201 | `daily:write` | members | `date`, `content` |
+| `POST /comments` → 201 | `comment:write` | members | `entityType` (`pbi`/`sprint_task`/`icebox`), `entityId`, `body` |
+| `POST /icebox` → 201 | `icebox:write` | members, section managers | `request`, `background`, `author`, `assignedPo` |
+
+No deletes through the API.
+
+- **Conflicts**: send the `version` you read; a stale one → `409 VERSION_CONFLICT`.
+- **Idempotency-Key** (all `POST` creates except `/pbis`): a retry with the same
+  key and body returns the first success again (`Idempotent-Replayed: true`)
+  instead of creating a duplicate; the same key with another body → 409.
+  Keys: 1–200 visible ASCII characters, kept 24 h in memory per web process
+  (a restart forgets them). Failed attempts are not kept.
+- **Write budget**: `API_V1_WRITE_RATE_LIMIT_PER_MIN` writes per token per
+  minute (default 30) on top of the request limit → 429 + `Retry-After`.
+- Errors: as above, plus `400 INVALID_JSON`, `403 INSUFFICIENT_SCOPE`
+  (`requiredScope`), `403 FORBIDDEN` (role), `404 PBI_NOT_FOUND` /
+  `SPRINT_NOT_FOUND` / ..., `409 VERSION_CONFLICT` / `CONFLICT`.
 
 ## Examples
 
@@ -172,6 +214,7 @@ Invoke-RestMethod -Headers $h "$base/api/v1/projects" | Select-Object -ExpandPro
 | `API_TOKEN_MAX_PER_USER` | `5` | Active (not revoked, not expired) tokens per user |
 | `API_TOKEN_ALLOW_NO_EXPIRY` | `false` | Allow tokens without an expiry |
 | `API_V1_RATE_LIMIT_PER_MIN` | `120` | Requests per token per minute |
+| `API_V1_WRITE_RATE_LIMIT_PER_MIN` | `30` | Writes per token per minute (on top of the request limit) |
 
 Schema: table `ApiToken` (migrations `20261005000000_api_tokens_metrics`,
 `20261030000000_api_token_scopes` for `projectIds`).

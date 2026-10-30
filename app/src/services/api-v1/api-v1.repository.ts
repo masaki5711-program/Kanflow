@@ -72,6 +72,7 @@ export function findBacklogPage(db: Db, projectId: string, q: { status?: PbiStat
       productGoalId: true,
       planItemId: true,
       completedAt: true,
+      version: true,
       createdAt: true,
       updatedAt: true,
     },
@@ -115,6 +116,7 @@ export function findSprintTasks(db: Db, sprintId: string) {
       estimatedHours: true,
       actualHours: true,
       completedAt: true,
+      version: true,
       createdAt: true,
       updatedAt: true,
       pbItem: { select: { id: true, displayId: true } },
@@ -166,4 +168,53 @@ export function findReleases(db: Db, projectId: string) {
     orderBy: [{ planVersion: "asc" }, { createdAt: "asc" }],
     take: LIST_LIMITS.releaseItems,
   })
+}
+
+/** One live PBI by id or by its project-scoped display number, with its sprint tasks. */
+export function findPbi(db: Db, projectId: string, ref: { id: string } | { displayId: number }) {
+  return db.productBacklogItem.findFirst({
+    where: notDeleted({ projectId, ...ref }),
+    select: {
+      id: true,
+      displayId: true,
+      status: true,
+      initiative: true,
+      epic: true,
+      userStory: true,
+      acceptanceCriteria: true,
+      referenceDoc: true,
+      workloadScore: true,
+      assignedPo: true,
+      poNote: true,
+      notReadyReason: true,
+      sortOrder: true,
+      productGoalId: true,
+      planItemId: true,
+      iceboxItemId: true,
+      completedAt: true,
+      version: true,
+      createdAt: true,
+      updatedAt: true,
+      sprintItems: {
+        // Placeholders (taskName null) only mark the PBI as part of a sprint.
+        where: { taskName: { not: null } },
+        select: {
+          id: true,
+          sprintId: true,
+          taskName: true,
+          status: true,
+          estimatedHours: true,
+          actualHours: true,
+          version: true,
+          assignees: { select: { user: { select: { id: true, name: true } } } },
+        },
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      },
+    },
+  })
+}
+
+/** Display name of the token owner (service actor). */
+export function findUserName(db: Db, userId: string) {
+  return db.user.findUnique({ where: { id: userId }, select: { name: true } })
 }

@@ -42,8 +42,17 @@ export interface V1ProjectContext<P> extends V1Context<P> {
   actor: ProjectActor
 }
 
+/** A handler result with a status other than 200 (e.g. 201 Created) and extra headers. */
+export class V1Reply {
+  constructor(
+    readonly body: object,
+    readonly status: number,
+    readonly headers: Record<string, string> = {}
+  ) {}
+}
+
 type RouteSegment<P> = { params: Promise<P> }
-type V1Handler<P> = (request: Request, segment: RouteSegment<P>) => Promise<NextResponse>
+export type V1Handler<P> = (request: Request, segment: RouteSegment<P>) => Promise<NextResponse>
 
 export function v1ErrorResponse(
   status: number,
@@ -79,7 +88,7 @@ export function v1ErrorFrom(error: unknown, headers: Record<string, string>): Ne
 }
 
 export function v1Route<P extends Record<string, string> = Record<string, never>>(
-  handler: (ctx: V1Context<P>) => Promise<object>
+  handler: (ctx: V1Context<P>) => Promise<object | V1Reply>
 ): V1Handler<P> {
   return async (request, segment) => {
     let auth: Awaited<ReturnType<typeof authenticateApiRequest>>
@@ -97,8 +106,11 @@ export function v1Route<P extends Record<string, string> = Record<string, never>
     }
     try {
       const params = await segment.params
-      const body = await handler({ request, query: searchParamsObject(request.url), principal: auth.principal, params })
-      return NextResponse.json(body, { headers: { "Cache-Control": "no-store", ...headers } })
+      const result = await handler({ request, query: searchParamsObject(request.url), principal: auth.principal, params })
+      if (result instanceof V1Reply) {
+        return NextResponse.json(result.body, { status: result.status, headers: { "Cache-Control": "no-store", ...headers, ...result.headers } })
+      }
+      return NextResponse.json(result, { headers: { "Cache-Control": "no-store", ...headers } })
     } catch (error) {
       return v1ErrorFrom(error, headers)
     }
@@ -117,7 +129,7 @@ export async function resolveV1ProjectActor(principal: ApiPrincipal, projectId: 
 }
 
 export function v1ProjectRoute<P extends { projectId: string }>(
-  handler: (ctx: V1ProjectContext<P>) => Promise<object>
+  handler: (ctx: V1ProjectContext<P>) => Promise<object | V1Reply>
 ): V1Handler<P> {
   return v1Route<P>(async (ctx) => {
     const { projectId } = ctx.params

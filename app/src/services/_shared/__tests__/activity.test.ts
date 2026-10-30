@@ -114,6 +114,22 @@ describe("logActivity", () => {
     expect(publishAfterCommit).toHaveBeenCalledWith({ type: "activity", projectId: "p1", entityType: "pbi", entityId: "b1", action: "status_change", actorId: "u1" })
   })
 
+  it("tags changes made through an access token with meta.via, keeping existing meta", async () => {
+    const db = fakeDb()
+    await act.logActivity(db.client, {
+      projectId: "p1",
+      entityType: "sprint_task",
+      entityId: "t1",
+      action: "status_change",
+      actor: { ...ACTOR, via: "api" },
+      diff: { changes: { status: { from: "todo", to: "done" } }, meta: { sprintId: "s1" } },
+    })
+    const stored = JSON.parse(db.fn("activityLog.create").mock.calls[0][0].data.diff)
+    expect(stored.meta).toEqual({ sprintId: "s1", via: "api" })
+    expect(act.withVia(undefined, { ...ACTOR, via: "api" })).toEqual({ meta: { via: "api" } })
+    expect(act.withVia({ label: "x" }, ACTOR)).toEqual({ label: "x" })
+  })
+
   it("a system actor publishes without actorId; a failed write publishes nothing", async () => {
     const db = fakeDb()
     await act.logActivity(db.client, { projectId: "p1", entityType: "sprint", entityId: "s", action: "update", actor: { userId: "", userName: "GitLab", systemRole: "member" } })
