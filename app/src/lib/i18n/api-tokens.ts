@@ -12,6 +12,12 @@ export interface ApiTokensTranslations {
   apiTokenUsageAuth: string
   apiTokenUsageExample: string
   apiTokenUsageEndpoints: string
+  /** /me: connecting Claude Code to the Kanflow MCP (`/api/mcp`) with the agent-model setup script. */
+  apiTokenUsageMcpUrl: string
+  apiTokenUsageScopes: string
+  apiTokenUsageMcpSetup: string
+  apiTokenUsageMcpAfter: string
+  apiTokenUsageNeverPaste: string
   apiTokenDisabled: string
   apiTokenName: string
   apiTokenNamePlaceholder: string
@@ -76,9 +82,14 @@ export const ja: ApiTokensTranslations = {
   apiTokenSectionHint: "REST API（/api/v1）や Claude Code（Kanflow MCP）から Kanflow を使うためのトークンです。あなたの権限で動くので、第三者に渡さないでください。",
   apiTokenDocsLink: "API の使い方",
   apiTokenUsageBaseUrl: "ベース URL",
-  apiTokenUsageAuth: "発行したトークンを Authorization ヘッダーに付けて呼び出します（読み取り専用・JSON）。",
+  apiTokenUsageAuth: "トークンを Authorization ヘッダー（Bearer）に付けて呼び出します。応答は JSON です。読み取りはどのトークンでもでき、書き込み（PBI・スプリント・タスク・コメントなど）はトークンのスコープと、そのプロジェクトでのあなたの役割の両方が許す範囲だけ行えます。",
   apiTokenUsageExample: "例: 閲覧できるプロジェクトの一覧を取得",
-  apiTokenUsageEndpoints: "主なエンドポイント: /me、/projects、/projects/{id}/backlog、/projects/{id}/sprints、/projects/{id}/plan",
+  apiTokenUsageEndpoints: "主なエンドポイント: 読み取り — /me、/projects、/projects/{id}/backlog、/projects/{id}/sprints、/projects/{id}/plan。書き込み — /projects/{id}/backlog、/projects/{id}/sprints、/projects/{id}/sprints/{sprintId}/tasks、/projects/{id}/comments など（POST / PATCH。削除はできません）",
+  apiTokenUsageMcpUrl: "Claude Code（MCP）の接続先 URL",
+  apiTokenUsageScopes: "Claude Code で開発する Developer は「Developer 向け」プリセット、PBI やスプリントも Claude Code から扱う PO / SM は「PO / SM 向け（すべて）」で発行してください。特定のプロジェクトだけで使うなら「選んだプロジェクトだけ」に限定できます。",
+  apiTokenUsageMcpSetup: "エージェントモデルのリポジトリで次のコマンドを実行し、表示された入力欄にトークンを貼り付けます（入力内容は画面に表示されません）。",
+  apiTokenUsageMcpAfter: "設定したら Claude Code を再起動し、/kanflow status で接続を確認します。Claude Code で /kanflow setup と入力すると、この手順を対話で案内します。",
+  apiTokenUsageNeverPaste: "トークンを Claude Code のチャットや、リポジトリ内のファイルに貼り付けないでください。貼ってしまったときは、すぐにここで失効して発行し直してください。",
   apiTokenDisabled: "このサーバーではアクセストークンが無効になっています（管理者にお問い合わせください）。",
   apiTokenName: "名前",
   apiTokenNamePlaceholder: "例: 週次レポート用スクリプト",
@@ -142,9 +153,14 @@ export const en: ApiTokensTranslations = {
   apiTokenSectionHint: "Tokens let the REST API (/api/v1) and Claude Code (Kanflow MCP) use Kanflow. A token acts with your rights, so never share it.",
   apiTokenDocsLink: "How to use the API",
   apiTokenUsageBaseUrl: "Base URL",
-  apiTokenUsageAuth: "Send the token in the Authorization header (read-only, JSON responses).",
+  apiTokenUsageAuth: "Send the token in the Authorization header (Bearer); responses are JSON. Any token can read. Writes (PBIs, sprints, tasks, comments, ...) work only as far as both the token's scopes and your role in the project allow.",
   apiTokenUsageExample: "Example: list the projects you can see",
-  apiTokenUsageEndpoints: "Main endpoints: /me, /projects, /projects/{id}/backlog, /projects/{id}/sprints, /projects/{id}/plan",
+  apiTokenUsageEndpoints: "Main endpoints: read — /me, /projects, /projects/{id}/backlog, /projects/{id}/sprints, /projects/{id}/plan. Write — /projects/{id}/backlog, /projects/{id}/sprints, /projects/{id}/sprints/{sprintId}/tasks, /projects/{id}/comments and more (POST / PATCH; nothing can be deleted).",
+  apiTokenUsageMcpUrl: "Claude Code (MCP) server URL",
+  apiTokenUsageScopes: "Developers working in Claude Code: create the token with the \"For developers\" preset. PO / SM who also manage PBIs and sprints from Claude Code: use \"For PO / SM (all)\". To use it in some projects only, choose \"Selected projects only\".",
+  apiTokenUsageMcpSetup: "In the agent-model repository, run the command below and paste the token at its prompt (what you type stays hidden).",
+  apiTokenUsageMcpAfter: "Then restart Claude Code and check the connection with /kanflow status. Typing /kanflow setup in Claude Code walks you through these steps.",
+  apiTokenUsageNeverPaste: "Never paste the token into the Claude Code chat or into a file in a repository. If that happens, revoke it here at once and create a new one.",
   apiTokenDisabled: "Access tokens are disabled on this server (ask an administrator).",
   apiTokenName: "Name",
   apiTokenNamePlaceholder: "e.g. weekly report script",
@@ -208,9 +224,14 @@ export const id: ApiTokensTranslations = {
   apiTokenSectionHint: "Token dipakai REST API (/api/v1) dan Claude Code (Kanflow MCP) untuk menggunakan Kanflow. Token bertindak dengan hak Anda, jadi jangan dibagikan.",
   apiTokenDocsLink: "Cara menggunakan API",
   apiTokenUsageBaseUrl: "URL dasar",
-  apiTokenUsageAuth: "Kirim token di header Authorization (hanya baca, respons JSON).",
+  apiTokenUsageAuth: "Kirim token di header Authorization (Bearer); responsnya berupa JSON. Semua token dapat membaca. Penulisan (PBI, sprint, tugas, komentar, dll.) hanya bisa dilakukan sejauh cakupan token dan peran Anda di proyek tersebut sama-sama mengizinkannya.",
   apiTokenUsageExample: "Contoh: ambil daftar proyek yang dapat Anda lihat",
-  apiTokenUsageEndpoints: "Endpoint utama: /me, /projects, /projects/{id}/backlog, /projects/{id}/sprints, /projects/{id}/plan",
+  apiTokenUsageEndpoints: "Endpoint utama: baca — /me, /projects, /projects/{id}/backlog, /projects/{id}/sprints, /projects/{id}/plan. Tulis — /projects/{id}/backlog, /projects/{id}/sprints, /projects/{id}/sprints/{sprintId}/tasks, /projects/{id}/comments, dan lainnya (POST / PATCH; tidak ada yang bisa dihapus).",
+  apiTokenUsageMcpUrl: "URL server Claude Code (MCP)",
+  apiTokenUsageScopes: "Developer yang bekerja di Claude Code: buat token dengan preset \"Untuk developer\". PO / SM yang juga mengelola PBI dan sprint dari Claude Code: gunakan \"Untuk PO / SM (semua)\". Agar token hanya dipakai di proyek tertentu, pilih \"Hanya proyek yang dipilih\".",
+  apiTokenUsageMcpSetup: "Di repositori agent model, jalankan perintah di bawah, lalu tempelkan token pada prompt yang muncul (yang Anda ketik tidak ditampilkan).",
+  apiTokenUsageMcpAfter: "Setelah itu, mulai ulang Claude Code dan periksa koneksinya dengan /kanflow status. Ketik /kanflow setup di Claude Code untuk dipandu langkah demi langkah.",
+  apiTokenUsageNeverPaste: "Jangan pernah menempelkan token ke chat Claude Code atau ke file di dalam repositori. Jika telanjur, segera cabut token itu di sini dan buat yang baru.",
   apiTokenDisabled: "Token akses dinonaktifkan di server ini (hubungi administrator).",
   apiTokenName: "Nama",
   apiTokenNamePlaceholder: "mis. skrip laporan mingguan",
