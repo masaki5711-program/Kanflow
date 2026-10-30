@@ -136,6 +136,9 @@ Body: JSON, validated by the **same schema as the UI API** and executed by the
 same service (same rules, notifications and activity log). Response:
 `{ "data": <the created / updated object as the UI API returns it> }`.
 Changes are recorded in the activity log with `meta.via = "api"`.
+The Kanflow MCP server (`/api/mcp`, see [mcp.md](mcp.md)) runs the same
+operations (`app/src/app/api/v1/_lib/v1-handlers.ts`) through the same write
+path (`runV1Write`); its changes carry `meta.via = "mcp"`.
 
 | Method & path (under `/api/v1/projects/:projectId`) | Scope | Roles | Body |
 |---|---|---|---|

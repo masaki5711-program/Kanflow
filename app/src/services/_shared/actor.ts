@@ -11,8 +11,8 @@ export interface Actor {
   userName: string | null
   /** User.role ("admin" | "section_manager" | "member"). */
   systemRole: string
-  /** Set when the call came through a personal access token (REST API / Kanflow MCP); recorded in the activity log. */
-  via?: "api"
+  /** Set when the call came through a personal access token: "api" = REST API, "mcp" = Kanflow MCP (/api/mcp); recorded in the activity log. */
+  via?: "api" | "mcp"
 }
 
 export function actorFromSession(session: Session): Actor {

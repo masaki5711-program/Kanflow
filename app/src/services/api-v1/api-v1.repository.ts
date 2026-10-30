@@ -218,3 +218,74 @@ export function findPbi(db: Db, projectId: string, ref: { id: string } | { displ
 export function findUserName(db: Db, userId: string) {
   return db.user.findUnique({ where: { id: userId }, select: { name: true } })
 }
+
+// ------------------------------------------------ Kanflow MCP (/api/mcp) lookups
+
+/** Project of a live PBI (MCP tools that start from a PBI id). */
+export function findPbiProjectId(db: Db, id: string) {
+  return db.productBacklogItem.findFirst({ where: notDeleted({ id }), select: { projectId: true } })
+}
+
+/** Project of a sprint. */
+export function findSprintProjectId(db: Db, id: string) {
+  return db.sprint.findFirst({ where: { id }, select: { projectId: true } })
+}
+
+/** Sprint and project of a task (placeholders and tasks of trashed PBIs are not tasks). */
+export function findTaskLocation(db: Db, id: string) {
+  return db.sprintBacklogItem.findFirst({
+    where: { id, taskName: { not: null }, ...LIVE_PBI },
+    select: { sprintId: true, sprint: { select: { projectId: true } } },
+  })
+}
+
+/** Project of a live Icebox item. */
+export function findIceboxProjectId(db: Db, id: string) {
+  return db.iceboxItem.findFirst({ where: notDeleted({ id }), select: { projectId: true } })
+}
+
+/** Upper bound of projects one repository URL may resolve to. */
+export const V1_REPOSITORY_MATCH_LIMIT = 50
+
+/** Registered GitLab repositories at this location, in live projects. */
+export function findRepositoriesAt(db: Db, apiBase: string, repoPath: string) {
+  return db.gitRepository.findMany({
+    where: { apiBase, repoPath, project: { deletedAt: null } },
+    select: { projectId: true, name: true, webUrl: true, project: { select: { name: true } } },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    take: V1_REPOSITORY_MATCH_LIMIT,
+  })
+}
+
+/** Upper bound of "my tasks" in one answer. */
+export const V1_MY_TASKS_LIMIT = 200
+/** Sprints whose tasks count as current work. */
+export const OPEN_SPRINT_STATUSES = ["planning", "active", "review"] as const
+
+/** Tasks assigned to the user in open sprints of the given projects. */
+export function findMyTasks(db: Db, userId: string, projectIds: string[], includeDone: boolean) {
+  return db.sprintBacklogItem.findMany({
+    where: {
+      assignees: { some: { userId } },
+      taskName: { not: null },
+      ...LIVE_PBI,
+      ...(includeDone ? {} : { status: { not: "done" } }),
+      sprint: { projectId: { in: projectIds }, status: { in: [...OPEN_SPRINT_STATUSES] } },
+    },
+    select: {
+      id: true,
+      taskName: true,
+      status: true,
+      estimatedHours: true,
+      actualHours: true,
+      completedAt: true,
+      version: true,
+      createdAt: true,
+      updatedAt: true,
+      pbItem: { select: { id: true, displayId: true, initiative: true, userStory: true } },
+      sprint: { select: { id: true, sprintName: true, status: true, projectId: true } },
+    },
+    orderBy: OLDEST_FIRST,
+    take: V1_MY_TASKS_LIMIT,
+  })
+}

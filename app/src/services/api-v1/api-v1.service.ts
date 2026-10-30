@@ -127,6 +127,68 @@ export async function listReleases(projectId: string) {
   }
 }
 
+// ------------------------------------------------ Kanflow MCP (/api/mcp)
+
+export type V1EntityKind = "pbi" | "sprint" | "task" | "icebox"
+
+/**
+ * The project (and, for a task, the sprint) that holds an entity, or null
+ * when there is no such live entity. No access check: the caller MUST pass
+ * the project to resolveV1ProjectActor (token project restriction + role).
+ */
+export async function locateEntity(kind: V1EntityKind, id: string): Promise<{ projectId: string; sprintId?: string } | null> {
+  switch (kind) {
+    case "pbi":
+      return repo.findPbiProjectId(defaultDb, id)
+    case "sprint":
+      return repo.findSprintProjectId(defaultDb, id)
+    case "icebox":
+      return repo.findIceboxProjectId(defaultDb, id)
+    case "task": {
+      const row = await repo.findTaskLocation(defaultDb, id)
+      return row ? { projectId: row.sprint.projectId, sprintId: row.sprintId } : null
+    }
+  }
+}
+
+/**
+ * Pure: a git remote as `git remote get-url origin` prints it → the https
+ * form parseRepoUrl understands. `ssh://git@host:2222/g/r.git` and
+ * `git@host:g/r.git` become `https://host/g/r.git`; credentials embedded in
+ * an https remote (`https://user:token@host/...`) and http are dropped / upgraded.
+ * Only used to look up registered repositories (no request is made to it).
+ */
+export function normalizeRemoteUrl(raw: string): string {
+  const input = raw.trim()
+  if (!/^(ssh|https?):\/\//i.test(input)) return input
+  try {
+    const url = new URL(input)
+    return `https://${url.hostname}${url.pathname}`
+  } catch {
+    return input
+  }
+}
+
+/** Projects with a registered GitLab repository at `location` (no access check: see locateEntity). */
+export async function findProjectsByRepository(location: { apiBase: string; repoPath: string }) {
+  const rows = await repo.findRepositoriesAt(defaultDb, location.apiBase, location.repoPath)
+  return rows.map((r) => ({ projectId: r.projectId, projectName: r.project.name, repository: { name: r.name, webUrl: r.webUrl } }))
+}
+
+/** Tasks assigned to the user in open sprints (planning / active / review) of `projectIds`. */
+export async function listMyTasks(userId: string, projectIds: string[], includeDone: boolean) {
+  if (projectIds.length === 0) return { data: [] }
+  const rows = await repo.findMyTasks(defaultDb, userId, projectIds, includeDone)
+  return {
+    data: rows.map(({ pbItem, sprint, ...task }) => ({
+      ...isoDates(task),
+      projectId: sprint.projectId,
+      sprint: { id: sprint.id, name: sprint.sprintName, status: sprint.status },
+      pbi: { id: pbItem.id, displayId: pbItem.displayId, title: pbItem.initiative || pbItem.userStory?.slice(0, 120) || null },
+    })),
+  }
+}
+
 export async function listActivity(projectId: string, query: ProjectActivityQuery): Promise<V1Page<ActivityDto>> {
   const page = await listProjectActivity(projectId, query)
   return { data: page.items, nextCursor: page.nextCursor }

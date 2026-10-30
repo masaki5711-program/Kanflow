@@ -143,3 +143,53 @@ describe("plan, releases, activity", () => {
     expect(out).toEqual({ data: [{ id: "a1" }], nextCursor: "c2" })
   })
 })
+
+describe("Kanflow MCP helpers", () => {
+  it("locateEntity: project of a PBI / sprint / Icebox item, project and sprint of a task, null when missing", async () => {
+    vi.mocked(repo.findPbiProjectId).mockResolvedValue({ projectId: "p1" })
+    vi.mocked(repo.findSprintProjectId).mockResolvedValue({ projectId: "p2" })
+    vi.mocked(repo.findIceboxProjectId).mockResolvedValue(null)
+    vi.mocked(repo.findTaskLocation).mockResolvedValue({ sprintId: "s1", sprint: { projectId: "p3" } })
+    expect(await v1.locateEntity("pbi", "b1")).toEqual({ projectId: "p1" })
+    expect(await v1.locateEntity("sprint", "s1")).toEqual({ projectId: "p2" })
+    expect(await v1.locateEntity("icebox", "i1")).toBeNull()
+    expect(await v1.locateEntity("task", "k1")).toEqual({ projectId: "p3", sprintId: "s1" })
+    vi.mocked(repo.findTaskLocation).mockResolvedValue(null)
+    expect(await v1.locateEntity("task", "k2")).toBeNull()
+  })
+
+  it("normalizeRemoteUrl: ssh:// and credentials / ports dropped, http upgraded, scp form untouched", () => {
+    const host = "gitlab.example.com"
+    expect(v1.normalizeRemoteUrl(`ssh://git@${host}:2222/g/r.git`)).toBe(`https://${host}/g/r.git`)
+    expect(v1.normalizeRemoteUrl(`https://oauth2:secret@${host}/g/r.git`)).toBe(`https://${host}/g/r.git`)
+    expect(v1.normalizeRemoteUrl(`http://${host}/g/r`)).toBe(`https://${host}/g/r`)
+    expect(v1.normalizeRemoteUrl(` git@${host}:g/r.git `)).toBe(`git@${host}:g/r.git`)
+  })
+
+  it("findProjectsByRepository flattens the rows", async () => {
+    vi.mocked(repo.findRepositoriesAt).mockResolvedValue([{ projectId: "p1", name: "API", webUrl: "https://h/g/r", project: { name: "Kanflow" } }])
+    expect(await v1.findProjectsByRepository({ apiBase: "https://h", repoPath: "g/r" })).toEqual([
+      { projectId: "p1", projectName: "Kanflow", repository: { name: "API", webUrl: "https://h/g/r" } },
+    ])
+    expect(repo.findRepositoriesAt).toHaveBeenCalledWith(DEFAULT_DB, "https://h", "g/r")
+  })
+
+  it("listMyTasks: no projects → no query; rows carry project, sprint and PBI title", async () => {
+    expect(await v1.listMyTasks("u1", [], false)).toEqual({ data: [] })
+    expect(repo.findMyTasks).not.toHaveBeenCalled()
+    vi.mocked(repo.findMyTasks).mockResolvedValue([
+      {
+        id: "k1", taskName: "API", status: "todo", estimatedHours: 2, actualHours: null, completedAt: null, version: 1, createdAt: T, updatedAt: T,
+        pbItem: { id: "b1", displayId: 12, initiative: null, userStory: "As a dev I want X" },
+        sprint: { id: "s1", sprintName: "S1", status: "active", projectId: "p1" },
+      },
+    ])
+    const out = await v1.listMyTasks("u1", ["p1"], true)
+    expect(repo.findMyTasks).toHaveBeenCalledWith(DEFAULT_DB, "u1", ["p1"], true)
+    expect(out.data[0]).toMatchObject({
+      id: "k1", projectId: "p1", createdAt: T.toISOString(),
+      sprint: { id: "s1", name: "S1", status: "active" },
+      pbi: { id: "b1", displayId: 12, title: "As a dev I want X" },
+    })
+  })
+})

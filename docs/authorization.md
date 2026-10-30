@@ -237,7 +237,7 @@ bodies are size-bounded (413). Editing a template never changes plans already lo
 
 ## REST API and access tokens (P4, 2026-10; scopes 2026-10-30)
 
-`/api/v1/**` (docs/api-v1.md) authenticates **only** with a personal access token (`Authorization: Bearer kfl_...`); session cookies are ignored there, and tokens are not accepted anywhere else. Wrapper: `src/app/api/v1/_lib/v1-route.ts`.
+`/api/v1/**` (docs/api-v1.md) and the Kanflow MCP endpoint `/api/mcp` (docs/mcp.md) authenticate **only** with a personal access token (`Authorization: Bearer kfl_...`); session cookies are ignored there, and tokens are not accepted anywhere else. Wrapper: `src/app/api/v1/_lib/v1-route.ts`; the MCP tools reuse `resolveV1ProjectActor`, `assertV1Action` and `runV1Write` (`src/app/api/mcp/_lib/tool-kit.ts`), so the rules below apply to both.
 
 - **Actor**: the token's owner, with `User.role` read from the database (never from the token). The token is refused (401, same body for every reason) when it is unknown, revoked, expired, the owner is deactivated or deleted, or the owner's `tokenVersion` differs from the one pinned on the token at creation (`ApiToken.userTokenVersion`, checked with `checkTokenAgainstUser` from `lib/authz/session-validity.ts`).
 - **Projects**: the same actor resolution as the UI (`loadProjectActor` + `isProjectLive`); every v1 endpoint needs `project.view`. No path into the project, a missing or trashed project → 404 (admins included for trashed ones). There is no 403 per project (every route is read-only).

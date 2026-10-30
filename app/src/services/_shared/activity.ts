@@ -261,7 +261,7 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
-/** Pure: marks a change made through an access token (`meta.via = "api"`), so the feed can tell AI / script edits apart. */
+/** Pure: marks a change made through an access token (`meta.via = "api"` REST / `"mcp"` MCP), so the feed can tell AI / script edits apart. */
 export function withVia(diff: ActivityDiff | null | undefined, actor: Actor | null): ActivityDiff | null | undefined {
   if (!actor?.via) return diff
   return { ...diff, meta: { ...diff?.meta, via: actor.via } }

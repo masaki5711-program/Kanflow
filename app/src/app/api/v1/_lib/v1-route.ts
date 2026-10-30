@@ -77,14 +77,31 @@ function zodMessage(error: ZodError): string {
  */
 const V1_EXTRA_CODES: ReadonlySet<ApiErrorCode> = new Set<ApiErrorCode>(["INSUFFICIENT_SCOPE"])
 
-/** Any thrown error → `{ error, code }` (details only for expected errors). */
-export function v1ErrorFrom(error: unknown, headers: Record<string, string>): NextResponse {
+/** The v1 error body (`{ error, code, ...allowlisted extra }`) and its HTTP status. */
+export interface V1ErrorBody {
+  status: number
+  body: { error: string; code: ApiErrorCode } & Record<string, unknown>
+}
+
+/**
+ * Any thrown error → status + `{ error, code }` (details only for expected
+ * errors). Unexpected errors are logged here, once, and answer a bare
+ * `INTERNAL` (no message, no stack). Shared by the REST routes and the MCP tools.
+ */
+export function v1ErrorBody(error: unknown, logContext: Record<string, unknown> = {}): V1ErrorBody {
   if (isServiceError(error)) {
-    return v1ErrorResponse(error.status, error.message, error.code, headers, V1_EXTRA_CODES.has(error.code) ? error.extra : {})
+    const extra = V1_EXTRA_CODES.has(error.code) ? error.extra : {}
+    return { status: error.status, body: { ...extra, error: error.message, code: error.code } }
   }
-  if (error instanceof ZodError) return v1ErrorResponse(400, zodMessage(error), "VALIDATION", headers)
-  log.error("v1 request failed", { error: error instanceof Error ? error.message : String(error) })
-  return v1ErrorResponse(500, "Internal error", "INTERNAL", headers)
+  if (error instanceof ZodError) return { status: 400, body: { error: zodMessage(error), code: "VALIDATION" } }
+  log.error("v1 request failed", { ...logContext, error: error instanceof Error ? error.message : String(error) })
+  return { status: 500, body: { error: "Internal error", code: "INTERNAL" } }
+}
+
+/** Any thrown error → `{ error, code }` response (see v1ErrorBody). */
+export function v1ErrorFrom(error: unknown, headers: Record<string, string>): NextResponse {
+  const { status, body } = v1ErrorBody(error)
+  return NextResponse.json(body, { status, headers: { "Cache-Control": "no-store", ...headers } })
 }
 
 export function v1Route<P extends Record<string, string> = Record<string, never>>(

@@ -1,28 +1,34 @@
 import crypto from "node:crypto"
 import { loadApiTokenConfig } from "@/lib/api-tokens/config"
-import type { ProjectAction } from "@/lib/authz"
+import type { ProjectAction, ProjectActor } from "@/lib/authz"
 import { getRateLimiter } from "@/lib/rate-limit"
 import type { Actor } from "@/services/_shared/actor"
 import { ConflictError, StatusError } from "@/services/_shared/errors"
+import type { ApiPrincipal } from "@/services/api-tokens/api-token-auth"
 import { loadApiActor } from "@/services/api-v1/api-v1.service"
 import { assertV1Action, V1Reply, v1ProjectRoute, type V1Handler, type V1ProjectContext } from "./v1-route"
 
 /**
- * Write routes of /api/v1 (docs/api-v1.md "Writes"), used by scripts and the
- * Kanflow MCP server. On top of v1ProjectRoute (token, project access,
- * project restriction):
+ * Write routes of /api/v1 (docs/api-v1.md "Writes") and the write tools of
+ * the Kanflow MCP server (/api/mcp, docs/mcp.md). Both go through
+ * `runV1Write`, which does not depend on a Request. On top of the project
+ * resolution (token, project access, project restriction —
+ * resolveV1ProjectActor, done by the caller):
  *
  * 1. `assertV1Action`: the token scope AND the owner's project role
  *    (403 INSUFFICIENT_SCOPE / FORBIDDEN).
  * 2. Write budget per token (`API_V1_WRITE_RATE_LIMIT_PER_MIN`, 429).
- * 3. JSON body (400 INVALID_JSON); the handler validates it with the same
- *    schema as the UI route and calls the same service, so validation,
+ * 3. Body (REST: JSON, 400 INVALID_JSON); the handler validates it with the
+ *    same schema as the UI route and calls the same service, so validation,
  *    notifications and the activity log are identical. The service actor
- *    carries `via: "api"`, which the activity log records.
- * 4. Optional `Idempotency-Key` header on creates: a retry with the same key
- *    and body gets the first response again (`Idempotent-Replayed: true`)
- *    instead of a duplicate; the same key with another body is 409.
- *    Kept in memory per web process for IDEMPOTENCY_TTL_MS.
+ *    carries `via: "api"` (REST) or `via: "mcp"` (MCP tools), which the
+ *    activity log records as `meta.via`.
+ * 4. Idempotency on creates: REST honours an optional `Idempotency-Key`
+ *    header, MCP passes a key per tool call (docs/mcp.md). A retry with the
+ *    same key and body gets the first response again (`Idempotent-Replayed:
+ *    true`) instead of a duplicate; the same key with another body is 409.
+ *    Kept in memory per web process for IDEMPOTENCY_TTL_MS (or the shorter
+ *    TTL the caller sets).
  */
 
 const MINUTE_MS = 60_000
@@ -40,6 +46,31 @@ export interface V1WriteContext<P> extends V1ProjectContext<P> {
 interface WriteOptions {
   /** Honour `Idempotency-Key` (creates). */
   idempotent?: boolean
+}
+
+/** Idempotency of one write call: `scope` separates surfaces / endpoints, `key` is the caller's key. */
+export interface V1IdempotencyKey {
+  scope: string
+  key: string
+  /** Defaults to IDEMPOTENCY_TTL_MS. */
+  ttlMs?: number
+}
+
+/** One write, independent of how it arrived (REST request or MCP tool call). */
+export interface V1WriteCall {
+  principal: ApiPrincipal
+  /** The token owner's actor, from resolveV1ProjectActor. */
+  actor: ProjectActor
+  action: ProjectAction
+  /** Success status unless the handler returns its own V1Reply. */
+  status: number
+  /** Read lazily so a refused write never parses its body. */
+  readBody: () => Promise<unknown>
+  /** null / absent = no idempotency. */
+  idempotency?: V1IdempotencyKey | null
+  /** Recorded in the activity log as meta.via; absent = "api". */
+  via?: "mcp"
+  handler: (body: unknown, serviceActor: Actor) => Promise<object | V1Reply>
 }
 
 interface IdempotencyEntry {
@@ -93,12 +124,68 @@ async function readJson(request: Request): Promise<unknown> {
   }
 }
 
+/** Pure: JSON with object keys sorted, so a retry that only reorders keys is the same request. */
+export function canonicalJson(value: unknown): string {
+  return JSON.stringify(value ?? null, (_key, v: unknown) =>
+    v && typeof v === "object" && !Array.isArray(v)
+      ? Object.fromEntries(Object.entries(v as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+      : v
+  )
+}
+
 function fingerprintOf(body: unknown): string {
-  return crypto.createHash("sha256").update(JSON.stringify(body ?? null)).digest("hex")
+  return crypto.createHash("sha256").update(canonicalJson(body)).digest("hex")
 }
 
 function asReply(result: object | V1Reply, status: number): V1Reply {
   return result instanceof V1Reply ? result : new V1Reply(result, status)
+}
+
+/**
+ * The shared write path (see the file comment): scope ∩ role, write budget,
+ * body, idempotency, then the handler with the token owner's service actor.
+ */
+export async function runV1Write(call: V1WriteCall): Promise<V1Reply> {
+  assertV1Action(call.principal, call.actor, call.action)
+  const limited = writeBudget(call.principal.tokenId)
+  if (limited) return limited
+
+  const body = await call.readBody()
+  const run = async () => {
+    const apiActor = await loadApiActor(call.principal)
+    const serviceActor: Actor = call.via ? { ...apiActor, via: call.via } : apiActor
+    return asReply(await call.handler(body, serviceActor), call.status)
+  }
+
+  const idem = call.idempotency
+  if (!idem) return run()
+  if (!IDEMPOTENCY_KEY_PATTERN.test(idem.key)) {
+    throw new StatusError(400, "Invalid Idempotency-Key (1-200 visible ASCII characters)", {}, "VALIDATION")
+  }
+
+  const store = idempotencyStore()
+  const now = Date.now()
+  const storeKey = `${call.principal.tokenId}\n${idem.scope}\n${idem.key}`
+  const fingerprint = fingerprintOf(body)
+  const existing = store.get(storeKey)
+  if (existing && existing.expiresAt > now) {
+    if (existing.fingerprint !== fingerprint) throw new ConflictError("Idempotency-Key was used with a different request")
+    const first = await existing.reply
+    return new V1Reply(first.body, first.status, { ...first.headers, "Idempotent-Replayed": "true" })
+  }
+
+  pruneExpired(store, now)
+  const reply = run()
+  store.set(storeKey, { fingerprint, expiresAt: now + (idem.ttlMs ?? IDEMPOTENCY_TTL_MS), reply })
+  try {
+    const result = await reply
+    // Only successes are replayed; a failed attempt may be retried with the same key.
+    if (result.status >= 300) store.delete(storeKey)
+    return result
+  } catch (error) {
+    store.delete(storeKey)
+    throw error
+  }
 }
 
 /**
@@ -112,44 +199,15 @@ export function v1ProjectWrite<P extends { projectId: string }>(
   options: WriteOptions = {}
 ): V1Handler<P> {
   return v1ProjectRoute<P>(async (ctx) => {
-    assertV1Action(ctx.principal, ctx.actor, action)
-    const limited = writeBudget(ctx.principal.tokenId)
-    if (limited) return limited
-
-    const body = await readJson(ctx.request)
-    const run = async () => {
-      const serviceActor = await loadApiActor(ctx.principal)
-      return asReply(await handler({ ...ctx, body, serviceActor }), status)
-    }
-
     const key = options.idempotent ? ctx.request.headers.get("idempotency-key") : null
-    if (key === null) return run()
-    if (!IDEMPOTENCY_KEY_PATTERN.test(key)) {
-      throw new StatusError(400, "Invalid Idempotency-Key (1-200 visible ASCII characters)", {}, "VALIDATION")
-    }
-
-    const store = idempotencyStore()
-    const now = Date.now()
-    const storeKey = `${ctx.principal.tokenId}\n${ctx.request.method}\n${new URL(ctx.request.url).pathname}\n${key}`
-    const fingerprint = fingerprintOf(body)
-    const existing = store.get(storeKey)
-    if (existing && existing.expiresAt > now) {
-      if (existing.fingerprint !== fingerprint) throw new ConflictError("Idempotency-Key was used with a different request")
-      const first = await existing.reply
-      return new V1Reply(first.body, first.status, { ...first.headers, "Idempotent-Replayed": "true" })
-    }
-
-    pruneExpired(store, now)
-    const reply = run()
-    store.set(storeKey, { fingerprint, expiresAt: now + IDEMPOTENCY_TTL_MS, reply })
-    try {
-      const result = await reply
-      // Only successes are replayed; a failed attempt may be retried with the same key.
-      if (result.status >= 300) store.delete(storeKey)
-      return result
-    } catch (error) {
-      store.delete(storeKey)
-      throw error
-    }
+    return runV1Write({
+      principal: ctx.principal,
+      actor: ctx.actor,
+      action,
+      status,
+      readBody: () => readJson(ctx.request),
+      idempotency: key === null ? null : { scope: `${ctx.request.method}\n${new URL(ctx.request.url).pathname}`, key },
+      handler: (body, serviceActor) => handler({ ...ctx, body, serviceActor }),
+    })
   })
 }

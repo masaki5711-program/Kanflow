@@ -1,7 +1,6 @@
-import { createBacklogItemSchema } from "@/services/backlog/backlog.schemas"
-import { createBacklogItem } from "@/services/backlog/backlog.service"
 import { v1BacklogQuerySchema } from "@/services/api-v1/api-v1.schemas"
 import { listBacklog } from "@/services/api-v1/api-v1.service"
+import { createPbiOp } from "../../../_lib/v1-handlers"
 import { v1ProjectRoute } from "../../../_lib/v1-route"
 import { v1ProjectWrite } from "../../../_lib/v1-write"
 
@@ -11,11 +10,4 @@ export const GET = v1ProjectRoute<{ projectId: string }>(async ({ projectId, que
 )
 
 /** POST /api/v1/projects/:projectId/backlog — create a PBI (`backlog:write`; PO / SM). Idempotency-Key honoured. */
-export const POST = v1ProjectWrite<{ projectId: string }>(
-  "backlog.write",
-  201,
-  async ({ projectId, body, serviceActor }) => ({
-    data: await createBacklogItem(projectId, createBacklogItemSchema.parse(body), serviceActor),
-  }),
-  { idempotent: true }
-)
+export const POST = v1ProjectWrite<{ projectId: string }>("backlog.write", 201, createPbiOp, { idempotent: true })
