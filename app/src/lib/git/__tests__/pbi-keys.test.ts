@@ -30,6 +30,26 @@ describe("extractPbiNumbers", () => {
     expect(extractPbiNumbers("PBI-1 mentioned here", null, undefined, "and PBI-2 here")).toEqual([1, 2])
   })
 
+  it("accepts a '#' before the number, with or without a separator (PBI #43, PBI#43)", () => {
+    expect(extractPbiNumbers("fix: keep precision (PBI #43)")).toEqual([43])
+    expect(extractPbiNumbers("PBI#43")).toEqual([43])
+  })
+
+  it("finds keys in GitLab-style branch names with a layer prefix", () => {
+    expect(extractPbiNumbers("fix/L2-pbi-43-e1-until-precision")).toEqual([43])
+    expect(extractPbiNumbers("feat/L3-PBI-34-spc")).toEqual([34])
+    expect(extractPbiNumbers("x_PBI_7")).toEqual([7])
+  })
+
+  it("reads the whole number (pbi-430 is 430, not 43)", () => {
+    expect(extractPbiNumbers("pbi-430")).toEqual([430])
+  })
+
+  it("does not match inside a word or across a spaced dash", () => {
+    expect(extractPbiNumbers("epbi-4")).toEqual([])
+    expect(extractPbiNumbers("PBI - 43")).toEqual([])
+  })
+
   it("returns an empty array when nothing matches or all inputs are nullish", () => {
     expect(extractPbiNumbers()).toEqual([])
     expect(extractPbiNumbers(null, undefined, "")).toEqual([])
