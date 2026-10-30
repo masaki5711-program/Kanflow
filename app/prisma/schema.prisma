@@ -1249,47 +1249,67 @@ model GitIntegration {
 /// One GitLab repository of a project (a project may have several: front end,
 /// API, edge ...). Polled by lib/git/poller (GitLab cannot reach the LAN, so no webhooks).
 model GitRepository {
-  id             String      @id @default(cuid())
-  projectId      String
+  id                String       @id @default(cuid())
+  projectId         String
   /// Display name ("API", "フロント").
-  name           String      @db.VarChar(100)
+  name              String       @db.VarChar(100)
   /// https://host/group/repo as entered (normalised, no .git).
-  webUrl         String      @db.VarChar(1024)
+  webUrl            String       @db.VarChar(1024)
   /// https://host — the API base.
-  apiBase        String      @db.VarChar(255)
+  apiBase           String       @db.VarChar(255)
   /// group/sub/repo
-  repoPath       String      @db.VarChar(512)
+  repoPath          String       @db.VarChar(512)
   /// GitLab numeric project id (resolved on the connection test).
-  externalId     Int?
+  externalId        Int?
   /// Optional per-repository token (overrides the integration token).
-  tokenCipher    String?     @db.Text
-  tokenHint      String?     @db.VarChar(8)
-  /// Last successful sync and the watermark the next one asks from.
-  syncedAt       DateTime?
-  syncCursor     DateTime?
-  lastError      String?     @db.VarChar(500)
-  lastErrorAt    DateTime?
-  sortOrder      Int         @default(0)
+  tokenCipher       String?      @db.Text
+  tokenHint         String?      @db.VarChar(8)
+  /// Last successful sync.
+  syncedAt          DateTime?
+  /// DEPRECATED (one release): the old single watermark. Still written (earlier of the
+  /// two cursors below) so a rollback keeps working; read only as a fallback.
+  syncCursor        DateTime?
+  /// Merge request cursor (GitLab time): every MR updated before mrCursorAt was read,
+  /// plus the first mrCursorSeen (GitLab order) updated exactly at mrCursorAt (tie-breaker).
+  mrCursorAt        DateTime?
+  mrCursorSeen      Int?
+  /// Commit cursor: the next commit window starts at commitCursorAt and is
+  /// commitWindowSec wide (shrinks when cut off, grows when not); commitSkips =
+  /// consecutive windows skipped because even the smallest window was cut off.
+  commitCursorAt    DateTime?
+  commitWindowSec   Int?
+  commitSkips       Int?
+  /// Look-back re-read of older commits (late pushes; 過去分を再同期): position and window
+  /// of a pass in progress (null = none), and when the last pass started.
+  lookbackCursorAt  DateTime?
+  lookbackWindowSec Int?
+  lookbackAt        DateTime?
+  /// Bumped by 過去分を再同期: a sync writes its cursors only while the generation it
+  /// started with is unchanged, so a sync already running cannot undo a resync.
+  syncGeneration    Int?         @default(0)
+  lastError         String?      @db.VarChar(500)
+  lastErrorAt       DateTime?
+  sortOrder         Int          @default(0)
   /// "AI の参照資料として使う": the repository's documents / code are indexed
   /// into repo_chunk and searchable by the project AI chat (PO / SM switch).
-  aiKnowledge    Boolean     @default(false)
+  aiKnowledge       Boolean      @default(false)
   /// Optional folder prefixes to index (comma / newline separated, e.g. "docs/"); null = whole repository.
-  aiPathFilter   String?     @db.VarChar(1000)
+  aiPathFilter      String?      @db.VarChar(1000)
   /// Commit the index reflects, when it was completed and how many files it holds.
-  indexedSha     String?     @db.VarChar(64)
-  indexedAt      DateTime?
-  indexedFiles   Int         @default(0)
+  indexedSha        String?      @db.VarChar(64)
+  indexedAt         DateTime?
+  indexedFiles      Int          @default(0)
   /// A pass in progress (resumed on the next poller tick): target commit and last finished path.
-  indexTargetSha String?     @db.VarChar(64)
-  indexCursor    String?     @db.VarChar(512)
-  indexError     String?     @db.VarChar(500)
-  indexErrorAt   DateTime?
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @updatedAt
-  project        Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  links          GitLink[]
-  releases       GitRelease[]
-  chunks         RepoChunk[]
+  indexTargetSha    String?      @db.VarChar(64)
+  indexCursor       String?      @db.VarChar(512)
+  indexError        String?      @db.VarChar(500)
+  indexErrorAt      DateTime?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  project           Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  links             GitLink[]
+  releases          GitRelease[]
+  chunks            RepoChunk[]
 
   @@index([projectId])
   @@map("git_repository")
@@ -1344,6 +1364,9 @@ model GitLink {
   /// When it last changed on GitLab (MR updated_at, commit date, branch head date).
   occurredAt    DateTime
   mergedAt      DateTime?
+  /// Branch links only: when the branch was no longer in GitLab's (complete) branch list.
+  /// Kept (shown as 削除済み on the PBI) instead of deleted; cleared if the branch comes back.
+  goneAt        DateTime?
   createdAt     DateTime           @default(now())
   updatedAt     DateTime           @updatedAt
   project       Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)

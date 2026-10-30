@@ -44,6 +44,10 @@ describe("git-format", () => {
   it("parses responses defensively", () => {
     expect(toPanel(null)).toEqual({ enabled: false })
     expect(toPanel({ enabled: true, links: [{ id: "x" }, link({ kind: "mr" })] }).links).toHaveLength(1)
+    expect(toPanel({ enabled: true, links: [link({ kind: "branch", goneAt: "2026-10-02T00:00:00.000Z" }), { ...link({ kind: "branch" }), goneAt: 5 }] }).links!.map((l) => l.goneAt)).toEqual([
+      "2026-10-02T00:00:00.000Z",
+      null,
+    ])
     expect(toSummaries({ enabled: true, summaries: { a: { openMrs: "2" }, b: null } })).toEqual({
       enabled: true,
       summaries: { a: { openMrs: 0, mergedMrs: 0, branches: 0, pipeline: null } },

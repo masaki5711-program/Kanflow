@@ -1,9 +1,9 @@
 "use client"
 
 import { useState, type FormEvent } from "react"
-import { ExternalLink, Pencil, Trash2 } from "lucide-react"
+import { ExternalLink, History, Pencil, Trash2 } from "lucide-react"
 import { Badge, Button, Field, IconButton, Input, useConfirm } from "@/components/ui"
-import { apiFetch, useApiMutation } from "@/hooks"
+import { apiFetch, isApiError, useApiMutation } from "@/hooks"
 import { useLanguage } from "@/lib/language-context"
 import { fillTemplate } from "@/lib/fill-template"
 import { serverErrorText, type GitRepositoryDto } from "../git/git-labels"
@@ -82,6 +82,22 @@ function RepositoryRow({ projectId, repo, now, canConfigure, onChanged }: RowPro
     void rename.mutate(next)
   }
 
+  const resync = useApiMutation(() => apiFetch(`${url}/resync`, { method: "POST" }), {
+    onSuccess: onChanged,
+    toastOnSuccess: t.gitSetResyncStarted,
+    toastOnError: (e) => (isApiError(e) && e.status === 429 ? t.gitSetResyncTooSoon : serverErrorText(e, t.gitSetResyncFailed)),
+  })
+
+  /** 過去分を再同期: re-read the last 90 days (e.g. after the PBI key rules changed); confirmed first. */
+  async function confirmResync() {
+    const ok = await confirm({
+      title: fillTemplate(t.gitSetResyncTitle, { name: repo.name }),
+      message: t.gitSetResyncMessage,
+      confirmLabel: t.gitSetResyncConfirm,
+    })
+    if (ok) void resync.mutate(undefined)
+  }
+
   async function confirmRemove() {
     const ok = await confirm({
       title: fillTemplate(t.gitSetRepoRemoveTitle, { name: repo.name }),
@@ -132,6 +148,19 @@ function RepositoryRow({ projectId, repo, now, canConfigure, onChanged }: RowPro
           <span className="sr-only">{t.gitOpenInGitLab}</span>
         </a>
         <RepoSyncStatus repo={repo} now={now} />
+        {canConfigure && (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            loading={resync.isPending}
+            leftIcon={<History aria-hidden="true" className="h-4 w-4" />}
+            aria-label={fillTemplate(t.gitSetResyncOf, { name: repo.name })}
+            onClick={() => void confirmResync()}
+          >
+            {t.gitSetResync}
+          </Button>
+        )}
         <GitKnowledgeControls projectId={projectId} repo={repo} now={now} canConfigure={canConfigure} onChanged={onChanged} />
       </div>
       {canConfigure && !renaming && (

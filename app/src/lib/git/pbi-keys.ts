@@ -1,9 +1,11 @@
 /**
  * PBI keys in Git text (pure). A merge request title, branch name or commit
- * message refers to a PBI with its number: "PBI-123", "pbi_123", "PBI 123" or
- * "PBI123" (case-insensitive), e.g. branch feature/PBI-123-login-form.
+ * message refers to a PBI with its number: "PBI-123", "pbi_123", "PBI 123",
+ * "PBI123", "PBI #123" or "PBI#123" (case-insensitive), e.g. branch
+ * feature/PBI-123-login-form or fix/L2-pbi-43-e1-until-precision.
+ * At most one separator, then an optional '#': "PBI - 43" is not a key.
  */
-const KEY_RE = /(?<![a-z0-9])pbi[-_ ]?(\d{1,7})(?![0-9])/gi
+const KEY_RE = /(?<![a-z0-9])pbi[-_ ]?#?(\d{1,7})(?![0-9])/gi
 
 /** Distinct PBI numbers mentioned in the texts, in first-seen order. */
 export function extractPbiNumbers(...texts: Array<string | null | undefined>): number[] {

@@ -48,6 +48,14 @@ export interface GitTranslations {
   gitSetRepoRemoved: string
   gitSetRepoRenamed: string
   gitSetRepoUpdateFailed: string
+  gitSetResync: string
+  gitSetResyncOf: string
+  gitSetResyncTitle: string
+  gitSetResyncMessage: string
+  gitSetResyncConfirm: string
+  gitSetResyncStarted: string
+  gitSetResyncTooSoon: string
+  gitSetResyncFailed: string
   gitSetAddTitle: string
   gitSetAddName: string
   gitSetAddNamePlaceholder: string
@@ -153,6 +161,14 @@ export const ja: GitTranslations = {
   gitSetRepoRemoved: "リポジトリを削除しました",
   gitSetRepoRenamed: "名前を変更しました",
   gitSetRepoUpdateFailed: "リポジトリを更新できませんでした",
+  gitSetResync: "過去分を再同期",
+  gitSetResyncOf: "「{name}」の過去 90 日分を再同期",
+  gitSetResyncTitle: "「{name}」の過去 90 日分を再同期しますか？",
+  gitSetResyncMessage: "過去 90 日のマージリクエストとコミットを GitLab から読み直し、取りこぼしたひも付けを追加します（すでにあるひも付けはそのままです）。数回の自動同期に分けて進むため、終わるまで数十分かかることがあります。",
+  gitSetResyncConfirm: "再同期する",
+  gitSetResyncStarted: "再同期を始めました。数回の自動同期で過去 90 日分を読み直します",
+  gitSetResyncTooSoon: "少し前に再同期を始めたばかりです。10 分ほど待ってからもう一度お試しください",
+  gitSetResyncFailed: "再同期を開始できませんでした",
   gitSetAddTitle: "リポジトリを追加",
   gitSetAddName: "表示名",
   gitSetAddNamePlaceholder: "例: 生産管理 API",
@@ -258,6 +274,14 @@ export const en: GitTranslations = {
   gitSetRepoRemoved: "Repository removed",
   gitSetRepoRenamed: "Renamed",
   gitSetRepoUpdateFailed: "Could not update the repository",
+  gitSetResync: "Resync history",
+  gitSetResyncOf: "Resync the last 90 days of “{name}”",
+  gitSetResyncTitle: "Resync the last 90 days of “{name}”?",
+  gitSetResyncMessage: "Merge requests and commits of the last 90 days are read from GitLab again and missing links are added (existing links stay as they are). It runs over several automatic syncs and can take some tens of minutes.",
+  gitSetResyncConfirm: "Resync",
+  gitSetResyncStarted: "Resync started. The next automatic syncs re-read the last 90 days",
+  gitSetResyncTooSoon: "A resync was started a moment ago. Please wait about 10 minutes and try again",
+  gitSetResyncFailed: "Could not start the resync",
   gitSetAddTitle: "Add a repository",
   gitSetAddName: "Display name",
   gitSetAddNamePlaceholder: "e.g. Production API",
@@ -363,6 +387,14 @@ export const id: GitTranslations = {
   gitSetRepoRemoved: "Repositori dihapus",
   gitSetRepoRenamed: "Nama diubah",
   gitSetRepoUpdateFailed: "Repositori tidak dapat diperbarui",
+  gitSetResync: "Sinkronkan ulang riwayat",
+  gitSetResyncOf: "Sinkronkan ulang 90 hari terakhir “{name}”",
+  gitSetResyncTitle: "Sinkronkan ulang 90 hari terakhir “{name}”?",
+  gitSetResyncMessage: "Merge request dan commit 90 hari terakhir dibaca ulang dari GitLab dan tautan yang terlewat ditambahkan (tautan yang sudah ada tetap). Proses berjalan dalam beberapa sinkronisasi otomatis dan dapat memakan waktu puluhan menit.",
+  gitSetResyncConfirm: "Sinkronkan ulang",
+  gitSetResyncStarted: "Sinkronisasi ulang dimulai. Sinkronisasi otomatis berikutnya membaca ulang 90 hari terakhir",
+  gitSetResyncTooSoon: "Sinkronisasi ulang baru saja dimulai. Tunggu sekitar 10 menit lalu coba lagi",
+  gitSetResyncFailed: "Sinkronisasi ulang tidak dapat dimulai",
   gitSetAddTitle: "Tambah repositori",
   gitSetAddName: "Nama tampilan",
   gitSetAddNamePlaceholder: "mis. API Produksi",

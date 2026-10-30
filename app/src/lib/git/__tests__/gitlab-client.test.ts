@@ -95,16 +95,30 @@ describe("createGitLabClient — pagination", () => {
       .mockResolvedValueOnce(jsonResponse([{ iid: 2 }], 200, {}))
     const client = createGitLabClient({ apiBase: API_BASE, token: TOKEN, fetchImpl })
     const result = await client.listBranches(1, "pbi")
-    expect(result).toEqual([{ iid: 1 }, { iid: 2 }])
+    expect(result).toEqual({ items: [{ iid: 1 }, { iid: 2 }], truncated: false, pages: 2 })
     expect(fetchImpl).toHaveBeenCalledTimes(2)
   })
 
-  it("stops at maxPages even when the server reports more pages (picked up by the next sync)", async () => {
+  it("stops at maxPages even when the server reports more pages, and says the branch list was truncated", async () => {
     const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse([{ iid: 1 }], 200, { "x-next-page": "99" }))
     const client = createGitLabClient({ apiBase: API_BASE, token: TOKEN, fetchImpl })
     const result = await client.listBranches(1, "pbi", 3)
-    expect(result).toHaveLength(3)
+    expect(result.items).toHaveLength(3)
+    expect(result.truncated).toBe(true)
     expect(fetchImpl).toHaveBeenCalledTimes(3)
+  })
+
+  it("paged reports truncation at the page cap", async () => {
+    const more = vi.fn<typeof fetch>(async () => jsonResponse([{ id: "a" }], 200, { "x-next-page": "99" }))
+    const cut = await createGitLabClient({ apiBase: API_BASE, token: TOKEN, fetchImpl: more }).listCommits(1, new Date(0), undefined, 2)
+    expect(cut).toEqual({ items: [{ id: "a" }, { id: "a" }], truncated: true, pages: 2 })
+
+    const last = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse([{ id: "a" }], 200, { "x-next-page": "2" }))
+      .mockResolvedValueOnce(jsonResponse([{ id: "b" }], 200, {}))
+    const whole = await createGitLabClient({ apiBase: API_BASE, token: TOKEN, fetchImpl: last }).listCommits(1, new Date(0), undefined, 2)
+    expect(whole).toEqual({ items: [{ id: "a" }, { id: "b" }], truncated: false, pages: 2 })
   })
 
   it("treats a non-numeric or zero x-next-page as 'no more pages'", async () => {
@@ -126,11 +140,11 @@ describe("createGitLabClient — pagination", () => {
 })
 
 describe("createGitLabClient — endpoint query shapes", () => {
-  it("listMergeRequests requests scope=all, state=all, sort=asc by updated_at, and updated_after", async () => {
+  it("listMergeRequestPage requests scope=all, state=all, sort=asc by updated_at, updated_after and one page", async () => {
     const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse([]))
     const client = createGitLabClient({ apiBase: API_BASE, token: TOKEN, fetchImpl })
     const since = new Date("2026-01-01T00:00:00.000Z")
-    await client.listMergeRequests(5, since)
+    await client.listMergeRequestPage(5, { updatedAfter: since })
     const url = new URL(String(fetchImpl.mock.calls[0][0]))
     expect(url.pathname).toBe("/api/v4/projects/5/merge_requests")
     expect(url.searchParams.get("scope")).toBe("all")
@@ -138,6 +152,27 @@ describe("createGitLabClient — endpoint query shapes", () => {
     expect(url.searchParams.get("order_by")).toBe("updated_at")
     expect(url.searchParams.get("sort")).toBe("asc")
     expect(url.searchParams.get("updated_after")).toBe(since.toISOString())
+    expect(url.searchParams.get("page")).toBe("1")
+    expect(url.searchParams.get("per_page")).toBe("100")
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+
+  it("listMergeRequestPage passes page / per_page (clamped to 1..100) and reports hasMore and GitLab's clock", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse([{ iid: 3 }], 200, { "x-next-page": "4", date: "Thu, 01 Oct 2026 00:00:07 GMT" }))
+    const client = createGitLabClient({ apiBase: API_BASE, token: TOKEN, fetchImpl })
+    const r = await client.listMergeRequestPage(5, { updatedAfter: new Date(0), page: 3, perPage: 250 })
+    expect(r).toEqual({ items: [{ iid: 3 }], hasMore: true, serverTime: new Date("2026-10-01T00:00:07.000Z") })
+    const url = new URL(String(fetchImpl.mock.calls[0][0]))
+    expect(url.searchParams.get("page")).toBe("3")
+    expect(url.searchParams.get("per_page")).toBe("100")
+
+    const plain = vi.fn<typeof fetch>(async () => jsonResponse([], 200, { date: "not a date" }))
+    expect(await createGitLabClient({ apiBase: API_BASE, token: TOKEN, fetchImpl: plain }).listMergeRequestPage(5, { updatedAfter: new Date(0), perPage: 40 })).toEqual({
+      items: [],
+      hasMore: false,
+      serverTime: null,
+    })
+    expect(new URL(String(plain.mock.calls[0][0])).searchParams.get("per_page")).toBe("40")
   })
 
   it("listCommits requests since (ISO) and all=true", async () => {
@@ -149,6 +184,18 @@ describe("createGitLabClient — endpoint query shapes", () => {
     expect(url.pathname).toBe("/api/v4/projects/5/repository/commits")
     expect(url.searchParams.get("since")).toBe(since.toISOString())
     expect(url.searchParams.get("all")).toBe("true")
+    expect(url.searchParams.has("until")).toBe(false)
+  })
+
+  it("listCommits bounds the window with until when given", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse([]))
+    const client = createGitLabClient({ apiBase: API_BASE, token: TOKEN, fetchImpl })
+    const since = new Date("2026-02-02T00:00:00.000Z")
+    const until = new Date("2026-02-03T00:00:00.000Z")
+    expect(await client.listCommits(5, since, until)).toEqual({ items: [], truncated: false, pages: 1 })
+    const url = new URL(String(fetchImpl.mock.calls[0][0]))
+    expect(url.searchParams.get("since")).toBe(since.toISOString())
+    expect(url.searchParams.get("until")).toBe(until.toISOString())
   })
 
   it("getMergeRequestPipeline reads head_pipeline.status", async () => {

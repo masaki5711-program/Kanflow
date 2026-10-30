@@ -405,6 +405,31 @@ describe("getPbiGitPanel", () => {
     expect(panel.hasRepositories).toBe(true)
     expect(panel.links).toHaveLength(1)
     expect(panel.links![0].occurredAt).toBe("2026-09-01T00:00:00.000Z")
+    expect(panel.links![0].goneAt).toBeNull()
+  })
+
+  it("keeps a deleted branch on the panel with the time it disappeared (shown as 削除済み)", async () => {
+    gitIntegrationFindUnique.mockResolvedValue({ enabled: true })
+    productBacklogItemFindFirst.mockResolvedValue({ displayId: 7, initiative: null, epic: null })
+    gitLinkFindMany.mockResolvedValue([
+      {
+        id: "l2",
+        kind: "branch",
+        ref: "feature/PBI-7-x",
+        title: "feature/PBI-7-x",
+        url: "u",
+        state: null,
+        pipeline: null,
+        author: null,
+        sourceBranch: null,
+        occurredAt: new Date("2026-09-01T00:00:00Z"),
+        mergedAt: null,
+        goneAt: new Date("2026-09-10T00:00:00Z"),
+        repository: { id: "r1", name: "API" },
+      },
+    ])
+    const panel = await svc.getPbiGitPanel(PROJECT_ID, "b1")
+    expect(panel.links![0]).toMatchObject({ kind: "branch", goneAt: "2026-09-10T00:00:00.000Z" })
   })
 })
 
@@ -484,6 +509,47 @@ describe("getGitSummaries", () => {
     const { summaries } = await svc.getGitSummaries(PROJECT_ID, ["b1", "b2"])
     expect(summaries.b1).toEqual({ openMrs: 1, mergedMrs: 0, branches: 1, pipeline: null })
     expect(summaries.b2).toEqual({ openMrs: 0, mergedMrs: 1, branches: 0, pipeline: null })
+  })
+
+  it("the card badge ignores links of deleted branches (goneAt set)", async () => {
+    gitIntegrationFindUnique.mockResolvedValue({ enabled: true })
+    await svc.getGitSummaries(PROJECT_ID, ["b1"])
+    expect(gitLinkFindMany.mock.calls[0][0].where).toEqual({ projectId: PROJECT_ID, backlogItemId: { in: ["b1"] }, kind: { in: ["mr", "branch"] }, goneAt: null })
+  })
+})
+
+describe("resyncRepository (過去分を再同期)", () => {
+  const NOW = new Date("2026-10-01T00:00:00.000Z")
+
+  it("restarts the merge request cursor and a commit look-back 90 days back, and logs who asked", async () => {
+    gitRepositoryFindFirst.mockResolvedValue({ id: "repo-1", name: "API", syncCursor: null, mrCursorAt: NOW, mrCursorSeen: 2, commitCursorAt: NOW, commitWindowSec: 600, commitSkips: 4, syncGeneration: 3 })
+    await svc.resyncRepository(PROJECT_ID, "repo-1", ACTOR, NOW)
+    expect(gitRepositoryFindFirst).toHaveBeenCalledWith({ where: { id: "repo-1", projectId: PROJECT_ID } })
+    const from = new Date(NOW.getTime() - 90 * 86_400_000)
+    expect(gitRepositoryUpdate).toHaveBeenCalledWith({
+      where: { id: "repo-1" },
+      data: expect.objectContaining({ mrCursorAt: from, mrCursorSeen: 0, commitCursorAt: NOW, commitWindowSec: 600, commitSkips: 0, lookbackCursorAt: from, lookbackAt: NOW, syncGeneration: { increment: 1 } }),
+    })
+    expect(logActivityMock).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ diff: { changes: { "git.resync": { from: null, to: "API (90d)" } } } }))
+  })
+
+  it("bumps a missing generation to 1 (a sync that started before cannot write its cursors back)", async () => {
+    gitRepositoryFindFirst.mockResolvedValue({ id: "repo-1", name: "API", syncCursor: null, syncGeneration: null })
+    await svc.resyncRepository(PROJECT_ID, "repo-1", ACTOR, NOW)
+    expect(gitRepositoryUpdate.mock.calls[0][0].data.syncGeneration).toBe(1)
+  })
+
+  it("isProjectRepository checks the repository belongs to the project", async () => {
+    gitRepositoryFindFirst.mockResolvedValueOnce({ id: "repo-1" }).mockResolvedValueOnce(null)
+    expect(await svc.isProjectRepository(PROJECT_ID, "repo-1")).toBe(true)
+    expect(await svc.isProjectRepository(PROJECT_ID, "other")).toBe(false)
+    expect(gitRepositoryFindFirst).toHaveBeenCalledWith({ where: { id: "repo-1", projectId: PROJECT_ID }, select: { id: true } })
+  })
+
+  it("404 for a repository of another project, changing nothing", async () => {
+    gitRepositoryFindFirst.mockResolvedValue(null)
+    await expect(svc.resyncRepository(PROJECT_ID, "other", ACTOR, NOW)).rejects.toMatchObject({ status: 404 })
+    expect(gitRepositoryUpdate).not.toHaveBeenCalled()
   })
 })
 

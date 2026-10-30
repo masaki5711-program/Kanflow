@@ -8,6 +8,7 @@ import { NotFoundError, ValidationError } from "@/services/_shared/errors"
 import { logActivity, type ActivityChanges } from "@/services/_shared/activity"
 import type { Actor } from "@/services/_shared/actor"
 import { FORBIDDEN_MESSAGE, syncErrorMessage } from "./git-sync"
+import { cursorsFromRow, cursorsToRow, resetForResync, RESYNC_DAYS } from "./git-sync-cursors"
 import { aiPathFilterField, knowledgePatch, toKnowledgeDto, type RepositoryKnowledgeDto } from "./repo-knowledge.service"
 
 /**
@@ -251,6 +252,38 @@ export async function removeRepository(projectId: string, repositoryId: string, 
   await logActivity(prisma, { projectId, entityType: "project", entityId: projectId, action: "update", actor, diff: { changes: { "git.repository": { from: `${repo.name} (${repo.repoPath})`, to: null } } } })
 }
 
+/** True when the repository belongs to the project (checked before a rate limit is keyed by it). */
+export async function isProjectRepository(projectId: string, repositoryId: string): Promise<boolean> {
+  return !!(await prisma.gitRepository.findFirst({ where: { id: repositoryId, projectId }, select: { id: true } }))
+}
+
+/**
+ * 過去分を再同期: the next syncs re-read the last 90 days (merge requests from
+ * 90 days back, commits by a look-back pass), bounded per sync and resumed, e.g.
+ * after the PBI key rules changed. Links are written idempotently, so what is
+ * already linked is only re-read. The caller rate-limits and may sync at once.
+ */
+export async function resyncRepository(projectId: string, repositoryId: string, actor: Actor, now = new Date()): Promise<void> {
+  const repo = await prisma.gitRepository.findFirst({ where: { id: repositoryId, projectId } })
+  if (!repo) throw new NotFoundError("Repository not found")
+  await prisma.gitRepository.update({
+    where: { id: repositoryId },
+    data: {
+      ...cursorsToRow(resetForResync(cursorsFromRow(repo, now), now)),
+      // A sync running right now started with the old generation and will not write its cursors back.
+      syncGeneration: repo.syncGeneration === null ? 1 : { increment: 1 },
+    },
+  })
+  await logActivity(prisma, {
+    projectId,
+    entityType: "project",
+    entityId: projectId,
+    action: "update",
+    actor,
+    diff: { changes: { "git.resync": { from: null, to: `${repo.name} (${RESYNC_DAYS}d)` } } },
+  })
+}
+
 // ---------------------------------------------------------------- read models
 
 export interface GitLinkDto {
@@ -265,6 +298,8 @@ export interface GitLinkDto {
   sourceBranch: string | null
   occurredAt: string
   mergedAt: string | null
+  /** Branches: when the branch disappeared from GitLab (shown as 削除済み); null = live. */
+  goneAt: string | null
   repository: { id: string; name: string }
 }
 
@@ -292,6 +327,7 @@ function toLinkDto(l: LinkRow): GitLinkDto {
     sourceBranch: l.sourceBranch,
     occurredAt: l.occurredAt.toISOString(),
     mergedAt: l.mergedAt?.toISOString() ?? null,
+    goneAt: l.goneAt?.toISOString() ?? null,
     repository: l.repository,
   }
 }
@@ -348,7 +384,8 @@ export async function getGitSummaries(projectId: string, backlogItemIds: readonl
   const ids = [...new Set(backlogItemIds)].slice(0, 500)
   if (ids.length === 0) return { enabled: true, summaries: {} }
   const rows = await prisma.gitLink.findMany({
-    where: { projectId, backlogItemId: { in: ids }, kind: { in: ["mr", "branch"] } },
+    // A deleted branch stays on the PBI panel (削除済み) but no longer counts on the card badge.
+    where: { projectId, backlogItemId: { in: ids }, kind: { in: ["mr", "branch"] }, goneAt: null },
     select: { backlogItemId: true, kind: true, state: true, pipeline: true, occurredAt: true },
   })
   const grouped = new Map<string, Array<Pick<GitLinkDto, "kind" | "state" | "pipeline" | "occurredAt">>>()

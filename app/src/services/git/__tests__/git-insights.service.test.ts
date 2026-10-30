@@ -55,6 +55,8 @@ describe("getSprintGitInsights", () => {
     gitLinkFindMany.mockResolvedValue([openMr()])
     const out = await svc.getSprintGitInsights("p1", "s1", NOW)
     expect(out.hints).toEqual([expect.objectContaining({ kind: "start", action: "start", pbItemId: "b1", displayId: 1, title: "Title 1", taskCount: 1 })])
+    // A deleted branch (goneAt set) is history, not a sign of work.
+    expect(gitLinkFindMany.mock.calls[0][0].where).toMatchObject({ kind: { in: ["mr", "branch"] }, goneAt: null })
   })
 
   it("throws 404 for a sprint that is not in the project", async () => {

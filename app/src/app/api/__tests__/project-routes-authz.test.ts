@@ -195,6 +195,7 @@ const ROUTES: RouteCase[] = [
   { file: "git/repositories/route.ts", load: () => import("@/app/api/projects/[projectId]/git/repositories/route"), params: {} },
   { file: "git/repositories/[repoId]/route.ts", load: () => import("@/app/api/projects/[projectId]/git/repositories/[repoId]/route"), params: { repoId: "repo-1" } },
   { file: "git/repositories/[repoId]/index/route.ts", load: () => import("@/app/api/projects/[projectId]/git/repositories/[repoId]/index/route"), params: { repoId: "repo-1" } },
+  { file: "git/repositories/[repoId]/resync/route.ts", load: () => import("@/app/api/projects/[projectId]/git/repositories/[repoId]/resync/route"), params: { repoId: "repo-1" } },
   { file: "git/summary/route.ts", load: () => import("@/app/api/projects/[projectId]/git/summary/route"), params: {} },
   { file: "git/sync/route.ts", load: () => import("@/app/api/projects/[projectId]/git/sync/route"), params: {} },
   { file: "git/test/route.ts", load: () => import("@/app/api/projects/[projectId]/git/test/route"), params: {} },

@@ -85,6 +85,22 @@ describe("PbiDevPanel", () => {
     expect(mrLink).toHaveAccessibleName("!8 Login form を GitLab で開く（新しいタブ）")
   })
 
+  it("keeps a branch deleted in GitLab on the panel, marked 削除済み", async () => {
+    linksBody = panel({
+      links: [
+        link({ kind: "branch", ref: "feature/PBI-12-old", title: "feature/PBI-12-old", goneAt: "2026-10-02T03:00:00.000Z" }),
+        link({ kind: "branch", ref: "feature/PBI-12-new", title: "feature/PBI-12-new" }),
+      ],
+    })
+    renderPanel("ja")
+    const section = await screen.findByRole("region", { name: ja.gitDevTitle })
+    const rows = [...section.querySelectorAll('[data-git-link="branch"]')] as HTMLElement[]
+    const gone = rows.find((r) => r.textContent?.includes("feature/PBI-12-old"))!
+    const live = rows.find((r) => r.textContent?.includes("feature/PBI-12-new"))!
+    expect(within(gone).getByText(ja.gitDevBranchGone)).toBeInTheDocument()
+    expect(within(live).queryByText(ja.gitDevBranchGone)).not.toBeInTheDocument()
+  })
+
   it("shows the latest 5 commits per repository with a show-more button", async () => {
     linksBody = panel({
       links: Array.from({ length: 7 }, (_, i) => link({ kind: "commit", title: `Commit ${i}`, occurredAt: `2026-10-0${i + 1}T00:00:00Z` })),

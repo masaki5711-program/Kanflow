@@ -36,9 +36,11 @@ function Meta({ link }: { link: GitLinkDto }) {
 
 /** One MR / branch / commit: kind icon, link to GitLab (new tab), state, pipeline, author, time. */
 function LinkRow({ link }: { link: GitLinkDto }) {
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
   const Icon = KIND_ICON[link.kind] ?? KIND_ICON.commit
   const mr = link.kind === "mr" ? mrStateInfo(link.state, t) : null
+  // A branch deleted in GitLab stays listed (history of the PBI), marked 削除済み.
+  const gone = link.kind === "branch" && link.goneAt ? link.goneAt : null
   const text =
     link.kind === "mr" ? `!${link.ref} ${link.title}`
       : link.kind === "branch" ? link.ref
@@ -53,13 +55,18 @@ function LinkRow({ link }: { link: GitLinkDto }) {
       <div className="min-w-0 flex-1">
         <a href={link.url} target="_blank" rel="noopener noreferrer"
           aria-label={t.gitDevOpenInGitLab.replace("{title}", text)}
-          className={cn("block break-words text-body text-fg hover:text-primary-strong hover:underline", link.kind === "branch" && "font-mono")}>
+          className={cn("block break-words text-body text-fg hover:text-primary-strong hover:underline", link.kind === "branch" && "font-mono", gone && "text-fg-muted line-through")}>
           {link.kind === "commit" && <span className="mr-1 font-mono text-fg-muted">{link.ref.slice(0, 8)}</span>}
           {link.kind === "mr" && <span className="mr-1 font-mono text-fg-muted">!{link.ref}</span>}
           {link.kind === "branch" ? link.ref : link.title}
         </a>
         <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-caption text-fg-muted">
           {mr && <Badge tone={mr.tone} size="sm">{mr.label}</Badge>}
+          {gone && (
+            <span data-git-gone="" title={t.gitDevBranchGoneTitle.replace("{date}", formatDateTime(gone, language))}>
+              <Badge tone="neutral" size="sm">{t.gitDevBranchGone}</Badge>
+            </span>
+          )}
           {link.kind === "mr" && link.sourceBranch && <span className="max-w-full truncate font-mono" title={link.sourceBranch}>{link.sourceBranch}</span>}
           {link.pipeline && <PipelineStatus status={link.pipeline} />}
           {link.kind === "branch" && link.title && link.title !== link.ref && <span className="truncate">{link.title}</span>}
