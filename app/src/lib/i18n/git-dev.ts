@@ -20,6 +20,8 @@ export interface GitDevTranslations {
   gitDevLoadFailed: string
   gitDevSectionMrs: string
   gitDevSectionBranches: string
+  gitDevBranchGone: string
+  gitDevBranchGoneTitle: string
   gitDevSectionCommits: string
   gitDevMrOpened: string
   gitDevMrMerged: string
@@ -63,6 +65,8 @@ export const ja: GitDevTranslations = {
   gitDevLoadFailed: "開発情報を読み込めませんでした",
   gitDevSectionMrs: "マージリクエスト",
   gitDevSectionBranches: "ブランチ",
+  gitDevBranchGone: "削除済み",
+  gitDevBranchGoneTitle: "GitLab でこのブランチが削除されました（{date}）",
   gitDevSectionCommits: "コミット",
   gitDevMrOpened: "オープン",
   gitDevMrMerged: "マージ済み",
@@ -106,6 +110,8 @@ export const en: GitDevTranslations = {
   gitDevLoadFailed: "Could not load the development info",
   gitDevSectionMrs: "Merge requests",
   gitDevSectionBranches: "Branches",
+  gitDevBranchGone: "Deleted",
+  gitDevBranchGoneTitle: "This branch was deleted in GitLab ({date})",
   gitDevSectionCommits: "Commits",
   gitDevMrOpened: "Open",
   gitDevMrMerged: "Merged",
@@ -149,6 +155,8 @@ export const id: GitDevTranslations = {
   gitDevLoadFailed: "Info pengembangan tidak dapat dimuat",
   gitDevSectionMrs: "Merge request",
   gitDevSectionBranches: "Branch",
+  gitDevBranchGone: "Dihapus",
+  gitDevBranchGoneTitle: "Branch ini telah dihapus di GitLab ({date})",
   gitDevSectionCommits: "Commit",
   gitDevMrOpened: "Terbuka",
   gitDevMrMerged: "Sudah di-merge",

@@ -118,6 +118,22 @@ export interface Paged<T> {
   pages: number
 }
 
+/** One page of merge requests (the sync pages by its own cursor, see services/git/git-sync-cursors). */
+export interface MergeRequestPage {
+  items: GitLabMergeRequest[]
+  /** GitLab reported another page for the same query. */
+  hasMore: boolean
+  /** GitLab's clock (the response Date header), or null when absent / unparsable. */
+  serverTime: Date | null
+}
+
+/** Query of one merge request page: everything updated on or after `updatedAfter`, oldest change first. */
+export interface MergeRequestPageQuery {
+  updatedAfter: Date
+  page?: number
+  perPage?: number
+}
+
 export interface GitLabClientOptions {
   apiBase: string
   token: string
@@ -146,10 +162,11 @@ export function createGitLabClient({ apiBase, token, fetchImpl = fetch, timeoutM
     return res
   }
 
-  async function request<T>(path: string, query: Query = {}, ms = timeoutMs): Promise<{ data: T; nextPage: number | null }> {
+  async function request<T>(path: string, query: Query = {}, ms = timeoutMs): Promise<{ data: T; nextPage: number | null; serverTime: Date | null }> {
     const res = await send(path, query, "application/json", ms)
     const next = Number(res.headers.get("x-next-page"))
-    return { data: (await res.json()) as T, nextPage: Number.isFinite(next) && next > 0 ? next : null }
+    const date = new Date(res.headers.get("date") ?? Number.NaN)
+    return { data: (await res.json()) as T, nextPage: Number.isFinite(next) && next > 0 ? next : null, serverTime: Number.isNaN(date.getTime()) ? null : date }
   }
 
   /** Raw bytes, refused (without reading the rest) as soon as they exceed `maxBytes`. */
@@ -199,9 +216,23 @@ export function createGitLabClient({ apiBase, token, fetchImpl = fetch, timeoutM
 
   return {
     getProject: async (pathOrId: string | number) => (await request<GitLabProject>(project(pathOrId))).data,
-    /** Ascending by updated_at, so a truncated listing is complete up to its last item's updated_at. */
-    listMergeRequests: (id: number, updatedAfter: Date, maxPages = 5): Promise<Paged<GitLabMergeRequest>> =>
-      paged<GitLabMergeRequest>(`${project(id)}/merge_requests`, { scope: "all", state: "all", order_by: "updated_at", sort: "asc", updated_after: updatedAfter.toISOString() }, maxPages),
+    /**
+     * One page of merge requests updated on or after `updatedAfter` (GitLab: "on or after"),
+     * ascending by updated_at. Single pages so the sync can re-anchor every request at the
+     * last updated_at it saw (keyset by filter) instead of trusting offsets across pages.
+     */
+    listMergeRequestPage: async (id: number, { updatedAfter, page = 1, perPage = PER_PAGE }: MergeRequestPageQuery): Promise<MergeRequestPage> => {
+      const r = await request<GitLabMergeRequest[]>(`${project(id)}/merge_requests`, {
+        scope: "all",
+        state: "all",
+        order_by: "updated_at",
+        sort: "asc",
+        updated_after: updatedAfter.toISOString(),
+        per_page: Math.min(PER_PAGE, Math.max(1, Math.floor(perPage))),
+        page: Math.max(1, Math.floor(page)),
+      })
+      return { items: r.data, hasMore: r.nextPage !== null, serverTime: r.serverTime }
+    },
     getMergeRequestPipeline: async (id: number, iid: number): Promise<string | null> => {
       const mr = (await request<{ head_pipeline?: { status?: string } | null }>(`${project(id)}/merge_requests/${iid}`)).data
       return mr.head_pipeline?.status ?? null
@@ -218,7 +249,8 @@ export function createGitLabClient({ apiBase, token, fetchImpl = fetch, timeoutM
         throw err
       }
     },
-    listBranches: (id: number, search: string, maxPages = 3) => itemsOf(paged<GitLabBranch>(`${project(id)}/repository/branches`, { search }, maxPages)),
+    /** Branches whose name contains `search`; `truncated` = more than maxPages × 100, so the caller must not prune by it. */
+    listBranches: (id: number, search: string, maxPages = 3): Promise<Paged<GitLabBranch>> => paged<GitLabBranch>(`${project(id)}/repository/branches`, { search }, maxPages),
     /**
      * Commits of every branch committed in [since, until] (until omitted = up to now).
      * Newest first; with all=true the order is not strictly by date, so only an

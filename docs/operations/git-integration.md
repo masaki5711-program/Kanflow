@@ -14,8 +14,8 @@ nothing Git-related is shown (no sidebar entry, no panels, no badges).
 | Option マージで自動完了 | When **every** merge request of a PBI is merged, its in-progress tasks of the active sprint become done (activity log shows "GitLab") |
 
 **Linking rule:** a branch name, merge request title or commit message that
-contains the PBI number — `PBI-123`, `pbi_123`, `PBI 123` or `PBI123` — is
-linked to PBI #123 of that project. Suggested branch name: `feature/PBI-123-<title>`.
+contains the PBI number — `PBI-123`, `pbi_123`, `PBI 123`, `PBI123`, `PBI #123`
+or `PBI#123` — is linked to PBI #123 of that project. Suggested branch name: `feature/PBI-123-<title>`.
 Several repositories per project are supported (front end, API, edge …); links
 from all of them gather on the same PBI.
 
@@ -27,14 +27,75 @@ not possible** (checked 2026-10-02: route PP-21 → ISP → Google, no private
 link). Instead the web process polls:
 
 - every `GIT_SYNC_INTERVAL_SEC` (default 180 s), each repository of an enabled
-  project: merge requests and commits changed since the last sync (first sync:
+  project: merge requests and commits changed since their cursors (first sync:
   30 days back), plus the current branches containing "pbi";
-- one tick at a time (no overlap), repositories one after another;
+- one tick at a time (no overlap), repositories one after another; within a
+  repository the listings run one after another (merge requests, commits,
+  look-back, branches);
 - 今すぐ同期 on the Git page / PBI panel syncs a project immediately (at most
   once per 20 s per project).
 
-A failed sync keeps the watermark and stores a message on the repository
-(shown in settings and on the Git page); the next tick retries.
+**Branch and merge request links are the primary PBI signal.** Commits add
+detail, but GitLab finds a commit only by its own date (see the look-back
+below), so name the branch or the merge request after the PBI.
+
+### Cursors (one per listing)
+
+Each listing keeps its own position on `git_repository`, so a busy or failing
+listing never holds back the other:
+
+| Listing | Cursor | Per sync |
+|---|---|---|
+| Merge requests | `mrCursorAt` = GitLab's `updated_at` of the last merge request read (GitLab's clock, never Kanflow's) + `mrCursorSeen` = how many with exactly that `updated_at` were read (tie-breaker) | 1 overlap page (5 min before the cursor; catches changes that became visible late) + up to 5 pages of 100. Every page is anchored at the last `updated_at` seen, so an MR edited during the read cannot shift a page boundary; a tie of ≥ 100 MRs (bulk edit) is paged within the tie, re-reading 5 MRs for safety |
+| Commits | `commitCursorAt` = start of the next time window, `commitWindowSec` = its width | up to 4 windows of ≤ 3 pages. A window read completely moves the cursor and doubles the width (max 7 days); a cut-off window is retried at a quarter of the width (min 60 s). Windows end at GitLab's clock (response `Date` header); the cursor stays 10 min behind it, so the newest minutes are re-read every sync |
+| Look-back | `lookbackCursorAt` / `lookbackWindowSec` (pass in progress), `lookbackAt` (last start) | up to 3 windows; see below |
+| Branches | none (the whole list each sync) | 3 pages of 100 |
+
+Every listing either moves its cursor or narrows its window, and the width is
+stored, so a backlog (first sync of a busy repository, a large import) is
+worked off over several syncs and **never stalls**. Log line `git sync backlog`
+(info) shows the progress; `git sync stalled` (error) would mean the merge
+request cursor did not move during a whole sync (a bug — report it).
+
+**More than 300 commits in one minute** (a large rebase or import): the 60 s
+window that is still cut off is skipped — the 300 commits it returned are
+linked, the rest of that minute is not — and the sync moves on. Log line
+`git sync commit window skipped` (warn) with the window and the number of
+consecutive skips; from the 3rd skip in a row (`commitSkips`) it is logged as
+`git sync commit window skipped repeatedly` (error): the repository commits
+faster than the sync can read, so link by branch / merge request.
+
+**Late-pushed commits (look-back).** GitLab filters commits by their commit
+date, so a commit made days ago and pushed now lies in a window that was
+already read. Once a day per repository a look-back pass re-reads the last
+**14 days** of commits up to the commit cursor — one sprint, so a commit pushed
+by the end of the sprint it was made in is still linked. Writes are idempotent,
+so the re-read costs only the requests (typically 1–3 listings a day). Older
+late pushes are not found automatically; use 過去分を再同期.
+
+**Failures.** A failed request stops the sync (no further listing is started).
+What was read before it is written, and the cursor of that listing moves only
+up to the last page / window read completely; the other cursors stay as they
+were. The message is stored on the repository (settings and the Git page) and
+the next tick retries from there.
+
+**Deleted branches.** A branch that is no longer in GitLab's branch list keeps
+its link, marked gone (`git_link.goneAt`): the PBI panel shows it as
+削除済み, card badges and sprint suggestions ignore it, and it is live again if
+the branch reappears. Only a complete branch list marks anything: when the
+list is cut off (more than 300 "pbi" branches) nothing is marked and
+`git sync truncated` { kind: "branch" } is logged.
+
+### 過去分を再同期 (resync the last 90 days)
+
+チーム設定 → Git 連携 → repository → 「過去分を再同期」 (PO / SM / admin,
+`git.configure`; with confirmation; at most once per 10 min per repository).
+The merge request cursor restarts 90 days back and a look-back pass over the
+last 90 days of commits starts; new commits keep arriving meanwhile. One sync
+runs at once, the rest within the normal per-sync limits over the next syncs,
+so a busy repository takes some tens of minutes. Use it after the PBI key rules
+changed (e.g. `PBI #43` titles from before they were recognised) or after a
+long outage. The activity log records who started it (`git.resync`).
 
 ## Setting it up (PO / SM / admin)
 
@@ -120,13 +181,18 @@ retry with English terms when a Japanese search finds little).
 ## Data
 
 `git_integration` (switch, sealed token, option), `git_repository` (one row per
-repository: URL, GitLab id, watermark, last error; AI knowledge switch, folder
+repository: URL, GitLab id, sync cursors, last error; AI knowledge switch, folder
 filter, indexed commit / time / file count, in-progress cursor, index error),
-`git_link` (one row per merge request / branch / commit × PBI), `repo_chunk`
+`git_link` (one row per merge request / branch / commit × PBI; `goneAt` for
+deleted branches), `repo_chunk`
 (passages of AI knowledge repositories). Removing a repository removes its
 links and passages; turning the integration off keeps everything (it just stops
 syncing, hides the UI and the AI stops using the passages). Migrations
-`20261012000000_git_integration`, `20261016000000_repo_knowledge`.
+`20261012000000_git_integration`, `20261016000000_repo_knowledge`,
+`20261030120000_git_sync_cursors` (per-listing cursors seeded from the old
+`syncCursor`, `git_link.goneAt`). `syncCursor` is deprecated: still written
+(the earlier of the two cursors) for one release so a rollback re-reads rather
+than skips, then dropped.
 
 ## Troubleshooting
 
@@ -135,6 +201,8 @@ syncing, hides the UI and the AI stops using the passages). Migrations
 | "GitLab がトークンを拒否しました" | Token expired or lacks read_api / access to the repository |
 | "リポジトリが見つからない" | URL typo, or the token's group does not contain the repository |
 | Nothing linked | Branch / MR / commit really contains `PBI-<number>` of **this** project's PBI; wait one interval or press 今すぐ同期 |
+| Old merge requests / commits not linked (e.g. after the key rules changed, or a commit pushed long after it was made) | 過去分を再同期 on the repository (last 90 days) |
+| Log `git sync commit window skipped repeatedly` | More than 300 commits per minute for several minutes (imports, mass rebases); those commits are only partly linked — link by branch / merge request |
 | No sync at all | Log line "git sync poller started" at start-up; `GIT_SYNC` not `off` |
 | AI knowledge stays 取り込み待ち | The poller is off (`GIT_SYNC=off`, or `next dev` without `GIT_SYNC_IN_DEV=true`) — press 今すぐ取り込む |
 | A document is missing from AI answers | It is outside the folder filter, over the size cap, a secret / binary file, or an Office file whose text could not be extracted (log line "repository indexed" shows processed / skipped counts) |

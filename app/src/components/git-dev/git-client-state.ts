@@ -63,6 +63,7 @@ function toLink(raw: unknown): GitLinkDto[] {
     sourceBranch: str(raw.sourceBranch),
     occurredAt,
     mergedAt: str(raw.mergedAt),
+    goneAt: str(raw.goneAt),
     repository: { id: str(raw.repository.id) ?? "", name: str(raw.repository.name) ?? "" },
   }]
 }

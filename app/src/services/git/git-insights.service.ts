@@ -60,7 +60,8 @@ export async function getSprintGitInsights(projectId: string, sprintId: string, 
   if (!(await isGitEnabled(projectId))) return { enabled: false, hints: [] }
   const { pbis } = await loadSprintPbis(projectId, sprintId)
   const links = await prisma.gitLink.findMany({
-    where: { projectId, backlogItemId: { in: pbis.map((p) => p.id) }, kind: { in: ["mr", "branch"] } },
+    // A branch marked gone is history, not a sign of work in progress.
+    where: { projectId, backlogItemId: { in: pbis.map((p) => p.id) }, kind: { in: ["mr", "branch"] }, goneAt: null },
     select: { backlogItemId: true, kind: true, ref: true, title: true, url: true, state: true, pipeline: true, occurredAt: true },
   })
   const hints = pbis.flatMap((p) =>
