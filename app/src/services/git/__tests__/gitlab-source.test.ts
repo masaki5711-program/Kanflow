@@ -38,6 +38,7 @@ const connected = (client: FakeClient, connection = CONNECTION) => createGitLabS
 describeDevSourceContract("GitLab", () => ({
   kind: gitLabSourceKind,
   freshRow: {},
+  corruptRow: { mrCursorAt: new Date(Number.NaN), mrCursorSeen: 0, commitCursorAt: new Date(Number.NaN), commitWindowSec: 600 },
   healthy: () => connected(fakeClient()),
   failing: () => connected(fakeClient(true)),
   now: NOW,
@@ -68,9 +69,18 @@ describe("GitLab cursor (opaque to the sync, stored in the per-listing columns)"
     expect(decodeGitLabCursor(gitLabCursorCodec.fromRow({ syncCursor: legacy }, NOW))).toEqual(cursorsFromRow({ syncCursor: legacy }, NOW))
   })
 
-  it("restart is the 過去分を再同期 reset", () => {
-    const cursor = gitLabCursorCodec.fromRow(row, NOW)
-    expect(decodeGitLabCursor(gitLabCursorCodec.restart(cursor, NOW))).toEqual(resetForResync(cursorsFromRow(row, NOW), NOW))
+  it("restart is the 過去分を再同期 reset, computed from the columns", () => {
+    expect(gitLabCursorCodec.restart(row, NOW)).toEqual(cursorsToRow(resetForResync(cursorsFromRow(row, NOW), NOW)))
+  })
+
+  it("restart of a row with an unreadable commit position restarts commits 90 days back too", () => {
+    const columns = gitLabCursorCodec.restart({ commitCursorAt: new Date(Number.NaN), commitWindowSec: 600 }, NOW)
+    const from = new Date(NOW.getTime() - 90 * DAY)
+    expect(columns).toMatchObject({ mrCursorAt: from, commitCursorAt: from, commitSkips: 0, lookbackCursorAt: from, lookbackAt: NOW })
+  })
+
+  it("a stored date that is not a date is an InvalidCursorError, not a crash or a silent restart", () => {
+    expect(() => gitLabCursorCodec.fromRow({ mrCursorAt: new Date(Number.NaN) }, NOW)).toThrow(InvalidCursorError)
   })
 
   it.each([

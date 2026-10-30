@@ -3,6 +3,7 @@ import { open } from "@/lib/secret-box"
 import { GitLabError, type GitLabClient } from "@/lib/git/gitlab-client"
 import { logger } from "@/lib/logger"
 import { publishAfterCommit } from "@/lib/realtime/after-commit"
+import { readableProvider, UnsupportedProviderError } from "./git-provider"
 import { defaultClientFactory, syncErrorMessage, type ClientFactory } from "./gitlab-source"
 import { chunkFile } from "./repo-chunker"
 import { fileText } from "./repo-index-content"
@@ -65,6 +66,8 @@ export async function indexRepository(repositoryId: string, opts: IndexOptions =
   const integration = repo?.project.gitIntegration
   const base = { repositoryId, processed: 0, skipped: 0 }
   if (!repo || repo.project.deletedAt || !integration?.enabled || !repo.aiKnowledge) return { ...base, status: "disabled" }
+  // Only GitLab can be indexed: any other provider is never sent to GitLab (logged once per repository).
+  if (readableProvider(repositoryId, integration.provider, "index") !== "gitlab") return fail(repo, new UnsupportedProviderError(integration.provider).message)
   const sealed = repo.tokenCipher ?? integration.tokenCipher
   const token = sealed ? open(sealed) : null
   if (!token) return fail(repo, "アクセストークンが未設定か、読み取れません。設定画面で入れ直してください。")

@@ -65,7 +65,7 @@ export interface DevChanges {
   /** Where the next sync continues; never past anything not returned. */
   cursor: DevCursor
   /** Listings that failed (not logged by the source: the sync logs each once). */
-  failures: DevListingFailure[]
+  failures: readonly DevListingFailure[]
 }
 
 export interface DevBranchListing {
@@ -110,11 +110,19 @@ export interface DevSource {
 export type DevCursorColumns = object
 
 export interface DevCursorCodec {
-  /** The repository's stored position (a never-synced row gets the first-sync start). */
+  /**
+   * The repository's stored position (a never-synced row gets the first-sync
+   * start). Throws when the stored position cannot be read — never "start over".
+   */
   fromRow(row: object, now: Date): DevCursor
+  /** Throws for a cursor this source did not make. */
   toRow(cursor: DevCursor): DevCursorColumns
-  /** 過去分を再同期: the position that re-reads the last days again. */
-  restart(cursor: DevCursor, now: Date): DevCursor
+  /**
+   * 過去分を再同期: the columns that re-read the last days again. Works from the
+   * row alone and MUST succeed even when `fromRow` would throw (it is the escape
+   * hatch for a corrupt stored position); it never decodes a stored cursor.
+   */
+  restart(row: object, now: Date): DevCursorColumns
 }
 
 export interface DevConnection {

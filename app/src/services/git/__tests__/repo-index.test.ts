@@ -64,7 +64,7 @@ function repoRow(overrides: Record<string, unknown> = {}) {
     indexedAt: null,
     indexTargetSha: null,
     indexCursor: null,
-    project: { deletedAt: null, gitIntegration: { enabled: true, tokenCipher: "sealed" } },
+    project: { deletedAt: null, gitIntegration: { enabled: true, provider: "gitlab", tokenCipher: "sealed" } },
     ...overrides,
   }
 }
@@ -101,6 +101,17 @@ describe("indexRepository — guards", () => {
     expect((await run(fakeClient())).status).toBe("disabled")
     db.repo = repoRow({ project: { deletedAt: null, gitIntegration: { enabled: false, tokenCipher: "s" } } })
     expect((await run(fakeClient())).status).toBe("disabled")
+  })
+
+  it("never sends a provider Kanflow cannot read to GitLab: refused with the provider message, logged once", async () => {
+    db.repo = repoRow({ project: { deletedAt: null, gitIntegration: { enabled: true, provider: "gitstation", tokenCipher: "sealed" } } })
+    const client = fakeClient()
+    const factory = vi.fn(() => client)
+    const first = await indexRepository("r1", { factory: factory as never })
+    await indexRepository("r1", { factory: factory as never })
+    expect(first).toMatchObject({ status: "failed", error: expect.stringContaining("gitstation") })
+    expect(factory).not.toHaveBeenCalled()
+    expect(noopLog.error.mock.calls.filter((c) => c[0] === "git provider unsupported")).toEqual([["git provider unsupported", { repositoryId: "r1", provider: "gitstation", skipped: "index" }]])
   })
 
   it("costs one request when the branch did not move", async () => {
@@ -235,7 +246,7 @@ describe("indexRepository — errors", () => {
   })
 
   it("reports a missing token without calling GitLab", async () => {
-    db.repo = repoRow({ project: { deletedAt: null, gitIntegration: { enabled: true, tokenCipher: null } } })
+    db.repo = repoRow({ project: { deletedAt: null, gitIntegration: { enabled: true, provider: "gitlab", tokenCipher: null } } })
     const client = fakeClient()
     expect((await run(client)).status).toBe("failed")
     expect(client.latestCommitSha).not.toHaveBeenCalled()

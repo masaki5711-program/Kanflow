@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from "vitest"
 
+const noopLog = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), child: () => noopLog }
 vi.mock("@/lib/prisma", () => ({ prisma: {} }))
+vi.mock("@/lib/logger", () => ({ logger: noopLog }))
 
-const { assertOneSource, DEFAULT_GIT_PROVIDER, GIT_PROVIDERS, parseGitProvider, UnsupportedProviderError } = await import("../git-provider")
+const { assertOneSource, DEFAULT_GIT_PROVIDER, GIT_PROVIDERS, parseGitProvider, readableProvider, supportedProviderFilter, UnsupportedProviderError } = await import("../git-provider")
 const { devSourceFor } = await import("../dev-source")
 
 describe("parseGitProvider", () => {
@@ -53,5 +55,26 @@ describe("assertOneSource (one ingestion source per project)", () => {
 
   it("refuses to switch the source of a project that has repositories (409 GIT_SOURCE_LOCKED)", () => {
     expect(() => assertOneSource("gitstation", "gitlab", 1)).toThrow(expect.objectContaining({ status: 409, code: "GIT_SOURCE_LOCKED", extra: { provider: "gitstation" } }))
+  })
+})
+
+describe("readableProvider (gate for background work)", () => {
+  it("passes a supported provider without logging", () => {
+    expect(readableProvider("rA", "gitlab", "sync")).toBe("gitlab")
+    expect(noopLog.error).not.toHaveBeenCalled()
+  })
+
+  it("refuses anything else, logging once per repository and provider per process", () => {
+    expect(readableProvider("rB", "github", "sync")).toBeNull()
+    expect(readableProvider("rB", "github", "index")).toBeNull()
+    expect(readableProvider("rC", "github", "sync")).toBeNull()
+    expect(noopLog.error.mock.calls).toEqual([
+      ["git provider unsupported", { repositoryId: "rB", provider: "github", skipped: "sync" }],
+      ["git provider unsupported", { repositoryId: "rC", provider: "github", skipped: "sync" }],
+    ])
+  })
+
+  it("the query filter lists exactly the supported providers", () => {
+    expect(supportedProviderFilter()).toEqual({ in: ["gitlab"] })
   })
 })

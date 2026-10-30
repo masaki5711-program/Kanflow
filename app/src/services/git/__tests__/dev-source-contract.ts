@@ -11,6 +11,8 @@ export interface DevSourceContractSetup {
   kind: DevSourceKind
   /** A never-synced repository row of this source. */
   freshRow: object
+  /** A row whose stored position cannot be read (fromRow must throw). */
+  corruptRow: object
   /** Connected to a remote with one merge request (PBI-1), one commit (PBI-2), one branch (PBI-3). */
   healthy(): DevSource
   /** Connected to a remote that fails every request. */
@@ -28,12 +30,32 @@ export function describeDevSourceContract(name: string, setup: () => DevSourceCo
       expect(kind.cursors.fromRow({ ...freshRow, ...columns }, now)).toBe(cursor)
     })
 
-    it("restart (過去分を再同期) yields another cursor the codec accepts", () => {
+    it("restart (過去分を再同期) yields columns from which a readable cursor follows", () => {
       const { kind, freshRow, now } = setup()
-      const cursor = kind.cursors.fromRow(freshRow, now)
-      const restarted = kind.cursors.restart(cursor, now)
-      expect(typeof restarted).toBe("string")
-      expect(() => kind.cursors.toRow(restarted)).not.toThrow()
+      const columns = kind.cursors.restart(freshRow, now)
+      expect(() => kind.cursors.fromRow({ ...freshRow, ...columns }, now)).not.toThrow()
+    })
+
+    it("restart works from a corrupt stored position (the escape hatch), and fromRow refuses it", () => {
+      const { kind, corruptRow, now } = setup()
+      expect(() => kind.cursors.fromRow(corruptRow, now)).toThrow()
+      const columns = kind.cursors.restart(corruptRow, now)
+      const cursor = kind.cursors.fromRow({ ...corruptRow, ...columns }, now)
+      expect(typeof cursor).toBe("string")
+    })
+
+    it("describes an unreadable stored position with a message to show (not the generic one)", () => {
+      const { kind, corruptRow, healthy, now } = setup()
+      let caught: unknown
+      try {
+        kind.cursors.fromRow(corruptRow, now)
+      } catch (err) {
+        caught = err
+      }
+      const info = healthy().describeError(caught)
+      expect(info.kind).toBe("cursor")
+      expect(info.expected).toBe(false)
+      expect(info.message).toContain("過去分を再同期")
     })
 
     it("refuses a cursor it did not make instead of silently starting over", () => {

@@ -50,19 +50,40 @@ GitStationSource replaces it for projects that moved to GitStation (M3).
 - `git_integration.provider` names the source. Only `gitlab` is accepted (the
   default; migration `20261030140000_git_integration_provider`). Any other
   value is refused by the settings API (`PUT …/git` `{ provider }` → 400
-  `GIT_PROVIDER_UNSUPPORTED`), by 過去分を再同期, and by the sync itself
-  (`git sync provider unsupported`, error; the repository shows the message;
-  nothing is read). There is no fallback to GitLab.
+  `GIT_PROVIDER_UNSUPPORTED`), by リポジトリ追加 and 過去分を再同期 (400), by the
+  sync (the repository shows the message; nothing is read), by the knowledge
+  index (manual run fails with the message; the background tick and the AI
+  search skip such projects). Log `git provider unsupported` (error) once per
+  repository and process — not every poll. There is no fallback to GitLab.
 - **A project reads exactly one source.** `git_integration` is one row per
   project (primary key), and its provider cannot change while the project has
   repositories (409 `GIT_SOURCE_LOCKED`: remove the repositories first). Once a
   repository moves to GitStation, GitLab is only its mirror and is not read —
-  reading both would show every merge request and commit twice.
+  reading both would show every merge request and commit twice. A provider
+  change and a repository addition each check and write under a row lock on
+  the project (`SELECT … FROM Project … FOR UPDATE` in one transaction), so
+  they cannot both pass concurrently; リポジトリ追加 re-checks provider, limit and
+  duplicate under the lock after its connection test.
 - **The cursor is opaque.** The sync stores the source's cursor and hands it
   back without looking inside. GitLabSource's cursor is the per-listing
   position below, serialised as `gitlab:v1:<json>` and kept in the existing
   `git_repository` columns (no data migration; a cursor another source wrote is
   refused, never "started over").
+- **Unreadable position.** A stored position that cannot be read (corrupt
+  date, foreign cursor) fails the sync with its own message (「同期位置の記録を
+  読み取れません…過去分を再同期…」, shown in the viewer's language; log
+  `git sync failed`, error). 過去分を再同期 is the escape hatch: every source
+  computes the reset from the repository row alone and never decodes the
+  stored cursor (DevSource contract, tested for every source).
+
+#### M3 で直すこと (GitStationSource)
+
+- Return `provider` in the GET settings DTO (and a selector in チーム設定).
+- `syncRepository`'s client parameter: provider-neutral (`DevClients`) instead of
+  the GitLab `ClientFactory`.
+- `GIT_ACTOR.userName` ("GitLab" in the activity log) from the provider.
+- `testConnection` / リポジトリ追加 and the knowledge index (`repo-index`,
+  `blobUrl`) through the source instead of the GitLab client.
 
 ### Cursors (one per listing, GitLab)
 
@@ -269,4 +290,5 @@ than skips, then dropped.
 | No sync at all | Log line "git sync poller started" at start-up; `GIT_SYNC` not `off` |
 | AI knowledge stays 取り込み待ち | The poller is off (`GIT_SYNC=off`, or `next dev` without `GIT_SYNC_IN_DEV=true`) — press 今すぐ取り込む |
 | A document is missing from AI answers | It is outside the folder filter, over the size cap, a secret / binary file, or an Office file whose text could not be extracted (log line "repository indexed" shows processed / skipped counts) |
-| "取り込み元「…」には対応していません" / log `git sync provider unsupported` | `git_integration.provider` is not `gitlab` (only GitLab is supported until GitStation, M3); set it back with `PUT …/git` `{ "provider": "gitlab" }` |
+| "取り込み元「…」には対応していません" / log `git provider unsupported` | `git_integration.provider` is not `gitlab` (only GitLab is supported until GitStation, M3). Kanflow never stores another value, so the row was changed outside Kanflow. Without repositories: `PUT …/git` `{ "provider": "gitlab" }`; with repositories the one-source rule refuses the switch (409), so correct the row in the database (`UPDATE git_integration SET provider = 'gitlab' WHERE projectId = …`, with approval) |
+| 「同期位置の記録を読み取れません」 | The stored sync position is corrupt: press 過去分を再同期 on the repository (it resets the position from scratch) |

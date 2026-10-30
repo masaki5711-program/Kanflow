@@ -1,4 +1,5 @@
 import { z } from "zod"
+import type { Prisma } from "@/generated/prisma/client"
 import { prisma } from "@/lib/prisma"
 import { open, seal, secretHint } from "@/lib/secret-box"
 import { accessLevelOf, createGitLabClient, GitLabError, REPORTER_ACCESS_LEVEL } from "@/lib/git/gitlab-client"
@@ -139,9 +140,14 @@ export async function updateGitSettings(projectId: string, input: GitSettingsInp
     ...(provider !== undefined ? { provider } : {}),
     ...tokenPatch,
   }
-  const before = await prisma.gitIntegration.findUnique({ where: { projectId }, select: { enabled: true, autoCompleteOnMerge: true, provider: true } })
-  if (provider !== undefined) await assertProviderChange(projectId, before?.provider ?? null, provider)
-  await prisma.gitIntegration.upsert({ where: { projectId }, create: { projectId, ...patch }, update: patch })
+  // Read, check and write under the project lock: a repository added meanwhile cannot slip past the one-source rule.
+  const before = await prisma.$transaction(async (tx) => {
+    await lockProject(tx, projectId)
+    const row = await tx.gitIntegration.findUnique({ where: { projectId }, select: { enabled: true, autoCompleteOnMerge: true, provider: true } })
+    if (provider !== undefined && row && row.provider !== provider) assertOneSource(row.provider, provider, await tx.gitRepository.count({ where: { projectId } }))
+    await tx.gitIntegration.upsert({ where: { projectId }, create: { projectId, ...patch }, update: patch })
+    return row
+  })
   const changes: ActivityChanges = {}
   if (input.enabled !== undefined && input.enabled !== (before?.enabled ?? false)) changes["git.enabled"] = { from: before?.enabled ?? false, to: input.enabled }
   if (input.autoCompleteOnMerge !== undefined && input.autoCompleteOnMerge !== (before?.autoCompleteOnMerge ?? false))
@@ -155,14 +161,22 @@ export async function updateGitSettings(projectId: string, input: GitSettingsInp
   return getGitSettings(projectId)
 }
 
+type Tx = Prisma.TransactionClient
+
 /**
- * One ingestion source per project (git-provider): the integration row is one
- * per project (primary key), and its provider cannot change under existing
- * repositories (their cursors and links belong to the old source).
+ * Serializes the project's Git settings changes and repository additions
+ * (row lock on the project, held until the transaction ends): the one-source
+ * rule (git-provider) is checked and written as one step, so a provider switch
+ * and a new repository cannot both pass their checks concurrently.
  */
-async function assertProviderChange(projectId: string, current: string | null, requested: GitProvider): Promise<void> {
-  if (current === null || current === requested) return
-  assertOneSource(current, requested, await prisma.gitRepository.count({ where: { projectId } }))
+async function lockProject(tx: Tx, projectId: string): Promise<void> {
+  await tx.$queryRaw`SELECT id FROM \`Project\` WHERE id = ${projectId} FOR UPDATE`
+}
+
+/** The project's source, which must be one Kanflow can read (no integration row yet = the default). */
+async function projectProvider(db: Pick<Tx, "gitIntegration">, projectId: string): Promise<GitProvider> {
+  const integration = await db.gitIntegration.findUnique({ where: { projectId }, select: { provider: true } })
+  return parseGitProvider(integration?.provider ?? DEFAULT_GIT_PROVIDER)
 }
 
 export interface ConnectionResult {
@@ -213,25 +227,40 @@ export async function addRepository(projectId: string, input: z.infer<typeof add
   await assertProject(projectId)
   const location = parseRepoUrl(input.url)
   if (!location) throw new ValidationError("リポジトリの URL を認識できません（社内 GitLab の https URL を入れてください）。")
-  const count = await prisma.gitRepository.count({ where: { projectId } })
-  if (count >= MAX_REPOSITORIES) throw new ValidationError(`リポジトリは 1 プロジェクト ${MAX_REPOSITORIES} 個までです。`)
-  const duplicate = await prisma.gitRepository.findFirst({ where: { projectId, apiBase: location.apiBase, repoPath: location.repoPath }, select: { id: true } })
-  if (duplicate) throw new ValidationError("このリポジトリはすでに登録されています。")
+  await assertRoomFor(prisma, projectId, location)
+  // Only a provider Kanflow can read (400 otherwise); the connection test below talks to GitLab — the only one today (M3: via the source).
+  await projectProvider(prisma, projectId)
   // Refuse to save a repository the token cannot see: the sync would only fail later.
   const test = await testConnection(projectId, input.url, input.token, fetchImpl)
   if (!test.ok || !test.repository) throw new ValidationError(test.error ?? "接続テストに失敗しました")
-  const row = await prisma.gitRepository.create({
-    data: {
-      projectId,
-      name: input.name,
-      ...location,
-      externalId: test.repository.externalId,
-      sortOrder: count,
-      ...(input.token ? { tokenCipher: seal(input.token), tokenHint: secretHint(input.token) } : {}),
-    },
+  const externalId = test.repository.externalId
+  // Checked again under the project lock (the connection test ran outside it): provider, limit, duplicate.
+  const row = await prisma.$transaction(async (tx) => {
+    await lockProject(tx, projectId)
+    await projectProvider(tx, projectId)
+    const count = await assertRoomFor(tx, projectId, location)
+    return tx.gitRepository.create({
+      data: {
+        projectId,
+        name: input.name,
+        ...location,
+        externalId,
+        sortOrder: count,
+        ...(input.token ? { tokenCipher: seal(input.token), tokenHint: secretHint(input.token) } : {}),
+      },
+    })
   })
   await logActivity(prisma, { projectId, entityType: "project", entityId: projectId, action: "update", actor, diff: { changes: { "git.repository": { from: null, to: `${input.name} (${location.repoPath})` } } } })
   return toRepoDto(row)
+}
+
+/** Limit and duplicate check of a new repository; returns the current count (its sort order). */
+async function assertRoomFor(db: Pick<Tx, "gitRepository">, projectId: string, location: { apiBase: string; repoPath: string }): Promise<number> {
+  const count = await db.gitRepository.count({ where: { projectId } })
+  if (count >= MAX_REPOSITORIES) throw new ValidationError(`リポジトリは 1 プロジェクト ${MAX_REPOSITORIES} 個までです。`)
+  const duplicate = await db.gitRepository.findFirst({ where: { projectId, apiBase: location.apiBase, repoPath: location.repoPath }, select: { id: true } })
+  if (duplicate) throw new ValidationError("このリポジトリはすでに登録されています。")
+  return count
 }
 
 /** `reindex`: the caller should start an index pass (knowledge switched on / filter changed). */
@@ -290,7 +319,7 @@ export async function resyncRepository(projectId: string, repositoryId: string, 
   await prisma.gitRepository.update({
     where: { id: repositoryId },
     data: {
-      ...cursors.toRow(cursors.restart(cursors.fromRow(repo, now), now)),
+      ...cursors.restart(repo, now),
       // A sync running right now started with the old generation and will not write its cursors back.
       syncGeneration: repo.syncGeneration === null ? 1 : { increment: 1 },
     },

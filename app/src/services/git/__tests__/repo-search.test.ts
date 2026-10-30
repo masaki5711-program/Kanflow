@@ -118,7 +118,7 @@ describe("listKnowledgeRepos / readRepoFile", () => {
   it("lists only switched-on repositories of a live project with the integration on", async () => {
     repoFindMany.mockResolvedValue([{ id: "r1", name: "仕様書", webUrl: REPO.webUrl, indexedSha: null, indexTargetSha: "t", indexedFiles: 0, indexedAt: null }])
     const repos = await search.listKnowledgeRepos("p1")
-    expect(repoFindMany.mock.calls[0][0].where).toEqual({ projectId: "p1", aiKnowledge: true, project: { deletedAt: null, gitIntegration: { enabled: true } } })
+    expect(repoFindMany.mock.calls[0][0].where).toEqual({ projectId: "p1", aiKnowledge: true, project: { deletedAt: null, gitIntegration: { enabled: true, provider: { in: ["gitlab"] } } } })
     expect(repos[0].ref).toBe("t")
   })
 

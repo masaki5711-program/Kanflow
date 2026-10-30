@@ -1,5 +1,6 @@
 import { createGitLabClient, GitLabError, type GitLabBranch, type GitLabClient, type GitLabCommit, type GitLabMergeRequest } from "@/lib/git/gitlab-client"
 import { logger } from "@/lib/logger"
+import { CURSOR_INVALID_MESSAGE } from "@/lib/git/sync-messages"
 import type {
   DevBranch,
   DevBranchListing,
@@ -53,13 +54,21 @@ interface StoredCursors {
   lookback: { scan: StoredScan | null; startedAt: string | null }
 }
 
-const scanOut = (s: CommitScan): StoredScan => ({ at: s.at.toISOString(), widthSec: s.widthSec })
+const validDate = (d: unknown): d is Date => d instanceof Date && !Number.isNaN(d.getTime())
 
+function dateOut(d: Date, field: string): string {
+  if (!validDate(d)) throw new InvalidCursorError(`${field} is not a date`)
+  return d.toISOString()
+}
+
+const scanOut = (s: CommitScan, field: string): StoredScan => ({ at: dateOut(s.at, `${field}.at`), widthSec: s.widthSec })
+
+/** A position that cannot be written as a cursor (e.g. a corrupt stored date) is an InvalidCursorError too. */
 export function encodeGitLabCursor(c: SyncCursors): DevCursor {
   const stored: StoredCursors = {
-    mr: { at: c.mr.at.toISOString(), seen: c.mr.seen },
-    commit: { ...scanOut(c.commit), skips: c.commit.skips },
-    lookback: { scan: c.lookback.scan ? scanOut(c.lookback.scan) : null, startedAt: c.lookback.startedAt?.toISOString() ?? null },
+    mr: { at: dateOut(c.mr.at, "mr.at"), seen: c.mr.seen },
+    commit: { ...scanOut(c.commit, "commit"), skips: c.commit.skips },
+    lookback: { scan: c.lookback.scan ? scanOut(c.lookback.scan, "lookback.scan") : null, startedAt: c.lookback.startedAt ? dateOut(c.lookback.startedAt, "lookback.startedAt") : null },
   }
   return `${CURSOR_PREFIX}${JSON.stringify(stored)}` as DevCursor
 }
@@ -107,10 +116,23 @@ export function decodeGitLabCursor(cursor: string): SyncCursors {
   }
 }
 
+/**
+ * 過去分を再同期 from the stored columns, never through a cursor string: it is
+ * the escape hatch for a position that can no longer be read. The forward
+ * commit position is kept when it is readable, else restarts with the merge
+ * requests (RESYNC_DAYS back; re-reading is idempotent).
+ */
+function restartGitLabRow(row: object, now: Date): CursorColumns {
+  const stored = cursorsFromRow(row as Partial<CursorColumns>, now)
+  const reset = resetForResync(stored, now)
+  const commit = validDate(stored.commit.at) ? reset.commit : { at: reset.mr.at, widthSec: INITIAL_WINDOW_SEC, skips: 0 }
+  return cursorsToRow({ ...reset, commit })
+}
+
 export const gitLabCursorCodec: DevCursorCodec = {
   fromRow: (row, now) => encodeGitLabCursor(cursorsFromRow(row as Partial<CursorColumns>, now)),
   toRow: (cursor) => cursorsToRow(decodeGitLabCursor(cursor)),
-  restart: (cursor, now) => encodeGitLabCursor(resetForResync(decodeGitLabCursor(cursor), now)),
+  restart: restartGitLabRow,
 }
 
 // ------------------------------------------------------------------ records
@@ -170,6 +192,8 @@ export function syncErrorMessage(err: unknown): string {
 }
 
 export function describeGitLabError(error: unknown): DevSourceErrorInfo {
+  // A defect (logged as an error), with its own message: 過去分を再同期 resets the position.
+  if (error instanceof InvalidCursorError) return { kind: "cursor", expected: false, message: CURSOR_INVALID_MESSAGE }
   if (error instanceof GitLabError) return { kind: error.kind, expected: true, status: error.status, message: syncErrorMessage(error) }
   return { kind: "http", expected: false, message: syncErrorMessage(error) }
 }

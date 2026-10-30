@@ -219,9 +219,30 @@ describe("syncRepository — disabled paths", () => {
     expect(result).toEqual({ repositoryId: "r1", ok: false, links: 0, error: "provider" })
     expect(factory).not.toHaveBeenCalled()
     expect(noopLog.error).toHaveBeenCalledTimes(1)
-    expect(noopLog.error).toHaveBeenCalledWith("git sync provider unsupported", { repositoryId: "r1", provider: "github" })
+    expect(noopLog.error).toHaveBeenCalledWith("git provider unsupported", { repositoryId: "r1", provider: "github", skipped: "sync" })
     expect(gitRepositoryUpdate).toHaveBeenCalledWith({ where: { id: "r1" }, data: { lastError: expect.stringContaining("github"), lastErrorAt: expect.any(Date) } })
     expect(gitRepositoryUpdateMany).not.toHaveBeenCalled()
+    // The poller asks again every interval: still refused and shown, but logged only once per process.
+    expect((await syncRepository("r1", factory, NOW)).error).toBe("provider")
+    expect(noopLog.error).toHaveBeenCalledTimes(1)
+    expect(gitRepositoryUpdate).toHaveBeenCalledTimes(2)
+  })
+
+  it("an unreadable stored cursor fails the sync with its own message (the generic one would hide the remedy) and logs it as an error", async () => {
+    gitRepositoryFindUnique.mockResolvedValue(repoRow({ externalId: 7, mrCursorAt: new Date(Number.NaN), mrCursorSeen: 0 }))
+    const client = emptyClient()
+    const result = await syncRepository("r1", () => client, NOW)
+    expect(result).toEqual({ repositoryId: "r1", ok: false, links: 0, error: "cursor" })
+    expect(client.listMergeRequestPage).not.toHaveBeenCalled()
+    expect(noopLog.error).toHaveBeenCalledWith("git sync failed", expect.objectContaining({ repositoryId: "r1" }))
+    expect(gitRepositoryUpdate).toHaveBeenCalledWith({ where: { id: "r1" }, data: { lastError: expect.stringContaining("過去分を再同期"), lastErrorAt: expect.any(Date) } })
+  })
+
+  it("a lost status write is logged once (with the repository) and the failure is still returned", async () => {
+    gitRepositoryFindUnique.mockResolvedValue(repoRow({ tokenCipher: null, project: { deletedAt: null, gitIntegration: { enabled: true, provider: "gitlab", tokenCipher: null } } }))
+    gitRepositoryUpdate.mockRejectedValueOnce(new Error("db down"))
+    expect((await syncRepository("r1", vi.fn(), NOW)).error).toBe("token")
+    expect(noopLog.error).toHaveBeenCalledWith("git sync status not saved", { repositoryId: "r1", error: "db down" })
   })
 
   it("returns disabled when the repository does not exist", async () => {

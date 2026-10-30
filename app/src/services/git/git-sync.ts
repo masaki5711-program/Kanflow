@@ -5,8 +5,8 @@ import { publishAfterCommit } from "@/lib/realtime/after-commit"
 import { updateTask } from "@/services/sprint-backlog/sprint-backlog.service"
 import { notify } from "@/services/_shared/notifications"
 import type { Actor } from "@/services/_shared/actor"
-import { devSourceFor, type DevBranchListing, type DevChanges, type DevCursor, type DevListingFailure, type DevListingKind, type DevSource, type DevSourceKind } from "./dev-source"
-import { UnsupportedProviderError } from "./git-provider"
+import { devSourceFor, type DevBranchListing, type DevChanges, type DevCursor, type DevListingFailure, type DevListingKind, type DevSource } from "./dev-source"
+import { readableProvider, UnsupportedProviderError } from "./git-provider"
 import { writeReleases } from "./git-release-sync"
 import { allMergeRequestsMerged, linksFromBranch, linksFromCommit, linksFromMergeRequest, type LinkDraft } from "./git-links"
 import { defaultClientFactory, type ClientFactory } from "./gitlab-source"
@@ -45,14 +45,10 @@ export async function syncRepository(repositoryId: string, factory: ClientFactor
   })
   const integration = repo?.project.gitIntegration
   if (!repo || repo.project.deletedAt || !integration?.enabled) return { repositoryId, ok: false, links: 0, error: "disabled" }
-  let kind: DevSourceKind
-  try {
-    kind = devSourceFor(integration.provider)
-  } catch (err) {
-    if (!(err instanceof UnsupportedProviderError)) throw err
-    log.error("git sync provider unsupported", { repositoryId, provider: err.provider })
-    return fail(repositoryId, "provider", err.message)
-  }
+  // A provider Kanflow cannot read is never sent to GitLab instead (logged once per repository).
+  const provider = readableProvider(repositoryId, integration.provider, "sync")
+  if (!provider) return fail(repositoryId, "provider", new UnsupportedProviderError(integration.provider).message)
+  const kind = devSourceFor(provider)
   const sealed = repo.tokenCipher ?? integration.tokenCipher
   const token = sealed ? open(sealed) : null
   if (!token) return fail(repositoryId, "token", "アクセストークンが未設定か、読み取れません。設定画面で入れ直してください。")
@@ -137,13 +133,13 @@ interface ReadResult {
   /** null when the branch listing failed. */
   branches: DevBranchListing | null
   cursor: DevCursor
-  failures: DevListingFailure[]
+  failures: readonly DevListingFailure[]
 }
 
 /** The cursor-driven listings, then the branches; a failing one does not stop the others. */
 async function readAll(source: DevSource, cursor: DevCursor, now: Date): Promise<ReadResult> {
   const changes = await source.readChanges(cursor, now)
-  const failures = [...changes.failures]
+  const failures: DevListingFailure[] = [...changes.failures]
   let branches: DevBranchListing | null = null
   try {
     branches = await source.listBranches(now)
@@ -154,9 +150,10 @@ async function readAll(source: DevSource, cursor: DevCursor, now: Date): Promise
 }
 
 async function fail(repositoryId: string, kind: string, message: string): Promise<SyncResult> {
+  // The failure itself is the result; a lost status write is logged, not rethrown.
   await prisma.gitRepository
     .update({ where: { id: repositoryId }, data: { lastError: message.slice(0, 500), lastErrorAt: new Date() } })
-    .catch(() => undefined)
+    .catch((err: unknown) => log.error("git sync status not saved", { repositoryId, error: err instanceof Error ? err.message : String(err) }))
   return { repositoryId, ok: false, links: 0, error: kind }
 }
 

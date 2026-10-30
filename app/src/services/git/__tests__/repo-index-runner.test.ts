@@ -22,7 +22,7 @@ describe("runKnowledgeTick", () => {
     const index = vi.fn(async (id: string) => result(id, "up_to_date"))
     expect(await runKnowledgeTick(index)).toBe(2)
     expect(gitRepositoryFindMany).toHaveBeenCalledWith({
-      where: { aiKnowledge: true, project: { deletedAt: null, gitIntegration: { enabled: true } } },
+      where: { aiKnowledge: true, project: { deletedAt: null, gitIntegration: { enabled: true, provider: { in: ["gitlab"] } } } },
       select: { id: true },
       orderBy: { indexedAt: { sort: "asc", nulls: "first" } },
     })

@@ -21,8 +21,15 @@ const createGitLabClientMock = vi.fn((...args: unknown[]) => {
   return { getProject: getProjectMock, canReadRepository: canReadRepositoryMock }
 })
 
-vi.mock("@/lib/prisma", () => ({
-  prisma: {
+const queryRawMock = vi.fn(async (...args: unknown[]) => {
+  void args // the SQL template and its values are asserted via mock.calls
+  return [{ id: "p1" }]
+})
+/** Steps of interactive transactions, in order ("begin" / "lock" / "end"), to check the lock covers the check and the write. */
+const txLog: string[] = []
+
+vi.mock("@/lib/prisma", () => {
+  const prismaMock: Record<string, unknown> = {
     project: { findFirst: (...a: unknown[]) => projectFindFirst(...a) },
     gitIntegration: { findUnique: (...a: unknown[]) => gitIntegrationFindUnique(...a), upsert: (...a: unknown[]) => gitIntegrationUpsert(...a) },
     gitRepository: {
@@ -35,10 +42,23 @@ vi.mock("@/lib/prisma", () => ({
     },
     gitLink: { findMany: (...a: unknown[]) => gitLinkFindMany(...a) },
     repoChunk: { deleteMany: (...a: unknown[]) => repoChunkDeleteMany(...a) },
-    $transaction: (ops: unknown[]) => transactionMock(ops),
+    $transaction: async (arg: unknown) => {
+      if (typeof arg !== "function") return transactionMock(arg as unknown[])
+      txLog.push("begin")
+      try {
+        return await (arg as (tx: unknown) => Promise<unknown>)(prismaMock)
+      } finally {
+        txLog.push("end")
+      }
+    },
+    $queryRaw: (...a: unknown[]) => {
+      txLog.push("lock")
+      return queryRawMock(...a)
+    },
     productBacklogItem: { findFirst: (...a: unknown[]) => productBacklogItemFindFirst(...a) },
-  },
-}))
+  }
+  return { prisma: prismaMock }
+})
 vi.mock("@/services/_shared/activity", () => ({ logActivity: (...a: unknown[]) => logActivityMock(...a) }))
 vi.mock("@/lib/git/gitlab-client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/git/gitlab-client")>()
@@ -59,6 +79,7 @@ const REPO_URL = `https://${HOST}/group/repo`
 
 beforeEach(() => {
   vi.clearAllMocks()
+  txLog.length = 0
   vi.stubEnv("INTEGRATION_SECRET_KEY", "test-secret-for-git-service")
   projectFindFirst.mockResolvedValue({ id: PROJECT_ID })
   gitIntegrationFindUnique.mockResolvedValue(null)
@@ -198,6 +219,23 @@ describe("updateGitSettings", () => {
     expect(gitIntegrationUpsert).not.toHaveBeenCalled()
   })
 
+  it("checks and writes the provider under the project row lock, in one transaction", async () => {
+    gitIntegrationFindUnique.mockResolvedValueOnce({ enabled: false, autoCompleteOnMerge: false, provider: "gitstation" }).mockResolvedValueOnce(null)
+    gitRepositoryCount.mockImplementation(async () => {
+      txLog.push("count")
+      return 0
+    })
+    gitIntegrationUpsert.mockImplementation(async () => {
+      txLog.push("upsert")
+      return {}
+    })
+    await svc.updateGitSettings(PROJECT_ID, { provider: "gitlab" }, ACTOR)
+    expect(txLog).toEqual(["begin", "lock", "count", "upsert", "end"])
+    const sql = (queryRawMock.mock.calls[0][0] as TemplateStringsArray).join("?")
+    expect(sql).toMatch(/SELECT id FROM `Project` WHERE id = \? FOR UPDATE/)
+    expect(queryRawMock.mock.calls[0][1]).toBe(PROJECT_ID)
+  })
+
   it("a project without repositories may switch its provider (logged)", async () => {
     gitIntegrationFindUnique.mockResolvedValueOnce({ enabled: false, autoCompleteOnMerge: false, provider: "gitstation" }).mockResolvedValueOnce(null)
     gitRepositoryCount.mockResolvedValue(0)
@@ -302,6 +340,41 @@ describe("addRepository", () => {
     gitRepositoryFindFirst.mockResolvedValue({ id: "existing" })
     await expect(svc.addRepository(PROJECT_ID, input, ACTOR)).rejects.toMatchObject({ status: 400 })
     expect(getProjectMock).not.toHaveBeenCalled()
+  })
+
+  it("refuses a repository for a project whose stored provider Kanflow cannot read, before talking to GitLab (400)", async () => {
+    gitIntegrationFindUnique.mockResolvedValue({ provider: "gitstation", tokenCipher: null })
+    await expect(svc.addRepository(PROJECT_ID, input, ACTOR)).rejects.toMatchObject({ status: 400, code: "GIT_PROVIDER_UNSUPPORTED" })
+    expect(getProjectMock).not.toHaveBeenCalled()
+    expect(gitRepositoryCreate).not.toHaveBeenCalled()
+  })
+
+  it("re-checks provider, limit and duplicate under the project lock and creates in the same transaction", async () => {
+    gitRepositoryCount.mockResolvedValueOnce(3).mockImplementationOnce(async () => {
+      txLog.push("count")
+      return 4
+    })
+    gitRepositoryCreate.mockImplementationOnce(async ({ data }: { data: Record<string, unknown> }) => {
+      txLog.push("create")
+      return { id: "repo-new", syncedAt: null, lastError: null, lastErrorAt: null, ...data }
+    })
+    await svc.addRepository(PROJECT_ID, input, ACTOR)
+    expect(txLog).toEqual(["begin", "lock", "count", "create", "end"])
+    // The count read under the lock decides the sort order (a repository added meanwhile counts).
+    expect(gitRepositoryCreate.mock.calls[0][0].data.sortOrder).toBe(4)
+  })
+
+  it("a provider switched to one Kanflow cannot read while the connection test ran is refused under the lock", async () => {
+    gitIntegrationFindUnique.mockResolvedValueOnce(null).mockResolvedValueOnce({ provider: "gitstation" })
+    await expect(svc.addRepository(PROJECT_ID, input, ACTOR)).rejects.toMatchObject({ status: 400, code: "GIT_PROVIDER_UNSUPPORTED" })
+    expect(getProjectMock).toHaveBeenCalled()
+    expect(gitRepositoryCreate).not.toHaveBeenCalled()
+  })
+
+  it("a repository added meanwhile that reaches the limit is refused under the lock", async () => {
+    gitRepositoryCount.mockResolvedValueOnce(19).mockResolvedValueOnce(20)
+    await expect(svc.addRepository(PROJECT_ID, input, ACTOR)).rejects.toMatchObject({ status: 400 })
+    expect(gitRepositoryCreate).not.toHaveBeenCalled()
   })
 
   it("refuses to save a repository the token cannot see (failed connection test)", async () => {

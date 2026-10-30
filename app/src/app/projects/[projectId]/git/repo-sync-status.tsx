@@ -3,6 +3,7 @@
 import { AlertTriangle, CheckCircle2, Clock } from "lucide-react"
 import { useLanguage } from "@/lib/language-context"
 import { formatDateTime, formatRelative } from "@/lib/format-date"
+import { syncMessageKey } from "@/lib/git/sync-messages"
 import type { GitRepositoryDto } from "./git-labels"
 
 /** Relative time with the absolute date-time as tooltip. */
@@ -23,6 +24,8 @@ export function RepoSyncStatus({ repo, now }: { repo: Pick<GitRepositoryDto, "sy
   const { t } = useLanguage()
   if (repo.lastError) {
     const [before, after] = t.gitStatusError.split("{time}")
+    // Known stored messages in the viewer's language; anything else as stored.
+    const key = syncMessageKey(repo.lastError)
     return (
       <div className="flex min-w-0 items-start gap-1.5 text-caption text-danger">
         <AlertTriangle aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -32,7 +35,7 @@ export function RepoSyncStatus({ repo, now }: { repo: Pick<GitRepositoryDto, "sy
             {repo.lastErrorAt ? <GitTime iso={repo.lastErrorAt} now={now} /> : "—"}
             {after}
           </span>{" "}
-          {repo.lastError}
+          {key ? t[key] : repo.lastError}
         </p>
       </div>
     )
