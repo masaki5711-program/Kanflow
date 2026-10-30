@@ -38,13 +38,15 @@ import {
   updateTaskOp,
   v1UpdatePbiSchema,
 } from "@/app/api/v1/_lib/v1-handlers"
+import { registerDevTools } from "./dev-tools"
 import { CREATE_NOTE, DATA_NOTICE, definedOnly, guard, mcpWrite, pbiIdIn, pbiScope, projectScope, toolOk, visibleProjects } from "./tool-kit"
 
 /**
  * The Kanflow MCP tools (docs/mcp.md). Every tool resolves its project
  * through resolveV1ProjectActor (via projectScope / pbiScope), every write
  * goes through runV1Write (scope ∩ role, write budget, idempotency, the UI
- * schemas and services, activity `via: "mcp"`). No delete tools.
+ * schemas and services, activity `via: "mcp"`). No delete tools. The
+ * developer tools (write:dev) live in dev-tools.ts.
  */
 
 const id = z.string().min(1).max(191)
@@ -245,7 +247,7 @@ export function registerKanflowTools(server: McpServer, principal: ApiPrincipal)
   server.registerTool(
     "create_pbi",
     {
-      description: describeCreate("Create a PBI (scope backlog:write; Product Owner / Scrum Master). Needs a userStory or an initiative."),
+      description: describeCreate("Create a PBI (scope backlog:write; Product Owner / Scrum Master). Needs a userStory or an initiative. Read the backlog first (get_backlog) and do not create a PBI that already exists."),
       inputSchema: { projectId: projectIdArg, ...createBacklogItemSchema.shape, idempotencyKey: idempotencyKeyArg },
       annotations: CREATE,
     },
@@ -318,7 +320,7 @@ export function registerKanflowTools(server: McpServer, principal: ApiPrincipal)
   server.registerTool(
     "create_task",
     {
-      description: describeCreate("Create a task under a PBI of a sprint (scope task:write; team members). assigneeIds are user ids (whoami gives yours)."),
+      description: describeCreate("Create a task under a PBI of a sprint (scope task:write; team members). assigneeIds are user ids (whoami gives yours). Read the existing tasks first (get_sprint_tasks / get_pbi) and do not create one that already exists; if a task of the same PBI with the same name exists, the result also lists it in `similar` (the task is still created — tell the user)."),
       inputSchema: { sprintId: id, pbi: pbiRef, projectId: optionalProjectId, ...createTaskFields, idempotencyKey: idempotencyKeyArg },
       annotations: CREATE,
     },
@@ -404,4 +406,7 @@ export function registerKanflowTools(server: McpServer, principal: ApiPrincipal)
         return mcpWrite(principal, { tool: "post_daily_scrum", scope, action: "dailyScrum.write", body: definedOnly(fields), params: { sprintId }, op: createDailyScrumOp, idempotent: { key: idempotencyKey } })
       })
   )
+
+  // ------------------------------------------- development (write:dev, K5)
+  registerDevTools(server, principal)
 }

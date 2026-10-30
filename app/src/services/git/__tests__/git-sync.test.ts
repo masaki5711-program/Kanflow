@@ -1084,3 +1084,30 @@ describe("syncRepository — tags", () => {
     expect((await syncRepository("r1", () => broken, NOW)).ok).toBe(true)
   })
 })
+
+describe("syncRepository — merge requests declared by a developer (write:dev)", () => {
+  const declaredRow = (over: Record<string, unknown> = {}) => ({
+    id: "l-decl", ref: "5", kind: "mr", backlogItemId: "b-9", declaredAt: NOW,
+    title: "!5", url: "https://gitlab/mr/5", state: null, pipeline: "success", author: null, sourceBranch: null, occurredAt: NOW, mergedAt: null, goneAt: null, ...over,
+  })
+
+  it("refreshes title / state of a declared link whose MR does not name the PBI (pipeline kept)", async () => {
+    gitRepositoryFindUnique.mockResolvedValue(repoRow({ externalId: 7 }))
+    gitLinkFindMany.mockImplementation(async (args: { where: { declaredAt?: unknown } }) => (args.where.declaredAt ? [declaredRow()] : []))
+    const client = emptyClient({ listMergeRequestPage: vi.fn().mockResolvedValue(mrPage([mrAt(5, 0, "2026-09-30T10:00:00Z", "merged", "Refactor login")])) })
+    await syncRepository("r1", () => client, NOW)
+    expect(gitLinkFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: { repositoryId: "r1", kind: "mr", declaredAt: { not: null }, ref: { in: ["5"] } } }))
+    expect(gitLinkUpdateMany).toHaveBeenCalledWith({
+      where: { id: "l-decl" },
+      data: expect.objectContaining({ title: "Refactor login", state: "merged", pipeline: "success", url: "https://gitlab/mr/5", goneAt: null }),
+    })
+    expect(gitLinkUpsert).not.toHaveBeenCalled()
+  })
+
+  it("leaves an unchanged declared link alone and never queries without merge requests", async () => {
+    gitRepositoryFindUnique.mockResolvedValue(repoRow({ externalId: 7 }))
+    await syncRepository("r1", () => emptyClient(), NOW)
+    expect(gitLinkFindMany).not.toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ declaredAt: { not: null } }) }))
+    expect(gitLinkUpdateMany).not.toHaveBeenCalled()
+  })
+})

@@ -350,6 +350,8 @@ export interface GitLinkDto {
   mergedAt: string | null
   /** Branches: when the branch disappeared from GitLab (shown as 削除済み); null = live. */
   goneAt: string | null
+  /** MR linked by a developer (write:dev, …/dev/mr-links) rather than found by the sync. */
+  declared: boolean
   repository: { id: string; name: string }
 }
 
@@ -378,6 +380,7 @@ function toLinkDto(l: LinkRow): GitLinkDto {
     occurredAt: l.occurredAt.toISOString(),
     mergedAt: l.mergedAt?.toISOString() ?? null,
     goneAt: l.goneAt?.toISOString() ?? null,
+    declared: l.declaredAt !== null,
     repository: l.repository,
   }
 }

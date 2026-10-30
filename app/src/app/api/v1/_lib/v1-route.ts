@@ -75,7 +75,7 @@ function zodMessage(error: ZodError): string {
  * Codes whose `extra` reaches token clients. Service errors carry UI-oriented
  * extras (ids, counts, state); only allowlisted ones are part of the v1 contract.
  */
-const V1_EXTRA_CODES: ReadonlySet<ApiErrorCode> = new Set<ApiErrorCode>(["INSUFFICIENT_SCOPE"])
+const V1_EXTRA_CODES: ReadonlySet<ApiErrorCode> = new Set<ApiErrorCode>(["INSUFFICIENT_SCOPE", "TASK_CLAIMED"])
 
 /** The v1 error body (`{ error, code, ...allowlisted extra }`) and its HTTP status. */
 export interface V1ErrorBody {

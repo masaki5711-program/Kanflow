@@ -35,6 +35,7 @@ describe("API token scopes", () => {
     expect(scopeForAction("backlog.write")).toBe("backlog:write")
     expect(scopeForAction("sprint.manage")).toBe("sprint:write")
     expect(scopeForAction("dailyScrum.write")).toBe("daily:write")
+    expect(scopeForAction("dev.write")).toBe("write:dev")
     expect(scopeForAction("project.delete")).toBeNull()
   })
 
@@ -45,5 +46,12 @@ describe("API token scopes", () => {
     }
     expect(API_TOKEN_SCOPE_PRESETS.developer).not.toContain("backlog:write")
     expect(API_TOKEN_SCOPE_PRESETS.developer).not.toContain("sprint:write")
+    // Developers' AI sessions declare work, post progress and link MRs (K5).
+    expect(API_TOKEN_SCOPE_PRESETS.developer).toContain("write:dev")
+  })
+
+  it("grants dev.write only through write:dev (no other scope opens it)", () => {
+    const granting = API_TOKEN_SCOPES.filter((s) => SCOPE_ACTION[s] === "dev.write")
+    expect(granting).toEqual(["write:dev"])
   })
 })

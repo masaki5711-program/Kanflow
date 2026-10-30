@@ -22,6 +22,9 @@ export interface GitDevTranslations {
   gitDevSectionBranches: string
   gitDevBranchGone: string
   gitDevBranchGoneTitle: string
+  /** MR linked by a developer's AI session (write:dev) instead of found by the sync. */
+  gitDevDeclared: string
+  gitDevDeclaredTitle: string
   gitDevSectionCommits: string
   gitDevMrOpened: string
   gitDevMrMerged: string
@@ -67,6 +70,8 @@ export const ja: GitDevTranslations = {
   gitDevSectionBranches: "ブランチ",
   gitDevBranchGone: "削除済み",
   gitDevBranchGoneTitle: "GitLab でこのブランチが削除されました（{date}）",
+  gitDevDeclared: "手動でリンク",
+  gitDevDeclaredTitle: "開発者（AI セッション）が登録したリンクです。状態は次の同期で更新されます",
   gitDevSectionCommits: "コミット",
   gitDevMrOpened: "オープン",
   gitDevMrMerged: "マージ済み",
@@ -112,6 +117,8 @@ export const en: GitDevTranslations = {
   gitDevSectionBranches: "Branches",
   gitDevBranchGone: "Deleted",
   gitDevBranchGoneTitle: "This branch was deleted in GitLab ({date})",
+  gitDevDeclared: "Linked manually",
+  gitDevDeclaredTitle: "Linked by a developer (AI session); its state is updated by the next sync",
   gitDevSectionCommits: "Commits",
   gitDevMrOpened: "Open",
   gitDevMrMerged: "Merged",
@@ -157,6 +164,8 @@ export const id: GitDevTranslations = {
   gitDevSectionBranches: "Branch",
   gitDevBranchGone: "Dihapus",
   gitDevBranchGoneTitle: "Branch ini telah dihapus di GitLab ({date})",
+  gitDevDeclared: "Ditautkan manual",
+  gitDevDeclaredTitle: "Ditautkan oleh developer (sesi AI); statusnya diperbarui pada sinkronisasi berikutnya",
   gitDevSectionCommits: "Commit",
   gitDevMrOpened: "Terbuka",
   gitDevMrMerged: "Sudah di-merge",

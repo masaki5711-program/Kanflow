@@ -213,3 +213,24 @@ describe("Kanflow MCP helpers", () => {
     })
   })
 })
+
+describe("duplicate hint of a task create (findSimilarTasks)", () => {
+  it("normalizes names: NFKC, case and whitespace folded", () => {
+    expect(v1.normalizeTaskName("  ＡＰＩ   実装 ")).toBe("api 実装")
+    expect(v1.normalizeTaskName(null)).toBe("")
+  })
+
+  it("returns the same PBI's tasks of the sprint with the same normalized name", async () => {
+    vi.mocked(repo.findPbiTasksInSprint).mockResolvedValue([
+      { id: "k1", taskName: "API 実装", status: "todo" },
+      { id: "k2", taskName: "UI", status: "todo" },
+    ] as never)
+    expect(await v1.findSimilarTasks("p1", "s1", "b1", "api  実装")).toEqual([{ id: "k1", taskName: "API 実装", status: "todo" }])
+    expect(repo.findPbiTasksInSprint).toHaveBeenCalledWith(DEFAULT_DB, "p1", "s1", "b1")
+  })
+
+  it("does not look anything up for an unnamed task", async () => {
+    expect(await v1.findSimilarTasks("p1", "s1", "b1", "  ")).toEqual([])
+    expect(repo.findPbiTasksInSprint).not.toHaveBeenCalled()
+  })
+})

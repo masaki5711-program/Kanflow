@@ -101,6 +101,22 @@ describe("PbiDevPanel", () => {
     expect(within(live).queryByText(ja.gitDevBranchGone)).not.toBeInTheDocument()
   })
 
+  it("marks a merge request linked by a developer (write:dev) as linked manually", async () => {
+    linksBody = panel({
+      links: [
+        link({ kind: "mr", ref: "21", title: "!21", state: null, declared: true }),
+        link({ kind: "mr", ref: "22", title: "Synced MR", state: "opened" }),
+      ],
+    })
+    renderPanel("ja")
+    const section = await screen.findByRole("region", { name: ja.gitDevTitle })
+    const rows = [...section.querySelectorAll('[data-git-link="mr"]')] as HTMLElement[]
+    const declared = rows.find((r) => r.textContent?.includes("!21"))!
+    const synced = rows.find((r) => r.textContent?.includes("Synced MR"))!
+    expect(within(declared).getByText(ja.gitDevDeclared)).toBeInTheDocument()
+    expect(within(synced).queryByText(ja.gitDevDeclared)).not.toBeInTheDocument()
+  })
+
   it("shows the latest 5 commits per repository with a show-more button", async () => {
     linksBody = panel({
       links: Array.from({ length: 7 }, (_, i) => link({ kind: "commit", title: `Commit ${i}`, occurredAt: `2026-10-0${i + 1}T00:00:00Z` })),

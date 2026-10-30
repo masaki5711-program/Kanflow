@@ -113,6 +113,10 @@ export interface ApiErrorsTranslations {
   apiErrCollaboraFailed: string
   apiErrGitProviderUnsupported: string
   apiErrGitSourceLocked: string
+  apiErrMrUrlInvalid: string
+  apiErrMrRepositoryNotRegistered: string
+  apiErrClaimReleased: string
+  apiErrTaskClaimed: string
   apiErrNetwork: string
 }
 
@@ -219,6 +223,10 @@ export const API_ERROR_MESSAGE_KEYS: Readonly<Record<ApiErrorCode, ApiErrorMessa
   collabora_error: "apiErrCollaboraFailed",
   GIT_PROVIDER_UNSUPPORTED: "apiErrGitProviderUnsupported",
   GIT_SOURCE_LOCKED: "apiErrGitSourceLocked",
+  MR_URL_INVALID: "apiErrMrUrlInvalid",
+  MR_REPOSITORY_NOT_REGISTERED: "apiErrMrRepositoryNotRegistered",
+  CLAIM_RELEASED: "apiErrClaimReleased",
+  TASK_CLAIMED: "apiErrTaskClaimed",
   NETWORK_ERROR: "apiErrNetwork",
 }
 
@@ -332,6 +340,10 @@ export const ja: ApiErrorsTranslations = {
   apiErrCollaboraFailed: "Collaboraエディタの起動に失敗しました",
   apiErrGitProviderUnsupported: "この取り込み元には対応していません（現在は GitLab のみ）",
   apiErrGitSourceLocked: "取り込み元はプロジェクトごとに 1 つです。切り替えるには先にリポジトリを外してください",
+  apiErrMrUrlInvalid: "マージリクエストの URL ではありません（許可された Git サーバーの …/-/merge_requests/<番号> の形）",
+  apiErrMrRepositoryNotRegistered: "このマージリクエストのリポジトリは、このプロジェクトの Git 連携に登録されていません",
+  apiErrClaimReleased: "この作業の宣言はすでに解除されています。もう一度宣言してください",
+  apiErrTaskClaimed: "このタスクは他の人（または別のセッション）が作業中です",
   apiErrNetwork: "サーバーに接続できません。ネットワークを確認してください",
 }
 
@@ -439,6 +451,10 @@ export const en: ApiErrorsTranslations = {
   apiErrCollaboraFailed: "Failed to start the Collabora editor",
   apiErrGitProviderUnsupported: "This source is not supported (currently GitLab only)",
   apiErrGitSourceLocked: "A project reads from one source only. Remove its repositories before switching the source",
+  apiErrMrUrlInvalid: "Not a merge request URL (…/-/merge_requests/<number> on an allowed Git server)",
+  apiErrMrRepositoryNotRegistered: "The merge request's repository is not registered in this project's Git integration",
+  apiErrClaimReleased: "This work claim was already released. Claim the work again",
+  apiErrTaskClaimed: "Someone else (or another session) is already working on this",
   apiErrNetwork: "Cannot reach the server. Please check your network",
 }
 
@@ -546,5 +562,9 @@ export const id: ApiErrorsTranslations = {
   apiErrCollaboraFailed: "Gagal membuka editor Collabora",
   apiErrGitProviderUnsupported: "Sumber ini tidak didukung (saat ini hanya GitLab)",
   apiErrGitSourceLocked: "Satu proyek hanya membaca dari satu sumber. Hapus repositorinya terlebih dahulu sebelum mengganti sumber",
+  apiErrMrUrlInvalid: "Bukan URL merge request (…/-/merge_requests/<nomor> pada server Git yang diizinkan)",
+  apiErrMrRepositoryNotRegistered: "Repositori merge request ini tidak terdaftar di integrasi Git proyek ini",
+  apiErrClaimReleased: "Klaim pekerjaan ini sudah dilepas. Klaim pekerjaan lagi",
+  apiErrTaskClaimed: "Orang lain (atau sesi lain) sedang mengerjakan ini",
   apiErrNetwork: "Tidak dapat terhubung ke server. Periksa jaringan Anda",
 }

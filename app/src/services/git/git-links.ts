@@ -34,20 +34,27 @@ function date(s: string | null | undefined, fallback: Date): Date {
   return d && !Number.isNaN(d.getTime()) ? d : fallback
 }
 
+/** The stored columns of a merge request link (any PBI), as the source reports them. */
+export function mergeRequestFields(mr: DevMergeRequest, now: Date): Omit<LinkDraft, "kind" | "ref" | "pbiNumber" | "pipeline"> {
+  return {
+    title: cut(mr.title, 500),
+    url: safeUrl(mr.url),
+    state: cut(mr.state, 16) || null,
+    author: cut(mr.author, 191) || null,
+    sourceBranch: cut(mr.sourceBranch, 255) || null,
+    occurredAt: date(mr.updatedAt, now),
+    mergedAt: mr.mergedAt ? date(mr.mergedAt, now) : null,
+  }
+}
+
 /** MR keys come from the title and the source branch (not the description: "related to PBI-3" is noise). */
 export function linksFromMergeRequest(mr: DevMergeRequest, now: Date): LinkDraft[] {
   return extractPbiNumbers(mr.title, mr.sourceBranch).map((pbiNumber) => ({
     kind: "mr",
     ref: mr.ref,
     pbiNumber,
-    title: cut(mr.title, 500),
-    url: safeUrl(mr.url),
-    state: cut(mr.state, 16) || null,
     pipeline: null,
-    author: cut(mr.author, 191) || null,
-    sourceBranch: cut(mr.sourceBranch, 255) || null,
-    occurredAt: date(mr.updatedAt, now),
-    mergedAt: mr.mergedAt ? date(mr.mergedAt, now) : null,
+    ...mergeRequestFields(mr, now),
   }))
 }
 

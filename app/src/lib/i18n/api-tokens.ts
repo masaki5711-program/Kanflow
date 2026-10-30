@@ -69,6 +69,8 @@ export interface ApiTokensTranslations {
   apiTokenScopeCommentWrite: string
   apiTokenScopeIceboxWrite: string
   apiTokenScopeDailyWrite: string
+  /** write:dev — work claims (作業の宣言), progress comments, MR links of AI sessions (K5). */
+  apiTokenScopeDevWrite: string
   apiTokenProjects: string
   apiTokenProjectsAll: string
   apiTokenProjectsSelected: string
@@ -140,6 +142,7 @@ export const ja: ApiTokensTranslations = {
   apiTokenScopeCommentWrite: "コメントの書き込み",
   apiTokenScopeIceboxWrite: "アイスボックスへの起票",
   apiTokenScopeDailyWrite: "デイリースクラムの記入",
+  apiTokenScopeDevWrite: "開発の記録（作業中の宣言・進捗コメント・MR のリンク）",
   apiTokenProjects: "使えるプロジェクト",
   apiTokenProjectsAll: "アクセスできるすべてのプロジェクト",
   apiTokenProjectsSelected: "選んだプロジェクトだけ",
@@ -211,6 +214,7 @@ export const en: ApiTokensTranslations = {
   apiTokenScopeCommentWrite: "Write comments",
   apiTokenScopeIceboxWrite: "Submit Icebox items",
   apiTokenScopeDailyWrite: "Write daily scrums",
+  apiTokenScopeDevWrite: "Development records (work claims, progress comments, MR links)",
   apiTokenProjects: "Projects",
   apiTokenProjectsAll: "Every project you can access",
   apiTokenProjectsSelected: "Selected projects only",
@@ -282,6 +286,7 @@ export const id: ApiTokensTranslations = {
   apiTokenScopeCommentWrite: "Menulis komentar",
   apiTokenScopeIceboxWrite: "Mengajukan item Icebox",
   apiTokenScopeDailyWrite: "Menulis daily scrum",
+  apiTokenScopeDevWrite: "Catatan pengembangan (klaim pekerjaan, komentar progres, tautan MR)",
   apiTokenProjects: "Proyek",
   apiTokenProjectsAll: "Semua proyek yang dapat Anda akses",
   apiTokenProjectsSelected: "Hanya proyek yang dipilih",

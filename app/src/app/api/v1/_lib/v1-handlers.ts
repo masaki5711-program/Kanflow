@@ -12,7 +12,7 @@ import { addSprintPbisSchema, createTaskSchema, updateTaskSchema } from "@/servi
 import { addPbisToSprint, createTask, updateTask } from "@/services/sprint-backlog/sprint-backlog.service"
 import { createSprintSchema, updateSprintSchema } from "@/services/sprints/sprints.schemas"
 import { createSprint, updateSprint } from "@/services/sprints/sprints.service"
-import { getPbi } from "@/services/api-v1/api-v1.service"
+import { findSimilarTasks, getPbi } from "@/services/api-v1/api-v1.service"
 import { V1Reply } from "./v1-route"
 
 /**
@@ -63,9 +63,17 @@ export async function addSprintPbisOp({ projectId, params, body, serviceActor }:
   return new V1Reply({ data: result }, result.added === 0 ? 200 : 201)
 }
 
-/** Create a task under a PBI of the sprint — `task.write`. */
+/**
+ * Create a task under a PBI of the sprint — `task.write`. `similar` (only when non-empty):
+ * tasks of the same PBI in the sprint that already had the same name (case / spacing
+ * ignored) — a duplicate hint for AI agents, never a refusal.
+ */
 export async function createTaskOp({ projectId, params, body, serviceActor }: V1WriteInput<{ sprintId: string }>) {
-  return { data: await createTask(projectId, params.sprintId, createTaskSchema.parse(body), serviceActor) }
+  const input = createTaskSchema.parse(body)
+  // Looked up before the create, so the new task is not its own duplicate.
+  const similar = (await findSimilarTasks(projectId, params.sprintId, input.pbItemId, input.taskName)) ?? []
+  const data = await createTask(projectId, params.sprintId, input, serviceActor)
+  return similar.length > 0 ? { data, similar } : { data }
 }
 
 /** Edit a task (status, hours, assignees, name) — `task.write`. */

@@ -53,6 +53,8 @@ interface CommentRow {
   createdAt: Date
   editedAt: Date | null
   deletedAt: Date | null
+  /** "api" / "mcp" for comments posted with an access token; null / absent = the UI. */
+  via?: string | null
   author: { id: string; name: string } | null
   mentions: { user: { id: string; name: string } }[]
 }
@@ -72,6 +74,8 @@ export interface CommentDto {
   canDelete: boolean
   /** Both-language body (`{}` for tombstones and untranslated comments). */
   i18n: EntityI18n
+  /** Posted with an access token: "api" (REST) or "mcp" (Kanflow MCP, AI); null = the UI. */
+  via: "api" | "mcp" | null
 }
 
 /** Pure: DB row → DTO for `viewer` (tombstones hide body, mentions and translations). */
@@ -91,6 +95,7 @@ export function toCommentDto(row: CommentRow, viewer: CommentViewer, i18n: Entit
     canEdit: !deleted && isAuthor,
     canDelete: !deleted && (isAuthor || viewer.canModerate),
     i18n: deleted ? {} : i18n,
+    via: row.via === "api" || row.via === "mcp" ? row.via : null,
   }
 }
 
@@ -292,6 +297,7 @@ export async function createComment(
       entityId: input.entityId,
       authorId: actor.userId,
       body,
+      ...(actor.via ? { via: actor.via } : {}),
     })
     await repo.replaceMentions(tx, id, mentionIds)
     // Every comment also appears in the project's team chat.

@@ -30,7 +30,7 @@ Claude Code で `/kanflow setup` と入力すると、1〜4 を対話で案内�
    | プリセット | スコープ | 向いている人 |
    |---|---|---|
    | 閲覧のみ | `read` | PBI や受入条件を読ませるだけ |
-   | **Developer 向け** | `read`, `task:write`, `comment:write`, `icebox:write`, `daily:write` | Claude Code で開発する Developer（タスク更新・コメント・デイリースクラム） |
+   | **Developer 向け** | `read`, `task:write`, `comment:write`, `icebox:write`, `daily:write`, `write:dev` | Claude Code で開発する Developer（タスク更新・コメント・デイリースクラム・作業の宣言・進捗コメント・MR のリンク） |
    | PO / SM 向け（すべて） | 上記 + `backlog:write`, `backlog:reorder`, `sprint:write` | PBI やスプリントも Claude Code から作る PO / SM |
 
    - `read` は常に含まれます。
@@ -117,10 +117,18 @@ node scripts/kanflow-setup.js --url https://<kanflow-host>
 | 担当タスクと今の PBI を見る | `/kanflow status` |
 | PBI を選んでブランチを切る | `/kanflow pick PBI-12` |
 | PBI に進捗や MR のリンクをコメントする | `/kanflow comment` |
+| 作業を始める / やめる（作業の宣言） | 「PBI-12 のタスク API を始める」など → `claim_work`（セッション ID とブランチ付き）。終わったら `release_claim` |
+| 進捗を残す / MR を PBI に結び付ける | `post_progress`（スレッドに「MCP 経由（AI）」付きで表示）/ `link_merge_request`（Git 連携に登録済みリポジトリの MR の URL だけ） |
 | タスクを「進行中」「完了」にする / 実績時間を入れる | 「このタスクを完了にして、実績 3 時間で」など（書き込みの前に Claude が内容を確認します） |
 
 - Claude Code からの変更は Kanflow の変更履歴とダッシュボードの「最近の動き」に **「MCP 経由（AI）」バッジ**付きで表示されます
   （REST API からの変更は「API 経由」）。誰がいつ AI 経由で変えたかを画面で確認できます。
+- **作業の宣言（`write:dev`）**: 1 つのタスク（または PBI 全体）を作業中にできるのは 1 つのセッションだけです。他の人・別のセッションが作業中なら
+  `TASK_CLAIMED` で断られ、作業中の人の名前・セッション・ブランチ・最後の生存通知の時刻が返ります（AI は無人で動くので、警告ではなく拒否にしています）。
+  Claude はそこで止まって知らせます。2 時間に 1 回ほど `claim_work` を呼び直して生存を知らせ、`DEV_CLAIM_STALE_HOURS`（既定 4 時間）通知がない宣言は期限切れになり、
+  誰の作業も止めません。期限切れの宣言か自分の別セッションの宣言だけは `takeover: true` で引き継げます（前の持ち主に通知、変更履歴に記録）。
+  作業の宣言はタスクの状態（進行中など）を変えません。状態の変更は今までどおり人が確認して行います。
+- タスクを作る前に既存のタスクを確認します。同じ PBI に同じ名前のタスクがあると、作成結果の `similar` にそれが返ります（作成は止めません）。
 - 作成系の操作（タスク・コメントなど）は、通信エラー後の再試行で二重に作られないよう、同じ内容の呼び出しを **2 分間**まとめます（[mcp.md](mcp.md)「Idempotency」）。
 
 ## よくあるエラー
@@ -134,6 +142,9 @@ node scripts/kanflow-setup.js --url https://<kanflow-host>
 | `NOT_FOUND` / `PBI_NOT_FOUND` / `SPRINT_NOT_FOUND` | ID の誤り、別プロジェクトの ID、**プロジェクト限定トークンの対象外** | `.kanflow.json` の `projectId` とトークンの限定（`whoami` の `projectIds`）を確認 |
 | `RATE_LIMITED` / HTTP `429`（`retryAfterSec`） | 1 トークンあたりの上限（既定: リクエスト 120 回/分、書き込み 30 回/分）を超えた | `retryAfterSec` 秒待って再実行。大量の一括作成は分けて行う |
 | HTTP `403`（API 無効） | サーバーで `API_TOKENS_ENABLED=off` | 管理者に問い合わせる |
+| `TASK_CLAIMED`（`holders` 付き） | 他の人・別のセッションがそのタスク（または PBI 全体）を作業中 | `holders` の人と相談する。自分の別セッションや期限切れの宣言なら `takeover: true` |
+| `CLAIM_RELEASED` | 生存通知を送った宣言が解除済み・引き継ぎ済み | `claim_work` で宣言し直す（引き継がれていれば `TASK_CLAIMED` になる） |
+| `MR_URL_INVALID` / `MR_REPOSITORY_NOT_REGISTERED` | MR の URL でない、許可されていないホスト、またはプロジェクトの Git 連携に登録されていないリポジトリ | `https://<host>/<group>/<repo>/-/merge_requests/<番号>` の形で、登録済みリポジトリの MR を指定する |
 | `VERSION_CONFLICT` | 読み込んだ後に誰かが同じタスク / PBI を更新した | 読み直して差分を確認し、新しい `version` で再実行 |
 | `CONFLICT`（`idempotencyKey` 付き） | 同じキーを別の内容で使った | 別のキーを使う |
 | `MCP error -32602: Input validation error: ...`（JSON でない文字列） | ツールの引数が仕様と合わない（ステータス名の誤りなど） | 引数を直す（`VALIDATION` と同じ扱い） |

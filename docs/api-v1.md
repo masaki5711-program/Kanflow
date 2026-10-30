@@ -33,11 +33,12 @@ Authorization: Bearer kfl_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
   Every v1 endpoint needs only `project.view`.
 - **Scopes** (chosen at creation, `read` is always included): `read`,
   `backlog:write`, `backlog:reorder`, `sprint:write`, `task:write`,
-  `comment:write`, `icebox:write`, `daily:write`. A write needs the scope
+  `comment:write`, `icebox:write`, `daily:write`, `write:dev` (developer
+  writes of AI sessions, see "Development"). A write needs the scope
   **and** the owner's project role (docs/authorization.md): a dev's token
   never creates PBIs or sprints. Missing scope → `403 INSUFFICIENT_SCOPE`
   with `requiredScope`. The form offers presets: read only / developer
-  (`read`, `task:write`, `comment:write`, `icebox:write`, `daily:write`) /
+  (`read`, `task:write`, `comment:write`, `icebox:write`, `daily:write`, `write:dev`) /
   PO・SM (all).
 - **Project restriction** (optional): limit a token to some projects; every
   other project answers 404 and is left out of `/projects`.
@@ -153,6 +154,11 @@ path (`runV1Write`); its changes carry `meta.via = "mcp"`.
 | `POST /comments` → 201 | `comment:write` | members | `entityType` (`pbi`/`sprint_task`/`icebox`), `entityId`, `body` |
 | `POST /icebox` → 201 | `icebox:write` | members, section managers | `request`, `background`, `author`, `assignedPo` |
 
+`POST /sprints/:sprintId/tasks` also answers `similar` (only when non-empty):
+tasks of the same PBI in the sprint that already have the same name (Unicode
+NFKC, case and spacing ignored). It is a duplicate hint for scripts and AI
+agents; the task is still created.
+
 No deletes through the API.
 
 - **Conflicts**: send the `version` you read; a stale one → `409 VERSION_CONFLICT`.
@@ -166,6 +172,70 @@ No deletes through the API.
 - Errors: as above, plus `400 INVALID_JSON`, `403 INSUFFICIENT_SCOPE`
   (`requiredScope`), `403 FORBIDDEN` (role), `404 PBI_NOT_FOUND` /
   `SPRINT_NOT_FOUND` / ..., `409 VERSION_CONFLICT` / `CONFLICT`.
+
+## Development (`write:dev`)
+
+Writes of developers' AI sessions (GitStation plan 06 §4.1 / 02 §12–13, Kanflow
+step K5). Scope **`write:dev`** (no other scope grants it; part of the
+"developer" preset) **and** a project member role (action `dev.write`: PO, SM,
+Dev; not section managers). Same write budget, idempotency and error shape as
+the other writes; changes carry `via = "api"` / `"mcp"`. **None of them changes
+a task or PBI status or sprint** — that stays a human decision (Kanflow
+principle: AI proposes, people approve). Code: `app/src/services/dev-work/`,
+handlers `app/src/app/api/v1/_lib/v1-dev-handlers.ts`.
+
+| Method & path (under `/api/v1/projects/:projectId`) | Scope | Body / query | Answer |
+|---|---|---|---|
+| `GET /dev/claims` | `read` | `pbi` (id / `12` / `PBI-12`), `taskId` | open claims, newest heartbeat first: active ones and stale ones (`stale: true`, heartbeat within the last 7 days); at most 200 (`truncated`, `limit`); `staleAfterHours` |
+| `POST /dev/claims` | `write:dev` | exactly one of `pbi` / `taskId`; `sessionId` (1–100 visible ASCII); `branch?`; `takeover?` (boolean) | `201 { data: claim, created: true, takenOver: [] }`; `200` (`created: false`) when the same user + session already claims the same target (heartbeat); `409 TASK_CLAIMED` |
+| `PATCH /dev/claims/:claimId` | `write:dev` | `branch?` | heartbeat of the claim's owner: `{ data: claim }`; `403 FORBIDDEN` for another user's claim, `409 CLAIM_RELEASED` for a released / taken-over one, `409 TASK_CLAIMED` when a stale claim was claimed by someone else meanwhile |
+| `POST /dev/claims/:claimId/release` | `write:dev` | — | `{ data: claim }` (owner only; releasing again answers the released claim) |
+| `POST /dev/progress` | `write:dev` | `entityType` (`pbi` / `sprint_task`), `entityId` (PBI id / `12` / `PBI-12`, or task id), `body` | `201 { data: comment }` — a normal comment (mentions, notifications, translation, activity) whose row records `via`; the thread shows the "via MCP (AI)" / "via API" badge. `Idempotency-Key` honoured |
+| `POST /dev/mr-links` | `write:dev` | `pbi`, `url`, `title?` (shown until the sync reads the MR; default `!<iid>`) | `201 { data: link, created: true }` / `200 … created: false` when that MR is already linked to the PBI (by the sync or a developer) |
+
+**Work claims (作業の宣言)** — `claim`: `id, projectId, pbi {id, displayId, title},
+task {id, name, sprintId} | null` (null = the whole PBI), `user {id, name},
+sessionId, branch, startedAt, heartbeatAt, staleAt, releasedAt, active, stale`.
+
+- **One active claim per target.** A claim on a task overlaps claims on the
+  same task and a claim on its whole PBI; a whole-PBI claim overlaps every
+  claim on that PBI. Different tasks of one PBI do not overlap.
+- An overlapping **active** claim of another user, or of another session of
+  the same user, refuses the claim with **`409 TASK_CLAIMED`** and
+  `holders: [{ claimId, user {id, name}, sessionId, branch, pbi {id, displayId},
+  task {id, name} | null, claimedAt, lastHeartbeatAt, staleAt }]`. A refusal,
+  not a warning: AI sessions run unattended and would ignore a warning. The
+  agent should stop and tell the user.
+- **Expiry**: a claim without a heartbeat for `DEV_CLAIM_STALE_HOURS`
+  (default 4, 1–168) is stale: it no longer blocks anyone and is listed with
+  `stale: true`. Its owner's heartbeat revives it unless someone else claimed
+  the target meanwhile (then `409 TASK_CLAIMED`). Rows are never deleted.
+- **Heartbeat**: `POST /dev/claims` again with the same `sessionId` (or
+  `PATCH /dev/claims/:claimId`), e.g. every 1–2 hours while working.
+- **Takeover**: `takeover: true` ends the overlapping claims (released, listed
+  in `takenOver`) — allowed only when every **active** one is the caller's own
+  other session; stale ones of anybody are ended too. Another user's active
+  claim is never taken over (still `409`). Each takeover is written to the
+  activity log of the task / PBI (`meta.claimTakeover`) and notifies the
+  previous holder (notification type `work_claim_taken_over`; none for one's
+  own session).
+- Claims of one PBI are serialized by a row lock on the PBI, so two sessions
+  claiming at once cannot both win. Plain claims, heartbeats and releases are
+  not in the activity log (they would flood it).
+
+**MR links** — the URL must be `https://<host>/<group>/<repo>/-/merge_requests/<iid>`
+(a sub-page such as `/diffs`, a query or a fragment is dropped) on a host in
+`GIT_ALLOWED_HOSTS`, and the repository must be registered in the project's
+**enabled** Git integration; otherwise `400 MR_URL_INVALID` (malformed, http,
+credentials, port, foreign host, not an MR) or `400 MR_REPOSITORY_NOT_REGISTERED`
+(another project's repository answers the same). The link is a `git_link` of
+kind `mr` with `declaredBy` / `declaredAt` (the PBI's 開発 panel shows
+"手動でリンク"); the URL is rebuilt from the repository and the number, nothing
+else of the input is stored. The Git sync keeps the title / state / dates of a
+declared MR current even when its title and branch do not name the PBI.
+`link`: `id, kind, ref, title, url, state, repository {id, name}, pbi {id, displayId},
+declared, declaredAt, declaredBy {id, name} | null, createdAt`. Linking is
+recorded on the PBI's activity log (`meta.gitLink`).
 
 ## Examples
 
@@ -218,6 +288,9 @@ Invoke-RestMethod -Headers $h "$base/api/v1/projects" | Select-Object -ExpandPro
 | `API_TOKEN_ALLOW_NO_EXPIRY` | `false` | Allow tokens without an expiry |
 | `API_V1_RATE_LIMIT_PER_MIN` | `120` | Requests per token per minute |
 | `API_V1_WRITE_RATE_LIMIT_PER_MIN` | `30` | Writes per token per minute (on top of the request limit) |
+| `DEV_CLAIM_STALE_HOURS` | `4` | Hours without a heartbeat after which a work claim is stale (1–168) |
 
 Schema: table `ApiToken` (migrations `20261005000000_api_tokens_metrics`,
-`20261030000000_api_token_scopes` for `projectIds`).
+`20261030000000_api_token_scopes` for `projectIds`); work claims `work_claim`,
+`git_link.declaredById / declaredAt`, `Comment.via` (migration
+`20261030160000_dev_work_claims`).

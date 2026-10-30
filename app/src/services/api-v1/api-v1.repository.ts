@@ -296,3 +296,16 @@ export function findMyTasks(db: Db, userId: string, projectIds: string[] | null,
     take: V1_MY_TASKS_LIMIT + 1,
   })
 }
+
+/** Upper bound of tasks compared for the duplicate hint of a task create. */
+export const V1_SIMILAR_TASK_SCAN = 200
+
+/** Tasks of one PBI in one sprint of the project (for the duplicate hint of create_task). */
+export function findPbiTasksInSprint(db: Db, projectId: string, sprintId: string, pbItemId: string) {
+  return db.sprintBacklogItem.findMany({
+    where: { sprintId, pbItemId, sprint: { projectId }, taskName: { not: null }, ...LIVE_PBI },
+    select: { id: true, taskName: true, status: true },
+    orderBy: { createdAt: "asc" },
+    take: V1_SIMILAR_TASK_SCAN,
+  })
+}

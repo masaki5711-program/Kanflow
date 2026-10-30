@@ -73,6 +73,7 @@ const EXPECTED: Record<ProjectAction, Persona[]> = {
   "surveillance.configure": PO,
   "git.configure": PO_SM,
   "git.sync": MEMBERS,
+  "dev.write": MEMBERS,
 }
 
 const cases = PROJECT_ACTIONS.flatMap((action) =>

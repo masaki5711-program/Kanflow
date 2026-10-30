@@ -274,7 +274,10 @@ syncing, hides the UI and the AI stops using the passages). Migrations
 `20261030120000_git_sync_cursors` (per-listing cursors seeded from the old
 `syncCursor`, `syncGeneration`, `git_link.goneAt`),
 `20261030140000_git_integration_provider` (`git_integration.provider`, default
-`gitlab`). `syncCursor` is deprecated: still written
+`gitlab`), `20261030160000_dev_work_claims` (`git_link.declaredById /
+declaredAt`: merge requests linked by a developer through `write:dev`, kept
+current by the sync even when the MR does not name the PBI — docs/api-v1.md
+"Development"). `syncCursor` is deprecated: still written
 (the earlier of the two cursors) for one release so a rollback re-reads rather
 than skips, then dropped.
 

@@ -8,7 +8,7 @@ import type { Actor } from "@/services/_shared/actor"
 import { devSourceFor, type DevBranchListing, type DevChanges, type DevCursor, type DevListingFailure, type DevListingKind, type DevSource } from "./dev-source"
 import { readableProvider, UnsupportedProviderError } from "./git-provider"
 import { writeReleases } from "./git-release-sync"
-import { allMergeRequestsMerged, linksFromBranch, linksFromCommit, linksFromMergeRequest, type LinkDraft } from "./git-links"
+import { allMergeRequestsMerged, linksFromBranch, linksFromCommit, linksFromMergeRequest, mergeRequestFields, type LinkDraft } from "./git-links"
 import { defaultClientFactory, type ClientFactory } from "./gitlab-source"
 
 /**
@@ -71,7 +71,11 @@ export async function syncRepository(repositoryId: string, factory: ClientFactor
     const lookups = mrDrafts.filter((d) => pbiIds.has(d.pbiNumber) && read.freshMrRefs.has(d.ref))
     if (!read.failures.some((f) => f.kind === "mr")) await attachPipelines(source, repositoryId, lookups)
 
-    const { written, changed, newlyMerged, newlyFailed } = await writeLinks(repo.projectId, repo.id, drafts, pbiIds)
+    const { written, changed: linkChanges, newlyMerged, newlyFailed } = await writeLinks(repo.projectId, repo.id, drafts, pbiIds)
+    // Links a developer declared (write:dev) whose MR does not name the PBI: kept current here.
+    const declared = await refreshDeclaredLinks(repo.id, read.mrs, mrDrafts, pbiIds, now)
+    for (const id of declared.newlyMerged) newlyMerged.add(id)
+    const changed = linkChanges + declared.changed
     // `branches` is null when that listing failed: then nothing is marked gone.
     const gone = read.branches ? await markGoneBranches(repo.id, read.branches, branchDrafts, pbiIds, now) : 0
     const releases = await syncReleasesSafely(source, repo, now)
@@ -245,6 +249,40 @@ async function writeLinks(projectId: string, repositoryId: string, drafts: reado
     }
   }
   return { written, changed, newlyMerged, newlyFailed }
+}
+
+/**
+ * Merge request links declared by a developer (git_link.declaredAt, POST
+ * /api/v1/.../dev/mr-links) get no draft when the MR's title / branch does not
+ * name the PBI; their title / state / dates are refreshed from the MRs this sync
+ * read (pipeline kept). Links that also have a draft were written by writeLinks.
+ */
+async function refreshDeclaredLinks(
+  repositoryId: string,
+  mrs: DevChanges["mergeRequests"],
+  mrDrafts: readonly LinkDraft[],
+  pbiIds: Map<number, string>,
+  now: Date,
+): Promise<{ changed: number; newlyMerged: Set<string> }> {
+  const newlyMerged = new Set<string>()
+  if (mrs.length === 0) return { changed: 0, newlyMerged }
+  const byRef = new Map(mrs.map((mr) => [mr.ref, mr]))
+  const drafted = new Set(mrDrafts.filter((d) => pbiIds.has(d.pbiNumber)).map((d) => `${d.ref}|${pbiIds.get(d.pbiNumber)}`))
+  const rows = await prisma.gitLink.findMany({
+    where: { repositoryId, kind: "mr", declaredAt: { not: null }, ref: { in: [...byRef.keys()] } },
+    select: { id: true, ref: true, kind: true, backlogItemId: true, declaredAt: true, ...LINK_SELECT },
+  })
+  let changed = 0
+  for (const row of rows) {
+    const mr = byRef.get(row.ref)
+    if (!mr || row.kind !== "mr" || !row.declaredAt || drafted.has(`${row.ref}|${row.backlogItemId}`)) continue
+    const data = { ...mergeRequestFields(mr, now), pipeline: row.pipeline, goneAt: null }
+    if (isSameLink(row, data)) continue
+    await prisma.gitLink.updateMany({ where: { id: row.id }, data })
+    changed++
+    if (data.state === "merged" && row.state !== "merged") newlyMerged.add(row.backlogItemId)
+  }
+  return { changed, newlyMerged }
 }
 
 /**
