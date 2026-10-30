@@ -62,6 +62,11 @@ export interface CommentsTranslations {
   historyEditedElsewhere: string
   historyEmptyValue: string
   historyFieldProductGoal: string
+  /** Badge on a history / feed entry written with an access token (activity `meta.via`); the hint is its tooltip. */
+  historyViaApi: string
+  historyViaApiHint: string
+  historyViaMcp: string
+  historyViaMcpHint: string
   /** Emoji reactions (components/reactions/). Placeholders: {emoji} {count}. */
   reactionGroupLabel: string
   reactionAdd: string
@@ -122,6 +127,10 @@ export const ja: CommentsTranslations = {
   historyEditedElsewhere: "編集中に他の人がこの PBI を更新しました。保存すると、最新の内容との違いが表示されます。",
   historyEmptyValue: "（なし）",
   historyFieldProductGoal: "プロダクトゴール",
+  historyViaApi: "API 経由",
+  historyViaApiHint: "アクセストークンを使い、REST API（/api/v1）から行われた変更です",
+  historyViaMcp: "MCP 経由（AI）",
+  historyViaMcpHint: "アクセストークンを使い、Kanflow MCP（Claude Code などの AI ツール）から行われた変更です",
   reactionGroupLabel: "リアクション",
   reactionAdd: "リアクションを追加",
   reactionChipAdd: "{emoji} のリアクションを付ける（現在 {count} 件）",
@@ -181,6 +190,10 @@ export const en: CommentsTranslations = {
   historyEditedElsewhere: "Someone else updated this PBI while you were editing. When you save, the differences from the latest version are shown.",
   historyEmptyValue: "(none)",
   historyFieldProductGoal: "Product goal",
+  historyViaApi: "via API",
+  historyViaApiHint: "Made with an access token through the REST API (/api/v1)",
+  historyViaMcp: "via MCP (AI)",
+  historyViaMcpHint: "Made with an access token through the Kanflow MCP server (an AI tool such as Claude Code)",
   reactionGroupLabel: "Reactions",
   reactionAdd: "Add reaction",
   reactionChipAdd: "Add {emoji} reaction ({count} so far)",
@@ -240,6 +253,10 @@ export const id: CommentsTranslations = {
   historyEditedElsewhere: "Orang lain memperbarui PBI ini saat Anda mengedit. Saat menyimpan, perbedaan dengan versi terbaru akan ditampilkan.",
   historyEmptyValue: "(kosong)",
   historyFieldProductGoal: "Tujuan produk",
+  historyViaApi: "melalui API",
+  historyViaApiHint: "Diubah dengan token akses melalui REST API (/api/v1)",
+  historyViaMcp: "melalui MCP (AI)",
+  historyViaMcpHint: "Diubah dengan token akses melalui server Kanflow MCP (alat AI seperti Claude Code)",
   reactionGroupLabel: "Reaksi",
   reactionAdd: "Tambah reaksi",
   reactionChipAdd: "Beri reaksi {emoji} (saat ini {count})",

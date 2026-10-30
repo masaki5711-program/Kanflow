@@ -48,3 +48,12 @@ export function actionSentence(entry: Pick<ActivityEntry, "action" | "actor">, t
   const template = t[ACTION_KEY[entry.action] ?? "historyActionUpdate"] as string
   return template.replace("{actor}", actor)
 }
+
+/** How a change reached Kanflow when not through the UI (recorded by `withVia` in services/_shared/activity.ts). */
+export type ActivityVia = "api" | "mcp"
+
+/** `meta.via` of an entry when it is a known channel, else null (= a UI or system change). */
+export function activityVia(entry: Pick<ActivityEntry, "meta">): ActivityVia | null {
+  const via = entry.meta?.via
+  return via === "api" || via === "mcp" ? via : null
+}

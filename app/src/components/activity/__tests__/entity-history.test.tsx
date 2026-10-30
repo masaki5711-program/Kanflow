@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { screen } from "@testing-library/react"
+import { screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { getTranslations } from "@/lib/i18n"
 import { jsonResponse, renderWithProviders } from "@/components/__tests__/helpers"
 import { EntityHistory } from "../entity-history"
-import { actionSentence, parseActivityPage } from "../history-format"
+import { actionSentence, activityVia, parseActivityPage } from "../history-format"
 
 const t = getTranslations("en")
 const URL = "/api/projects/p1/activity/pbi/b1"
@@ -84,6 +84,28 @@ describe("EntityHistory", () => {
     expect(await screen.findByText("Alice deleted this")).toBeInTheDocument()
     expect(screen.getByText(/y{10,}…$/)).toBeInTheDocument()
   })
+
+  it("marks changes made through the REST API or the MCP server (meta.via) and leaves UI edits unmarked", async () => {
+    routes[URL] = () =>
+      jsonResponse({
+        items: [
+          entry("m", { action: "status_change", meta: { via: "mcp" }, changes: { status: { from: "not_ready", to: "ready" } } }),
+          entry("a", { action: "comment", meta: { via: "api", sprintId: "s1" } }),
+          entry("u", { action: "create" }),
+        ],
+        nextCursor: null,
+      })
+    renderHistory()
+    const mcpItem = (await screen.findByText("Alice changed the status")).closest("li")
+    expect(mcpItem).not.toBeNull()
+    const mcpBadge = within(mcpItem as HTMLElement).getByText(t.historyViaMcp)
+    expect(mcpBadge).toHaveAttribute("title", t.historyViaMcpHint)
+    const apiItem = screen.getByText("Alice commented").closest("li") as HTMLElement
+    expect(within(apiItem).getByText(t.historyViaApi)).toHaveAttribute("title", t.historyViaApiHint)
+    const uiItem = screen.getByText("Alice created this").closest("li") as HTMLElement
+    expect(within(uiItem).queryByText(t.historyViaApi)).not.toBeInTheDocument()
+    expect(within(uiItem).queryByText(t.historyViaMcp)).not.toBeInTheDocument()
+  })
 })
 
 describe("history-format", () => {
@@ -93,5 +115,14 @@ describe("history-format", () => {
     expect(actionSentence({ action: "assign", actor: { id: "u", name: "Bo" } }, t)).toBe("Bo changed the assignee")
     expect(actionSentence({ action: "move", actor: { id: null, name: null } }, t)).toBe("System moved this between sprints")
     expect(actionSentence({ action: "weird", actor: null }, t)).toBe("System updated this")
+  })
+
+  it("reads meta.via only when it is a known channel", () => {
+    expect(activityVia({ meta: { via: "mcp" } })).toBe("mcp")
+    expect(activityVia({ meta: { via: "api", count: 2 } })).toBe("api")
+    expect(activityVia({ meta: null })).toBeNull()
+    expect(activityVia({ meta: {} })).toBeNull()
+    expect(activityVia({ meta: { via: "ui" } })).toBeNull()
+    expect(activityVia({ meta: { via: 1 } })).toBeNull()
   })
 })

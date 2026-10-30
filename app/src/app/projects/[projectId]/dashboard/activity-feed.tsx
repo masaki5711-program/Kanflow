@@ -6,7 +6,8 @@ import { Activity } from "lucide-react"
 import { Button, EmptyState, SkeletonLines, useToast } from "@/components/ui"
 import { apiFetch, useApiQuery } from "@/hooks"
 import { useLanguage } from "@/lib/language-context"
-import { parseActivityPage } from "@/components/activity/history-format"
+import { activityVia, parseActivityPage } from "@/components/activity/history-format"
+import { ViaBadge } from "@/components/activity/via-badge"
 import { formatFullDateTime, formatRelativeTime } from "@/components/comments/relative-time"
 import { feedSentence, type FeedEntry } from "./activity-sentence"
 import { useLiveRefetch } from "@/components/realtime/use-live-refetch"
@@ -61,6 +62,7 @@ export function FeedItem({ entry, projectId, now, isNew = false }: { entry: Feed
           <time dateTime={entry.createdAt} title={formatFullDateTime(entry.createdAt, language)} className="text-caption text-fg-muted">
             {formatRelativeTime(entry.createdAt, now, language)}
           </time>
+          <ViaBadge via={activityVia(entry)} />
         </p>
       </div>
     </li>

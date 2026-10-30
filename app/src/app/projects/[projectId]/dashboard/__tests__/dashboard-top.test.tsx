@@ -202,6 +202,30 @@ describe("ActivityFeed", () => {
     expect(await screen.findByText(ja.dashboardFeedEmpty)).toBeInTheDocument()
   })
 
+  it("badges entries written through the MCP server or the REST API (meta.via)", async () => {
+    stubFetch([
+      {
+        match: FEED,
+        respond: () =>
+          jsonResponse({
+            items: [
+              entry("1", { entityType: "sprint_task", entityId: "t1", action: "status_change", label: "Docs", meta: { via: "mcp" }, changes: { status: { from: "todo", to: "done" } } }),
+              entry("2", { meta: { via: "api" } }),
+              entry("3"),
+            ],
+            nextCursor: null,
+          }),
+      },
+    ])
+    renderWithProviders(<ActivityFeed projectId="p1" />, { language: "en" })
+    const items = await screen.findAllByRole("listitem")
+    expect(items).toHaveLength(3)
+    expect(within(items[0]).getByText(en.historyViaMcp)).toHaveAttribute("title", en.historyViaMcpHint)
+    expect(within(items[1]).getByText(en.historyViaApi)).toHaveAttribute("title", en.historyViaApiHint)
+    expect(within(items[2]).queryByText(en.historyViaMcp)).not.toBeInTheDocument()
+    expect(within(items[2]).queryByText(en.historyViaApi)).not.toBeInTheDocument()
+  })
+
   it("parseFeedPage tolerates garbage", () => {
     expect(parseFeedPage(null)).toEqual({ items: [], nextCursor: null })
     expect(parseFeedPage({ items: [{ id: "x", action: "create", createdAt: "t" }], nextCursor: 5 })).toEqual({ items: [], nextCursor: null })

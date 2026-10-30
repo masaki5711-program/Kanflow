@@ -6,7 +6,8 @@ import { useLanguage } from "@/lib/language-context"
 import { Button, EmptyState, SkeletonLines, useToast } from "@/components/ui"
 import { apiFetch, useApiQuery } from "@/hooks"
 import { formatFullDateTime, formatRelativeTime } from "@/components/comments/relative-time"
-import { actionSentence, parseActivityPage, type ActivityEntry, type ActivityPage } from "./history-format"
+import { actionSentence, activityVia, parseActivityPage, type ActivityEntry, type ActivityPage } from "./history-format"
+import { ViaBadge } from "./via-badge"
 import { useLiveRefetch } from "@/components/realtime/use-live-refetch"
 import { mergeNewestFirst } from "@/components/realtime/merge-pages"
 
@@ -109,6 +110,7 @@ function HistoryItem({ entry, fieldLabels, show }: ItemProps) {
         <time dateTime={entry.createdAt} title={formatFullDateTime(entry.createdAt, language)} className="text-caption text-fg-muted">
           {formatRelativeTime(entry.createdAt, new Date(), language)}
         </time>
+        <ViaBadge via={activityVia(entry)} />
       </div>
       {changes.length > 0 && (
         <ul className="mt-1 space-y-0.5">
