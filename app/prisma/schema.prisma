@@ -1230,9 +1230,15 @@ model MetricSnapshot {
 /// Per-project GitLab integration switch and access token. A project without
 /// a row (or enabled = false) shows no Git UI at all — Kanflow is also used by
 /// process-improvement teams that never touch Git.
+/// One per project (primary key projectId): a project reads exactly ONE source,
+/// never GitLab and GitStation side by side (both would show every MR / commit twice).
 model GitIntegration {
   projectId           String   @id
   enabled             Boolean  @default(false)
+  /// Where the project's development data is read from (services/git/git-provider):
+  /// only "gitlab" today; "gitstation" joins with its DevSource (M3). Validated by the
+  /// settings API and the source factory; cannot change while repositories exist.
+  provider            String   @default("gitlab") @db.VarChar(32)
   /// Access token (group or project token, read_api), AES-256-GCM sealed by lib/secret-box. Never returned by the API.
   tokenCipher         String?  @db.Text
   /// Last 4 characters, shown as "••••abcd" so people can tell which token is set.

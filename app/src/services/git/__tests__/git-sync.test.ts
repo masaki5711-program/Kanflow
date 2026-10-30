@@ -91,7 +91,7 @@ function repoRow(overrides: Record<string, unknown> = {}) {
     lookbackCursorAt: null,
     lookbackWindowSec: null,
     lookbackAt: null,
-    project: { deletedAt: null, gitIntegration: { enabled: true, tokenCipher: "sealed-integration-token", autoCompleteOnMerge: false } },
+    project: { deletedAt: null, gitIntegration: { enabled: true, provider: "gitlab", tokenCipher: "sealed-integration-token", autoCompleteOnMerge: false } },
     ...overrides,
   }
 }
@@ -212,6 +212,18 @@ beforeEach(() => {
 })
 
 describe("syncRepository — disabled paths", () => {
+  it("an integration with a provider Kanflow cannot read fails loudly: logged once, stored on the repository, nothing read", async () => {
+    gitRepositoryFindUnique.mockResolvedValue(repoRow({ project: { deletedAt: null, gitIntegration: { enabled: true, provider: "github", tokenCipher: "sealed-integration-token" } } }))
+    const factory = vi.fn()
+    const result = await syncRepository("r1", factory, NOW)
+    expect(result).toEqual({ repositoryId: "r1", ok: false, links: 0, error: "provider" })
+    expect(factory).not.toHaveBeenCalled()
+    expect(noopLog.error).toHaveBeenCalledTimes(1)
+    expect(noopLog.error).toHaveBeenCalledWith("git sync provider unsupported", { repositoryId: "r1", provider: "github" })
+    expect(gitRepositoryUpdate).toHaveBeenCalledWith({ where: { id: "r1" }, data: { lastError: expect.stringContaining("github"), lastErrorAt: expect.any(Date) } })
+    expect(gitRepositoryUpdateMany).not.toHaveBeenCalled()
+  })
+
   it("returns disabled when the repository does not exist", async () => {
     gitRepositoryFindUnique.mockResolvedValue(null)
     const result = await syncRepository("missing", vi.fn())
@@ -232,7 +244,7 @@ describe("syncRepository — disabled paths", () => {
 
 describe("syncRepository — token resolution", () => {
   it("fails with kind 'token' when neither the repository nor the integration has a sealed token", async () => {
-    gitRepositoryFindUnique.mockResolvedValue(repoRow({ tokenCipher: null, project: { deletedAt: null, gitIntegration: { enabled: true, tokenCipher: null } } }))
+    gitRepositoryFindUnique.mockResolvedValue(repoRow({ tokenCipher: null, project: { deletedAt: null, gitIntegration: { enabled: true, provider: "gitlab", tokenCipher: null } } }))
     const result = await syncRepository("r1", vi.fn())
     expect(result).toEqual({ repositoryId: "r1", ok: false, links: 0, error: "token" })
     expect(openMock).not.toHaveBeenCalled()
@@ -777,7 +789,7 @@ describe("syncRepository — full success: links, pipelines, gone branches, auto
 
   it("detects a merge request newly turning 'merged' and triggers auto-complete when enabled", async () => {
     gitRepositoryFindUnique.mockResolvedValue(
-      repoRow({ externalId: 7, project: { deletedAt: null, gitIntegration: { enabled: true, tokenCipher: "sealed-integration-token", autoCompleteOnMerge: true } } }),
+      repoRow({ externalId: 7, project: { deletedAt: null, gitIntegration: { enabled: true, provider: "gitlab", tokenCipher: "sealed-integration-token", autoCompleteOnMerge: true } } }),
     )
     productBacklogItemFindMany.mockResolvedValue([{ id: "b-42", displayId: 42 }])
     gitLinkFindUnique.mockResolvedValue(null) // was not merged before
@@ -836,7 +848,7 @@ describe("syncRepository — full success: links, pipelines, gone branches, auto
 
   it("does not re-trigger auto-complete for a PBI whose MR was already merged before this sync", async () => {
     gitRepositoryFindUnique.mockResolvedValue(
-      repoRow({ externalId: 7, project: { deletedAt: null, gitIntegration: { enabled: true, tokenCipher: "sealed-integration-token", autoCompleteOnMerge: true } } }),
+      repoRow({ externalId: 7, project: { deletedAt: null, gitIntegration: { enabled: true, provider: "gitlab", tokenCipher: "sealed-integration-token", autoCompleteOnMerge: true } } }),
     )
     productBacklogItemFindMany.mockResolvedValue([{ id: "b-42", displayId: 42 }])
     gitLinkFindUnique.mockResolvedValue({ state: "merged", pipeline: null }) // already merged before
@@ -847,7 +859,7 @@ describe("syncRepository — full success: links, pipelines, gone branches, auto
 
   it("skips a task auto-complete failure and continues with the rest", async () => {
     gitRepositoryFindUnique.mockResolvedValue(
-      repoRow({ externalId: 7, project: { deletedAt: null, gitIntegration: { enabled: true, tokenCipher: "sealed-integration-token", autoCompleteOnMerge: true } } }),
+      repoRow({ externalId: 7, project: { deletedAt: null, gitIntegration: { enabled: true, provider: "gitlab", tokenCipher: "sealed-integration-token", autoCompleteOnMerge: true } } }),
     )
     productBacklogItemFindMany.mockResolvedValue([{ id: "b-42", displayId: 42 }])
     gitLinkFindMany.mockImplementation(async (args: { where: { kind: string } }) => (args.where.kind === "mr" ? [{ state: "merged" }] : []))

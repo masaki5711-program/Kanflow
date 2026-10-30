@@ -176,6 +176,42 @@ describe("updateGitSettings", () => {
     expect(logActivityMock).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ diff: { changes: { "git.token": { from: "•••", to: null } } } }))
   })
 
+  it("rejects an unknown provider with 400 GIT_PROVIDER_UNSUPPORTED, writing nothing", async () => {
+    await expect(svc.updateGitSettings(PROJECT_ID, { provider: "github" }, ACTOR)).rejects.toMatchObject({ status: 400, code: "GIT_PROVIDER_UNSUPPORTED" })
+    expect(gitIntegrationUpsert).not.toHaveBeenCalled()
+    expect(logActivityMock).not.toHaveBeenCalled()
+  })
+
+  it("stores provider gitlab (the only one accepted today) without logging a non-change", async () => {
+    gitIntegrationFindUnique.mockResolvedValueOnce({ enabled: true, autoCompleteOnMerge: false, provider: "gitlab" }).mockResolvedValueOnce(null)
+    await svc.updateGitSettings(PROJECT_ID, { provider: "gitlab" }, ACTOR)
+    expect(gitIntegrationUpsert).toHaveBeenCalledWith({ where: { projectId: PROJECT_ID }, create: { projectId: PROJECT_ID, provider: "gitlab" }, update: { provider: "gitlab" } })
+    expect(logActivityMock).not.toHaveBeenCalled()
+  })
+
+  it("one source per project: a project with repositories cannot switch its provider (409 GIT_SOURCE_LOCKED)", async () => {
+    // A row of a provider added later (M3) reading repositories; switching back would read both histories.
+    gitIntegrationFindUnique.mockResolvedValueOnce({ enabled: true, autoCompleteOnMerge: false, provider: "gitstation" })
+    gitRepositoryCount.mockResolvedValue(2)
+    await expect(svc.updateGitSettings(PROJECT_ID, { provider: "gitlab" }, ACTOR)).rejects.toMatchObject({ status: 409, code: "GIT_SOURCE_LOCKED" })
+    expect(gitRepositoryCount).toHaveBeenCalledWith({ where: { projectId: PROJECT_ID } })
+    expect(gitIntegrationUpsert).not.toHaveBeenCalled()
+  })
+
+  it("a project without repositories may switch its provider (logged)", async () => {
+    gitIntegrationFindUnique.mockResolvedValueOnce({ enabled: false, autoCompleteOnMerge: false, provider: "gitstation" }).mockResolvedValueOnce(null)
+    gitRepositoryCount.mockResolvedValue(0)
+    await svc.updateGitSettings(PROJECT_ID, { provider: "gitlab" }, ACTOR)
+    expect(gitIntegrationUpsert.mock.calls[0][0].update).toEqual({ provider: "gitlab" })
+    expect(logActivityMock).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ diff: { changes: { "git.provider": { from: "gitstation", to: "gitlab" } } } }))
+  })
+
+  it("the settings schema takes provider as a string (validated by the service, which names the supported ones)", () => {
+    expect(svc.gitSettingsSchema.parse({ provider: "gitlab" })).toEqual({ provider: "gitlab" })
+    expect(() => svc.gitSettingsSchema.parse({ provider: "" })).toThrow()
+    expect(() => svc.gitSettingsSchema.parse({ provider: "x".repeat(33) })).toThrow()
+  })
+
   it("omitting token leaves it untouched (no tokenCipher key in the patch)", async () => {
     gitIntegrationFindUnique.mockResolvedValueOnce({ enabled: true, autoCompleteOnMerge: false }).mockResolvedValueOnce(null)
     await svc.updateGitSettings(PROJECT_ID, { enabled: true }, ACTOR)
@@ -531,6 +567,18 @@ describe("resyncRepository (過去分を再同期)", () => {
       data: expect.objectContaining({ mrCursorAt: from, mrCursorSeen: 0, commitCursorAt: NOW, commitWindowSec: 600, commitSkips: 0, lookbackCursorAt: from, lookbackAt: NOW, syncGeneration: { increment: 1 } }),
     })
     expect(logActivityMock).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ diff: { changes: { "git.resync": { from: null, to: "API (90d)" } } } }))
+  })
+
+  it("restarts the cursor of the project's own source; a stored provider Kanflow cannot read is refused (400), not reset as GitLab", async () => {
+    gitRepositoryFindFirst.mockResolvedValue({ id: "repo-1", name: "API", syncCursor: null, syncGeneration: 0 })
+    gitIntegrationFindUnique.mockResolvedValueOnce({ provider: "gitlab" })
+    await svc.resyncRepository(PROJECT_ID, "repo-1", ACTOR, NOW)
+    expect(gitIntegrationFindUnique).toHaveBeenCalledWith({ where: { projectId: PROJECT_ID }, select: { provider: true } })
+    expect(gitRepositoryUpdate).toHaveBeenCalledTimes(1)
+
+    gitIntegrationFindUnique.mockResolvedValueOnce({ provider: "github" })
+    await expect(svc.resyncRepository(PROJECT_ID, "repo-1", ACTOR, NOW)).rejects.toMatchObject({ status: 400, code: "GIT_PROVIDER_UNSUPPORTED" })
+    expect(gitRepositoryUpdate).toHaveBeenCalledTimes(1)
   })
 
   it("bumps a missing generation to 1 (a sync that started before cannot write its cursors back)", async () => {

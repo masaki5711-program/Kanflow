@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest"
-import { allMergeRequestsMerged, linksFromBranch, linksFromCommit, linksFromMergeRequest, safeUrl } from "../git-links"
+import * as links from "../git-links"
+import { toDevBranch, toDevCommit, toDevMergeRequest } from "../gitlab-source"
 import type { GitLabBranch, GitLabCommit, GitLabMergeRequest } from "@/lib/git/gitlab-client"
+
+const { allMergeRequestsMerged, safeUrl } = links
+// GitLab objects go through the GitLab source's normalization (gitlab-source), as in a sync.
+const linksFromMergeRequest = (mr: GitLabMergeRequest, now: Date) => links.linksFromMergeRequest(toDevMergeRequest(mr), now)
+const linksFromBranch = (branch: GitLabBranch, now: Date) => links.linksFromBranch(toDevBranch(branch), now)
+const linksFromCommit = (commit: GitLabCommit, now: Date) => links.linksFromCommit(toDevCommit(commit), now)
 
 const NOW = new Date("2026-10-01T00:00:00.000Z")
 

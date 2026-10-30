@@ -125,6 +125,11 @@ export const API_ERROR_CODES = [
   "wopi_token_missing",
   "collabora_unreachable",
   "collabora_error",
+  // Git integration
+  /** The settings name a source (provider) Kanflow cannot read (only "gitlab" today). */
+  "GIT_PROVIDER_UNSUPPORTED",
+  /** One ingestion source per project: the provider cannot change while repositories exist. */
+  "GIT_SOURCE_LOCKED",
   // Client-side only (set by apiFetch, never sent by the server)
   "NETWORK_ERROR",
 ] as const

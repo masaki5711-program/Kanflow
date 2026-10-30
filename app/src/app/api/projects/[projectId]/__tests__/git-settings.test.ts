@@ -75,6 +75,26 @@ describe("PUT /git", () => {
     expect(svc.updateGitSettings).toHaveBeenCalledWith(PROJECT_ID, { token: null }, ACTOR)
   })
 
+  it("passes provider through to the service, whose refusal reaches the client as a localizable code", async () => {
+    asRole("po")
+    const { UnsupportedProviderError } = await import("@/services/git/git-provider")
+    vi.mocked(svc.updateGitSettings).mockRejectedValueOnce(new UnsupportedProviderError("github"))
+    const res = await route.PUT(req("PUT", { provider: "github" }), ctx())
+    expect(svc.updateGitSettings).toHaveBeenCalledWith(PROJECT_ID, { provider: "github" }, ACTOR)
+    expect(await read(res)).toMatchObject({ status: 400, body: { code: "GIT_PROVIDER_UNSUPPORTED", provider: "github" } })
+  })
+
+  it("409 GIT_SOURCE_LOCKED when the project already reads another source", async () => {
+    asRole("po")
+    const { assertOneSource } = await import("@/services/git/git-provider")
+    vi.mocked(svc.updateGitSettings).mockImplementationOnce(async () => {
+      assertOneSource("gitstation", "gitlab", 1)
+      throw new Error("unreachable")
+    })
+    const res = await route.PUT(req("PUT", { provider: "gitlab" }), ctx())
+    expect(await read(res)).toMatchObject({ status: 409, body: { code: "GIT_SOURCE_LOCKED" } })
+  })
+
   it("400 for malformed JSON", async () => {
     asRole("po")
     expect((await route.PUT(req("PUT", "{bad"), ctx())).status).toBe(400)

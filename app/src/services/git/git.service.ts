@@ -7,8 +7,10 @@ import { pbiKey, suggestBranchName } from "@/lib/git/pbi-keys"
 import { NotFoundError, ValidationError } from "@/services/_shared/errors"
 import { logActivity, type ActivityChanges } from "@/services/_shared/activity"
 import type { Actor } from "@/services/_shared/actor"
-import { FORBIDDEN_MESSAGE, syncErrorMessage } from "./git-sync"
-import { cursorsFromRow, cursorsToRow, resetForResync, RESYNC_DAYS } from "./git-sync-cursors"
+import { devSourceFor } from "./dev-source"
+import { assertOneSource, DEFAULT_GIT_PROVIDER, parseGitProvider, type GitProvider } from "./git-provider"
+import { RESYNC_DAYS } from "./git-sync-cursors"
+import { FORBIDDEN_MESSAGE, syncErrorMessage } from "./gitlab-source"
 import { aiPathFilterField, knowledgePatch, toKnowledgeDto, type RepositoryKnowledgeDto } from "./repo-knowledge.service"
 
 /**
@@ -28,6 +30,8 @@ export const gitSettingsSchema = z
     /** string = replace, null = remove, absent = keep. */
     token: tokenField.nullable().optional(),
     autoCompleteOnMerge: z.boolean().optional(),
+    /** Where the project's development data is read from (one per project; only "gitlab" today — git-provider). */
+    provider: z.string().trim().min(1).max(32).optional(),
   })
   .strict()
 export type GitSettingsInput = z.infer<typeof gitSettingsSchema>
@@ -126,25 +130,39 @@ export async function getGitSettings(projectId: string): Promise<GitSettingsDto>
 
 export async function updateGitSettings(projectId: string, input: GitSettingsInput, actor: Actor): Promise<GitSettingsDto> {
   await assertProject(projectId)
+  const provider = input.provider === undefined ? undefined : parseGitProvider(input.provider)
   const tokenPatch =
     input.token === undefined ? {} : input.token === null ? { tokenCipher: null, tokenHint: null } : { tokenCipher: seal(input.token), tokenHint: secretHint(input.token) }
   const patch = {
     ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
     ...(input.autoCompleteOnMerge !== undefined ? { autoCompleteOnMerge: input.autoCompleteOnMerge } : {}),
+    ...(provider !== undefined ? { provider } : {}),
     ...tokenPatch,
   }
-  const before = await prisma.gitIntegration.findUnique({ where: { projectId }, select: { enabled: true, autoCompleteOnMerge: true } })
+  const before = await prisma.gitIntegration.findUnique({ where: { projectId }, select: { enabled: true, autoCompleteOnMerge: true, provider: true } })
+  if (provider !== undefined) await assertProviderChange(projectId, before?.provider ?? null, provider)
   await prisma.gitIntegration.upsert({ where: { projectId }, create: { projectId, ...patch }, update: patch })
   const changes: ActivityChanges = {}
   if (input.enabled !== undefined && input.enabled !== (before?.enabled ?? false)) changes["git.enabled"] = { from: before?.enabled ?? false, to: input.enabled }
   if (input.autoCompleteOnMerge !== undefined && input.autoCompleteOnMerge !== (before?.autoCompleteOnMerge ?? false))
     changes["git.autoCompleteOnMerge"] = { from: before?.autoCompleteOnMerge ?? false, to: input.autoCompleteOnMerge }
+  if (provider !== undefined && provider !== (before?.provider ?? DEFAULT_GIT_PROVIDER)) changes["git.provider"] = { from: before?.provider ?? DEFAULT_GIT_PROVIDER, to: provider }
   // The token itself never goes to the log; only that it changed.
   if (input.token !== undefined) changes["git.token"] = { from: "•••", to: input.token === null ? null : "•••" }
   if (Object.keys(changes).length > 0) {
     await logActivity(prisma, { projectId, entityType: "project", entityId: projectId, action: "update", actor, diff: { changes } })
   }
   return getGitSettings(projectId)
+}
+
+/**
+ * One ingestion source per project (git-provider): the integration row is one
+ * per project (primary key), and its provider cannot change under existing
+ * repositories (their cursors and links belong to the old source).
+ */
+async function assertProviderChange(projectId: string, current: string | null, requested: GitProvider): Promise<void> {
+  if (current === null || current === requested) return
+  assertOneSource(current, requested, await prisma.gitRepository.count({ where: { projectId } }))
 }
 
 export interface ConnectionResult {
@@ -266,10 +284,13 @@ export async function isProjectRepository(projectId: string, repositoryId: strin
 export async function resyncRepository(projectId: string, repositoryId: string, actor: Actor, now = new Date()): Promise<void> {
   const repo = await prisma.gitRepository.findFirst({ where: { id: repositoryId, projectId } })
   if (!repo) throw new NotFoundError("Repository not found")
+  // The project's source restarts its own (opaque) cursor; no integration row yet = the default source.
+  const integration = await prisma.gitIntegration.findUnique({ where: { projectId }, select: { provider: true } })
+  const { cursors } = devSourceFor(integration?.provider ?? DEFAULT_GIT_PROVIDER)
   await prisma.gitRepository.update({
     where: { id: repositoryId },
     data: {
-      ...cursorsToRow(resetForResync(cursorsFromRow(repo, now), now)),
+      ...cursors.toRow(cursors.restart(cursors.fromRow(repo, now), now)),
       // A sync running right now started with the old generation and will not write its cursors back.
       syncGeneration: repo.syncGeneration === null ? 1 : { increment: 1 },
     },

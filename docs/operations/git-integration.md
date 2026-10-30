@@ -39,7 +39,32 @@ link). Instead the web process polls:
 detail, but GitLab finds a commit only by its own date (see the look-back
 below), so name the branch or the merge request after the PBI.
 
-### Cursors (one per listing)
+### Source (provider): one per project
+
+The sync reads through a thin, swappable layer, **DevSource**
+(`app/src/services/git/dev-source.ts`): merge requests and commits changed
+since a cursor, branches, pipelines and tags, as normalized records. The only
+implementation today is **GitLabSource** (`gitlab-source.ts`); a
+GitStationSource replaces it for projects that moved to GitStation (M3).
+
+- `git_integration.provider` names the source. Only `gitlab` is accepted (the
+  default; migration `20261030140000_git_integration_provider`). Any other
+  value is refused by the settings API (`PUT …/git` `{ provider }` → 400
+  `GIT_PROVIDER_UNSUPPORTED`), by 過去分を再同期, and by the sync itself
+  (`git sync provider unsupported`, error; the repository shows the message;
+  nothing is read). There is no fallback to GitLab.
+- **A project reads exactly one source.** `git_integration` is one row per
+  project (primary key), and its provider cannot change while the project has
+  repositories (409 `GIT_SOURCE_LOCKED`: remove the repositories first). Once a
+  repository moves to GitStation, GitLab is only its mirror and is not read —
+  reading both would show every merge request and commit twice.
+- **The cursor is opaque.** The sync stores the source's cursor and hands it
+  back without looking inside. GitLabSource's cursor is the per-listing
+  position below, serialised as `gitlab:v1:<json>` and kept in the existing
+  `git_repository` columns (no data migration; a cursor another source wrote is
+  refused, never "started over").
+
+### Cursors (one per listing, GitLab)
 
 Each listing keeps its own position on `git_repository`, so a busy or failing
 listing never holds back the other:
@@ -216,7 +241,7 @@ retry with English terms when a Japanese search finds little).
 
 ## Data
 
-`git_integration` (switch, sealed token, option), `git_repository` (one row per
+`git_integration` (one per project: source `provider`, switch, sealed token, option), `git_repository` (one row per
 repository: URL, GitLab id, sync cursors, last error; AI knowledge switch, folder
 filter, indexed commit / time / file count, in-progress cursor, index error),
 `git_link` (one row per merge request / branch / commit × PBI; `goneAt` for
@@ -226,7 +251,9 @@ links and passages; turning the integration off keeps everything (it just stops
 syncing, hides the UI and the AI stops using the passages). Migrations
 `20261012000000_git_integration`, `20261016000000_repo_knowledge`,
 `20261030120000_git_sync_cursors` (per-listing cursors seeded from the old
-`syncCursor`, `syncGeneration`, `git_link.goneAt`). `syncCursor` is deprecated: still written
+`syncCursor`, `syncGeneration`, `git_link.goneAt`),
+`20261030140000_git_integration_provider` (`git_integration.provider`, default
+`gitlab`). `syncCursor` is deprecated: still written
 (the earlier of the two cursors) for one release so a rollback re-reads rather
 than skips, then dropped.
 
@@ -242,3 +269,4 @@ than skips, then dropped.
 | No sync at all | Log line "git sync poller started" at start-up; `GIT_SYNC` not `off` |
 | AI knowledge stays 取り込み待ち | The poller is off (`GIT_SYNC=off`, or `next dev` without `GIT_SYNC_IN_DEV=true`) — press 今すぐ取り込む |
 | A document is missing from AI answers | It is outside the folder filter, over the size cap, a secret / binary file, or an Office file whose text could not be extracted (log line "repository indexed" shows processed / skipped counts) |
+| "取り込み元「…」には対応していません" / log `git sync provider unsupported` | `git_integration.provider` is not `gitlab` (only GitLab is supported until GitStation, M3); set it back with `PUT …/git` `{ "provider": "gitlab" }` |
