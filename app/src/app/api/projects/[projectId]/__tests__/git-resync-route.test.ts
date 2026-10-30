@@ -6,7 +6,7 @@ vi.mock("@/lib/prisma", async () => (await import("./route-harness")).prismaModu
 vi.mock("@/lib/logger", async () => (await import("./route-harness")).loggerModule)
 vi.mock("@/services/git/git.service", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/services/git/git.service")>()
-  return { ...actual, isGitEnabled: vi.fn(), resyncRepository: vi.fn() }
+  return { ...actual, isGitEnabled: vi.fn(), isProjectRepository: vi.fn(), resyncRepository: vi.fn() }
 })
 vi.mock("@/services/git/git-sync", () => ({ syncRepository: vi.fn() }))
 
@@ -17,6 +17,7 @@ const { NotFoundError } = await import("@/services/_shared/errors")
 
 beforeEach(() => {
   vi.mocked(svc.isGitEnabled).mockReset().mockResolvedValue(true)
+  vi.mocked(svc.isProjectRepository).mockReset().mockResolvedValue(true)
   vi.mocked(svc.resyncRepository).mockReset().mockResolvedValue(undefined)
   vi.mocked(gitSync.syncRepository).mockReset().mockResolvedValue({ repositoryId: "r", ok: true, links: 3 })
 })
@@ -66,10 +67,28 @@ describe("POST /git/repositories/[repoId]/resync (過去分を再同期)", () =>
     expect(svc.resyncRepository).toHaveBeenCalledTimes(2)
   })
 
-  it("404 for a repository of another project, without starting the rate-limit window", async () => {
+  it("404 for a repository of another project, checked before the rate limit is keyed by it", async () => {
     asRole("po")
-    vi.mocked(svc.resyncRepository).mockRejectedValueOnce(new NotFoundError("Repository not found"))
     const c = freshCtx()
+    vi.mocked(svc.isProjectRepository).mockResolvedValueOnce(false)
+    expect((await route.POST(req("POST"), c)).status).toBe(404)
+    expect(svc.resyncRepository).not.toHaveBeenCalled()
+    // The 404 did not claim the window.
+    expect((await route.POST(req("POST"), c)).status).toBe(200)
+  })
+
+  it("two concurrent presses: exactly one resets the cursors, the other gets 429", async () => {
+    asRole("po")
+    const c = freshCtx()
+    const [a, b] = await Promise.all([route.POST(req("POST"), c), route.POST(req("POST"), c)])
+    expect([a.status, b.status].sort()).toEqual([200, 429])
+    expect(svc.resyncRepository).toHaveBeenCalledTimes(1)
+  })
+
+  it("a reset that fails releases the window so the next press can try again", async () => {
+    asRole("po")
+    const c = freshCtx()
+    vi.mocked(svc.resyncRepository).mockRejectedValueOnce(new NotFoundError("Repository not found"))
     expect((await route.POST(req("POST"), c)).status).toBe(404)
     expect(gitSync.syncRepository).not.toHaveBeenCalled()
     expect((await route.POST(req("POST"), c)).status).toBe(200)

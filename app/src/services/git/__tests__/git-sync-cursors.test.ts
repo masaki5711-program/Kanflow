@@ -8,10 +8,12 @@ import {
   MAX_WINDOW_SEC,
   MIN_WINDOW_SEC,
   nextMrPage,
+  pageOutOfOrder,
   positionAfter,
   resetForResync,
   shrinkWidth,
   TIE_BACKOFF,
+  tieShrank,
 } from "../git-sync-cursors"
 
 const NOW = new Date("2026-10-01T00:00:00.000Z")
@@ -74,9 +76,19 @@ describe("resetForResync", () => {
 describe("nextMrPage", () => {
   const T = new Date("2026-09-30T00:00:00.000Z")
 
-  it("a small tie: the first page from the cursor's updated_at, re-reading the tie", () => {
+  it("a tie smaller than a page is re-read from offset 0", () => {
     expect(nextMrPage({ at: T, seen: 0 })).toEqual({ updatedAfter: T, page: 1, perPage: 100, offset: 0 })
     expect(nextMrPage({ at: T, seen: 2 })).toEqual({ updatedAfter: T, page: 1, perPage: 100, offset: 0 })
+    expect(nextMrPage({ at: T, seen: 99 })).toEqual({ updatedAfter: T, page: 1, perPage: 100, offset: 0 })
+  })
+
+  it("a large tie always re-reads at least one already-read MR (so a shrunk tie is noticed), for every count", () => {
+    for (let seen = 100; seen <= 5_000; seen++) {
+      const r = nextMrPage({ at: T, seen })
+      expect(r.offset).toBe((r.page - 1) * r.perPage)
+      expect(seen - r.offset).toBeGreaterThanOrEqual(1)
+      expect(seen - r.offset).toBeLessThanOrEqual(r.perPage - 1)
+    }
   })
 
   it("a large tie: a page that starts a few already-read MRs early and still brings mostly unread ones", () => {
@@ -110,5 +122,32 @@ describe("positionAfter", () => {
   it("proves nothing for an empty page or an unparsable date", () => {
     expect(positionAfter({ updatedAfter: anchor, offset: 0 }, [])).toBeNull()
     expect(positionAfter({ updatedAfter: anchor, offset: 0 }, [at("not a date")])).toBeNull()
+  })
+})
+
+describe("tieShrank / pageOutOfOrder", () => {
+  const T = new Date("2026-09-30T00:00:00.000Z")
+  const tie = (n: number) => Array.from({ length: n }, () => at(T.toISOString()))
+  const later = (n: number) => Array.from({ length: n }, (_, i) => at(new Date(T.getTime() + (i + 1) * 1000).toISOString()))
+
+  it("a page continuing a large tie must start with the already-read MRs it was chosen to re-read", () => {
+    const cursor = { at: T, seen: 200 }
+    const req = { updatedAfter: T, offset: 194 }
+    expect(tieShrank(cursor, req, [...tie(10), ...later(5)])).toBe(false)
+    // 120 / 100 / 20: after MRs left the tie, the page starts beyond it.
+    expect(tieShrank(cursor, req, later(97))).toBe(true)
+    expect(tieShrank(cursor, req, [...tie(3), ...later(5)])).toBe(true)
+    expect(tieShrank(cursor, req, [])).toBe(true)
+    // Offset 0 re-reads the whole tie anyway.
+    expect(tieShrank({ at: T, seen: 50 }, { updatedAfter: T, offset: 0 }, later(3))).toBe(false)
+  })
+
+  it("flags a page whose updated_at decreases, lies before updated_after or cannot be parsed", () => {
+    const req = { updatedAfter: T }
+    expect(pageOutOfOrder(req, [...tie(2), ...later(3)])).toBe(false)
+    expect(pageOutOfOrder(req, [...later(2), ...tie(1)])).toBe(true)
+    expect(pageOutOfOrder(req, [at(new Date(T.getTime() - 1).toISOString())])).toBe(true)
+    expect(pageOutOfOrder(req, [at("not a date")])).toBe(true)
+    expect(pageOutOfOrder(req, [])).toBe(false)
   })
 })

@@ -31,7 +31,7 @@ link). Instead the web process polls:
   30 days back), plus the current branches containing "pbi";
 - one tick at a time (no overlap), repositories one after another; within a
   repository the listings run one after another (merge requests, commits,
-  look-back, branches);
+  look-back, branches) but independently: one failing does not stop the others;
 - 今すぐ同期 on the Git page / PBI panel syncs a project immediately (at most
   once per 20 s per project).
 
@@ -51,6 +51,23 @@ listing never holds back the other:
 | Look-back | `lookbackCursorAt` / `lookbackWindowSec` (pass in progress), `lookbackAt` (last start) | up to 3 windows; see below |
 | Branches | none (the whole list each sync) | 3 pages of 100 |
 
+**GitLab ordering this relies on (assumption, not verified against our
+instance).** The merge request listing uses `order_by=updated_at&sort=asc`
+with `updated_after`, which GitLab documents as "updated on or after the given
+time" ([List project merge requests](https://docs.gitlab.com/ee/api/merge_requests.html#list-project-merge-requests)),
+with offset pagination ([REST API pagination](https://docs.gitlab.com/ee/api/rest/#pagination)).
+The tie-breaker additionally assumes that merge requests with the *same*
+`updated_at` come back in the same order on every request (GitLab's sorted
+finders add the primary key as a secondary order; the documentation does not
+promise it for this endpoint). Defences in the code: a page whose `updated_at`
+decreases, lies before `updated_after` or cannot be parsed is logged once per
+sync (`git sync merge request order unexpected`, warn) and never moves the
+cursor — the tie is re-read from offset 0; a tie smaller than a page is always
+re-read from offset 0; in a larger tie every page re-reads at least one already
+read MR, and if those are no longer at the tie's `updated_at` (MRs left the tie
+between syncs, shifting the offsets) the tie is re-read from offset 0
+(`git sync merge request tie changed`, info).
+
 Every listing either moves its cursor or narrows its window, and the width is
 stored, so a backlog (first sync of a busy repository, a large import) is
 worked off over several syncs and **never stalls**. Log line `git sync backlog`
@@ -64,6 +81,11 @@ linked, the rest of that minute is not — and the sync moves on. Log line
 consecutive skips; from the 3rd skip in a row (`commitSkips`) it is logged as
 `git sync commit window skipped repeatedly` (error): the repository commits
 faster than the sync can read, so link by branch / merge request.
+**Accepted limitation:** the commits beyond the first 300 of such a minute are
+not linked by the automatic sync, and 過去分を再同期 hits the same limit for that
+minute. Remedy: rely on the branch / merge request link of the PBI (always
+read completely), or add the link by naming the PBI in a later commit or the
+MR title.
 
 **Late-pushed commits (look-back).** GitLab filters commits by their commit
 date, so a commit made days ago and pushed now lies in a window that was
@@ -73,18 +95,26 @@ by the end of the sprint it was made in is still linked. Writes are idempotent,
 so the re-read costs only the requests (typically 1–3 listings a day). Older
 late pushes are not found automatically; use 過去分を再同期.
 
-**Failures.** A failed request stops the sync (no further listing is started).
-What was read before it is written, and the cursor of that listing moves only
-up to the last page / window read completely; the other cursors stay as they
-were. The message is stored on the repository (settings and the Git page) and
-the next tick retries from there.
+**Failures.** Each listing fails on its own: a failed request ends that
+listing, what it read before is written, and its cursor moves only up to the
+last page / window read completely. The other listings still run and save
+their progress (e.g. a project with merge requests disabled — 403 on every
+merge request request — still gets its commits and branches). Each failure is
+logged once (`git sync listing failed` with the kind), and `lastError` lists
+every failed listing, grouped by message (「マージリクエスト・コミット: …」); the
+sync counts as failed (no `syncedAt`) and the next tick retries.
+
+**Pipeline status** is looked up (one request each, at most 25 per sync) only
+for merge requests past the cursor — not for those only re-read by the overlap
+page.
 
 **Deleted branches.** A branch that is no longer in GitLab's branch list keeps
 its link, marked gone (`git_link.goneAt`): the PBI panel shows it as
 削除済み, card badges and sprint suggestions ignore it, and it is live again if
 the branch reappears. Only a complete branch list marks anything: when the
 list is cut off (more than 300 "pbi" branches) nothing is marked and
-`git sync truncated` { kind: "branch" } is logged.
+`git sync truncated` { kind: "branch" } is logged (at most once a day per
+repository and process).
 
 ### 過去分を再同期 (resync the last 90 days)
 
@@ -96,6 +126,12 @@ runs at once, the rest within the normal per-sync limits over the next syncs,
 so a busy repository takes some tens of minutes. Use it after the PBI key rules
 changed (e.g. `PBI #43` titles from before they were recognised) or after a
 long outage. The activity log records who started it (`git.resync`).
+A resync bumps `git_repository.syncGeneration`; a sync that was already
+running when it was pressed writes its status but not its cursors (log
+`git sync cursors not saved: a resync started meanwhile`), so it cannot undo
+the reset. The repository is checked to belong to the project before the
+per-repository rate limit is claimed, and the check-and-claim is one step, so
+two simultaneous presses start one resync (the other gets 429).
 
 ## Setting it up (PO / SM / admin)
 
@@ -190,7 +226,7 @@ links and passages; turning the integration off keeps everything (it just stops
 syncing, hides the UI and the AI stops using the passages). Migrations
 `20261012000000_git_integration`, `20261016000000_repo_knowledge`,
 `20261030120000_git_sync_cursors` (per-listing cursors seeded from the old
-`syncCursor`, `git_link.goneAt`). `syncCursor` is deprecated: still written
+`syncCursor`, `syncGeneration`, `git_link.goneAt`). `syncCursor` is deprecated: still written
 (the earlier of the two cursors) for one release so a rollback re-reads rather
 than skips, then dropped.
 

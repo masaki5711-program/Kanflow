@@ -3,6 +3,7 @@ import type { GitLabCommit, GitLabMergeRequest } from "@/lib/git/gitlab-client"
 
 const gitRepositoryFindUnique = vi.fn()
 const gitRepositoryUpdate = vi.fn()
+const gitRepositoryUpdateMany = vi.fn()
 const gitRepositoryFindMany = vi.fn()
 const productBacklogItemFindMany = vi.fn()
 const gitLinkFindUnique = vi.fn()
@@ -26,6 +27,7 @@ vi.mock("@/lib/prisma", () => ({
     gitRepository: {
       findUnique: (...a: unknown[]) => gitRepositoryFindUnique(...a),
       update: (...a: unknown[]) => gitRepositoryUpdate(...a),
+      updateMany: (...a: unknown[]) => gitRepositoryUpdateMany(...a),
       findMany: (...a: unknown[]) => gitRepositoryFindMany(...a),
     },
     productBacklogItem: { findMany: (...a: unknown[]) => productBacklogItemFindMany(...a), findUnique: (...a: unknown[]) => productBacklogItemFindUnique(...a) },
@@ -146,8 +148,22 @@ function persistentRow(initial: Record<string, unknown>) {
     row = { ...row, ...args.data }
     return row
   })
-  return () => row
+  // The cursor write is conditional on the generation the sync started with.
+  gitRepositoryUpdateMany.mockImplementation(async (args: { where: { syncGeneration: unknown }; data: Record<string, unknown> }) => {
+    if ((row.syncGeneration ?? null) !== args.where.syncGeneration) return { count: 0 }
+    row = { ...row, ...args.data }
+    return { count: 1 }
+  })
+  return {
+    get: () => row,
+    set: (patch: Record<string, unknown>) => {
+      row = { ...row, ...patch }
+    },
+  }
 }
+
+/** The data of the last (conditional) progress write. */
+const lastWrite = () => (gitRepositoryUpdateMany.mock.calls.at(-1)![0] as { data: Record<string, unknown> }).data
 
 /**
  * A GitLab project in memory: merge requests (ascending updated_at, offset
@@ -181,6 +197,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   openMock.mockImplementation((sealed: string | null) => (sealed ? `plain(${sealed})` : null))
   gitRepositoryUpdate.mockResolvedValue({})
+  gitRepositoryUpdateMany.mockResolvedValue({ count: 1 })
   productBacklogItemFindMany.mockResolvedValue([])
   gitLinkFindUnique.mockResolvedValue(null)
   gitLinkUpsert.mockResolvedValue({})
@@ -248,7 +265,7 @@ describe("syncRepository — token resolution", () => {
 })
 
 describe("syncRepository — externalId and cursors", () => {
-  const stored = () => (gitRepositoryUpdate.mock.calls.at(-1)![0] as { data: Record<string, unknown> }).data
+  const stored = lastWrite
 
   it("reuses a known externalId without calling getProject", async () => {
     gitRepositoryFindUnique.mockResolvedValue(repoRow({ externalId: 999 }))
@@ -263,7 +280,8 @@ describe("syncRepository — externalId and cursors", () => {
     const client = emptyClient({ getProject: vi.fn().mockResolvedValue({ id: 555, web_url: "u", path_with_namespace: "g/r", default_branch: "main" }) })
     await syncRepository("r1", () => client, NOW)
     expect(client.getProject).toHaveBeenCalledWith("g/r")
-    expect(gitRepositoryUpdate).toHaveBeenCalledTimes(1)
+    expect(gitRepositoryUpdateMany).toHaveBeenCalledTimes(1)
+    expect(gitRepositoryUpdateMany.mock.calls[0][0].where).toEqual({ id: "r1", syncGeneration: null })
     expect(stored()).toMatchObject({ externalId: 555, syncedAt: NOW, lastError: null, lastErrorAt: null })
     expect(stored()).toHaveProperty("mrCursorAt")
     expect(stored()).toHaveProperty("commitCursorAt")
@@ -328,7 +346,7 @@ describe("syncRepository — merge request cursor", () => {
       ),
     })
     await syncRepository("r1", () => client, NOW)
-    expect(gitRepositoryUpdate.mock.calls[0][0].data).toMatchObject({ mrCursorAt: new Date("2026-09-30T12:00:00.000Z"), mrCursorSeen: 2 })
+    expect(lastWrite()).toMatchObject({ mrCursorAt: new Date("2026-09-30T12:00:00.000Z"), mrCursorSeen: 2 })
   })
 
   it("≥500 merge requests with the same updated_at advance across syncs by the tie-breaker", async () => {
@@ -351,7 +369,7 @@ describe("syncRepository — merge request cursor", () => {
     const refs = writtenRefs()
     for (let iid = 1; iid <= 650; iid++) expect(refs.has(`mr:${iid}`)).toBe(true)
     expect(refs.has("mr:1000")).toBe(true)
-    expect(row()).toMatchObject({ mrCursorAt: new Date(NOW.getTime() - HOUR), mrCursorSeen: 1 })
+    expect(row.get()).toMatchObject({ mrCursorAt: new Date(NOW.getTime() - HOUR), mrCursorSeen: 1 })
   })
 
   it("an earlier merge request changing during the read does not make the listing skip one at a page boundary", async () => {
@@ -378,7 +396,7 @@ describe("syncRepository — merge request cursor", () => {
     gl.mrs.set(1, mrAt(1, 1, new Date(NOW.getTime() - 30 * MIN)))
     const row = persistentRow({ externalId: 7, mrCursorAt: new Date(NOW.getTime() - DAY), commitCursorAt: new Date(NOW.getTime() - HOUR), lookbackAt: NOW })
     await syncRepository("r1", () => gl.client, new Date(NOW.getTime() + kanflowAhead))
-    expect(row().mrCursorAt).toEqual(new Date(NOW.getTime() - 30 * MIN))
+    expect(row.get().mrCursorAt).toEqual(new Date(NOW.getTime() - 30 * MIN))
     // Commit windows end at GitLab's clock, not Kanflow's.
     for (const [, , until] of gl.listCommits.mock.calls) expect((until as Date).getTime()).toBeLessThanOrEqual(NOW.getTime())
 
@@ -428,18 +446,18 @@ describe("syncRepository — commit windows", () => {
 
     const settled = new Date(NOW.getTime() - COMMIT_LAG_MS)
     let ticks = 0
-    for (; ticks < 20 && (row().commitCursorAt as Date).getTime() < settled.getTime(); ticks++) {
+    for (; ticks < 20 && (row.get().commitCursorAt as Date).getTime() < settled.getTime(); ticks++) {
       const before = gl.listCommits.mock.calls.length
-      const cursorBefore = row().commitCursorAt as Date
-      const widthBefore = row().commitWindowSec as number | null
+      const cursorBefore = row.get().commitCursorAt as Date
+      const widthBefore = row.get().commitWindowSec as number | null
       expect((await syncRepository("r1", () => gl.client, NOW)).ok).toBe(true)
       expect(gl.listCommits.mock.calls.length - before).toBeLessThanOrEqual(MAX_COMMIT_LISTINGS)
       // Every sync moves the cursor or narrows the window it resumes with: no stall.
-      const moved = (row().commitCursorAt as Date).getTime() > cursorBefore.getTime()
-      const narrowed = widthBefore !== null && (row().commitWindowSec as number) < widthBefore
+      const moved = (row.get().commitCursorAt as Date).getTime() > cursorBefore.getTime()
+      const narrowed = widthBefore !== null && (row.get().commitWindowSec as number) < widthBefore
       expect(moved || narrowed).toBe(true)
     }
-    expect(row().commitCursorAt).toEqual(settled)
+    expect(row.get().commitCursorAt).toEqual(settled)
     expect(ticks).toBeGreaterThan(1)
     expect(writtenRefs().has(`commit:${"a".repeat(40)}`)).toBe(true)
     expect(writtenRefs().has(`commit:${"b".repeat(40)}`)).toBe(true)
@@ -456,7 +474,7 @@ describe("syncRepository — commit windows", () => {
     expect(listCommits).toHaveBeenCalledTimes(MAX_COMMIT_LISTINGS)
     const spans = listCommits.mock.calls.map((c) => ((c[2] as Date).getTime() - (c[1] as Date).getTime()) / 1000)
     expect(spans).toEqual([86_400, 21_600, 5_400, 1_350])
-    expect(gitRepositoryUpdate.mock.calls[0][0].data).toMatchObject({ commitCursorAt: new Date(NOW.getTime() - 3 * DAY), commitWindowSec: 337 })
+    expect(lastWrite()).toMatchObject({ commitCursorAt: new Date(NOW.getTime() - 3 * DAY), commitWindowSec: 337 })
   })
 
   it("windows read completely grow and move the cursor; it stops COMMIT_LAG before GitLab's now", async () => {
@@ -465,7 +483,7 @@ describe("syncRepository — commit windows", () => {
     await syncRepository("r1", () => emptyClient({ listCommits }), NOW)
     const spans = listCommits.mock.calls.map((c) => ((c[2] as Date).getTime() - (c[1] as Date).getTime()) / 1000)
     expect(spans).toEqual([86_400, 172_800])
-    expect(gitRepositoryUpdate.mock.calls[0][0].data).toMatchObject({ commitCursorAt: new Date(NOW.getTime() - COMMIT_LAG_MS), commitWindowSec: 345_600, commitSkips: 0 })
+    expect(lastWrite()).toMatchObject({ commitCursorAt: new Date(NOW.getTime() - COMMIT_LAG_MS), commitWindowSec: 345_600, commitSkips: 0 })
   })
 
   it("escalates to an error after SKIP_ESCALATE_AT consecutive skipped windows", async () => {
@@ -474,11 +492,11 @@ describe("syncRepository — commit windows", () => {
     await syncRepository("r1", () => emptyClient({ listCommits }), NOW)
     expect(noopLog.warn).toHaveBeenCalledWith("git sync commit window skipped", expect.objectContaining({ consecutive: SKIP_ESCALATE_AT - 1 }))
     expect(noopLog.error).toHaveBeenCalledWith("git sync commit window skipped repeatedly", expect.objectContaining({ repositoryId: "r1", consecutive: SKIP_ESCALATE_AT }))
-    expect(row().commitSkips).toBe(SKIP_ESCALATE_AT - 2 + MAX_COMMIT_LISTINGS)
+    expect(row.get().commitSkips).toBe(SKIP_ESCALATE_AT - 2 + MAX_COMMIT_LISTINGS)
     // A window read completely resets the count.
     listCommits.mockResolvedValue(page([]))
     await syncRepository("r1", () => emptyClient({ listCommits }), NOW)
-    expect(row().commitSkips).toBe(0)
+    expect(row.get().commitSkips).toBe(0)
   })
 
   it("a late-pushed old commit is caught by the daily look-back", async () => {
@@ -504,10 +522,10 @@ describe("syncRepository — commit windows", () => {
 })
 
 describe("syncRepository — a listing that fails mid-way", () => {
-  it("keeps the merge requests read before the failure, moves their cursor no further, and starts no other listing", async () => {
+  it("keeps the merge requests read before the failure and moves their cursor no further; the other listings still run", async () => {
     productBacklogItemFindMany.mockResolvedValue([{ id: "b-42", displayId: 42 }])
     const start = new Date("2026-09-29T00:00:00.000Z")
-    gitRepositoryFindUnique.mockResolvedValue(repoRow({ externalId: 7, mrCursorAt: start, mrCursorSeen: 0, commitCursorAt: start, lookbackAt: NOW }))
+    gitRepositoryFindUnique.mockResolvedValue(repoRow({ externalId: 7, mrCursorAt: start, mrCursorSeen: 0, commitCursorAt: new Date(NOW.getTime() - HOUR), lookbackAt: NOW }))
     const listMergeRequestPage = vi
       .fn()
       .mockResolvedValueOnce(mrPage([mrAt(1, 42, "2026-09-30T01:00:00.000Z"), mrAt(2, 42, "2026-09-30T02:00:00.000Z")], true))
@@ -515,14 +533,46 @@ describe("syncRepository — a listing that fails mid-way", () => {
     const client = emptyClient({ listMergeRequestPage })
     const result = await syncRepository("r1", () => client, NOW)
 
-    expect(result).toMatchObject({ ok: false, error: "network", links: 2 })
+    expect(result).toMatchObject({ ok: false, error: "network" })
     expect(gitLinkUpsert.mock.calls.map((c) => c[0].create.ref)).toEqual(["1", "2"])
-    const data = gitRepositoryUpdate.mock.calls[0][0].data
-    expect(data).toMatchObject({ mrCursorAt: new Date("2026-09-30T02:00:00.000Z"), mrCursorSeen: 1, commitCursorAt: start, lastError: expect.stringContaining("接続") })
+    const data = lastWrite()
+    expect(data).toMatchObject({ mrCursorAt: new Date("2026-09-30T02:00:00.000Z"), mrCursorSeen: 1, lastError: expect.stringContaining("マージリクエスト: ") })
     expect(data).not.toHaveProperty("syncedAt")
-    expect(client.listCommits).not.toHaveBeenCalled()
-    expect(client.listBranches).not.toHaveBeenCalled()
+    // Independent: commits and branches were still listed and their progress saved.
+    expect(client.listCommits).toHaveBeenCalled()
+    expect(client.listBranches).toHaveBeenCalled()
+    expect(data.commitCursorAt).toEqual(new Date(NOW.getTime() - COMMIT_LAG_MS))
     expect(client.getMergeRequestPipeline).not.toHaveBeenCalled()
+    expect(noopLog.warn).toHaveBeenCalledWith("git sync listing failed", { repositoryId: "r1", kind: "mr", errorKind: "network", status: undefined })
+  })
+
+  it("merge requests refused for good (403) never keep commits and branches from syncing", async () => {
+    everyPbiExists()
+    const start = new Date("2026-09-29T00:00:00.000Z")
+    gitRepositoryFindUnique.mockResolvedValue(repoRow({ externalId: 7, mrCursorAt: start, mrCursorSeen: 3, commitCursorAt: new Date(NOW.getTime() - HOUR), lookbackAt: NOW }))
+    gitLinkFindMany.mockImplementation(async (args: { where: { kind: string } }) => (args.where.kind === "branch" ? [{ id: "gone-1", ref: "feature/PBI-5-old", backlogItemId: "b-5" }] : []))
+    const client = emptyClient({
+      listMergeRequestPage: vi.fn().mockRejectedValue(new GitLabError("forbidden", "no MRs", 403)),
+      listCommits: vi.fn().mockResolvedValue(page([commitAt("e".repeat(40), new Date(NOW.getTime() - 30 * MIN), "PBI-8 fix")])),
+      listBranches: vi.fn().mockResolvedValue(page([{ name: "feature/PBI-9-x", web_url: "u", commit: null }])),
+    })
+    const result = await syncRepository("r1", () => client, NOW)
+    expect(result).toMatchObject({ ok: false, error: "forbidden" })
+    expect(writtenRefs()).toEqual(new Set([`commit:${"e".repeat(40)}`, "branch:feature/PBI-9-x"]))
+    expect(gitLinkUpdateMany).toHaveBeenCalledWith({ where: { id: { in: ["gone-1"] }, goneAt: null }, data: { goneAt: NOW } })
+    // The merge request cursor stays exactly where it was; the commit cursor moved.
+    expect(lastWrite()).toMatchObject({ mrCursorAt: start, mrCursorSeen: 3, commitCursorAt: new Date(NOW.getTime() - COMMIT_LAG_MS), lastError: expect.stringContaining("マージリクエスト: ") })
+  })
+
+  it("stores every failed listing in lastError, grouped by message", async () => {
+    gitRepositoryFindUnique.mockResolvedValue(repoRow({ externalId: 7, lookbackAt: NOW }))
+    const client = emptyClient({
+      listMergeRequestPage: vi.fn().mockRejectedValue(new GitLabError("network", "down")),
+      listCommits: vi.fn().mockRejectedValue(new GitLabError("network", "down")),
+      listBranches: vi.fn().mockRejectedValue(new GitLabError("http", "bad gateway", 502)),
+    })
+    expect(await syncRepository("r1", () => client, NOW)).toMatchObject({ ok: false, error: "network" })
+    expect(lastWrite().lastError).toBe(`マージリクエスト・コミット: ${syncErrorMessage(new GitLabError("network", "x"))} / ブランチ: ${syncErrorMessage(new GitLabError("http", "x", 502))}`)
     expect(gitLinkUpdateMany).not.toHaveBeenCalled()
   })
 
@@ -531,7 +581,7 @@ describe("syncRepository — a listing that fails mid-way", () => {
     gitRepositoryFindUnique.mockResolvedValue(repoRow({ externalId: 7, mrCursorAt: start, mrCursorSeen: 3 }))
     const client = emptyClient({ listMergeRequestPage: vi.fn().mockRejectedValue(new GitLabError("rate_limited", "slow down", 429)) })
     expect(await syncRepository("r1", () => client, NOW)).toMatchObject({ ok: false, error: "rate_limited" })
-    expect(gitRepositoryUpdate.mock.calls[0][0].data).toMatchObject({ mrCursorAt: start, mrCursorSeen: 3 })
+    expect(lastWrite()).toMatchObject({ mrCursorAt: start, mrCursorSeen: 3 })
   })
 
   it("a commit listing failing keeps the windows already read and the merge request progress", async () => {
@@ -540,13 +590,120 @@ describe("syncRepository — a listing that fails mid-way", () => {
     const listCommits = vi.fn().mockResolvedValueOnce(page([])).mockRejectedValueOnce(new GitLabError("http", "bad gateway", 502))
     const client = emptyClient({ listMergeRequestPage: vi.fn().mockResolvedValue(mrPage([mrAt(1, 42, "2026-09-30T01:00:00.000Z")])), listCommits })
     expect(await syncRepository("r1", () => client, NOW)).toMatchObject({ ok: false, error: "http" })
-    expect(gitRepositoryUpdate.mock.calls[0][0].data).toMatchObject({
+    expect(lastWrite()).toMatchObject({
       mrCursorAt: new Date("2026-09-30T01:00:00.000Z"),
       commitCursorAt: new Date(start.getTime() + DAY),
       commitWindowSec: 2 * 86_400,
       lastError: expect.stringContaining("502"),
     })
-    expect(client.listBranches).not.toHaveBeenCalled()
+    expect(client.listBranches).toHaveBeenCalled()
+  })
+
+  it("uses Kanflow's clock, with a warning, when GitLab sends no usable Date header", async () => {
+    gitRepositoryFindUnique.mockResolvedValue(repoRow({ externalId: 7, commitCursorAt: new Date(NOW.getTime() - HOUR), lookbackAt: NOW }))
+    const client = emptyClient({ listMergeRequestPage: vi.fn().mockResolvedValue(mrPage([], false, null)) })
+    await syncRepository("r1", () => client, NOW)
+    expect(noopLog.warn).toHaveBeenCalledWith("git sync uses Kanflow's clock", { repositoryId: "r1", reason: "no usable Date header from GitLab" })
+    expect(lastWrite().commitCursorAt).toEqual(new Date(NOW.getTime() - COMMIT_LAG_MS))
+
+    noopLog.warn.mockClear()
+    const withClock = emptyClient({ listMergeRequestPage: vi.fn().mockResolvedValue(mrPage([], false, NOW)) })
+    await syncRepository("r1", () => withClock, NOW)
+    expect(noopLog.warn).not.toHaveBeenCalledWith("git sync uses Kanflow's clock", expect.anything())
+  })
+})
+
+describe("syncRepository — resync during a running sync", () => {
+  it("a sync that started before 過去分を再同期 does not write its cursors over the reset", async () => {
+    const row = persistentRow({ externalId: 7, syncGeneration: 0, mrCursorAt: new Date(NOW.getTime() - HOUR), commitCursorAt: new Date(NOW.getTime() - HOUR), lookbackAt: NOW })
+    const reset = cursorsToRow(resetForResync(cursorsFromRow(row.get() as never, NOW), NOW))
+    const client = emptyClient({
+      listMergeRequestPage: vi.fn(async () => {
+        // The person presses 過去分を再同期 while this sync is listing.
+        row.set({ ...reset, syncGeneration: 1 })
+        return mrPage([mrAt(1, 42, new Date(NOW.getTime() - 10 * MIN))], false, NOW)
+      }),
+    })
+    expect((await syncRepository("r1", () => client, NOW)).ok).toBe(true)
+    expect(gitRepositoryUpdateMany.mock.calls[0][0].where).toEqual({ id: "r1", syncGeneration: 0 })
+    expect(row.get()).toMatchObject({ syncGeneration: 1, mrCursorAt: reset.mrCursorAt, lookbackCursorAt: reset.lookbackCursorAt, lastError: null, syncedAt: NOW })
+    expect(noopLog.info).toHaveBeenCalledWith("git sync cursors not saved: a resync started meanwhile", { repositoryId: "r1" })
+
+    // The next sync starts from the reset.
+    const next = emptyClient()
+    await syncRepository("r1", () => next, NOW)
+    expect(next.listMergeRequestPage.mock.calls[0][1]).toMatchObject({ updatedAfter: new Date((reset.mrCursorAt as Date).getTime() - MR_OVERLAP_MS) })
+  })
+})
+
+describe("syncRepository — merge request ties that change between syncs", () => {
+  it("120 MRs share an updated_at, 100 were read, then 100 leave the tie: nothing is lost", async () => {
+    everyPbiExists()
+    const clock = { now: NOW }
+    const gl = fakeGitLab(clock)
+    const T = new Date(NOW.getTime() - DAY)
+    for (let iid = 1; iid <= 120; iid++) gl.mrs.set(iid, mrAt(iid, iid, T))
+    // The first 100 of the tie were read in an earlier sync; then 100 of them (iids 11..110) change.
+    for (let iid = 11; iid <= 110; iid++) gl.mrs.set(iid, mrAt(iid, iid, new Date(NOW.getTime() - HOUR + iid * 1000)))
+    // 100 MRs changed just before T fill the overlap page, so the tie itself is read by the anchored pages.
+    for (let iid = 201; iid <= 300; iid++) gl.mrs.set(iid, mrAt(iid, iid, new Date(T.getTime() - 4 * MIN + iid)))
+    const row = persistentRow({ externalId: 7, mrCursorAt: T, mrCursorSeen: 100, commitCursorAt: NOW, lookbackAt: NOW })
+    await syncRepository("r1", () => gl.client, NOW)
+    const refs = writtenRefs()
+    // The 10 unread ones still in the tie (111..120) and the 100 that left it.
+    for (let iid = 11; iid <= 120; iid++) expect(refs.has(`mr:${iid}`)).toBe(true)
+    expect(noopLog.info).toHaveBeenCalledWith("git sync merge request tie changed", expect.objectContaining({ repositoryId: "r1", seen: 100 }))
+    expect(row.get()).toMatchObject({ mrCursorAt: new Date(NOW.getTime() - HOUR + 110 * 1000), mrCursorSeen: 1 })
+  })
+
+  it("a small tie that shrank lowers its count instead of keeping the old one", async () => {
+    const T = new Date("2026-09-30T00:00:00.000Z")
+    gitRepositoryFindUnique.mockResolvedValue(repoRow({ externalId: 7, mrCursorAt: T, mrCursorSeen: 3, lookbackAt: NOW }))
+    const listMergeRequestPage = vi
+      .fn()
+      .mockResolvedValueOnce(mrPage([mrAt(1, 1, T)], true, NOW)) // overlap page (cut off to force an anchored read)
+      .mockResolvedValueOnce(mrPage([mrAt(1, 1, T)], false, NOW)) // anchored: only one MR is left at T
+    await syncRepository("r1", () => emptyClient({ listMergeRequestPage }), NOW)
+    expect(listMergeRequestPage.mock.calls[1][1]).toEqual({ updatedAfter: T, page: 1, perPage: 100 })
+    expect(lastWrite()).toMatchObject({ mrCursorAt: T, mrCursorSeen: 1 })
+  })
+
+  it("a page out of order (updated_at decreasing) is logged once and never moves the cursor", async () => {
+    const start = new Date("2026-09-30T00:00:00.000Z")
+    gitRepositoryFindUnique.mockResolvedValue(repoRow({ externalId: 7, mrCursorAt: start, mrCursorSeen: 0, lookbackAt: NOW }))
+    const bad = mrPage([mrAt(1, 1, "2026-09-30T05:00:00.000Z"), mrAt(2, 2, "2026-09-30T04:00:00.000Z")], true, NOW)
+    const listMergeRequestPage = vi.fn().mockResolvedValue(bad)
+    await syncRepository("r1", () => emptyClient({ listMergeRequestPage }), NOW)
+    expect(noopLog.warn.mock.calls.filter((c) => c[0] === "git sync merge request order unexpected")).toHaveLength(1)
+    expect(lastWrite()).toMatchObject({ mrCursorAt: start, mrCursorSeen: 0 })
+    // Re-read from offset 0 of the tie, never past it.
+    for (const c of listMergeRequestPage.mock.calls.slice(1)) expect(c[1]).toEqual({ updatedAfter: start, page: 1, perPage: 100 })
+  })
+})
+
+describe("syncRepository — pipeline lookups and repeated warnings", () => {
+  it("looks up pipelines only for merge requests past the cursor, not for the overlap re-read", async () => {
+    everyPbiExists()
+    const cursorAt = new Date("2026-09-30T12:00:00.000Z")
+    gitRepositoryFindUnique.mockResolvedValue(repoRow({ externalId: 7, mrCursorAt: cursorAt, mrCursorSeen: 1, lookbackAt: NOW }))
+    const pipeline = vi.fn().mockResolvedValue("success")
+    const listMergeRequestPage = vi.fn().mockResolvedValue(
+      mrPage([mrAt(1, 1, new Date(cursorAt.getTime() - 2 * MIN)), mrAt(2, 2, cursorAt), mrAt(3, 3, new Date(cursorAt.getTime() + MIN))], false, NOW),
+    )
+    await syncRepository("r1", () => emptyClient({ listMergeRequestPage, getMergeRequestPipeline: pipeline }), NOW)
+    expect(pipeline.mock.calls).toEqual([[7, 3]])
+    expect(writtenRefs()).toEqual(new Set(["mr:1", "mr:2", "mr:3"]))
+  })
+
+  it("warns about a truncated branch list at most once a day per repository", async () => {
+    gitRepositoryFindUnique.mockResolvedValue(repoRow({ id: "r-trunc", externalId: 7, lookbackAt: NOW }))
+    const client = emptyClient({ listBranches: vi.fn().mockResolvedValue(page([], true, 3)) })
+    const warned = () => noopLog.warn.mock.calls.filter((c) => c[0] === "git sync truncated" && (c[1] as { kind: string }).kind === "branch").length
+    await syncRepository("r-trunc", () => client, NOW)
+    await syncRepository("r-trunc", () => client, new Date(NOW.getTime() + HOUR))
+    expect(warned()).toBe(1)
+    await syncRepository("r-trunc", () => client, new Date(NOW.getTime() + DAY + HOUR))
+    expect(warned()).toBe(2)
   })
 })
 
@@ -824,10 +981,7 @@ describe("syncRepository — error handling", () => {
     const result = await syncRepository("r1", () => client, NOW)
     expect(result.ok).toBe(false)
     expect(result.error).toBe("auth")
-    expect(gitRepositoryUpdate).toHaveBeenCalledWith({
-      where: { id: "r1" },
-      data: expect.objectContaining({ lastError: expect.stringContaining("read_api"), lastErrorAt: expect.any(Date) }),
-    })
+    expect(lastWrite()).toMatchObject({ lastError: expect.stringContaining("read_api"), lastErrorAt: expect.any(Date) })
     expect(noopLog.error).not.toHaveBeenCalled()
   })
 
@@ -836,12 +990,13 @@ describe("syncRepository — error handling", () => {
     const client = emptyClient({ listMergeRequestPage: vi.fn().mockRejectedValue(new Error("boom")) })
     const result = await syncRepository("r1", () => client, NOW)
     expect(result.error).toBe("http")
-    expect(noopLog.error).toHaveBeenCalledWith("git sync failed", { repositoryId: "r1", error: "boom" })
+    expect(noopLog.error).toHaveBeenCalledWith("git sync failed", { repositoryId: "r1", kind: "mr", error: "boom" })
   })
 
   it("does not propagate a failure to persist lastError (best effort)", async () => {
     gitRepositoryFindUnique.mockResolvedValue(repoRow({ externalId: 7 }))
     gitRepositoryUpdate.mockRejectedValue(new Error("db write failed"))
+    gitRepositoryUpdateMany.mockRejectedValue(new Error("db write failed"))
     const client = emptyClient({ listMergeRequestPage: vi.fn().mockRejectedValue(new GitLabError("network", "down")) })
     await expect(syncRepository("r1", () => client, NOW)).resolves.toMatchObject({ ok: false, error: "network" })
   })

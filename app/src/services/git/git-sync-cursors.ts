@@ -135,29 +135,62 @@ export interface MrPageRequest {
 
 /**
  * The page that continues after `cursor`: anchored at its updated_at (keyset by
- * filter, so changes to earlier MRs cannot shift it), skipping the `seen` MRs
- * of the tie with page arithmetic. When the tie is large, the page size is
- * chosen so the page starts TIE_BACKOFF items before the unread ones (an MR
- * that left the tie meanwhile shifts the rest by one) while still bringing as
- * many unread MRs as possible; always at least one.
+ * filter, so changes to earlier MRs cannot shift it).
+ *
+ * - A tie smaller than a page is simply re-read from offset 0.
+ * - A larger tie skips the `seen` MRs with page arithmetic. The page size is
+ *   chosen so the page starts at least one (up to TIE_BACKOFF) already-read
+ *   MR before the unread ones while bringing as many unread ones as possible:
+ *   those re-read MRs let the caller see that the tie shrank (MRs left it
+ *   between syncs, shifting the rest) and re-read it from 0 (tieShrank).
+ *
+ * Assumes GitLab returns MRs with equal updated_at in a stable order (see
+ * docs/operations/git-integration.md); `pageOutOfOrder` checks the rest.
  */
 export function nextMrPage(cursor: MrCursor): MrPageRequest {
   const seen = Math.max(0, Math.floor(cursor.seen))
-  const from = Math.max(0, seen - TIE_BACKOFF)
+  if (seen < PER_PAGE) return { updatedAfter: cursor.at, page: 1, perPage: PER_PAGE, offset: 0 }
   let best = { perPage: PER_PAGE, start: Math.floor(seen / PER_PAGE) * PER_PAGE }
-  let bestGain = best.start + PER_PAGE - seen
-  let backedOff = best.start <= from
-  for (let perPage = PER_PAGE; perPage >= 10; perPage--) {
-    const start = Math.floor(from / perPage) * perPage
-    const gain = start + perPage - seen
-    // Prefer pages that keep the safety overlap; among them the one bringing the most unread MRs.
-    if (gain > 0 && (!backedOff || gain > bestGain)) {
-      best = { perPage, start }
-      bestGain = gain
-      backedOff = true
+  let bestGain = 0
+  for (let back = TIE_BACKOFF; back >= 1 && bestGain === 0; back--) {
+    const from = seen - back
+    for (let perPage = PER_PAGE; perPage >= 10; perPage--) {
+      const start = Math.floor(from / perPage) * perPage
+      const gain = start + perPage - seen
+      if (gain > bestGain) {
+        best = { perPage, start }
+        bestGain = gain
+      }
     }
   }
   return { updatedAfter: cursor.at, page: best.start / best.perPage + 1, perPage: best.perPage, offset: best.start }
+}
+
+/**
+ * True when a page continuing a large tie (offset > 0) no longer starts with
+ * the already-read MRs it was chosen to re-read: MRs left the tie since they
+ * were counted, so the offsets moved and unread ones may lie before the page.
+ */
+export function tieShrank(cursor: MrCursor, req: Pick<MrPageRequest, "updatedAfter" | "offset">, items: ReadonlyArray<{ updated_at: string }>): boolean {
+  if (req.offset === 0) return false
+  const expected = cursor.seen - req.offset
+  let leading = 0
+  while (leading < items.length && updatedMs(items[leading]) === req.updatedAfter.getTime()) leading++
+  return leading < expected
+}
+
+/**
+ * True when a page breaks the listing's contract (ascending updated_at, none
+ * before `updated_after`, every date parsable). The cursor must not move by it.
+ */
+export function pageOutOfOrder(req: Pick<MrPageRequest, "updatedAfter">, items: ReadonlyArray<{ updated_at: string }>): boolean {
+  let previous = req.updatedAfter.getTime()
+  for (const item of items) {
+    const t = updatedMs(item)
+    if (Number.isNaN(t) || t < previous) return true
+    previous = t
+  }
+  return false
 }
 
 const updatedMs = (mr: { updated_at: string }) => new Date(mr.updated_at).getTime()

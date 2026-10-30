@@ -55,35 +55,34 @@ export async function syncRepository(repositoryId: string, factory: ClientFactor
   try {
     const client = factory(repo.apiBase, token)
     const externalId = repo.externalId ?? (await client.getProject(repo.repoPath)).id
+    // 過去分を再同期 bumps the generation; cursors read under an older one are not written back.
+    const generation = repo.syncGeneration ?? null
     const read = await readAll(client, externalId, repositoryId, cursorsFromRow(repo, now), now)
 
     const mrDrafts = read.mrs.flatMap((mr) => linksFromMergeRequest(mr, now))
     const branchDrafts = (read.branches?.items ?? []).flatMap((b) => linksFromBranch(b, now))
     const drafts = [...mrDrafts, ...read.commits.flatMap((c) => linksFromCommit(c, now)), ...branchDrafts]
     const pbiIds = await resolvePbis(repo.projectId, drafts)
-    // After a failed request the pipeline lookups would most likely fail the same way.
-    if (!read.error) await attachPipelines(client, externalId, repositoryId, mrDrafts.filter((d) => pbiIds.has(d.pbiNumber)))
+    // Pipelines only for merge requests read for the first time (not the overlap re-read), and not
+    // after the merge request listing failed (the lookups would most likely fail the same way).
+    const lookups = mrDrafts.filter((d) => pbiIds.has(d.pbiNumber) && read.freshMrIids.has(Number(d.ref)))
+    if (!read.failures.some((f) => f.kind === "mr")) await attachPipelines(client, externalId, repositoryId, lookups)
 
     const { written, changed, newlyMerged, newlyFailed } = await writeLinks(repo.projectId, repo.id, drafts, pbiIds)
-    const gone = read.branches && !read.error ? await markGoneBranches(repo.id, read.branches, branchDrafts, pbiIds, now) : 0
-    const releases = read.error ? 0 : await syncReleasesSafely(client, repo, externalId, now)
+    // `branches` is null when that listing failed: then nothing is marked gone.
+    const gone = read.branches ? await markGoneBranches(repo.id, read.branches, branchDrafts, pbiIds, now) : 0
+    const releases = await syncReleasesSafely(client, repo, externalId, now)
     // Git panels / badges of the project refresh live, only when a link actually changed.
     if (changed + gone + releases > 0) publishAfterCommit({ type: "git", projectId: repo.projectId, action: "sync" })
     // Links are written before the cursors move: a cursor never passes anything unwritten.
-    const cursorData = cursorsToRow(read.cursors)
-    if (read.error) {
-      await prisma.gitRepository
-        .update({ where: { id: repo.id }, data: { externalId, ...cursorData, lastError: syncErrorMessage(read.error).slice(0, 500), lastErrorAt: now } })
-        .catch((err) => log.error("git sync progress not saved", { repositoryId, error: err instanceof Error ? err.message : String(err) }))
-    } else {
-      await prisma.gitRepository.update({
-        where: { id: repo.id },
-        data: { externalId, syncedAt: now, ...cursorData, lastError: null, lastErrorAt: null },
-      })
-    }
+    const status = read.failures.length > 0 ? { lastError: failureMessage(read.failures).slice(0, 500), lastErrorAt: now } : { syncedAt: now, lastError: null, lastErrorAt: null }
+    const save = saveProgress(repositoryId, generation, { externalId, ...cursorsToRow(read.cursors) }, status)
+    if (read.failures.length > 0) await save.catch((err) => log.error("git sync progress not saved", { repositoryId, error: err instanceof Error ? err.message : String(err) }))
+    else await save
     await notifyFailedPipelines(repo.projectId, newlyFailed)
     const completedTasks = integration.autoCompleteOnMerge ? await autoComplete(repo.projectId, newlyMerged) : 0
-    if (read.error) return listingFailed(repositoryId, read.error, written)
+    const first = read.failures[0]
+    if (first) return { repositoryId, ok: false, links: written, error: first.error instanceof GitLabError ? first.error.kind : "http" }
     return { repositoryId, ok: true, links: written, completedTasks }
   } catch (err) {
     const kind = err instanceof GitLabError ? err.kind : "http"
@@ -92,35 +91,74 @@ export async function syncRepository(repositoryId: string, factory: ClientFactor
   }
 }
 
-/** A listing failed mid-way: what it read before is written and its progress saved; logged once here. */
-function listingFailed(repositoryId: string, err: unknown, links: number): SyncResult {
-  if (!(err instanceof GitLabError)) log.error("git sync failed", { repositoryId, error: err instanceof Error ? err.message : String(err) })
-  return { repositoryId, ok: false, links, error: err instanceof GitLabError ? err.kind : "http" }
+/**
+ * Cursors are written only if no 過去分を再同期 started since this sync read
+ * them (same generation); otherwise only the status is written, so the
+ * resync's reset is not undone by a sync that was already running.
+ */
+async function saveProgress(repositoryId: string, generation: number | null, cursors: Record<string, unknown>, status: Record<string, unknown>): Promise<void> {
+  const r = await prisma.gitRepository.updateMany({ where: { id: repositoryId, syncGeneration: generation }, data: { ...cursors, ...status } })
+  if (r.count > 0) return
+  log.info("git sync cursors not saved: a resync started meanwhile", { repositoryId })
+  await prisma.gitRepository.update({ where: { id: repositoryId }, data: status })
+}
+
+type ListingKind = "mr" | "commit" | "commit-lookback" | "branch"
+
+interface ListingFailure {
+  kind: ListingKind
+  error: unknown
+}
+
+const LISTING_LABEL: Record<ListingKind, string> = { mr: "マージリクエスト", commit: "コミット", "commit-lookback": "コミット（読み直し）", branch: "ブランチ" }
+
+/** Stored on the repository: every failed listing, grouped by message ("マージリクエスト・コミット: …"). */
+export function failureMessage(failures: readonly ListingFailure[]): string {
+  const byMessage = new Map<string, string[]>()
+  for (const f of failures) {
+    const message = syncErrorMessage(f.error)
+    byMessage.set(message, [...(byMessage.get(message) ?? []), LISTING_LABEL[f.kind]])
+  }
+  return [...byMessage].map(([message, labels]) => `${labels.join("・")}: ${message}`).join(" / ")
+}
+
+/** Each failed listing is logged once, here (GitLab answers as a warning, anything else as an error). */
+function logFailure(repositoryId: string, kind: ListingKind, error: unknown): void {
+  if (error instanceof GitLabError) log.warn("git sync listing failed", { repositoryId, kind, errorKind: error.kind, status: error.status })
+  else log.error("git sync failed", { repositoryId, kind, error: error instanceof Error ? error.message : String(error) })
 }
 
 interface ReadResult {
   mrs: GitLabMergeRequest[]
+  /** Merge requests past the stored cursor (not only re-read by the overlap page). */
+  freshMrIids: Set<number>
   commits: GitLabCommit[]
-  /** null when the branch listing was not reached (an earlier listing failed) or failed itself. */
+  /** null when the branch listing failed. */
   branches: Paged<GitLabBranch> | null
   cursors: SyncCursors
-  /** The first failure; no further listing is started after it. */
-  error?: unknown
+  failures: ListingFailure[]
 }
 
+/** When the branch-list-truncated warning was last logged per repository (once a day). */
+const branchTruncationWarned = new Map<string, number>()
+
 /**
- * The listings of one sync, one after another: merge requests, the commit
- * forward pass, the look-back pass, branches. The first failure stops the
- * rest (the sync has failed anyway); every cursor keeps the progress its
- * listing made before.
+ * The listings of one sync, one after another but independent of each other:
+ * a failing one (e.g. merge requests disabled in the project → 403) keeps its
+ * cursor at its last completed page / window and the others still run.
  */
 async function readAll(client: GitLabClient, externalId: number, repositoryId: string, start: SyncCursors, now: Date): Promise<ReadResult> {
-  const cursors: SyncCursors = { ...start }
+  const failures: ListingFailure[] = []
+  const failed = (kind: ListingKind, error: unknown) => {
+    failures.push({ kind, error })
+    logFailure(repositoryId, kind, error)
+  }
+
   const mr = await readMergeRequests(client, externalId, repositoryId, start.mr)
-  cursors.mr = mr.cursor
-  if (mr.error !== undefined) return { mrs: mr.items, commits: [], branches: null, cursors, error: mr.error }
+  if (mr.error !== undefined) failed("mr", mr.error)
 
   // GitLab's clock bounds the commit windows (Kanflow's may be off); Kanflow's only when GitLab sent none.
+  if (!mr.serverTime) log.warn("git sync uses Kanflow's clock", { repositoryId, reason: "no usable Date header from GitLab" })
   const gitlabNow = mr.serverTime ?? now
   const forward = await scanCommits(client, externalId, {
     repositoryId,
@@ -131,21 +169,36 @@ async function readAll(client: GitLabClient, externalId: number, repositoryId: s
     readTo: gitlabNow,
     budget: MAX_COMMIT_LISTINGS,
   })
-  cursors.commit = { ...forward.scan, skips: forward.skips }
-  if (forward.error !== undefined) return { mrs: mr.items, commits: forward.items, branches: null, cursors, error: forward.error }
-  if (!forward.done) log.info("git sync backlog", { repositoryId, kind: "commit", cursorAt: forward.scan.at.toISOString(), windowSec: forward.scan.widthSec })
+  if (forward.error !== undefined) failed("commit", forward.error)
+  else if (!forward.done) log.info("git sync backlog", { repositoryId, kind: "commit", cursorAt: forward.scan.at.toISOString(), windowSec: forward.scan.widthSec })
+  const commit = { ...forward.scan, skips: forward.skips }
 
-  const lookback = await readLookback(client, externalId, repositoryId, start.lookback, cursors.commit.at, gitlabNow)
-  cursors.lookback = lookback.state
-  const commits = [...forward.items, ...lookback.items]
-  if (lookback.error !== undefined) return { mrs: mr.items, commits, branches: null, cursors, error: lookback.error }
+  const lookback = await readLookback(client, externalId, repositoryId, start.lookback, commit.at, gitlabNow)
+  if (lookback.error !== undefined) failed("commit-lookback", lookback.error)
 
+  let branches: Paged<GitLabBranch> | null = null
   try {
-    const branches = await client.listBranches(externalId, "pbi")
-    if (branches.truncated) log.warn("git sync truncated", { repositoryId, kind: "branch", pages: branches.pages, markedGone: false })
-    return { mrs: mr.items, commits, branches, cursors }
+    branches = await client.listBranches(externalId, "pbi")
+    if (branches.truncated && now.getTime() - (branchTruncationWarned.get(repositoryId) ?? Number.NEGATIVE_INFINITY) >= DAY_MS) {
+      branchTruncationWarned.set(repositoryId, now.getTime())
+      log.warn("git sync truncated", { repositoryId, kind: "branch", pages: branches.pages, markedGone: false })
+    }
   } catch (error) {
-    return { mrs: mr.items, commits, branches: null, cursors, error }
+    failed("branch", error)
+  }
+
+  const startMs = start.mr.at.getTime()
+  const fresh = mr.items.filter((m) => {
+    const t = new Date(m.updated_at).getTime()
+    return Number.isNaN(t) || t > startMs || (t === startMs && start.mr.seen === 0)
+  })
+  return {
+    mrs: mr.items,
+    freshMrIids: new Set(fresh.map((m) => m.iid)),
+    commits: [...forward.items, ...lookback.items],
+    branches,
+    cursors: { mr: mr.cursor, commit, lookback: lookback.state },
+    failures,
   }
 }
 

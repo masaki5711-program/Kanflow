@@ -1,6 +1,6 @@
 import { requireProject } from "@/lib/authz"
 import { actorFromSession, jsonResponse, toHttpResponse } from "@/services/_shared"
-import { isGitEnabled, resyncRepository } from "@/services/git/git.service"
+import { isGitEnabled, isProjectRepository, resyncRepository } from "@/services/git/git.service"
 import { syncRepository } from "@/services/git/git-sync"
 
 type Params = { params: Promise<{ projectId: string; repoId: string }> }
@@ -23,12 +23,21 @@ export async function POST(_request: Request, { params }: Params) {
   if ("error" in gate) return gate.error
   try {
     if (!(await isGitEnabled(projectId))) return jsonResponse({ error: "Git integration is off", code: "CONFLICT" }, 409)
+    // Ownership first: the rate limit is keyed only by repositories of this project.
+    if (!(await isProjectRepository(projectId, repoId))) return jsonResponse({ error: "Repository not found", code: "NOT_FOUND" }, 404)
+    // Check and claim in one synchronous step (no await between), so two concurrent presses cannot both pass.
     const now = Date.now()
     if (now - (lastManual.get(repoId) ?? 0) < MIN_GAP_MS) return jsonResponse({ error: "Resynced a moment ago", code: "RATE_LIMITED" }, 429)
-    await resyncRepository(projectId, repoId, actorFromSession(gate.session), new Date(now))
     // Old entries are dropped so the map cannot grow with removed repositories.
     for (const [id, at] of lastManual) if (now - at >= MIN_GAP_MS) lastManual.delete(id)
     lastManual.set(repoId, now)
+    try {
+      await resyncRepository(projectId, repoId, actorFromSession(gate.session), new Date(now))
+    } catch (error) {
+      // Nothing was reset: the next press may try again at once.
+      lastManual.delete(repoId)
+      throw error
+    }
     return jsonResponse({ result: await syncRepository(repoId) })
   } catch (error) {
     return toHttpResponse(error, { fallback: "再同期を開始できませんでした", context: "Git repository resync POST" })

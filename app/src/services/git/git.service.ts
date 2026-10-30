@@ -252,6 +252,11 @@ export async function removeRepository(projectId: string, repositoryId: string, 
   await logActivity(prisma, { projectId, entityType: "project", entityId: projectId, action: "update", actor, diff: { changes: { "git.repository": { from: `${repo.name} (${repo.repoPath})`, to: null } } } })
 }
 
+/** True when the repository belongs to the project (checked before a rate limit is keyed by it). */
+export async function isProjectRepository(projectId: string, repositoryId: string): Promise<boolean> {
+  return !!(await prisma.gitRepository.findFirst({ where: { id: repositoryId, projectId }, select: { id: true } }))
+}
+
 /**
  * 過去分を再同期: the next syncs re-read the last 90 days (merge requests from
  * 90 days back, commits by a look-back pass), bounded per sync and resumed, e.g.
@@ -261,7 +266,14 @@ export async function removeRepository(projectId: string, repositoryId: string, 
 export async function resyncRepository(projectId: string, repositoryId: string, actor: Actor, now = new Date()): Promise<void> {
   const repo = await prisma.gitRepository.findFirst({ where: { id: repositoryId, projectId } })
   if (!repo) throw new NotFoundError("Repository not found")
-  await prisma.gitRepository.update({ where: { id: repositoryId }, data: cursorsToRow(resetForResync(cursorsFromRow(repo, now), now)) })
+  await prisma.gitRepository.update({
+    where: { id: repositoryId },
+    data: {
+      ...cursorsToRow(resetForResync(cursorsFromRow(repo, now), now)),
+      // A sync running right now started with the old generation and will not write its cursors back.
+      syncGeneration: repo.syncGeneration === null ? 1 : { increment: 1 },
+    },
+  })
   await logActivity(prisma, {
     projectId,
     entityType: "project",

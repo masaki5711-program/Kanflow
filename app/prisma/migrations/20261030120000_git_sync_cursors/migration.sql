@@ -14,6 +14,10 @@
 --       the daily look-back re-read of recent commits (late pushes) and the
 --       person-started 「過去分を再同期」: position of a pass in progress and
 --       when the last pass started.
+--   * git_repository.syncGeneration
+--       bumped by 過去分を再同期; a sync writes its cursors only while the
+--       generation it started with is unchanged (a running sync cannot undo
+--       a resync). Existing rows get 0.
 --   * git_link.goneAt
 --       a branch that left GitLab's (complete) branch list keeps its link,
 --       marked gone, instead of the link being deleted.
@@ -25,7 +29,7 @@
 --   DROP COLUMN `mrCursorSeen`, DROP COLUMN `commitCursorAt`,
 --   DROP COLUMN `commitWindowSec`, DROP COLUMN `commitSkips`,
 --   DROP COLUMN `lookbackCursorAt`, DROP COLUMN `lookbackWindowSec`,
---   DROP COLUMN `lookbackAt`; ALTER TABLE `git_link` DROP COLUMN `goneAt`.
+--   DROP COLUMN `lookbackAt`, DROP COLUMN `syncGeneration`; ALTER TABLE `git_link` DROP COLUMN `goneAt`.
 -- (Branch links marked gone then reappear as live links until the old code
 -- prunes them again on its next sync.)
 
@@ -37,7 +41,8 @@ ALTER TABLE `git_repository` ADD COLUMN `mrCursorAt` DATETIME(3) NULL,
     ADD COLUMN `commitSkips` INTEGER NULL,
     ADD COLUMN `lookbackCursorAt` DATETIME(3) NULL,
     ADD COLUMN `lookbackWindowSec` INTEGER NULL,
-    ADD COLUMN `lookbackAt` DATETIME(3) NULL;
+    ADD COLUMN `lookbackAt` DATETIME(3) NULL,
+    ADD COLUMN `syncGeneration` INTEGER NULL DEFAULT 0;
 
 -- AlterTable
 ALTER TABLE `git_link` ADD COLUMN `goneAt` DATETIME(3) NULL;

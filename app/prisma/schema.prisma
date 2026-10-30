@@ -1284,6 +1284,9 @@ model GitRepository {
   lookbackCursorAt  DateTime?
   lookbackWindowSec Int?
   lookbackAt        DateTime?
+  /// Bumped by 過去分を再同期: a sync writes its cursors only while the generation it
+  /// started with is unchanged, so a sync already running cannot undo a resync.
+  syncGeneration    Int?         @default(0)
   lastError         String?      @db.VarChar(500)
   lastErrorAt       DateTime?
   sortOrder         Int          @default(0)

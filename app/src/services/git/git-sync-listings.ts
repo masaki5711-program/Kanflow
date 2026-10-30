@@ -1,6 +1,6 @@
 import type { GitLabClient, GitLabCommit, GitLabMergeRequest } from "@/lib/git/gitlab-client"
 import { logger } from "@/lib/logger"
-import { growWidth, laterMr, MIN_WINDOW_SEC, nextMrPage, positionAfter, shrinkWidth, type CommitScan, type MrCursor, type MrPageRequest } from "./git-sync-cursors"
+import { growWidth, laterMr, MIN_WINDOW_SEC, nextMrPage, pageOutOfOrder, positionAfter, shrinkWidth, tieShrank, type CommitScan, type MrCursor, type MrPageRequest } from "./git-sync-cursors"
 
 /**
  * The two cursor-driven listings of a sync. Neither throws: a failed request
@@ -38,22 +38,44 @@ export interface MrListing {
  * before the cursor, then pages anchored at the cursor's updated_at (keyset by
  * filter: an MR changed during the read moves behind the anchor instead of
  * shifting the page boundary) until GitLab has no more or the budget is used.
+ * The anchored pages replace the cursor (so a tie that shrank also lowers its
+ * count); a tie that shrank under a large-tie offset, or a page out of order,
+ * restarts the tie from offset 0 instead of moving the cursor.
  */
 export async function readMergeRequests(client: GitLabClient, externalId: number, repositoryId: string, start: MrCursor): Promise<MrListing> {
   const byIid = new Map<number, GitLabMergeRequest>()
   let cursor = start
   let serverTime: Date | null = null
   let requests = 0
-  const overlap: MrPageRequest = { updatedAfter: new Date(start.at.getTime() - MR_OVERLAP_MS), page: 1, perPage: 100, offset: 0 }
+  let req: MrPageRequest = { updatedAfter: new Date(start.at.getTime() - MR_OVERLAP_MS), page: 1, perPage: 100, offset: 0 }
+  let anchored = false
+  let warnedOrder = false
   try {
-    for (let req = overlap; requests <= MAX_MR_REQUESTS; req = nextMrPage(cursor)) {
+    while (requests <= MAX_MR_REQUESTS) {
       const r = await client.listMergeRequestPage(externalId, { updatedAfter: req.updatedAfter, page: req.page, perPage: req.perPage })
       requests++
       if (r.serverTime && (!serverTime || r.serverTime > serverTime)) serverTime = r.serverTime
       for (const mr of r.items) byIid.set(mr.iid, mr)
-      const reached = positionAfter(req, r.items)
-      if (reached) cursor = laterMr(cursor, reached)
-      if (!r.hasMore) return { items: [...byIid.values()], cursor, serverTime, complete: true, requests }
+      let restarted = false
+      if (pageOutOfOrder(req, r.items)) {
+        // GitLab did not keep the order this paging relies on: never move the cursor by such a page.
+        if (!warnedOrder) log.warn("git sync merge request order unexpected", { repositoryId, updatedAfter: req.updatedAfter.toISOString(), page: req.page, perPage: req.perPage })
+        warnedOrder = true
+        if (anchored) {
+          cursor = { at: cursor.at, seen: 0 }
+          restarted = true
+        }
+      } else if (anchored && tieShrank(cursor, req, r.items)) {
+        log.info("git sync merge request tie changed", { repositoryId, cursorAt: cursor.at.toISOString(), seen: cursor.seen, offset: req.offset })
+        cursor = { at: cursor.at, seen: 0 }
+        restarted = true
+      } else {
+        const reached = positionAfter(req, r.items)
+        if (reached) cursor = anchored ? reached : laterMr(cursor, reached)
+      }
+      if (!r.hasMore && !restarted) return { items: [...byIid.values()], cursor, serverTime, complete: true, requests }
+      req = nextMrPage(cursor)
+      anchored = true
     }
   } catch (error) {
     return { items: [...byIid.values()], cursor, serverTime, complete: false, requests, error }
