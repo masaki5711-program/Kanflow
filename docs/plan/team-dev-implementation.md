@@ -11,7 +11,7 @@
 | K2/K3 一覧ごとの同期の位置、消えたブランチ、過去 90 日の再同期 | 済み | `app/src/services/git/git-sync*.ts`、`…/repositories/[repoId]/resync` |
 | K4 取り込み元の層 `DevSource`、`GitIntegration.provider` | 済み | `app/src/services/git/dev-source.ts`、`gitlab-source.ts`、`git-provider.ts` |
 | K5 `dev:write`（作業の宣言・進捗・MR のリンク） | 済み | `app/src/services/dev-work/`、`/api/v1/projects/:projectId/dev/*`、`mcp/_lib/dev-tools.ts` |
-| 未検証 | **MariaDB での DB テスト（`KANFLOW_DB_TESTS=1`）と Playwright の E2E** | W2 で CI に入れる |
+| 未検証 | **実際の DB（今は MySQL 8.4）での DB テスト（`KANFLOW_DB_TESTS=1`）と Playwright の E2E** | W2 で CI に入れる |
 
 ## 1. W2 CI（最優先）
 
@@ -19,7 +19,7 @@
   1. `npm ci`、`npx prisma generate`
   2. `npx tsc --noEmit`、`npx eslint .`
   3. `npx vitest run`
-  4. **MariaDB のサービスコンテナ**（本番と同じ版）→ `npx prisma migrate deploy` → `KANFLOW_DB_TESTS=1 npx vitest run src/services/dev-work/__tests__/dev-work.db.test.ts` と他の DB テスト
+  4. **本番と同じ DB のサービスコンテナ**（今は MySQL 8.4、PostgreSQL への移行の後は PostgreSQL）→ `npx prisma migrate deploy` → `KANFLOW_DB_TESTS=1 npx vitest run src/services/dev-work/__tests__/dev-work.db.test.ts` と他の DB テスト
   5. Playwright（`npx playwright install --with-deps chromium` は CI だけ）→ `npx playwright test`
 - 失敗したジョブは W11 の `report_failure` に送る（サービスアカウントのトークン）。
 - 完了の条件: main への PR は CI が緑でないとマージできない（ブランチ保護）。
@@ -116,6 +116,15 @@
 
 `app/src/services/metrics/flow-metrics.ts`: PBI の着手（最初の宣言）から MR まで、衝突による手戻り（範囲の外の変更・マージの衝突）、再発率、1 MR あたりのレビュー、新しい開発者の最初の MR まで。ダッシュボードとエクスポート（CSV）。
 
-## 9. 順序
+## 9. W12 システム開発以外のプロジェクト（GitStation の計画 07 W12）
+
+- プロジェクトの種類に `equipment` を足す。開発用の機能は `software` のときだけ出し、`equipment` / `process_improvement` では仕様書の一覧と承認の状態、決めるべき項目の進み具合、全体計画、フレームワークの段の完了の条件を出す。
+- MCP に全体計画の道具を足す（`get_plan`、`propose_plan_items`: ベースのスケジュール `schedule.yml` から作った PlanItem の階層・日付・依存を提案し、PO / PM の承認で書き込む）。
+- 仕様の版（`spec.released`）と承認の状態を PBI・全体計画の行に表示する（GitStation の M3 以降。それまでは GitLab のタグ）。
+- 受入基準の証拠の種類: テスト・検査記録・測定値（理論値との比較）・文書の承認。
+- 工程改善: フレームワークの段（仕様の文書）と全体計画の段を結び付け、段ごとの完了の条件の抜けを知らせる。W11 の教訓に、設備・工程のマスタの ID と分類を鍵として足す。
+- DB: 新しい表は、PostgreSQL への移行（段階 T）の後に作るのを推奨（マイグレーションを 2 回作らない）。
+
+## 10. 順序
 
 第 0 段: W2（CI）→ W3（ボードの表示）。第 1 段: W4、W5、W11（モデル → 署名 → API/MCP → 画面 → 提案 → 取り込み）、指標。第 2 段: W9、W10。
