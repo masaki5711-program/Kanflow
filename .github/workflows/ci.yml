@@ -1,0 +1,227 @@
+# Kanflow CI (GitHub Actions). What runs, the gaps and how to require it in
+# branch protection: docs/ci.md. The GitLab pipeline (.gitlab-ci.yml) keeps
+# the production deploy; this workflow is the merge gate on GitHub.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+# A new push to a PR cancels its run in progress; runs on main are never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # Same major as the production server (.gitlab-ci.yml NODE_VERSION).
+  NODE_VERSION: "25"
+  NPM_CONFIG_FUND: "false"
+  NPM_CONFIG_UPDATE_NOTIFIER: "false"
+  NPM_CONFIG_AUDIT: "false"
+
+defaults:
+  run:
+    working-directory: app
+
+jobs:
+  check:
+    name: typecheck + lint + unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Dummy, non-secret: prisma.config.ts reads DATABASE_URL; generate never connects.
+      DATABASE_URL: mysql://ci:ci@127.0.0.1:3306/kanflow_ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npx tsc --noEmit
+      - run: npx eslint .
+      # The DB test (dev-work.db.test.ts) skips itself here (no KANFLOW_DB_TESTS).
+      - run: npx vitest run
+      # The production worker service runs a pre-built bundle (no tsx at runtime):
+      # build it and check it starts (--dry-run never touches the database).
+      - name: worker bundle builds and starts (--dry-run)
+        env:
+          NEXT_DIST_DIR: .next-ci
+          KANFLOW_WORKER_BUNDLE: .next-ci/worker/main.cjs
+        run: |
+          npm run build:worker
+          node src/worker/service-entry.mjs --dry-run
+
+  db:
+    name: migrations + DB tests (MySQL 8.4)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Throw-away MySQL 8.4 (production: MySQL 8.4 via @prisma/adapter-mariadb).
+    # The credentials are synthetic and live only as long as this job.
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root_ci
+          MYSQL_DATABASE: kanflow_ci
+          MYSQL_USER: kanflow_ci
+          MYSQL_PASSWORD: kanflow_ci
+        ports: ["3306:3306"]
+        # TCP ping: the entrypoint's init server has networking off, so this
+        # turns healthy only once the real server accepts connections.
+        options: >-
+          --health-cmd "mysqladmin ping --protocol=tcp -h 127.0.0.1 -uroot -proot_ci"
+          --health-interval 3s --health-timeout 5s --health-retries 40
+    env:
+      # prisma.config.ts (migrate deploy / migrate diff)
+      DATABASE_URL: mysql://kanflow_ci:kanflow_ci@127.0.0.1:3306/kanflow_ci
+      # src/lib/prisma.ts (MariaDB driver adapter) - used by the DB tests
+      DATABASE_HOST: 127.0.0.1
+      DATABASE_PORT: "3306"
+      DATABASE_USER: kanflow_ci
+      DATABASE_PASSWORD: kanflow_ci
+      DATABASE_NAME: kanflow_ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npx prisma migrate deploy
+      # schema.prisma and prisma/migrations must not drift (an edited applied
+      # migration, or a schema change without a migration). Replays every
+      # migration into a shadow database; root may create it.
+      - name: schema / migrations drift check
+        env:
+          SHADOW_DATABASE_URL: mysql://root:root_ci@127.0.0.1:3306/prisma_shadow
+        run: |
+          set +e
+          npx prisma migrate diff \
+            --from-migrations prisma/migrations \
+            --to-schema prisma/schema.prisma \
+            --exit-code
+          rc=$?
+          set -e
+          if [ "$rc" = "2" ]; then
+            echo "::error::schema.prisma and prisma/migrations have drifted. Create a migration: npx prisma migrate dev --name <change>"
+            npx prisma migrate diff --from-migrations prisma/migrations --to-schema prisma/schema.prisma --script || true
+          fi
+          exit $rc
+      - name: DB tests (real MySQL)
+        env:
+          KANFLOW_DB_TESTS: "1"
+        run: npx vitest run src/services/dev-work/__tests__/dev-work.db.test.ts
+
+  e2e:
+    name: e2e (Playwright, smoke + write flows)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root_ci
+          MYSQL_DATABASE: kanflow_e2e
+          MYSQL_USER: kanflow_ci
+          MYSQL_PASSWORD: kanflow_ci
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd "mysqladmin ping --protocol=tcp -h 127.0.0.1 -uroot -proot_ci"
+          --health-interval 3s --health-timeout 5s --health-retries 40
+    env:
+      DATABASE_URL: mysql://kanflow_ci:kanflow_ci@127.0.0.1:3306/kanflow_e2e
+      DATABASE_HOST: 127.0.0.1
+      DATABASE_PORT: "3306"
+      DATABASE_USER: kanflow_ci
+      DATABASE_PASSWORD: kanflow_ci
+      DATABASE_NAME: kanflow_e2e
+      # The server: no background work, no external services (Ollama,
+      # Collabora, GitLab) - the smoke and flow specs need none of them.
+      PORT: "3001"
+      NEXTAUTH_URL: http://localhost:3001
+      AUTH_TRUST_HOST: "true"
+      AI_TRANSLATION_WORKER: "off"
+      AI_JOB_RUNNER: "off"
+      GIT_SYNC: "off"
+      WEB_DAILY_JOBS: "off"
+      COLLABORA_MONITOR: "off"
+      OLLAMA_BASE_URL: http://127.0.0.1:11434
+      # playwright.config.ts / e2e/support/env.ts
+      E2E_BASE_URL: http://localhost:3001
+      E2E_ALLOW_WRITE: "1"
+      E2E_USER: e2e-ci@example.test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npx prisma migrate deploy
+      # Per-run secrets: generated here, never stored. AUTH_SECRET signs the
+      # session JWT; E2E_PASSWORD is the seeded user's password.
+      - name: generate per-run secrets
+        run: |
+          auth_secret="$(openssl rand -hex 32)"
+          e2e_password="Ci-$(openssl rand -hex 12)"
+          echo "::add-mask::$auth_secret"
+          echo "::add-mask::$e2e_password"
+          {
+            echo "AUTH_SECRET=$auth_secret"
+            echo "E2E_PASSWORD=$e2e_password"
+          } >> "$GITHUB_ENV"
+      # The write flows log in as E2E_USER and create / delete their own
+      # throw-away projects. Synthetic user, this job's database only.
+      - name: seed the E2E user
+        env:
+          MYSQL_CONTAINER: ${{ job.services.mysql.id }}
+        run: |
+          hash="$(node -e 'process.stdout.write(require("bcryptjs").hashSync(process.env.E2E_PASSWORD, 10))')"
+          docker exec -i "$MYSQL_CONTAINER" mysql -ukanflow_ci -pkanflow_ci kanflow_e2e <<SQL
+          INSERT INTO \`User\` (id, name, email, password, updatedAt, isActive, role, language)
+          VALUES ('e2e-ci-user', 'E2E CI', '${E2E_USER}', '${hash}', CURRENT_TIMESTAMP(3), 1, 'member', 'ja');
+          SQL
+      - run: npm run build
+      - name: start the server (next start, port 3001)
+        run: |
+          mkdir -p logs
+          nohup npx next start -p 3001 > logs/next-start.log 2>&1 &
+          for _ in $(seq 1 90); do
+            if curl -fsS -o /dev/null http://localhost:3001/login; then
+              echo "server is up"
+              curl -sS http://localhost:3001/api/health || true
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::the server did not answer /login within 180 s"
+          cat logs/next-start.log
+          exit 1
+      - run: npx playwright install --with-deps chromium
+      # e2e/eval/* is the Windows evaluation suite (hard-coded D:/ paths,
+      # project ids and e2e-* users of the evaluation database): not run here.
+      - name: playwright test (smoke + flows)
+        env:
+          CI: "true"
+        run: npx playwright test e2e/smoke e2e/flows
+      - name: upload Playwright report and server log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            app/playwright-report/
+            app/test-results/
+            app/logs/
+          retention-days: 14
