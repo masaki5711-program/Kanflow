@@ -118,6 +118,8 @@ export interface ApiErrorsTranslations {
   apiErrClaimReleased: string
   apiErrTaskClaimed: string
   apiErrClaimLimitReached: string
+  apiErrAcNotFound: string
+  apiErrAcLimitReached: string
   apiErrScopeInvalid: string
   apiErrScopeTooLarge: string
   apiErrNetwork: string
@@ -233,6 +235,8 @@ export const API_ERROR_MESSAGE_KEYS: Readonly<Record<ApiErrorCode, ApiErrorMessa
   CLAIM_LIMIT_REACHED: "apiErrClaimLimitReached",
   SCOPE_INVALID: "apiErrScopeInvalid",
   SCOPE_TOO_LARGE: "apiErrScopeTooLarge",
+  AC_NOT_FOUND: "apiErrAcNotFound",
+  AC_LIMIT_REACHED: "apiErrAcLimitReached",
   NETWORK_ERROR: "apiErrNetwork",
 }
 
@@ -351,6 +355,8 @@ export const ja: ApiErrorsTranslations = {
   apiErrClaimReleased: "この作業の宣言はすでに解除されています。もう一度宣言してください",
   apiErrTaskClaimed: "このタスクは他の人（または別のセッション）が作業中です",
   apiErrClaimLimitReached: "このプロジェクトで同時に宣言できる作業の上限に達しています。終わった作業を解除してください",
+  apiErrAcNotFound: "この受入基準は見つかりません（削除された可能性があります）",
+  apiErrAcLimitReached: "この PBI の受入基準が上限に達しています。不要な項目を削除してください",
   apiErrScopeInvalid: "触る範囲に使えない書き方があります。リポジトリの中の相対パス（.. や / で始まる形は不可）かモジュール名で書いてください",
   apiErrScopeTooLarge: "触る範囲が多すぎます（1 つの宣言に 200 件まで）。ディレクトリやモジュールでまとめてください",
   apiErrNetwork: "サーバーに接続できません。ネットワークを確認してください",
@@ -465,6 +471,8 @@ export const en: ApiErrorsTranslations = {
   apiErrClaimReleased: "This work claim was already released. Claim the work again",
   apiErrTaskClaimed: "Someone else (or another session) is already working on this",
   apiErrClaimLimitReached: "You already hold the maximum number of active work claims in this project. Release finished work first",
+  apiErrAcNotFound: "This acceptance criterion was not found (it may have been deleted)",
+  apiErrAcLimitReached: "This PBI already has the maximum number of acceptance criteria. Delete items you no longer need",
   apiErrScopeInvalid: "An entry of the touched scope cannot be used. Give a relative path inside the repository (no .., not starting with /) or a module name",
   apiErrScopeTooLarge: "The touched scope is too large (at most 200 entries per claim). Group files by directory or module",
   apiErrNetwork: "Cannot reach the server. Please check your network",
@@ -579,6 +587,8 @@ export const id: ApiErrorsTranslations = {
   apiErrClaimReleased: "Klaim pekerjaan ini sudah dilepas. Klaim pekerjaan lagi",
   apiErrTaskClaimed: "Orang lain (atau sesi lain) sedang mengerjakan ini",
   apiErrClaimLimitReached: "Anda sudah memegang jumlah maksimum klaim pekerjaan aktif di proyek ini. Lepaskan pekerjaan yang selesai terlebih dahulu",
+  apiErrAcNotFound: "Kriteria penerimaan ini tidak ditemukan (mungkin sudah dihapus)",
+  apiErrAcLimitReached: "PBI ini sudah mencapai jumlah maksimum kriteria penerimaan. Hapus butir yang tidak diperlukan",
   apiErrScopeInvalid: "Ada entri cakupan yang tidak dapat dipakai. Tulis path relatif di dalam repositori (tanpa .., tidak diawali /) atau nama modul",
   apiErrScopeTooLarge: "Cakupan terlalu besar (maksimal 200 entri per klaim). Kelompokkan file per direktori atau modul",
   apiErrNetwork: "Tidak dapat terhubung ke server. Periksa jaringan Anda",

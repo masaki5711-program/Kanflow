@@ -8,6 +8,7 @@ import { afterCursorWhereAsc, OLDEST_FIRST } from "@/services/_shared/cursor"
 import type { Db } from "@/services/_shared/db"
 import { LIST_LIMITS } from "@/services/_shared/limits"
 import { LIVE_PBI, notDeleted } from "@/services/_shared/soft-delete"
+import { AC_SELECT } from "@/services/acceptance-criteria/acceptance-criteria.view"
 import { ASSIGNEES_INCLUDE } from "@/services/sprint-backlog/task-assignees"
 import type { PbiStatus } from "@/services/backlog/backlog.schemas"
 
@@ -195,6 +196,8 @@ export function findPbi(db: Db, projectId: string, ref: { id: string } | { displ
       version: true,
       createdAt: true,
       updatedAt: true,
+      // 受入基準 items (W5), live ones in `seq` order.
+      criteria: { where: { deletedAt: null }, select: AC_SELECT, orderBy: { seq: "asc" }, take: 500 },
       sprintItems: {
         // Placeholders (taskName null) only mark the PBI as part of a sprint.
         where: { taskName: { not: null } },

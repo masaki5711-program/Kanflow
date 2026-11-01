@@ -13,6 +13,8 @@ import { listProjectActivity } from "@/services/activity/activity.service"
 import type { ActivityDto } from "@/services/activity/activity.service"
 import type { ProjectActivityQuery } from "@/services/activity/activity.schemas"
 import { loadProjectListScope, projectListWhere } from "@/services/projects/project-list"
+import { toAcceptanceCriterionDto } from "@/services/acceptance-criteria/acceptance-criteria.view"
+import { parsePbiRef } from "@/services/_shared/pbi-ref"
 import * as repo from "./api-v1.repository"
 import type { V1BacklogQuery, V1ProjectsQuery } from "./api-v1.schemas"
 import type { ApiPrincipal } from "@/services/api-tokens/api-token-auth"
@@ -69,19 +71,18 @@ export async function listBacklog(projectId: string, query: V1BacklogQuery) {
   return { data: page.items, nextCursor: page.nextCursor }
 }
 
-/** `ref`: the PBI id, its display number ("12") or "PBI-12". */
-export function parsePbiRef(ref: string): { id: string } | { displayId: number } {
-  const m = /^(?:pbi-?)?(\d{1,9})$/i.exec(ref.trim())
-  return m ? { displayId: Number(m[1]) } : { id: ref }
-}
+export { parsePbiRef }
 
 export async function getPbi(projectId: string, ref: string) {
   const row = await repo.findPbi(defaultDb, projectId, parsePbiRef(ref))
   if (!row) throw new NotFoundError("PBI not found", {}, "PBI_NOT_FOUND")
-  const { sprintItems, ...pbi } = row
+  const { sprintItems, criteria, ...pbi } = row
   return {
     data: {
       ...isoDates(pbi),
+      // W5: `acceptanceCriteria` stays the old free text (deprecated, type unchanged for token clients);
+      // the items with stable ids (PBI-12/AC-2) are `acceptanceCriteriaItems`.
+      acceptanceCriteriaItems: criteria.map((c) => toAcceptanceCriterionDto(row.displayId, c)),
       tasks: sprintItems.map(({ assignees, ...t }) => ({ ...t, assignees: assignees.map((a) => a.user) })),
     },
   }

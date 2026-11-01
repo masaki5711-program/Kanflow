@@ -67,6 +67,7 @@ Rules:
 | `api-tokens.ts` | Personal access tokens on `/me` (`me/api-tokens-section.tsx`), admin token list (`admin/api-tokens/`) | `apiToken*` |
 | `admin-metrics.ts` | Admin metrics dashboard (`admin/metrics/`) | `metrics*` |
 | `pbi-attachments.ts` | Files / images of a PBI's 参考資料 (`components/pbi-form/attachments/`): edit form, create modals, read view | `pbiAttach*` |
+| `acceptance-criteria.ts` | 受入基準 checklist of the PBI detail (W5, `components/acceptance-criteria/`): items PBI-12/AC-2, Given/When/Then, evidence kind | `pbiAc*` |
 | `work-claims.ts` | 担当中 (work claims, W3): marks on sprint board cards, the PBI detail 「担当中」 panel (`components/work-claims/`) | `workClaim*` |
 
 Keep each file under ~400 lines; if a domain grows past that, split it (e.g. `backlog-detail.ts`)

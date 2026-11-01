@@ -560,6 +560,9 @@ model ProductBacklogItem {
   gitLinks           GitLink[]
   /// Who is working on this PBI (or one of its tasks) right now (作業の宣言, dev:write).
   workClaims         WorkClaim[]
+  /// 受入基準 as items with stable ids PBI-<displayId>/AC-<seq> (W5). Replaces the free-text
+  /// `acceptanceCriteria` above, which stays readable (deprecated) until every consumer moved.
+  criteria           AcceptanceCriterion[]
 
   @@unique([projectId, displayId])
   @@index([projectId])
@@ -568,6 +571,33 @@ model ProductBacklogItem {
   @@index([productGoalId])
   @@index([planItemId])
   @@fulltext([initiative, epic, userStory, acceptanceCriteria], map: "ft_pbi_text")
+}
+
+/// One acceptance criterion of a PBI (W5). Display id `PBI-<n>/AC-<seq>`: `seq` counts up per
+/// PBI and is never reused (a soft-deleted row keeps its seq; the PBI row lock serializes
+/// allocation, the unique index is the backstop). Given / When / Then are optional; `text`
+/// is the free-text form (a criterion needs at least one of the four). `evidenceKind`
+/// (W12): test | inspection | measurement | approval — how it is proven; null = not decided.
+model AcceptanceCriterion {
+  id           String             @id @default(cuid())
+  pbiId        String
+  seq          Int
+  given        String?            @db.Text
+  when         String?            @db.Text
+  then         String?            @db.Text
+  text         String?            @db.Text
+  evidenceKind String?            @db.VarChar(16)
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  createdById  String?
+  updatedById  String?
+  deletedAt    DateTime?
+  deletedById  String?
+  pbi          ProductBacklogItem @relation(fields: [pbiId], references: [id], onDelete: Cascade)
+
+  @@unique([pbiId, seq])
+  @@index([pbiId, deletedAt])
+  @@map("acceptance_criterion")
 }
 
 /// File or image attached to a PBI's 参考資料 (reference material); stored

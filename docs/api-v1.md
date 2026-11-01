@@ -127,7 +127,7 @@ not part of v1.
 Also: `GET /api/v1/projects/:projectId/backlog/:itemId` (one PBI with
 `referenceDoc`, `poNote`, `notReadyReason`, `iceboxItemId`, `version` and its
 `tasks[] {id, sprintId, taskName, status, estimatedHours, actualHours, version, assignees}`;
-`:itemId` = id, `12` or `PBI-12`) and
+`:itemId` = id, `12` or `PBI-12`; plus `acceptanceCriteriaItems` — see "Acceptance criteria" below) and
 `GET /api/v1/projects/:projectId/comments?entityType=pbi|sprint_task|icebox&entityId=&cursor=&limit=`
 (a thread, oldest first, paginated). Backlog and task rows carry `version`.
 
@@ -145,6 +145,10 @@ path (`runV1Write`); its changes carry `meta.via = "mcp"`.
 |---|---|---|---|
 | `POST /backlog` → 201 | `backlog:write` | PO, SM | `userStory` or `initiative` (required), `epic`, `acceptanceCriteria`, `referenceDoc`, `workloadScore`, `status`, `productGoalId`, `iceboxItemId`, `assignedPo`, `poNote`, `notReadyReason` |
 | `PATCH /backlog/:itemId` | `backlog:write` | PO, SM | any of the above, `planItemId`, `version` (`sortOrder` is ignored) |
+| `GET /backlog/:itemId/acceptance-criteria` | `read` | any member | — (the PBI's items, `seq` order) |
+| `POST /backlog/:itemId/acceptance-criteria` → 201 | `backlog:write` | PO, SM | `given`, `when`, `then`, `text` (each ≤ 2000 chars, all optional but at least one non-empty), `evidenceKind` (`test` \| `inspection` \| `measurement` \| `approval` \| null). `Idempotency-Key` honoured |
+| `PATCH /backlog/:itemId/acceptance-criteria/:acRef` | `backlog:write` | PO, SM | any of the above (only the sent fields change; `null` clears one). `:acRef` = `AC-2`, `2` or `PBI-12%2FAC-2` |
+| `DELETE /backlog/:itemId/acceptance-criteria/:acRef` | `backlog:write` | PO, SM | — soft delete; the number is never reused |
 | `POST /sprints` → 201 | `sprint:write` | PO, SM | `sprintName`, `startDate`, `endDate`, `sprintGoal`, `capacity`, `selectedPbIds[]`, `carryOver {fromSprintId, pbItemIds[]}` |
 | `PATCH /sprints/:sprintId` | `sprint:write` | PO, SM | `sprintName`, `startDate`, `endDate`, `sprintGoal`, `capacity`, `status`, review / retrospective fields, `version` |
 | `POST /sprints/:sprintId/pbis` → 201 (200 if nothing new) | `sprint:write` | PO, SM | `pbIds[]` (1–50) |
@@ -153,6 +157,31 @@ path (`runV1Write`); its changes carry `meta.via = "mcp"`.
 | `POST /sprints/:sprintId/daily-scrums` → 201 | `daily:write` | members | `date`, `content` |
 | `POST /comments` → 201 | `comment:write` | members | `entityType` (`pbi`/`sprint_task`/`icebox`), `entityId`, `body` |
 | `POST /icebox` → 201 | `icebox:write` | members, section managers | `request`, `background`, `author`, `assignedPo` |
+
+### Acceptance criteria (W5)
+
+受入基準 are items with stable ids. The id is `PBI-<displayId>/AC-<seq>`; `seq` counts
+up per PBI, **never changes on edit and is never reused after a delete** (a deleted
+item keeps its row). `GET /backlog/:itemId` (and the MCP `get_pbi`) returns the new list as `acceptanceCriteriaItems`
+
+```json
+"acceptanceCriteriaItems": [
+  { "id": "PBI-12/AC-2", "seq": 2, "given": "a registered user", "when": "they sign in",
+    "then": "the home page opens", "text": null, "evidenceKind": "measurement" }
+]
+```
+
+`given` / `when` / `then` / `text` are `null` when not set (a free-text item uses `text`);
+`evidenceKind` says how the item is proven (W12): `test`, `inspection` (inspection record),
+`measurement` (measurement vs. the theoretical value), `approval` (document approval), or
+`null` = not decided. At most 100 live items per PBI (`AC_LIMIT_REACHED`); a missing or
+deleted item is 404 `AC_NOT_FOUND`.
+
+`acceptanceCriteria` is unchanged: it stays the old free text in every endpoint
+(**deprecated**; to be removed once every consumer moved, never modified by the migration).
+Existing text is split into items by
+`app/scripts/migrate-acceptance-criteria.ts` (dry run by default, `--apply` to write;
+idempotent — a PBI that has any item, deleted ones included, is skipped).
 
 `POST /sprints/:sprintId/tasks` also answers `similar` (only when non-empty):
 tasks of the same PBI in the sprint that already have the same name (Unicode

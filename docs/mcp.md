@@ -91,7 +91,7 @@ Lists that are cut at a limit say so with `truncated: true` and `limit`.
 | `list_projects` | read | projects the token can open (`status` active / archived) |
 | `resolve_project` | read | `git remote get-url origin` → the Kanflow project(s) whose GitLab integration registers that repository (https / ssh / `git@host:` forms; credentials in the URL are ignored; host must be in `GIT_ALLOWED_HOSTS`); at most 50 matches, `truncated: true` + `limit` when cut |
 | `get_backlog` | read | PBIs of a project (`status`, `cursor`, `limit`) |
-| `get_pbi` | read | one PBI with acceptance criteria, sprint tasks and the first page of comments |
+| `get_pbi` | read | one PBI with `acceptanceCriteriaItems` (`[{ id: "PBI-12/AC-2", seq, given, when, then, text, evidenceKind }]`; `acceptanceCriteria` stays the old free text, deprecated), sprint tasks and the first page of comments |
 | `list_sprints` | read | sprints, newest first |
 | `get_sprint_tasks` | read | tasks of a sprint (with `version`) |
 | `my_tasks` | read | the owner's tasks in open sprints (planning / active / review), one project or every active project the token can open; `includeDone`; at most 200 (oldest first), `truncated: true` + `limit` when cut |
@@ -99,6 +99,8 @@ Lists that are cut at a limit say so with `truncated: true` and `limit`.
 | `list_comments` | read | one thread (`entityType` pbi / sprint_task / icebox, `entityId`) |
 | `create_pbi` | `backlog:write`, PO / SM | as `POST /backlog` |
 | `update_pbi` | `backlog:write`, PO / SM | as `PATCH /backlog/:itemId` (no ordering) |
+| `add_acceptance_criterion` | `backlog:write`, PO / SM | `pbi`, `projectId`, `given` / `when` / `then` / `text` (at least one), `evidenceKind` (`test` / `inspection` / `measurement` / `approval`); gets the next number on the PBI (`PBI-12/AC-3`). Retry-safe like the other creates. Read the PBI's items with `get_pbi` first |
+| `update_acceptance_criterion` | `backlog:write`, PO / SM | `pbi`, `projectId`, `criterion` (`PBI-12/AC-2` or `AC-2` or `2`) + the fields to change (`null` clears one); the number never changes. There is no delete tool (use the PBI screen / REST) |
 | `create_sprint` | `sprint:write`, PO / SM | as `POST /sprints` |
 | `update_sprint` | `sprint:write`, PO / SM | as `PATCH /sprints/:sprintId` |
 | `add_pbis_to_sprint` | `sprint:write`, PO / SM | `pbis[]` (refs); already-added PBIs are skipped |
