@@ -41,14 +41,16 @@ import {
   overlappingClaims,
   staleBefore,
   toClaimDto,
+  toBoardClaimDto,
   toHolderDto,
+  type BoardClaimDto,
   type ClaimDto,
   type ClaimRow,
   type ClaimSettings,
 } from "./dev-work.rules"
 import type { ClaimWorkInput, HeartbeatClaimInput, ListClaimsQuery, MrLinkInput, ProgressCommentInput } from "./dev-work.schemas"
 
-export type { ClaimDto, ClaimHolderDto } from "./dev-work.rules"
+export type { BoardClaimDto, ClaimDto, ClaimHolderDto } from "./dev-work.rules"
 
 const log = logger.child({ module: "dev-work" })
 
@@ -315,6 +317,35 @@ export async function listClaims(projectId: string, query: ListClaimsQuery, view
     data: rows.slice(0, repo.CLAIM_LIST_LIMIT).map((r) => toClaimDto(r, now, hours, viewerId)),
     staleAfterHours: hours,
     ...(truncated ? { truncated: true, limit: repo.CLAIM_LIST_LIMIT } : {}),
+  }
+}
+
+/** Which claims a screen shows: one sprint's board, or one PBI (id / "12" / "PBI-12"). */
+export type BoardClaimScope = { sprintId: string } | { pbi: string }
+
+export interface BoardClaimList {
+  data: BoardClaimDto[]
+  staleAfterHours: number
+  truncated?: true
+  limit?: number
+}
+
+/**
+ * Open claims (active and stale, heartbeat within 7 days) for the Kanflow screens
+ * (W3): a sprint board reads every claim of the sprint in one query (no per-card
+ * reads), the PBI 「担当中」 panel the claims of one PBI. No session ids (BoardClaimDto).
+ */
+export async function listBoardClaims(projectId: string, scope: BoardClaimScope, now: Date = new Date()): Promise<BoardClaimList> {
+  const { staleHours: hours } = settings()
+  const since = staleBefore(now, CLAIM_LIST_LOOKBACK_HOURS)
+  const rows = "sprintId" in scope
+    ? await repo.findOpenClaimsOfSprint(defaultDb, projectId, scope.sprintId, since)
+    : await repo.findOpenClaims(defaultDb, projectId, since, { backlogItemId: (await loadPbi(defaultDb, projectId, scope.pbi)).id })
+  const truncated = rows.length > repo.CLAIM_LIST_LIMIT
+  return {
+    data: rows.slice(0, repo.CLAIM_LIST_LIMIT).map((r) => toBoardClaimDto(r, now, hours)),
+    staleAfterHours: hours,
+    ...(truncated ? { truncated: true as const, limit: repo.CLAIM_LIST_LIMIT } : {}),
   }
 }
 

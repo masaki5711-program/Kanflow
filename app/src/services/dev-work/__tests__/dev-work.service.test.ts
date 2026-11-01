@@ -309,6 +309,38 @@ describe("listClaims", () => {
   })
 })
 
+describe("listBoardClaims (W3 screens)", () => {
+  it("a sprint board reads every claim of the sprint in ONE query, no session ids, stale flagged", async () => {
+    vi.mocked(repo.findOpenClaimsOfSprint).mockResolvedValue([
+      claim({ id: "a", taskId: "k1", task: { id: "k1", taskName: "API", sprintId: "s1" } }),
+      claim({ id: "b", userId: "u2", user: { id: "u2", name: "Dev Two" }, heartbeatAt: new Date(NOW.getTime() - 5 * HOUR) }),
+    ])
+    const out = await svc.listBoardClaims("p1", { sprintId: "s1" }, NOW)
+    expect(repo.findOpenClaimsOfSprint).toHaveBeenCalledTimes(1)
+    expect(repo.findOpenClaimsOfSprint).toHaveBeenCalledWith(DEFAULT_DB, "p1", "s1", new Date(NOW.getTime() - 7 * 24 * HOUR))
+    expect(repo.findOpenClaims).not.toHaveBeenCalled()
+    expect(out.staleAfterHours).toBe(4)
+    expect(out.data.map((c) => [c.id, c.task?.id ?? null, c.stale, c.ai])).toEqual([["a", "k1", false, true], ["b", null, true, true]])
+    expect(JSON.stringify(out)).not.toContain("s-1")
+    expect(out).not.toHaveProperty("truncated")
+  })
+
+  it("a PBI panel resolves the PBI (number or id) and filters by it; truncated past the limit", async () => {
+    vi.mocked(repo.findOpenClaims).mockResolvedValue(Array.from({ length: repo.CLAIM_LIST_LIMIT + 1 }, (_, i) => claim({ id: `c${i}` })))
+    const out = await svc.listBoardClaims("p1", { pbi: "PBI-12" }, NOW)
+    expect(repo.findPbi).toHaveBeenCalledWith(DEFAULT_DB, "p1", { displayId: 12 })
+    expect(repo.findOpenClaims).toHaveBeenCalledWith(DEFAULT_DB, "p1", expect.any(Date), { backlogItemId: "b1" })
+    expect(out.data).toHaveLength(repo.CLAIM_LIST_LIMIT)
+    expect(out).toMatchObject({ truncated: true, limit: repo.CLAIM_LIST_LIMIT })
+  })
+
+  it("an unknown PBI → 404 PBI_NOT_FOUND", async () => {
+    vi.mocked(repo.findPbi).mockResolvedValue(null)
+    await expect(svc.listBoardClaims("p1", { pbi: "nope" }, NOW)).rejects.toBeInstanceOf(NotFoundError)
+    expect(repo.findOpenClaims).not.toHaveBeenCalled()
+  })
+})
+
 describe("postProgress", () => {
   it("posts through the comment service as the token user (via kept on the actor); a PBI may be given by number", async () => {
     vi.mocked(comments.createComment).mockResolvedValue({ id: "cm1" } as never)

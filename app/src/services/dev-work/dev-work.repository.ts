@@ -129,6 +129,26 @@ export function findOpenClaims(db: Db, projectId: string, since: Date, filter: {
   })
 }
 
+/**
+ * Unreleased claims shown on one sprint's board (PBI live, heartbeat since `since`), in ONE query:
+ * claims on the sprint's tasks and whole-PBI claims on PBIs that have a task in the sprint.
+ * Newest heartbeat first, CLAIM_LIST_LIMIT + 1 rows.
+ */
+export function findOpenClaimsOfSprint(db: Db, projectId: string, sprintId: string, since: Date) {
+  return db.workClaim.findMany({
+    where: {
+      projectId,
+      releasedAt: null,
+      heartbeatAt: { gte: since },
+      backlogItem: NOT_DELETED,
+      OR: [{ task: { sprintId } }, { taskId: null, backlogItem: { sprintItems: { some: { sprintId } } } }],
+    },
+    select: CLAIM_SELECT,
+    orderBy: [{ heartbeatAt: "desc" }, { id: "desc" }],
+    take: CLAIM_LIST_LIMIT + 1,
+  })
+}
+
 /** The project's repository at host + path, only while the project's Git integration is on. */
 export function findRegisteredRepository(db: Db, projectId: string, apiBase: string, repoPath: string) {
   return db.gitRepository.findFirst({

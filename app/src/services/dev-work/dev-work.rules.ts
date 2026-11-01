@@ -188,3 +188,44 @@ export function toHolderDto(row: ClaimRow, staleHours: number, viewerId: string)
     staleAt: new Date(row.heartbeatAt.getTime() + staleHours * HOUR_MS).toISOString(),
   }
 }
+
+/**
+ * A claim as the Kanflow screens show it (sprint board marks, the PBI 「担当中」 panel).
+ * Carries no session id at all — not even the viewer's own: the screens never need it.
+ */
+export interface BoardClaimDto {
+  id: string
+  pbi: { id: string; displayId: number }
+  /** null = the claim covers the whole PBI. */
+  task: { id: string; name: string | null } | null
+  user: { id: string; name: string }
+  /** Made from an AI session (a dev:write token naming a session) — the AI marker. */
+  ai: boolean
+  branch: string | null
+  startedAt: string
+  heartbeatAt: string
+  /** When the claim stops counting without another heartbeat. */
+  staleAt: string
+  /** Without a heartbeat for the stale window (still listed, no longer blocks anyone). */
+  stale: boolean
+}
+
+/** Every work claim comes from a dev:write token with a session id; a claim without one would be a person's own. */
+export function isAiClaim(row: Pick<ClaimRow, "sessionId">): boolean {
+  return row.sessionId.trim().length > 0
+}
+
+export function toBoardClaimDto(row: ClaimRow, now: Date, staleHours: number): BoardClaimDto {
+  return {
+    id: row.id,
+    pbi: { id: row.backlogItem.id, displayId: row.backlogItem.displayId },
+    task: row.task ? { id: row.task.id, name: row.task.taskName } : null,
+    user: row.user,
+    ai: isAiClaim(row),
+    branch: row.branch,
+    startedAt: row.createdAt.toISOString(),
+    heartbeatAt: row.heartbeatAt.toISOString(),
+    staleAt: new Date(row.heartbeatAt.getTime() + staleHours * HOUR_MS).toISOString(),
+    stale: row.releasedAt === null && !isClaimActive(row, now, staleHours),
+  }
+}

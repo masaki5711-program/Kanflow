@@ -9,7 +9,9 @@ import {
   DEFAULT_CLAIM_STALE_HOURS,
   isClaimActive,
   staleBefore,
+  toBoardClaimDto,
   toClaimDto,
+  isAiClaim,
   type ClaimRow,
 } from "../dev-work.rules"
 
@@ -159,5 +161,34 @@ describe("toClaimDto", () => {
     expect(dto.task).toEqual({ id: "k1", name: "API", sprintId: "s1" })
     expect(dto.releasedAt).toBe(NOW.toISOString())
     expect(dto.active).toBe(false)
+  })
+})
+
+describe("toBoardClaimDto (screens: board marks, PBI 担当中 panel)", () => {
+  it("never carries a session id — not even the viewer's own — and marks session claims as AI", () => {
+    const dto = toBoardClaimDto(claim({ task: { id: "k1", taskName: "API", sprintId: "s1" }, taskId: "k1" }), NOW, 4)
+    expect(dto).toEqual({
+      id: "c1",
+      pbi: { id: "b1", displayId: 12 },
+      task: { id: "k1", name: "API" },
+      user: { id: "u1", name: "Dev One" },
+      ai: true,
+      branch: "feat/L3-PBI-12-x",
+      startedAt: new Date(NOW.getTime() - 2 * HOUR).toISOString(),
+      heartbeatAt: new Date(NOW.getTime() - HOUR).toISOString(),
+      staleAt: new Date(NOW.getTime() + 3 * HOUR).toISOString(),
+      stale: false,
+    })
+    expect(JSON.stringify(dto)).not.toContain("s-1")
+  })
+
+  it("a claim past the stale window is stale; a whole-PBI claim has task null", () => {
+    const dto = toBoardClaimDto(claim({ heartbeatAt: new Date(NOW.getTime() - 5 * HOUR) }), NOW, 4)
+    expect(dto).toMatchObject({ stale: true, task: null })
+  })
+
+  it("isAiClaim: a session id means an AI session", () => {
+    expect(isAiClaim({ sessionId: "claude-1" })).toBe(true)
+    expect(isAiClaim({ sessionId: " " })).toBe(false)
   })
 })

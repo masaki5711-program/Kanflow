@@ -31,6 +31,7 @@
 - データは既存の `work_claim`。新しい API は不要（`GET /api/v1/projects/:projectId/dev/claims` を画面からも使う）。画面用の取得は 1 スプリント 1 回の問い合わせにまとめる（N+1 にしない）。
 - i18n（ja / en / id）、`i18n-completeness` のテストに足す。
 - 完了の条件: 2 人 + 2 つの AI が同じスプリントで作業し、ボードで全員の作業が見える。
+- 実装メモ（2026-11-01）: `/api/v1` はトークン専用（セッションの cookie を見ない）ので、画面用にセッションの双子 `GET /api/projects/:projectId/dev/claims?sprintId= | ?pbi=`（project.view、セッション ID は返さない、`canModerate` = sprint.manage）と `POST …/dev/claims/:claimId/release`（sprint.manage）を足した。サービスは同じ `dev-work`（`listBoardClaims`、スプリントは 1 回の問い合わせ `findOpenClaimsOfSprint`）。画面は `components/work-claims/`、文言は `lib/i18n/work-claims.ts`。
 
 ## 3. W4 触る範囲の宣言
 

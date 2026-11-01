@@ -22,6 +22,7 @@ import { useLivePbi } from "@/components/pbi-form/use-live-pbi"
 import type { PbiAttachmentDto } from "@/types/api"
 import { PbiDependencySection } from "@/components/pbi-dependencies/pbi-dependency-section"
 import { PbiDevPanel } from "@/components/git-dev/pbi-dev-panel"
+import { PbiClaimsPanel } from "@/components/work-claims/pbi-claims-panel"
 
 interface Props {
   projectId: string
@@ -270,6 +271,8 @@ export default function PbiDetailModal(props: Props) {
                   }}
                   onOpenRef={onOpenPbi && !isDirty ? (ref) => onOpenPbi(ref.displayId) : undefined}
                 />
+                {/* 担当中: who (and which AI) works on this PBI; PO / SM / admin may release. */}
+                {!isEditing && <PbiClaimsPanel projectId={projectId} pbiId={item.id} />}
                 {/* GitLab development info (renders nothing when the project has Git off). */}
                 {!isEditing && <PbiDevPanel projectId={projectId} pbiId={item.id} />}
               </div>
