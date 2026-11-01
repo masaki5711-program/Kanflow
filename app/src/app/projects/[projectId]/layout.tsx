@@ -9,7 +9,6 @@ import { Sidebar } from "@/components/sidebar"
 import { SidebarDrawerProvider } from "@/components/app-shell/sidebar-drawer"
 import { ProjectTitleProvider } from "@/components/app-shell/project-title-context"
 import { ProjectLanguageSync } from "./project-language-sync"
-import { projectFeatures } from "@/lib/project-features"
 
 export default async function ProjectLayout({
   children,
@@ -45,7 +44,8 @@ export default async function ProjectLayout({
   const showSettings = accessVia(actor) !== "section_manager"
   const showChat = can(actor, "ai.use")
   // Git UI exists only while the project has the integration switched on (default off, so teams without Git never see it).
-  const showGit = (project.gitIntegration?.enabled ?? false) && projectFeatures(project.projectType).gitPanel
+  // The Git entry follows the project's own integration switch for every type (an equipment project simply has it off).
+  const showGit = project.gitIntegration?.enabled ?? false
 
   const projectType = (project.projectType as ProjectType) ?? "software"
   const projectI18n = i18nMap.get(projectId) ?? {}

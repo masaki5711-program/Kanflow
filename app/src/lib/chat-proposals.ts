@@ -183,7 +183,7 @@ export const planLoadProposalSchema = z.object({
   plannedStart: day,
   plannedEnd: day,
   schedule: baseScheduleSchema,
-  preview: z.array(z.object({ name: shortText, plannedStart: day, plannedEnd: day, isMilestone: z.boolean(), children: z.number().int().min(0) })).max(60),
+  preview: z.array(z.object({ name: shortText, plannedStart: day, plannedEnd: day, isMilestone: z.boolean(), children: z.number().int().min(0), childNames: z.array(shortText).max(5).optional() })).max(60),
   reason: z.string().max(1000),
 })
 

@@ -274,3 +274,20 @@ export function findDependency(db: Db, projectId: string, id: string) {
 export function deleteDependency(db: Db, id: string) {
   return db.planItemDependency.delete({ where: { id } })
 }
+
+// === base-schedule loads (W12) ===
+
+/** Marker rows of /plan/load, one per approved proposal: a second load of the same proposal is refused. */
+export const PLAN_LOAD_MARKER = "plan_load"
+
+export function findPlanLoadMarker(db: Db, projectId: string, proposalId: string) {
+  return db.activityLog.findFirst({ where: { projectId, entityType: PLAN_LOAD_MARKER, entityId: proposalId }, select: { id: true } })
+}
+
+/** Written inside the load's transaction (not through logActivity, which swallows failures): no marker, no load. */
+export function insertPlanLoadMarker(db: Db, data: { projectId: string; proposalId: string; actorId: string | null; actorName: string | null }) {
+  return db.activityLog.create({
+    data: { projectId: data.projectId, entityType: PLAN_LOAD_MARKER, entityId: data.proposalId, action: "create", actorId: data.actorId, actorName: data.actorName },
+    select: { id: true },
+  })
+}

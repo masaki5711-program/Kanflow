@@ -49,6 +49,7 @@ export interface ChatProposalsTranslations {
   chatProposalPlanLoadTitle: string
   chatProposalPlanLoaded: string
   chatProposalPlanLoadSummary: string
+  chatProposalPlanLoadMore: string
   chatProposalPartial: string
   chatProposalRequest: string
   chatProposalBackground: string
@@ -120,6 +121,7 @@ export const ja: ChatProposalsTranslations = {
   chatProposalPlanLoadTitle: "全体計画の読み込み提案（ベースのスケジュール）",
   chatProposalPlanLoaded: "全体計画を {count} 件読み込みました",
   chatProposalPlanLoadSummary: "{count} 件 · 依存 {deps} 件 · {start} 〜 {end}",
+  chatProposalPlanLoadMore: "他 {count} 件",
   chatProposalPartial: "{done} / {total} 件を反映したところで失敗しました。続きは画面から確認してください",
   chatProposalRequest: "要望",
   chatProposalBackground: "背景",
@@ -191,6 +193,7 @@ export const en: ChatProposalsTranslations = {
   chatProposalPlanLoadTitle: "Proposal: load a base schedule into the master plan",
   chatProposalPlanLoaded: "Loaded {count} plan items",
   chatProposalPlanLoadSummary: "{count} items · {deps} dependencies · {start} – {end}",
+  chatProposalPlanLoadMore: "+{count} more",
   chatProposalPartial: "Failed after {done} of {total} changes were applied. Check the rest on screen",
   chatProposalRequest: "Request",
   chatProposalBackground: "Background",
@@ -262,6 +265,7 @@ export const id: ChatProposalsTranslations = {
   chatProposalPlanLoadTitle: "Usulan: muat jadwal dasar ke rencana keseluruhan",
   chatProposalPlanLoaded: "{count} item rencana dimuat",
   chatProposalPlanLoadSummary: "{count} item · {deps} ketergantungan · {start} – {end}",
+  chatProposalPlanLoadMore: "+{count} lainnya",
   chatProposalPartial: "Gagal setelah {done} dari {total} perubahan diterapkan. Periksa sisanya di layar",
   chatProposalRequest: "Permintaan",
   chatProposalBackground: "Latar belakang",

@@ -29,7 +29,7 @@ describe("plan_load (W12)", () => {
   it("needs plan.write, calls POST /plan/load with the schedule (dates are recomputed server side) and lands on the plan", () => {
     expect(requiredAction(PLAN_LOAD)).toBe("plan.write")
     expect(proposalRequests("p1", PLAN_LOAD)).toEqual([
-      { url: "/api/projects/p1/plan/load", method: "POST", json: { startDate: "2026-11-02", schedule: PLAN_LOAD.kind === "plan_load" ? PLAN_LOAD.schedule : null } },
+      { url: "/api/projects/p1/plan/load", method: "POST", json: { startDate: "2026-11-02", schedule: PLAN_LOAD.kind === "plan_load" ? PLAN_LOAD.schedule : null, proposalId: "prop_plan_x" } },
     ])
     expect(proposalResultHref("p1", PLAN_LOAD, [])).toBe("/projects/p1/plan")
   })

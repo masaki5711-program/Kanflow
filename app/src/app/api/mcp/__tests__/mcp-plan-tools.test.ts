@@ -143,6 +143,15 @@ describe("propose_plan_items", () => {
     expect(events[0].proposal).toMatchObject({ kind: "plan_load", startDate: "2026-11-02", itemCount: 4, schedule: { items: SCHEDULE.items } })
     expect(events[0].proposal.preview.map((p: { name: string }) => p.name)).toEqual(["仕様", "検収"])
     expect(m.insertPlanItem).not.toHaveBeenCalled()
+    expect(events[0].proposal.preview[0]).toMatchObject({ name: "仕様", children: 2, childNames: ["要求", "見積"] })
+  })
+
+  it("the card preview lists at most 5 child names per root and counts the rest", async () => {
+    const kids = Array.from({ length: 8 }, (_, i) => ({ key: `c${i}`, name: `c${i}`, durationDays: 1 }))
+    await callTool("propose_plan_items", { projectId: "p1", startDate: "2026-11-02", items: [{ key: "r", name: "R", children: kids }] })
+    const preview = JSON.parse(m.insertMessage.mock.calls[0][1].toolEvents)[0].proposal.preview[0]
+    expect(preview.childNames).toHaveLength(5)
+    expect(preview.children).toBe(8)
   })
 
   it("needs backlog:write; a read-only token is INSUFFICIENT_SCOPE", async () => {

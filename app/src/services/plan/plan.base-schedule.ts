@@ -9,7 +9,7 @@ import { planBaseSchedule, PlanScheduleError, type BaseSchedule } from "@/lib/pl
 import type { Actor } from "@/services/_shared/actor"
 import { logActivity } from "@/services/_shared/activity"
 import { withTransaction } from "@/services/_shared/db"
-import { ValidationError } from "@/services/_shared/errors"
+import { ConflictError, ValidationError } from "@/services/_shared/errors"
 import { enqueueIn } from "@/services/_shared/translations"
 import * as planRepo from "./plan.repository"
 
@@ -21,7 +21,7 @@ export interface LoadBaseScheduleResult {
   plannedEnd: string
 }
 
-export async function loadBaseSchedule(projectId: string, input: { startDate: string; schedule: BaseSchedule }, actor: Actor): Promise<LoadBaseScheduleResult> {
+export async function loadBaseSchedule(projectId: string, input: { startDate: string; schedule: BaseSchedule; proposalId?: string }, actor: Actor): Promise<LoadBaseScheduleResult> {
   let planned
   try {
     planned = planBaseSchedule(input.schedule, input.startDate)
@@ -31,6 +31,11 @@ export async function loadBaseSchedule(projectId: string, input: { startDate: st
   }
   const leafKeys = new Set(planned.rows.filter((r) => !planned.rows.some((c) => c.parentKey === r.key)).map((r) => r.key))
   return withTransaction(async (tx) => {
+    // The same approved proposal loads once (a double approval, a replayed request): 409, nothing written.
+    if (input.proposalId) {
+      if (await planRepo.findPlanLoadMarker(tx, projectId, input.proposalId)) throw new ConflictError("This plan proposal was already loaded", {}, "PLAN_ALREADY_LOADED")
+      await planRepo.insertPlanLoadMarker(tx, { projectId, proposalId: input.proposalId, actorId: actor.userId || null, actorName: actor.userName ?? null })
+    }
     const baseSort = await planRepo.nextPlanSortOrder(tx, projectId, null)
     const ids = new Map<string, string>()
     for (const r of planned.rows) {

@@ -14,7 +14,7 @@ vi.mock("@/lib/prisma", () => ({
 vi.mock("@/services/plan/plan.base-schedule", () => ({ loadBaseSchedule: m.loadBaseSchedule }))
 
 const route = await import("../plan/load/route")
-const { ValidationError } = await import("@/services/_shared/errors")
+const { ValidationError, ConflictError } = await import("@/services/_shared/errors")
 
 const P = ctx({ projectId: "p1" })
 const BODY = { startDate: "2026-11-02", schedule: { items: [{ key: "a", name: "A", durationDays: 3 }] } }
@@ -37,6 +37,15 @@ describe("POST /plan/load (W12)", () => {
     expect(res.status).toBe(201)
     expect(await res.json()).toMatchObject({ createdCount: 1, rootIds: ["n1"] })
     expect(m.loadBaseSchedule).toHaveBeenCalledWith("p1", BODY, expect.objectContaining({ userId: "user-1" }))
+  })
+
+  it("passes proposalId through; a repeated load is 409 PLAN_ALREADY_LOADED", async () => {
+    asRole(m, "po")
+    m.loadBaseSchedule.mockRejectedValue(new ConflictError("dup", {}, "PLAN_ALREADY_LOADED"))
+    const res = await route.POST(jsonReq("POST", { ...BODY, proposalId: "prop_plan_x" }), P)
+    expect(res.status).toBe(409)
+    expect((await res.json()).code).toBe("PLAN_ALREADY_LOADED")
+    expect(m.loadBaseSchedule).toHaveBeenCalledWith("p1", { ...BODY, proposalId: "prop_plan_x" }, expect.anything())
   })
 
   it("validates the body (bad date, no items, over 500 items) → 400, and maps schedule errors with their code", async () => {

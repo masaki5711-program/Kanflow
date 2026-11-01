@@ -2,8 +2,8 @@
 /**
  * Which feature groups a project type shows (W12). Development features (Git
  * panel, work-claim branch, AC → test table, outside-scope warnings) exist only
- * for `software`; equipment / process-improvement / general projects get the
- * 全体計画 (plan) up front instead. One place to decide, so components never
+ * for `software`; `equipment` hides them (process-improvement / general keep what they had) and
+ * equipment / process-improvement get the 全体計画 (plan) up front. One place to decide, so components never
  * compare `projectType` strings themselves.
  */
 export interface ProjectFeatures {
@@ -20,19 +20,21 @@ export interface ProjectFeatures {
 }
 
 const SOFTWARE: ProjectFeatures = { gitPanel: true, workClaimBranch: true, acTestTable: true, outsideScopeWarnings: true, planProminent: false }
-const NON_SOFTWARE: ProjectFeatures = { gitPanel: false, workClaimBranch: false, acTestTable: false, outsideScopeWarnings: false, planProminent: true }
-/** `general` keeps the plan in its usual place (it is not a plan-driven type). */
-const GENERAL: ProjectFeatures = { ...NON_SOFTWARE, planProminent: false }
+/** Existing types keep today's behaviour: only the branch stays software-only (as before W12). */
+const PROCESS_IMPROVEMENT: ProjectFeatures = { ...SOFTWARE, workClaimBranch: false, planProminent: true }
+const GENERAL: ProjectFeatures = { ...SOFTWARE, workClaimBranch: false }
+/** Only `equipment` hides the development features (the Git entry still follows the project's own Git integration switch). */
+const EQUIPMENT: ProjectFeatures = { gitPanel: false, workClaimBranch: false, acTestTable: false, outsideScopeWarnings: false, planProminent: true }
 
 export function projectFeatures(projectType: string | null | undefined): ProjectFeatures {
   switch (projectType) {
     case "equipment":
+      return EQUIPMENT
     case "process_improvement":
-      return NON_SOFTWARE
+      return PROCESS_IMPROVEMENT
     case "general":
       return GENERAL
     default:
-      // software, and anything unknown: the long-standing behaviour.
       return SOFTWARE
   }
 }

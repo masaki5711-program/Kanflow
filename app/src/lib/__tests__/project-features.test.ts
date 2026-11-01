@@ -8,11 +8,14 @@ describe("projectFeatures", () => {
     const f = projectFeatures("software")
     expect(f).toMatchObject({ gitPanel: true, workClaimBranch: true, acTestTable: true, outsideScopeWarnings: true, planProminent: false })
   })
-  it.each(["equipment", "process_improvement"])("hides development features and promotes the plan for %s", (type) => {
-    expect(projectFeatures(type)).toEqual({ gitPanel: false, workClaimBranch: false, acTestTable: false, outsideScopeWarnings: false, planProminent: true })
+  it("equipment hides development features and promotes the plan", () => {
+    expect(projectFeatures("equipment")).toEqual({ gitPanel: false, workClaimBranch: false, acTestTable: false, outsideScopeWarnings: false, planProminent: true })
   })
-  it("general: no development features, plan not promoted", () => {
-    expect(projectFeatures("general")).toMatchObject({ gitPanel: false, planProminent: false })
+  it("process_improvement keeps Git and outside-scope warnings (regression), branch stays software-only, plan promoted", () => {
+    expect(projectFeatures("process_improvement")).toMatchObject({ gitPanel: true, outsideScopeWarnings: true, workClaimBranch: false, planProminent: true })
+  })
+  it("general keeps today's behaviour", () => {
+    expect(projectFeatures("general")).toMatchObject({ gitPanel: true, outsideScopeWarnings: true, workClaimBranch: false, planProminent: false })
   })
   it("unknown / missing falls back to software", () => {
     expect(projectFeatures(undefined).gitPanel).toBe(true)

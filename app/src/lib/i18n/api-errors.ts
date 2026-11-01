@@ -81,6 +81,7 @@ export interface ApiErrorsTranslations {
   apiErrPlanScheduleTooDeep: string
   apiErrPlanScheduleInvalid: string
   apiErrPlanProposalTooLarge: string
+  apiErrPlanAlreadyLoaded: string
   apiErrFileRequired: string
   apiErrFileEmpty: string
   apiErrFileMissing: string
@@ -204,6 +205,7 @@ export const API_ERROR_MESSAGE_KEYS: Readonly<Record<ApiErrorCode, ApiErrorMessa
   PLAN_SCHEDULE_TOO_DEEP: "apiErrPlanScheduleTooDeep",
   PLAN_SCHEDULE_INVALID: "apiErrPlanScheduleInvalid",
   PLAN_PROPOSAL_TOO_LARGE: "apiErrPlanProposalTooLarge",
+  PLAN_ALREADY_LOADED: "apiErrPlanAlreadyLoaded",
   FILE_REQUIRED: "apiErrFileRequired",
   FILE_EMPTY: "apiErrFileEmpty",
   FILE_MISSING: "apiErrFileMissing",
@@ -334,6 +336,7 @@ export const ja: ApiErrorsTranslations = {
   apiErrPlanScheduleTooDeep: "計画の階層は 5 段までです",
   apiErrPlanScheduleInvalid: "計画の内容（キー・依存）に誤りがあります",
   apiErrPlanProposalTooLarge: "計画が大きすぎて提案にできません",
+  apiErrPlanAlreadyLoaded: "この計画の読み込みは、すでにこのプロジェクトに反映済みです",
   apiErrFileRequired: "ファイルがありません",
   apiErrFileEmpty: "ファイルが空です",
   apiErrFileMissing: "ファイルが見つかりません",
@@ -458,6 +461,7 @@ export const en: ApiErrorsTranslations = {
   apiErrPlanScheduleTooDeep: "A schedule is at most 5 levels deep",
   apiErrPlanScheduleInvalid: "The schedule has an invalid key or dependency",
   apiErrPlanProposalTooLarge: "The schedule is too large to propose",
+  apiErrPlanAlreadyLoaded: "This plan proposal was already loaded into this project",
   apiErrFileRequired: "No file was provided",
   apiErrFileEmpty: "The file is empty",
   apiErrFileMissing: "The file was not found",
@@ -582,6 +586,7 @@ export const id: ApiErrorsTranslations = {
   apiErrPlanScheduleTooDeep: "Jadwal maksimal 5 tingkat",
   apiErrPlanScheduleInvalid: "Jadwal memiliki kunci atau ketergantungan yang tidak valid",
   apiErrPlanProposalTooLarge: "Jadwal terlalu besar untuk diusulkan",
+  apiErrPlanAlreadyLoaded: "Usulan rencana ini sudah dimuat ke proyek ini",
   apiErrFileRequired: "Tidak ada file yang dikirim",
   apiErrFileEmpty: "File kosong",
   apiErrFileMissing: "File tidak ditemukan",

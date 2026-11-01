@@ -28,6 +28,8 @@ export type ProposePlanItemsInput = z.infer<typeof proposePlanItemsSchema>
 /** The stored proposal (the whole schedule travels with it) must fit the chat thread's event column. */
 const PROPOSAL_MAX_BYTES = 55_000
 const PREVIEW_ROWS = 60
+/** Child names shown under each top-level row of the card ("+N more" for the rest). */
+const PREVIEW_CHILDREN = 5
 
 export function buildPlanLoadProposal(input: { startDate: string; schedule: BaseSchedule; name?: string; reason?: string }): PlanLoadProposal {
   let planned
@@ -38,11 +40,17 @@ export function buildPlanLoadProposal(input: { startDate: string; schedule: Base
     throw error
   }
   const childCount = new Map<string, number>()
-  for (const r of planned.rows) if (r.parentKey) childCount.set(r.parentKey, (childCount.get(r.parentKey) ?? 0) + 1)
+  const childNames = new Map<string, string[]>()
+  for (const r of planned.rows) {
+    if (!r.parentKey) continue
+    childCount.set(r.parentKey, (childCount.get(r.parentKey) ?? 0) + 1)
+    const names = childNames.get(r.parentKey) ?? []
+    if (names.length < PREVIEW_CHILDREN) childNames.set(r.parentKey, [...names, r.name.slice(0, 500)])
+  }
   const preview = planned.rows
     .filter((r) => r.parentKey === null)
     .slice(0, PREVIEW_ROWS)
-    .map((r) => ({ name: r.name.slice(0, 500), plannedStart: r.plannedStart, plannedEnd: r.plannedEnd, isMilestone: r.isMilestone, children: childCount.get(r.key) ?? 0 }))
+    .map((r) => ({ name: r.name.slice(0, 500), plannedStart: r.plannedStart, plannedEnd: r.plannedEnd, isMilestone: r.isMilestone, children: childCount.get(r.key) ?? 0, childNames: childNames.get(r.key) ?? [] }))
   const digest = createHash("sha256").update(JSON.stringify({ s: input.startDate, p: input.schedule })).digest("hex").slice(0, 16)
   const proposal = {
     kind: "plan_load" as const,

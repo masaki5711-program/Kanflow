@@ -189,6 +189,12 @@ export function PlanLoadBody({ p, t }: { p: PlanLoadProposal; t: T }) {
             <span className="font-medium">{row.name}</span>
             <span className="text-fg-muted">{row.plannedStart} – {row.plannedEnd}</span>
             {row.isMilestone && <Badge tone="neutral">◆</Badge>}
+            {row.children > 0 && (
+              <ul className="basis-full pl-4 text-fg-muted">
+                {(row.childNames ?? []).map((name, j) => <li key={j} className="list-disc">{name}</li>)}
+                {row.children > (row.childNames ?? []).length && <li className="list-none">{fillTemplate(t.chatProposalPlanLoadMore, { count: row.children - (row.childNames ?? []).length })}</li>}
+              </ul>
+            )}
           </li>
         ))}
       </ul>

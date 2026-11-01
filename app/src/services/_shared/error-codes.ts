@@ -92,6 +92,8 @@ export const API_ERROR_CODES = [
   "PLAN_SCHEDULE_INVALID",
   /** The base-schedule proposal is too big to keep in a chat thread. */
   "PLAN_PROPOSAL_TOO_LARGE",
+  /** The same plan_load proposal was already approved and loaded into this project. */
+  "PLAN_ALREADY_LOADED",
   // Files / folders
   "FILE_REQUIRED",
   "FILE_EMPTY",
