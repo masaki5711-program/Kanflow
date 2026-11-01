@@ -142,18 +142,15 @@ describe("lists omit confidential PBIs and everything under them", () => {
 
   it("activity", async () => {
     const r = await answer(await activityRoute.GET(send("GET", "/activity"), seg({})))
-    expect(r.body.data?.map((a) => a.id).sort()).toEqual(["a1", "a3", "a5", "a7"])
+    expect(r.body.data?.map((a) => a.id).sort()).toEqual(["a1", "a12", "a3", "a5", "a7", "a9"])
     expect(leaksSecret(r.body)).toBe(false)
   })
 
-  it("claims (the service result is filtered)", async () => {
-    vi.mocked(devWork.listClaims).mockResolvedValue({
-      data: [{ id: "c1", pbi: { id: "pbA", title: "public story" } }, { id: "c2", pbi: { id: "pbC", title: "SECRET story" } }],
-      staleAfterHours: 4,
-    } as never)
+  it("claims (the service is told to exclude confidential ones in the query)", async () => {
+    vi.mocked(devWork.listClaims).mockResolvedValue({ data: [{ id: "c1" }], staleAfterHours: 4 } as never)
     const r = await answer(await claimsRoute.GET(send("GET", "/dev/claims"), seg({})))
     expect(r.body.data?.map((c) => c.id)).toEqual(["c1"])
-    expect(leaksSecret(r.body)).toBe(false)
+    expect(vi.mocked(devWork.listClaims).mock.calls[0]?.[4]).toEqual({ hideConfidential: true })
   })
 })
 

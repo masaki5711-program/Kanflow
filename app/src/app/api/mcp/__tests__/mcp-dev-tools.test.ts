@@ -144,7 +144,7 @@ describe("scope dev:write", () => {
     withScopes('["read"]')
     const r = await callTool("list_claims", { projectId: "p1", pbi: "PBI-12" })
     expect(r).toEqual({ isError: undefined, payload: { data: [CLAIM], staleAfterHours: 4 } })
-    expect(dev.listClaims).toHaveBeenCalledWith("p1", { pbi: "PBI-12" }, "u1")
+    expect(dev.listClaims).toHaveBeenCalledWith("p1", { pbi: "PBI-12" }, "u1", expect.any(Date), { hideConfidential: true })
   })
 })
 

@@ -101,6 +101,10 @@ function activityRow(id: string, entityType: string, entityId: string, label: st
   }
 }
 
+function withMeta(row: Row, meta: Record<string, unknown>): Row {
+  return { ...row, diff: JSON.stringify({ label: (JSON.parse(row.diff as string) as { label: string }).label, meta }) }
+}
+
 export const ACTIVITY = [
   activityRow("a1", "pbi", "pbA", "public story"),
   activityRow("a2", "pbi", "pbC", "SECRET story"),
@@ -109,6 +113,13 @@ export const ACTIVITY = [
   activityRow("a5", "release", "rA", "public story"),
   activityRow("a6", "release", "rC", "SECRET story"),
   activityRow("a7", "sprint", "s1", "S1"),
+  // Rows whose entity is gone. The task / release name is the label; the parent is only in meta.pbItemId.
+  withMeta(activityRow("a8", "sprint_task", "tGone1", "SECRET deleted task"), { pbItemId: "pbC" }),
+  withMeta(activityRow("a9", "sprint_task", "tGone2", "public deleted task"), { pbItemId: "pbA" }),
+  activityRow("a10", "sprint_task", "tGone3", "SECRET legacy deleted task"), // predates the record, entity missing
+  activityRow("a11", "pbi", "pbPurged", "SECRET purged story"), // PBI no longer exists
+  withMeta(activityRow("a12", "release", "rGone", "kept unlinked copy"), { pbItemId: null }),
+  withMeta(activityRow("a13", "release", "rGone2", "SECRET deleted copy"), { pbItemId: "pbC" }),
 ]
 
 /** The Prisma stand-in; add the auth tables (project, projectMember, ...) where a test needs them. */

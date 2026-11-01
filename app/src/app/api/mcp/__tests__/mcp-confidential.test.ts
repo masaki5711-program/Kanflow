@@ -147,7 +147,7 @@ describe("lists: confidential PBIs, their tasks, release copies and feed rows ar
 
   it("get_activity", async () => {
     const out = await callTool("get_activity", { projectId: "p1" })
-    expect((out.payload.data as Array<{ id: string }>).map((a) => a.id).sort()).toEqual(["a1", "a3", "a5", "a7"])
+    expect((out.payload.data as Array<{ id: string }>).map((a) => a.id).sort()).toEqual(["a1", "a12", "a3", "a5", "a7", "a9"])
     expect(leaksSecret(out.payload)).toBe(false)
   })
 })

@@ -192,13 +192,33 @@ mechanism("read:releases", () => {
 mechanism("read:activity", () => {
   it("token surfaces: rows about the confidential PBI, its task and its release copy are left out", async () => {
     const out = await v1.listActivity("p1", { limit: 50 })
-    expect(out.data.map((a) => a.id).sort()).toEqual(["a1", "a3", "a5", "a7"])
+    expect(out.data.map((a) => a.id).sort()).toEqual(["a1", "a12", "a3", "a5", "a7", "a9"])
     expect(leaksSecret(out)).toBe(false)
+  })
+
+  it("a deleted task under a confidential PBI (parent recorded) is not returned; one under a normal PBI still is", async () => {
+    const ids = (await v1.listActivity("p1", { limit: 50 })).data.map((a) => a.id)
+    expect(ids).not.toContain("a8")
+    expect(ids).not.toContain("a13")
+    expect(ids).toContain("a9")
+  })
+
+  it("fail closed: an old row with no recorded parent whose entity is gone, and a purged PBI's row, are excluded", async () => {
+    const ids = (await v1.listActivity("p1", { limit: 50 })).data.map((a) => a.id)
+    expect(ids).not.toContain("a10")
+    expect(ids).not.toContain("a11")
+  })
+
+  it("pages stay full: hidden rows are skipped before the page limit", async () => {
+    const page = await v1.listActivity("p1", { limit: 2 })
+    expect(page.data).toHaveLength(2)
+    expect(page.nextCursor).not.toBeNull()
+    expect(leaksSecret(page)).toBe(false)
   })
 
   it("the web UI keeps every row", async () => {
     const out = await activityService.listProjectActivity("p1", { limit: 50 })
-    expect(out.items.map((a) => a.id).sort()).toEqual(["a1", "a2", "a3", "a4", "a5", "a6", "a7"])
+    expect(out.items).toHaveLength(13)
   })
 })
 
@@ -339,10 +359,22 @@ mechanism("mask:comment-target", () => {
 mechanism("filter:claims", () => {
   const claim = (id: string, pbiId: string) => ({ id, pbi: { id: pbiId } })
 
-  it("the claim list drops claims on a confidential PBI", async () => {
-    vi.mocked(devWork.listClaims).mockResolvedValue({ data: [claim("c1", "pbA"), claim("c2", "pbC")], staleAfterHours: 4 } as never)
-    const out = await devHandlers.listClaimsOp("p1", {}, "u1")
-    expect(out.data.map((c) => c.id)).toEqual(["c1"])
+  it("the claim list asks the service to exclude confidential claims in the query (before the page limit)", async () => {
+    vi.mocked(devWork.listClaims).mockResolvedValue({ data: [claim("c1", "pbA")], staleAfterHours: 4 } as never)
+    await devHandlers.listClaimsOp("p1", {}, "u1")
+    expect(vi.mocked(devWork.listClaims).mock.calls[0]?.[4]).toEqual({ hideConfidential: true })
+  })
+
+  it("the repository query filters on the PBI's flag only for token surfaces", async () => {
+    const { findOpenClaims } = await import("@/services/dev-work/dev-work.repository")
+    const since = new Date(0)
+    const db = fixture.confidentialDb
+    const token = await findOpenClaims(db as never, "p1", since, {}, true)
+    expect(vi.mocked(db.workClaim.findMany).mock.lastCall?.[0]).toMatchObject({ where: { backlogItem: { deletedAt: null, confidential: false } } })
+    expect(token).toBeDefined()
+    await findOpenClaims(db as never, "p1", since, {})
+    expect(vi.mocked(db.workClaim.findMany).mock.lastCall?.[0]).toMatchObject({ where: { backlogItem: { deletedAt: null } } })
+    expect(JSON.stringify(vi.mocked(db.workClaim.findMany).mock.lastCall?.[0])).not.toContain("confidential")
   })
 
   it("scope overlaps drop other people's claims on a confidential PBI", async () => {

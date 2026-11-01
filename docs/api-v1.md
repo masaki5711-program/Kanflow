@@ -144,6 +144,13 @@ server; the signed-in web UI still shows them to members, with a badge.
   `PBI_NOT_FOUND` for a PBI by id / number, `NOT_FOUND` for a task, claim or comment thread), so its existence is
   not revealed. This holds for the PBI, its acceptance criteria, its comments, its tasks, claims on it, merge-request
   links and progress comments. A confidential id in a sprint selection or carry-over list is skipped like an unknown id.
+- **Activity feed, fail closed**: a feed row is kept only if the PBI it is about (recorded in `meta.pbItemId` for task
+  and release rows when the row was written) still exists and is not confidential. A task or release row whose parent
+  is unknown (an older row with no record whose entity was deleted) and a row about a purged PBI are never returned.
+- **Residual signal (plan items)**: master-plan items (`GET /plan`, `get_plan`) carry a stored `progressPct` / `status`
+  that is rolled up from the PBIs linked to them, confidential ones included. No PBI text or link is returned, but a
+  confidential PBI moving to done can change a leaf's percentage. Do not link confidential PBIs to plan items that
+  you also expose to Claude if even that signal matters.
 - **A token cannot set or clear the flag**: `confidential` is not accepted by `PATCH .../backlog/:itemId` (it is
   ignored) or by `update_pbi`.
 - Lessons of the feedback loop have their own `confidential` flag (W11) and are filtered the same way.

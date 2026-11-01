@@ -151,7 +151,7 @@ describe("scope dev:write ∩ project role", () => {
     const res = await claimsRoute.GET(send("GET", "/dev/claims?pbi=PBI-12"), seg({}))
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ data: [CLAIM], staleAfterHours: 4 })
-    expect(dev.listClaims).toHaveBeenCalledWith("p1", { pbi: "PBI-12" }, "u1")
+    expect(dev.listClaims).toHaveBeenCalledWith("p1", { pbi: "PBI-12" }, "u1", expect.any(Date), { hideConfidential: true })
   })
 })
 

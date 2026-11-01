@@ -269,8 +269,37 @@ export function withVia(diff: ActivityDiff | null | undefined, actor: Actor | nu
   return { ...diff, meta: { ...diff?.meta, via: actor.via } }
 }
 
+/** Entity types whose rows belong to a PBI (`meta.pbItemId`): the token feeds hide them with it (D-5). */
+const PBI_CHILD_TYPES: ReadonlySet<string> = new Set(["sprint_task", "release"])
+
+/**
+ * Pure: `meta` with the owning PBI recorded (`pbItemId`, null = a release item with no PBI) for a
+ * sprint task / release row, taken from the row. The row is gone by the time anyone reads a delete, and
+ * the token activity feed must still know whose it was (confidential PBIs, D-5).
+ */
+export function withParentPbi(entityType: string, row: Row | null | undefined, meta?: Record<string, unknown>): Record<string, unknown> | undefined {
+  if (!PBI_CHILD_TYPES.has(entityType) || !row || meta?.pbItemId !== undefined) return meta
+  const id = row.pbItemId
+  return { ...meta, pbItemId: typeof id === "string" ? id : null }
+}
+
+/** The owning PBI of a sprint task / release item that still exists (lookup for callers that pass no row). Never throws. */
+async function findParentPbi(tx: Db, entityType: string, entityId: string): Promise<{ pbItemId: string | null } | null> {
+  try {
+    const where = { where: { id: entityId }, select: { pbItemId: true } }
+    return entityType === "sprint_task" ? await tx.sprintBacklogItem.findUnique(where) : await tx.releaseBacklogItem.findUnique(where)
+  } catch (err) {
+    log.warn("activity parent lookup failed", { entityType, entityId, error: errorMessage(err) })
+    return null
+  }
+}
+
 /** Record one activity row within `tx`. Never throws. */
 export async function logActivity(tx: Db, input: ActivityInput): Promise<void> {
+  if (PBI_CHILD_TYPES.has(input.entityType) && input.diff?.meta?.pbItemId === undefined) {
+    const parent = await findParentPbi(tx, input.entityType, input.entityId)
+    if (parent) input = { ...input, diff: { ...input.diff, meta: { ...input.diff?.meta, pbItemId: parent.pbItemId } } }
+  }
   try {
     await tx.activityLog.create({
       data: {
@@ -323,7 +352,7 @@ export function logCreate(tx: Db, ref: EntityRef & { row: Row }): Promise<void> 
   return logActivity(tx, {
     ...ref,
     action: "create",
-    diff: { changes: snapshotChanges(ref.entityType, ref.row, "created"), label: labelOf(ref.entityType, ref.row), meta: ref.meta },
+    diff: { changes: snapshotChanges(ref.entityType, ref.row, "created"), label: labelOf(ref.entityType, ref.row), meta: withParentPbi(ref.entityType, ref.row, ref.meta) },
   })
 }
 
@@ -335,7 +364,7 @@ export function logDelete(tx: Db, ref: EntityRef & { row: Row | null }): Promise
     diff: {
       changes: ref.row ? snapshotChanges(ref.entityType, ref.row, "deleted") : undefined,
       label: labelOf(ref.entityType, ref.row),
-      meta: ref.meta,
+      meta: withParentPbi(ref.entityType, ref.row, ref.meta),
     },
   })
 }
@@ -348,13 +377,14 @@ export function logDelete(tx: Db, ref: EntityRef & { row: Row | null }): Promise
  */
 export async function logUpdate(tx: Db, ref: EntityRef & { before: Row | null; after: Row }): Promise<ActivityChanges> {
   const label = labelOf(ref.entityType, ref.after)
+  const meta = withParentPbi(ref.entityType, ref.after, ref.meta)
   if (!ref.before) {
-    await logActivity(tx, { ...ref, action: "update", diff: { label, meta: ref.meta } })
+    await logActivity(tx, { ...ref, action: "update", diff: { label, meta } })
     return {}
   }
   const changes = diffFields(ref.before, ref.after, TRACKED_FIELDS[ref.entityType])
   if (Object.keys(changes).length === 0) return changes
-  await logActivity(tx, { ...ref, action: classifyUpdate(changes), diff: { changes, label, meta: ref.meta } })
+  await logActivity(tx, { ...ref, action: classifyUpdate(changes), diff: { changes, label, meta } })
   return changes
 }
 

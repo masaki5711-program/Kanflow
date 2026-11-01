@@ -75,8 +75,8 @@ export async function listClaimsOp(projectId: string, query: unknown, viewerId: 
     ...(parsed.pbi !== undefined ? { pbi: await maskPbiRef(projectId, parsed.pbi) } : {}),
     ...(parsed.taskId !== undefined ? { taskId: await maskTaskId(parsed.taskId) } : {}),
   }
-  const result = await listClaims(projectId, filter, viewerId)
-  return { ...result, data: await withoutConfidentialItems(result.data, (claim) => claim.pbi.id) }
+  // Confidential claims are excluded in the query (before the page limit), not after it.
+  return listClaims(projectId, filter, viewerId, new Date(), { hideConfidential: true })
 }
 
 /** A progress comment on a PBI / sprint task as the token user (comment row carries via). */

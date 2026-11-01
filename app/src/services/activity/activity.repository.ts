@@ -21,47 +21,27 @@ interface PageArgs {
   limit: number
 }
 
-/** Entities whose feed rows are left out (confidential PBIs and what hangs under them, D-5). */
-export interface HiddenActivityEntities {
-  pbi: readonly string[]
-  sprint_task: readonly string[]
-  release: readonly string[]
-}
-
-/** Most hidden entities one feed read can exclude; more than this fails closed (see activity.service). */
-export const HIDDEN_ACTIVITY_ENTITY_LIMIT = 5000
-
-function notHidden(hidden: HiddenActivityEntities | undefined) {
-  if (!hidden) return {}
-  const NOT = (Object.entries(hidden) as Array<[string, readonly string[]]>)
-    .filter(([, ids]) => ids.length > 0)
-    .map(([entityType, ids]) => ({ entityType, entityId: { in: [...ids] } }))
-  return NOT.length > 0 ? { NOT } : {}
-}
-
-/**
- * Ids of the project's confidential PBIs, their sprint tasks and their release copies (one more
- * than the limit is read, so the caller can tell "too many" from "all").
- */
-export async function findHiddenActivityEntities(db: Db, projectId: string): Promise<HiddenActivityEntities & { overLimit: boolean }> {
-  const take = HIDDEN_ACTIVITY_ENTITY_LIMIT + 1
-  const [pbis, tasks, releases] = await Promise.all([
-    db.productBacklogItem.findMany({ where: { projectId, confidential: true }, select: { id: true }, take }),
-    db.sprintBacklogItem.findMany({ where: { pbItem: { projectId, confidential: true } }, select: { id: true }, take }),
-    db.releaseBacklogItem.findMany({ where: { projectId, pbItem: { confidential: true } }, select: { id: true }, take }),
+/** Owning PBI (`pbItemId`, null = none) of sprint tasks / release items that still exist, by id. */
+export async function findParentPbiIds(db: Db, ids: { sprint_task: string[]; release: string[] }) {
+  const none = Promise.resolve([] as Array<{ id: string; pbItemId: string | null }>)
+  const [tasks, releases] = await Promise.all([
+    ids.sprint_task.length ? db.sprintBacklogItem.findMany({ where: { id: { in: ids.sprint_task } }, select: { id: true, pbItemId: true } }) : none,
+    ids.release.length ? db.releaseBacklogItem.findMany({ where: { id: { in: ids.release } }, select: { id: true, pbItemId: true } }) : none,
   ])
-  return {
-    pbi: pbis.map((r) => r.id).slice(0, HIDDEN_ACTIVITY_ENTITY_LIMIT),
-    sprint_task: tasks.map((r) => r.id).slice(0, HIDDEN_ACTIVITY_ENTITY_LIMIT),
-    release: releases.map((r) => r.id).slice(0, HIDDEN_ACTIVITY_ENTITY_LIMIT),
-    overLimit: [pbis, tasks, releases].some((rows) => rows.length > HIDDEN_ACTIVITY_ENTITY_LIMIT),
-  }
+  return { tasks, releases }
 }
 
-/** Project feed, newest first; optional entityType filter and hidden entities (token surfaces). */
-export function findProjectActivity(db: Db, projectId: string, args: PageArgs & { entityType?: string; hidden?: HiddenActivityEntities }) {
+/** Ids among `ids` that are PBIs which exist and are not confidential (token feeds, D-5). */
+export async function findOpenPbiIds(db: Db, ids: readonly string[]): Promise<Set<string>> {
+  if (ids.length === 0) return new Set()
+  const rows = await db.productBacklogItem.findMany({ where: { id: { in: [...ids] }, confidential: false }, select: { id: true } })
+  return new Set(rows.map((r) => r.id))
+}
+
+/** Project feed, newest first; optional entityType filter. */
+export function findProjectActivity(db: Db, projectId: string, args: PageArgs & { entityType?: string }) {
   return db.activityLog.findMany({
-    where: { projectId, ...(args.entityType ? { entityType: args.entityType } : {}), ...notHidden(args.hidden), ...afterCursorWhere(args.cursor) },
+    where: { projectId, ...(args.entityType ? { entityType: args.entityType } : {}), ...afterCursorWhere(args.cursor) },
     select: ACTIVITY_SELECT,
     orderBy: NEWEST_FIRST,
     take: args.limit + 1,
