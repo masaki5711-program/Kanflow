@@ -50,6 +50,18 @@ describe("backlog.service activity + notifications", () => {
     expect(nt.notify).toHaveBeenCalledTimes(1)
   })
 
+  it("setting the confidential flag (D-5) is written and logged like any other PBI field change, without notifying", async () => {
+    vi.mocked(act.loadSnapshot).mockResolvedValueOnce({ id: "b1", assignedPo: "Ann", confidential: false })
+    vi.mocked(repo.updateBacklogItem).mockResolvedValueOnce({ id: "b1", displayId: 7, assignedPo: "Ann", confidential: true } as never)
+    await svc.updateBacklogItem("p1", "b1", { confidential: true }, ACTOR)
+    expect(vi.mocked(repo.updateBacklogItem).mock.calls[0]?.[3]).toMatchObject({ confidential: true })
+    expect(act.logUpdate).toHaveBeenCalledWith(
+      TX,
+      expect.objectContaining({ entityType: "pbi", entityId: "b1", actor: ACTOR, before: { id: "b1", assignedPo: "Ann", confidential: false }, after: expect.objectContaining({ confidential: true }) })
+    )
+    expect(nt.notify).not.toHaveBeenCalled()
+  })
+
   it("reorder logs one project-level move", async () => {
     await svc.reorderBacklog("p1", ["a", "b"], ACTOR)
     expect(act.logActivity).toHaveBeenCalledTimes(1)

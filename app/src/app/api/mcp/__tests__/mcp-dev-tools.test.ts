@@ -30,6 +30,10 @@ vi.mock("@/lib/authz/session-validity", async (orig) => ({
 }))
 vi.mock("@/services/api-tokens/api-tokens.repository")
 vi.mock("@/services/api-v1/api-v1.service")
+vi.mock("@/services/api-v1/api-v1.confidential", async (orig) => ({
+  ...(await orig<typeof import("@/services/api-v1/api-v1.confidential")>()),
+  ...(await import("@/services/api-v1/__tests__/confidential-passthrough")).confidentialPassthrough,
+}))
 vi.mock("@/services/dev-work/dev-work.service")
 
 const repo = await import("@/services/api-tokens/api-tokens.repository")
@@ -140,7 +144,7 @@ describe("scope dev:write", () => {
     withScopes('["read"]')
     const r = await callTool("list_claims", { projectId: "p1", pbi: "PBI-12" })
     expect(r).toEqual({ isError: undefined, payload: { data: [CLAIM], staleAfterHours: 4 } })
-    expect(dev.listClaims).toHaveBeenCalledWith("p1", { pbi: "PBI-12" }, "u1")
+    expect(dev.listClaims).toHaveBeenCalledWith("p1", { pbi: "PBI-12" }, "u1", expect.any(Date), { hideConfidential: true })
   })
 })
 

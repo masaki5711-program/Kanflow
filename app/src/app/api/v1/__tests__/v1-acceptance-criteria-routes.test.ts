@@ -23,6 +23,10 @@ vi.mock("@/lib/authz/session-validity", async (orig) => ({
 }))
 vi.mock("@/services/api-tokens/api-tokens.repository")
 vi.mock("@/services/api-v1/api-v1.service")
+vi.mock("@/services/api-v1/api-v1.confidential", async (orig) => ({
+  ...(await orig<typeof import("@/services/api-v1/api-v1.confidential")>()),
+  ...(await import("@/services/api-v1/__tests__/confidential-passthrough")).confidentialPassthrough,
+}))
 vi.mock("@/services/acceptance-criteria/acceptance-criteria.service")
 
 const repo = await import("@/services/api-tokens/api-tokens.repository")

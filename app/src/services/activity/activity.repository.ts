@@ -21,6 +21,23 @@ interface PageArgs {
   limit: number
 }
 
+/** Owning PBI (`pbItemId`, null = none) of sprint tasks / release items that still exist, by id. */
+export async function findParentPbiIds(db: Db, ids: { sprint_task: string[]; release: string[] }) {
+  const none = Promise.resolve([] as Array<{ id: string; pbItemId: string | null }>)
+  const [tasks, releases] = await Promise.all([
+    ids.sprint_task.length ? db.sprintBacklogItem.findMany({ where: { id: { in: ids.sprint_task } }, select: { id: true, pbItemId: true } }) : none,
+    ids.release.length ? db.releaseBacklogItem.findMany({ where: { id: { in: ids.release } }, select: { id: true, pbItemId: true } }) : none,
+  ])
+  return { tasks, releases }
+}
+
+/** Ids among `ids` that are PBIs which exist and are not confidential (token feeds, D-5). */
+export async function findOpenPbiIds(db: Db, ids: readonly string[]): Promise<Set<string>> {
+  if (ids.length === 0) return new Set()
+  const rows = await db.productBacklogItem.findMany({ where: { id: { in: [...ids] }, confidential: false }, select: { id: true } })
+  return new Set(rows.map((r) => r.id))
+}
+
 /** Project feed, newest first; optional entityType filter. */
 export function findProjectActivity(db: Db, projectId: string, args: PageArgs & { entityType?: string }) {
   return db.activityLog.findMany({

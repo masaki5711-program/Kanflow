@@ -24,6 +24,10 @@ vi.mock("@/lib/authz/session-validity", async (orig) => ({
 }))
 vi.mock("@/services/api-tokens/api-tokens.repository")
 vi.mock("@/services/api-v1/api-v1.service")
+vi.mock("@/services/api-v1/api-v1.confidential", async (orig) => ({
+  ...(await orig<typeof import("@/services/api-v1/api-v1.confidential")>()),
+  ...(await import("@/services/api-v1/__tests__/confidential-passthrough")).confidentialPassthrough,
+}))
 vi.mock("@/services/backlog/backlog.service")
 vi.mock("@/services/sprints/sprints.service")
 vi.mock("@/services/sprint-backlog/sprint-backlog.service")
@@ -310,15 +314,15 @@ describe("writes", () => {
   })
 
   it("a retried create_sprint with reordered (also nested) keys creates once and replays", async () => {
-    vi.mocked(sprints.createSprint).mockResolvedValue({ id: "s9" } as never)
+    vi.mocked(sprints.createSprint).mockResolvedValue({ id: "s9", items: [] } as never)
     const first = await callTool("create_sprint", {
       projectId: "p1", sprintName: "S9", startDate: "2026-11-01", endDate: "2026-11-14", carryOver: { fromSprintId: "s8", pbItemIds: ["b1"] },
     })
     const again = await callTool("create_sprint", {
       carryOver: { pbItemIds: ["b1"], fromSprintId: "s8" }, endDate: "2026-11-14", startDate: "2026-11-01", sprintName: "S9", projectId: "p1",
     })
-    expect(first.payload).toEqual({ data: { id: "s9" } })
-    expect(again.payload).toEqual({ data: { id: "s9" }, replayed: true })
+    expect(first.payload).toEqual({ data: { id: "s9", items: [] } })
+    expect(again.payload).toEqual({ data: { id: "s9", items: [] }, replayed: true })
     expect(sprints.createSprint).toHaveBeenCalledTimes(1)
   })
 

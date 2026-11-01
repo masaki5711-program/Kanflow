@@ -39,6 +39,14 @@ describe("diffFields", () => {
   })
 })
 
+describe("TRACKED_FIELDS: pbi.confidential (D-5)", () => {
+  it("flipping the flag is a recorded change of the PBI, so who set it shows in the history", () => {
+    expect(act.TRACKED_FIELDS.pbi).toContain("confidential")
+    expect(act.diffFields({ confidential: false }, { confidential: true }, act.TRACKED_FIELDS.pbi)).toEqual({ confidential: { from: false, to: true } })
+    expect(act.diffFields({ confidential: true }, { confidential: true }, act.TRACKED_FIELDS.pbi)).toEqual({})
+  })
+})
+
 describe("normalizeValue", () => {
   it("maps values to JSON-safe scalars", () => {
     expect(act.normalizeValue(undefined)).toBeNull()
@@ -189,8 +197,18 @@ describe("logCreate / logDelete / logUpdate", () => {
     expect(stored(db)).toEqual({
       changes: { taskName: { from: null, to: "Write" }, status: { from: null, to: "todo" } },
       label: "Write",
-      meta: { sprintId: "s1" },
+      meta: { sprintId: "s1", pbItemId: null },
     })
+  })
+
+  it("records the owning PBI of a task / release row (D-5), even on a delete, so token feeds can hide it later", async () => {
+    const db = fakeDb()
+    await act.logDelete(db.client, { ...ref, row: { taskName: "T", pbItemId: "pbC" } })
+    expect(stored(db).meta).toEqual({ pbItemId: "pbC" })
+    const db2 = fakeDb()
+    await act.logUpdate(db2.client, { ...ref, entityType: "release", before: { status: "a" }, after: { status: "b", pbItemId: "pbA" } })
+    expect(stored(db2).meta).toEqual({ pbItemId: "pbA" })
+    expect(act.withParentPbi("pbi", { pbItemId: "x" })).toBeUndefined()
   })
 
   it("logDelete stores removed values; unknown row → label-less bare delete", async () => {
@@ -199,6 +217,7 @@ describe("logCreate / logDelete / logUpdate", () => {
     expect(stored(db)).toEqual({
       changes: { taskName: { from: "Write", to: null }, status: { from: "done", to: null } },
       label: "Write",
+      meta: { pbItemId: null },
     })
     const db2 = fakeDb()
     await act.logDelete(db2.client, { ...ref, row: null })
@@ -227,7 +246,7 @@ describe("logCreate / logDelete / logUpdate", () => {
     const db = fakeDb()
     expect(await act.logUpdate(db.client, { ...ref, before: null, after: { taskName: "W" } })).toEqual({})
     expect(db.fn("activityLog.create").mock.calls[0][0].data.action).toBe("update")
-    expect(stored(db)).toEqual({ label: "W" })
+    expect(stored(db)).toEqual({ label: "W", meta: { pbItemId: null } })
   })
 })
 

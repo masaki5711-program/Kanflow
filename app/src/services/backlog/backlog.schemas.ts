@@ -46,6 +46,11 @@ export const updateBacklogItemSchema = z.object({
   iceboxItemId: z.string().nullable().optional(),
   /** Master-plan leaf item ("" / null = unlink; must be a live leaf of the project). */
   planItemId: z.string().max(64).nullable().optional(),
+  /**
+   * 機密 (D-5): a confidential PBI is never returned to the MCP or the /api/v1 dev API. Set from the
+   * web UI by whoever may edit the PBI (backlog.write); the token surfaces omit this field (v1UpdatePbiSchema).
+   */
+  confidential: z.boolean().optional(),
   /** Optimistic lock: the version the client loaded (omitted = unchecked, legacy). */
   version: versionField,
 })

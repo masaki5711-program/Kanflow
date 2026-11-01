@@ -214,7 +214,7 @@ export async function listMyTasks(userId: string, projectIds: string[] | null, i
 }
 
 export async function listActivity(projectId: string, query: ProjectActivityQuery): Promise<V1Page<ActivityDto>> {
-  const page = await listProjectActivity(projectId, query)
+  const page = await listProjectActivity(projectId, query, { hideConfidential: true })
   return { data: page.items, nextCursor: page.nextCursor }
 }
 

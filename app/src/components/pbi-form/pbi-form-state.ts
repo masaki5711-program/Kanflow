@@ -23,6 +23,8 @@ export interface PbiForm {
   referenceDoc: string
   /** Master-plan leaf item ("" = none). Edit only: the create API does not take it. */
   planItemId: string
+  /** 機密 (D-5). Edit only: the create API does not take it; a new PBI starts as not confidential. */
+  confidential: boolean
 }
 
 /** Fields of a PBI the form reads (the list row lacks the PO-only texts, the detail has them). */
@@ -30,7 +32,7 @@ export type PbiFormSource = Pick<BacklogItemDetailDto, "initiative" | "epic" | "
   Partial<
     Pick<
       BacklogItemDetailDto,
-      "referenceDoc" | "notReadyReason" | "poNote" | "assignedPo" | "productGoalId" | "iceboxItemId" | "productGoal" | "iceboxItem"
+      "referenceDoc" | "notReadyReason" | "poNote" | "assignedPo" | "productGoalId" | "iceboxItemId" | "productGoal" | "iceboxItem" | "confidential"
     >
   > & {
     planItemId?: string | null
@@ -51,6 +53,7 @@ export const EMPTY_PBI_FORM: PbiForm = Object.freeze({
   notReadyReason: "",
   referenceDoc: "",
   planItemId: "",
+  confidential: false,
 }) as PbiForm
 
 /** Plain text fields: cleared → "" (the update schema takes strings, not null). */
@@ -83,6 +86,7 @@ export function toPbiForm(p: PbiFormSource): PbiForm {
     notReadyReason: p.notReadyReason ?? "",
     referenceDoc: p.referenceDoc ?? "",
     planItemId: p.planItemId ?? p.planItem?.id ?? "",
+    confidential: p.confidential === true,
   }
 }
 
@@ -106,6 +110,7 @@ export function buildPbiPatch(item: PbiFormSource, form: PbiForm): Record<string
   const ws = parseWorkload(form.workloadScore)
   if (ws !== (item.workloadScore ?? 0)) patch.workloadScore = ws
   if (form.status !== base.status) patch.status = form.status
+  if (form.confidential !== base.confidential) patch.confidential = form.confidential
   for (const key of LINK_FIELDS) {
     if (form[key] !== base[key]) patch[key] = form[key] || null
   }

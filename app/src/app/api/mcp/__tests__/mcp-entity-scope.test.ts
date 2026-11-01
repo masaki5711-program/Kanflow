@@ -43,6 +43,11 @@ vi.mock("@/lib/authz/session-validity", async (orig) => ({
 vi.mock("@/services/api-tokens/api-tokens.repository")
 vi.mock("@/services/sprint-backlog/sprint-backlog.service")
 vi.mock("@/services/comments/comments.service")
+// The masking half of the confidential rule is DB-backed too; confidential-enforcement.test.ts covers it.
+vi.mock("@/services/api-v1/api-v1.confidential", async (orig) => ({
+  ...(await orig<typeof import("@/services/api-v1/api-v1.confidential")>()),
+  ...(await import("@/services/api-v1/__tests__/confidential-passthrough")).confidentialPassthrough,
+}))
 
 const repo = await import("@/services/api-tokens/api-tokens.repository")
 const sprintBacklog = await import("@/services/sprint-backlog/sprint-backlog.service")
@@ -94,7 +99,7 @@ describe("entity-first tools on the real lookup path", () => {
     const r = await callTool("update_task", { taskId: "k1", status: "done" })
     expect(r.payload).toEqual({ data: { id: "k1" } })
     expect(m.taskFindFirst).toHaveBeenCalledWith({
-      where: { id: "k1", taskName: { not: null }, pbItem: { deletedAt: null } },
+      where: { id: "k1", taskName: { not: null }, pbItem: { deletedAt: null, confidential: false } },
       select: { sprintId: true, sprint: { select: { projectId: true } } },
     })
     expect(sprintBacklog.updateTask).toHaveBeenCalledWith("p1", "s1", "k1", { status: "done" }, expect.objectContaining({ userId: "u1", via: "mcp" }))
@@ -119,6 +124,6 @@ describe("entity-first tools on the real lookup path", () => {
     useToken('["p2"]')
     const r = await callTool("get_pbi", { pbi: "clxpbi" })
     expect(r.payload).toEqual({ error: "Not found", code: "NOT_FOUND" })
-    expect(m.pbiFindFirst).toHaveBeenCalledWith({ where: { id: "clxpbi", deletedAt: null }, select: { projectId: true } })
+    expect(m.pbiFindFirst).toHaveBeenCalledWith({ where: { id: "clxpbi", deletedAt: null, confidential: false }, select: { projectId: true } })
   })
 })

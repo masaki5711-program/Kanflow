@@ -85,6 +85,7 @@ function Chips({ item, inSprintNames, onOpenRef }: { item: BacklogItem; inSprint
     <div className="mb-2 flex flex-wrap items-center gap-1.5">
       <PbiDependencyChips item={item} onOpenRef={onOpenRef} />
       <GitPbiBadge pbiId={item.id} />
+      {item.confidential && <Badge tone="warning">{t.backlogConfidentialBadge}</Badge>}
       {inSprintNames.length > 0 && (
         <span className="inline-flex items-center gap-1 rounded-full border border-primary/40 bg-primary-soft px-2 py-0.5 text-caption font-semibold text-primary-active">
           <span aria-hidden="true">⚡</span> {t.backlogInSprintBadge}

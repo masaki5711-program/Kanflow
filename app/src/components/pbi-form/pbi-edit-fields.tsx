@@ -105,8 +105,35 @@ export function PbiEditFields({ form, setForm, options, selfId, disabled, genera
           </Field>
         )}
         <PbiReferenceField value={form.referenceDoc} onChange={text("referenceDoc")} attachments={attachments} disabled={disabled} />
+        {selfId && <ConfidentialToggle checked={form.confidential} onChange={set("confidential")} />}
       </div>
     </fieldset>
+  )
+}
+
+/** 機密 (D-5): one checkbox. Edit mode only; whoever may edit the PBI may flip it (the PATCH route checks backlog.write). */
+function ConfidentialToggle({ checked, onChange }: { checked: boolean; onChange: (value: boolean) => void }) {
+  const { t } = useLanguage()
+  const id = useId()
+  return (
+    <div className="flex items-start gap-2">
+      <input
+        id={id}
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        aria-describedby={`${id}-hint`}
+        className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-primary"
+      />
+      <div>
+        <label htmlFor={id} className="cursor-pointer text-body font-medium text-fg">
+          {t.backlogConfidentialLabel}
+        </label>
+        <p id={`${id}-hint`} className="text-caption text-fg-muted">
+          {t.backlogConfidentialHint}
+        </p>
+      </div>
+    </div>
   )
 }
 

@@ -385,12 +385,12 @@ export async function declareScope(
  * (`stale: true`, heartbeat within the last 7 days), at most CLAIM_LIST_LIMIT
  * (`truncated` when cut). Session ids only on the viewer's own claims.
  */
-export async function listClaims(projectId: string, query: ListClaimsQuery, viewerId: string, now: Date = new Date()) {
+export async function listClaims(projectId: string, query: ListClaimsQuery, viewerId: string, now: Date = new Date(), options: { hideConfidential?: boolean } = {}) {
   const { staleHours: hours } = settings()
   const filter: { backlogItemId?: string; taskId?: string } = {}
   if (query.pbi !== undefined) filter.backlogItemId = (await loadPbi(defaultDb, projectId, query.pbi)).id
   if (query.taskId !== undefined) filter.taskId = query.taskId
-  const rows = await repo.findOpenClaims(defaultDb, projectId, staleBefore(now, CLAIM_LIST_LOOKBACK_HOURS), filter)
+  const rows = await repo.findOpenClaims(defaultDb, projectId, staleBefore(now, CLAIM_LIST_LOOKBACK_HOURS), filter, options.hideConfidential === true)
   const truncated = rows.length > repo.CLAIM_LIST_LIMIT
   return {
     data: rows.slice(0, repo.CLAIM_LIST_LIMIT).map((r) => toClaimDto(r, now, hours, viewerId)),

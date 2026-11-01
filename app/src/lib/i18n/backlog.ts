@@ -57,6 +57,9 @@ export interface BacklogTranslations {
   backlogAiStop: string
   backlogIceboxChip: string
   backlogPoNote: string
+  backlogConfidentialLabel: string
+  backlogConfidentialHint: string
+  backlogConfidentialBadge: string
   backlogNotReadyReason: string
   backlogReferenceDoc: string
   backlogDetailTitle: string
@@ -121,6 +124,9 @@ export const ja: BacklogTranslations = {
   backlogAiStop: "生成を停止",
   backlogIceboxChip: "元の要望: {text}",
   backlogPoNote: "PO メモ",
+  backlogConfidentialLabel: "機密にする",
+  backlogConfidentialHint: "機密の PBI は Claude（MCP）や開発 API には渡されません。この画面ではメンバーに通常どおり表示されます。",
+  backlogConfidentialBadge: "機密",
   backlogNotReadyReason: "未準備の理由",
   backlogReferenceDoc: "参考資料",
   backlogDetailTitle: "PBI の詳細",
@@ -185,6 +191,9 @@ export const en: BacklogTranslations = {
   backlogAiStop: "Stop generating",
   backlogIceboxChip: "Source request: {text}",
   backlogPoNote: "PO note",
+  backlogConfidentialLabel: "Mark as confidential",
+  backlogConfidentialHint: "A confidential PBI is never given to Claude (MCP) or the development API. Members still see it normally on this screen.",
+  backlogConfidentialBadge: "Confidential",
   backlogNotReadyReason: "Why it is not ready",
   backlogReferenceDoc: "Reference",
   backlogDetailTitle: "PBI details",
@@ -249,6 +258,9 @@ export const id: BacklogTranslations = {
   backlogAiStop: "Hentikan pembuatan",
   backlogIceboxChip: "Permintaan asal: {text}",
   backlogPoNote: "Catatan PO",
+  backlogConfidentialLabel: "Tandai sebagai rahasia",
+  backlogConfidentialHint: "PBI rahasia tidak pernah diberikan ke Claude (MCP) atau API pengembangan. Anggota tetap melihatnya seperti biasa di layar ini.",
+  backlogConfidentialBadge: "Rahasia",
   backlogNotReadyReason: "Alasan belum siap",
   backlogReferenceDoc: "Referensi",
   backlogDetailTitle: "Detail PBI",

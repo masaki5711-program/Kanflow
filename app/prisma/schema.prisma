@@ -547,6 +547,8 @@ model ProductBacklogItem {
   deletedById        String?
   /// Master-plan leaf this PBI contributes to (at most one).
   planItemId         String?
+  /// 機密 (decision D-5): never returned to the Claude-facing MCP or the /api/v1 dev API; the signed-in web UI still shows it.
+  confidential       Boolean                 @default(false)
   iceboxItem         IceboxItem?             @relation(fields: [iceboxItemId], references: [id])
   planItem           PlanItem?               @relation(fields: [planItemId], references: [id], onDelete: SetNull)
   productGoal        ProductGoal?            @relation(fields: [productGoalId], references: [id])

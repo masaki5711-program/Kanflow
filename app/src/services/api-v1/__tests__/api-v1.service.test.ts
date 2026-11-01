@@ -139,7 +139,7 @@ describe("plan, releases, activity", () => {
 
   it("reuses the activity service", async () => {
     const out = await v1.listActivity("p1", { limit: 10 })
-    expect(listProjectActivity).toHaveBeenCalledWith("p1", { limit: 10 })
+    expect(listProjectActivity).toHaveBeenCalledWith("p1", { limit: 10 }, { hideConfidential: true })
     expect(out).toEqual({ data: [{ id: "a1" }], nextCursor: "c2" })
   })
 })

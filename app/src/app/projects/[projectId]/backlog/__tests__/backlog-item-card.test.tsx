@@ -63,6 +63,24 @@ describe("BacklogItemCard", () => {
     expect(screen.getAllByText(t.sprintNotEntered).length).toBeGreaterThan(0)
   })
 
+  it("marks a confidential PBI with a badge (D-5) and shows none on a normal one", () => {
+    renderWithProviders(
+      <ul>
+        <BacklogItemCard item={pbi("s", 7, { confidential: true })} section="ready" {...PERMS} {...STATE} {...makeActions()} />
+      </ul>,
+    )
+    expect(screen.getByText(t.backlogConfidentialBadge)).toBeInTheDocument()
+  })
+
+  it("shows no confidential badge on a normal PBI", () => {
+    renderWithProviders(
+      <ul>
+        <BacklogItemCard item={pbi("n", 8)} section="ready" {...PERMS} {...STATE} {...makeActions()} />
+      </ul>,
+    )
+    expect(screen.queryByText(t.backlogConfidentialBadge)).not.toBeInTheDocument()
+  })
+
   it("renders completed items without edit, drag or menu controls", () => {
     renderWithProviders(
       <ul>

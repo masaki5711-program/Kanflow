@@ -44,6 +44,8 @@ const PBI = {
 }
 
 let patchBodies: unknown[] = []
+/** Fields merged into the PBI the mocked GET returns (reset before each test). */
+let PBI_OVERRIDE: Record<string, unknown> = {}
 let getStatus = 200
 let patchStatus = 200
 let optionGets: string[] = []
@@ -54,10 +56,11 @@ function respondGet(url: string) {
   if (url.endsWith("/goals")) return (optionGets.push("goals"), jsonResponse([{ id: "g1", title: "Goal A" }]))
   if (url.endsWith("/projects/p1")) return (optionGets.push("project"), jsonResponse({ pointUnit: "SP" }))
   if (url.includes("/comments") || url.includes("/activity")) return jsonResponse([])
-  return getStatus === 200 ? jsonResponse(PBI) : jsonResponse({ error: "not found" }, getStatus)
+  return getStatus === 200 ? jsonResponse({ ...PBI, ...PBI_OVERRIDE }) : jsonResponse({ error: "not found" }, getStatus)
 }
 
 beforeEach(() => {
+  PBI_OVERRIDE = {}
   patchBodies = []
   optionGets = []
   getStatus = 200
@@ -104,6 +107,19 @@ describe("PbiDetailModal (read mode)", () => {
     // Without edit rights there is no Edit button, and no form data is fetched.
     expect(screen.queryByRole("button", { name: t.edit })).not.toBeInTheDocument()
     expect(optionGets).toEqual([])
+  })
+
+  it("shows a confidential badge for a confidential PBI only", async () => {
+    renderModal()
+    const dialog = await screen.findByRole("dialog", { name: "Faster login" })
+    expect(within(dialog).queryByText(t.backlogConfidentialBadge)).not.toBeInTheDocument()
+  })
+
+  it("shows the badge when the PBI is confidential", async () => {
+    PBI_OVERRIDE = { confidential: true }
+    renderModal()
+    const dialog = await screen.findByRole("dialog", { name: "Faster login" })
+    expect(within(dialog).getByText(t.backlogConfidentialBadge)).toBeInTheDocument()
   })
 
   it("shows an error state with retry when loading fails", async () => {
@@ -163,6 +179,31 @@ describe("PbiDetailModal (edit mode)", () => {
     expect(screen.getByRole("button", { name: t.update })).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: t.edit })).not.toBeInTheDocument()
     await waitFor(() => expect(optionGets.sort()).toEqual(["goals", "icebox", "project"]))
+  })
+
+  it("the confidential toggle (D-5): unchecked for a normal PBI; ticking it PATCHes { confidential: true }", async () => {
+    renderModal({ editable: true })
+    await enterEditMode()
+    const toggle = screen.getByRole("checkbox", { name: t.backlogConfidentialLabel })
+    expect(toggle).not.toBeChecked()
+    expect(screen.getByText(t.backlogConfidentialHint)).toBeInTheDocument()
+    await userEvent.click(toggle)
+    await userEvent.click(screen.getByRole("button", { name: t.update }))
+    await waitFor(() => expect(patchBodies).toHaveLength(1))
+    expect(patchBodies[0]).toMatchObject({ confidential: true })
+    expect(patchBodies[0]).not.toHaveProperty("epic") // only the flipped field is sent
+  })
+
+  it("the confidential toggle starts checked for a confidential PBI and can be cleared", async () => {
+    PBI_OVERRIDE = { confidential: true }
+    renderModal({ editable: true })
+    await enterEditMode()
+    const toggle = screen.getByRole("checkbox", { name: t.backlogConfidentialLabel })
+    expect(toggle).toBeChecked()
+    await userEvent.click(toggle)
+    await userEvent.click(screen.getByRole("button", { name: t.update }))
+    await waitFor(() => expect(patchBodies).toHaveLength(1))
+    expect(patchBodies[0]).toMatchObject({ confidential: false })
   })
 
   it("initialMode=edit starts in the form", async () => {

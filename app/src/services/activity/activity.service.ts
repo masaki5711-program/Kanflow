@@ -1,7 +1,7 @@
 import { LABEL_ENTITY } from "@/lib/translation/localize-label"
 import type { EntityI18n, TranslatableEntity } from "@/lib/translation/types"
 import { labelOf, type ActivityDiff } from "@/services/_shared/activity"
-import { toPage, type Page } from "@/services/_shared/cursor"
+import { encodeCursor, toPage, type Page } from "@/services/_shared/cursor"
 import { defaultDb } from "@/services/_shared/db"
 import { getI18nFor } from "@/services/_shared/translations"
 import * as repo from "./activity.repository"
@@ -138,10 +138,78 @@ export async function withEntityI18n(items: readonly ActivityDto[]): Promise<Act
   })
 }
 
-export async function listProjectActivity(projectId: string, query: ProjectActivityQuery): Promise<Page<ActivityDto>> {
-  const rows = await repo.findProjectActivity(defaultDb, projectId, query)
-  const page = toPage(rows, query.limit, toActivityDto)
-  return { ...page, items: await withEntityI18n(await withMemberNames(await withEntityLabels(projectId, page.items))) }
+/** Rows read per round while the token feed drops hidden ones, and the most rounds before it hands back a short page. */
+const SCAN_BATCH = 100
+const MAX_SCAN_ROUNDS = 20
+
+/**
+ * Token feeds (D-5), fail closed. A row about a PBI is kept only when that PBI still exists and is not
+ * confidential. A sprint task / release row is kept only when its owning PBI is known (recorded in
+ * `meta.pbItemId` when it was written, else read from the entity if it still exists) and passes the same
+ * test; a task or release whose parent cannot be resolved (old row with no record and the entity deleted)
+ * is dropped. A release item recorded as having no PBI is kept. Other entity types carry no PBI text.
+ */
+async function visibleToTokens(rows: readonly ActivityDto[]): Promise<ActivityDto[]> {
+  const recorded = (row: ActivityDto): string | null | undefined => {
+    const meta = row.meta
+    return meta && "pbItemId" in meta ? ((meta.pbItemId as string | null | undefined) ?? null) : undefined
+  }
+  const lookup = { sprint_task: [] as string[], release: [] as string[] }
+  for (const row of rows) {
+    if ((row.entityType === "sprint_task" || row.entityType === "release") && recorded(row) === undefined) lookup[row.entityType].push(row.entityId)
+  }
+  const found = await repo.findParentPbiIds(defaultDb, lookup)
+  const live = new Map<string, string | null>([...found.tasks, ...found.releases].map((r) => [`${r.id}`, r.pbItemId]))
+  const parentOf = (row: ActivityDto): string | null | undefined => {
+    if (row.entityType === "pbi") return row.entityId
+    if (row.entityType !== "sprint_task" && row.entityType !== "release") return null
+    const rec = recorded(row)
+    return rec !== undefined ? rec : live.has(row.entityId) ? (live.get(row.entityId) ?? null) : undefined
+  }
+  const parents = rows.map(parentOf)
+  const open = await repo.findOpenPbiIds(defaultDb, parents.filter((p): p is string => typeof p === "string"))
+  return rows.filter((_, i) => {
+    const parent = parents[i]
+    if (parent === undefined) return false // unresolvable: hidden
+    return parent === null || open.has(parent)
+  })
+}
+
+export async function listProjectActivity(
+  projectId: string,
+  query: ProjectActivityQuery,
+  options: { hideConfidential?: boolean } = {}
+): Promise<Page<ActivityDto>> {
+  if (!options.hideConfidential) {
+    const rows = await repo.findProjectActivity(defaultDb, projectId, query)
+    const page = toPage(rows, query.limit, toActivityDto)
+    return { ...page, items: await withEntityI18n(await withMemberNames(await withEntityLabels(projectId, page.items))) }
+  }
+  // Token surfaces: scan newest-first, keep the visible rows until the page (and one more) is full.
+  const visible: Array<{ row: Awaited<ReturnType<typeof repo.findProjectActivity>>[number]; dto: ActivityDto }> = []
+  let cursor = query.cursor
+  let exhausted = false
+  let lastScanned: { id: string; createdAt: Date } | undefined
+  for (let round = 0; round < MAX_SCAN_ROUNDS && visible.length <= query.limit; round++) {
+    const rows = await repo.findProjectActivity(defaultDb, projectId, { ...query, cursor, limit: SCAN_BATCH })
+    const batch = rows.slice(0, SCAN_BATCH)
+    if (batch.length > 0) lastScanned = batch[batch.length - 1]
+    const dtos = batch.map(toActivityDto)
+    const keep = new Set((await visibleToTokens(dtos)).map((d) => d.id))
+    batch.forEach((row, i) => {
+      if (keep.has(row.id)) visible.push({ row, dto: dtos[i] as ActivityDto })
+    })
+    if (rows.length <= SCAN_BATCH) {
+      exhausted = true
+      break
+    }
+    cursor = lastScanned ? encodeCursor(lastScanned) : cursor
+  }
+  const full = visible.length > query.limit || exhausted
+  const pageRows = visible.slice(0, query.limit)
+  const nextCursor = full ? (visible.length > query.limit ? encodeCursor(pageRows[pageRows.length - 1]!.row) : null) : lastScanned ? encodeCursor(lastScanned) : null
+  const items = await withEntityI18n(await withMemberNames(await withEntityLabels(projectId, pageRows.map((v) => v.dto))))
+  return { items, nextCursor }
 }
 
 export async function listEntityActivity(projectId: string, ref: EntityRef, query: PageQuery): Promise<Page<ActivityDto>> {

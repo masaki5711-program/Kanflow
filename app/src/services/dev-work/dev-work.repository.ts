@@ -125,9 +125,16 @@ export function findClaim(db: Db, projectId: string, claimId: string) {
 }
 
 /** Unreleased claims of the project (PBI live) with a heartbeat since `since` (active and stale), newest heartbeat first, CLAIM_LIST_LIMIT + 1 rows. */
-export function findOpenClaims(db: Db, projectId: string, since: Date, filter: { backlogItemId?: string; taskId?: string }) {
+export function findOpenClaims(
+  db: Db,
+  projectId: string,
+  since: Date,
+  filter: { backlogItemId?: string; taskId?: string },
+  /** Token surfaces (D-5): claims on confidential PBIs are left out in the query, so pages are not short. */
+  hideConfidential = false,
+) {
   return db.workClaim.findMany({
-    where: { projectId, releasedAt: null, heartbeatAt: { gte: since }, backlogItem: NOT_DELETED, ...filter },
+    where: { projectId, releasedAt: null, heartbeatAt: { gte: since }, backlogItem: hideConfidential ? { ...NOT_DELETED, confidential: false } : NOT_DELETED, ...filter },
     select: CLAIM_SELECT,
     orderBy: [{ heartbeatAt: "desc" }, { id: "desc" }],
     take: CLAIM_LIST_LIMIT + 1,
