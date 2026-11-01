@@ -29,6 +29,8 @@ function successMessage(t: T, proposal: ChatProposal, count: number): string {
       return t.chatProposalSprintScheduled
     case "create_template":
       return t.chatProposalTemplateCreated
+    case "plan_load":
+      return t.chatProposalPlanLoaded.replace("{count}", String(proposal.itemCount))
   }
 }
 

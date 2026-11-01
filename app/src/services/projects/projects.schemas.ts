@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-export const PROJECT_TYPES = ["software", "process_improvement", "general"] as const
+export const PROJECT_TYPES = ["software", "process_improvement", "equipment", "general"] as const
 export const CARD_COLORS = ["gray", "red", "orange", "yellow", "green", "blue", "indigo", "purple", "pink"] as const
 
 export const createProjectSchema = z.object({

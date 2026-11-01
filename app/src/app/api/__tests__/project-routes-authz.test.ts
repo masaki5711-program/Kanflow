@@ -231,6 +231,7 @@ const ROUTES: RouteCase[] = [
   { file: "plan/bulk/route.ts", load: () => import("@/app/api/projects/[projectId]/plan/bulk/route"), params: {} },
   { file: "plan/import/route.ts", load: () => import("@/app/api/projects/[projectId]/plan/import/route"), params: {} },
   { file: "plan/schedule-from/route.ts", load: () => import("@/app/api/projects/[projectId]/plan/schedule-from/route"), params: {} },
+  { file: "plan/load/route.ts", load: () => import("@/app/api/projects/[projectId]/plan/load/route"), params: {} },
   { file: "plan/templates/apply/route.ts", load: () => import("@/app/api/projects/[projectId]/plan/templates/apply/route"), params: {} },
   { file: "plan/templates/applications/route.ts", load: () => import("@/app/api/projects/[projectId]/plan/templates/applications/route"), params: {} },
   { file: "plan/templates/save/route.ts", load: () => import("@/app/api/projects/[projectId]/plan/templates/save/route"), params: {} },

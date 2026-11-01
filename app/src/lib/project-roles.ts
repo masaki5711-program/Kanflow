@@ -28,6 +28,11 @@ const ROLE_SHORT: Record<ProjectType, Record<Language, ShortSet>> = {
     en: { po: "Owner", sm: "Facilitator", dev: "Member" },
     id: { po: "Pemilik", sm: "Fasilitator", dev: "Anggota" },
   },
+  equipment: {
+    ja: { po: "責任者", sm: "進行", dev: "メンバー" },
+    en: { po: "Owner", sm: "Coordinator", dev: "Member" },
+    id: { po: "Penanggung jawab", sm: "Koordinator", dev: "Anggota" },
+  },
   general: {
     ja: { po: "オーナー", sm: "ファシリ", dev: "メンバー" },
     en: { po: "Owner", sm: "Facilitator", dev: "Member" },

@@ -44,6 +44,7 @@ export default async function ProjectLayout({
   const showSettings = accessVia(actor) !== "section_manager"
   const showChat = can(actor, "ai.use")
   // Git UI exists only while the project has the integration switched on (default off, so teams without Git never see it).
+  // The Git entry follows the project's own integration switch for every type (an equipment project simply has it off).
   const showGit = project.gitIntegration?.enabled ?? false
 
   const projectType = (project.projectType as ProjectType) ?? "software"

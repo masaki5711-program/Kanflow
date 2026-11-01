@@ -9,6 +9,7 @@ import type {
   CreateIceboxProposal,
   CreateTemplateProposal,
   PlanEditProposal,
+  PlanLoadProposal,
   PlanOp,
   SprintPbiProposal,
   SprintScheduleProposal,
@@ -171,6 +172,32 @@ export function TemplateBody({ p, t }: { p: CreateTemplateProposal; t: T }) {
         {fillTemplate(t.chatProposalStages, { count: p.stageCount })} · {p.visibility === "private" ? t.chatProposalVisibilityPrivate : t.chatProposalVisibilityPublic}
       </p>
       <StageTree nodes={content.stages} t={t} />
+    </>
+  )
+}
+
+export function PlanLoadBody({ p, t }: { p: PlanLoadProposal; t: T }) {
+  return (
+    <>
+      <p className="font-semibold">{p.name}</p>
+      <p className="text-caption text-fg-muted">
+        {fillTemplate(t.chatProposalPlanLoadSummary, { count: p.itemCount, deps: p.dependencyCount, start: p.plannedStart, end: p.plannedEnd })}
+      </p>
+      <ul className="space-y-0.5 text-caption">
+        {p.preview.map((row, i) => (
+          <li key={i} className="flex flex-wrap gap-x-2">
+            <span className="font-medium">{row.name}</span>
+            <span className="text-fg-muted">{row.plannedStart} – {row.plannedEnd}</span>
+            {row.isMilestone && <Badge tone="neutral">◆</Badge>}
+            {row.children > 0 && (
+              <ul className="basis-full pl-4 text-fg-muted">
+                {(row.childNames ?? []).map((name, j) => <li key={j} className="list-disc">{name}</li>)}
+                {row.children > (row.childNames ?? []).length && <li className="list-none">{fillTemplate(t.chatProposalPlanLoadMore, { count: row.children - (row.childNames ?? []).length })}</li>}
+              </ul>
+            )}
+          </li>
+        ))}
+      </ul>
     </>
   )
 }

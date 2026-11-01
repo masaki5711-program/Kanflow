@@ -3,6 +3,7 @@ import { logActivity } from "@/services/_shared/activity"
 import { defaultDb, withTransaction, type Db } from "@/services/_shared/db"
 import { NotFoundError, ValidationError } from "@/services/_shared/errors"
 import { parsePbiRef } from "@/services/_shared/pbi-ref"
+import { defaultEvidenceKind } from "@/lib/project-features"
 import * as repo from "./acceptance-criteria.repository"
 import { toAcceptanceCriterionDto } from "./acceptance-criteria.view"
 import {
@@ -77,6 +78,8 @@ export async function createAcceptanceCriterion(projectId: string, pbiRef: strin
   return withTransaction(
     async (tx) => {
       const pbi = await loadPbi(tx, projectId, pbiRef)
+      // No kind given: the project type decides (software -> test, equipment -> inspection, process improvement -> measurement).
+      if (!fields.evidenceKind) fields.evidenceKind = defaultEvidenceKind(pbi.project.projectType)
       await repo.lockPbi(tx, pbi.id)
       if ((await repo.countLive(tx, pbi.id)) >= AC_MAX_PER_PBI) {
         throw new ValidationError(`A PBI has at most ${AC_MAX_PER_PBI} acceptance criteria`, {}, "AC_LIMIT_REACHED")

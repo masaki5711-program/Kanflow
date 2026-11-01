@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
  * lock gives. Each read yields to the event loop so interleavings would show without the lock.
  */
 type Row = { id: string; pbiId: string; seq: number; given: string | null; when: string | null; then: string | null; text: string | null; evidenceKind: string | null; deletedAt: Date | null }
-const store = vi.hoisted(() => ({ rows: [] as Row[], tail: Promise.resolve(), events: [] as string[], isolation: [] as Array<string | undefined> }))
+const store = vi.hoisted(() => ({ rows: [] as Row[], tail: Promise.resolve(), projectType: "software" as string, events: [] as string[], isolation: [] as Array<string | undefined> }))
 const tick = () => new Promise((r) => setTimeout(r, 1))
 
 vi.mock("@/services/_shared/db", () => ({
@@ -24,7 +24,7 @@ vi.mock("@/services/_shared/db", () => ({
 vi.mock("@/services/_shared/activity", () => ({ logActivity: vi.fn(async () => undefined) }))
 vi.mock("../acceptance-criteria.repository", () => ({
   findPbi: vi.fn(async (_db: unknown, projectId: string, ref: { id?: string; displayId?: number }) =>
-    projectId === "p1" && (ref.id === "b1" || ref.displayId === 12) ? { id: "b1", displayId: 12, initiative: "Login", userStory: null } : null
+    projectId === "p1" && (ref.id === "b1" || ref.displayId === 12) ? { id: "b1", displayId: 12, initiative: "Login", userStory: null, project: { projectType: store.projectType } } : null
   ),
   lockPbi: vi.fn(async (tx: { release?: () => void }) => {
     const prev = store.tail
@@ -66,6 +66,7 @@ beforeEach(() => {
   store.rows = []
   store.tail = Promise.resolve()
   store.events = []
+  store.projectType = "software"
   store.isolation = []
   vi.clearAllMocks()
 })
@@ -115,6 +116,22 @@ describe("createAcceptanceCriterion", () => {
   it("records an activity entry on the PBI naming the criterion", async () => {
     await add("a")
     expect(activity.logActivity).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ entityType: "pbi", entityId: "b1", diff: expect.objectContaining({ meta: { acceptanceCriterion: "PBI-12/AC-1", change: "added" } }) }))
+  })
+})
+
+describe("default evidence kind by project type (W12)", () => {
+  it.each([["software", "test"], ["equipment", "inspection"], ["process_improvement", "measurement"]])("%s -> %s when none is given", async (type, kind) => {
+    store.projectType = type
+    expect((await add("x")).evidenceKind).toBe(kind)
+    expect((await add("y", { evidenceKind: null })).evidenceKind).toBe(kind)
+  })
+  it("general keeps it undecided", async () => {
+    store.projectType = "general"
+    expect((await add("x")).evidenceKind).toBeNull()
+  })
+  it("an explicit kind always wins", async () => {
+    store.projectType = "equipment"
+    expect((await add("x", { evidenceKind: "approval" })).evidenceKind).toBe("approval")
   })
 })
 

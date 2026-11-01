@@ -77,6 +77,11 @@ export interface ApiErrorsTranslations {
   apiErrPlanTemplateNotBuiltin: string
   apiErrPlanTemplateTooLarge: string
   apiErrPlanTemplateEmpty: string
+  apiErrPlanScheduleTooLarge: string
+  apiErrPlanScheduleTooDeep: string
+  apiErrPlanScheduleInvalid: string
+  apiErrPlanProposalTooLarge: string
+  apiErrPlanAlreadyLoaded: string
   apiErrFileRequired: string
   apiErrFileEmpty: string
   apiErrFileMissing: string
@@ -196,6 +201,11 @@ export const API_ERROR_MESSAGE_KEYS: Readonly<Record<ApiErrorCode, ApiErrorMessa
   PLAN_TEMPLATE_NOT_BUILTIN: "apiErrPlanTemplateNotBuiltin",
   PLAN_TEMPLATE_TOO_LARGE: "apiErrPlanTemplateTooLarge",
   PLAN_TEMPLATE_EMPTY: "apiErrPlanTemplateEmpty",
+  PLAN_SCHEDULE_TOO_LARGE: "apiErrPlanScheduleTooLarge",
+  PLAN_SCHEDULE_TOO_DEEP: "apiErrPlanScheduleTooDeep",
+  PLAN_SCHEDULE_INVALID: "apiErrPlanScheduleInvalid",
+  PLAN_PROPOSAL_TOO_LARGE: "apiErrPlanProposalTooLarge",
+  PLAN_ALREADY_LOADED: "apiErrPlanAlreadyLoaded",
   FILE_REQUIRED: "apiErrFileRequired",
   FILE_EMPTY: "apiErrFileEmpty",
   FILE_MISSING: "apiErrFileMissing",
@@ -322,6 +332,11 @@ export const ja: ApiErrorsTranslations = {
   apiErrPlanTemplateNotBuiltin: "デフォルトに戻せるのは共通テンプレートだけです",
   apiErrPlanTemplateTooLarge: "計画が大きすぎるためテンプレートにできません（3階層・200項目まで）",
   apiErrPlanTemplateEmpty: "読み込む・保存する工程がありません",
+  apiErrPlanScheduleTooLarge: "計画は 500 件までです",
+  apiErrPlanScheduleTooDeep: "計画の階層は 5 段までです",
+  apiErrPlanScheduleInvalid: "計画の内容（キー・依存）に誤りがあります",
+  apiErrPlanProposalTooLarge: "計画が大きすぎて提案にできません",
+  apiErrPlanAlreadyLoaded: "この計画の読み込みは、すでにこのプロジェクトに反映済みです",
   apiErrFileRequired: "ファイルがありません",
   apiErrFileEmpty: "ファイルが空です",
   apiErrFileMissing: "ファイルが見つかりません",
@@ -442,6 +457,11 @@ export const en: ApiErrorsTranslations = {
   apiErrPlanTemplateNotBuiltin: "Only common templates can be reset to the default",
   apiErrPlanTemplateTooLarge: "The plan is too large to save as a template (3 levels, 200 items max)",
   apiErrPlanTemplateEmpty: "There are no stages to load or save",
+  apiErrPlanScheduleTooLarge: "A schedule has at most 500 items",
+  apiErrPlanScheduleTooDeep: "A schedule is at most 5 levels deep",
+  apiErrPlanScheduleInvalid: "The schedule has an invalid key or dependency",
+  apiErrPlanProposalTooLarge: "The schedule is too large to propose",
+  apiErrPlanAlreadyLoaded: "This plan proposal was already loaded into this project",
   apiErrFileRequired: "No file was provided",
   apiErrFileEmpty: "The file is empty",
   apiErrFileMissing: "The file was not found",
@@ -562,6 +582,11 @@ export const id: ApiErrorsTranslations = {
   apiErrPlanTemplateNotBuiltin: "Hanya templat umum yang dapat dikembalikan ke default",
   apiErrPlanTemplateTooLarge: "Rencana terlalu besar untuk disimpan sebagai templat (maks. 3 tingkat, 200 item)",
   apiErrPlanTemplateEmpty: "Tidak ada tahapan untuk dimuat atau disimpan",
+  apiErrPlanScheduleTooLarge: "Jadwal maksimal 500 item",
+  apiErrPlanScheduleTooDeep: "Jadwal maksimal 5 tingkat",
+  apiErrPlanScheduleInvalid: "Jadwal memiliki kunci atau ketergantungan yang tidak valid",
+  apiErrPlanProposalTooLarge: "Jadwal terlalu besar untuk diusulkan",
+  apiErrPlanAlreadyLoaded: "Usulan rencana ini sudah dimuat ke proyek ini",
   apiErrFileRequired: "Tidak ada file yang dikirim",
   apiErrFileEmpty: "File kosong",
   apiErrFileMissing: "File tidak ditemukan",

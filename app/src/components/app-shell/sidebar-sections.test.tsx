@@ -76,6 +76,22 @@ function Shell({ children }: { children: ReactNode }) {
 const stored = () => JSON.parse(window.localStorage.getItem(SIDEBAR_COLLAPSE_KEY) ?? "[]") as string[]
 const projectNav = () => screen.getByRole("navigation", { name: t.navProjectMenu })
 
+describe("planFirst (W12)", () => {
+  const pt = { navIcebox: "I", navBacklog: "B", navSprints: "S", navReleases: "R", navReleasesDesc: "" } as never
+  const hrefs = (g: ReturnType<typeof buildSidebarGroups>, id: string) => g.find((x) => x.id === id)?.items.map((i) => i.href.split("/").pop())
+  it("puts 全体計画 first in the first section instead of the plan section", () => {
+    const g = buildSidebarGroups("p1", t, pt, { planFirst: true })
+    expect(hrefs(g, "execute")?.[0]).toBe("plan")
+    expect(hrefs(g, "plan")).not.toContain("plan")
+  })
+  it("keeps the usual place by default and hides 開発（Git） unless asked", () => {
+    const g = buildSidebarGroups("p1", t, pt)
+    expect(hrefs(g, "execute")).not.toContain("plan")
+    expect(hrefs(g, "plan")?.[0]).toBe("plan")
+    expect(hrefs(g, "execute")).not.toContain("git")
+  })
+})
+
 describe("findActiveGroupId", () => {
   const pt = { navIcebox: "I", navBacklog: "B", navSprints: "S", navReleases: "R" } as never
   const groups = buildSidebarGroups("p1", t, pt, { showTrash: true })

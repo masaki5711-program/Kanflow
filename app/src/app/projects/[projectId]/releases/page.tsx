@@ -45,9 +45,9 @@ function UploadIcon() {
  */
 export default function ReleasesPage() {
   const { projectType } = useLanguage()
-  if (projectType !== "general" && projectType !== "process_improvement") return <SoftwareReleasesPage />
+  if (projectType !== "general" && projectType !== "process_improvement" && projectType !== "equipment") return <SoftwareReleasesPage />
   // The boards read ?item= / ?stage= (useSearchParams needs a Suspense boundary above it).
-  return <Suspense fallback={<SkeletonCard />}>{projectType === "general" ? <MilestoneBoardPage /> : <ImprovementBoardPage />}</Suspense>
+  return <Suspense fallback={<SkeletonCard />}>{projectType === "general" || projectType === "equipment" ? <MilestoneBoardPage /> : <ImprovementBoardPage />}</Suspense>
 }
 
 function SoftwareReleasesPage() {

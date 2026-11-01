@@ -24,6 +24,7 @@ export function requiredAction(proposal: ChatProposal): ProjectAction {
     case "sprint_schedule":
       return "sprint.manage"
     case "plan_edit":
+    case "plan_load":
       return "plan.write"
     case "create_template":
       return "project.view" // any signed-in user may create a template (POST /api/plan-templates)
@@ -80,6 +81,8 @@ export function proposalRequests(projectId: string, proposal: ChatProposal): Pro
     }
     case "plan_edit":
       return proposal.ops.flatMap((op) => planOpRequests(base, op))
+    case "plan_load":
+      return [{ url: `${base}/plan/load`, method: "POST", json: { startDate: proposal.startDate, schedule: proposal.schedule, proposalId: proposal.proposalId } }]
     case "sprint_schedule":
       return [{
         url: `${base}/sprints/${encodeURIComponent(proposal.sprint.id)}`,
@@ -142,6 +145,7 @@ export function proposalResultHref(projectId: string, proposal: ChatProposal, cr
     case "sprint_schedule":
       return `${base}/sprints`
     case "plan_edit":
+    case "plan_load":
       return `${base}/plan`
     case "create_template":
       return "/templates"

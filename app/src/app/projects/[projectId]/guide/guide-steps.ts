@@ -44,7 +44,7 @@ function withVisuals(steps: StepText[]): StepData[] {
 }
 
 export function getSteps(projectType: ProjectType, pt: ProjectTypeLabels, language: Language): StepData[] {
-  if (projectType === "process_improvement") return withVisuals(processImprovementSteps(pt)[language])
+  if (projectType === "process_improvement" || projectType === "equipment") return withVisuals(processImprovementSteps(pt)[language])
   if (projectType === "general") return withVisuals(generalSteps(pt)[language])
   return withVisuals(SOFTWARE_STEPS[language])
 }

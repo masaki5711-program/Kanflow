@@ -130,6 +130,13 @@
 - 工程改善: フレームワークの段（仕様の文書）と全体計画の段を結び付け、段ごとの完了の条件の抜けを知らせる。W11 の教訓に、設備・工程のマスタの ID と分類を鍵として足す。
 - DB: Kanflow は運用中なので、PostgreSQL への移行は本番サーバー（PFS）へ移すときに行う（ユーザーの決定、2026-10-31）。それまでの新しい表（W4・W11・W12）は MySQL 8.4 で作る。移行を楽にするため、Prisma の型と問い合わせだけを使い、MySQL に固有の SQL（`GET_LOCK`、MySQL の関数、`ON DUPLICATE KEY` など）を新しく書かない。生の SQL が要るとき（行のロック `FOR UPDATE` など）は、両方の DB で同じ意味の書き方にして、移行のときのテストの対象として一覧に残す。
 
+- 実装メモ（2026-11-01、Kanflow 側。ブランチ `feat/L4-NOPBI-equipment-projects`）:
+  - **プロジェクトの種類 `equipment`**: `projectType` は文字列の列なのでマイグレーション無し。`PROJECT_TYPES`（検証）、作成画面の選択肢、一覧のフィルター、ラベル（`project-type-labels.ts`、工程改善の言葉をもとに「導入項目」「検収の条件」など ja / en / id）、役割の短い名前、ガイド、`/releases` は「マイルストーン・検収」の画面（`general` と同じ）。
+  - **出し分け**: `src/lib/project-features.ts` の `projectFeatures(type)` が唯一の判定（`gitPanel` / `workClaimBranch` / `acTestTable` / `outsideScopeWarnings` は `software` のみ、`planProminent` は `equipment` / `process_improvement`）。使用箇所: プロジェクトの layout（Git の項目）、サイドバー（全体計画を最初の区画の先頭へ）、作業の宣言の枠（ブランチ・範囲外の変更の警告）。**未実装**: AC とテストの対応表の画面そのもの（W5 の続き。フラグ `acTestTable` だけ用意）、仕様書の一覧・決めるべき項目の進み具合の表示（GitStation の M3 以降）。
+  - **AC の証拠の既定**: 証拠の種類を指定せずに AC を作ると、`software` → `test`、`equipment` → `inspection`、`process_improvement` → `measurement`（`general` は未決のまま）。`defaultEvidenceKind()`、`acceptance-criteria.service.ts`。
+  - **MCP `get_plan` / `propose_plan_items`**（`app/src/app/api/mcp/_lib/plan-tools.ts`）: `propose_plan_items` は計画を書かない。ベースのスケジュール（木: `key` / `name` / `durationDays` / `milestone` / `dependsOn` / `children`、500 件・5 段まで、循環・自分・祖先への依存は拒否）＋開始日から、既存の AI チャットの承認カード（新しい種類 `plan_load`）を、トークンの持ち主の新しいチャットのスレッドに 1 つ置く。承認（PO / SM の `plan.write`）で `POST /api/projects/:id/plan/load` が日付を**サーバーで計算し直して**行・依存・進み具合の集計を 1 つのトランザクションで作る。**スコープ**: `plan:write` は無く、`backlog:write`（`backlog.write` と `plan.write` は PO / SM の同じ役割）が最小の既存のスコープ。承認の側で `plan.write` を確かめる。日付の計算は「日程を仮置き」の `scheduleFrom` を再利用（`src/lib/plan-schedule/base-schedule.ts`）。DB の変更なし（Prisma の型と問い合わせのみ。MySQL 固有の SQL は無い）。
+  - **未解決**: ① カード 1 枚は 60 KB のスレッドの欄に収まる大きさまで（超えると `PLAN_PROPOSAL_TOO_LARGE`。500 件でも短い名前なら収まる）。② ベースのスケジュールの YAML → JSON はエージェント側（`spec-authoring` スキル）の仕事。③ `/plan/load` は v1 の REST には足していない（セッションの REST のみ）。
+
 ## 10. W13 デプロイ・W14 ローカル LLM（Kanflow の分）
 
 - W13: リリースの画面に「stg に出す」「本番に出す」「1 つ前の版に戻す」。GitStation のデプロイの API を押した本人の SSO のトークンで呼ぶ（代理アカウントは使わない）。本番の承認は承認待ちに入れる。進み具合と結果は GitStation のイベントで表示し、成功でリリースの状態と日付を更新。

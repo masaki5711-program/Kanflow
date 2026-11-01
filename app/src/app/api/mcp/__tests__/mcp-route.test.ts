@@ -53,8 +53,9 @@ const API_ACTOR = { userId: "u1", userName: "Dev One", systemRole: "member", via
 const MCP_ACTOR = { ...API_ACTOR, via: "mcp" }
 const GITLAB = "gitlab.scm.service.infosys.yamaha.com"
 
-const READ_TOOLS = ["whoami", "list_projects", "resolve_project", "get_backlog", "get_pbi", "list_sprints", "get_sprint_tasks", "my_tasks", "get_activity", "list_comments", "list_claims", "search_lessons"]
+const READ_TOOLS = ["whoami", "list_projects", "resolve_project", "get_backlog", "get_pbi", "list_sprints", "get_sprint_tasks", "my_tasks", "get_activity", "list_comments", "list_claims", "search_lessons", "get_plan"]
 const WRITE_TOOLS = [
+  "propose_plan_items",
   "report_failure",
   "report_resolution",
   "create_pbi",

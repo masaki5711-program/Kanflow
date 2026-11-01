@@ -6,7 +6,7 @@ import { AC_SELECT } from "./acceptance-criteria.view"
 export function findPbi(db: Db, projectId: string, ref: { id: string } | { displayId: number }) {
   return db.productBacklogItem.findFirst({
     where: { projectId, ...NOT_DELETED, ...("id" in ref ? { id: ref.id } : { displayId: ref.displayId }) },
-    select: { id: true, displayId: true, initiative: true, userStory: true },
+    select: { id: true, displayId: true, initiative: true, userStory: true, project: { select: { projectType: true } } },
   })
 }
 

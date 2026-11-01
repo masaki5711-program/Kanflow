@@ -8,7 +8,7 @@ import { getTranslations } from "@/lib/i18n"
 const pick = (l: { rolePO: string; roleSM: string; roleDev: string }) => [l.rolePO, l.roleSM, l.roleDev]
 
 describe("project-type-labels", () => {
-  const types: ProjectType[] = ["software", "process_improvement", "general"]
+  const types: ProjectType[] = ["software", "process_improvement", "equipment", "general"]
 
   it("provides a full, non-empty label set for every language and type", () => {
     const reference = Object.keys(getProjectTypeLabels("software", "ja")).sort()
