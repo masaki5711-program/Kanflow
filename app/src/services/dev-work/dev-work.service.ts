@@ -45,6 +45,7 @@ import {
   claimSettings,
   isClaimActive,
   overlappingClaims,
+  scopeDeclaredAt,
   scopeOf,
   staleBefore,
   toBoardOverlapDto,
@@ -317,7 +318,7 @@ const SCOPE_REFUSAL_TEXT: Record<string, string> = {
   empty: "is empty",
   absolute: "is absolute (give a path relative to the repository root)",
   parent: 'contains ".."',
-  pattern: "contains a pattern character (* ? [ ]); declare the directory instead",
+  pattern: "contains a glob character (* ?); declare the directory instead",
   control: "contains a control character",
   too_long: "is longer than 300 characters",
 }
@@ -426,6 +427,21 @@ export interface BoardClaimList {
 
 const jsonStrings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string").slice(0, 20) : [])
 
+/**
+ * W4: the PBI's open MRs with changes outside the declared scope — only while an active claim
+ * of the PBI has a scope, and only results checked after its current scope was declared (an
+ * older check belongs to a previous scope: hidden until the sync rechecks it).
+ */
+async function currentOutsideScopeLinks(pbiId: string, rows: readonly ClaimRow[], now: Date, hours: number) {
+  const declared = rows
+    .filter((r) => isClaimActive(r, now, hours) && (r.scopes?.length ?? 0) > 0)
+    .map((r) => scopeDeclaredAt(r)?.getTime() ?? Number.NEGATIVE_INFINITY)
+  if (declared.length === 0) return []
+  const since = Math.max(...declared)
+  const links = await repo.findOutsideScopeLinks(defaultDb, pbiId)
+  return links.filter((l) => l.scopeCheckedAt !== null && l.scopeCheckedAt.getTime() >= since)
+}
+
 /** W4: overlap warnings on the active claims of a screen (one extra read, only when one of them declared a scope). */
 async function withOverlaps(projectId: string, rows: readonly ClaimRow[], dtos: BoardClaimDto[], now: Date, hours: number): Promise<BoardClaimDto[]> {
   const scoped = rows.filter((r) => isClaimActive(r, now, hours) && (r.scopes?.length ?? 0) > 0)
@@ -458,7 +474,7 @@ export async function listBoardClaims(projectId: string, scope: BoardClaimScope,
   const truncated = rows.length > repo.CLAIM_LIST_LIMIT
   const shown = rows.slice(0, repo.CLAIM_LIST_LIMIT)
   const data = await withOverlaps(projectId, shown, shown.map((r) => toBoardClaimDto(r, now, hours)), now, hours)
-  const outside = pbiId === null ? null : await repo.findOutsideScopeLinks(defaultDb, pbiId)
+  const outside = pbiId === null ? null : await currentOutsideScopeLinks(pbiId, shown, now, hours)
   return {
     data,
     staleAfterHours: hours,

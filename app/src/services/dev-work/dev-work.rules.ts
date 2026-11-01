@@ -83,12 +83,21 @@ export interface ClaimRow {
   task: { id: string; taskName: string | null; sprintId: string } | null
   user: { id: string; name: string }
   /** 触る範囲 (W4), as stored (unsorted); absent in rows read without it. */
-  scopes?: ReadonlyArray<{ kind: string; value: string }>
+  scopes?: ReadonlyArray<{ kind: string; value: string; createdAt?: Date }>
+}
+
+/** When the claim's current scope was declared (its rows are replaced as a whole), or null without one. */
+export function scopeDeclaredAt(row: Pick<ClaimRow, "scopes">): Date | null {
+  let latest: number | null = null
+  for (const e of row.scopes ?? []) if (e.createdAt && (latest === null || e.createdAt.getTime() > latest)) latest = e.createdAt.getTime()
+  return latest === null ? null : new Date(latest)
 }
 
 /** A claim's stored scope as entries (unknown kinds dropped), sorted (dev-work.scope sortScope). */
 export function scopeOf(row: Pick<ClaimRow, "scopes">): ScopeEntry[] {
-  return sortScope((row.scopes ?? []).filter((e): e is ScopeEntry => (SCOPE_KINDS as readonly string[]).includes(e.kind)))
+  return sortScope(
+    (row.scopes ?? []).filter((e) => (SCOPE_KINDS as readonly string[]).includes(e.kind)).map((e) => ({ kind: e.kind as ScopeEntry["kind"], value: e.value })),
+  )
 }
 
 type ClaimKey = Pick<ClaimRow, "id" | "backlogItemId" | "taskId" | "userId" | "sessionId" | "heartbeatAt" | "releasedAt">

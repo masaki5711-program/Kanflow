@@ -259,15 +259,19 @@ set. Code: `app/src/services/dev-work/dev-work.scope.ts` (pure rules).
   a trailing `/**` or `/*` dropped (a directory covers everything below it);
   case is kept and compared exactly. Refused with `400 SCOPE_INVALID` (the
   message names the first bad entry, `scope[i] …`): empty, absolute (`/x`,
-  `C:/x`, `~/x`, `\\server`), a `..` segment, other pattern characters
-  (`* ? [ ]`), control characters, more than 300 characters. Exact duplicates
+  `C:/x`, `~/x`, `\\server`), a `..` segment, glob characters `* ?` (`[` and
+  `]` are ordinary path characters, e.g. Next.js `[projectId]`), control
+  characters, more than 300 characters. Exact duplicates
   collapse; more than **200** distinct entries → `400 SCOPE_TOO_LARGE` (the raw
   array is bounded at 1000 → `400 VALIDATION`).
 - **Overlap** (a WARNING, never a refusal): path × path when equal or one is a
   prefix of the other on a `/` boundary (`app/src` covers `app/src/x.ts`, not
   `app/srcx`); module × module when equal; module × path when the module's
   segments appear contiguously among the path's (`forge-auth` covers
-  `crates/forge-auth/src/lib.rs`). Compared with every other **active** claim of
+  `crates/forge-auth/src/lib.rs`), or when the path is a directory containing a
+  **known** location of the module (`crates` × `forge-auth` once some declared
+  path of the project's claims shows `crates/forge-auth/…`; without such a path
+  the module's location is unknown and they do not overlap). Compared with every other **active** claim of
   the project that declared a scope (released and stale claims never count;
   the claim itself never; another session of the same user does).
 - Answer: `scope` (stored, normalized, sorted) and `overlaps: [{ claimId,
@@ -285,10 +289,17 @@ set. Code: `app/src/services/dev-work/dev-work.scope.ts` (pure rules).
   sync, i.e. after a push) with the scope of the PBI's active claims — those on
   the MR's source branch, else all of them — and records the files outside it on
   the MR link (`git_link.outsideScopeCount` / `outsideScopePaths` /
-  `scopeCheckedAt`); the PBI panel shows it as one line. Warning only. GitLab
-  cost: `GET /projects/:id/merge_requests/:iid/diffs` (≤ 3 pages of 100 files,
-  diff text included; `/changes` on GitLab < 15.7) per checked MR, at most 10 MRs
-  per repository and sync, and only when the PBI has an active claim with a scope.
+  `scopeCheckedAt`); the PBI panel shows it as one line. Warning only. Changed
+  files are compared literally (trimmed, `\` → `/`); an absolute or `..` path
+  is skipped and logged, never counted. Open MR links never checked, or checked
+  before the PBI's current scope was declared, are rechecked by the next sync
+  without a push; a failed lookup clears the link's result (never shown as
+  current). The panel shows a result only while an active claim of the PBI has a
+  scope, and only if it was checked after that scope was declared. GitLab cost:
+  `GET /projects/:id/merge_requests/:iid/diffs` (≤ 3 pages of 100 files, diff text
+  included; `/changes` on GitLab < 15.7) per checked MR, at most 10 MRs and 20 s
+  per repository and sync (fresh MRs first, then rechecks); a project without a
+  scoped active claim costs one database query and no request.
 
 **MR links** — the URL must be `https://<host>/<group>/<repo>/-/merge_requests/<iid>`
 (a sub-page such as `/diffs`, a query or a fragment is dropped) on a host in

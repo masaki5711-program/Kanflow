@@ -151,4 +151,13 @@ describe("PBI 担当中 panel", () => {
     expect(document.querySelector("[data-claim-overlap]")).toBeNull()
     expect(document.querySelector("[data-claim-scope]")).toBeNull()
   })
+
+  it("user data is inserted literally: $& / $' / {paths} in a name or path are not expanded", async () => {
+    const overlap = { claimId: "o1", user: { id: "u9", name: "A$&B {paths}" }, ai: false, pbi: { id: "b2", displayId: 2 }, paths: ["app/$'x/[id]"], pathCount: 1 }
+    claims = [c({ overlaps: [overlap] })]
+    outsideScope = [{ linkId: "l1", ref: "7", title: "t", url: "https://gitlab.example/x", repository: "api", count: 1, paths: ["{count}$&.ts"], checkedAt: null }]
+    renderPanel()
+    expect(await screen.findByText("Overlaps with A$&B {paths}'s work: app/$'x/[id]")).toBeInTheDocument()
+    expect(screen.getByText("!7 also changes 1 files outside the declared scope: {count}$&.ts")).toBeInTheDocument()
+  })
 })

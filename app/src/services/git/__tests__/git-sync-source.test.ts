@@ -154,7 +154,7 @@ describe("syncRepository through a DevSource", () => {
     workClaimFindMany.mockResolvedValue([{ backlogItemId: "b-3", branch: "feature/PBI-3", scopes: [{ kind: "path", value: "app/in" }] }])
     const result = await syncRepository("r1", undefined, NOW)
     expect(result.ok).toBe(true)
-    expect(workClaimFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ backlogItemId: { in: ["b-3"] } }) }))
+    expect(workClaimFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ projectId: "p1" }) }))
     expect(changedPaths).toHaveBeenCalledWith("12")
     expect(gitLinkUpdateMany).toHaveBeenCalledWith({
       where: { repositoryId: "r1", kind: "mr", ref: "12", backlogItemId: "b-3" },

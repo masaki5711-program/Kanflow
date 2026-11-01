@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest"
 import {
+  changedFilePath,
   entriesOverlap,
+  moduleLocations,
   normalizeScope,
   normalizeScopeValue,
   outsideScope,
@@ -27,6 +29,9 @@ describe("normalizeScopeValue", () => {
     ["app/src/*", "app/src"],
     ["App/Src/X.ts", "App/Src/X.ts"],
     ["docs/日本語.md", "docs/日本語.md"],
+    // "[" / "]" are ordinary path characters (Next.js dynamic routes)
+    ["app/src/app/projects/[projectId]/page.tsx", "app/src/app/projects/[projectId]/page.tsx"],
+    ["app/src/app/api/v1/projects/[projectId]/dev/**", "app/src/app/api/v1/projects/[projectId]/dev"],
   ])("path %j → %j (relative POSIX, case kept)", (raw, want) => {
     expect(normalizeScopeValue("path", raw)).toEqual({ ok: true, value: want })
   })
@@ -43,7 +48,6 @@ describe("normalizeScopeValue", () => {
     ["app/../secret", "parent"],
     ["..", "parent"],
     ["app/src/*.ts", "pattern"],
-    ["app/[ab]/x", "pattern"],
     ["app/x?.ts", "pattern"],
     ["app/\u0000x", "control"],
     ["app/\nx", "control"],
@@ -154,7 +158,7 @@ describe("scopeOverlaps", () => {
 })
 
 describe("outsideScope (changed files of a merge request vs a declared scope)", () => {
-  const scope = [p("app/src/services/dev-work"), p("docs/api-v1.md"), mod("forge-auth")]
+  const scope = [p("app/src/services/dev-work"), p("docs/api-v1.md"), mod("forge-auth"), p("app/src/app/projects/[projectId]")]
 
   it("keeps only the files no entry covers, in input order, deduplicated", () => {
     const changed = [
@@ -165,15 +169,64 @@ describe("outsideScope (changed files of a merge request vs a declared scope)", 
       "docs/api-v1.md.bak",
       "app/src/services/git/git-sync.ts",
     ]
-    expect(outsideScope(changed, scope)).toEqual(["app/src/services/git/git-sync.ts", "docs/api-v1.md.bak"])
+    expect(outsideScope(changed, scope)).toEqual({ outside: ["app/src/services/git/git-sync.ts", "docs/api-v1.md.bak"], unusable: [] })
   })
 
-  it("an unusable changed path (absolute, ..) is reported as outside, never silently dropped", () => {
-    expect(outsideScope(["/etc/passwd", "../x"], scope)).toEqual(["/etc/passwd", "../x"])
+  it("real file names with [ ] * ? ~, control-free long names are compared literally (not refused like a declaration)", () => {
+    const long = `app/src/app/projects/[projectId]/${"n".repeat(400)}.tsx`
+    const changed = [
+      "app/src/app/projects/[projectId]/sprints/page.tsx",
+      "app/src/app/projects/[projectId]/page.tsx",
+      long,
+      "app/src/app/projects/[slug]/page.tsx",
+      "~weird/file?.ts",
+      "docs/a*b.md",
+    ]
+    expect(outsideScope(changed, scope)).toEqual({ outside: ["app/src/app/projects/[slug]/page.tsx", "~weird/file?.ts", "docs/a*b.md"], unusable: [] })
+  })
+
+  it("an absolute or '..' changed path is unusable: reported separately, never counted as outside", () => {
+    expect(outsideScope(["/etc/passwd", "../x", "C:/x", "docs/api-v1.md"], scope)).toEqual({ outside: [], unusable: ["/etc/passwd", "../x", "C:/x"] })
   })
 
   it("an empty scope covers nothing", () => {
-    expect(outsideScope(["a"], [])).toEqual(["a"])
+    expect(outsideScope(["a"], [])).toEqual({ outside: ["a"], unusable: [] })
+  })
+
+  it("changedFilePath: trim and \\ → / only", () => {
+    expect(changedFilePath("  app\\x [1].ts ")).toBe("app/x [1].ts")
+    expect(changedFilePath("a/../b")).toBeNull()
+    expect(changedFilePath("")).toBeNull()
+  })
+})
+
+describe("module × directory containing it (symmetric where the location is known)", () => {
+  it("moduleLocations learns a module's directory from declared paths", () => {
+    const locs = moduleLocations([mod("forge-auth"), mod("services/dev-work"), p("crates/forge-auth/src/lib.rs"), p("app/src/services/dev-work/a.ts"), p("docs")])
+    expect(locs.get("forge-auth")).toEqual(["crates/forge-auth"])
+    expect(locs.get("services/dev-work")).toEqual(["app/src/services/dev-work"])
+  })
+
+  it("a directory containing a known module location overlaps the module; unknown location → no overlap", () => {
+    const locs = moduleLocations([mod("forge-auth"), p("crates/forge-auth/src")])
+    expect(entriesOverlap(p("crates"), mod("forge-auth"), locs)).toBe("crates/forge-auth")
+    expect(entriesOverlap(mod("forge-auth"), p("crates"), locs)).toBe("crates/forge-auth")
+    expect(entriesOverlap(p("app"), mod("forge-auth"), locs)).toBeNull()
+    expect(entriesOverlap(p("crates"), mod("forge-auth"))).toBeNull()
+  })
+
+  it("scopeOverlaps uses locations from every claim: 'app/src' vs a module whose path another claim declared", () => {
+    const NOW = new Date("2026-11-01T12:00:00.000Z")
+    const fresh = new Date(NOW.getTime() - 3_600_000)
+    const others = [
+      { id: "a", heartbeatAt: fresh, releasedAt: null, scope: [mod("services/dev-work")] },
+      { id: "b", heartbeatAt: fresh, releasedAt: null, scope: [p("app/src/services/dev-work/x.ts")] },
+    ]
+    const r = scopeOverlaps("mine", [p("app/src")], others, NOW, 4)
+    expect(r.map((o) => [o.claim.id, o.paths])).toEqual([
+      ["a", ["app/src/services/dev-work"]],
+      ["b", ["app/src/services/dev-work/x.ts"]],
+    ])
   })
 })
 

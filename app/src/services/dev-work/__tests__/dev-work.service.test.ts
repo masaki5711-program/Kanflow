@@ -29,7 +29,11 @@ const ACTOR = { userId: "u1", userName: "Dev One", systemRole: "member", via: "m
 const PBI = { id: "b1", displayId: 12, initiative: "Login", userStory: null }
 
 type Row = Awaited<ReturnType<typeof repo.findClaim>> & object
-function claim(over: Partial<Row> = {}): Row {
+type ScopeIn = Array<{ kind: string; value: string; createdAt?: Date }>
+/** Scope rows as stored (declared an hour ago unless given). */
+const rowsOf = (scopes: ScopeIn): Row["scopes"] => scopes.map((e) => ({ createdAt: new Date(NOW.getTime() - HOUR), ...e }))
+function claim(overIn: Omit<Partial<Row>, "scopes"> & { scopes?: ScopeIn } = {}): Row {
+  const { scopes, ...over } = overIn
   return {
     id: "c1",
     projectId: "p1",
@@ -45,7 +49,7 @@ function claim(over: Partial<Row> = {}): Row {
     backlogItem: PBI,
     task: null,
     user: { id: "u1", name: "Dev One" },
-    scopes: [],
+    scopes: rowsOf(scopes ?? []),
     ...over,
   }
 }
@@ -346,7 +350,7 @@ describe("listBoardClaims (W3 screens)", () => {
 })
 
 describe("declareScope (触る範囲, W4)", () => {
-  const other = (id: string, scopes: Array<{ kind: string; value: string }>, over: Partial<Row> = {}) =>
+  const other = (id: string, scopes: ScopeIn, over: Omit<Partial<Row>, "scopes"> = {}) =>
     claim({ id, userId: `u-${id}`, sessionId: `secret-${id}`, user: { id: `u-${id}`, name: `Dev ${id}` }, branch: `feat/${id}`, scopes, ...over })
 
   it("replaces the whole scope under the claim's row lock (READ COMMITTED) and answers it normalized", async () => {
@@ -437,16 +441,31 @@ describe("listBoardClaims: overlap warnings and outside-scope changes (W4)", () 
     expect(JSON.stringify(out)).not.toContain("secret")
   })
 
-  it("the PBI panel carries the open MRs with changes outside the declared scope", async () => {
-    vi.mocked(repo.findOpenClaims).mockResolvedValue([claim()])
-    vi.mocked(repo.findOutsideScopeLinks).mockResolvedValue([
-      { id: "l1", ref: "7", title: "Login API", url: "https://h/x/-/merge_requests/7", outsideScopeCount: 3, outsideScopePaths: ["a.ts", 5, "b.ts"], scopeCheckedAt: NOW, repository: { name: "api" } },
-    ] as never)
+  const outsideLink = (checkedAt: Date) => ({
+    id: "l1", ref: "7", title: "Login API", url: "https://h/x/-/merge_requests/7", outsideScopeCount: 3, outsideScopePaths: ["a.ts", 5, "b.ts"], scopeCheckedAt: checkedAt, repository: { name: "api" },
+  })
+
+  it("the PBI panel carries the open MRs with changes outside the declared scope (checked after the scope was declared)", async () => {
+    vi.mocked(repo.findOpenClaims).mockResolvedValue([claim({ scopes: [{ kind: "path", value: "app", createdAt: new Date(NOW.getTime() - 2 * HOUR) }] })])
+    vi.mocked(repo.findOutsideScopeLinks).mockResolvedValue([outsideLink(NOW)] as never)
     const out = await svc.listBoardClaims("p1", { pbi: "PBI-12" }, NOW)
     expect(repo.findOutsideScopeLinks).toHaveBeenCalledWith(DEFAULT_DB, "b1")
     expect(out.outsideScope).toEqual([
       { linkId: "l1", ref: "7", title: "Login API", url: "https://h/x/-/merge_requests/7", repository: "api", count: 3, paths: ["a.ts", "b.ts"], checkedAt: NOW.toISOString() },
     ])
+  })
+
+  it("hidden when no active claim of the PBI has a scope (none, cleared, or only stale ones) — not even read", async () => {
+    vi.mocked(repo.findOutsideScopeLinks).mockResolvedValue([outsideLink(NOW)] as never)
+    vi.mocked(repo.findOpenClaims).mockResolvedValue([claim(), claim({ id: "s", scopes: [{ kind: "path", value: "a" }], heartbeatAt: new Date(NOW.getTime() - 5 * HOUR) })])
+    expect((await svc.listBoardClaims("p1", { pbi: "PBI-12" }, NOW)).outsideScope).toEqual([])
+    expect(repo.findOutsideScopeLinks).not.toHaveBeenCalled()
+  })
+
+  it("a result checked before the current scope was declared is hidden (a previous scope's answer)", async () => {
+    vi.mocked(repo.findOpenClaims).mockResolvedValue([claim({ scopes: [{ kind: "path", value: "app", createdAt: new Date(NOW.getTime() - HOUR) }] })])
+    vi.mocked(repo.findOutsideScopeLinks).mockResolvedValue([outsideLink(new Date(NOW.getTime() - 2 * HOUR))] as never)
+    expect((await svc.listBoardClaims("p1", { pbi: "PBI-12" }, NOW)).outsideScope).toEqual([])
   })
 })
 

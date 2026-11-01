@@ -29,7 +29,7 @@ export const CLAIM_SELECT = {
   task: { select: { id: true, taskName: true, sprintId: true } },
   user: { select: { id: true, name: true } },
   /** 触る範囲 (W4): at most SCOPE_ENTRIES_MAX per claim (bounded by the write); sorted in the service. */
-  scopes: { select: { kind: true, value: true } },
+  scopes: { select: { kind: true, value: true, createdAt: true } },
 } as const
 
 /** Upper bound of other active claims WITH a scope read for an overlap check (one more row = `truncated`). */

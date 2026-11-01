@@ -10,7 +10,8 @@
  * - Normalization: trimmed, "\" → "/", "./" and "." segments dropped, repeated "/"
  *   collapsed, trailing "/" and a trailing "/**" or "/*" dropped (a directory covers
  *   everything below it). Refused: empty, absolute ("/x", "C:/x", "~/x", "\\server"),
- *   ".." segments, other glob characters (* ? [ ]), control characters, more than
+ *   ".." segments, glob characters (* ?; "[" and "]" are ordinary path characters —
+ *   e.g. Next.js "[projectId]" directories), control characters, more than
  *   SCOPE_VALUE_MAX characters. Case is kept and compared exactly (repositories are
  *   case-sensitive), so dedupe and comparison happen here, never in the database
  *   (MySQL's collation is case-insensitive, PostgreSQL's is not).
@@ -19,8 +20,15 @@
  *                   ("app/src" covers "app/src/x.ts", not "app/srcx");
  *   module × module — equal;
  *   module × path — the module's segments appear, in order and contiguous, among the
- *                   path's directory segments ("forge-auth" covers
- *                   "crates/forge-auth/src/lib.rs").
+ *                   path's segments ("forge-auth" covers "crates/forge-auth/src/lib.rs"),
+ *                   OR the path is a directory containing a KNOWN location of the module
+ *                   ("crates" vs "forge-auth" when some declared path of the project's
+ *                   claims shows the module at "crates/forge-auth"). A module's location
+ *                   is only known from such paths (Kanflow does not read the repository
+ *                   tree here); without one, a directory and a module do not overlap.
+ * - Changed files of a merge request (the Git sync) are NOT run through the declaration
+ *   rules: they are compared literally (trimmed, "\" → "/"); only an absolute path or one
+ *   with a ".." segment is unusable (reported separately, never counted as outside).
  * - Claims compared: other ACTIVE claims of the project (not released, heartbeat
  *   within the stale window); the claim itself never. Another claim of the same user
  *   (another session) counts: two sessions on the same files collide as well.
@@ -45,7 +53,8 @@ export type ScopeRefusal = "empty" | "absolute" | "parent" | "pattern" | "contro
 export type NormalizedValue = { ok: true; value: string } | { ok: false; reason: ScopeRefusal }
 
 const CONTROL = /[\x00-\x1f\x7f]/
-const PATTERN = /[*?[\]]/
+/** Glob characters refused in a declaration ("[" / "]" are allowed: valid, common path characters). */
+const PATTERN = /[*?]/
 
 export function normalizeScopeValue(_kind: ScopeKind, raw: string): NormalizedValue {
   if (CONTROL.test(raw.trim())) return { ok: false, reason: "control" }
@@ -55,7 +64,7 @@ export function normalizeScopeValue(_kind: ScopeKind, raw: string): NormalizedVa
   v = v.replace(/\/(\*\*|\*)$/, "")
   const segments = v.split("/").filter((s) => s !== "" && s !== ".")
   if (segments.some((s) => s === "..")) return { ok: false, reason: "parent" }
-  if (segments.some((s) => PATTERN.test(s))) return { ok: false, reason: "pattern" }
+  if (segments.some((seg) => PATTERN.test(seg))) return { ok: false, reason: "pattern" }
   const value = segments.join("/")
   if (value === "") return { ok: false, reason: "empty" }
   if (value.length > SCOPE_VALUE_MAX) return { ok: false, reason: "too_long" }
@@ -89,18 +98,45 @@ export function normalizeScope(entries: readonly ScopeEntry[]): NormalizedScope 
 
 const isUnder = (path: string, dir: string) => path === dir || path.startsWith(`${dir}/`)
 
-/** The module's segments appear contiguously among the path's segments. */
-function pathInModule(path: string, module: string): boolean {
+/** Where the module's segments start in the path's segments, or -1. */
+function moduleIndex(path: string, module: string): number {
   const ps = path.split("/")
   const ms = module.split("/")
   for (let i = 0; i + ms.length <= ps.length; i++) {
-    if (ms.every((m, j) => ps[i + j] === m)) return true
+    if (ms.every((m, j) => ps[i + j] === m)) return i
   }
-  return false
+  return -1
 }
 
-/** The area two entries share (the more specific value), or null when they do not overlap. */
-export function entriesOverlap(a: ScopeEntry, b: ScopeEntry): string | null {
+/** The module's segments appear contiguously among the path's segments. */
+const pathInModule = (path: string, module: string) => moduleIndex(path, module) >= 0
+
+/** Known directories of modules (module value → its directories), learned from declared paths. */
+export type ModuleLocations = ReadonlyMap<string, readonly string[]>
+
+/** Pure: every directory where a declared path shows one of the modules ("crates/forge-auth/src" → forge-auth at "crates/forge-auth"). */
+export function moduleLocations(entries: Iterable<ScopeEntry>): ModuleLocations {
+  const all = [...entries]
+  const modules = new Set(all.filter((e) => e.kind === "module").map((e) => e.value))
+  const out = new Map<string, Set<string>>()
+  for (const e of all) {
+    if (e.kind !== "path") continue
+    for (const m of modules) {
+      const i = moduleIndex(e.value, m)
+      if (i < 0) continue
+      const dir = e.value.split("/").slice(0, i + m.split("/").length).join("/")
+      out.set(m, (out.get(m) ?? new Set()).add(dir))
+    }
+  }
+  return new Map([...out].map(([m, dirs]) => [m, [...dirs]]))
+}
+
+/**
+ * The area two entries share (the more specific value), or null when they do not overlap.
+ * `locations`: known module directories (moduleLocations) — lets a directory that CONTAINS a
+ * module overlap it ("crates" × module "forge-auth" → "crates/forge-auth").
+ */
+export function entriesOverlap(a: ScopeEntry, b: ScopeEntry, locations: ModuleLocations = new Map()): string | null {
   if (a.kind === "path" && b.kind === "path") {
     if (isUnder(b.value, a.value)) return b.value
     if (isUnder(a.value, b.value)) return a.value
@@ -108,7 +144,9 @@ export function entriesOverlap(a: ScopeEntry, b: ScopeEntry): string | null {
   }
   if (a.kind === "module" && b.kind === "module") return a.value === b.value ? a.value : null
   const [module, path] = a.kind === "module" ? [a.value, b.value] : [b.value, a.value]
-  return pathInModule(path, module) ? path : null
+  if (pathInModule(path, module)) return path
+  const inside = (locations.get(module) ?? []).filter((dir) => isUnder(dir, path))
+  return inside.length > 0 ? [...inside].sort(codeUnitOrder)[0] : null
 }
 
 /** A claim as the overlap check needs it. */
@@ -125,7 +163,10 @@ export interface ScopeOverlap<T extends ScopedClaim> {
   paths: string[]
 }
 
-/** Other active claims whose scope shares an area with `scope` (input order kept). Never `claimId` itself. */
+/**
+ * Other active claims whose scope shares an area with `scope` (input order kept). Never
+ * `claimId` itself. Module locations are learned from every declared path in `scope` and `others`.
+ */
 export function scopeOverlaps<T extends ScopedClaim>(
   claimId: string,
   scope: readonly ScopeEntry[],
@@ -134,13 +175,14 @@ export function scopeOverlaps<T extends ScopedClaim>(
   staleHours: number,
 ): ScopeOverlap<T>[] {
   if (scope.length === 0) return []
+  const active = others.filter((o) => o.id !== claimId && isClaimActive(o, now, staleHours))
+  const locations = moduleLocations([...scope, ...active.flatMap((o) => o.scope)])
   const out: ScopeOverlap<T>[] = []
-  for (const other of others) {
-    if (other.id === claimId || !isClaimActive(other, now, staleHours)) continue
+  for (const other of active) {
     const shared = new Set<string>()
     for (const mine of scope) {
       for (const theirs of other.scope) {
-        const area = entriesOverlap(mine, theirs)
+        const area = entriesOverlap(mine, theirs, locations)
         if (area !== null) shared.add(area)
       }
     }
@@ -150,20 +192,37 @@ export function scopeOverlaps<T extends ScopedClaim>(
 }
 
 /**
- * Changed files (as the source reported them) that no entry of `scope` covers, in input
- * order without duplicates. A changed path that does not normalize (absolute, "..") is
- * outside by definition — reported, never silently dropped.
+ * A changed file as the source reported it, for a literal comparison: trimmed, "\" → "/".
+ * null when unusable (absolute, a ".." segment, empty) — never rewritten otherwise: "[id]",
+ * "*", "~", long names and the like are real file names.
  */
-export function outsideScope(changedPaths: readonly string[], scope: readonly ScopeEntry[]): string[] {
-  const out: string[] = []
+export function changedFilePath(raw: string): string | null {
+  const v = raw.trim().replace(/\\/g, "/")
+  if (v === "" || v.startsWith("/") || /^[A-Za-z]:\//.test(v)) return null
+  if (v.split("/").some((seg) => seg === "..")) return null
+  return v
+}
+
+export interface OutsideScope {
+  /** Changed files no entry covers (input order, deduplicated). */
+  outside: string[]
+  /** Changed paths that could not be compared (absolute / ".."): skipped, for the caller to log. */
+  unusable: string[]
+}
+
+/** Changed files (as the source reported them) that no entry of `scope` covers. */
+export function outsideScope(changedPaths: readonly string[], scope: readonly ScopeEntry[]): OutsideScope {
+  const outside: string[] = []
+  const unusable: string[] = []
   const seen = new Set<string>()
   for (const raw of changedPaths) {
     if (seen.has(raw)) continue
     seen.add(raw)
-    const n = normalizeScopeValue("path", raw)
-    if (!(n.ok && scope.some((entry) => coversPath(entry, n.value)))) out.push(raw)
+    const path = changedFilePath(raw)
+    if (path === null) unusable.push(raw)
+    else if (!scope.some((entry) => coversPath(entry, path))) outside.push(raw)
   }
-  return out
+  return { outside, unusable }
 }
 
 /** An entry covers a changed FILE when the file lies under it (a deeper declared path does not cover its parent). */

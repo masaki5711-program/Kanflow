@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useMemo, type ReactNode } from "react"
 import { useLanguage } from "@/lib/language-context"
+import { fillTemplate } from "@/lib/fill-template"
 import { claimsForCard, indexClaims, overlapsOf, type ClaimIndex } from "./claim-view"
 import { ClaimMark, OverlapWarning, useShowBranch } from "./claim-parts"
 import { useNow, useWorkClaims } from "./use-work-claims"
@@ -52,12 +53,12 @@ export function TaskClaimMarks({ taskId, pbiId }: { taskId: string; pbiId: strin
         {shown.map(({ claim, wholePbi }) => (
           <ClaimMark key={claim.id} claim={claim} now={board.now} showBranch={showBranch} wholePbi={wholePbi} />
         ))}
-        {rest > 0 && <li className="text-caption text-fg-muted">{t.workClaimMore.replace("{count}", String(rest))}</li>}
+        {rest > 0 && <li className="text-caption text-fg-muted">{fillTemplate(t.workClaimMore, { count: rest })}</li>}
       </ul>
       {overlaps[0] && (
         <div className="mt-1 space-y-0.5" data-claim-overlaps="">
           <OverlapWarning overlap={overlaps[0]} />
-          {overlaps.length > 1 && <p className="text-caption text-warning-strong">{t.workClaimMore.replace("{count}", String(overlaps.length - 1))}</p>}
+          {overlaps.length > 1 && <p className="text-caption text-warning-strong">{fillTemplate(t.workClaimMore, { count: overlaps.length - 1 })}</p>}
         </div>
       )}
     </>

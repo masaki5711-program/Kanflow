@@ -2,6 +2,7 @@
 
 import { useId, useMemo } from "react"
 import { useLanguage } from "@/lib/language-context"
+import { fillTemplate } from "@/lib/fill-template"
 import { formatDateTime, formatRelative } from "@/lib/format-date"
 import { apiFetch, useApiMutation } from "@/hooks"
 import { Button, cn, useConfirm } from "@/components/ui"
@@ -55,7 +56,7 @@ export function PbiClaimsPanel({ projectId, pbiId, className }: Props) {
           {data.outsideScope.map((mr) => <OutsideScopeLine key={mr.linkId} mr={mr} />)}
         </div>
       )}
-      {data.truncated && <p className="text-caption text-fg-subtle">{t.workClaimTruncated.replace("{count}", String(data.limit ?? data.data.length))}</p>}
+      {data.truncated && <p className="text-caption text-fg-subtle">{fillTemplate(t.workClaimTruncated, { count: data.limit ?? data.data.length })}</p>}
     </section>
   )
 }
@@ -79,7 +80,7 @@ function ClaimRow({ projectId, claim, now, showBranch, canModerate, onReleased }
   async function onRelease() {
     const ok = await confirm({
       title: t.workClaimReleaseConfirmTitle,
-      message: t.workClaimReleaseConfirmMessage.replace("{name}", claim.user.name),
+      message: fillTemplate(t.workClaimReleaseConfirmMessage, { name: claim.user.name }),
       confirmLabel: t.workClaimRelease,
       variant: "warning",
     })
@@ -113,7 +114,7 @@ function ClaimRow({ projectId, claim, now, showBranch, canModerate, onReleased }
         </dl>
       </div>
       {canModerate && (
-        <Button size="sm" variant="secondary" loading={release.isPending} aria-label={t.workClaimReleaseLabel.replace("{name}", claim.user.name)}
+        <Button size="sm" variant="secondary" loading={release.isPending} aria-label={fillTemplate(t.workClaimReleaseLabel, { name: claim.user.name })}
           onClick={() => void onRelease()}>
           {t.workClaimRelease}
         </Button>
@@ -126,7 +127,7 @@ function ClaimRow({ projectId, claim, now, showBranch, canModerate, onReleased }
 function OutsideScopeLine({ mr }: { mr: ScreenOutsideScope }) {
   const { t } = useLanguage()
   const pathList = usePathList()
-  const text = t.workClaimOutsideScope.replace("{mr}", `!${mr.ref}`).replace("{count}", String(mr.count)).replace("{paths}", pathList(mr.paths, mr.count))
+  const text = fillTemplate(t.workClaimOutsideScope, { mr: `!${mr.ref}`, count: mr.count, paths: pathList(mr.paths, mr.count) })
   // The sync stores https URLs only (git-links safeUrl); anything else is shown without a link.
   if (!/^https:\/\//i.test(mr.url)) return <WarningLine text={text} data-outside-scope={mr.linkId} />
   return (

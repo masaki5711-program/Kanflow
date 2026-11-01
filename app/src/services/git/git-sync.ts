@@ -76,9 +76,10 @@ export async function syncRepository(repositoryId: string, factory: ClientFactor
     // Links a developer declared (dev:write) whose MR does not name the PBI: kept current for
     // display only — they never trigger auto-complete (only Git-derived links do).
     const declared = await refreshDeclaredLinks(repo.id, read.mrs, mrDrafts, pbiIds, now)
-    // 触る範囲 (W4): open MRs read in this sync vs the declared scope of the PBI's active claims —
-    // a warning on the link (never blocks). Skipped like the pipelines when the MR listing failed.
-    const scoped = read.failures.some((f) => f.kind === "mr") ? 0 : await checkMergeRequestScopes(source, repo.id, scopeCandidates(mrDrafts, pbiIds, read.freshMrRefs), now)
+    // 触る範囲 (W4): open MRs read in this sync (and links due a recheck after a scope change) vs the
+    // declared scope of the PBI's active claims — a warning on the link (never blocks). Skipped
+    // like the pipelines when the MR listing failed.
+    const scoped = read.failures.some((f) => f.kind === "mr") ? 0 : await checkMergeRequestScopes(source, { id: repo.id, projectId: repo.projectId }, scopeCandidates(mrDrafts, pbiIds, read.freshMrRefs), now)
     const changed = linkChanges + declared + scoped
     // `branches` is null when that listing failed: then nothing is marked gone.
     const gone = read.branches ? await markGoneBranches(repo.id, read.branches, branchDrafts, pbiIds, now) : 0

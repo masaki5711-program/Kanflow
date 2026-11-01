@@ -1,6 +1,7 @@
 "use client"
 
 import { useLanguage } from "@/lib/language-context"
+import { fillTemplate } from "@/lib/fill-template"
 import { formatRelative } from "@/lib/format-date"
 import { Badge, cn, type BadgeTone } from "@/components/ui"
 import { AlertTriangle, Bot, GitBranch } from "lucide-react"
@@ -62,10 +63,7 @@ export function ClaimMark({ claim, now, showBranch, wholePbi }: { claim: ScreenC
   const stateLabel = useStateLabel()
   const state = claimState(claim, now)
   const seen = formatRelative(claim.heartbeatAt, now, language)
-  const sentence = (claim.ai ? t.workClaimMarkLabelAi : t.workClaimMarkLabel)
-    .replace("{name}", claim.user.name)
-    .replace("{state}", stateLabel(state))
-    .replace("{time}", seen)
+  const sentence = fillTemplate(claim.ai ? t.workClaimMarkLabelAi : t.workClaimMarkLabel, { name: claim.user.name, state: stateLabel(state), time: seen })
   return (
     <li
       data-claim-mark={claim.id}
@@ -107,7 +105,7 @@ export function usePathList(): (paths: readonly string[], total?: number) => str
   return (paths, total) => {
     const { shown, rest } = shownPaths(paths, total)
     const list = shown.join(t.workClaimPathSeparator)
-    return rest > 0 ? `${list} ${t.workClaimMore.replace("{count}", String(rest))}` : list
+    return rest > 0 ? `${list} ${fillTemplate(t.workClaimMore, { count: rest })}` : list
   }
 }
 
@@ -129,7 +127,7 @@ export function WarningLine({ text, className, ...data }: { text: string; classN
 export function OverlapWarning({ overlap, className }: { overlap: ScreenOverlap; className?: string }) {
   const { t } = useLanguage()
   const pathList = usePathList()
-  const text = t.workClaimOverlap.replace("{name}", overlap.user.name).replace("{paths}", pathList(overlap.paths, overlap.pathCount))
+  const text = fillTemplate(t.workClaimOverlap, { name: overlap.user.name, paths: pathList(overlap.paths, overlap.pathCount) })
   return <WarningLine text={text} className={className} data-claim-overlap={overlap.claimId} />
 }
 
