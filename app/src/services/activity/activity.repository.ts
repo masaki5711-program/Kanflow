@@ -21,10 +21,47 @@ interface PageArgs {
   limit: number
 }
 
-/** Project feed, newest first; optional entityType filter. */
-export function findProjectActivity(db: Db, projectId: string, args: PageArgs & { entityType?: string }) {
+/** Entities whose feed rows are left out (confidential PBIs and what hangs under them, D-5). */
+export interface HiddenActivityEntities {
+  pbi: readonly string[]
+  sprint_task: readonly string[]
+  release: readonly string[]
+}
+
+/** Most hidden entities one feed read can exclude; more than this fails closed (see activity.service). */
+export const HIDDEN_ACTIVITY_ENTITY_LIMIT = 5000
+
+function notHidden(hidden: HiddenActivityEntities | undefined) {
+  if (!hidden) return {}
+  const NOT = (Object.entries(hidden) as Array<[string, readonly string[]]>)
+    .filter(([, ids]) => ids.length > 0)
+    .map(([entityType, ids]) => ({ entityType, entityId: { in: [...ids] } }))
+  return NOT.length > 0 ? { NOT } : {}
+}
+
+/**
+ * Ids of the project's confidential PBIs, their sprint tasks and their release copies (one more
+ * than the limit is read, so the caller can tell "too many" from "all").
+ */
+export async function findHiddenActivityEntities(db: Db, projectId: string): Promise<HiddenActivityEntities & { overLimit: boolean }> {
+  const take = HIDDEN_ACTIVITY_ENTITY_LIMIT + 1
+  const [pbis, tasks, releases] = await Promise.all([
+    db.productBacklogItem.findMany({ where: { projectId, confidential: true }, select: { id: true }, take }),
+    db.sprintBacklogItem.findMany({ where: { pbItem: { projectId, confidential: true } }, select: { id: true }, take }),
+    db.releaseBacklogItem.findMany({ where: { projectId, pbItem: { confidential: true } }, select: { id: true }, take }),
+  ])
+  return {
+    pbi: pbis.map((r) => r.id).slice(0, HIDDEN_ACTIVITY_ENTITY_LIMIT),
+    sprint_task: tasks.map((r) => r.id).slice(0, HIDDEN_ACTIVITY_ENTITY_LIMIT),
+    release: releases.map((r) => r.id).slice(0, HIDDEN_ACTIVITY_ENTITY_LIMIT),
+    overLimit: [pbis, tasks, releases].some((rows) => rows.length > HIDDEN_ACTIVITY_ENTITY_LIMIT),
+  }
+}
+
+/** Project feed, newest first; optional entityType filter and hidden entities (token surfaces). */
+export function findProjectActivity(db: Db, projectId: string, args: PageArgs & { entityType?: string; hidden?: HiddenActivityEntities }) {
   return db.activityLog.findMany({
-    where: { projectId, ...(args.entityType ? { entityType: args.entityType } : {}), ...afterCursorWhere(args.cursor) },
+    where: { projectId, ...(args.entityType ? { entityType: args.entityType } : {}), ...notHidden(args.hidden), ...afterCursorWhere(args.cursor) },
     select: ACTIVITY_SELECT,
     orderBy: NEWEST_FIRST,
     take: args.limit + 1,

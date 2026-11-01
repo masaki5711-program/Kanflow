@@ -24,6 +24,10 @@ vi.mock("@/lib/authz/session-validity", async (orig) => ({
 }))
 vi.mock("@/services/api-tokens/api-tokens.repository")
 vi.mock("@/services/api-v1/api-v1.service")
+vi.mock("@/services/api-v1/api-v1.confidential", async (orig) => ({
+  ...(await orig<typeof import("@/services/api-v1/api-v1.confidential")>()),
+  ...(await import("@/services/api-v1/__tests__/confidential-passthrough")).confidentialPassthrough,
+}))
 vi.mock("@/services/backlog/backlog.service")
 vi.mock("@/services/sprints/sprints.service")
 vi.mock("@/services/sprint-backlog/sprint-backlog.service")
@@ -185,8 +189,8 @@ describe("write input", () => {
   })
 
   it("sprint routes delegate (create 201, update 200, add PBIs 201 / 200 when nothing new)", async () => {
-    vi.mocked(sprints.createSprint).mockResolvedValue({ id: "s2" } as never)
-    vi.mocked(sprints.updateSprint).mockResolvedValue({ id: "s2" } as never)
+    vi.mocked(sprints.createSprint).mockResolvedValue({ id: "s2", items: [] } as never)
+    vi.mocked(sprints.updateSprint).mockResolvedValue({ id: "s2", items: [] } as never)
     const sprint = { sprintName: "S2", startDate: "2026-11-01", endDate: "2026-11-14", selectedPbIds: ["b1"] }
     expect((await sprintsRoute.POST(send("POST", "/sprints", sprint), seg({}))).status).toBe(201)
     expect(sprints.createSprint).toHaveBeenCalledWith("p1", sprint, API_ACTOR)

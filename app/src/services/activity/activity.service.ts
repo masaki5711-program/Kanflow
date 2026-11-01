@@ -3,6 +3,7 @@ import type { EntityI18n, TranslatableEntity } from "@/lib/translation/types"
 import { labelOf, type ActivityDiff } from "@/services/_shared/activity"
 import { toPage, type Page } from "@/services/_shared/cursor"
 import { defaultDb } from "@/services/_shared/db"
+import { StatusError } from "@/services/_shared/errors"
 import { getI18nFor } from "@/services/_shared/translations"
 import * as repo from "./activity.repository"
 import type { EntityRef, PageQuery, ProjectActivityQuery } from "./activity.schemas"
@@ -138,8 +139,19 @@ export async function withEntityI18n(items: readonly ActivityDto[]): Promise<Act
   })
 }
 
-export async function listProjectActivity(projectId: string, query: ProjectActivityQuery): Promise<Page<ActivityDto>> {
-  const rows = await repo.findProjectActivity(defaultDb, projectId, query)
+/**
+ * The project feed. `hideConfidential` (token surfaces: /api/v1 and the MCP, D-5) leaves out the
+ * rows about confidential PBIs, their tasks and their release copies; the web UI keeps everything.
+ */
+export async function listProjectActivity(
+  projectId: string,
+  query: ProjectActivityQuery,
+  options: { hideConfidential?: boolean } = {}
+): Promise<Page<ActivityDto>> {
+  const hidden = options.hideConfidential ? await repo.findHiddenActivityEntities(defaultDb, projectId) : undefined
+  // Fail closed: a feed that cannot exclude everything it must exclude is not served.
+  if (hidden?.overLimit) throw new StatusError(503, "Too many confidential items to filter the activity feed", {}, "SERVICE_UNAVAILABLE")
+  const rows = await repo.findProjectActivity(defaultDb, projectId, { ...query, ...(hidden ? { hidden } : {}) })
   const page = toPage(rows, query.limit, toActivityDto)
   return { ...page, items: await withEntityI18n(await withMemberNames(await withEntityLabels(projectId, page.items))) }
 }

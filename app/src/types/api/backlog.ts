@@ -38,6 +38,8 @@ export interface BacklogItemDto extends PbiWithStatusDto {
   acceptanceCriteria: string | null
   assignedPo: string | null
   sortOrder: number
+  /** 機密 (D-5): never given to the MCP / dev API; the web UI shows it with a badge. */
+  confidential?: boolean
   completedAt: string | null
   iceboxItemId: string | null
   iceboxItem: { id: string; displayId: number; request: string; i18n?: EntityI18n } | null

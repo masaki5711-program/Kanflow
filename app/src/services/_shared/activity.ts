@@ -87,6 +87,8 @@ export const TRACKED_FIELDS: Readonly<Record<ActivityEntityType, readonly string
     "iceboxItemId",
     "productGoalId",
     "planItemId",
+    // 機密 (D-5): who set / cleared it shows in the history like any other field.
+    "confidential",
   ],
   sprint_task: ["taskName", "assignee", "estimatedHours", "actualHours", "status", "completionComment"],
   sprint: [

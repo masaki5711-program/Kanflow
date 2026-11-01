@@ -109,6 +109,23 @@ describe("GET/PATCH/DELETE /backlog/[itemId]", () => {
     )
   })
 
+  it("sets the confidential flag (D-5) with the same right as any PBI edit; a reader cannot", async () => {
+    asRole("po")
+    vi.mocked(svc.updateBacklogItem).mockResolvedValue({ id: "pbi-1", confidential: true } as never)
+    expect((await item.PATCH(req("PATCH", { confidential: true }), itemCtx())).status).toBe(200)
+    expect(svc.updateBacklogItem).toHaveBeenCalledWith(PROJECT_ID, "pbi-1", { confidential: true }, ACTOR)
+
+    vi.mocked(svc.updateBacklogItem).mockClear()
+    asRole("dev")
+    expect((await item.PATCH(req("PATCH", { confidential: true }), itemCtx())).status).toBe(403)
+    expect(svc.updateBacklogItem).not.toHaveBeenCalled()
+  })
+
+  it("rejects a non-boolean confidential flag", async () => {
+    asRole("po")
+    expect((await item.PATCH(req("PATCH", { confidential: "yes" }), itemCtx())).status).toBe(400)
+  })
+
   it("rejects a non-integer sort order", async () => {
     asRole("po")
     expect((await item.PATCH(req("PATCH", { sortOrder: 1.5 }), itemCtx())).status).toBe(400)

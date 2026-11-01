@@ -1,6 +1,7 @@
 "use client"
 
 import { I18nText, useI18nText } from "@/components/i18n-text"
+import { Badge } from "@/components/ui"
 import { useLanguage } from "@/lib/language-context"
 import type { EntityI18n } from "@/lib/translation/types"
 import type { BacklogItemDetailDto } from "@/types/api"
@@ -22,6 +23,11 @@ export function PbiReadBody({ item, projectId }: { item: PbiDetail; projectId?: 
   const headIcebox = useI18nText(item.iceboxItem?.i18n, "request", item.iceboxItem?.request)
   return (
     <div className="space-y-5">
+      {item.confidential && (
+        <Badge tone="warning" size="md">
+          {t.backlogConfidentialBadge}
+        </Badge>
+      )}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <ReadField label={pt.backlogInitiative} value={item.initiative} i18n={item.i18n} field="initiative" entityId={item.id} />
         <ReadField label={pt.backlogEpic} value={item.epic} i18n={item.i18n} field="epic" entityId={item.id} />

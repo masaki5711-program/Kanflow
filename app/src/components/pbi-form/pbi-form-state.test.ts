@@ -64,6 +64,17 @@ describe("pbi-form-state", () => {
     expect(buildPbiPatch(ITEM, toPbiForm(ITEM))).toEqual({})
   })
 
+  it("confidential (D-5): read from the PBI, patched only when flipped, never part of a create body", () => {
+    expect(toPbiForm(ITEM).confidential).toBe(false)
+    expect(toPbiForm({ ...ITEM, confidential: true }).confidential).toBe(true)
+    expect(buildPbiPatch(ITEM, { ...toPbiForm(ITEM), confidential: true })).toEqual({ confidential: true })
+    const secret = { ...ITEM, confidential: true }
+    expect(buildPbiPatch(secret, toPbiForm(secret))).toEqual({})
+    expect(buildPbiPatch(secret, { ...toPbiForm(secret), confidential: false })).toEqual({ confidential: false })
+    expect(buildPbiCreateBody({ ...EMPTY_PBI_FORM, userStory: "US", confidential: true })).not.toHaveProperty("confidential")
+    expect(isSamePbiForm(toPbiForm(ITEM), { ...toPbiForm(ITEM), confidential: true })).toBe(false)
+  })
+
   it("builds a create body without empty values", () => {
     expect(buildPbiCreateBody(EMPTY_PBI_FORM)).toEqual({ workloadScore: 0, status: "not_ready", productGoalId: null })
     const body = buildPbiCreateBody({ ...EMPTY_PBI_FORM, userStory: "US", iceboxItemId: "i1", productGoalId: "g1", workloadScore: "3" })

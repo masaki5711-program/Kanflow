@@ -242,6 +242,15 @@ For equipment-installation and process-improvement projects the agent builds the
   a PO / SM role; the approval re-checks `plan.write`. A developer's token is refused (`FORBIDDEN`).
 - Create-tool retry safety applies (an identical call within 2 minutes returns the first result with `replayed: true`).
 
+### Confidential PBIs (D-5)
+
+A PBI marked confidential in the web UI is invisible to every tool: lists (`get_backlog`, `get_sprint_tasks`,
+`my_tasks`, `get_activity`, `list_claims`) omit it and what hangs under it (its tasks, release copies, claims, feed
+rows); a tool that names it (`get_pbi`, `list_comments`, `add_comment`, `update_task`, `claim_work`, `post_progress`,
+`link_merge_request`, the acceptance-criterion tools, ...) answers `not found` exactly like a PBI that does not
+exist. `update_pbi` cannot set or clear the flag. Details and the list of covered routes: `docs/api-v1.md`
+"Confidential PBIs".
+
 ### Prompt-injection guard
 
 Every tool description and the server instructions say: PBI, task, comment,

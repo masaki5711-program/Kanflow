@@ -131,6 +131,27 @@ Also: `GET /api/v1/projects/:projectId/backlog/:itemId` (one PBI with
 `GET /api/v1/projects/:projectId/comments?entityType=pbi|sprint_task|icebox&entityId=&cursor=&limit=`
 (a thread, oldest first, paginated). Backlog and task rows carry `version`.
 
+## Confidential PBIs (decision D-5)
+
+A PBI can be marked **confidential** in the web UI (the toggle on the PBI edit screen; the same right as editing
+the PBI — Product Owner / Scrum Master). Confidential PBIs are never returned by `/api/v1` or the Kanflow MCP
+server; the signed-in web UI still shows them to members, with a badge.
+
+- **Lists omit them**: the backlog, the sprint tasks (a task under a confidential PBI is hidden, so its title and
+  description cannot leak through the task), "my tasks", the release items (a release item is a copy of its PBI),
+  the activity feed, the claim list and the scope overlaps, and the tasks inside a sprint answer.
+- **A direct get or write that names one answers exactly what a PBI that does not exist answers** (`404`,
+  `PBI_NOT_FOUND` for a PBI by id / number, `NOT_FOUND` for a task, claim or comment thread), so its existence is
+  not revealed. This holds for the PBI, its acceptance criteria, its comments, its tasks, claims on it, merge-request
+  links and progress comments. A confidential id in a sprint selection or carry-over list is skipped like an unknown id.
+- **A token cannot set or clear the flag**: `confidential` is not accepted by `PATCH .../backlog/:itemId` (it is
+  ignored) or by `update_pbi`.
+- Lessons of the feedback loop have their own `confidential` flag (W11) and are filtered the same way.
+
+Implementation: `services/api-v1/api-v1.confidential.ts` is the one place with the rule; every route and tool is listed
+in `app/api/v1/_lib/confidential-coverage.ts`, and `confidential-enforcement.test.ts` fails when a new route or tool is
+not classified there.
+
 ## Writes
 
 Body: JSON, validated by the **same schema as the UI API** and executed by the

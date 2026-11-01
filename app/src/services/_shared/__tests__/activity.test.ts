@@ -39,6 +39,14 @@ describe("diffFields", () => {
   })
 })
 
+describe("TRACKED_FIELDS: pbi.confidential (D-5)", () => {
+  it("flipping the flag is a recorded change of the PBI, so who set it shows in the history", () => {
+    expect(act.TRACKED_FIELDS.pbi).toContain("confidential")
+    expect(act.diffFields({ confidential: false }, { confidential: true }, act.TRACKED_FIELDS.pbi)).toEqual({ confidential: { from: false, to: true } })
+    expect(act.diffFields({ confidential: true }, { confidential: true }, act.TRACKED_FIELDS.pbi)).toEqual({})
+  })
+})
+
 describe("normalizeValue", () => {
   it("maps values to JSON-safe scalars", () => {
     expect(act.normalizeValue(undefined)).toBeNull()

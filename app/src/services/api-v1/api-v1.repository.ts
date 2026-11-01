@@ -2,15 +2,17 @@
  * Read queries of the public REST API (/api/v1). Every query selects an
  * explicit, stable field list (the API is a contract; internal columns such
  * as translation state or optimistic-lock versions are not exposed) and
- * applies the soft-delete filters of the UI read paths.
+ * applies the soft-delete filters of the UI read paths. On top, confidential PBIs (D-5) and
+ * everything derived from them (sprint tasks, release copies) are left out: see api-v1.confidential.ts.
  */
 import { afterCursorWhereAsc, OLDEST_FIRST } from "@/services/_shared/cursor"
 import type { Db } from "@/services/_shared/db"
 import { LIST_LIMITS } from "@/services/_shared/limits"
-import { LIVE_PBI, notDeleted } from "@/services/_shared/soft-delete"
+import { notDeleted } from "@/services/_shared/soft-delete"
 import { AC_SELECT } from "@/services/acceptance-criteria/acceptance-criteria.view"
 import { ASSIGNEES_INCLUDE } from "@/services/sprint-backlog/task-assignees"
 import type { PbiStatus } from "@/services/backlog/backlog.schemas"
+import { API_VISIBLE_PBI_OF, API_VISIBLE_RELEASE_ITEM, apiVisiblePbi } from "./api-v1.confidential"
 
 /** Upper bound of the project list (a user rarely sees more than a few dozen). */
 export const V1_PROJECT_LIMIT = 1000
@@ -58,7 +60,7 @@ export function findProject(db: Db, projectId: string) {
 
 export function findBacklogPage(db: Db, projectId: string, q: { status?: PbiStatus; cursor?: string; limit: number }) {
   return db.productBacklogItem.findMany({
-    where: notDeleted({ projectId, ...(q.status ? { status: q.status } : {}), ...afterCursorWhereAsc(q.cursor) }),
+    where: apiVisiblePbi({ projectId, ...(q.status ? { status: q.status } : {}), ...afterCursorWhereAsc(q.cursor) }),
     select: {
       id: true,
       displayId: true,
@@ -109,7 +111,7 @@ export function findSprintId(db: Db, projectId: string, sprintId: string) {
 /** Tasks of the sprint whose PBI is live (tasks of trashed PBIs are hidden, as in the UI). */
 export function findSprintTasks(db: Db, sprintId: string) {
   return db.sprintBacklogItem.findMany({
-    where: { sprintId, ...LIVE_PBI },
+    where: { sprintId, ...API_VISIBLE_PBI_OF },
     select: {
       id: true,
       taskName: true,
@@ -152,7 +154,7 @@ export function findPlanItems(db: Db, projectId: string) {
 
 export function findReleases(db: Db, projectId: string) {
   return db.releaseBacklogItem.findMany({
-    where: { projectId },
+    where: { projectId, ...API_VISIBLE_RELEASE_ITEM },
     select: {
       id: true,
       planVersion: true,
@@ -174,7 +176,7 @@ export function findReleases(db: Db, projectId: string) {
 /** One live PBI by id or by its project-scoped display number, with its sprint tasks. */
 export function findPbi(db: Db, projectId: string, ref: { id: string } | { displayId: number }) {
   return db.productBacklogItem.findFirst({
-    where: notDeleted({ projectId, ...ref }),
+    where: apiVisiblePbi({ projectId, ...ref }),
     select: {
       id: true,
       displayId: true,
@@ -226,7 +228,7 @@ export function findUserName(db: Db, userId: string) {
 
 /** Project of a live PBI (MCP tools that start from a PBI id). */
 export function findPbiProjectId(db: Db, id: string) {
-  return db.productBacklogItem.findFirst({ where: notDeleted({ id }), select: { projectId: true } })
+  return db.productBacklogItem.findFirst({ where: apiVisiblePbi({ id }), select: { projectId: true } })
 }
 
 /** Project of a sprint. */
@@ -237,7 +239,7 @@ export function findSprintProjectId(db: Db, id: string) {
 /** Sprint and project of a task (placeholders and tasks of trashed PBIs are not tasks). */
 export function findTaskLocation(db: Db, id: string) {
   return db.sprintBacklogItem.findFirst({
-    where: { id, taskName: { not: null }, ...LIVE_PBI },
+    where: { id, taskName: { not: null }, ...API_VISIBLE_PBI_OF },
     select: { sprintId: true, sprint: { select: { projectId: true } } },
   })
 }
@@ -276,7 +278,7 @@ export function findMyTasks(db: Db, userId: string, projectIds: string[] | null,
     where: {
       assignees: { some: { userId } },
       taskName: { not: null },
-      ...LIVE_PBI,
+      ...API_VISIBLE_PBI_OF,
       ...(includeDone ? {} : { status: { not: "done" } }),
       sprint: projectIds
         ? { ...openSprint, projectId: { in: projectIds } }
@@ -306,7 +308,7 @@ export const V1_SIMILAR_TASK_SCAN = 200
 /** Tasks of one PBI in one sprint of the project (for the duplicate hint of create_task). */
 export function findPbiTasksInSprint(db: Db, projectId: string, sprintId: string, pbItemId: string) {
   return db.sprintBacklogItem.findMany({
-    where: { sprintId, pbItemId, sprint: { projectId }, taskName: { not: null }, ...LIVE_PBI },
+    where: { sprintId, pbItemId, sprint: { projectId }, taskName: { not: null }, ...API_VISIBLE_PBI_OF },
     select: { id: true, taskName: true, status: true },
     orderBy: { createdAt: "asc" },
     take: V1_SIMILAR_TASK_SCAN,
