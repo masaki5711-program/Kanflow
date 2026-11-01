@@ -78,4 +78,24 @@ describe.skipIf(!enabled)("work claims on a real database (KANFLOW_DB_TESTS=1)",
     await prisma.workClaim.deleteMany({ where: { backlogItemId: s.pbi2 } })
     await prisma.productBacklogItem.deleteMany({ where: { id: s.pbi2 } })
   })
+
+  it("W4 触る範囲: replaces the set, keeps case-distinct values (no collation-dependent dedupe), answers overlaps, cascades with the claim", async () => {
+    const { declareScope } = await import("../dev-work.service")
+    const now = new Date()
+    const a = { id: `${tag}-sa`, userId: ids.users[1] }
+    const b = { id: `${tag}-sb`, userId: ids.users[2] }
+    await prisma.workClaim.createMany({
+      data: [a, b].map((c, i) => ({ ...c, projectId: ids.project, backlogItemId: ids.pbi, taskId: null, sessionId: `scope-${i}`, heartbeatAt: now })),
+    })
+    const actor = (userId: string) => ({ userId, userName: userId, systemRole: "member" })
+    await declareScope(ids.project, b.id, { scope: [{ kind: "path", value: "app/src/x.ts" }] }, actor(b.userId), now)
+    await declareScope(ids.project, a.id, { scope: [{ kind: "path", value: "docs" }] }, actor(a.userId), now)
+    const out = await declareScope(ids.project, a.id, { scope: [{ kind: "path", value: "app/src" }, { kind: "path", value: "App/Src" }] }, actor(a.userId), now)
+    expect(out.scope).toEqual([{ kind: "path", value: "App/Src" }, { kind: "path", value: "app/src" }])
+    expect(out.overlaps.map((o) => [o.claimId, o.paths])).toEqual([[b.id, ["app/src/x.ts"]]])
+    const stored = await prisma.workClaimScope.findMany({ where: { claimId: a.id }, select: { value: true } })
+    expect(stored.map((r) => r.value).sort()).toEqual(["App/Src", "app/src"])
+    await prisma.workClaim.deleteMany({ where: { id: { in: [a.id, b.id] } } })
+    expect(await prisma.workClaimScope.count({ where: { claimId: { in: [a.id, b.id] } } })).toBe(0)
+  })
 })

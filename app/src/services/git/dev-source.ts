@@ -80,6 +80,14 @@ export interface DevReleaseListing {
   complete: boolean
 }
 
+/** Changed files of one merge request (W4 scope check). */
+export interface DevChangedPaths {
+  /** Repository-relative paths as the source reports them (a rename lists both names). */
+  paths: string[]
+  /** false = cut short at the source's bound: files beyond it were not compared. */
+  complete: boolean
+}
+
 /** How a source failure is logged and shown. */
 export interface DevSourceErrorInfo {
   /** Short machine kind returned by the sync ("auth", "network", ...). */
@@ -101,6 +109,11 @@ export interface DevSource {
   listBranches(now: Date): Promise<DevBranchListing>
   /** Pipeline status of a merge request (throws on failure). */
   pipelineStatus(mergeRequestRef: string): Promise<string | null>
+  /**
+   * Changed files of a merge request (throws on failure). Optional: a source that cannot
+   * list them cheaply leaves it out, and the sync then skips the 触る範囲 check (W4).
+   */
+  changedPaths?(mergeRequestRef: string): Promise<DevChangedPaths>
   /** Tags / releases (throws on failure). */
   listReleaseTags(webUrl: string, now: Date): Promise<DevReleaseListing>
   describeError(error: unknown): DevSourceErrorInfo

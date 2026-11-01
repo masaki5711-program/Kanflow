@@ -15,6 +15,11 @@
  * - Progress comments: a normal comment through the comment service, so
  *   mentions, notifications, translation and the activity log are the UI's;
  *   the comment row records `via` (api / mcp) from the actor.
+ * - 触る範囲 (touched scope, W4): the claim's owner declares the files / modules the
+ *   session will touch (replaces the whole set). The answer lists the other active
+ *   claims of the project whose scope overlaps — a WARNING for the session to show
+ *   the user, never a refusal (dev-work.scope). The board / PBI screens show the same
+ *   overlaps (listBoardClaims), and the Git sync compares an MR's changed files with it.
  * - MR links: a merge request of a repository registered in the project's
  *   (enabled) Git integration becomes a git_link of kind "mr" marked declared
  *   (declaredBy / declaredAt). Idempotent on (repository, MR, PBI); an MR the
@@ -33,24 +38,30 @@ import { ConflictError, ForbiddenError, isUniqueViolation, NotFoundError, Status
 import { notify } from "@/services/_shared/notifications"
 import { createComment } from "@/services/comments/comments.service"
 import * as repo from "./dev-work.repository"
+import { normalizeScope, scopeOverlaps, type ScopeEntry } from "./dev-work.scope"
 import {
   canTakeOver,
   claimConflicts,
   claimSettings,
   isClaimActive,
   overlappingClaims,
+  scopeDeclaredAt,
+  scopeOf,
   staleBefore,
+  toBoardOverlapDto,
   toClaimDto,
   toBoardClaimDto,
   toHolderDto,
+  toScopeOverlapDto,
   type BoardClaimDto,
   type ClaimDto,
   type ClaimRow,
   type ClaimSettings,
+  type ScopeOverlapDto,
 } from "./dev-work.rules"
-import type { ClaimWorkInput, HeartbeatClaimInput, ListClaimsQuery, MrLinkInput, ProgressCommentInput } from "./dev-work.schemas"
+import type { ClaimWorkInput, DeclareScopeInput, HeartbeatClaimInput, ListClaimsQuery, MrLinkInput, ProgressCommentInput } from "./dev-work.schemas"
 
-export type { BoardClaimDto, ClaimDto, ClaimHolderDto } from "./dev-work.rules"
+export type { BoardClaimDto, BoardOverlapDto, ClaimDto, ClaimHolderDto, ScopeOverlapDto } from "./dev-work.rules"
 
 const log = logger.child({ module: "dev-work" })
 
@@ -301,6 +312,74 @@ export async function releaseClaim(
   }, CLAIM_TX)
 }
 
+// ------------------------------------------------------------ 触る範囲 (W4)
+
+const SCOPE_REFUSAL_TEXT: Record<string, string> = {
+  empty: "is empty",
+  absolute: "is absolute (give a path relative to the repository root)",
+  parent: 'contains ".."',
+  pattern: "contains a glob character (* ?); declare the directory instead",
+  control: "contains a control character",
+  too_long: "is longer than 300 characters",
+}
+
+export interface DeclareScopeResult {
+  /** The stored scope, normalized and sorted. */
+  scope: ScopeEntry[]
+  /** Other active claims of the project whose scope overlaps (a warning: show the user, revisit the plan). */
+  overlaps: ScopeOverlapDto[]
+  /** More active claims with a scope than one check reads (repo.SCOPED_CLAIMS_LIMIT): the list may be incomplete. */
+  overlapsTruncated?: true
+}
+
+/** Other active claims of the project with a scope (bounded; `truncated` when more exist — logged). */
+async function activeScopedClaims(projectId: string, since: Date): Promise<{ rows: ClaimRow[]; truncated: boolean }> {
+  const rows = await repo.findActiveScopedClaims(defaultDb, projectId, since)
+  const truncated = rows.length > repo.SCOPED_CLAIMS_LIMIT
+  if (truncated) log.warn("too many active work claims with a scope for a complete overlap check", { projectId, limit: repo.SCOPED_CLAIMS_LIMIT })
+  return { rows: rows.slice(0, repo.SCOPED_CLAIMS_LIMIT), truncated }
+}
+
+const withScope = (rows: readonly ClaimRow[]) => rows.map((row) => ({ row, id: row.id, heartbeatAt: row.heartbeatAt, releasedAt: row.releasedAt, scope: scopeOf(row) }))
+
+/**
+ * Declare (replace) the 触る範囲 of a claim — its owner only (any session of the user;
+ * a moderator may not). Entries are normalized (dev-work.scope): 400 SCOPE_INVALID names
+ * the first unusable one, SCOPE_TOO_LARGE above 200 distinct entries; [] clears the scope.
+ * A released claim → 409 CLAIM_RELEASED. The write runs under the claim's row lock
+ * (conditional update) so two concurrent declarations never mix. Answers the overlaps with
+ * other active claims of the project — a warning, never a refusal.
+ */
+export async function declareScope(
+  projectId: string,
+  claimId: string,
+  input: DeclareScopeInput,
+  actor: Actor,
+  now: Date = new Date(),
+): Promise<DeclareScopeResult> {
+  const normalized = normalizeScope(input.scope)
+  if (!normalized.ok) {
+    if (normalized.reason === "too_many") {
+      throw new ValidationError("Too many scope entries (at most 200 distinct ones per claim); declare directories or modules instead", {}, "SCOPE_TOO_LARGE")
+    }
+    throw new ValidationError(`scope[${normalized.index}] ${SCOPE_REFUSAL_TEXT[normalized.reason] ?? "is not usable"}`, {}, "SCOPE_INVALID")
+  }
+  const { staleHours: hours } = settings()
+  const first = await reloadClaim(defaultDb, projectId, claimId)
+  if (first.userId !== actor.userId) throw new ForbiddenError("Only the user who made the claim can declare its scope", {}, "FORBIDDEN")
+  await withTransaction(async (tx) => {
+    if ((await repo.lockOpenClaim(tx, claimId, now)) === 0) throw releasedError()
+    await repo.replaceScope(tx, claimId, normalized.scope)
+  }, CLAIM_TX)
+  const others = await activeScopedClaims(projectId, staleBefore(now, hours))
+  const overlaps = scopeOverlaps(claimId, normalized.scope, withScope(others.rows), now, hours)
+  return {
+    scope: normalized.scope,
+    overlaps: overlaps.map((o) => toScopeOverlapDto(o.claim.row, o.paths)),
+    ...(others.truncated ? { overlapsTruncated: true as const } : {}),
+  }
+}
+
 /**
  * Open claims of the project, newest heartbeat first: active ones and stale ones
  * (`stale: true`, heartbeat within the last 7 days), at most CLAIM_LIST_LIMIT
@@ -323,11 +402,58 @@ export async function listClaims(projectId: string, query: ListClaimsQuery, view
 /** Which claims a screen shows: one sprint's board, or one PBI (id / "12" / "PBI-12"). */
 export type BoardClaimScope = { sprintId: string } | { pbi: string }
 
+/** An open MR of the PBI whose changed files lie partly outside the declared scope (Git sync, W4). */
+export interface OutsideScopeDto {
+  linkId: string
+  ref: string
+  title: string
+  url: string
+  repository: string
+  /** How many changed files lay outside the scope. */
+  count: number
+  /** The first of them (at most 20). */
+  paths: string[]
+  checkedAt: string | null
+}
+
 export interface BoardClaimList {
   data: BoardClaimDto[]
   staleAfterHours: number
   truncated?: true
   limit?: number
+  /** PBI panel only: open MRs with changes outside the declared scope (empty otherwise). */
+  outsideScope?: OutsideScopeDto[]
+}
+
+const jsonStrings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string").slice(0, 20) : [])
+
+/**
+ * W4: the PBI's open MRs with changes outside the declared scope — only while an active claim
+ * of the PBI has a scope, and only results checked after its current scope was declared (an
+ * older check belongs to a previous scope: hidden until the sync rechecks it).
+ */
+async function currentOutsideScopeLinks(pbiId: string, rows: readonly ClaimRow[], now: Date, hours: number) {
+  const declared = rows
+    .filter((r) => isClaimActive(r, now, hours) && (r.scopes?.length ?? 0) > 0)
+    .map((r) => scopeDeclaredAt(r)?.getTime() ?? Number.NEGATIVE_INFINITY)
+  if (declared.length === 0) return []
+  const since = Math.max(...declared)
+  const links = await repo.findOutsideScopeLinks(defaultDb, pbiId)
+  return links.filter((l) => l.scopeCheckedAt !== null && l.scopeCheckedAt.getTime() >= since)
+}
+
+/** W4: overlap warnings on the active claims of a screen (one extra read, only when one of them declared a scope). */
+async function withOverlaps(projectId: string, rows: readonly ClaimRow[], dtos: BoardClaimDto[], now: Date, hours: number): Promise<BoardClaimDto[]> {
+  const scoped = rows.filter((r) => isClaimActive(r, now, hours) && (r.scopes?.length ?? 0) > 0)
+  if (scoped.length === 0) return dtos
+  const others = withScope((await activeScopedClaims(projectId, staleBefore(now, hours))).rows)
+  const byId = new Map(scoped.map((r) => [r.id, r]))
+  return dtos.map((dto) => {
+    const row = byId.get(dto.id)
+    if (!row) return dto
+    const overlaps = scopeOverlaps(row.id, scopeOf(row), others, now, hours)
+    return overlaps.length === 0 ? dto : { ...dto, overlaps: overlaps.map((o) => toBoardOverlapDto(o.claim.row, o.paths)) }
+  })
 }
 
 /**
@@ -338,14 +464,35 @@ export interface BoardClaimList {
 export async function listBoardClaims(projectId: string, scope: BoardClaimScope, now: Date = new Date()): Promise<BoardClaimList> {
   const { staleHours: hours } = settings()
   const since = staleBefore(now, CLAIM_LIST_LOOKBACK_HOURS)
-  const rows = "sprintId" in scope
-    ? await repo.findOpenClaimsOfSprint(defaultDb, projectId, scope.sprintId, since)
-    : await repo.findOpenClaims(defaultDb, projectId, since, { backlogItemId: (await loadPbi(defaultDb, projectId, scope.pbi)).id })
+  let pbiId: string | null = null
+  let rows: ClaimRow[]
+  if ("sprintId" in scope) rows = await repo.findOpenClaimsOfSprint(defaultDb, projectId, scope.sprintId, since)
+  else {
+    pbiId = (await loadPbi(defaultDb, projectId, scope.pbi)).id
+    rows = await repo.findOpenClaims(defaultDb, projectId, since, { backlogItemId: pbiId })
+  }
   const truncated = rows.length > repo.CLAIM_LIST_LIMIT
+  const shown = rows.slice(0, repo.CLAIM_LIST_LIMIT)
+  const data = await withOverlaps(projectId, shown, shown.map((r) => toBoardClaimDto(r, now, hours)), now, hours)
+  const outside = pbiId === null ? null : await currentOutsideScopeLinks(pbiId, shown, now, hours)
   return {
-    data: rows.slice(0, repo.CLAIM_LIST_LIMIT).map((r) => toBoardClaimDto(r, now, hours)),
+    data,
     staleAfterHours: hours,
     ...(truncated ? { truncated: true as const, limit: repo.CLAIM_LIST_LIMIT } : {}),
+    ...(outside
+      ? {
+          outsideScope: outside.map((l) => ({
+            linkId: l.id,
+            ref: l.ref,
+            title: l.title,
+            url: l.url,
+            repository: l.repository.name,
+            count: l.outsideScopeCount ?? 0,
+            paths: jsonStrings(l.outsideScopePaths),
+            checkedAt: l.scopeCheckedAt?.toISOString() ?? null,
+          })),
+        }
+      : {}),
   }
 }
 

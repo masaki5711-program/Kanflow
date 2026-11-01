@@ -2,11 +2,12 @@
 
 import { useId, useMemo } from "react"
 import { useLanguage } from "@/lib/language-context"
+import { fillTemplate } from "@/lib/fill-template"
 import { formatDateTime, formatRelative } from "@/lib/format-date"
 import { apiFetch, useApiMutation } from "@/hooks"
 import { Button, cn, useConfirm } from "@/components/ui"
-import { claimState, type ScreenClaim } from "./claim-view"
-import { AiMarker, BranchName, ClaimAvatar, ClaimStateBadge, useShowBranch } from "./claim-parts"
+import { claimState, overlapsOf, type ScreenClaim, type ScreenOutsideScope } from "./claim-view"
+import { AiMarker, BranchName, ClaimAvatar, ClaimStateBadge, OverlapWarning, ScopeLine, usePathList, useShowBranch, WarningLine } from "./claim-parts"
 import { useNow, useWorkClaims } from "./use-work-claims"
 
 interface Props {
@@ -17,7 +18,9 @@ interface Props {
 
 /**
  * The 「担当中」 panel of a PBI (W3): who works on it (person, AI marker, branch in
- * software projects, since, last seen, expired flag). A PO / SM / admin (`canModerate`
+ * software projects, since, last seen, expired flag), its 触る範囲 and one warning line per
+ * overlapping claim, and one line per open MR that changes files outside the declared scope
+ * (W4; warnings only). A PO / SM / admin (`canModerate`
  * from the server) may release a claim after a confirm; everyone else reads only.
  * Renders nothing while loading; outside software projects also nothing when empty.
  */
@@ -48,7 +51,12 @@ export function PbiClaimsPanel({ projectId, pbiId, className }: Props) {
           ))}
         </ul>
       )}
-      {data.truncated && <p className="text-caption text-fg-subtle">{t.workClaimTruncated.replace("{count}", String(data.limit ?? data.data.length))}</p>}
+      {data.outsideScope.length > 0 && (
+        <div className="space-y-1" data-claim-outside-scope="">
+          {data.outsideScope.map((mr) => <OutsideScopeLine key={mr.linkId} mr={mr} />)}
+        </div>
+      )}
+      {data.truncated && <p className="text-caption text-fg-subtle">{fillTemplate(t.workClaimTruncated, { count: data.limit ?? data.data.length })}</p>}
     </section>
   )
 }
@@ -72,7 +80,7 @@ function ClaimRow({ projectId, claim, now, showBranch, canModerate, onReleased }
   async function onRelease() {
     const ok = await confirm({
       title: t.workClaimReleaseConfirmTitle,
-      message: t.workClaimReleaseConfirmMessage.replace("{name}", claim.user.name),
+      message: fillTemplate(t.workClaimReleaseConfirmMessage, { name: claim.user.name }),
       confirmLabel: t.workClaimRelease,
       variant: "warning",
     })
@@ -92,6 +100,8 @@ function ClaimRow({ projectId, claim, now, showBranch, canModerate, onReleased }
           {claim.task ? (claim.task.name || "—") : t.workClaimWholePbi}
         </p>
         {showBranch && claim.branch && <BranchName branch={claim.branch} />}
+        {showBranch && claim.scope && <ScopeLine scope={claim.scope} scopeCount={claim.scopeCount} />}
+        {overlapsOf(claim).map((o) => <OverlapWarning key={o.claimId} overlap={o} />)}
         <dl className="flex flex-wrap gap-x-3 text-caption text-fg-muted">
           <div className="flex gap-1">
             <dt>{t.workClaimSince}:</dt>
@@ -104,11 +114,25 @@ function ClaimRow({ projectId, claim, now, showBranch, canModerate, onReleased }
         </dl>
       </div>
       {canModerate && (
-        <Button size="sm" variant="secondary" loading={release.isPending} aria-label={t.workClaimReleaseLabel.replace("{name}", claim.user.name)}
+        <Button size="sm" variant="secondary" loading={release.isPending} aria-label={fillTemplate(t.workClaimReleaseLabel, { name: claim.user.name })}
           onClick={() => void onRelease()}>
           {t.workClaimRelease}
         </Button>
       )}
     </li>
+  )
+}
+
+/** "!12 は、宣言した範囲の外のファイルも変えています（3 件）: a、b、c" — the MR as a link. */
+function OutsideScopeLine({ mr }: { mr: ScreenOutsideScope }) {
+  const { t } = useLanguage()
+  const pathList = usePathList()
+  const text = fillTemplate(t.workClaimOutsideScope, { mr: `!${mr.ref}`, count: mr.count, paths: pathList(mr.paths, mr.count) })
+  // The sync stores https URLs only (git-links safeUrl); anything else is shown without a link.
+  if (!/^https:\/\//i.test(mr.url)) return <WarningLine text={text} data-outside-scope={mr.linkId} />
+  return (
+    <a href={mr.url} target="_blank" rel="noopener noreferrer" className="block rounded-ui-sm hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1">
+      <WarningLine text={text} data-outside-scope={mr.linkId} />
+    </a>
   )
 }

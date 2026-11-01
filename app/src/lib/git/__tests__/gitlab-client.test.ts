@@ -220,6 +220,36 @@ describe("createGitLabClient — endpoint query shapes", () => {
   })
 })
 
+describe("listMergeRequestChangedFiles (W4 scope check)", () => {
+  const entry = (p: string) => ({ old_path: p, new_path: p, new_file: false, renamed_file: false, deleted_file: false })
+
+  it("pages /merge_requests/:iid/diffs (100 per page) up to maxPages and says when it was cut", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse([entry("a.ts")], 200, { "x-next-page": "9" }))
+    const client = createGitLabClient({ apiBase: API_BASE, token: TOKEN, fetchImpl })
+    const r = await client.listMergeRequestChangedFiles(5, 12, 2)
+    expect(r).toEqual({ items: [entry("a.ts"), entry("a.ts")], truncated: true, pages: 2 })
+    const url = new URL(String(fetchImpl.mock.calls[0][0]))
+    expect(url.pathname).toBe("/api/v4/projects/5/merge_requests/12/diffs")
+    expect(url.searchParams.get("per_page")).toBe("100")
+  })
+
+  it("falls back to /changes on an older GitLab (404 on /diffs); overflow = truncated", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ message: "404 Not found" }, 404))
+      .mockResolvedValueOnce(jsonResponse({ iid: 12, changes: [entry("b.ts")], overflow: true }))
+    const r = await createGitLabClient({ apiBase: API_BASE, token: TOKEN, fetchImpl }).listMergeRequestChangedFiles(5, 12)
+    expect(r).toEqual({ items: [entry("b.ts")], truncated: true, pages: 1 })
+    expect(new URL(String(fetchImpl.mock.calls[1][0])).pathname).toBe("/api/v4/projects/5/merge_requests/12/changes")
+  })
+
+  it("any other failure is thrown (no fallback)", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse({}, 403))
+    await expect(createGitLabClient({ apiBase: API_BASE, token: TOKEN, fetchImpl }).listMergeRequestChangedFiles(5, 12)).rejects.toMatchObject({ kind: "forbidden" })
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe("canReadRepository", () => {
   const fetchWith = (status: number) =>
     vi.fn<typeof fetch>().mockResolvedValue(new Response(status === 200 ? "[]" : "{}", { status, headers: { "content-type": "application/json" } }))

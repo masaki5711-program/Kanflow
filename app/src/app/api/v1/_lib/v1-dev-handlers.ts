@@ -1,12 +1,13 @@
 import { can } from "@/lib/authz"
 import {
   claimWorkSchema,
+  declareScopeSchema,
   heartbeatClaimSchema,
   listClaimsQuerySchema,
   mrLinkSchema,
   progressCommentSchema,
 } from "@/services/dev-work/dev-work.schemas"
-import { claimWork, heartbeatClaim, linkMergeRequest, listClaims, postProgress, releaseClaim } from "@/services/dev-work/dev-work.service"
+import { claimWork, declareScope, heartbeatClaim, linkMergeRequest, listClaims, postProgress, releaseClaim } from "@/services/dev-work/dev-work.service"
 import type { V1WriteInput } from "./v1-handlers"
 import { V1Reply } from "./v1-route"
 
@@ -41,6 +42,15 @@ export async function heartbeatClaimOp({ projectId, params, body, serviceActor }
  */
 export async function releaseClaimOp({ projectId, params, serviceActor, actor }: V1WriteInput<{ claimId: string }>) {
   return { data: (await releaseClaim(projectId, params.claimId, serviceActor, { canModerate: can(actor, "sprint.manage") })).claim }
+}
+
+/**
+ * 触る範囲 (W4): replace the claim's declared files / modules — the claim's user only. Answers
+ * `{ data: { scope, overlaps, overlapsTruncated? } }`: the other active claims whose scope
+ * overlaps (who, branch, shared paths; never a session id). A warning, never a refusal.
+ */
+export async function declareScopeOp({ projectId, params, body, serviceActor }: V1WriteInput<{ claimId: string }>) {
+  return { data: await declareScope(projectId, params.claimId, declareScopeSchema.parse(body), serviceActor) }
 }
 
 /** Open claims of the project (read); session ids only on the viewer's own claims. */

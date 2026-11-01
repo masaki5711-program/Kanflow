@@ -173,7 +173,7 @@ Paths are relative to `/api/projects/[projectId]`.
 | `/git/knowledge` | ai.use — names / file counts of the project's AI reference repositories only | | | |
 | `/git/sync` | | git.sync | | |
 | `/git/links`, `/git/summary`, `/git/overview` | project.view | | | |
-| `/dev/claims` (担当中 for the board / PBI panel: `?sprintId=` or `?pbi=`, no session ids; `canModerate` = sprint.manage) | project.view | | | |
+| `/dev/claims` (担当中 for the board / PBI panel: `?sprintId=` or `?pbi=`, no session ids; `canModerate` = sprint.manage; also each claim's 触る範囲, the overlap warnings with other active claims of the project and, for `?pbi=`, the open MRs with changes outside the declared scope — W4) | project.view | | | |
 | `/dev/claims/[claimId]/release` | | sprint.manage (moderator release from the PBI panel; logged, holder notified) | | |
 | `/ai-reports` | project.view | | | |
 | `/burndown` | project.view | | | |
@@ -256,7 +256,7 @@ bodies are size-bounded (413). Editing a template never changes plans already lo
   | `comment:write` | `comment.write` |
   | `icebox:write` | `icebox.write` |
   | `daily:write` | `dailyScrum.write` |
-  | `dev:write` | `dev.write` (named `write:dev` in GitStation's plan documents; token-only: work claims, progress comments, MR links of AI sessions — `/api/v1/projects/:projectId/dev/*` and the MCP developer tools; no UI route uses it) |
+  | `dev:write` | `dev.write` (named `write:dev` in GitStation's plan documents; token-only: work claims, progress comments, MR links of AI sessions — `/api/v1/projects/:projectId/dev/*` and the MCP developer tools; no UI route uses it. Heartbeat and the 触る範囲 declaration `PUT .../dev/claims/:claimId/scope` / `declare_scope` are additionally limited to the claim's own user (403 `FORBIDDEN` for anyone else, PO / SM / admin included); release also allows `sprint.manage`) |
 
   Actions without a scope (delete, trash, members, settings, ...) cannot be done with a token.
 - **Project restriction**: a token may be limited to some projects (`ApiToken.projectIds`, chosen at creation from the active projects the owner can open; anything else → 400 `Unknown project`). Other projects answer 404 and are left out of `/api/v1/projects`. The restriction only narrows: losing access to a listed project still closes it. It is enforced only in `resolveV1ProjectActor`, so every token path into a project — also one that derives the project from a PBI / task / comment id — must go through it. `projectIds: []` on creation is a 400 (never read as "all projects").

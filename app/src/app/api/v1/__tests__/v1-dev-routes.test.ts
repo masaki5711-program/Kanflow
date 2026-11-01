@@ -44,6 +44,7 @@ const { ConflictError, ForbiddenError, ValidationError } = await import("@/servi
 const claimsRoute = await import("@/app/api/v1/projects/[projectId]/dev/claims/route")
 const claimRoute = await import("@/app/api/v1/projects/[projectId]/dev/claims/[claimId]/route")
 const releaseRoute = await import("@/app/api/v1/projects/[projectId]/dev/claims/[claimId]/release/route")
+const scopeRoute = await import("@/app/api/v1/projects/[projectId]/dev/claims/[claimId]/scope/route")
 const progressRoute = await import("@/app/api/v1/projects/[projectId]/dev/progress/route")
 const mrLinksRoute = await import("@/app/api/v1/projects/[projectId]/dev/mr-links/route")
 
@@ -74,6 +75,7 @@ const WRITES = [
   { name: "claim", call: () => claimsRoute.POST(send("POST", "/dev/claims", { pbi: "PBI-12", sessionId: "s-1" }), seg({})) },
   { name: "heartbeat", call: () => claimRoute.PATCH(send("PATCH", "/dev/claims/c1", { branch: "feat/x" }), seg({ claimId: "c1" })) },
   { name: "release", call: () => releaseRoute.POST(send("POST", "/dev/claims/c1/release"), seg({ claimId: "c1" })) },
+  { name: "scope", call: () => scopeRoute.PUT(send("PUT", "/dev/claims/c1/scope", { scope: [{ kind: "path", value: "app/src" }] }), seg({ claimId: "c1" })) },
   { name: "progress", call: () => progressRoute.POST(send("POST", "/dev/progress", { entityType: "pbi", entityId: "12", body: "tests green" }), seg({})) },
   { name: "mr-link", call: () => mrLinksRoute.POST(send("POST", "/dev/mr-links", { pbi: "12", url: MR_URL }), seg({})) },
 ] as const
@@ -97,6 +99,7 @@ beforeEach(() => {
   vi.mocked(dev.postProgress).mockResolvedValue({ id: "cm1", via: "api" } as never)
   vi.mocked(dev.linkMergeRequest).mockResolvedValue({ link: { id: "l1", ref: "7", declared: true }, created: true } as never)
   vi.mocked(dev.listClaims).mockResolvedValue({ data: [CLAIM], staleAfterHours: 4 } as never)
+  vi.mocked(dev.declareScope).mockResolvedValue({ scope: [{ kind: "path", value: "app/src" }], overlaps: [] })
 })
 
 describe("scope dev:write ∩ project role", () => {
@@ -136,7 +139,7 @@ describe("scope dev:write ∩ project role", () => {
   it("no service is reached when the guard refuses", async () => {
     withScopes('["read"]')
     for (const w of WRITES) expect((await w.call()).status).toBe(403)
-    for (const fn of [dev.claimWork, dev.heartbeatClaim, dev.releaseClaim, dev.postProgress, dev.linkMergeRequest]) expect(fn).not.toHaveBeenCalled()
+    for (const fn of [dev.claimWork, dev.heartbeatClaim, dev.releaseClaim, dev.declareScope, dev.postProgress, dev.linkMergeRequest]) expect(fn).not.toHaveBeenCalled()
   })
 
   it("listing claims is a read: any token of a project member (read scope only)", async () => {
@@ -203,6 +206,58 @@ describe("work claims (作業の宣言)", () => {
     await releaseRoute.POST(send("POST", "/dev/claims/c1/release"), seg({ claimId: "c1" }))
     // A PO / SM (sprint.manage) may release anyone's claim; the service decides with this flag.
     expect(dev.releaseClaim).toHaveBeenLastCalledWith("p1", "c1", API_ACTOR, { canModerate: true })
+  })
+})
+
+describe("触る範囲 (PUT /dev/claims/:claimId/scope, W4)", () => {
+  const put = (body: unknown, claimId = "c1") => scopeRoute.PUT(send("PUT", `/dev/claims/${claimId}/scope`, body), seg({ claimId }))
+
+  it("200 with the stored scope and the overlaps (no session ids); the service gets the claim id and the token owner", async () => {
+    const overlaps = [{ claimId: "c2", user: { id: "u2", name: "Dev Two" }, branch: "feat/y", pbi: { id: "b2", displayId: 13 }, task: null, paths: ["app/src/x.ts"] }]
+    vi.mocked(dev.declareScope).mockResolvedValue({ scope: [{ kind: "path", value: "app/src" }], overlaps })
+    const res = await put({ scope: [{ kind: "path", value: "./app/src/" }] })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ data: { scope: [{ kind: "path", value: "app/src" }], overlaps } })
+    expect(dev.declareScope).toHaveBeenCalledWith("p1", "c1", { scope: [{ kind: "path", value: "./app/src/" }] }, API_ACTOR)
+  })
+
+  it.each([
+    ["no scope array", {}],
+    ["an unknown kind", { scope: [{ kind: "glob", value: "a" }] }],
+    ["a non-string value", { scope: [{ kind: "path", value: 3 }] }],
+    ["too many raw entries", { scope: Array.from({ length: 1001 }, (_, i) => ({ kind: "path", value: `f${i}` })) }],
+  ])("400 VALIDATION for %s (service not called)", async (_label, body) => {
+    const res = await put(body)
+    expect(res.status).toBe(400)
+    expect(((await res.json()) as { code: string }).code).toBe("VALIDATION")
+    expect(dev.declareScope).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    [new ValidationError('scope[0] contains ".."', {}, "SCOPE_INVALID"), 400, "SCOPE_INVALID"],
+    [new ValidationError("too many", {}, "SCOPE_TOO_LARGE"), 400, "SCOPE_TOO_LARGE"],
+    [new ForbiddenError("Only the user who made the claim can declare its scope", {}, "FORBIDDEN"), 403, "FORBIDDEN"],
+    [new ConflictError("released", {}, "CLAIM_RELEASED"), 409, "CLAIM_RELEASED"],
+  ] as const)("the service's refusal %# reaches the client (%s)", async (error, status, code) => {
+    vi.mocked(dev.declareScope).mockRejectedValue(error)
+    const res = await put({ scope: [] })
+    expect(res.status).toBe(status)
+    expect(await res.json()).toEqual({ error: error.message, code })
+  })
+
+  it("another user's claim: 403 even for a PO (owner only — the service decides, the route passes no moderation right)", async () => {
+    asRole("po")
+    vi.mocked(dev.declareScope).mockRejectedValue(new ForbiddenError("Only the user who made the claim can declare its scope", {}, "FORBIDDEN"))
+    expect((await put({ scope: [] })).status).toBe(403)
+    expect(dev.declareScope).toHaveBeenCalledWith("p1", "c1", { scope: [] }, API_ACTOR)
+  })
+
+  it("a claim of another project is looked up in the URL's project only (404 from the service)", async () => {
+    const { NotFoundError } = await import("@/services/_shared/errors")
+    vi.mocked(dev.declareScope).mockRejectedValue(new NotFoundError("Claim not found"))
+    const res = await put({ scope: [] }, "c-other")
+    expect(res.status).toBe(404)
+    expect(dev.declareScope).toHaveBeenCalledWith("p1", "c-other", { scope: [] }, API_ACTOR)
   })
 })
 

@@ -65,6 +65,7 @@ const WRITE_TOOLS = [
   "post_daily_scrum",
   // Development (dev:write, K5) — mcp-dev-tools.test.ts
   "claim_work",
+  "declare_scope",
   "release_claim",
   "post_progress",
   "link_merge_request",

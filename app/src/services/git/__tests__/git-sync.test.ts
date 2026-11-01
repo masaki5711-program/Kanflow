@@ -110,6 +110,7 @@ function emptyClient(overrides: Record<string, unknown> = {}) {
     listTree: vi.fn(),
     compare: vi.fn(),
     rawFile: vi.fn(),
+    listMergeRequestChangedFiles: vi.fn().mockResolvedValue(page([])),
     ...overrides,
   }
 }

@@ -191,6 +191,7 @@ handlers `app/src/app/api/v1/_lib/v1-dev-handlers.ts`.
 | `GET /dev/claims` | `read` | `pbi` (id / `12` / `PBI-12`), `taskId` | open claims, newest heartbeat first: active ones and stale ones (`stale: true`, heartbeat within the last 7 days); at most 200 (`truncated`, `limit`); `staleAfterHours` |
 | `POST /dev/claims` | `dev:write` | exactly one of `pbi` / `taskId`; `sessionId` (1–100 visible ASCII); `branch?`; `takeover?` (boolean) | `201 { data: claim, created: true, takenOver, superseded }`; `200` (`created: false`) when the same user + session already claims the same target (heartbeat); `409 TASK_CLAIMED` / `409 CLAIM_LIMIT_REACHED` |
 | `PATCH /dev/claims/:claimId` | `dev:write` | `branch?` | heartbeat: `{ data: claim }`; `403 FORBIDDEN` for another user's claim, `409 CLAIM_RELEASED` for a released / taken-over / superseded one, `409 TASK_CLAIMED` when a stale claim was claimed by someone else meanwhile |
+| `PUT /dev/claims/:claimId/scope` | `dev:write` | `scope: [{ kind: "path" \| "module", value }]` (the whole set; `[]` clears it) | `{ data: { scope, overlaps, overlapsTruncated? } }` — 触る範囲 (W4, below); **the claim's own user only** (`403 FORBIDDEN` for anyone else, PO / SM included); `400 SCOPE_INVALID` / `400 SCOPE_TOO_LARGE`; `409 CLAIM_RELEASED` |
 | `POST /dev/claims/:claimId/release` | `dev:write` | — | `{ data: claim }`: the claim's user, or a **PO / SM / admin for anyone's claim** (role with `sprint.manage`; logged and the holder notified); releasing again answers the released claim |
 | `POST /dev/progress` | `dev:write` | `entityType` (`pbi` / `sprint_task`), `entityId` (PBI id / `12` / `PBI-12`, or task id), `body` | `201 { data: comment }` — a normal comment (mentions, notifications, translation, activity) whose row records `via`; the thread shows the "via MCP (AI)" / "via API" badge. `Idempotency-Key` honoured |
 | `POST /dev/mr-links` | `dev:write` | `pbi`, `url` (no title: see below) | `201 { data: link, created: true }` / `200 … created: false` when that MR is already linked to the PBI (by the sync or a developer) |
@@ -199,7 +200,8 @@ handlers `app/src/app/api/v1/_lib/v1-dev-handlers.ts`.
 task {id, name, sprintId} | null` (null = the whole PBI), `user {id, name},
 sessionId` (**only on the caller's own claims**, null on other users'), `branch,
 startedAt, heartbeatAt, staleAt, releasedAt, releaseReason` (`released` /
-`takeover` / `stale` / `moderator`), `active, stale`.
+`takeover` / `stale` / `moderator`), `active, stale`, `scope` (the declared
+触る範囲, `[{ kind, value }]`, modules first; `[]` = none declared).
 
 - **One active claim per target.** A claim on a task overlaps claims on the
   same task and a claim on its whole PBI; a whole-PBI claim overlaps every
@@ -245,6 +247,59 @@ startedAt, heartbeatAt, staleAt, releasedAt, releaseReason` (`released` /
   list. Plain claims, heartbeats and own releases are not in the activity log
   (they would flood it).
 - An unusable `DEV_CLAIM_*` value is logged once (warning) and the default is used.
+
+**触る範囲 (touched scope, W4)** — `PUT /dev/claims/:claimId/scope` declares
+which files / modules the claim's session will touch; it **replaces** the whole
+set. Code: `app/src/services/dev-work/dev-work.scope.ts` (pure rules).
+
+- Entries: `{ kind: "path", value }` — a file or directory relative to the
+  repository root (POSIX `/`; `\` is read as `/`) — or `{ kind: "module", value }`
+  — a crate / package / directory name (`forge-auth`, `services/dev-work`).
+  Normalized: trimmed, `./` and `.` segments and repeated / trailing `/` dropped,
+  a trailing `/**` or `/*` dropped (a directory covers everything below it);
+  case is kept and compared exactly. Refused with `400 SCOPE_INVALID` (the
+  message names the first bad entry, `scope[i] …`): empty, absolute (`/x`,
+  `C:/x`, `~/x`, `\\server`), a `..` segment, glob characters `* ?` (`[` and
+  `]` are ordinary path characters, e.g. Next.js `[projectId]`), control
+  characters, more than 300 characters. Exact duplicates
+  collapse; more than **200** distinct entries → `400 SCOPE_TOO_LARGE` (the raw
+  array is bounded at 1000 → `400 VALIDATION`).
+- **Overlap** (a WARNING, never a refusal): path × path when equal or one is a
+  prefix of the other on a `/` boundary (`app/src` covers `app/src/x.ts`, not
+  `app/srcx`); module × module when equal; module × path when the module's
+  segments appear contiguously among the path's (`forge-auth` covers
+  `crates/forge-auth/src/lib.rs`), or when the path is a directory containing a
+  **known** location of the module (`crates` × `forge-auth` once some declared
+  path of the project's claims shows `crates/forge-auth/…`; without such a path
+  the module's location is unknown and they do not overlap). Compared with every other **active** claim of
+  the project that declared a scope (released and stale claims never count;
+  the claim itself never; another session of the same user does).
+- Answer: `scope` (stored, normalized, sorted) and `overlaps: [{ claimId,
+  user {id, name}, branch, pbi {id, displayId}, task {id, name} | null, paths }]`
+  (`paths` = the shared areas) — **never a session id**. More than 200 other
+  scoped active claims in the project → the first 200 (newest heartbeat) are
+  compared and `overlapsTruncated: true` (logged as a warning). The agent should
+  show the overlaps to the user and revisit the plan; nothing is blocked.
+- Only the claim's user may declare (any of their sessions); a released claim →
+  `409 CLAIM_RELEASED`. The write takes the claim's row lock (a conditional
+  update), so two concurrent declarations never mix. Not in the activity log.
+- The Kanflow screens show the same overlaps (board cards and the PBI
+  「担当中」 panel, one warning line), and the **Git sync** compares the changed
+  files of each open merge request it reads (new or updated since the last
+  sync, i.e. after a push) with the scope of the PBI's active claims — those on
+  the MR's source branch, else all of them — and records the files outside it on
+  the MR link (`git_link.outsideScopeCount` / `outsideScopePaths` /
+  `scopeCheckedAt`); the PBI panel shows it as one line. Warning only. Changed
+  files are compared literally (trimmed, `\` → `/`); an absolute or `..` path
+  is skipped and logged, never counted. Open MR links never checked, or checked
+  before the PBI's current scope was declared, are rechecked by the next sync
+  without a push; a failed lookup clears the link's result (never shown as
+  current). The panel shows a result only while an active claim of the PBI has a
+  scope, and only if it was checked after that scope was declared. GitLab cost:
+  `GET /projects/:id/merge_requests/:iid/diffs` (≤ 3 pages of 100 files, diff text
+  included; `/changes` on GitLab < 15.7) per checked MR, at most 10 MRs and 20 s
+  per repository and sync (fresh MRs first, then rechecks); a project without a
+  scoped active claim costs one database query and no request.
 
 **MR links** — the URL must be `https://<host>/<group>/<repo>/-/merge_requests/<iid>`
 (a sub-page such as `/diffs`, a query or a fragment is dropped) on a host in

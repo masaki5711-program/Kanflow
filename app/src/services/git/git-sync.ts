@@ -9,6 +9,7 @@ import { devSourceFor, type DevBranchListing, type DevChanges, type DevCursor, t
 import { readableProvider, UnsupportedProviderError } from "./git-provider"
 import { writeReleases } from "./git-release-sync"
 import { allMergeRequestsMerged, linksFromBranch, linksFromCommit, linksFromMergeRequest, mergeRequestFields, type LinkDraft } from "./git-links"
+import { checkMergeRequestScopes, type ScopeCheckCandidate } from "./git-scope-check"
 import { defaultClientFactory, type ClientFactory } from "./gitlab-source"
 
 /**
@@ -75,7 +76,11 @@ export async function syncRepository(repositoryId: string, factory: ClientFactor
     // Links a developer declared (dev:write) whose MR does not name the PBI: kept current for
     // display only — they never trigger auto-complete (only Git-derived links do).
     const declared = await refreshDeclaredLinks(repo.id, read.mrs, mrDrafts, pbiIds, now)
-    const changed = linkChanges + declared
+    // 触る範囲 (W4): open MRs read in this sync (and links due a recheck after a scope change) vs the
+    // declared scope of the PBI's active claims — a warning on the link (never blocks). Skipped
+    // like the pipelines when the MR listing failed.
+    const scoped = read.failures.some((f) => f.kind === "mr") ? 0 : await checkMergeRequestScopes(source, { id: repo.id, projectId: repo.projectId }, scopeCandidates(mrDrafts, pbiIds, read.freshMrRefs), now)
+    const changed = linkChanges + declared + scoped
     // `branches` is null when that listing failed: then nothing is marked gone.
     const gone = read.branches ? await markGoneBranches(repo.id, read.branches, branchDrafts, pbiIds, now) : 0
     const releases = await syncReleasesSafely(source, repo, now)
@@ -252,6 +257,17 @@ async function writeLinks(projectId: string, repositoryId: string, drafts: reado
     }
   }
   return { written, changed, newlyMerged, newlyFailed }
+}
+
+/** Open merge requests read past the cursor (a push updates them) that name a live PBI: what the scope check compares. */
+export function scopeCandidates(mrDrafts: readonly LinkDraft[], pbiIds: ReadonlyMap<number, string>, freshRefs: ReadonlySet<string>): ScopeCheckCandidate[] {
+  const out: ScopeCheckCandidate[] = []
+  for (const d of mrDrafts) {
+    const backlogItemId = pbiIds.get(d.pbiNumber)
+    if (!backlogItemId || !freshRefs.has(d.ref) || (d.state !== "opened" && d.state !== "locked")) continue
+    out.push({ ref: d.ref, sourceBranch: d.sourceBranch, backlogItemId })
+  }
+  return out
 }
 
 /**

@@ -1,4 +1,4 @@
-import { createGitLabClient, GitLabError, type GitLabBranch, type GitLabClient, type GitLabCommit, type GitLabMergeRequest } from "@/lib/git/gitlab-client"
+import { createGitLabClient, GitLabError, type GitLabBranch, type GitLabClient, type GitLabCommit, type GitLabDiffEntry, type GitLabMergeRequest } from "@/lib/git/gitlab-client"
 import { logger } from "@/lib/logger"
 import { CURSOR_INVALID_MESSAGE } from "@/lib/git/sync-messages"
 import type {
@@ -165,6 +165,19 @@ export const toDevBranch = (b: GitLabBranch): DevBranch => ({
   headCommittedAt: b.commit?.committed_date ?? null,
 })
 
+/** Pages (of 100 files) of one merge request's changed files read for the scope check. */
+export const MR_CHANGED_FILE_PAGES = 3
+
+/** Paths touched by a merge request's diff entries: the new name, and the old one of a rename. */
+export function changedPathsOf(entries: readonly GitLabDiffEntry[]): string[] {
+  const out = new Set<string>()
+  for (const e of entries) {
+    if (e.new_path) out.add(e.new_path)
+    if (e.old_path && e.old_path !== e.new_path) out.add(e.old_path)
+  }
+  return [...out]
+}
+
 // ------------------------------------------------------------------ errors
 
 /** 403 on code / merge requests: the token is valid but its owner's role (e.g. Guest) cannot read them. */
@@ -272,6 +285,12 @@ export function createGitLabSource(connection: DevConnection, factory: ClientFac
     },
 
     pipelineStatus: async (ref: string) => client.getMergeRequestPipeline(await located(), Number(ref)),
+
+    /** W4: at most MR_CHANGED_FILE_PAGES × 100 changed files per merge request (git-scope-check bounds the calls). */
+    changedPaths: async (ref: string) => {
+      const r = await client.listMergeRequestChangedFiles(await located(), Number(ref), MR_CHANGED_FILE_PAGES)
+      return { paths: changedPathsOf(r.items), complete: !r.truncated }
+    },
 
     listReleaseTags: async (webUrl: string, now: Date) => readGitLabReleaseTags(client, await located(), webUrl, now),
 

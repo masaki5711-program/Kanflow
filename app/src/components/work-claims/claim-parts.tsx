@@ -1,10 +1,11 @@
 "use client"
 
 import { useLanguage } from "@/lib/language-context"
+import { fillTemplate } from "@/lib/fill-template"
 import { formatRelative } from "@/lib/format-date"
 import { Badge, cn, type BadgeTone } from "@/components/ui"
-import { Bot, GitBranch } from "lucide-react"
-import { claimState, initials, type ClaimState, type ScreenClaim } from "./claim-view"
+import { AlertTriangle, Bot, GitBranch } from "lucide-react"
+import { claimState, initials, shownPaths, type ClaimState, type ScreenClaim, type ScreenOverlap, type ScreenScopeEntry } from "./claim-view"
 
 /** Branches are developer detail: shown only in software projects. */
 export function useShowBranch(): boolean {
@@ -62,10 +63,7 @@ export function ClaimMark({ claim, now, showBranch, wholePbi }: { claim: ScreenC
   const stateLabel = useStateLabel()
   const state = claimState(claim, now)
   const seen = formatRelative(claim.heartbeatAt, now, language)
-  const sentence = (claim.ai ? t.workClaimMarkLabelAi : t.workClaimMarkLabel)
-    .replace("{name}", claim.user.name)
-    .replace("{state}", stateLabel(state))
-    .replace("{time}", seen)
+  const sentence = fillTemplate(claim.ai ? t.workClaimMarkLabelAi : t.workClaimMarkLabel, { name: claim.user.name, state: stateLabel(state), time: seen })
   return (
     <li
       data-claim-mark={claim.id}
@@ -98,5 +96,50 @@ export function ClaimMark({ claim, now, showBranch, wholePbi }: { claim: ScreenC
         <span className="whitespace-nowrap">{state === "active" ? seen : stateLabel(state)}</span>
       </span>
     </li>
+  )
+}
+
+/** "a、b、c ほか 2 件": the first paths and the rest, in the viewer's language. */
+export function usePathList(): (paths: readonly string[], total?: number) => string {
+  const { t } = useLanguage()
+  return (paths, total) => {
+    const { shown, rest } = shownPaths(paths, total)
+    const list = shown.join(t.workClaimPathSeparator)
+    return rest > 0 ? `${list} ${fillTemplate(t.workClaimMore, { count: rest })}` : list
+  }
+}
+
+/** A one-line warning: icon (decorative) + "注意:" for screen readers + the sentence. Never blocks anything. */
+export function WarningLine({ text, className, ...data }: { text: string; className?: string } & Record<`data-${string}`, string>) {
+  const { t } = useLanguage()
+  return (
+    <p className={cn("flex min-w-0 items-start gap-1 rounded-ui-sm bg-warning-soft px-1.5 py-0.5 text-caption text-warning-strong", className)} title={text} {...data}>
+      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
+      <span className="min-w-0 break-words">
+        <span className="sr-only">{t.workClaimWarning}: </span>
+        {text}
+      </span>
+    </p>
+  )
+}
+
+/** 触る範囲 (W4): "〇〇さんの作業と範囲が重なっています: <paths>". */
+export function OverlapWarning({ overlap, className }: { overlap: ScreenOverlap; className?: string }) {
+  const { t } = useLanguage()
+  const pathList = usePathList()
+  const text = fillTemplate(t.workClaimOverlap, { name: overlap.user.name, paths: pathList(overlap.paths, overlap.pathCount) })
+  return <WarningLine text={text} className={className} data-claim-overlap={overlap.claimId} />
+}
+
+/** The declared scope of a claim as one line (modules and paths as written). */
+export function ScopeLine({ scope, scopeCount }: { scope: readonly ScreenScopeEntry[]; scopeCount?: number }) {
+  const { t } = useLanguage()
+  const pathList = usePathList()
+  if (scope.length === 0) return null
+  return (
+    <p className="min-w-0 truncate font-mono text-caption text-fg-muted" title={scope.map((e) => e.value).join("\n")} data-claim-scope="">
+      <span className="font-sans">{t.workClaimScope}: </span>
+      {pathList(scope.map((e) => e.value), scopeCount)}
+    </p>
   )
 }

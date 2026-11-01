@@ -104,4 +104,36 @@ describe("board 担当中 marks", () => {
     await new Promise((r) => setTimeout(r, 20))
     expect(document.querySelector("[data-claim-marks]")).toBeNull()
   })
+
+  it("W4: a card whose claim overlaps another active claim shows one warning line in words (who, which files)", async () => {
+    const overlap = { claimId: "o1", user: { id: "u2", name: "Bea Ko" }, ai: true, pbi: { id: "b2", displayId: 2 }, paths: ["app/src/a.ts", "app/src/b.ts"], pathCount: 2 }
+    claims = [c({ id: "a", overlaps: [overlap] }), c({ id: "x", task: { id: "k2", name: "UI" } })]
+    renderBoard()
+    const card = screen.getByTestId("card-k1")
+    const line = await within(card).findByText(t.workClaimOverlap.replace("{name}", "Bea Ko").replace("{paths}", "app/src/a.ts, app/src/b.ts"))
+    expect(line.closest("[data-claim-overlap]")).not.toBeNull()
+    // Said to screen readers as a warning (the icon is decorative), and it is not one of the marks.
+    expect(within(card).getByText(`${t.workClaimWarning}:`, { exact: false })).toHaveClass("sr-only")
+    expect(card.querySelector("[data-claim-overlap] svg")?.getAttribute("aria-hidden")).toBe("true")
+    expect(marks("card-k1")).toHaveLength(1)
+    expect(screen.getByTestId("card-k2").querySelector("[data-claim-overlap]")).toBeNull()
+  })
+
+  it("W4: several overlaps → the first one and '+n more'; a stale claim shows none; many paths are cut with '+n more'", async () => {
+    const o = (id: string, n: number) => ({ claimId: id, user: { id: id, name: `U ${id}` }, ai: false, pbi: { id: "b9", displayId: 9 }, paths: Array.from({ length: n }, (_, i) => `p${i}`), pathCount: n + 4 })
+    claims = [c({ id: "a", overlaps: [o("o1", 5), o("o2", 1)] }), c({ id: "s", task: { id: "k2", name: "UI" }, stale: true, staleAt: at(-60_000), overlaps: [o("o3", 1)] })]
+    renderBoard()
+    const card = screen.getByTestId("card-k1")
+    await within(card).findByText(t.workClaimOverlap.replace("{name}", "U o1").replace("{paths}", `p0, p1, p2 ${t.workClaimMore.replace("{count}", "6")}`))
+    expect(within(card).getByText(t.workClaimMore.replace("{count}", "1"))).toBeInTheDocument()
+    expect(card.querySelectorAll("[data-claim-overlap]")).toHaveLength(1)
+    await waitFor(() => expect(marks("card-k2")).toHaveLength(1))
+    expect(screen.getByTestId("card-k2").querySelector("[data-claim-overlap]")).toBeNull()
+  })
+
+  it("W4: Japanese wording follows the plan (〇〇さんの作業と範囲が重なっています: <paths>)", () => {
+    const ja = getTranslations("ja")
+    expect(ja.workClaimOverlap.replace("{name}", "山田").replace("{paths}", "app/x")).toBe("山田さんの作業と範囲が重なっています: app/x")
+    expect(getTranslations("id").workClaimOverlap).toContain("{name}")
+  })
 })

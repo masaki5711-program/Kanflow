@@ -5,7 +5,7 @@ import { describeDevSourceContract } from "./dev-source-contract"
 const noopLog = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), child: () => noopLog }
 vi.mock("@/lib/logger", () => ({ logger: noopLog }))
 
-const { createGitLabSource, decodeGitLabCursor, encodeGitLabCursor, gitLabCursorCodec, gitLabSourceKind, InvalidCursorError } = await import("../gitlab-source")
+const { createGitLabSource, decodeGitLabCursor, encodeGitLabCursor, gitLabCursorCodec, gitLabSourceKind, InvalidCursorError, MR_CHANGED_FILE_PAGES } = await import("../gitlab-source")
 const { cursorsFromRow, cursorsToRow, resetForResync } = await import("../git-sync-cursors")
 const { GitLabError } = await import("@/lib/git/gitlab-client")
 
@@ -27,6 +27,14 @@ function fakeClient(fail = false) {
     listCommits: when({ items: [{ id: "c".repeat(40), short_id: "cccc", title: "PBI-2 fix", message: "PBI-2 fix", web_url: "https://gitlab.example/c", author_name: "Dev", committed_date: "2026-09-30T00:00:00.000Z" }], truncated: false, pages: 1 }),
     listBranches: when({ items: [{ name: "feature/PBI-3-x", web_url: "https://gitlab.example/b", commit: { title: "wip", author_name: "Dev", committed_date: "2026-09-30T00:00:00.000Z" } }], truncated: false, pages: 1 }),
     getMergeRequestPipeline: when("success"),
+    listMergeRequestChangedFiles: when({
+      items: [
+        { old_path: "app/a.ts", new_path: "app/a.ts", new_file: false, renamed_file: false, deleted_file: false },
+        { old_path: "app/old.ts", new_path: "app/new.ts", new_file: false, renamed_file: true, deleted_file: false },
+      ],
+      truncated: false,
+      pages: 1,
+    }),
     listTags: when([{ name: "v1", commit: { committed_date: "2026-09-01T00:00:00Z" } }]),
     listReleases: when([]),
   }
@@ -134,6 +142,14 @@ describe("GitLabSource", () => {
     const client = fakeClient()
     expect(await connected(client).pipelineStatus("4")).toBe("success")
     expect(client.getMergeRequestPipeline).toHaveBeenCalledWith(7, 4)
+  })
+
+  it("changed files of a merge request (W4): by iid, at most MR_CHANGED_FILE_PAGES pages; a rename lists both names", async () => {
+    const client = fakeClient()
+    expect(await connected(client).changedPaths?.("4")).toEqual({ paths: ["app/a.ts", "app/new.ts", "app/old.ts"], complete: true })
+    expect(client.listMergeRequestChangedFiles).toHaveBeenCalledWith(7, 4, MR_CHANGED_FILE_PAGES)
+    client.listMergeRequestChangedFiles.mockResolvedValueOnce({ items: [], truncated: true, pages: 3 })
+    expect((await connected(client).changedPaths?.("4"))?.complete).toBe(false)
   })
 
   it("reads tags as release drafts; a short list is complete", async () => {

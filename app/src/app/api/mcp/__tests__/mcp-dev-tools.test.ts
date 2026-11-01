@@ -47,7 +47,7 @@ const token = generateApiToken()
 const MCP_ACTOR = { userId: "u1", userName: "Dev One", systemRole: "member", via: "mcp" }
 const CLAIM = { id: "c1", projectId: "p1", pbi: { id: "b1", displayId: 12, title: "Login" }, task: null, sessionId: "s-1", active: true }
 const MR_URL = "https://gitlab.scm.service.infosys.yamaha.com/grp/api/-/merge_requests/7"
-const DEV_TOOLS = ["claim_work", "release_claim", "list_claims", "post_progress", "link_merge_request"]
+const DEV_TOOLS = ["claim_work", "declare_scope", "release_claim", "list_claims", "post_progress", "link_merge_request"]
 
 let rpcId = 0
 async function rpc(method: string, params: unknown) {
@@ -93,6 +93,7 @@ beforeEach(() => {
   vi.mocked(dev.claimWork).mockResolvedValue({ claim: CLAIM, created: true, takenOver: [] } as never)
   vi.mocked(dev.releaseClaim).mockResolvedValue({ claim: { ...CLAIM, active: false } } as never)
   vi.mocked(dev.listClaims).mockResolvedValue({ data: [CLAIM], staleAfterHours: 4 } as never)
+  vi.mocked(dev.declareScope).mockResolvedValue({ scope: [{ kind: "module", value: "forge-auth" }], overlaps: [] })
   vi.mocked(dev.postProgress).mockResolvedValue({ id: "cm1", via: "mcp" } as never)
   vi.mocked(dev.linkMergeRequest).mockResolvedValue({ link: { id: "l1", ref: "7", declared: true }, created: true } as never)
 })
@@ -111,6 +112,11 @@ describe("tool list", () => {
     expect(tools.find((t) => t.name === "post_progress")?.description).toContain(CREATE_NOTE)
     expect(tools.find((t) => t.name === "claim_work")?.description).toMatch(/TASK_CLAIMED/)
     expect(Object.keys(tools.find((t) => t.name === "claim_work")?.inputSchema.properties ?? {})).toContain("takeover")
+    // declare_scope tells the agent to show overlaps to the user and revisit the plan, not to go on silently.
+    const declare = tools.find((t) => t.name === "declare_scope")?.description ?? ""
+    expect(declare).toMatch(/show them to the user/)
+    expect(declare).toMatch(/revisit the plan/)
+    expect(declare).toMatch(/Do not proceed silently/)
   })
 })
 
@@ -118,6 +124,7 @@ describe("scope dev:write", () => {
   it.each([
     ["claim_work", { pbi: "PBI-12", projectId: "p1", sessionId: "s-1" }],
     ["release_claim", { claimId: "c1", projectId: "p1" }],
+    ["declare_scope", { claimId: "c1", projectId: "p1", scope: [{ kind: "path", value: "app" }] }],
     ["post_progress", { entityType: "pbi", entityId: "PBI-12", projectId: "p1", body: "done" }],
     ["link_merge_request", { pbi: "PBI-12", projectId: "p1", url: MR_URL }],
   ])("%s without dev:write (every other scope) → INSUFFICIENT_SCOPE naming dev:write, service not called", async (tool, args) => {
@@ -126,7 +133,7 @@ describe("scope dev:write", () => {
     expect(r.isError).toBe(true)
     expect(r.payload).toMatchObject({ code: "INSUFFICIENT_SCOPE", requiredScope: "dev:write" })
     expect(String(r.payload.hint)).toContain("dev:write")
-    for (const fn of [dev.claimWork, dev.releaseClaim, dev.postProgress, dev.linkMergeRequest]) expect(fn).not.toHaveBeenCalled()
+    for (const fn of [dev.claimWork, dev.releaseClaim, dev.declareScope, dev.postProgress, dev.linkMergeRequest]) expect(fn).not.toHaveBeenCalled()
   })
 
   it("list_claims is a read (read scope is enough)", async () => {
@@ -187,6 +194,34 @@ describe("claim_work / release_claim", () => {
     withScopes('["read","dev:write"]', '["p9"]')
     expect((await callTool("release_claim", { claimId: "c1", projectId: "p1" })).payload.code).toBe("NOT_FOUND")
     expect((await callTool("list_claims", { projectId: "p1" })).payload.code).toBe("NOT_FOUND")
+  })
+})
+
+describe("declare_scope (触る範囲, W4)", () => {
+  it("declares through the same service as PUT .../scope, as the token user via mcp, and answers the overlaps", async () => {
+    const overlaps = [{ claimId: "c2", user: { id: "u2", name: "Dev Two" }, branch: "feat/y", pbi: { id: "b2", displayId: 13 }, task: null, paths: ["crates/forge-auth/src"] }]
+    vi.mocked(dev.declareScope).mockResolvedValue({ scope: [{ kind: "module", value: "forge-auth" }], overlaps })
+    const r = await callTool("declare_scope", { claimId: "c1", projectId: "p1", scope: [{ kind: "module", value: "forge-auth" }] })
+    expect(r).toEqual({ isError: undefined, payload: { data: { scope: [{ kind: "module", value: "forge-auth" }], overlaps } } })
+    expect(dev.declareScope).toHaveBeenCalledWith("p1", "c1", { scope: [{ kind: "module", value: "forge-auth" }] }, MCP_ACTOR)
+  })
+
+  it("the service's refusals are tool errors with their code; an unknown kind is refused by the input schema", async () => {
+    vi.mocked(dev.declareScope).mockRejectedValueOnce(new ValidationError('scope[0] contains ".."', {}, "SCOPE_INVALID"))
+    expect(await callTool("declare_scope", { claimId: "c1", projectId: "p1", scope: [{ kind: "path", value: "../x" }] })).toEqual({
+      isError: true,
+      payload: { error: 'scope[0] contains ".."', code: "SCOPE_INVALID" },
+    })
+    const bad = await callTool("declare_scope", { claimId: "c1", projectId: "p1", scope: [{ kind: "glob", value: "x" }] })
+    expect(bad.isError).toBe(true)
+    expect(String(bad.payload.text)).toMatch(/Input validation error/)
+    expect(dev.declareScope).toHaveBeenCalledTimes(1)
+  })
+
+  it("NOT_FOUND for a project outside the token's restriction (service not called)", async () => {
+    withScopes('["read","dev:write"]', '["p9"]')
+    expect((await callTool("declare_scope", { claimId: "c1", projectId: "p1", scope: [] })).payload.code).toBe("NOT_FOUND")
+    expect(dev.declareScope).not.toHaveBeenCalled()
   })
 })
 
