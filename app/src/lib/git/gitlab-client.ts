@@ -196,12 +196,12 @@ export function createGitLabClient({ apiBase, token, fetchImpl = fetch, timeoutM
    * page: the caller must not treat the listing as complete (e.g. must not move
    * a sync watermark past it).
    */
-  async function paged<T>(path: string, query: Query, maxPages: number): Promise<Paged<T>> {
+  async function paged<T>(path: string, query: Query, maxPages: number, ms = timeoutMs): Promise<Paged<T>> {
     const items: T[] = []
     let page: number | null = 1
     let pages = 0
     while (pages < maxPages && page) {
-      const r: { data: T[]; nextPage: number | null } = await request<T[]>(path, { ...query, per_page: PER_PAGE, page })
+      const r: { data: T[]; nextPage: number | null } = await request<T[]>(path, { ...query, per_page: PER_PAGE, page }, ms)
       items.push(...r.data)
       page = r.nextPage
       pages++
@@ -236,6 +236,22 @@ export function createGitLabClient({ apiBase, token, fetchImpl = fetch, timeoutM
     getMergeRequestPipeline: async (id: number, iid: number): Promise<string | null> => {
       const mr = (await request<{ head_pipeline?: { status?: string } | null }>(`${project(id)}/merge_requests/${iid}`)).data
       return mr.head_pipeline?.status ?? null
+    },
+    /**
+     * Changed files of a merge request (W4 scope check), up to maxPages × 100 files. GitLab
+     * 15.7+ pages them (`/diffs`); an older GitLab answers 404 there and the one-shot
+     * `/changes` (capped by GitLab's own diff limits, `overflow`) is read instead. Both answers
+     * carry the diff text too (GitLab has no paths-only listing), hence the longer timeout.
+     */
+    listMergeRequestChangedFiles: async (id: number, iid: number, maxPages = 3): Promise<Paged<GitLabDiffEntry>> => {
+      const base = `${project(id)}/merge_requests/${iid}`
+      try {
+        return await paged<GitLabDiffEntry>(`${base}/diffs`, {}, maxPages, DOWNLOAD_TIMEOUT_MS)
+      } catch (err) {
+        if (!(err instanceof GitLabError) || err.kind !== "not_found") throw err
+        const r = (await request<{ changes?: GitLabDiffEntry[]; overflow?: boolean }>(`${base}/changes`, {}, DOWNLOAD_TIMEOUT_MS)).data
+        return { items: r.changes ?? [], truncated: r.overflow === true, pages: 1 }
+      }
     },
     listTags: (id: number, maxPages = 3) => itemsOf(paged<GitLabTag>(`${project(id)}/repository/tags`, { order_by: "updated", sort: "desc" }, maxPages)),
     listReleases: (id: number, maxPages = 3) => itemsOf(paged<GitLabRelease>(`${project(id)}/releases`, { order_by: "released_at", sort: "desc" }, maxPages)),

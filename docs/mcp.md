@@ -107,8 +107,9 @@ Lists that are cut at a limit say so with `truncated: true` and `limit`.
 | `add_comment` | `comment:write`, members | `entityType`, `entityId`, `body` (@mentions notify as in the UI) |
 | `create_icebox_item` | `icebox:write` | as `POST /icebox` |
 | `post_daily_scrum` | `daily:write`, members | `sprintId`, `date`, `content` |
-| `list_claims` | read | open work claims of a project (`pbi`, `taskId` filters); stale ones flagged `stale: true` |
+| `list_claims` | read | open work claims of a project (`pbi`, `taskId` filters); stale ones flagged `stale: true`; each with its declared `scope` |
 | `claim_work` | `dev:write`, members | `pbi` **or** `taskId`, `sessionId`, `branch?`, `takeover?` — 作業の宣言; repeat as heartbeat |
+| `declare_scope` | `dev:write`; the claim's own user only | `claimId`, `projectId`, `scope: [{ kind: "path" \| "module", value }]` — 触る範囲 (W4), replaces the whole set; answers `overlaps` with other active claims (a warning) |
 | `release_claim` | `dev:write`; the claim's user, or PO / SM / admin for anyone's | `claimId`, `projectId` |
 | `post_progress` | `dev:write`, members | `entityType` (`pbi` / `sprint_task`), `entityId`, `body` — a comment marked "via MCP (AI)" |
 | `link_merge_request` | `dev:write`, members | `pbi`, `url` (MR of a registered repository) |
@@ -166,6 +167,19 @@ competing for one task; hardened after review the same day):
 - Claims of one PBI are decided one after another (PBI row lock, READ
   COMMITTED), so two sessions can never both win.
 
+**触る範囲 (`declare_scope`, W4)** — after `claim_work`, once the plan is known
+(and again whenever it changes), the agent declares the files (`path`, relative
+POSIX from the repository root) and modules (`module`, a crate / directory
+name) it will touch. Rules and normalization: [api-v1.md](api-v1.md)
+"触る範囲". The answer's `overlaps` name the other active claims sharing files
+(user name, branch, PBI / task, shared paths; never a session id). Unlike
+`TASK_CLAIMED` this is **a warning, not a refusal** — the tool description tells
+the agent to stop, show the overlaps to the user and revisit the plan with
+them (split the files, change the order, coordinate) instead of proceeding
+silently. The same warning appears on the Kanflow board cards and the PBI
+「担当中」 panel, and the Git sync flags open MRs that change files outside the
+declared scope (PBI panel, one line).
+
 `post_progress` is auto-deduplicated like the other create tools (2 minutes, or
 24 h with `idempotencyKey`). `link_merge_request` is naturally idempotent
 (`created: false` for an MR already linked to the PBI) and accepts only merge
@@ -197,6 +211,7 @@ A failed tool call is a tool result with `isError: true` whose text is the
   token with it) — `FORBIDDEN` means the project role does not allow it.
 - `RATE_LIMITED` (write budget) carries `retryAfterSec`.
 - `TASK_CLAIMED` carries `holders` (see "Development tools"); `CLAIM_RELEASED`, `CLAIM_LIMIT_REACHED`,
+  `SCOPE_INVALID` (the message names the entry: `scope[i] …`), `SCOPE_TOO_LARGE`,
   `MR_URL_INVALID`, `MR_REPOSITORY_NOT_REGISTERED` (developer tools).
 - `NOT_FOUND` / `PBI_NOT_FOUND` / `SPRINT_NOT_FOUND`, `VALIDATION`,
   `VERSION_CONFLICT` (re-read, then retry with the new `version`), `CONFLICT`.

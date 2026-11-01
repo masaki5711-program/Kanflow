@@ -15,6 +15,8 @@ const gitLinkUpsert = vi.fn()
 const gitLinkFindMany = vi.fn()
 const gitLinkUpdateMany = vi.fn()
 const gitReleaseFindMany = vi.fn()
+const gitLinkFindFirst = vi.fn()
+const workClaimFindMany = vi.fn()
 const noopLog = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), child: () => noopLog }
 
 vi.mock("@/lib/prisma", () => ({
@@ -30,7 +32,9 @@ vi.mock("@/lib/prisma", () => ({
       upsert: (...a: unknown[]) => gitLinkUpsert(...a),
       findMany: (...a: unknown[]) => gitLinkFindMany(...a),
       updateMany: (...a: unknown[]) => gitLinkUpdateMany(...a),
+      findFirst: (...a: unknown[]) => gitLinkFindFirst(...a),
     },
+    workClaim: { findMany: (...a: unknown[]) => workClaimFindMany(...a) },
     gitRelease: { findMany: (...a: unknown[]) => gitReleaseFindMany(...a), upsert: vi.fn(), deleteMany: vi.fn() },
   },
 }))
@@ -49,6 +53,7 @@ const toRow = vi.fn((cursor: DevCursor) => ({ fakeCursorColumn: `stored(${cursor
 const readChanges = vi.fn<(cursor: DevCursor, now: Date) => Promise<DevChanges>>()
 const listBranches = vi.fn()
 const pipelineStatus = vi.fn()
+const changedPaths = vi.fn()
 const connect = vi.fn()
 
 function fakeSource(): DevSource {
@@ -58,6 +63,7 @@ function fakeSource(): DevSource {
     readChanges,
     listBranches,
     pipelineStatus,
+    changedPaths,
     listReleaseTags: async () => ({ drafts: [], complete: false }),
     describeError: () => ({ kind: "fake", expected: true, message: "fake failure" }),
   }
@@ -97,6 +103,9 @@ beforeEach(() => {
   connect.mockImplementation(() => fakeSource())
   listBranches.mockResolvedValue({ items: [{ name: "feature/PBI-4-x", url: "https://source.example/b", headTitle: null, headAuthor: null, headCommittedAt: null }], complete: true })
   pipelineStatus.mockResolvedValue("success")
+  workClaimFindMany.mockResolvedValue([])
+  gitLinkFindFirst.mockResolvedValue({ outsideScopeCount: null, outsideScopePaths: null })
+  changedPaths.mockResolvedValue({ paths: ["app/in/a.ts", "app/out/b.ts"], complete: true })
   readChanges.mockResolvedValue({
     mergeRequests: [{ ref: "12", title: "PBI-3 login", state: "opened", url: "https://source.example/mr/12", sourceBranch: "feature/PBI-3", author: "Dev", updatedAt: "2026-09-30T00:00:00Z", mergedAt: null }],
     freshMergeRequestRefs: new Set(["12"]),
@@ -139,5 +148,32 @@ describe("syncRepository through a DevSource", () => {
     expect(result).toMatchObject({ ok: false, error: "fake" })
     expect(noopLog.warn).toHaveBeenCalledWith("git sync listing failed", { repositoryId: "r1", kind: "commit", errorKind: "fake", status: undefined })
     expect(gitRepositoryUpdateMany.mock.calls[0][0].data).toMatchObject({ fakeCursorColumn: `stored(${NEXT})`, lastError: "コミット: fake failure" })
+  })
+
+  it("W4: an open MR read in this sync is compared with the PBI's declared scope; the outside files go on its link", async () => {
+    workClaimFindMany.mockResolvedValue([{ backlogItemId: "b-3", branch: "feature/PBI-3", scopes: [{ kind: "path", value: "app/in" }] }])
+    const result = await syncRepository("r1", undefined, NOW)
+    expect(result.ok).toBe(true)
+    expect(workClaimFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ backlogItemId: { in: ["b-3"] } }) }))
+    expect(changedPaths).toHaveBeenCalledWith("12")
+    expect(gitLinkUpdateMany).toHaveBeenCalledWith({
+      where: { repositoryId: "r1", kind: "mr", ref: "12", backlogItemId: "b-3" },
+      data: { scopeCheckedAt: NOW, outsideScopeCount: 1, outsideScopePaths: ["app/out/b.ts"] },
+    })
+  })
+
+  it("W4: no scoped claim → no changed-files request", async () => {
+    await syncRepository("r1", undefined, NOW)
+    expect(workClaimFindMany).toHaveBeenCalledTimes(1)
+    expect(changedPaths).not.toHaveBeenCalled()
+  })
+
+  it("W4: a failed MR listing → no scope check at all (like the pipeline lookups)", async () => {
+    workClaimFindMany.mockResolvedValue([{ backlogItemId: "b-3", branch: null, scopes: [{ kind: "path", value: "app/in" }] }])
+    const changes = await readChanges(START, NOW)
+    readChanges.mockResolvedValueOnce({ ...changes, failures: [{ kind: "mr", error: new Error("listing failed") }] })
+    await syncRepository("r1", undefined, NOW)
+    expect(workClaimFindMany).not.toHaveBeenCalled()
+    expect(changedPaths).not.toHaveBeenCalled()
   })
 })

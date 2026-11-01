@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { claimState, claimsForCard, indexClaims, initials, STALE_SOON_MS, toClaimList, type ScreenClaim } from "../claim-view"
+import { claimState, claimsForCard, indexClaims, initials, overlapsOf, PATHS_PER_LINE, shownPaths, STALE_SOON_MS, toClaimList, type ScreenClaim } from "../claim-view"
 
 const NOW = new Date("2026-11-01T12:00:00.000Z")
 const at = (ms: number) => new Date(NOW.getTime() + ms).toISOString()
@@ -48,11 +48,34 @@ describe("indexClaims / claimsForCard", () => {
 
 describe("toClaimList", () => {
   it("accepts the route's answer; canModerate only when exactly true", () => {
-    expect(toClaimList({ data: [], staleAfterHours: 4, canModerate: true })).toEqual({ data: [], staleAfterHours: 4, canModerate: true })
+    expect(toClaimList({ data: [], staleAfterHours: 4, canModerate: true })).toEqual({ data: [], staleAfterHours: 4, canModerate: true, outsideScope: [] })
     expect(toClaimList({ data: [], staleAfterHours: 4, canModerate: "yes" }).canModerate).toBe(false)
   })
   it("anything else is an error", () => {
     expect(() => toClaimList({ id: "pbi" })).toThrow()
     expect(() => toClaimList(null)).toThrow()
+  })
+})
+
+describe("触る範囲 helpers (W4)", () => {
+  const overlap = { claimId: "c2", user: { id: "u2", name: "Bea" }, ai: false, pbi: { id: "b2", displayId: 2 }, paths: ["a"], pathCount: 1 }
+
+  it("shownPaths: the first few paths and the rest (the server's full count wins)", () => {
+    expect(shownPaths(["a", "b"])).toEqual({ shown: ["a", "b"], rest: 0 })
+    const many = Array.from({ length: PATHS_PER_LINE + 2 }, (_, i) => `p${i}`)
+    expect(shownPaths(many)).toEqual({ shown: many.slice(0, PATHS_PER_LINE), rest: 2 })
+    expect(shownPaths(["a"], 12)).toEqual({ shown: ["a"], rest: 11 })
+  })
+
+  it("overlapsOf: only active claims warn; a claim without the field has none", () => {
+    expect(overlapsOf(c({ overlaps: [overlap] }))).toEqual([overlap])
+    expect(overlapsOf(c({ overlaps: [overlap], stale: true }))).toEqual([])
+    expect(overlapsOf(c())).toEqual([])
+  })
+
+  it("toClaimList: outsideScope defaults to [] (board answers carry none)", () => {
+    expect(toClaimList({ data: [], staleAfterHours: 4 }).outsideScope).toEqual([])
+    const out = [{ linkId: "l1", ref: "7", title: "t", url: "https://x", repository: "api", count: 1, paths: ["a"], checkedAt: null }]
+    expect(toClaimList({ data: [], staleAfterHours: 4, outsideScope: out }).outsideScope).toEqual(out)
   })
 })

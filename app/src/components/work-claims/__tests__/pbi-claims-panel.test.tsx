@@ -24,17 +24,19 @@ function c(over: Partial<ScreenClaim>): ScreenClaim {
 
 let claims: ScreenClaim[]
 let canModerate: boolean
+let outsideScope: unknown[]
 const calls: Array<{ method: string; url: string }> = []
 
 beforeEach(() => {
   calls.length = 0
   claims = [c({}), c({ id: "c2", task: null, ai: false, user: { id: "u3", name: "Cy Do" }, stale: true, staleAt: at(-60_000) })]
   canModerate = false
+  outsideScope = []
   vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
     const method = (init?.method ?? "GET").toUpperCase()
     calls.push({ method, url: String(url) })
     if (method === "POST") return jsonResponse({ claim: { id: "c1", releasedAt: at(0), releaseReason: "moderator" } })
-    return jsonResponse({ data: claims, staleAfterHours: 4, canModerate })
+    return jsonResponse({ data: claims, staleAfterHours: 4, canModerate, outsideScope })
   }))
 })
 afterEach(() => vi.unstubAllGlobals())
@@ -113,5 +115,40 @@ describe("PBI 担当中 panel", () => {
     vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ error: "x" }, 500)))
     renderPanel()
     expect((await screen.findByText(t.workClaimLoadFailed)).closest("[role=alert]")).not.toBeNull()
+  })
+
+  it("W4: shows the declared scope (software) and one warning line per overlapping claim, in words", async () => {
+    const overlap = { claimId: "o1", user: { id: "u9", name: "Cy Do" }, ai: false, pbi: { id: "b2", displayId: 2 }, paths: ["app/src/x.ts"], pathCount: 1 }
+    claims = [c({ scope: [{ kind: "module", value: "forge-auth" }, { kind: "path", value: "app/src" }], scopeCount: 5, overlaps: [overlap] })]
+    renderPanel()
+    const panel = await screen.findByRole("region", { name: t.workClaimPanelTitle })
+    const scope = panel.querySelector("[data-claim-scope]")
+    expect(scope?.textContent).toBe(`${t.workClaimScope}: forge-auth, app/src ${t.workClaimMore.replace("{count}", "3")}`)
+    expect(within(panel).getByText(t.workClaimOverlap.replace("{name}", "Cy Do").replace("{paths}", "app/src/x.ts"))).toBeInTheDocument()
+  })
+
+  it("W4: an open MR that changes files outside the declared scope is one line, linking to the MR", async () => {
+    outsideScope = [{ linkId: "l1", ref: "7", title: "Login API", url: "https://gitlab.example/g/r/-/merge_requests/7", repository: "api", count: 4, paths: ["a.ts", "b.ts", "c.ts", "d.ts"], checkedAt: null }]
+    renderPanel()
+    const text = t.workClaimOutsideScope.replace("{mr}", "!7").replace("{count}", "4").replace("{paths}", `a.ts, b.ts, c.ts ${t.workClaimMore.replace("{count}", "1")}`)
+    const line = await screen.findByText(text)
+    expect(line.closest("a")?.getAttribute("href")).toBe("https://gitlab.example/g/r/-/merge_requests/7")
+    expect(line.closest("a")?.getAttribute("rel")).toContain("noopener")
+  })
+
+  it("W4: a non-https MR URL is shown without a link", async () => {
+    outsideScope = [{ linkId: "l1", ref: "7", title: "x", url: "javascript:alert(1)", repository: "api", count: 1, paths: ["a.ts"], checkedAt: null }]
+    renderPanel()
+    const line = await screen.findByText(t.workClaimOutsideScope.replace("{mr}", "!7").replace("{count}", "1").replace("{paths}", "a.ts"))
+    expect(line.closest("a")).toBeNull()
+  })
+
+  it("W4: an expired claim shows no overlap warning; no scope line outside software projects", async () => {
+    const overlap = { claimId: "o1", user: { id: "u9", name: "Cy Do" }, ai: false, pbi: { id: "b2", displayId: 2 }, paths: ["x"], pathCount: 1 }
+    claims = [c({ stale: true, staleAt: at(-60_000), overlaps: [overlap], scope: [{ kind: "path", value: "x" }] })]
+    renderPanel("general")
+    await screen.findByRole("region", { name: t.workClaimPanelTitle })
+    expect(document.querySelector("[data-claim-overlap]")).toBeNull()
+    expect(document.querySelector("[data-claim-scope]")).toBeNull()
   })
 })

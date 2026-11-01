@@ -2,10 +2,12 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { z } from "zod"
 import { ValidationError } from "@/services/_shared/errors"
 import type { ApiPrincipal } from "@/services/api-tokens/api-token-auth"
-import { devBranch, devPbiRef, devSessionId, PROGRESS_ENTITY_TYPES } from "@/services/dev-work/dev-work.schemas"
+import { devBranch, devPbiRef, devSessionId, PROGRESS_ENTITY_TYPES, SCOPE_RAW_ENTRIES_MAX } from "@/services/dev-work/dev-work.schemas"
+import { SCOPE_KINDS } from "@/services/dev-work/dev-work.scope"
 import { COMMENT_BODY_MAX } from "@/services/comments/comments.schemas"
 import {
   claimWorkOp,
+  declareScopeOp,
   linkMergeRequestOp,
   listClaimsOp,
   postProgressOp,
@@ -15,7 +17,7 @@ import { CREATE_NOTE, DATA_NOTICE, definedOnly, guard, mcpWrite, pbiIdIn, pbiSco
 
 /**
  * Developer tools of the Kanflow MCP server (K5, scope dev:write; docs/mcp.md
- * "Development tools"): 作業の宣言, progress comments, MR links. Same operations
+ * "Development tools"): 作業の宣言, 触る範囲 (declare_scope), progress comments, MR links. Same operations
  * as /api/v1/projects/:projectId/dev/* (v1-dev-handlers) through the same
  * write path (runV1Write: scope dev:write ∩ role, write budget, via "mcp").
  * Nothing here moves a task or PBI status: that stays a human decision.
@@ -91,9 +93,35 @@ export function registerDevTools(server: McpServer, principal: ApiPrincipal): vo
   )
 
   server.registerTool(
+    "declare_scope",
+    {
+      description: describe(
+        "Declare which files / modules your claim will touch (触る範囲; scope dev:write; only the claim's own user). Call it right after claim_work, once you have a plan, and again when the plan changes: it REPLACES the whole set ([] clears it). " +
+          'Entries: { kind: "path", value: a file or directory relative to the repository root, POSIX "/" (e.g. "app/src/services/dev-work", "docs/api-v1.md") } or { kind: "module", value: a crate / package / directory name (e.g. "forge-auth") }. No absolute paths, no "..", no glob patterns other than a trailing "/**"; at most 200 distinct entries (SCOPE_INVALID / SCOPE_TOO_LARGE). ' +
+          "The answer lists `overlaps`: other people's (or your other sessions') active claims whose scope shares files with yours — user name, branch, PBI / task, the shared paths. Overlaps are a warning, not a refusal: when there are any, STOP and show them to the user (who, which files), and revisit the plan with the user (split the files, change the order, or coordinate) before you edit the shared files. Do not proceed silently. " +
+          "The Kanflow board and PBI page show the same warning, and the Git sync flags merge requests that change files outside the declared scope.",
+      ),
+      inputSchema: {
+        claimId: id.describe("Your claim id (from claim_work)."),
+        projectId: id.describe("The claim's projectId."),
+        scope: z
+          .array(z.object({ kind: z.enum(SCOPE_KINDS), value: z.string().min(1).max(1000) }))
+          .max(SCOPE_RAW_ENTRIES_MAX)
+          .describe("The whole set of files / modules you will touch."),
+      },
+      annotations: IDEMPOTENT_WRITE,
+    },
+    ({ claimId, projectId, scope }) =>
+      guard("declare_scope", async () => {
+        const target = await projectScope(principal, projectId)
+        return mcpWrite(principal, { tool: "declare_scope", scope: target, action: "dev.write", body: { scope }, params: { claimId }, op: declareScopeOp })
+      }),
+  )
+
+  server.registerTool(
     "list_claims",
     {
-      description: describe("Open work claims of a project (who works on which PBI / task, session, branch, lastHeartbeat, staleAt), newest heartbeat first; stale ones (no heartbeat for the window — they no longer block) are flagged stale: true. Optionally one PBI or task. Check it before claiming or creating tasks."),
+      description: describe("Open work claims of a project (who works on which PBI / task, session, branch, lastHeartbeat, staleAt, the declared scope), newest heartbeat first; stale ones (no heartbeat for the window — they no longer block) are flagged stale: true. Optionally one PBI or task. Check it before claiming or creating tasks."),
       inputSchema: { projectId: id, pbi: pbiArg.optional(), taskId: id.optional() },
       annotations: READ,
     },

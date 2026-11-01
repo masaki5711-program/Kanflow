@@ -149,6 +149,7 @@ node scripts/kanflow-setup.js --url https://<kanflow-host>
 | `TASK_CLAIMED`（`holders` 付き） | 他の人・別のセッションがそのタスク（または PBI 全体）を作業中 | `holders` の人と相談する（または PO / SM に解除を依頼）。自分の別セッションなら `takeover: true` |
 | `CLAIM_LIMIT_REACHED` | 同じプロジェクトで有効な作業の宣言が上限（既定 20）に達した | 終わった作業を `release_claim` で解除する |
 | `CLAIM_RELEASED` | 生存通知を送った宣言が解除済み・引き継ぎ済み・置き換え済み | `claim_work` で宣言し直す（引き継がれていれば `TASK_CLAIMED` になる） |
+| `SCOPE_INVALID` / `SCOPE_TOO_LARGE` | `declare_scope` の触る範囲に使えない書き方（絶対パス・`..`・`*` など）がある、または 200 件を超えた | リポジトリの中の相対パスかモジュール名で書く。多いときはディレクトリやモジュールでまとめる |
 | `MR_URL_INVALID` / `MR_REPOSITORY_NOT_REGISTERED` | MR の URL でない、許可されていないホスト、またはプロジェクトの Git 連携に登録されていないリポジトリ | `https://<host>/<group>/<repo>/-/merge_requests/<番号>` の形で、登録済みリポジトリの MR を指定する |
 | `VERSION_CONFLICT` | 読み込んだ後に誰かが同じタスク / PBI を更新した | 読み直して差分を確認し、新しい `version` で再実行 |
 | `CONFLICT`（`idempotencyKey` 付き） | 同じキーを別の内容で使った | 別のキーを使う |

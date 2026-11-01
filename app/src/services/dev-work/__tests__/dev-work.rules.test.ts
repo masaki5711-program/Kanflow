@@ -12,6 +12,10 @@ import {
   toBoardClaimDto,
   toClaimDto,
   isAiClaim,
+  BOARD_SCOPE_SHOWN,
+  OVERLAP_PATHS_SHOWN,
+  toBoardOverlapDto,
+  toScopeOverlapDto,
   type ClaimRow,
 } from "../dev-work.rules"
 
@@ -131,6 +135,7 @@ describe("toClaimDto", () => {
       releaseReason: null,
       active: true,
       stale: false,
+      scope: [],
     })
     expect(toClaimDto(claim({ heartbeatAt: new Date(NOW.getTime() - 5 * HOUR) }), NOW, 4, "u1")).toMatchObject({ active: false, stale: true })
   })
@@ -178,8 +183,35 @@ describe("toBoardClaimDto (screens: board marks, PBI 担当中 panel)", () => {
       heartbeatAt: new Date(NOW.getTime() - HOUR).toISOString(),
       staleAt: new Date(NOW.getTime() + 3 * HOUR).toISOString(),
       stale: false,
+      scope: [],
+      scopeCount: 0,
+      overlaps: [],
     })
     expect(JSON.stringify(dto)).not.toContain("s-1")
+  })
+
+  it("carries the declared scope sorted (modules first), at most BOARD_SCOPE_SHOWN entries with the full count", () => {
+    const scopes = [{ kind: "path", value: "b" }, { kind: "module", value: "core" }, { kind: "path", value: "a" }, { kind: "glob", value: "x" }]
+    expect(toBoardClaimDto(claim({ scopes }), NOW, 4)).toMatchObject({
+      scope: [{ kind: "module", value: "core" }, { kind: "path", value: "a" }, { kind: "path", value: "b" }],
+      scopeCount: 3,
+    })
+    const many = Array.from({ length: BOARD_SCOPE_SHOWN + 5 }, (_, i) => ({ kind: "path", value: `f/${String(i).padStart(3, "0")}` }))
+    const dto = toBoardClaimDto(claim({ scopes: many }), NOW, 4)
+    expect(dto.scope).toHaveLength(BOARD_SCOPE_SHOWN)
+    expect(dto.scopeCount).toBe(BOARD_SCOPE_SHOWN + 5)
+    expect(toClaimDto(claim({ scopes: many }), NOW, 4, "u1").scope).toHaveLength(BOARD_SCOPE_SHOWN + 5)
+  })
+
+  it("overlap DTOs carry who / where / the shared paths, never a session id", () => {
+    const other = claim({ id: "c9", userId: "u2", sessionId: "secret-session", user: { id: "u2", name: "Bea" }, branch: "feat/y" })
+    const api = toScopeOverlapDto(other, ["app/src"])
+    expect(api).toEqual({ claimId: "c9", user: { id: "u2", name: "Bea" }, branch: "feat/y", pbi: { id: "b1", displayId: 12 }, task: null, paths: ["app/src"] })
+    const paths = Array.from({ length: OVERLAP_PATHS_SHOWN + 2 }, (_, i) => `p${i}`)
+    const board = toBoardOverlapDto(other, paths)
+    expect(board).toMatchObject({ claimId: "c9", ai: true, pathCount: OVERLAP_PATHS_SHOWN + 2 })
+    expect(board.paths).toHaveLength(OVERLAP_PATHS_SHOWN)
+    expect(JSON.stringify([api, board])).not.toContain("secret-session")
   })
 
   it("a claim past the stale window is stale; a whole-PBI claim has task null", () => {

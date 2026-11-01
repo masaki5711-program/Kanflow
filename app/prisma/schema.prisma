@@ -1387,6 +1387,13 @@ model GitLink {
   /// sync; null = found by the sync. The sync keeps refreshing state / title of a declared MR.
   declaredById  String?
   declaredAt    DateTime?
+  /// MR links only (W4 触る範囲): when the sync last compared the MR's changed files with the
+  /// declared scope of the PBI's active work claims; null = never compared (no scope declared).
+  scopeCheckedAt    DateTime?
+  /// How many changed files lay outside the declared scope at that check (0 = all inside).
+  outsideScopeCount Int?
+  /// The first of those files (JSON array of strings, at most 20) for the PBI panel.
+  outsideScopePaths Json?
   createdAt     DateTime           @default(now())
   updatedAt     DateTime           @updatedAt
   project       Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
@@ -1429,12 +1436,31 @@ model WorkClaim {
   backlogItem   ProductBacklogItem @relation(fields: [backlogItemId], references: [id], onDelete: Cascade)
   task          SprintBacklogItem? @relation(fields: [taskId], references: [id], onDelete: Cascade)
   user          User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  scopes        WorkClaimScope[]
 
   @@index([projectId, releasedAt, heartbeatAt])
   @@index([backlogItemId, releasedAt])
   @@index([taskId])
   @@index([userId, sessionId])
   @@map("work_claim")
+}
+
+/// 触る範囲 (touched scope, W4) of a work claim: the files / modules the session declared it
+/// will touch (services/dev-work/dev-work.scope). Replaced as a whole by PUT .../dev/claims/:id/scope
+/// (at most 200 per claim). No unique index on value: values are case-sensitive and compared in
+/// the service (MySQL's collation is case-insensitive, PostgreSQL's is not).
+model WorkClaimScope {
+  id        String    @id @default(cuid())
+  claimId   String
+  /// "path" (relative POSIX file / directory) | "module" (crate / package / directory name).
+  kind      String    @db.VarChar(8)
+  /// Normalized value (dev-work.scope normalizeScopeValue), at most 300 characters.
+  value     String    @db.VarChar(300)
+  createdAt DateTime  @default(now())
+  claim     WorkClaim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+
+  @@index([claimId])
+  @@map("work_claim_scope")
 }
 
 // ─── マイルストーン・検収ボード (general projects, 2026-10) ────────────────

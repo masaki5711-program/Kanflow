@@ -1,5 +1,5 @@
 /**
- * i18n domain: 担当中 (work claims, W3) — the marks on sprint board cards and the
+ * i18n domain: 担当中 (work claims, W3; 触る範囲 overlap / outside-scope warnings, W4) — the marks on sprint board cards and the
  * 「担当中」 panel of the PBI detail (components/work-claims/). Plain words for
  * non-engineers: a claim is 「担当中」, a heartbeat is 「最後の確認」.
  * Add a key to the interface AND to ja / en / id below (compile error otherwise).
@@ -28,6 +28,11 @@ export interface WorkClaimsTranslations {
   workClaimReleaseFailed: string
   workClaimLoadFailed: string
   workClaimTruncated: string
+  workClaimWarning: string
+  workClaimOverlap: string
+  workClaimScope: string
+  workClaimOutsideScope: string
+  workClaimPathSeparator: string
 }
 
 export const ja: WorkClaimsTranslations = {
@@ -54,6 +59,11 @@ export const ja: WorkClaimsTranslations = {
   workClaimReleaseFailed: "担当中を解除できませんでした",
   workClaimLoadFailed: "担当中を読み込めませんでした",
   workClaimTruncated: "新しい {count} 件だけを表示しています",
+  workClaimWarning: "注意",
+  workClaimOverlap: "{name}さんの作業と範囲が重なっています: {paths}",
+  workClaimScope: "触る範囲",
+  workClaimOutsideScope: "{mr} は、宣言した範囲の外のファイルも変えています（{count} 件）: {paths}",
+  workClaimPathSeparator: "、",
 }
 
 export const en: WorkClaimsTranslations = {
@@ -80,6 +90,11 @@ export const en: WorkClaimsTranslations = {
   workClaimReleaseFailed: "Could not release the claim",
   workClaimLoadFailed: "Could not load who is working on this",
   workClaimTruncated: "Showing the latest {count} only",
+  workClaimWarning: "Warning",
+  workClaimOverlap: "Overlaps with {name}'s work: {paths}",
+  workClaimScope: "Touched scope",
+  workClaimOutsideScope: "{mr} also changes {count} files outside the declared scope: {paths}",
+  workClaimPathSeparator: ", ",
 }
 
 export const id: WorkClaimsTranslations = {
@@ -106,4 +121,9 @@ export const id: WorkClaimsTranslations = {
   workClaimReleaseFailed: "Klaim tidak dapat dilepaskan",
   workClaimLoadFailed: "Tidak dapat memuat siapa yang sedang mengerjakan",
   workClaimTruncated: "Hanya menampilkan {count} terbaru",
+  workClaimWarning: "Peringatan",
+  workClaimOverlap: "Cakupannya bertumpang tindih dengan pekerjaan {name}: {paths}",
+  workClaimScope: "Cakupan yang diubah",
+  workClaimOutsideScope: "{mr} juga mengubah {count} file di luar cakupan yang dinyatakan: {paths}",
+  workClaimPathSeparator: ", ",
 }

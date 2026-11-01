@@ -17,6 +17,38 @@ export interface ScreenClaim {
   heartbeatAt: string
   staleAt: string
   stale: boolean
+  /** 触る範囲 (W4): the first declared entries (`scopeCount` = all of them). Absent = none. */
+  scope?: ScreenScopeEntry[]
+  scopeCount?: number
+  /** Other active claims whose scope overlaps this one (W4 warning). Absent = none. */
+  overlaps?: ScreenOverlap[]
+}
+
+export interface ScreenScopeEntry {
+  kind: "path" | "module"
+  value: string
+}
+
+/** Another claim whose declared scope shares files with this one (services/dev-work BoardOverlapDto). */
+export interface ScreenOverlap {
+  claimId: string
+  user: { id: string; name: string }
+  ai: boolean
+  pbi: { id: string; displayId: number }
+  paths: string[]
+  pathCount: number
+}
+
+/** An open MR of the PBI that changes files outside the declared scope (Git sync, W4). */
+export interface ScreenOutsideScope {
+  linkId: string
+  ref: string
+  title: string
+  url: string
+  repository: string
+  count: number
+  paths: string[]
+  checkedAt: string | null
 }
 
 export interface ScreenClaimList {
@@ -26,6 +58,22 @@ export interface ScreenClaimList {
   canModerate: boolean
   truncated?: boolean
   limit?: number
+  /** PBI panel only. */
+  outsideScope: ScreenOutsideScope[]
+}
+
+/** Paths shown in one warning line before "+n more". */
+export const PATHS_PER_LINE = 3
+
+/** The first PATHS_PER_LINE paths and how many more there are (`total` may exceed the paths sent). */
+export function shownPaths(paths: readonly string[], total: number = paths.length): { shown: string[]; rest: number } {
+  const shown = paths.slice(0, PATHS_PER_LINE)
+  return { shown, rest: Math.max(total, paths.length) - shown.length }
+}
+
+/** The overlap warnings a card or panel row shows: active claims only (a stale claim neither warns nor is warned about). */
+export function overlapsOf(claim: Pick<ScreenClaim, "stale" | "overlaps">): ScreenOverlap[] {
+  return claim.stale ? [] : (claim.overlaps ?? [])
 }
 
 /** active = working; staleSoon = at most 30 minutes left without a new 最後の確認; stale = no longer counts. */
@@ -83,5 +131,11 @@ export function claimsForCard(index: ClaimIndex, taskId: string, pbiId: string):
 export function toClaimList(raw: unknown): ScreenClaimList {
   const body = raw as Partial<ScreenClaimList> | null
   if (!body || typeof body !== "object" || !Array.isArray(body.data)) throw new Error("Unexpected work-claims answer")
-  return { ...body, data: body.data, staleAfterHours: Number(body.staleAfterHours) || 0, canModerate: body.canModerate === true }
+  return {
+    ...body,
+    data: body.data,
+    staleAfterHours: Number(body.staleAfterHours) || 0,
+    canModerate: body.canModerate === true,
+    outsideScope: Array.isArray(body.outsideScope) ? body.outsideScope : [],
+  }
 }

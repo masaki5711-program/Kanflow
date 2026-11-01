@@ -28,7 +28,12 @@ export const CLAIM_SELECT = {
   backlogItem: { select: { id: true, displayId: true, initiative: true, userStory: true } },
   task: { select: { id: true, taskName: true, sprintId: true } },
   user: { select: { id: true, name: true } },
+  /** 触る範囲 (W4): at most SCOPE_ENTRIES_MAX per claim (bounded by the write); sorted in the service. */
+  scopes: { select: { kind: true, value: true } },
 } as const
+
+/** Upper bound of other active claims WITH a scope read for an overlap check (one more row = `truncated`). */
+export const SCOPED_CLAIMS_LIMIT = 200
 
 /** A live PBI of the project by internal id or number. */
 export function findPbi(db: Db, projectId: string, ref: { id: string } | { displayId: number }) {
@@ -146,6 +151,43 @@ export function findOpenClaimsOfSprint(db: Db, projectId: string, sprintId: stri
     select: CLAIM_SELECT,
     orderBy: [{ heartbeatAt: "desc" }, { id: "desc" }],
     take: CLAIM_LIST_LIMIT + 1,
+  })
+}
+
+// ------------------------------------------------------------- 触る範囲 (W4)
+
+/**
+ * Serializes scope writes of one claim and checks it is still open, in one statement: a
+ * conditional UPDATE takes the claim's row lock on MySQL and PostgreSQL alike (no raw SQL).
+ * Returns 0 when the claim was released meanwhile.
+ */
+export async function lockOpenClaim(db: Db, claimId: string, now: Date): Promise<number> {
+  return (await db.workClaim.updateMany({ where: { id: claimId, releasedAt: null }, data: { updatedAt: now } })).count
+}
+
+/** Replace a claim's whole scope (inside the caller's transaction, after lockOpenClaim). */
+export async function replaceScope(db: Db, claimId: string, entries: readonly { kind: string; value: string }[]): Promise<void> {
+  await db.workClaimScope.deleteMany({ where: { claimId } })
+  if (entries.length > 0) await db.workClaimScope.createMany({ data: entries.map((e) => ({ claimId, kind: e.kind, value: e.value })) })
+}
+
+/** Active claims of the project (PBI live) that declared a scope, newest heartbeat first, SCOPED_CLAIMS_LIMIT + 1 rows. */
+export function findActiveScopedClaims(db: Db, projectId: string, since: Date) {
+  return db.workClaim.findMany({
+    where: { projectId, releasedAt: null, heartbeatAt: { gte: since }, backlogItem: NOT_DELETED, scopes: { some: {} } },
+    select: CLAIM_SELECT,
+    orderBy: [{ heartbeatAt: "desc" }, { id: "desc" }],
+    take: SCOPED_CLAIMS_LIMIT + 1,
+  })
+}
+
+/** Open MR links of a PBI whose last scope check found changes outside the declared scope (at most 20). */
+export function findOutsideScopeLinks(db: Db, backlogItemId: string) {
+  return db.gitLink.findMany({
+    where: { backlogItemId, kind: "mr", state: { in: ["opened", "locked"] }, outsideScopeCount: { gt: 0 } },
+    select: { id: true, ref: true, title: true, url: true, outsideScopeCount: true, outsideScopePaths: true, scopeCheckedAt: true, repository: { select: { name: true } } },
+    orderBy: [{ scopeCheckedAt: "desc" }, { id: "desc" }],
+    take: 20,
   })
 }
 

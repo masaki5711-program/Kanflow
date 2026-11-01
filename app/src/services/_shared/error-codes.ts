@@ -140,6 +140,10 @@ export const API_ERROR_CODES = [
   "TASK_CLAIMED",
   /** dev:write work claim: the user already holds DEV_CLAIM_MAX_OPEN_PER_USER active claims in the project. */
   "CLAIM_LIMIT_REACHED",
+  /** dev:write 触る範囲 (W4): an entry is not a usable relative path / module name (message names the entry). */
+  "SCOPE_INVALID",
+  /** dev:write 触る範囲 (W4): more than 200 distinct entries for one claim. */
+  "SCOPE_TOO_LARGE",
   // Client-side only (set by apiFetch, never sent by the server)
   "NETWORK_ERROR",
 ] as const

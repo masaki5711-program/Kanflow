@@ -45,6 +45,7 @@ function claim(over: Partial<Row> = {}): Row {
     backlogItem: PBI,
     task: null,
     user: { id: "u1", name: "Dev One" },
+    scopes: [],
     ...over,
   }
 }
@@ -60,6 +61,9 @@ beforeEach(() => {
   vi.mocked(repo.countActiveClaimsOfUser).mockResolvedValue(0)
   vi.mocked(repo.endClaims).mockResolvedValue(0)
   vi.mocked(repo.findClaim).mockResolvedValue(claim())
+  vi.mocked(repo.lockOpenClaim).mockResolvedValue(1)
+  vi.mocked(repo.findActiveScopedClaims).mockResolvedValue([])
+  vi.mocked(repo.findOutsideScopeLinks).mockResolvedValue([])
   svc.resetClaimSettingsWarning()
 })
 
@@ -338,6 +342,111 @@ describe("listBoardClaims (W3 screens)", () => {
     vi.mocked(repo.findPbi).mockResolvedValue(null)
     await expect(svc.listBoardClaims("p1", { pbi: "nope" }, NOW)).rejects.toBeInstanceOf(NotFoundError)
     expect(repo.findOpenClaims).not.toHaveBeenCalled()
+  })
+})
+
+describe("declareScope (触る範囲, W4)", () => {
+  const other = (id: string, scopes: Array<{ kind: string; value: string }>, over: Partial<Row> = {}) =>
+    claim({ id, userId: `u-${id}`, sessionId: `secret-${id}`, user: { id: `u-${id}`, name: `Dev ${id}` }, branch: `feat/${id}`, scopes, ...over })
+
+  it("replaces the whole scope under the claim's row lock (READ COMMITTED) and answers it normalized", async () => {
+    const out = await svc.declareScope("p1", "c1", { scope: [{ kind: "path", value: "./app/src/" }, { kind: "module", value: "core" }, { kind: "path", value: "app/src" }] }, ACTOR, NOW)
+    const want = [{ kind: "module", value: "core" }, { kind: "path", value: "app/src" }]
+    expect(out).toEqual({ scope: want, overlaps: [] })
+    expect(db.withTransaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: "ReadCommitted" })
+    expect(repo.lockOpenClaim).toHaveBeenCalledWith(TX, "c1", NOW)
+    expect(repo.replaceScope).toHaveBeenCalledWith(TX, "c1", want)
+    expect(order(repo.lockOpenClaim)).toBeLessThan(order(repo.replaceScope))
+  })
+
+  it("answers the overlapping active claims of the project (who, branch, shared paths) without their session ids", async () => {
+    vi.mocked(repo.findActiveScopedClaims).mockResolvedValue([
+      claim({ scopes: [{ kind: "path", value: "app" }] }), // the caller's own claim: never an overlap with itself
+      other("a", [{ kind: "path", value: "app/src/services/git/git-sync.ts" }]),
+      other("b", [{ kind: "path", value: "docs" }]),
+      other("stale", [{ kind: "path", value: "app" }], { heartbeatAt: new Date(NOW.getTime() - 5 * HOUR) }),
+    ])
+    const out = await svc.declareScope("p1", "c1", { scope: [{ kind: "path", value: "app/src/services" }] }, ACTOR, NOW)
+    expect(repo.findActiveScopedClaims).toHaveBeenCalledWith(DEFAULT_DB, "p1", new Date(NOW.getTime() - 4 * HOUR))
+    expect(out.overlaps).toEqual([
+      { claimId: "a", user: { id: "u-a", name: "Dev a" }, branch: "feat/a", pbi: { id: "b1", displayId: 12 }, task: null, paths: ["app/src/services/git/git-sync.ts"] },
+    ])
+    expect(JSON.stringify(out)).not.toContain("secret-")
+  })
+
+  it("flags an incomplete overlap check past the read bound (logged), never silently", async () => {
+    vi.mocked(repo.findActiveScopedClaims).mockResolvedValue(Array.from({ length: repo.SCOPED_CLAIMS_LIMIT + 1 }, (_, i) => other(`o${i}`, [{ kind: "path", value: "x" }])))
+    const out = await svc.declareScope("p1", "c1", { scope: [{ kind: "path", value: "x" }] }, ACTOR, NOW)
+    expect(out.overlaps).toHaveLength(repo.SCOPED_CLAIMS_LIMIT)
+    expect(out.overlapsTruncated).toBe(true)
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining("overlap"), expect.objectContaining({ projectId: "p1" }))
+  })
+
+  it("[] clears the scope", async () => {
+    expect(await svc.declareScope("p1", "c1", { scope: [] }, ACTOR, NOW)).toEqual({ scope: [], overlaps: [] })
+    expect(repo.replaceScope).toHaveBeenCalledWith(TX, "c1", [])
+  })
+
+  it.each([
+    [[{ kind: "path" as const, value: "../etc" }], "SCOPE_INVALID", /scope\[0\] contains "\.\."/],
+    [[{ kind: "path" as const, value: "ok" }, { kind: "path" as const, value: "/abs" }], "SCOPE_INVALID", /scope\[1\] is absolute/],
+    [Array.from({ length: 201 }, (_, i) => ({ kind: "path" as const, value: `f${i}` })), "SCOPE_TOO_LARGE", /200/],
+  ])("400 %#: %s — nothing read or written", async (scope, code, message) => {
+    const err = await svc.declareScope("p1", "c1", { scope }, ACTOR, NOW).catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(ValidationError)
+    expect(err).toMatchObject({ code })
+    expect((err as Error).message).toMatch(message)
+    expect(repo.findClaim).not.toHaveBeenCalled()
+    expect(repo.replaceScope).not.toHaveBeenCalled()
+  })
+
+  it("only the claim's user: 403 for anyone else (a moderator too); 404 for a claim of another project", async () => {
+    vi.mocked(repo.findClaim).mockResolvedValueOnce(claim({ userId: "u2" }))
+    await expect(svc.declareScope("p1", "c1", { scope: [] }, ACTOR, NOW)).rejects.toBeInstanceOf(ForbiddenError)
+    vi.mocked(repo.findClaim).mockResolvedValueOnce(null)
+    await expect(svc.declareScope("p2", "c1", { scope: [] }, ACTOR, NOW)).rejects.toBeInstanceOf(NotFoundError)
+    expect(repo.findClaim).toHaveBeenLastCalledWith(DEFAULT_DB, "p2", "c1")
+    expect(repo.replaceScope).not.toHaveBeenCalled()
+  })
+
+  it("409 CLAIM_RELEASED when the claim was released (the conditional update changed nothing)", async () => {
+    vi.mocked(repo.lockOpenClaim).mockResolvedValue(0)
+    await expect(svc.declareScope("p1", "c1", { scope: [] }, ACTOR, NOW)).rejects.toMatchObject({ code: "CLAIM_RELEASED" })
+    expect(repo.replaceScope).not.toHaveBeenCalled()
+  })
+})
+
+describe("listBoardClaims: overlap warnings and outside-scope changes (W4)", () => {
+  it("adds overlaps to active claims with a scope (one extra read); none when no claim declared one", async () => {
+    vi.mocked(repo.findOpenClaimsOfSprint).mockResolvedValue([claim({ id: "a" }), claim({ id: "b" })])
+    await svc.listBoardClaims("p1", { sprintId: "s1" }, NOW)
+    expect(repo.findActiveScopedClaims).not.toHaveBeenCalled()
+
+    const a = claim({ id: "a", scopes: [{ kind: "path", value: "app/src" }] })
+    const b = claim({ id: "b", userId: "u2", user: { id: "u2", name: "Bea" }, sessionId: "secret", scopes: [{ kind: "path", value: "app/src/x.ts" }] })
+    const staleOne = claim({ id: "s", scopes: [{ kind: "path", value: "app" }], heartbeatAt: new Date(NOW.getTime() - 5 * HOUR) })
+    vi.mocked(repo.findOpenClaimsOfSprint).mockResolvedValue([a, b, staleOne])
+    vi.mocked(repo.findActiveScopedClaims).mockResolvedValue([a, b])
+    const out = await svc.listBoardClaims("p1", { sprintId: "s1" }, NOW)
+    expect(repo.findActiveScopedClaims).toHaveBeenCalledTimes(1)
+    const byId = Object.fromEntries(out.data.map((c) => [c.id, c.overlaps]))
+    expect(byId.a).toEqual([{ claimId: "b", user: { id: "u2", name: "Bea" }, ai: true, pbi: { id: "b1", displayId: 12 }, paths: ["app/src/x.ts"], pathCount: 1 }])
+    expect(byId.b.map((o) => o.claimId)).toEqual(["a"])
+    expect(byId.s).toEqual([]) // a stale claim neither warns nor is warned about
+    expect(out).not.toHaveProperty("outsideScope") // the board does not read MR links
+    expect(JSON.stringify(out)).not.toContain("secret")
+  })
+
+  it("the PBI panel carries the open MRs with changes outside the declared scope", async () => {
+    vi.mocked(repo.findOpenClaims).mockResolvedValue([claim()])
+    vi.mocked(repo.findOutsideScopeLinks).mockResolvedValue([
+      { id: "l1", ref: "7", title: "Login API", url: "https://h/x/-/merge_requests/7", outsideScopeCount: 3, outsideScopePaths: ["a.ts", 5, "b.ts"], scopeCheckedAt: NOW, repository: { name: "api" } },
+    ] as never)
+    const out = await svc.listBoardClaims("p1", { pbi: "PBI-12" }, NOW)
+    expect(repo.findOutsideScopeLinks).toHaveBeenCalledWith(DEFAULT_DB, "b1")
+    expect(out.outsideScope).toEqual([
+      { linkId: "l1", ref: "7", title: "Login API", url: "https://h/x/-/merge_requests/7", repository: "api", count: 3, paths: ["a.ts", "b.ts"], checkedAt: NOW.toISOString() },
+    ])
   })
 })
 

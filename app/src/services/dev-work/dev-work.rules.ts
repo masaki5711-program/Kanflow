@@ -18,6 +18,8 @@
  *   refreshed, never duplicated), so it never blocks itself.
  */
 
+import { SCOPE_KINDS, sortScope, type ScopeEntry } from "./dev-work.scope"
+
 export const DEFAULT_CLAIM_STALE_HOURS = 4
 const MAX_CLAIM_STALE_HOURS = 168
 const HOUR_MS = 3_600_000
@@ -80,6 +82,13 @@ export interface ClaimRow {
   backlogItem: { id: string; displayId: number; initiative: string | null; userStory: string | null }
   task: { id: string; taskName: string | null; sprintId: string } | null
   user: { id: string; name: string }
+  /** 触る範囲 (W4), as stored (unsorted); absent in rows read without it. */
+  scopes?: ReadonlyArray<{ kind: string; value: string }>
+}
+
+/** A claim's stored scope as entries (unknown kinds dropped), sorted (dev-work.scope sortScope). */
+export function scopeOf(row: Pick<ClaimRow, "scopes">): ScopeEntry[] {
+  return sortScope((row.scopes ?? []).filter((e): e is ScopeEntry => (SCOPE_KINDS as readonly string[]).includes(e.kind)))
 }
 
 type ClaimKey = Pick<ClaimRow, "id" | "backlogItemId" | "taskId" | "userId" | "sessionId" | "heartbeatAt" | "releasedAt">
@@ -136,6 +145,8 @@ export interface ClaimDto {
   active: boolean
   /** Not released but without a heartbeat for the stale window: no longer blocks anyone. */
   stale: boolean
+  /** 触る範囲 (W4): the declared files / modules (empty = none declared). */
+  scope: ScopeEntry[]
 }
 
 /** Who holds a target (body of 409 TASK_CLAIMED: `holders`). */
@@ -172,6 +183,7 @@ export function toClaimDto(row: ClaimRow, now: Date, staleHours: number, viewerI
     releaseReason: row.releaseReason ?? null,
     active: isClaimActive(row, now, staleHours),
     stale: row.releasedAt === null && !isClaimActive(row, now, staleHours),
+    scope: scopeOf(row),
   }
 }
 
@@ -208,6 +220,65 @@ export interface BoardClaimDto {
   staleAt: string
   /** Without a heartbeat for the stale window (still listed, no longer blocks anyone). */
   stale: boolean
+  /** 触る範囲 (W4): the first BOARD_SCOPE_SHOWN declared entries (`scopeCount` = all of them). */
+  scope: ScopeEntry[]
+  scopeCount: number
+  /**
+   * Other active claims whose scope overlaps this one's (W4 warning; only on active claims).
+   * Filled by the service (dev-work.service listBoardClaims); no session ids.
+   */
+  overlaps: BoardOverlapDto[]
+}
+
+/** Entries of a claim's scope sent to the screens. */
+export const BOARD_SCOPE_SHOWN = 20
+/** Shared areas per overlap sent to the screens. */
+export const OVERLAP_PATHS_SHOWN = 10
+
+/** Another claim whose declared scope shares an area with this one. */
+export interface BoardOverlapDto {
+  claimId: string
+  user: { id: string; name: string }
+  ai: boolean
+  pbi: { id: string; displayId: number }
+  /** The shared areas (at most OVERLAP_PATHS_SHOWN; `pathCount` = all of them). */
+  paths: string[]
+  pathCount: number
+}
+
+/**
+ * The overlap of a token client's claim with another claim (PUT .../scope, declare_scope):
+ * who, on which PBI / task and branch, and the shared areas. Never a session id.
+ */
+export interface ScopeOverlapDto {
+  claimId: string
+  user: { id: string; name: string }
+  branch: string | null
+  pbi: { id: string; displayId: number }
+  task: { id: string; name: string | null } | null
+  paths: string[]
+}
+
+export function toScopeOverlapDto(row: ClaimRow, paths: string[]): ScopeOverlapDto {
+  return {
+    claimId: row.id,
+    user: row.user,
+    branch: row.branch,
+    pbi: { id: row.backlogItem.id, displayId: row.backlogItem.displayId },
+    task: row.task ? { id: row.task.id, name: row.task.taskName } : null,
+    paths,
+  }
+}
+
+export function toBoardOverlapDto(row: ClaimRow, paths: string[]): BoardOverlapDto {
+  return {
+    claimId: row.id,
+    user: row.user,
+    ai: isAiClaim(row),
+    pbi: { id: row.backlogItem.id, displayId: row.backlogItem.displayId },
+    paths: paths.slice(0, OVERLAP_PATHS_SHOWN),
+    pathCount: paths.length,
+  }
 }
 
 /** Every work claim comes from a dev:write token with a session id; a claim without one would be a person's own. */
@@ -227,5 +298,12 @@ export function toBoardClaimDto(row: ClaimRow, now: Date, staleHours: number): B
     heartbeatAt: row.heartbeatAt.toISOString(),
     staleAt: new Date(row.heartbeatAt.getTime() + staleHours * HOUR_MS).toISOString(),
     stale: row.releasedAt === null && !isClaimActive(row, now, staleHours),
+    ...boardScope(row),
+    overlaps: [],
   }
+}
+
+function boardScope(row: ClaimRow): { scope: ScopeEntry[]; scopeCount: number } {
+  const scope = scopeOf(row)
+  return { scope: scope.slice(0, BOARD_SCOPE_SHOWN), scopeCount: scope.length }
 }

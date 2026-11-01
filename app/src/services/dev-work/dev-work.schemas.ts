@@ -1,5 +1,6 @@
 import { z } from "zod"
 import { COMMENT_BODY_MAX } from "@/services/comments/comments.schemas"
+import { SCOPE_KINDS } from "./dev-work.scope"
 
 /**
  * Bodies of the developer writes (scope dev:write, docs/api-v1.md
@@ -65,6 +66,18 @@ export const mrLinkSchema = z.object({
   url: z.string().trim().min(1).max(1000),
 })
 
+/**
+ * One 触る範囲 entry as sent (normalized by the service: dev-work.scope). The raw value may be
+ * longer than the stored maximum (300) — "./a//b/" shrinks — but is bounded.
+ */
+export const scopeEntrySchema = z.object({ kind: z.enum(SCOPE_KINDS), value: z.string().max(1000) })
+/** Raw entries per request (duplicates collapse; more than 200 distinct ones → SCOPE_TOO_LARGE). */
+export const SCOPE_RAW_ENTRIES_MAX = 1000
+
+/** PUT /dev/claims/:claimId/scope — the claim's whole 触る範囲 (replaces the previous one; [] clears it). */
+export const declareScopeSchema = z.object({ scope: z.array(scopeEntrySchema).max(SCOPE_RAW_ENTRIES_MAX) })
+
+export type DeclareScopeInput = z.infer<typeof declareScopeSchema>
 export type ClaimWorkInput = z.infer<typeof claimWorkSchema>
 export type HeartbeatClaimInput = z.infer<typeof heartbeatClaimSchema>
 export type ListClaimsQuery = z.infer<typeof listClaimsQuerySchema>
