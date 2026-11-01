@@ -127,7 +127,7 @@ not part of v1.
 Also: `GET /api/v1/projects/:projectId/backlog/:itemId` (one PBI with
 `referenceDoc`, `poNote`, `notReadyReason`, `iceboxItemId`, `version` and its
 `tasks[] {id, sprintId, taskName, status, estimatedHours, actualHours, version, assignees}`;
-`:itemId` = id, `12` or `PBI-12`; plus `acceptanceCriteria` — see "Acceptance criteria" below) and
+`:itemId` = id, `12` or `PBI-12`; plus `acceptanceCriteriaItems` — see "Acceptance criteria" below) and
 `GET /api/v1/projects/:projectId/comments?entityType=pbi|sprint_task|icebox&entityId=&cursor=&limit=`
 (a thread, oldest first, paginated). Backlog and task rows carry `version`.
 
@@ -162,10 +162,10 @@ path (`runV1Write`); its changes carry `meta.via = "mcp"`.
 
 受入基準 are items with stable ids. The id is `PBI-<displayId>/AC-<seq>`; `seq` counts
 up per PBI, **never changes on edit and is never reused after a delete** (a deleted
-item keeps its row). `GET /backlog/:itemId` (and the MCP `get_pbi`) returns
+item keeps its row). `GET /backlog/:itemId` (and the MCP `get_pbi`) returns the new list as `acceptanceCriteriaItems`
 
 ```json
-"acceptanceCriteria": [
+"acceptanceCriteriaItems": [
   { "id": "PBI-12/AC-2", "seq": 2, "given": "a registered user", "when": "they sign in",
     "then": "the home page opens", "text": null, "evidenceKind": "measurement" }
 ]
@@ -177,11 +177,9 @@ item keeps its row). `GET /backlog/:itemId` (and the MCP `get_pbi`) returns
 `null` = not decided. At most 100 live items per PBI (`AC_LIMIT_REACHED`); a missing or
 deleted item is 404 `AC_NOT_FOUND`.
 
-**Breaking change for `GET /backlog/:itemId`:** `acceptanceCriteria` used to be the free
-text; it is now the list above. The old text is `acceptanceCriteriaText` (**deprecated**,
-read-only for the UI, never modified by the migration). `GET /backlog` (the list) and
-`POST` / `PATCH /backlog` still use the old text field `acceptanceCriteria` (deprecated, to be
-removed once every consumer moved). Existing text is split into items by
+`acceptanceCriteria` is unchanged: it stays the old free text in every endpoint
+(**deprecated**; to be removed once every consumer moved, never modified by the migration).
+Existing text is split into items by
 `app/scripts/migrate-acceptance-criteria.ts` (dry run by default, `--apply` to write;
 idempotent — a PBI that has any item, deleted ones included, is skipped).
 

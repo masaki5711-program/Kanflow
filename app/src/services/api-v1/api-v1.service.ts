@@ -76,14 +76,13 @@ export { parsePbiRef }
 export async function getPbi(projectId: string, ref: string) {
   const row = await repo.findPbi(defaultDb, projectId, parsePbiRef(ref))
   if (!row) throw new NotFoundError("PBI not found", {}, "PBI_NOT_FOUND")
-  const { sprintItems, criteria, acceptanceCriteria, ...pbi } = row
+  const { sprintItems, criteria, ...pbi } = row
   return {
     data: {
       ...isoDates(pbi),
-      // W5: `acceptanceCriteria` is the list of items with stable ids (PBI-12/AC-2); the old
-      // free text moved to `acceptanceCriteriaText` (deprecated, read-only, kept until every consumer moved).
-      acceptanceCriteria: criteria.map((c) => toAcceptanceCriterionDto(row.displayId, c)),
-      acceptanceCriteriaText: acceptanceCriteria,
+      // W5: `acceptanceCriteria` stays the old free text (deprecated, type unchanged for token clients);
+      // the items with stable ids (PBI-12/AC-2) are `acceptanceCriteriaItems`.
+      acceptanceCriteriaItems: criteria.map((c) => toAcceptanceCriterionDto(row.displayId, c)),
       tasks: sprintItems.map(({ assignees, ...t }) => ({ ...t, assignees: assignees.map((a) => a.user) })),
     },
   }

@@ -247,14 +247,14 @@ describe("getPbi: acceptance criteria as items with stable ids (W5)", () => {
     ],
   }
 
-  it("returns acceptanceCriteria: [{ id: 'PBI-12/AC-n', seq, given, when, then, text, evidenceKind }] and moves the old text to acceptanceCriteriaText", async () => {
+  it("returns acceptanceCriteriaItems: [{ id: 'PBI-12/AC-n', seq, given, when, then, text, evidenceKind }] and leaves acceptanceCriteria as the old text", async () => {
     vi.mocked(repo.findPbi).mockResolvedValue(pbiRow as never)
     const { data } = await v1.getPbi("p1", "PBI-12")
-    expect(data.acceptanceCriteria).toEqual([
+    expect(data.acceptanceCriteriaItems).toEqual([
       { id: "PBI-12/AC-1", seq: 1, given: null, when: null, then: null, text: "Login works", evidenceKind: null },
       { id: "PBI-12/AC-3", seq: 3, given: "g", when: "w", then: "t", text: null, evidenceKind: "measurement" },
     ])
-    expect(data.acceptanceCriteriaText).toBe("old free text")
+    expect(data.acceptanceCriteria).toBe("old free text")
     expect(data).not.toHaveProperty("criteria")
     expect(repo.findPbi).toHaveBeenCalledWith(DEFAULT_DB, "p1", { displayId: 12 })
   })
@@ -262,7 +262,7 @@ describe("getPbi: acceptance criteria as items with stable ids (W5)", () => {
   it("a PBI without items gives an empty list (the old text stays readable)", async () => {
     vi.mocked(repo.findPbi).mockResolvedValue({ ...pbiRow, criteria: [] } as never)
     const { data } = await v1.getPbi("p1", "b1")
-    expect(data.acceptanceCriteria).toEqual([])
-    expect(data.acceptanceCriteriaText).toBe("old free text")
+    expect(data.acceptanceCriteriaItems).toEqual([])
+    expect(data.acceptanceCriteria).toBe("old free text")
   })
 })

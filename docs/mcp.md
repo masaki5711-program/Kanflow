@@ -91,7 +91,7 @@ Lists that are cut at a limit say so with `truncated: true` and `limit`.
 | `list_projects` | read | projects the token can open (`status` active / archived) |
 | `resolve_project` | read | `git remote get-url origin` → the Kanflow project(s) whose GitLab integration registers that repository (https / ssh / `git@host:` forms; credentials in the URL are ignored; host must be in `GIT_ALLOWED_HOSTS`); at most 50 matches, `truncated: true` + `limit` when cut |
 | `get_backlog` | read | PBIs of a project (`status`, `cursor`, `limit`) |
-| `get_pbi` | read | one PBI with `acceptanceCriteria` (items `[{ id: "PBI-12/AC-2", seq, given, when, then, text, evidenceKind }]`; the old free text is `acceptanceCriteriaText`, deprecated), sprint tasks and the first page of comments |
+| `get_pbi` | read | one PBI with `acceptanceCriteriaItems` (`[{ id: "PBI-12/AC-2", seq, given, when, then, text, evidenceKind }]`; `acceptanceCriteria` stays the old free text, deprecated), sprint tasks and the first page of comments |
 | `list_sprints` | read | sprints, newest first |
 | `get_sprint_tasks` | read | tasks of a sprint (with `version`) |
 | `my_tasks` | read | the owner's tasks in open sprints (planning / active / review), one project or every active project the token can open; `includeDone`; at most 200 (oldest first), `truncated: true` + `limit` when cut |

@@ -439,11 +439,11 @@ describe("PBI references", () => {
 describe("acceptance criteria (W5)", () => {
   const DTO = { id: "PBI-12/AC-3", seq: 3, given: "g", when: null, then: null, text: null, evidenceKind: "measurement" }
 
-  it("get_pbi returns acceptanceCriteria as [{ id, seq, given, when, then, text, evidenceKind }]", async () => {
+  it("get_pbi returns acceptanceCriteriaItems as [{ id, seq, given, when, then, text, evidenceKind }]", async () => {
     const list = [{ id: "PBI-12/AC-1", seq: 1, given: null, when: null, then: null, text: "Login works", evidenceKind: null }, DTO]
-    vi.mocked(v1.getPbi).mockResolvedValue({ data: { id: "b1", displayId: 12, acceptanceCriteria: list, tasks: [] } } as never)
+    vi.mocked(v1.getPbi).mockResolvedValue({ data: { id: "b1", displayId: 12, acceptanceCriteria: "old", acceptanceCriteriaItems: list, tasks: [] } } as never)
     const r = await callTool("get_pbi", { pbi: "PBI-12", projectId: "p1" })
-    expect((r.payload.data as { acceptanceCriteria: unknown }).acceptanceCriteria).toEqual(list)
+    expect((r.payload.data as { acceptanceCriteriaItems: unknown }).acceptanceCriteriaItems).toEqual(list)
   })
 
   it("add_acceptance_criterion (PO / SM, backlog:write) adds via the service with a via:mcp actor", async () => {
