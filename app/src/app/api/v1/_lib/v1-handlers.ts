@@ -1,5 +1,7 @@
 import { can, type ProjectActor } from "@/lib/authz"
 import type { Actor } from "@/services/_shared/actor"
+import { createAcceptanceCriterionSchema, updateAcceptanceCriterionSchema } from "@/services/acceptance-criteria/acceptance-criteria.schemas"
+import { createAcceptanceCriterion, deleteAcceptanceCriterion, updateAcceptanceCriterion } from "@/services/acceptance-criteria/acceptance-criteria.service"
 import { updateBacklogItemSchema, createBacklogItemSchema } from "@/services/backlog/backlog.schemas"
 import { createBacklogItem, updateBacklogItem } from "@/services/backlog/backlog.service"
 import { createCommentSchema, listCommentsQuerySchema } from "@/services/comments/comments.schemas"
@@ -44,6 +46,21 @@ export async function updatePbiOp({ projectId, params, body, serviceActor }: V1W
   const input = v1UpdatePbiSchema.parse(body)
   const { data: pbi } = await getPbi(projectId, params.itemId)
   return { data: await updateBacklogItem(projectId, pbi.id, input, serviceActor) }
+}
+
+/** Add an acceptance criterion to a PBI (`itemId` = id, "12" or "PBI-12") — `backlog.write`. */
+export async function createAcceptanceCriterionOp({ projectId, params, body, serviceActor }: V1WriteInput<{ itemId: string }>) {
+  return { data: await createAcceptanceCriterion(projectId, params.itemId, createAcceptanceCriterionSchema.parse(body), serviceActor) }
+}
+
+/** Edit an acceptance criterion (`acRef` = "AC-2", "2" or "PBI-12/AC-2"; `seq` never changes) — `backlog.write`. */
+export async function updateAcceptanceCriterionOp({ projectId, params, body, serviceActor }: V1WriteInput<{ itemId: string; acRef: string }>) {
+  return { data: await updateAcceptanceCriterion(projectId, params.itemId, params.acRef, updateAcceptanceCriterionSchema.parse(body), serviceActor) }
+}
+
+/** Delete (soft) an acceptance criterion; its number is never reused — `backlog.write`. */
+export async function deleteAcceptanceCriterionOp({ projectId, params, serviceActor }: V1WriteInput<{ itemId: string; acRef: string }>) {
+  return { data: await deleteAcceptanceCriterion(projectId, params.itemId, params.acRef, serviceActor) }
 }
 
 /** Create a sprint — `sprint.manage`. */

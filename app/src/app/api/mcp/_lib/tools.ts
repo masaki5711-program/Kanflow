@@ -18,6 +18,7 @@ import {
   listSprintTasks,
   normalizeRemoteUrl,
 } from "@/services/api-v1/api-v1.service"
+import { createAcceptanceCriterionSchema, updateAcceptanceCriterionSchema } from "@/services/acceptance-criteria/acceptance-criteria.schemas"
 import { createBacklogItemSchema, PBI_STATUSES } from "@/services/backlog/backlog.schemas"
 import { COMMENT_ENTITY_TYPES } from "@/services/comments/comments.schemas"
 import { createIceboxItemSchema } from "@/services/icebox/icebox.schemas"
@@ -26,6 +27,7 @@ import { createSprintSchema, updateSprintSchema } from "@/services/sprints/sprin
 import { createDailyScrumSchema } from "@/services/daily-scrums/daily-scrums.schemas"
 import {
   addSprintPbisOp,
+  createAcceptanceCriterionOp,
   createCommentOp,
   createDailyScrumOp,
   createIceboxItemOp,
@@ -33,6 +35,7 @@ import {
   createSprintOp,
   createTaskOp,
   listCommentsOp,
+  updateAcceptanceCriterionOp,
   updatePbiOp,
   updateSprintOp,
   updateTaskOp,
@@ -269,6 +272,58 @@ export function registerKanflowTools(server: McpServer, principal: ApiPrincipal)
       guard("update_pbi", async () => {
         const scope = await pbiScope(principal, projectId, pbi)
         return mcpWrite(principal, { tool: "update_pbi", scope, action: "backlog.write", body: definedOnly(fields), params: { itemId: pbi }, op: updatePbiOp })
+      })
+  )
+
+  server.registerTool(
+    "add_acceptance_criterion",
+    {
+      description: describeCreate(
+        "Add an acceptance criterion to a PBI (scope backlog:write; Product Owner / Scrum Master). Give at least one of given / when / then / text (free text is fine); evidenceKind says how it is proven (test | inspection | measurement | approval). It gets the next number on the PBI (e.g. PBI-12/AC-3); numbers never change or come back after a delete. Read the PBI's existing criteria first (get_pbi) and do not add one that exists."
+      ),
+      inputSchema: { pbi: pbiRef, projectId: optionalProjectId, ...createAcceptanceCriterionSchema.shape, idempotencyKey: idempotencyKeyArg },
+      annotations: CREATE,
+    },
+    ({ pbi, projectId, idempotencyKey, ...fields }) =>
+      guard("add_acceptance_criterion", async () => {
+        const scope = await pbiScope(principal, projectId, pbi)
+        return mcpWrite(principal, {
+          tool: "add_acceptance_criterion",
+          scope,
+          action: "backlog.write",
+          body: definedOnly(fields),
+          params: { itemId: pbi },
+          op: createAcceptanceCriterionOp,
+          idempotent: { key: idempotencyKey },
+        })
+      })
+  )
+
+  server.registerTool(
+    "update_acceptance_criterion",
+    {
+      description: describe(
+        "Edit an acceptance criterion of a PBI (scope backlog:write; Product Owner / Scrum Master). `criterion` is its id from get_pbi (\"PBI-12/AC-2\") or its number (\"AC-2\", \"2\"). Only the sent fields change; null clears one; the number never changes. There is no delete tool."
+      ),
+      inputSchema: {
+        pbi: pbiRef,
+        criterion: z.string().min(1).max(40).describe('Criterion id from get_pbi ("PBI-12/AC-2") or its number ("AC-2", "2").'),
+        projectId: optionalProjectId,
+        ...updateAcceptanceCriterionSchema.shape,
+      },
+      annotations: UPDATE,
+    },
+    ({ pbi, criterion, projectId, ...fields }) =>
+      guard("update_acceptance_criterion", async () => {
+        const scope = await pbiScope(principal, projectId, pbi)
+        return mcpWrite(principal, {
+          tool: "update_acceptance_criterion",
+          scope,
+          action: "backlog.write",
+          body: definedOnly(fields),
+          params: { itemId: pbi, acRef: criterion },
+          op: updateAcceptanceCriterionOp,
+        })
       })
   )
 

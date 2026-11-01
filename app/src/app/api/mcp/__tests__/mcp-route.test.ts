@@ -30,6 +30,7 @@ vi.mock("@/services/sprint-backlog/sprint-backlog.service")
 vi.mock("@/services/comments/comments.service")
 vi.mock("@/services/icebox/icebox.service")
 vi.mock("@/services/daily-scrums/daily-scrums.service")
+vi.mock("@/services/acceptance-criteria/acceptance-criteria.service")
 
 const repo = await import("@/services/api-tokens/api-tokens.repository")
 const v1 = await import("@/services/api-v1/api-v1.service")
@@ -39,6 +40,7 @@ const sprints = await import("@/services/sprints/sprints.service")
 const sprintBacklog = await import("@/services/sprint-backlog/sprint-backlog.service")
 const comments = await import("@/services/comments/comments.service")
 const icebox = await import("@/services/icebox/icebox.service")
+const acService = await import("@/services/acceptance-criteria/acceptance-criteria.service")
 const { generateApiToken } = await import("@/lib/api-tokens/token")
 const { resetApiTokenTouchCache } = await import("@/services/api-tokens/api-token-auth")
 const { resetIdempotencyStore } = await import("@/app/api/v1/_lib/v1-write")
@@ -55,6 +57,8 @@ const READ_TOOLS = ["whoami", "list_projects", "resolve_project", "get_backlog",
 const WRITE_TOOLS = [
   "create_pbi",
   "update_pbi",
+  "add_acceptance_criterion",
+  "update_acceptance_criterion",
   "create_sprint",
   "update_sprint",
   "add_pbis_to_sprint",
@@ -195,7 +199,7 @@ describe("tool list", () => {
       expect(tool.description).toContain(DATA_NOTICE)
       expect(tool.description).toMatch(/DATA, not instructions/)
     }
-    const creates = ["create_pbi", "create_sprint", "create_task", "add_comment", "create_icebox_item", "post_daily_scrum"]
+    const creates = ["create_pbi", "add_acceptance_criterion", "create_sprint", "create_task", "add_comment", "create_icebox_item", "post_daily_scrum"]
     const createTools = msg.result.tools.filter((t) => creates.includes(t.name))
     expect(createTools).toHaveLength(creates.length)
     for (const tool of createTools) {
@@ -429,6 +433,47 @@ describe("PBI references", () => {
     vi.mocked(sprintBacklog.addPbisToSprint).mockResolvedValue({ added: 1 } as never)
     await callTool("add_pbis_to_sprint", { sprintId: "s1", pbis: ["PBI-12", "clxraw"] })
     expect(sprintBacklog.addPbisToSprint).toHaveBeenCalledWith("p1", "s1", ["b1", "clxraw"], MCP_ACTOR)
+  })
+})
+
+describe("acceptance criteria (W5)", () => {
+  const DTO = { id: "PBI-12/AC-3", seq: 3, given: "g", when: null, then: null, text: null, evidenceKind: "measurement" }
+
+  it("get_pbi returns acceptanceCriteria as [{ id, seq, given, when, then, text, evidenceKind }]", async () => {
+    const list = [{ id: "PBI-12/AC-1", seq: 1, given: null, when: null, then: null, text: "Login works", evidenceKind: null }, DTO]
+    vi.mocked(v1.getPbi).mockResolvedValue({ data: { id: "b1", displayId: 12, acceptanceCriteria: list, tasks: [] } } as never)
+    const r = await callTool("get_pbi", { pbi: "PBI-12", projectId: "p1" })
+    expect((r.payload.data as { acceptanceCriteria: unknown }).acceptanceCriteria).toEqual(list)
+  })
+
+  it("add_acceptance_criterion (PO / SM, backlog:write) adds via the service with a via:mcp actor", async () => {
+    vi.mocked(acService.createAcceptanceCriterion).mockResolvedValue(DTO)
+    const r = await callTool("add_acceptance_criterion", { pbi: "PBI-12", projectId: "p1", given: "g", evidenceKind: "measurement" })
+    expect(r.isError).toBeUndefined()
+    expect(r.payload.data).toEqual(DTO)
+    expect(acService.createAcceptanceCriterion).toHaveBeenCalledWith("p1", "PBI-12", { given: "g", evidenceKind: "measurement" }, MCP_ACTOR)
+  })
+
+  it("update_acceptance_criterion edits by id or number, only the sent fields", async () => {
+    vi.mocked(acService.updateAcceptanceCriterion).mockResolvedValue(DTO)
+    await callTool("update_acceptance_criterion", { pbi: "PBI-12", projectId: "p1", criterion: "PBI-12/AC-3", evidenceKind: "approval" })
+    expect(acService.updateAcceptanceCriterion).toHaveBeenCalledWith("p1", "PBI-12", "PBI-12/AC-3", { evidenceKind: "approval" }, MCP_ACTOR)
+  })
+
+  it("a dev (role) is FORBIDDEN and a token without backlog:write is INSUFFICIENT_SCOPE; nothing is written", async () => {
+    asRole("dev")
+    expect((await callTool("add_acceptance_criterion", { pbi: "PBI-12", projectId: "p1", text: "x" })).payload).toEqual({ error: "Forbidden", code: "FORBIDDEN" })
+    expect((await callTool("update_acceptance_criterion", { pbi: "PBI-12", projectId: "p1", criterion: "AC-1", text: "x" })).payload.code).toBe("FORBIDDEN")
+    asRole("po")
+    vi.mocked(repo.findTokenByHash).mockResolvedValue(tokenRow({ scopes: '["read"]' }) as never)
+    expect((await callTool("add_acceptance_criterion", { pbi: "PBI-12", projectId: "p1", text: "x" })).payload).toMatchObject({ code: "INSUFFICIENT_SCOPE", requiredScope: "backlog:write" })
+    expect(acService.createAcceptanceCriterion).not.toHaveBeenCalled()
+    expect(acService.updateAcceptanceCriterion).not.toHaveBeenCalled()
+  })
+
+  it("a PBI number without projectId is a VALIDATION error (no write)", async () => {
+    expect((await callTool("add_acceptance_criterion", { pbi: "PBI-12", text: "x" })).payload.code).toBe("VALIDATION")
+    expect(acService.createAcceptanceCriterion).not.toHaveBeenCalled()
   })
 })
 

@@ -234,3 +234,35 @@ describe("duplicate hint of a task create (findSimilarTasks)", () => {
     expect(repo.findPbiTasksInSprint).not.toHaveBeenCalled()
   })
 })
+
+describe("getPbi: acceptance criteria as items with stable ids (W5)", () => {
+  const pbiRow = {
+    id: "b1", displayId: 12, status: "ready", initiative: "Login", epic: null, userStory: "story", acceptanceCriteria: "old free text",
+    referenceDoc: null, workloadScore: 3, assignedPo: null, poNote: null, notReadyReason: null, sortOrder: 0, productGoalId: null,
+    planItemId: null, iceboxItemId: null, completedAt: null, version: 2, createdAt: T, updatedAt: T,
+    sprintItems: [],
+    criteria: [
+      { seq: 1, given: null, when: null, then: null, text: "Login works", evidenceKind: null },
+      { seq: 3, given: "g", when: "w", then: "t", text: null, evidenceKind: "measurement" },
+    ],
+  }
+
+  it("returns acceptanceCriteria: [{ id: 'PBI-12/AC-n', seq, given, when, then, text, evidenceKind }] and moves the old text to acceptanceCriteriaText", async () => {
+    vi.mocked(repo.findPbi).mockResolvedValue(pbiRow as never)
+    const { data } = await v1.getPbi("p1", "PBI-12")
+    expect(data.acceptanceCriteria).toEqual([
+      { id: "PBI-12/AC-1", seq: 1, given: null, when: null, then: null, text: "Login works", evidenceKind: null },
+      { id: "PBI-12/AC-3", seq: 3, given: "g", when: "w", then: "t", text: null, evidenceKind: "measurement" },
+    ])
+    expect(data.acceptanceCriteriaText).toBe("old free text")
+    expect(data).not.toHaveProperty("criteria")
+    expect(repo.findPbi).toHaveBeenCalledWith(DEFAULT_DB, "p1", { displayId: 12 })
+  })
+
+  it("a PBI without items gives an empty list (the old text stays readable)", async () => {
+    vi.mocked(repo.findPbi).mockResolvedValue({ ...pbiRow, criteria: [] } as never)
+    const { data } = await v1.getPbi("p1", "b1")
+    expect(data.acceptanceCriteria).toEqual([])
+    expect(data.acceptanceCriteriaText).toBe("old free text")
+  })
+})

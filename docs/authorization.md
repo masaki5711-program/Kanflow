@@ -93,6 +93,8 @@ Paths are relative to `/api/projects/[projectId]`.
 | `/backlog/import` | | backlog.write (multipart xlsx; `?dryRun=1` = preview only) | | |
 | `/backlog/import/template` | backlog.write (xlsx) | | | |
 | `/backlog/[itemId]/ai/invest-review` | | ai.use | | |
+| `/backlog/[itemId]/acceptance-criteria` (受入基準 items, W5; GET also answers `canEdit` = backlog.write) | project.view | backlog.write | | |
+| `/backlog/[itemId]/acceptance-criteria/[acRef]` | | | backlog.write | backlog.write (soft delete) |
 | `/goals` | project.view | goal.write | | |
 | `/goals/[goalId]` | | | goal.write | goal.write |
 | `/plan` | project.view | plan.write | | |
@@ -249,7 +251,7 @@ bodies are size-bounded (413). Editing a template never changes plans already lo
   | Scope | Action |
   |---|---|
   | `read` | `project.view` |
-  | `backlog:write` | `backlog.write` |
+  | `backlog:write` | `backlog.write` (also add / edit / delete of a PBI's 受入基準 items, `/api/v1/.../backlog/:itemId/acceptance-criteria` and the MCP `add_acceptance_criterion` / `update_acceptance_criterion`) |
   | `backlog:reorder` | `backlog.reorder` |
   | `sprint:write` | `sprint.manage` |
   | `task:write` | `task.write` |

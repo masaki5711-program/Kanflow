@@ -4,6 +4,7 @@ import { I18nText, useI18nText } from "@/components/i18n-text"
 import { useLanguage } from "@/lib/language-context"
 import type { EntityI18n } from "@/lib/translation/types"
 import type { BacklogItemDetailDto } from "@/types/api"
+import { PbiAcceptanceCriteria } from "@/components/acceptance-criteria/pbi-acceptance-criteria"
 import { PbiAttachmentList } from "./attachments/pbi-attachment-list"
 import { toAttachmentItems } from "./attachments/use-saved-pbi-attachments"
 import { PbiPlanLink } from "./pbi-plan-field"
@@ -26,7 +27,12 @@ export function PbiReadBody({ item, projectId }: { item: PbiDetail; projectId?: 
         <ReadField label={pt.backlogEpic} value={item.epic} i18n={item.i18n} field="epic" entityId={item.id} />
       </div>
       <ReadField label={pt.backlogUserStory} value={item.userStory} multiline i18n={item.i18n} field="userStory" entityId={item.id} />
-      <ReadField label={pt.backlogAcceptanceCriteria} value={item.acceptanceCriteria} multiline i18n={item.i18n} field="acceptanceCriteria" entityId={item.id} />
+      {projectId ? (
+        // W5: items with stable ids; the old free text is shown folded inside (read-only, deprecated).
+        <PbiAcceptanceCriteria projectId={projectId} pbiId={item.id} legacyText={item.acceptanceCriteria} />
+      ) : (
+        <ReadField label={pt.backlogAcceptanceCriteria} value={item.acceptanceCriteria} multiline i18n={item.i18n} field="acceptanceCriteria" entityId={item.id} />
+      )}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <ReadField label={pt.backlogWorkloadScore} value={item.workloadScore != null ? String(item.workloadScore) : null} />
         <ReadField label={pt.rolePO} value={item.assignedPo} />

@@ -144,6 +144,10 @@ export const API_ERROR_CODES = [
   "SCOPE_INVALID",
   /** dev:write 触る範囲 (W4): more than 200 distinct entries for one claim. */
   "SCOPE_TOO_LARGE",
+  /** 受入基準 (W5): no live criterion with this number on the PBI (also a deleted one). */
+  "AC_NOT_FOUND",
+  /** 受入基準 (W5): the PBI already has the maximum number of live criteria. */
+  "AC_LIMIT_REACHED",
   // Client-side only (set by apiFetch, never sent by the server)
   "NETWORK_ERROR",
 ] as const
