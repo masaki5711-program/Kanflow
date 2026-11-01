@@ -7,7 +7,7 @@ import { useLanguage } from "@/lib/language-context"
 import { ProjectTypeMark } from "./project-parts"
 import { projectTypeLabel, type Layout, type SortBy, type TypeFilter, type ViewMode } from "./types"
 
-const TYPE_FILTERS: readonly TypeFilter[] = ["all", "software", "process_improvement", "general"]
+const TYPE_FILTERS: readonly TypeFilter[] = ["all", "software", "process_improvement", "equipment", "general"]
 
 interface Props {
   searchQuery: string

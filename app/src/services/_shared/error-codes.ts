@@ -86,6 +86,12 @@ export const API_ERROR_CODES = [
   "PLAN_TEMPLATE_TOO_LARGE",
   /** Nothing to load / save (every stage excluded, or an empty plan). */
   "PLAN_TEMPLATE_EMPTY",
+  /** A base schedule (W12) is over 500 items / 5 levels, or has a bad key or dependency. */
+  "PLAN_SCHEDULE_TOO_LARGE",
+  "PLAN_SCHEDULE_TOO_DEEP",
+  "PLAN_SCHEDULE_INVALID",
+  /** The base-schedule proposal is too big to keep in a chat thread. */
+  "PLAN_PROPOSAL_TOO_LARGE",
   // Files / folders
   "FILE_REQUIRED",
   "FILE_EMPTY",

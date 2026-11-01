@@ -7,6 +7,7 @@ import { formatDateTime, formatRelative } from "@/lib/format-date"
 import { apiFetch, useApiMutation } from "@/hooks"
 import { Button, cn, useConfirm } from "@/components/ui"
 import { claimState, overlapsOf, type ScreenClaim, type ScreenOutsideScope } from "./claim-view"
+import { projectFeatures } from "@/lib/project-features"
 import { AiMarker, BranchName, ClaimAvatar, ClaimStateBadge, OverlapWarning, ScopeLine, usePathList, useShowBranch, WarningLine } from "./claim-parts"
 import { useNow, useWorkClaims } from "./use-work-claims"
 
@@ -25,9 +26,10 @@ interface Props {
  * Renders nothing while loading; outside software projects also nothing when empty.
  */
 export function PbiClaimsPanel({ projectId, pbiId, className }: Props) {
-  const { t } = useLanguage()
+  const { t, projectType } = useLanguage()
   const headingId = useId()
   const showBranch = useShowBranch()
+  const showOutsideScope = projectFeatures(projectType).outsideScopeWarnings
   const scope = useMemo(() => ({ pbiId }), [pbiId])
   const { data, error, refetch } = useWorkClaims(projectId, scope)
   const now = useNow()
@@ -51,7 +53,7 @@ export function PbiClaimsPanel({ projectId, pbiId, className }: Props) {
           ))}
         </ul>
       )}
-      {data.outsideScope.length > 0 && (
+      {showOutsideScope && data.outsideScope.length > 0 && (
         <div className="space-y-1" data-claim-outside-scope="">
           {data.outsideScope.map((mr) => <OutsideScopeLine key={mr.linkId} mr={mr} />)}
         </div>

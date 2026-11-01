@@ -1,6 +1,11 @@
 import type { Language } from "./i18n"
 
-export type ProjectType = "software" | "process_improvement" | "general"
+export type ProjectType = "software" | "process_improvement" | "equipment" | "general"
+
+/** All project types, in the order shown in pickers. Single source for validation. */
+export const PROJECT_TYPE_VALUES: readonly ProjectType[] = ["software", "process_improvement", "equipment", "general"]
+
+type BaseProjectType = Exclude<ProjectType, "equipment">
 
 export interface ProjectTypeLabels {
   // Navigation
@@ -57,7 +62,7 @@ export interface ProjectTypeLabels {
   releaseBulkRelease: string
 }
 
-const jaLabels: Record<ProjectType, ProjectTypeLabels> = {
+const jaBase: Record<BaseProjectType, ProjectTypeLabels> = {
   software: {
     navIcebox: "IceBox",
     navBacklog: "プロダクトバックログ",
@@ -186,7 +191,7 @@ const jaLabels: Record<ProjectType, ProjectTypeLabels> = {
   },
 }
 
-const enLabels: Record<ProjectType, ProjectTypeLabels> = {
+const enBase: Record<BaseProjectType, ProjectTypeLabels> = {
   software: {
     navIcebox: "IceBox",
     navBacklog: "Product Backlog",
@@ -315,7 +320,7 @@ const enLabels: Record<ProjectType, ProjectTypeLabels> = {
   },
 }
 
-const idLabels: Record<ProjectType, ProjectTypeLabels> = {
+const idBase: Record<BaseProjectType, ProjectTypeLabels> = {
   software: {
     navIcebox: "IceBox",
     navBacklog: "Product Backlog",
@@ -444,6 +449,96 @@ const idLabels: Record<ProjectType, ProjectTypeLabels> = {
   },
 }
 
+const jaLabels: Record<ProjectType, ProjectTypeLabels> = {
+  ...jaBase,
+  // 設備導入: 工程改善の言葉をもとに、購入・据付・検収の言葉に置き換える。
+  equipment: {
+    ...jaBase.process_improvement,
+    navIcebox: "設備の要望",
+    navBacklog: "導入項目",
+    navSprints: "期間の区切り",
+    navReleases: "検収・引き渡し",
+    navReleasesDesc: "検収・残課題・引き渡し資料をまとめて見る",
+    rolePO: "導入責任者",
+    roleSM: "進行管理者",
+    roleDev: "導入チームメンバー",
+    iceboxTitle: "設備の要望",
+    iceboxRequest: "設備の要望・課題",
+    iceboxBackground: "現場の課題・背景",
+    backlogTitle: "導入項目",
+    backlogInitiative: "導入の目的",
+    backlogEpic: "導入の区分",
+    backlogUserStory: "導入項目",
+    backlogWorkloadScore: "作業の量",
+    backlogAcceptanceCriteria: "検収の条件",
+    backlogWho: "対象の設備・工程",
+    backlogWhat: "何を導入",
+    backlogWhy: "導入の目的",
+    sprintTitle: "期間の区切り",
+    sprintGoal: "期間の目標",
+  },
+}
+
+const enLabels: Record<ProjectType, ProjectTypeLabels> = {
+  ...enBase,
+  // Equipment installation: process-improvement wording, swapped for purchase / install / acceptance.
+  equipment: {
+    ...enBase.process_improvement,
+    navIcebox: "Equipment requests",
+    navBacklog: "Installation items",
+    navSprints: "Periods",
+    navReleases: "Acceptance & handover",
+    navReleasesDesc: "Acceptance, open issues and handover documents in one place",
+    rolePO: "Installation owner",
+    roleSM: "Coordinator",
+    roleDev: "Installation team member",
+    iceboxTitle: "Equipment requests",
+    iceboxRequest: "Equipment request / issue",
+    iceboxBackground: "Shop-floor issue / background",
+    backlogTitle: "Installation items",
+    backlogInitiative: "Purpose",
+    backlogEpic: "Category",
+    backlogUserStory: "Installation item",
+    backlogWorkloadScore: "Effort",
+    backlogAcceptanceCriteria: "Acceptance conditions",
+    backlogWho: "Target equipment / process",
+    backlogWhat: "What to install",
+    backlogWhy: "Purpose",
+    sprintTitle: "Periods",
+    sprintGoal: "Period goal",
+  },
+}
+
+const idLabels: Record<ProjectType, ProjectTypeLabels> = {
+  ...idBase,
+  // Pemasangan peralatan: istilah perbaikan proses, diganti ke pembelian / pemasangan / penerimaan.
+  equipment: {
+    ...idBase.process_improvement,
+    navIcebox: "Permintaan peralatan",
+    navBacklog: "Item pemasangan",
+    navSprints: "Periode",
+    navReleases: "Penerimaan & serah terima",
+    navReleasesDesc: "Penerimaan, masalah tersisa, dan dokumen serah terima dalam satu tempat",
+    rolePO: "Penanggung jawab pemasangan",
+    roleSM: "Koordinator",
+    roleDev: "Anggota tim pemasangan",
+    iceboxTitle: "Permintaan peralatan",
+    iceboxRequest: "Permintaan / masalah peralatan",
+    iceboxBackground: "Masalah lapangan / latar belakang",
+    backlogTitle: "Item pemasangan",
+    backlogInitiative: "Tujuan",
+    backlogEpic: "Kategori",
+    backlogUserStory: "Item pemasangan",
+    backlogWorkloadScore: "Beban kerja",
+    backlogAcceptanceCriteria: "Kondisi penerimaan",
+    backlogWho: "Peralatan / proses sasaran",
+    backlogWhat: "Apa yang dipasang",
+    backlogWhy: "Tujuan",
+    sprintTitle: "Periode",
+    sprintGoal: "Target periode",
+  },
+}
+
 const allLabels: Record<Language, Record<ProjectType, ProjectTypeLabels>> = {
   ja: jaLabels,
   en: enLabels,
@@ -475,6 +570,15 @@ export const projectTypeOptions: { value: ProjectType; labelJa: string; labelEn:
     descJa: "製造工程のカイゼン活動",
     descEn: "Manufacturing process improvement",
     descId: "Perbaikan proses manufaktur",
+  },
+  {
+    value: "equipment",
+    labelJa: "設備導入",
+    labelEn: "Equipment Installation",
+    labelId: "Pemasangan Peralatan",
+    descJa: "設備の購入・据付・検収",
+    descEn: "Equipment purchase, installation and acceptance",
+    descId: "Pembelian, pemasangan, dan penerimaan peralatan",
   },
   {
     value: "general",

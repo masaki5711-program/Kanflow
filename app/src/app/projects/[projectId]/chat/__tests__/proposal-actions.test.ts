@@ -16,7 +16,24 @@ const TASK_STATUS: ChatProposal = {
 }
 const PBI_STATUS: ChatProposal = { ...TASK_STATUS, entity: "pbi", target: { id: "pb-1", title: "Login", displayId: 4, sprintId: null }, toStatus: "ready" }
 
+const PLAN_LOAD: ChatProposal = {
+  kind: "plan_load", proposalId: "prop_plan_x", name: "設備導入", startDate: "2026-11-02", itemCount: 2, dependencyCount: 1,
+  plannedStart: "2026-11-02", plannedEnd: "2026-11-08",
+  schedule: { items: [{ key: "a", name: "A", durationDays: 5 }, { key: "b", name: "B", durationDays: 2, dependsOn: ["a"] }] },
+  preview: [{ name: "A", plannedStart: "2026-11-02", plannedEnd: "2026-11-06", isMilestone: false, children: 0 }], reason: "",
+}
+
 afterEach(() => vi.unstubAllGlobals())
+
+describe("plan_load (W12)", () => {
+  it("needs plan.write, calls POST /plan/load with the schedule (dates are recomputed server side) and lands on the plan", () => {
+    expect(requiredAction(PLAN_LOAD)).toBe("plan.write")
+    expect(proposalRequests("p1", PLAN_LOAD)).toEqual([
+      { url: "/api/projects/p1/plan/load", method: "POST", json: { startDate: "2026-11-02", schedule: PLAN_LOAD.kind === "plan_load" ? PLAN_LOAD.schedule : null } },
+    ])
+    expect(proposalResultHref("p1", PLAN_LOAD, [])).toBe("/projects/p1/plan")
+  })
+})
 
 describe("requiredAction mirrors the API gates", () => {
   it("maps each proposal to the route permission", () => {

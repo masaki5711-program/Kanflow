@@ -112,7 +112,7 @@ Reads (`GET`). `:projectId` / `:sprintId` are the ids returned by the list endpo
 | Endpoint | Returns | Query |
 |---|---|---|
 | `/api/v1/me` | The token owner: `id, name, email, role, language, department` | |
-| `/api/v1/projects` | Projects the owner can access (admin: all; section manager: member projects + projects of their sections; others: member projects), most recently updated first, at most 1000 (not paginated). Trashed projects never appear. Fields: `id, name, description, status, projectType, progressPct, pointUnit, language, sprintDurationDays, createdAt, updatedAt` | `status=active` (default) \| `archived` |
+| `/api/v1/projects` | Projects the owner can access (admin: all; section manager: member projects + projects of their sections; others: member projects), most recently updated first, at most 1000 (not paginated). Trashed projects never appear. Fields: `id, name, description, status, projectType (`software` \| `process_improvement` \| `equipment` \| `general`), progressPct, pointUnit, language, sprintDurationDays, createdAt, updatedAt` | `status=active` (default) \| `archived` |
 | `/api/v1/projects/:projectId` | The same project fields as the list, plus `sections[] {id,name}` and `members[] {userId,name,role}` | |
 | `/api/v1/projects/:projectId/backlog` | PBIs (not trashed), oldest first: `id, displayId, status, initiative, epic, userStory, acceptanceCriteria, workloadScore, assignedPo, sortOrder, productGoalId, planItemId, completedAt, createdAt, updatedAt`. Paginated | `status=ready\|not_ready\|completed`, `limit`, `cursor` |
 | `/api/v1/projects/:projectId/sprints` | Sprints, newest first: `id, name, status, startDate, endDate, sprintGoal, capacity, actualScore, createdAt, updatedAt` | |

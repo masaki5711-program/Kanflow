@@ -10,6 +10,7 @@ import { SettingsCard } from "./settings-card"
 const PROJECT_TYPE_ICON: Record<string, string> = {
   software: "💻",
   process_improvement: "🏭",
+  equipment: "🛠️",
 }
 
 export function TranslationInfoSection() {

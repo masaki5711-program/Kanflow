@@ -117,6 +117,7 @@ export const roleStyle: Record<string, string> = {
 const TYPE_EMOJI: Record<string, string> = {
   software: "💻",
   process_improvement: "🏭",
+  equipment: "🛠️",
 }
 
 export function projectTypeEmoji(type: string): string {

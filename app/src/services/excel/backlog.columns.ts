@@ -12,7 +12,7 @@ import { EXCEL_LANGS } from "./excel.shared"
 
 export * from "./backlog.headers"
 
-const PROJECT_TYPES: readonly ProjectType[] = ["software", "process_improvement", "general"]
+const PROJECT_TYPES: readonly ProjectType[] = ["software", "process_improvement", "equipment", "general"]
 
 /** NFKC + lower case + single spaces: "ユーザー ストーリー" / "User  Story" compare equal to their canonical forms. */
 export function normalizeHeader(raw: string): string {

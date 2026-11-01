@@ -136,6 +136,15 @@ describe("PBI 担当中 panel", () => {
     expect(line.closest("a")?.getAttribute("rel")).toContain("noopener")
   })
 
+  it("W12: outside-scope MR warnings and the branch are software-only (equipment shows neither)", async () => {
+    claims = [c({ branch: "feat/x" })]
+    outsideScope = [{ linkId: "l1", ref: "7", title: "t", url: "https://gitlab.example/x", repository: "api", count: 1, paths: ["a.ts"], checkedAt: null }]
+    renderPanel("equipment")
+    await screen.findByRole("region", { name: t.workClaimPanelTitle })
+    expect(document.querySelector("[data-claim-outside-scope]")).toBeNull()
+    expect(screen.queryByText("feat/x")).toBeNull()
+  })
+
   it("W4: a non-https MR URL is shown without a link", async () => {
     outsideScope = [{ linkId: "l1", ref: "7", title: "x", url: "javascript:alert(1)", repository: "api", count: 1, paths: ["a.ts"], checkedAt: null }]
     renderPanel()

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useId, useRef, useState } from "react"
 import { usePathname } from "next/navigation"
 import { PanelLeftClose, PanelLeftOpen, X } from "lucide-react"
 import { useLanguage } from "@/lib/language-context"
+import { projectFeatures } from "@/lib/project-features"
 import { projectTypeOptions, type ProjectType } from "@/lib/project-type-labels"
 import type { Language } from "@/lib/i18n"
 import { useI18nText, type EntityI18n } from "@/components/i18n-text"
@@ -36,6 +37,7 @@ interface SidebarProps {
 const projectTypeBadgeColors: Record<ProjectType, string> = {
   software: "bg-primary-soft text-primary-active",
   process_improvement: "bg-warning-soft text-warning-strong",
+  equipment: "bg-info-soft text-info-strong",
   general: "bg-surface-sunken text-fg-muted",
 }
 
@@ -140,11 +142,11 @@ interface SidebarContentProps extends SidebarProps {
 
 function SidebarContent({ projectId, projectName, projectI18n, showTrash = false, showSettings = true, showChat = true, showGit = false, rail = false, onToggleRail }: SidebarContentProps) {
   const pathname = usePathname()
-  const { t, pt } = useLanguage()
+  const { t, pt, projectType } = useLanguage()
   const shownName = useI18nText(projectI18n, "name", projectName).text
   const gitHref = `/projects/${projectId}/git`
   const newMrs = useNewMrCount(projectId, showGit, pathname === gitHref || pathname.startsWith(`${gitHref}/`))
-  const groups = buildSidebarGroups(projectId, t, pt, { showTrash, showSettings, showChat, showGit }).map((g) => ({
+  const groups = buildSidebarGroups(projectId, t, pt, { showTrash, showSettings, showChat, showGit, planFirst: projectFeatures(projectType).planProminent }).map((g) => ({
     ...g,
     items: g.items.map((item) => item.href === gitHref && newMrs > 0
       ? { ...item, badge: { count: newMrs, label: t.gitNavBadge.replace("{n}", String(newMrs)), tone: "danger" as const } }

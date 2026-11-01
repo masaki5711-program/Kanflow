@@ -10,6 +10,7 @@ export interface GuideTranslations {
   guideTabHelp: string
   guideIntroSoftware: string
   guideIntroProcessImprovement: string
+  guideIntroEquipment: string
   guideIntroGeneral: string
   guideKanflowOperation: string
   guideHint: string
@@ -35,6 +36,8 @@ export const ja: GuideTranslations = {
     "Kanflowを使ったスクラム開発の流れを順に説明します。各ステップをクリックして詳細（イベント・参加者・タイムボックス）を確認してください。",
   guideIntroProcessImprovement:
     "Kanflowを使った工程改善の流れを順に説明します。各ステップをクリックして詳細を確認してください。",
+  guideIntroEquipment:
+    "Kanflowを使った設備導入（購入・据付・検収）の流れを順に説明します。各ステップをクリックして詳細を確認してください。",
   guideIntroGeneral:
     "Kanflowを使ったプロジェクト運営の流れを順に説明します。各ステップをクリックして詳細を確認してください。",
   guideKanflowOperation: "Kanflowでの操作",
@@ -60,6 +63,8 @@ export const en: GuideTranslations = {
     "Walk through the Scrum development workflow using Kanflow. Click each step to see details (events, attendees, timeboxes).",
   guideIntroProcessImprovement:
     "Walk through the process-improvement workflow using Kanflow. Click each step to see the details.",
+  guideIntroEquipment:
+    "This walks through an equipment installation (purchase, install, acceptance) in Kanflow. Click each step for details.",
   guideIntroGeneral: "Walk through the project-management workflow using Kanflow. Click each step to see the details.",
   guideKanflowOperation: "Kanflow operation",
   guideHint: "Tip",
@@ -84,6 +89,8 @@ export const id: GuideTranslations = {
     "Pelajari alur kerja pengembangan Scrum dengan Kanflow. Klik setiap langkah untuk melihat detail (acara, peserta, timebox).",
   guideIntroProcessImprovement:
     "Pelajari alur kerja perbaikan proses dengan Kanflow. Klik setiap langkah untuk melihat detailnya.",
+  guideIntroEquipment:
+    "Langkah-langkah pemasangan peralatan (pembelian, pemasangan, penerimaan) di Kanflow. Klik setiap langkah untuk melihat detail.",
   guideIntroGeneral: "Pelajari alur kerja manajemen proyek dengan Kanflow. Klik setiap langkah untuk melihat detailnya.",
   guideKanflowOperation: "Operasi Kanflow",
   guideHint: "Tips",

@@ -49,6 +49,8 @@ export interface SidebarNavOptions {
   showChat?: boolean
   /** 開発（Git） entry; only while the project has the Git integration switched on. Default false. */
   showGit?: boolean
+  /** 全体計画 first in the first section (equipment / process improvement, W12). Default false. */
+  planFirst?: boolean
 }
 
 /**
@@ -78,7 +80,7 @@ export function buildSidebarGroups(
   options: SidebarNavOptions = {},
 ): SidebarNavGroup[] {
   const base = `/projects/${projectId}`
-  const { showTrash = false, showSettings = true, showChat = true, showGit = false } = options
+  const { showTrash = false, showSettings = true, showChat = true, showGit = false, planFirst = false } = options
   const trash: SidebarNavItem[] = showTrash
     ? [{ href: `${base}/trash`, label: t.trashTitle, description: t.trashNavDescription, Icon: Trash2 }]
     : []
@@ -91,11 +93,13 @@ export function buildSidebarGroups(
   const git: SidebarNavItem[] = showGit
     ? [{ href: `${base}/git`, label: t.gitNavLabel, description: t.gitNavDesc, Icon: GitBranch }]
     : []
+  const planItem: SidebarNavItem = { href: `${base}/plan`, label: t.planTitle, description: t.navDescPlan, Icon: MapIcon }
   return [
     {
       id: "execute",
       label: t.navGroupExecute,
       items: [
+        ...(planFirst ? [planItem] : []),
         { href: `${base}/icebox`, label: pt.navIcebox, description: t.iceboxDescription, Icon: Lightbulb },
         { href: `${base}/backlog`, label: pt.navBacklog, description: t.navDescBacklog, Icon: ListOrdered },
         { href: `${base}/sprints`, label: pt.navSprints, description: t.navDescSprints, Icon: Zap },
@@ -107,7 +111,7 @@ export function buildSidebarGroups(
       id: "plan",
       label: t.navGroupPlan,
       items: [
-        { href: `${base}/plan`, label: t.planTitle, description: t.navDescPlan, Icon: MapIcon },
+        ...(planFirst ? [] : [planItem]),
         { href: `${base}/gantt`, label: t.ganttTitle, description: t.navDescGantt, Icon: ChartGantt },
         { href: `${base}/calendar`, label: t.calendarTitle, description: t.navDescCalendar, Icon: CalendarDays },
         { href: `${base}/releases`, label: pt.navReleases, description: pt.navReleasesDesc, Icon: Rocket },

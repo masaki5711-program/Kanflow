@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { baseScheduleSchema } from "@/lib/plan-schedule/base-schedule"
 import { templateContentSchema } from "@/lib/plan-templates/schema"
 
 /**
@@ -167,6 +168,25 @@ export const createTemplateProposalSchema = z.object({
   reason: z.string().max(1000),
 })
 
+/**
+ * Load a base schedule (W12: phases, milestones, relative durations, dependencies from a spec template's
+ * `schedule.yml`) into 全体計画 from a start date. Approving POSTs the schedule to /plan/load; the server
+ * recomputes the dates, so `preview` (top-level rows with their dates) is display only.
+ */
+export const planLoadProposalSchema = z.object({
+  kind: z.literal("plan_load"),
+  proposalId: id,
+  name: z.string().max(255),
+  startDate: day,
+  itemCount: z.number().int().min(1).max(500),
+  dependencyCount: z.number().int().min(0),
+  plannedStart: day,
+  plannedEnd: day,
+  schedule: baseScheduleSchema,
+  preview: z.array(z.object({ name: shortText, plannedStart: day, plannedEnd: day, isMilestone: z.boolean(), children: z.number().int().min(0) })).max(60),
+  reason: z.string().max(1000),
+})
+
 export const chatProposalSchema = z.discriminatedUnion("kind", [
   createPbiProposalSchema,
   taskSplitProposalSchema,
@@ -176,6 +196,7 @@ export const chatProposalSchema = z.discriminatedUnion("kind", [
   planEditProposalSchema,
   sprintScheduleProposalSchema,
   createTemplateProposalSchema,
+  planLoadProposalSchema,
 ])
 
 export type CreatePbiProposal = z.infer<typeof createPbiProposalSchema>
@@ -187,6 +208,7 @@ export type PlanOp = z.infer<typeof planOpSchema>
 export type PlanEditProposal = z.infer<typeof planEditProposalSchema>
 export type SprintScheduleProposal = z.infer<typeof sprintScheduleProposalSchema>
 export type CreateTemplateProposal = z.infer<typeof createTemplateProposalSchema>
+export type PlanLoadProposal = z.infer<typeof planLoadProposalSchema>
 export type ChatProposal = z.infer<typeof chatProposalSchema>
 export type ChatProposalKind = ChatProposal["kind"]
 

@@ -7,11 +7,12 @@ import { getSteps } from "./guide-steps"
 import { StepItem } from "./step-item"
 import ScrumOverviewDiagram from "./scrum-overview-diagram"
 
-type IntroKey = "guideIntroSoftware" | "guideIntroProcessImprovement" | "guideIntroGeneral"
+type IntroKey = "guideIntroSoftware" | "guideIntroProcessImprovement" | "guideIntroEquipment" | "guideIntroGeneral"
 
 const INTRO_KEY: Record<ProjectType, IntroKey> = {
   software: "guideIntroSoftware",
   process_improvement: "guideIntroProcessImprovement",
+  equipment: "guideIntroEquipment",
   general: "guideIntroGeneral",
 }
 

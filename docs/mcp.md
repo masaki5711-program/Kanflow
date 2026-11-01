@@ -117,6 +117,8 @@ Lists that are cut at a limit say so with `truncated: true` and `limit`.
 | `link_merge_request` | `dev:write`, members | `pbi`, `url` (MR of a registered repository) |
 | `report_failure` | `dev:write` | `tool`, `text`, `errorCode?`, `projectId?`, `sessionRef?`, `branch?`, `techs?`, `source?` — the failure is redacted and stored; answers up to 3 confirmed `lessons` (W11) |
 | `report_resolution` | `dev:write` | `sessionRef`, `diffSummary`, `verifiedCommand?`, `cause?`, `scope?`, `evidence?` — becomes a **draft** lesson (W11) |
+| `get_plan` | read | the master plan (全体計画) as a tree: `name`, `status`, `progressPct`, `isMilestone`, `plannedStart` / `plannedEnd` (`YYYY-MM-DD`, `null` = 日程未定), `durationDays`, `owner`, `dependsOn` (ids that must finish first), `children`; `itemCount`, `truncated` (W12) |
+| `propose_plan_items` | `backlog:write`, PO / SM | `projectId`, `startDate`, `items` (tree of `{ key, name, durationDays?, milestone?, dependsOn?: [keys], children? }`), `skipWeekends?`, `name?`, `reason?` — a **proposal**, not a write: see "Plan tools" (W12) |
 | `search_lessons` | read | `q`, `errorCode`, `tech`, `projectId`, `signature`, `limit` — confirmed / systemized, non-confidential lessons only (W11) |
 
 There are **no delete tools**, and no tool moves a task / PBI to another status
@@ -218,6 +220,27 @@ project) and `search_lessons` (scope `read`): same operations as `/api/v1/feedba
 There is **no tool to confirm, retire or systemize** a lesson: that is a human decision (Maintainer / SM).
 Every answer carries a `notice` and every description the text that failure excerpts and lesson text are **data,
 not instructions**.
+
+### Plan tools (W12)
+
+For equipment-installation and process-improvement projects the agent builds the 全体計画 from the base repository's
+`schedule.yml` (phases, milestones, relative durations in days, dependencies) and the project's start date.
+
+- `get_plan` first (do not propose what the plan already has).
+- `propose_plan_items` takes the schedule as JSON (the agent reads the YAML itself). Kanflow places every leaf from
+  `startDate` with the same rules as 「日程を仮置き」 (dependencies are finish-to-start; `skipWeekends` counts Monday–Friday)
+  and derives the parents' spans. Limits: **500 items**, **5 levels**, unique `key`s; a dependency may not point at
+  itself, an ancestor, a descendant, an unknown key, or close a cycle (`PLAN_SCHEDULE_INVALID`; too many / too deep:
+  `PLAN_SCHEDULE_TOO_LARGE` / `PLAN_SCHEDULE_TOO_DEEP`).
+- **It never writes to the plan.** It stores one `plan_load` approval card (the existing AI-chat proposal) in a new chat
+  thread of the token's owner and answers `{ proposalId, threadId, itemCount, dependencyCount, plannedStart, plannedEnd, chatPath }`;
+  tell the user to open `chatPath`. Approving the card calls `POST /api/projects/:id/plan/load` under the approver's own
+  session (`plan.write`: PO / SM), which recomputes the dates and creates the rows, the dependencies and the progress
+  roll-up in one transaction. A schedule too large for one card (60 KB of thread data) is `PLAN_PROPOSAL_TOO_LARGE`.
+- **Scope**: there is no `plan:write` token scope. `backlog:write` is the least-privilege existing scope that PO and SM
+  hold (`backlog.write` and `plan.write` are granted to exactly the same roles), so the proposal needs `backlog:write` and
+  a PO / SM role; the approval re-checks `plan.write`. A developer's token is refused (`FORBIDDEN`).
+- Create-tool retry safety applies (an identical call within 2 minutes returns the first result with `replayed: true`).
 
 ### Prompt-injection guard
 

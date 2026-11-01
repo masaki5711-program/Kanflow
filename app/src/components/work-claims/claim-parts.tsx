@@ -1,6 +1,7 @@
 "use client"
 
 import { useLanguage } from "@/lib/language-context"
+import { projectFeatures } from "@/lib/project-features"
 import { fillTemplate } from "@/lib/fill-template"
 import { formatRelative } from "@/lib/format-date"
 import { Badge, cn, type BadgeTone } from "@/components/ui"
@@ -9,7 +10,7 @@ import { claimState, initials, shownPaths, type ClaimState, type ScreenClaim, ty
 
 /** Branches are developer detail: shown only in software projects. */
 export function useShowBranch(): boolean {
-  return useLanguage().projectType === "software"
+  return projectFeatures(useLanguage().projectType).workClaimBranch
 }
 
 export function useStateLabel(): (state: ClaimState) => string {

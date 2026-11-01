@@ -13,7 +13,7 @@ import type {
   TaskSplitProposal,
 } from "@/lib/chat-proposals"
 import { requiredAction } from "./proposal-actions"
-import { IceboxBody, PlanEditBody, SprintPbiBody, SprintScheduleBody, TemplateBody } from "./proposal-card-schedule"
+import { IceboxBody, PlanEditBody, PlanLoadBody, SprintPbiBody, SprintScheduleBody, TemplateBody } from "./proposal-card-schedule"
 import { useProposalContext } from "./proposal-context"
 import { useProposalApproval } from "./use-proposal-approval"
 
@@ -64,6 +64,7 @@ const TITLE_KEY = {
   plan_edit: "chatProposalPlanEditTitle",
   sprint_schedule: "chatProposalSprintScheduleTitle",
   create_template: "chatProposalCreateTemplateTitle",
+  plan_load: "chatProposalPlanLoadTitle",
 } as const
 
 const ICON = {
@@ -75,10 +76,11 @@ const ICON = {
   plan_edit: CalendarClock,
   sprint_schedule: CalendarClock,
   create_template: Workflow,
+  plan_load: CalendarClock,
 } as const
 
 /** Proposals that make something new read "approve and create"; changes read "approve and apply". */
-const CREATES = new Set<ChatProposal["kind"]>(["create_pbi", "task_split", "create_icebox", "create_template"])
+const CREATES = new Set<ChatProposal["kind"]>(["create_pbi", "task_split", "create_icebox", "create_template", "plan_load"])
 
 function ProposalCard({ projectId, threadId, proposal, storedOutcome, pending }: CardProps) {
   const { t } = useLanguage()
@@ -111,6 +113,7 @@ function ProposalCard({ projectId, threadId, proposal, storedOutcome, pending }:
         {proposal.kind === "plan_edit" && <PlanEditBody p={proposal} t={t} />}
         {proposal.kind === "sprint_schedule" && <SprintScheduleBody p={proposal} t={t} />}
         {proposal.kind === "create_template" && <TemplateBody p={proposal} t={t} />}
+        {proposal.kind === "plan_load" && <PlanLoadBody p={proposal} t={t} />}
         {proposal.reason && (
           <p className="text-caption text-fg-muted">
             <span className="font-medium">{t.chatProposalReason}: </span>
