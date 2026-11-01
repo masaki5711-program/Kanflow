@@ -64,7 +64,7 @@ export function AcForm({ initial, saving, legend, onSubmit, onCancel }: Props) {
   }
 
   return (
-    <form onSubmit={submit} className="space-y-3 rounded-ui-md border border-border bg-surface-muted p-3" aria-label={legend} noValidate>
+    <form onSubmit={submit} className="space-y-3 rounded-ui-md border border-border bg-surface-muted p-3" aria-label={legend} aria-describedby={hintId} noValidate>
       <p id={hintId} className="text-caption text-fg-muted">{t.pbiAcStructuredHint}</p>
       <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
         <Field label={t.pbiAcGiven}>

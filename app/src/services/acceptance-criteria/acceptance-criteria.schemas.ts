@@ -28,12 +28,14 @@ export function formatAcId(pbiDisplayId: number, seq: number): string {
 }
 
 /**
- * The `seq` named by "AC-2", "ac2", "2" or "PBI-12/AC-2" (the PBI part is not checked here:
- * the route already names the PBI). null when the reference is none of these.
+ * The `seq` named by "AC-2", "ac2", "2" or "PBI-12/AC-2". With `pbiDisplayId` a reference that
+ * names another PBI ("PBI-13/AC-2" on PBI 12) is null, so it is a 404 instead of silently
+ * editing the wrong item. null when the reference is none of these.
  */
-export function parseAcRef(ref: string): number | null {
-  const m = /^(?:pbi-?\d{1,9}\/)?(?:ac-?)?(\d{1,9})$/i.exec(ref.trim())
+export function parseAcRef(ref: string, pbiDisplayId?: number): number | null {
+  const m = /^(?:pbi-?(\d{1,9})\/)?(?:ac-?)?(\d{1,9})$/i.exec(ref.trim())
   if (!m) return null
-  const seq = Number(m[1])
+  if (m[1] !== undefined && pbiDisplayId !== undefined && Number(m[1]) !== pbiDisplayId) return null
+  const seq = Number(m[2])
   return seq >= 1 ? seq : null
 }

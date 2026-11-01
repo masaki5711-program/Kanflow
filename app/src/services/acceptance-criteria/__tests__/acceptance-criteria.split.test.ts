@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
-import { planAcceptanceCriteriaBackfill } from "../acceptance-criteria.backfill"
+import { chunkText, planAcceptanceCriteriaBackfill } from "../acceptance-criteria.backfill"
 import { formatAcId, parseAcRef } from "../acceptance-criteria.schemas"
-import { SPLIT_ITEM_MAX, splitAcceptanceCriteria } from "../acceptance-criteria.split"
+import { splitAcceptanceCriteria } from "../acceptance-criteria.split"
 
 describe("splitAcceptanceCriteria (existing text → items)", () => {
   it("splits bullet lines (ASCII and Japanese bullets, checkboxes)", () => {
@@ -37,8 +37,8 @@ describe("splitAcceptanceCriteria (existing text → items)", () => {
     expect(splitAcceptanceCriteria("-\n- \n")).toEqual([])
   })
 
-  it("clips one pathological item to the API limit", () => {
-    expect(splitAcceptanceCriteria("x".repeat(SPLIT_ITEM_MAX + 50))[0]).toHaveLength(SPLIT_ITEM_MAX)
+  it("never cuts text: a very long item comes out whole", () => {
+    expect(splitAcceptanceCriteria("x".repeat(5000))[0]).toHaveLength(5000)
   })
 })
 
@@ -62,6 +62,36 @@ describe("planAcceptanceCriteriaBackfill (idempotent)", () => {
   })
 })
 
+describe("backfill limits (nothing is cut silently)", () => {
+  const pbi = (id: string, text: string) => ({ id, displayId: 7, acceptanceCriteria: text, existingRows: 0 })
+
+  it("chunkText keeps every character: pieces ≤ max, cut at line / space boundaries", () => {
+    const text = Array.from({ length: 300 }, (_, i) => `word${i}`).join(" ")
+    const parts = chunkText(text, 200)
+    expect(parts.every((p) => p.length <= 200)).toBe(true)
+    expect(parts.join(" ").replace(/\s+/g, " ")).toBe(text)
+    expect(chunkText("y".repeat(450), 200).join("")).toHaveLength(450)
+  })
+
+  it("an over-long item becomes continuation items; the text is complete and the count is reported", () => {
+    const long = "a".repeat(4500)
+    const plan = planAcceptanceCriteriaBackfill([pbi("a", `- short\n- ${long}`)])
+    expect(plan.inserts.map((i) => i.seq)).toEqual([1, 2, 3, 4])
+    expect(plan.inserts.slice(1).map((i) => i.text).join("")).toBe(long)
+    expect(plan.stats).toMatchObject({ longSplit: 1, overLimit: 0, migrated: 1 })
+  })
+
+  it("a PBI with more than 100 items is NOT migrated and is reported, never truncated", () => {
+    const many = Array.from({ length: 101 }, (_, i) => `- item ${i}`).join("\n")
+    const plan = planAcceptanceCriteriaBackfill([pbi("big", many), pbi("ok", "- one\n- two")])
+    expect(plan.inserts.every((i) => i.pbiId === "ok")).toBe(true)
+    expect(plan.overLimit).toEqual([{ pbiId: "big", displayId: 7, items: 101 }])
+    expect(plan.stats).toMatchObject({ overLimit: 1, migrated: 1 })
+    const exactly = Array.from({ length: 100 }, (_, i) => `- item ${i}`).join("\n")
+    expect(planAcceptanceCriteriaBackfill([pbi("x", exactly)]).inserts).toHaveLength(100)
+  })
+})
+
 describe("acceptance criterion ids", () => {
   it("formats PBI-<n>/AC-<seq>", () => {
     expect(formatAcId(12, 2)).toBe("PBI-12/AC-2")
@@ -69,6 +99,9 @@ describe("acceptance criterion ids", () => {
 
   it("parses AC-2, ac2, 2 and PBI-12/AC-2; refuses the rest", () => {
     for (const ref of ["AC-2", "ac2", "2", " 2 ", "PBI-12/AC-2", "pbi12/ac-2"]) expect(parseAcRef(ref)).toBe(2)
+    expect(parseAcRef("PBI-12/AC-2", 12)).toBe(2)
+    expect(parseAcRef("PBI-13/AC-2", 12)).toBeNull()
+    expect(parseAcRef("AC-2", 12)).toBe(2)
     for (const ref of ["", "AC-", "0", "AC-0", "x2", "cm1abc", "2.5", "-2"]) expect(parseAcRef(ref)).toBeNull()
   })
 })

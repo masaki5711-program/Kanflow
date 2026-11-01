@@ -72,6 +72,8 @@ async function main(): Promise<number> {
 
     const plan = planAcceptanceCriteriaBackfill(pbis)
     out(JSON.stringify(plan.stats, null, 2))
+    for (const o of plan.overLimit.slice(0, 50)) out(`over limit, NOT migrated: PBI-${o.displayId} (${o.items} items; id ${o.pbiId}) — shorten its old text and re-run`)
+    if (plan.overLimit.length > 50) out(`... and ${plan.overLimit.length - 50} more over-limit PBI(s)`)
     if (!apply) {
       out(`dry run: ${plan.inserts.length} item(s) in ${plan.stats.migrated} PBI(s) would be written. Re-run with --apply to write.`)
       return 0
@@ -96,7 +98,7 @@ async function main(): Promise<number> {
         { isolationLevel: "ReadCommitted" },
       )
     }
-    out(`applied: wrote ${written} item(s); skipped ${skipped} PBI(s) that gained items meanwhile.`)
+    out(`applied: wrote ${written} item(s); skipped ${skipped} PBI(s) that gained items meanwhile; ${plan.stats.overLimit} PBI(s) over the limit (not migrated); ${plan.stats.longSplit} PBI(s) with over-long items split into continuation items.`)
     return 0
   } finally {
     await prisma.$disconnect()

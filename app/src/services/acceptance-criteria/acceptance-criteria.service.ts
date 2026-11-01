@@ -41,8 +41,9 @@ async function loadPbi(db: Db, projectId: string, ref: string) {
   return pbi
 }
 
-async function loadCriterion(db: Db, pbiId: string, acRef: string) {
-  const seq = parseAcRef(acRef)
+async function loadCriterion(db: Db, pbi: { id: string; displayId: number }, acRef: string) {
+  const pbiId = pbi.id
+  const seq = parseAcRef(acRef, pbi.displayId)
   const row = seq === null ? null : await repo.findBySeq(db, pbiId, seq)
   if (!row) throw new NotFoundError("Acceptance criterion not found", {}, "AC_NOT_FOUND")
   return row
@@ -101,13 +102,16 @@ export async function createAcceptanceCriterion(projectId: string, pbiRef: strin
 export async function updateAcceptanceCriterion(projectId: string, pbiRef: string, acRef: string, input: UpdateAcceptanceCriterionInput, actor: Actor) {
   return withTransaction(async (tx) => {
     const pbi = await loadPbi(tx, projectId, pbiRef)
-    const current = await loadCriterion(tx, pbi.id, acRef)
+    await repo.lockPbi(tx, pbi.id)
+    const current = await loadCriterion(tx, pbi, acRef)
     const patch: Partial<repo.AcFields> = {}
     for (const key of ["given", "when", "then", "text"] as const) {
       const v = clean(input[key])
       if (v !== undefined) patch[key] = v
     }
     if (input.evidenceKind !== undefined) patch.evidenceKind = input.evidenceKind
+    // Nothing sent: no write, no history row.
+    if (Object.keys(patch).length === 0) return toAcceptanceCriterionDto(pbi.displayId, current)
     if (!hasContent({ ...current, ...patch })) throw new ValidationError(CONTENT_REQUIRED)
     const row = await repo.update(tx, current.id, { ...patch, updatedById: actor.userId || null })
     const dto = toAcceptanceCriterionDto(pbi.displayId, row)
@@ -127,7 +131,8 @@ export async function updateAcceptanceCriterion(projectId: string, pbiRef: strin
 export async function deleteAcceptanceCriterion(projectId: string, pbiRef: string, acRef: string, actor: Actor, now: Date = new Date()) {
   return withTransaction(async (tx) => {
     const pbi = await loadPbi(tx, projectId, pbiRef)
-    const current = await loadCriterion(tx, pbi.id, acRef)
+    await repo.lockPbi(tx, pbi.id)
+    const current = await loadCriterion(tx, pbi, acRef)
     await repo.softDelete(tx, current.id, actor.userId || null, now)
     const id = formatAcId(pbi.displayId, current.seq)
     await logActivity(tx, {

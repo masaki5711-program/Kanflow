@@ -5,7 +5,7 @@
  * number (`1.` `1)` `1、` `1．` `(1)` `①`) starts a new item; the following lines without a marker
  * continue it. Text without any marker is ONE item (a block that cannot be split stays whole).
  * Lines before the first marker become an item of their own, so no text is dropped.
- * Blank lines are ignored.
+ * Blank lines are ignored. Nothing is cut here (lengths are handled by the backfill).
  */
 
 const MARKER = new RegExp(
@@ -20,9 +20,6 @@ const MARKER = new RegExp(
     ")",
   ].join("")
 )
-
-/** Cap per item, so one pathological line cannot exceed what the API accepts. */
-export const SPLIT_ITEM_MAX = 2000
 
 function stripMarker(line: string): string | null {
   let rest = line
@@ -66,11 +63,7 @@ export function splitAcceptanceCriteria(source: string | null | undefined): stri
   // No marker at all: the whole block is one item (line breaks kept).
   if (!sawMarker) {
     const whole = lines.map((l) => l.trim()).filter(Boolean).join("\n")
-    return whole ? [clip(whole)] : []
+    return whole ? [whole] : []
   }
-  return items.map(clip)
-}
-
-function clip(s: string): string {
-  return s.length > SPLIT_ITEM_MAX ? s.slice(0, SPLIT_ITEM_MAX) : s
+  return items
 }

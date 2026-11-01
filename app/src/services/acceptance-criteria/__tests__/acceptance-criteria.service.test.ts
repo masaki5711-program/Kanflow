@@ -144,6 +144,31 @@ describe("updateAcceptanceCriterion", () => {
     expect((await svc.updateAcceptanceCriterion("p1", "b1", "AC-1", { evidenceKind: null }, ACTOR)).evidenceKind).toBeNull()
   })
 
+  it("an empty patch writes nothing and logs nothing", async () => {
+    await add("only")
+    vi.mocked(activity.logActivity).mockClear()
+    expect(await svc.updateAcceptanceCriterion("p1", "b1", "AC-1", {}, ACTOR)).toMatchObject({ id: "PBI-12/AC-1", text: "only" })
+    expect(repo.update).not.toHaveBeenCalled()
+    expect(activity.logActivity).not.toHaveBeenCalled()
+  })
+
+  it("a reference naming another PBI (PBI-13/AC-1 on PBI 12) is AC_NOT_FOUND for edit and delete", async () => {
+    await add("only")
+    await expect(svc.updateAcceptanceCriterion("p1", "b1", "PBI-13/AC-1", { text: "x" }, ACTOR)).rejects.toMatchObject({ code: "AC_NOT_FOUND" })
+    await expect(svc.deleteAcceptanceCriterion("p1", "b1", "PBI-13/AC-1", ACTOR)).rejects.toMatchObject({ code: "AC_NOT_FOUND" })
+    expect(repo.softDelete).not.toHaveBeenCalled()
+  })
+
+  it("edit and delete take the PBI lock before reading the criterion", async () => {
+    await add("a")
+    store.events = []
+    vi.mocked(repo.findBySeq).mockClear()
+    await svc.updateAcceptanceCriterion("p1", "b1", "AC-1", { text: "b" }, ACTOR)
+    await svc.deleteAcceptanceCriterion("p1", "b1", "AC-1", ACTOR)
+    expect(store.events).toEqual(["lock", "lock"])
+    expect(vi.mocked(repo.lockPbi).mock.invocationCallOrder[1]).toBeLessThan(vi.mocked(repo.findBySeq).mock.invocationCallOrder[0])
+  })
+
   it("cannot clear the last content, and an unknown / malformed reference is AC_NOT_FOUND", async () => {
     await add("only")
     await expect(svc.updateAcceptanceCriterion("p1", "b1", "AC-1", { text: "" }, ACTOR)).rejects.toBeInstanceOf(ValidationError)
