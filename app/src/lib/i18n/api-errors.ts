@@ -120,6 +120,10 @@ export interface ApiErrorsTranslations {
   apiErrClaimLimitReached: string
   apiErrAcNotFound: string
   apiErrAcLimitReached: string
+  apiErrFeedbackRedactionFailed: string
+  apiErrFeedbackNoFailure: string
+  apiErrLessonNotFound: string
+  apiErrLessonState: string
   apiErrScopeInvalid: string
   apiErrScopeTooLarge: string
   apiErrNetwork: string
@@ -237,6 +241,10 @@ export const API_ERROR_MESSAGE_KEYS: Readonly<Record<ApiErrorCode, ApiErrorMessa
   SCOPE_TOO_LARGE: "apiErrScopeTooLarge",
   AC_NOT_FOUND: "apiErrAcNotFound",
   AC_LIMIT_REACHED: "apiErrAcLimitReached",
+  FEEDBACK_REDACTION_FAILED: "apiErrFeedbackRedactionFailed",
+  FEEDBACK_NO_FAILURE: "apiErrFeedbackNoFailure",
+  LESSON_NOT_FOUND: "apiErrLessonNotFound",
+  LESSON_STATE: "apiErrLessonState",
   NETWORK_ERROR: "apiErrNetwork",
 }
 
@@ -357,6 +365,10 @@ export const ja: ApiErrorsTranslations = {
   apiErrClaimLimitReached: "このプロジェクトで同時に宣言できる作業の上限に達しています。終わった作業を解除してください",
   apiErrAcNotFound: "この受入基準は見つかりません（削除された可能性があります）",
   apiErrAcLimitReached: "この PBI の受入基準が上限に達しています。不要な項目を削除してください",
+  apiErrFeedbackRedactionFailed: "報告に認証情報らしい内容が残っているため、保存しませんでした。取り除いてから送り直してください",
+  apiErrFeedbackNoFailure: "このセッションに、解決を結び付ける未解決の失敗がありません",
+  apiErrLessonNotFound: "この教訓は見つかりません",
+  apiErrLessonState: "教訓の状態が変わっています。読み込み直してからやり直してください",
   apiErrScopeInvalid: "触る範囲に使えない書き方があります。リポジトリの中の相対パス（.. や / で始まる形は不可）かモジュール名で書いてください",
   apiErrScopeTooLarge: "触る範囲が多すぎます（1 つの宣言に 200 件まで）。ディレクトリやモジュールでまとめてください",
   apiErrNetwork: "サーバーに接続できません。ネットワークを確認してください",
@@ -473,6 +485,10 @@ export const en: ApiErrorsTranslations = {
   apiErrClaimLimitReached: "You already hold the maximum number of active work claims in this project. Release finished work first",
   apiErrAcNotFound: "This acceptance criterion was not found (it may have been deleted)",
   apiErrAcLimitReached: "This PBI already has the maximum number of acceptance criteria. Delete items you no longer need",
+  apiErrFeedbackRedactionFailed: "The report still contains something that looks like a credential, so it was not stored. Remove it and send again",
+  apiErrFeedbackNoFailure: "This session has no unresolved failure to attach the resolution to",
+  apiErrLessonNotFound: "This lesson was not found",
+  apiErrLessonState: "The lesson's state has changed. Reload and try again",
   apiErrScopeInvalid: "An entry of the touched scope cannot be used. Give a relative path inside the repository (no .., not starting with /) or a module name",
   apiErrScopeTooLarge: "The touched scope is too large (at most 200 entries per claim). Group files by directory or module",
   apiErrNetwork: "Cannot reach the server. Please check your network",
@@ -589,6 +605,10 @@ export const id: ApiErrorsTranslations = {
   apiErrClaimLimitReached: "Anda sudah memegang jumlah maksimum klaim pekerjaan aktif di proyek ini. Lepaskan pekerjaan yang selesai terlebih dahulu",
   apiErrAcNotFound: "Kriteria penerimaan ini tidak ditemukan (mungkin sudah dihapus)",
   apiErrAcLimitReached: "PBI ini sudah mencapai jumlah maksimum kriteria penerimaan. Hapus butir yang tidak diperlukan",
+  apiErrFeedbackRedactionFailed: "Laporan masih memuat sesuatu yang tampak seperti kredensial, jadi tidak disimpan. Hapus lalu kirim ulang",
+  apiErrFeedbackNoFailure: "Sesi ini tidak memiliki kegagalan yang belum terselesaikan untuk dikaitkan dengan solusi",
+  apiErrLessonNotFound: "Pelajaran ini tidak ditemukan",
+  apiErrLessonState: "Status pelajaran telah berubah. Muat ulang lalu coba lagi",
   apiErrScopeInvalid: "Ada entri cakupan yang tidak dapat dipakai. Tulis path relatif di dalam repositori (tanpa .., tidak diawali /) atau nama modul",
   apiErrScopeTooLarge: "Cakupan terlalu besar (maksimal 200 entri per klaim). Kelompokkan file per direktori atau modul",
   apiErrNetwork: "Tidak dapat terhubung ke server. Periksa jaringan Anda",

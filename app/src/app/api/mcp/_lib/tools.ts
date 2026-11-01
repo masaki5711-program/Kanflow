@@ -42,6 +42,7 @@ import {
   v1UpdatePbiSchema,
 } from "@/app/api/v1/_lib/v1-handlers"
 import { registerDevTools } from "./dev-tools"
+import { registerFeedbackTools } from "./feedback-tools"
 import { CREATE_NOTE, DATA_NOTICE, definedOnly, guard, mcpWrite, pbiIdIn, pbiScope, projectScope, toolOk, visibleProjects } from "./tool-kit"
 
 /**
@@ -464,4 +465,7 @@ export function registerKanflowTools(server: McpServer, principal: ApiPrincipal)
 
   // ------------------------------------------- development (dev:write, K5)
   registerDevTools(server, principal)
+
+  // ------------------------------------------- feedback loop (W11)
+  registerFeedbackTools(server, principal)
 }

@@ -68,6 +68,8 @@ export interface WorkerConfig {
   aiJobRetentionDays: number
   /** IMPROVEMENT_CHECK_REMINDERS: 定着確認 reminders to POs in the collab job (default on). */
   improvementReminders: boolean
+  /** FEEDBACK_RECURRENCE: prevention-PBI proposals for recurring failures in the collab job (default on). */
+  feedbackRecurrence: boolean
 }
 
 export const DEFAULT_SURVEILLANCE_SCHEDULE = "06:30"
@@ -117,6 +119,12 @@ export function formatDailyTimes(times: ReadonlyArray<DailyTime>): string {
   return times.map((t) => `${String(t.hour).padStart(2, "0")}:${String(t.minute).padStart(2, "0")}`).join(",")
 }
 
+/** FEEDBACK_RECURRENCE: "off" / "false" / "0" / "none" disables the recurrence step (feedback loop, W11); anything else (or unset) = on. */
+export function feedbackRecurrenceEnabled(env: Readonly<Record<string, string | undefined>>): boolean {
+  const v = env.FEEDBACK_RECURRENCE?.trim().toLowerCase()
+  return !(v === "off" || v === "false" || v === "0" || v === "none")
+}
+
 /** IMPROVEMENT_CHECK_REMINDERS: "off" / "false" / "0" / "none" disables; anything else (or unset) = on. */
 export function improvementRemindersEnabled(env: Readonly<Record<string, string | undefined>>): boolean {
   const v = env.IMPROVEMENT_CHECK_REMINDERS?.trim().toLowerCase()
@@ -156,6 +164,7 @@ export function loadWorkerConfig(env: NodeJS.ProcessEnv): WorkerConfig {
     chatDeletedRetentionDays: envPositiveInt(env.CHAT_DELETED_RETENTION_DAYS, DEFAULT_CHAT_DELETED_RETENTION_DAYS),
     aiJobRetentionDays: envPositiveInt(env.AI_JOB_RETENTION_DAYS, DEFAULT_AI_JOB_RETENTION_DAYS),
     improvementReminders: improvementRemindersEnabled(env),
+    feedbackRecurrence: feedbackRecurrenceEnabled(env),
   }
 }
 
@@ -195,6 +204,7 @@ export function describeConfig(cfg: WorkerConfig): Record<string, unknown> {
     chatDeletedRetentionDays: cfg.chatDeletedRetentionDays,
     aiJobRetentionDays: cfg.aiJobRetentionDays,
     improvementReminders: cfg.improvementReminders,
+    feedbackRecurrence: cfg.feedbackRecurrence,
   }
 }
 

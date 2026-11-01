@@ -51,6 +51,7 @@ import * as planSchedule from "./plan-schedule"
 import * as milestones from "./milestones"
 import * as workClaims from "./work-claims"
 import * as acceptanceCriteria from "./acceptance-criteria"
+import * as feedback from "./feedback"
 
 export * from "./languages"
 export * from "./point-units"
@@ -111,7 +112,8 @@ export interface Translations
     planSchedule.PlanScheduleTranslations,
     milestones.MilestonesTranslations,
     workClaims.WorkClaimsTranslations,
-    acceptanceCriteria.AcceptanceCriteriaTranslations {}
+    acceptanceCriteria.AcceptanceCriteriaTranslations,
+    feedback.FeedbackTranslations {}
 
 /** All domain modules, exported for tests (key-set / completeness checks). */
 export const domains = {
@@ -167,6 +169,7 @@ export const domains = {
   "milestones": milestones,
   "work-claims": workClaims,
   "acceptance-criteria": acceptanceCriteria,
+  "feedback": feedback,
 } as const
 
 const ja: Translations = {
@@ -222,6 +225,7 @@ const ja: Translations = {
   ...milestones.ja,
   ...workClaims.ja,
   ...acceptanceCriteria.ja,
+  ...feedback.ja,
 }
 
 const en: Translations = {
@@ -277,6 +281,7 @@ const en: Translations = {
   ...milestones.en,
   ...workClaims.en,
   ...acceptanceCriteria.en,
+  ...feedback.en,
 }
 
 const id: Translations = {
@@ -332,6 +337,7 @@ const id: Translations = {
   ...milestones.id,
   ...workClaims.id,
   ...acceptanceCriteria.id,
+  ...feedback.id,
 }
 
 const translations: Record<Language, Translations> = { ja, en, id }
