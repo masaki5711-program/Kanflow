@@ -71,8 +71,55 @@ describe("runFeedbackRecurrence", () => {
     const events = parseToolEvents(message.toolEvents)
     expect(events).toHaveLength(1)
     expect(events[0]).toMatchObject({ type: "proposal", proposal: { kind: "create_pbi", proposalId: proposalId(SIG) } })
-    expect(JSON.stringify(events[0])).toContain("5 回")
+    expect(JSON.stringify(events[0])).toContain("4 回")
     expect(JSON.stringify(events[0])).toContain("Forge")
+  })
+
+  describe("nothing unreviewed or foreign reaches the PBI card", () => {
+    const lessonRow = (over: Record<string, unknown>) => ({ id: "l1", scope: "global", state: "confirmed", confidential: false, fix: "SECRET-FIX-TEXT", systemizedRef: "gate:x", preventionProposedAt: null, ...over })
+    const cardText = () => JSON.stringify(fake.chatMessage.create.mock.calls[0][0].data)
+
+    it.each([
+      ["a draft lesson", { state: "draft" }],
+      ["a confidential lesson", { confidential: true }],
+      ["another project's lesson", { scope: "project:p2" }],
+      ["a retired lesson next to nothing else", { state: "retired" }],
+    ])("%s: its fix is not in the card (signature and counts only)", async (_n, over) => {
+      setup({ lessons: [lessonRow(over), lessonRow({ id: "l2", state: "draft", scope: "global" })] })
+      const result = await runFeedbackRecurrence({ now: NOW })
+      if (result.proposed === 0) return // all retired → left alone, nothing leaks either
+      expect(cardText()).not.toContain("SECRET-FIX-TEXT")
+      expect(cardText()).not.toContain("gate:x")
+    })
+
+    it("an eligible lesson (confirmed, non-confidential, global / tech / the target project) is used", async () => {
+      for (const scope of ["global", "tech:rust", "project:p1"]) {
+        vi.clearAllMocks()
+        setup({ lessons: [lessonRow({ scope })] })
+        await runFeedbackRecurrence({ now: NOW })
+        expect(cardText(), scope).toContain("SECRET-FIX-TEXT")
+      }
+    })
+
+    it("a recurrence flag from a lesson the project may not see does not claim 'a confirmed lesson came back'", async () => {
+      setup({
+        frequent: [],
+        confirmed: [{ signature: SIG, confirmedAt: new Date("2026-10-20T00:00:00Z"), lastSeenAt: new Date("2026-10-30T00:00:00Z") }],
+        lessons: [lessonRow({ scope: "project:p2" })],
+      })
+      await runFeedbackRecurrence({ now: NOW })
+      expect(cardText()).not.toContain("確認済みの教訓")
+      expect(cardText()).not.toContain("SECRET-FIX-TEXT")
+    })
+
+    it("the failure text, tool and count come from the target project's failures only", async () => {
+      setup()
+      await runFeedbackRecurrence({ now: NOW })
+      expect(fake.failureEvent.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { signature: SIG, projectId: "p1" } }))
+      // 4 reports in p1 (not the 5 of all projects)
+      expect(cardText()).toContain("4 回")
+      expect(cardText()).not.toContain("5 回")
+    })
   })
 
   it("is idempotent: a lesson already marked proposed (a second run, a second worker) proposes nothing", async () => {

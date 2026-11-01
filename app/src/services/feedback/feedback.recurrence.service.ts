@@ -2,6 +2,7 @@ import { logger } from "@/lib/logger"
 import { defaultDb, withTransaction, type Db } from "@/services/_shared/db"
 import * as chat from "@/services/chat-threads/chat-threads.repository"
 import { serializeToolEvents } from "@/services/chat-threads/chat-threads.service"
+import { projectScope } from "./feedback.access"
 import { asProposalLang, buildPreventionProposal, threadMarker } from "./feedback.recurrence"
 
 /**
@@ -100,7 +101,7 @@ async function proposeFor(db: Db, candidate: Candidate, since: Date, now: Date):
   const { signature } = candidate
   const lessons = await db.lesson.findMany({
     where: { signature },
-    select: { id: true, scope: true, state: true, fix: true, systemizedRef: true, preventionProposedAt: true },
+    select: { id: true, scope: true, state: true, confidential: true, fix: true, systemizedRef: true, preventionProposedAt: true },
     orderBy: { createdAt: "asc" },
     take: 20,
   })
@@ -116,14 +117,25 @@ async function proposeFor(db: Db, candidate: Candidate, since: Date, now: Date):
   })
   const top = [...perProject].sort((a, b) => b._count._all - a._count._all)[0]
   if (!top?.projectId) return "skippedNoProject"
-  const total = await db.failureEvent.count({ where: { signature, createdAt: { gte: since } } })
-  const latest = await db.failureEvent.findFirst({ where: { signature }, orderBy: { createdAt: "desc" }, select: { signatureText: true, tool: true, errorCode: true } })
+  // Everything that goes into the PBI card comes from the TARGET project: its own failures and lessons a
+  // maintainer confirmed that are visible to it (global, tech:*, project:<target>, non-confidential).
+  // Drafts and other projects' text never reach the card.
+  const total = top._count._all
+  const latest = await db.failureEvent.findFirst({
+    where: { signature, projectId: top.projectId },
+    orderBy: { createdAt: "desc" },
+    select: { signatureText: true, tool: true, errorCode: true },
+  })
   if (!latest) return "skippedNoProject"
   const project = await db.project.findUnique({ where: { id: top.projectId }, select: { id: true, name: true, language: true, deletedAt: true } })
   if (!project || project.deletedAt) return "skippedNoProject"
   const pos = await db.projectMember.findMany({ where: { projectId: project.id, role: "po", user: { isActive: true } }, select: { userId: true }, orderBy: { joinedAt: "asc" }, take: MAX_RECIPIENTS })
   if (pos.length === 0) return "skippedNoPo"
 
+  const targetScope = projectScope(project.id)
+  const eligible = lessons.find(
+    (l) => (l.state === "confirmed" || l.state === "systemized") && !l.confidential && (l.scope === "global" || l.scope.startsWith("tech:") || l.scope === targetScope),
+  )
   const lesson = lessons.find((l) => l.state !== "retired")
   const built = buildPreventionProposal(
     {
@@ -133,10 +145,10 @@ async function proposeFor(db: Db, candidate: Candidate, since: Date, now: Date):
       errorCode: latest.errorCode,
       count: total,
       windowDays: RECURRENCE_WINDOW_DAYS,
-      lessonRecurred: candidate.lessonRecurred,
+      lessonRecurred: candidate.lessonRecurred && eligible !== undefined,
       projectName: project.name,
-      fix: lesson?.fix ?? null,
-      systemizedRef: lesson?.systemizedRef ?? null,
+      fix: eligible?.fix ?? null,
+      systemizedRef: eligible?.systemizedRef ?? null,
     },
     asProposalLang(project.language),
   )

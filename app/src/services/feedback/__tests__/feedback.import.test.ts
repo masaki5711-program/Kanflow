@@ -35,7 +35,7 @@ describe("planMistakeImport", () => {
       rec({ id: "c", signature: "same text here" }),
       rec({ id: "d", signature: "same text here" }),
       "{not json",
-      rec({ id: "e", signature: "another one", fix: "run with password=correcthorse" }),
+      rec({ id: "e", signature: "another one", fix: "run with Ab12Cd34Ef56Gh78Ij90Kl12Mn34Op56Qr78St90Uv12" }),
     )
     expect(p.lessons.map((l) => l.sourceId)).toEqual(["c"])
     expect(p.skipped.map((s) => [s.id, s.reason])).toEqual([

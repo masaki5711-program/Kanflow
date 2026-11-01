@@ -185,7 +185,7 @@ describe("confirm: who may, what changes", () => {
   })
 
   it("curator text is redacted and a leftover credential is refused", async () => {
-    await expect(svc.confirmLesson(ADMIN, "l1", { fix: "export password=correcthorse" }, NOW, dbOf(ADMIN))).rejects.toMatchObject({ status: 422, code: "FEEDBACK_REDACTION_FAILED" })
+    await expect(svc.confirmLesson(ADMIN, "l1", { fix: "export Ab12Cd34Ef56Gh78Ij90Kl12Mn34Op56Qr78St90Uv12" }, NOW, dbOf(ADMIN))).rejects.toMatchObject({ status: 422, code: "FEEDBACK_REDACTION_FAILED" })
     await svc.confirmLesson(ADMIN, "l1", { fix: "ask bob@corp.example.com" }, NOW, dbOf(ADMIN))
     expect(vi.mocked(repo.transitionLesson).mock.calls[0][3]).toMatchObject({ fix: "ask <email>" })
   })

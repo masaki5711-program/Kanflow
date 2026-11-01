@@ -8,7 +8,10 @@ vi.mock("../feedback.repository", async (orig) => {
 const log = vi.hoisted(() => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }))
 vi.mock("@/lib/logger", () => ({ logger: { child: () => log } }))
 
+vi.mock("../feedback.access", async (orig) => ({ ...(await orig<typeof import("../feedback.access")>()), loadViewerAccess: vi.fn() }))
+
 const repo = await import("../feedback.repository")
+const access = await import("../feedback.access")
 const svc = await import("../feedback.service")
 const { TX, DEFAULT_DB } = await import("@/services/__tests__/support")
 const { hashSignature, normalizeFailureText } = await import("../signature")
@@ -68,6 +71,7 @@ beforeEach(() => {
   vi.mocked(repo.foldRepeat).mockResolvedValue(failureRow({ repeatCount: 2 }))
   vi.mocked(repo.bumpLessonHits).mockResolvedValue({ count: 0 } as never)
   vi.mocked(repo.findSharedLessonsBySignature).mockResolvedValue([])
+  vi.mocked(access.loadViewerAccess).mockResolvedValue({ userId: "u1", admin: false, curatesGlobal: false, memberProjects: new Set(), curatorProjects: new Set() })
 })
 
 describe("pure helpers", () => {
@@ -123,14 +127,14 @@ describe("reportFailure", () => {
   })
 
   it("422 FEEDBACK_REDACTION_FAILED when something credential-like remains; nothing is stored", async () => {
-    await expect(svc.reportFailure({ ...input, text: "deploy failed: password=correcthorse" }, ACTOR, NOW)).rejects.toMatchObject({
+    await expect(svc.reportFailure({ ...input, text: "deploy failed with Ab12Cd34Ef56Gh78Ij90Kl12Mn34Op56Qr78St90Uv12" }, ACTOR, NOW)).rejects.toMatchObject({
       status: 422,
       code: "FEEDBACK_REDACTION_FAILED",
     })
     expect(repo.createFailure).not.toHaveBeenCalled()
-    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining("refused"), expect.objectContaining({ kind: "secret-assignment", errorCode: "FEEDBACK_REDACTION_FAILED" }))
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining("refused"), expect.objectContaining({ kind: "long-token", errorCode: "FEEDBACK_REDACTION_FAILED" }))
     // The value itself is never logged.
-    expect(JSON.stringify(log.warn.mock.calls)).not.toContain("correcthorse")
+    expect(JSON.stringify(log.warn.mock.calls)).not.toContain("Ab12Cd34")
   })
 
   it("400 when the text has no meaningful content and there is no error code", async () => {
@@ -145,8 +149,16 @@ describe("reportFailure", () => {
     expect(repo.foldRepeat).toHaveBeenCalledWith(TX, "f1")
     expect(repo.createFailure).not.toHaveBeenCalled()
     expect(repo.bumpLessonHits).not.toHaveBeenCalled()
+  })
+
+  it("the same reporter is counted on the lessons once a day: a report older than a minute but within 24 h is stored, not counted again", async () => {
+    vi.mocked(repo.findRecentSameFailure).mockResolvedValue(failureRow({ createdAt: new Date(NOW.getTime() - 3_600_000) }))
+    const result = await svc.reportFailure(input, ACTOR, NOW)
+    expect(result.collapsed).toBe(false)
+    expect(repo.createFailure).toHaveBeenCalled()
+    expect(repo.bumpLessonHits).not.toHaveBeenCalled()
     const since = vi.mocked(repo.findRecentSameFailure).mock.calls[0][3]
-    expect(NOW.getTime() - since.getTime()).toBe(60_000)
+    expect(NOW.getTime() - since.getTime()).toBe(svc.HIT_WINDOW_MS)
   })
 
   it("answers with at most 3 applicable lessons, systemized first", async () => {
@@ -238,6 +250,16 @@ describe("reportResolution", () => {
     expect(data).not.toHaveProperty("state")
   })
 
+  it("scope choice: anyone may use the failure's project or a tech scope; global / another project only a curator of it", async () => {
+    await expect(svc.reportResolution({ ...input, scope: "global" }, ACTOR, NOW)).rejects.toMatchObject({ status: 403, code: "FORBIDDEN" })
+    await expect(svc.reportResolution({ ...input, scope: "project:zzz" }, ACTOR, NOW)).rejects.toMatchObject({ status: 403 })
+    expect(repo.createLesson).not.toHaveBeenCalled()
+    await expect(svc.reportResolution({ ...input, scope: "tech:rust" }, ACTOR, NOW)).resolves.toBeDefined()
+    await expect(svc.reportResolution({ ...input, scope: "project:p1" }, ACTOR, NOW)).resolves.toBeDefined()
+    vi.mocked(access.loadViewerAccess).mockResolvedValue({ userId: "u1", admin: false, curatesGlobal: true, memberProjects: new Set(), curatorProjects: new Set() })
+    await expect(svc.reportResolution({ ...input, scope: "global" }, ACTOR, NOW)).resolves.toBeDefined()
+  })
+
   it("404 FEEDBACK_NO_FAILURE when the session has no unresolved failure", async () => {
     vi.mocked(repo.findFailureToResolve).mockResolvedValue(null)
     await expect(svc.reportResolution(input, ACTOR, NOW)).rejects.toMatchObject({ status: 404, code: "FEEDBACK_NO_FAILURE" })
@@ -251,6 +273,6 @@ describe("reportResolution", () => {
   it("redacts the fix and refuses a leftover credential (422)", async () => {
     await svc.reportResolution({ ...input, diffSummary: `changed ${SECRET_BEARER}` }, ACTOR, NOW)
     expect(vi.mocked(repo.createResolution).mock.calls[0][1].diffSummary).not.toContain("abcdef0123456789")
-    await expect(svc.reportResolution({ ...input, verifiedCommand: "curl -d password=correcthorse" }, ACTOR, NOW)).rejects.toMatchObject({ status: 422, code: "FEEDBACK_REDACTION_FAILED" })
+    await expect(svc.reportResolution({ ...input, verifiedCommand: "curl --data Ab12Cd34Ef56Gh78Ij90Kl12Mn34Op56Qr78St90Uv12" }, ACTOR, NOW)).rejects.toMatchObject({ status: 422, code: "FEEDBACK_REDACTION_FAILED" })
   })
 })

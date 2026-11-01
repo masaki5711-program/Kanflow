@@ -30,11 +30,10 @@ export function reportsPerMinute(env: Readonly<Record<string, string | undefined
 export function reportBudget(tokenId: string): V1Reply | null {
   const limit = reportsPerMinute()
   const limiter = getRateLimiter(`feedback:report:${limit}`, { limit, windowMs: MINUTE_MS })
-  const budget = limiter.peek(tokenId)
-  if (budget.limited) {
-    return new V1Reply({ error: "Too many feedback reports", code: "RATE_LIMITED" }, 429, { "Retry-After": String(Math.max(Math.ceil(budget.retryAfterMs / 1000), 1)) })
+  const { allowed, status } = limiter.consume(tokenId)
+  if (!allowed) {
+    return new V1Reply({ error: "Too many feedback reports", code: "RATE_LIMITED" }, 429, { "Retry-After": String(Math.max(Math.ceil(status.retryAfterMs / 1000), 1)) })
   }
-  limiter.hit(tokenId)
   return null
 }
 

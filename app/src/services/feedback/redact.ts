@@ -83,6 +83,41 @@ const URL_HOST = /\b([a-z][a-z0-9+.-]*:\/\/)(?:[^\s/@]+@)?(\[[0-9A-Fa-f:]+\]|[A-
 const TLD = "com|net|org|jp|local|lan|internal|corp|intra|io|dev|int|home|localdomain|co|cn|id|sg|my|th|vn|us|eu|de|uk|info|biz"
 const DOTTED_HOST = new RegExp(`\\b(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\\.)+(?:${TLD})\\b(?![\\w-]|\\.[\\w-])`, "gi")
 
+/** Zero-width and bidi control characters that can split a key or hide a value from a pattern. */
+const INVISIBLE = /[\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff]/g
+
+/**
+ * NFKC (full-width `ＤＢ＿ＰＡＳＳ＝` → `DB_PASS=`) and no invisible characters, so that neither the redactor
+ * nor the residual check can be sidestepped by look-alike or split text.
+ */
+export function normalizeForRedaction(text: string): string {
+  return text.normalize("NFKC").replace(INVISIBLE, "")
+}
+
+/** Key names that hold a secret: pass / passwd / password / pwd / secret / token / credential / api key / *_KEY. */
+const SECRET_KEY_SUBSTRING = /(?:password|passwd|secret|token|credential|apikey|accesskey|privatekey|authkey|dsn)/i
+const SECRET_KEY_SEGMENT = /(?:^|[_.-])(?:pass|pwd|key|dburl)(?:[_.-]|$)|(?:^|[_.-])database[_.-]?url(?:[_.-]|$)/i
+/** apiKey / dbPass (camelCase; case-sensitive so that "monkey" is not a key). */
+const SECRET_KEY_CAMEL = /[a-z0-9](?:Key|Pass|Pwd)(?:[_.-]|$)/
+export function isSecretKey(key: string): boolean {
+  return SECRET_KEY_SUBSTRING.test(key.replace(/[_.-]/g, "")) || SECRET_KEY_SEGMENT.test(key) || SECRET_KEY_CAMEL.test(key)
+}
+/** `key = value`, `key: "value"`, `"key": "value"`, `.env` lines: the value is masked whatever it looks like (unless it is a placeholder). */
+const KEY_VALUE = /(?<![A-Za-z0-9_.-])([A-Za-z0-9_.-]{1,80})(["']?\s*[:=]\s*)(["']?)([^\s"',;]{3,})/g
+const VALUE_PLACEHOLDER = /^(?:\[REDACTED\]|<.*|\$\{.*|\$[A-Z_]+|\*+|x{3,}|string|number|required|optional|undefined|changeme|example|none|null|true|false|process\.env.*|os\.environ.*|env\(.*)$/i
+/** user@host without a dot (ssh / scp targets such as deploy@pfs01). */
+const USER_AT_HOST = /\b([A-Za-z0-9._-]+)@([A-Za-z][A-Za-z0-9-]*)\b(?!\.[A-Za-z0-9])/g
+const AT_TAGS = new Set(["latest", "next", "beta", "alpha", "canary", "rc", "stable", "lts", "dev", "main"])
+/** `host:port` where the name looks like a machine (has a digit or a hyphen) */
+const HOST_PORT = /(?<![\w.:/-])([A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*):(\d{2,5})\b/g
+/** UNC path \\host\share\... */
+const UNC = /\\\\[A-Za-z0-9._$-]+(?:\\[^\s\\'"]+)*/g
+/** A name after a word that introduces a host. */
+const HOST_CONTEXT = /\b(hostname|host|server|ssh|ping|connect(?:ed|ing)?\s+to|resolv(?:e|ing)|lookup|node|machine)([ =:]+)([A-Za-z0-9][A-Za-z0-9-]*)\b/gi
+const NOT_A_HOST = new Set(["the", "a", "an", "is", "was", "not", "found", "failed", "fail", "unreachable", "timed", "timeout", "error", "key", "verification", "name", "and", "or", "to", "for", "from", "has", "closed", "refused", "down", "unknown", "returned", "responded", "rejected", "reset", "does", "did", "cannot", "can", "could", "with", "on", "in", "at", "by", "it", "this", "that", "version", "side", "config", "configuration", "side", "response", "status", "error:", "process", "script", "package", "modules", "module", "js", "ts"])
+/** Drive paths other than the system folders: D:\app\git, E:/data */
+const DRIVE_PATH = /(?<![\w])[A-Za-z]:(?:\\|\/(?!\/))(?!(?:Windows|Program Files)\b)[^\s'"<>|]*/g
+
 function emptyCounts(): Record<RedactionKind, number> {
   return { secret: 0, email: 0, ip: 0, mac: 0, homePath: 0, host: 0 }
 }
@@ -101,7 +136,7 @@ function sub(text: string, re: RegExp, counts: Record<RedactionKind, number>, ki
 export function redactText(input: string, opts: { allowedHosts?: readonly string[] } = {}): RedactionResult {
   const allowed = opts.allowedHosts ?? DEFAULT_ALLOWED_HOSTS
   const counts = emptyCounts()
-  let text = input.replace(/\r\n?/g, "\n")
+  let text = normalizeForRedaction(input).replace(/\r\n?/g, "\n")
 
   // 1. secrets. The git redactor first (its own count is the number of [REDACTED] it added).
   const before = (text.match(/\[REDACTED\]/g) ?? []).length
@@ -111,12 +146,18 @@ export function redactText(input: string, opts: { allowedHosts?: readonly string
   text = sub(text, KANFLOW_TOKEN, counts, "secret", () => REDACTED)
   text = sub(text, BEARER, counts, "secret", (_m, scheme, value) => (/\d/.test(value) || value.length >= 24 ? `${scheme} ${REDACTED}` : null))
 
+  // Secret-named keys (DB_PASS=…, "client_secret": "…", DATABASE_URL=…) and any URL with user info.
+  text = sub(text, KEY_VALUE, counts, "secret", (_m, key, sep, quote, value) => (isSecretKey(key) && !VALUE_PLACEHOLDER.test(value) ? `${key}${sep}${quote}${REDACTED}` : null))
+  text = sub(text, /\b([a-z][a-z0-9+.-]*:\/\/)[^\s/@:]+@/gi, counts, "secret", (_m, scheme) => `${scheme}${REDACTED}@`)
+
   // 2-4. personal and network identifiers.
   text = sub(text, EMAIL, counts, "email", () => "<email>")
   text = sub(text, MAC, counts, "mac", () => "<mac>")
   text = sub(text, IPV4, counts, "ip", () => "<ip>")
   text = sub(text, IPV6, counts, "ip", (m) => (m.includes("::") || m.split(":").length >= 6 ? "<ip>" : null))
   text = sub(text, HOME_WINDOWS, counts, "homePath", () => "~")
+  text = sub(text, UNC, counts, "host", () => "<host>")
+  text = sub(text, DRIVE_PATH, counts, "homePath", () => "<path>")
   text = sub(text, HOME_POSIX, counts, "homePath", () => "~")
   text = sub(text, HOME_ROOT, counts, "homePath", () => "~")
 
@@ -126,6 +167,15 @@ export function redactText(input: string, opts: { allowedHosts?: readonly string
     return `${scheme}<host>`
   })
   text = sub(text, DOTTED_HOST, counts, "host", (m) => (hostAllowed(m, allowed) ? null : "<host>"))
+  // Bare internal names: user@host, host:port, and a name right after "host" / "ssh" / "connect to" …
+  text = sub(text, USER_AT_HOST, counts, "host", (m, user, host) =>
+    AT_TAGS.has(host.toLowerCase()) || hostAllowed(host, allowed) || user.length === 0 ? null : `${user}@<host>`)
+  text = sub(text, HOST_PORT, counts, "host", (_m, host, port) =>
+    /[A-Za-z]/.test(host) && /\d|-/.test(host) && !hostAllowed(host, allowed) ? `<host>:${port}` : null)
+  text = sub(text, HOST_CONTEXT, counts, "host", (_m, word, sep, name) =>
+    NOT_A_HOST.has(name.toLowerCase()) || hostAllowed(name, allowed) || /^\d+$/.test(name) || !(/^(?:hostname|ssh|ping|connect)/i.test(word) || /\d|-/.test(name))
+      ? null
+      : `${word}${sep}<host>`)
 
   const total = Object.values(counts).reduce((a, b) => a + b, 0)
   return { text, counts, total }
@@ -146,11 +196,16 @@ function isPlaceholder(v: string): boolean {
  * Stricter than the redactor on purpose: a `password=correcthorse` the redactor let through is
  * refused here. Git hashes, UUIDs and ordinary paths are not flagged.
  */
-export function findResidualSecret(redacted: string): string | null {
+export function findResidualSecret(input: string): string | null {
+  const redacted = normalizeForRedaction(input)
   if (/-----BEGIN [A-Z0-9 ]*(?:PRIVATE KEY|CERTIFICATE|PGP)/.test(redacted)) return "key-block"
   for (const m of redacted.matchAll(LOOSE_ASSIGNMENT)) {
     if (!isPlaceholder(m[1])) return "secret-assignment"
   }
+  for (const m of redacted.matchAll(KEY_VALUE)) {
+    if (isSecretKey(m[1]) && !VALUE_PLACEHOLDER.test(m[4])) return "secret-assignment"
+  }
+  if (/\b[a-z][a-z0-9+.-]*:\/\/(?!\[REDACTED\]@)[^\s/@]+@/i.test(redacted)) return "url-userinfo"
   for (const m of redacted.matchAll(LONG_MIXED)) {
     const v = m[0]
     if (/^[0-9a-f]+$/i.test(v)) continue // hash

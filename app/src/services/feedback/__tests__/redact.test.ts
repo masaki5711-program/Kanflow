@@ -58,6 +58,56 @@ describe("redactText: identifiers", () => {
   })
 })
 
+describe("redactText: key names, look-alike text, hosts and paths (review hardening)", () => {
+  it.each([
+    ["DB_PASS", "DB_PASS=hunter22x done", "hunter22x"],
+    ["service password key", "svc_password: correcthorse", "correcthorse"],
+    ["pwd", "pwd=abcdef", "abcdef"],
+    ["_SECRET", "APP_SECRET=plainwordsecret", "plainwordsecret"],
+    ["_TOKEN", "GITLAB_TOKEN=notsolongtoken", "notsolongtoken"],
+    ["_KEY", "STRIPE_KEY=somevalue123", "somevalue123"],
+    ["camelCase", 'config {"apiKey": "plainvalue"}', "plainvalue"],
+    ["DATABASE_URL", "DATABASE_URL=mysql://app:pw@db.corp.test/x", "pw@"],
+    ["URL with user only", "git clone https://deploy@git.example.test/x.git", "deploy@"],
+    ["JSON key", '{"client_secret": "abcdefghij"}', "abcdefghij"],
+    ["full-width key", "ＤＢ＿ＰＡＳＳ＝fullwidthvalue", "fullwidthvalue"],
+    ["zero-width split key", "DB_PA\u200bSS=splitvalue1", "splitvalue1"],
+    ["bidi in value", "TOKEN=abc\u202edef123", "def123"],
+  ])("%s", (_n, input, leaked) => {
+    const out = red(input)
+    expect(out.text).not.toContain(leaked)
+    expect(out.counts.secret).toBeGreaterThan(0)
+    expect(findResidualSecret(out.text)).toBeNull()
+  })
+
+  it("the residual check looks through look-alike and invisible characters too", () => {
+    expect(findResidualSecret("ＤＢ＿ＰＡＳＳ＝fullwidthvalue")).toBe("secret-assignment")
+    expect(findResidualSecret("DB_PA\u200bSS=splitvalue1")).toBe("secret-assignment")
+    expect(findResidualSecret("clone https://deploy@git.example.test/x")).toBe("url-userinfo")
+  })
+
+  it("does not touch ordinary words that merely contain 'pass' or 'key'", () => {
+    const text = "tests passed: 12, keyboard: ok, monkey=banana, pass: [REDACTED]"
+    expect(red(text).text).toBe(text)
+  })
+
+  it("masks UNC paths, user@host, host:port, drive paths and bare names after host words", () => {
+    expect(red("open \\\\fileserver\\share\\specs\\a.xlsx").text).toBe("open <host>")
+    expect(red("scp a deploy@pfs01:/srv").text).toBe("scp a deploy@<host>:/srv")
+    expect(red("connect to pfs01:5432 failed").text).toBe("connect to <host>:5432 failed")
+    expect(red("localhost:3000 and pfs01:5432").text).toBe("localhost:3000 and <host>:5432")
+    expect(red("read D:\\app\\git\\x.rs and E:/data/y").text).toBe("read <path> and <path>")
+    expect(red("ssh pfs-web-01 refused").text).toBe("ssh <host> refused")
+    expect(red("hostname plant7 not found").text).toBe("hostname <host> not found")
+  })
+
+  it("keeps system drive folders, versions and package tags readable", () => {
+    for (const text of ["C:\\Windows\\System32\\x.dll", "left-pad@latest", "react@18.3.1", "status:500 line:12", "https://github.com:443/x"]) {
+      expect(red(text).text, text).toBe(text)
+    }
+  })
+})
+
 describe("allowedHostsFromEnv", () => {
   it("adds the configured hosts to the defaults", () => {
     const hosts = allowedHostsFromEnv({ FEEDBACK_ALLOWED_HOSTS: " Git.Corp.Test , *.mirror.test " })
@@ -95,7 +145,7 @@ describe("findResidualSecret: what the redactor lets through is refused", () => 
 
 describe("residual check after redaction (the 422 rule)", () => {
   it("a value the redactor cannot judge is still refused", () => {
-    const out = red("config secret: correcthorsebattery")
-    expect(findResidualSecret(out.text)).toBe("secret-assignment")
+    const out = red("config blob Ab12Cd34Ef56Gh78Ij90Kl12Mn34Op56Qr78St90Uv12")
+    expect(findResidualSecret(out.text)).toBe("long-token")
   })
 })

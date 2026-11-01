@@ -1,9 +1,9 @@
 import type { Actor } from "@/services/_shared/actor"
 import { defaultDb, withTransaction, type Db } from "@/services/_shared/db"
-import { ConflictError, isUniqueViolation, NotFoundError, StatusError, ValidationError } from "@/services/_shared/errors"
+import { ConflictError, ForbiddenError, isUniqueViolation, NotFoundError, StatusError, ValidationError } from "@/services/_shared/errors"
 import { retryOnUniqueViolation } from "@/services/_shared/unique-retry"
 import { logger } from "@/lib/logger"
-import { parseScope, projectScope } from "./feedback.access"
+import { canCurateScope, loadViewerAccess, parseScope, projectScope } from "./feedback.access"
 import { parseEvidence, toFailureDto, toSharedLessonDto, type FailureDto, type LessonDto, type SharedLessonDto, toLessonDto } from "./feedback.dto"
 import * as repo from "./feedback.repository"
 import { SHARED_LESSON_STATES, type ReportFailureInput, type ReportResolutionInput } from "./feedback.schemas"
@@ -28,6 +28,8 @@ import { EXCERPT_MAX_BYTES } from "./feedback.schemas"
 const log = logger.child({ module: "feedback" })
 
 export const COLLAPSE_WINDOW_MS = 60_000
+/** A lesson's `hits` counts a reporter at most once per this window (one noisy token cannot inflate it). */
+export const HIT_WINDOW_MS = 24 * 3_600_000
 export const RESOLUTION_LOOKBACK_MS = 24 * 3_600_000
 export const LESSONS_PER_REPORT = 3
 export const LESSON_LOOKUP_TIMEOUT_MS = 2_000
@@ -119,10 +121,13 @@ export async function reportFailure(input: ReportFailureInput, actor: Actor, now
   )
   if (redacted.total > 0) log.info("failure report redacted", { userId: actor.userId, tool, ...redacted.counts })
 
-  const since = new Date(now.getTime() - COLLAPSE_WINDOW_MS)
+  const collapseSince = new Date(now.getTime() - COLLAPSE_WINDOW_MS)
+  const hitSince = new Date(now.getTime() - HIT_WINDOW_MS)
   const { failure, collapsed } = await withTransaction(async (tx) => {
-    const same = await repo.findRecentSameFailure(tx, signature, actor.userId, since)
-    if (same) return { failure: await repo.foldRepeat(tx, same.id), collapsed: true }
+    // The same reporter's latest report of this signature in the last day: folded when within a minute,
+    // and in any case this reporter has already been counted on the lessons today.
+    const same = await repo.findRecentSameFailure(tx, signature, actor.userId, hitSince)
+    if (same && same.createdAt.getTime() >= collapseSince.getTime()) return { failure: await repo.foldRepeat(tx, same.id), collapsed: true }
     const created = await repo.createFailure(tx, {
       projectId: input.projectId ?? null,
       source: input.source,
@@ -135,7 +140,7 @@ export async function reportFailure(input: ReportFailureInput, actor: Actor, now
       branch: input.branch ?? null,
       reportedById: actor.userId,
     })
-    await repo.bumpLessonHits(tx, signature, now)
+    if (!same) await repo.bumpLessonHits(tx, signature, now)
     return { failure: created, collapsed: false }
   })
 
@@ -170,6 +175,18 @@ export interface ReportResolutionResult {
   lessonCreated: boolean
 }
 
+/**
+ * Anyone who reports may put the draft in the failure's own project or in a technology scope; `global` (and any
+ * other project's scope) is for curators of that scope only.
+ */
+async function assertMayChooseScope(db: Db, actor: Actor, scope: string, failureProjectId: string | null): Promise<void> {
+  const parsed = parseScope(scope)
+  if (parsed.kind === "tech") return
+  if (parsed.kind === "project" && failureProjectId && parsed.id === failureProjectId.toLowerCase()) return
+  const access = await loadViewerAccess(db, { userId: actor.userId, systemRole: actor.systemRole })
+  if (!canCurateScope(access, scope)) throw new ForbiddenError("Only a maintainer may put a lesson in this scope", {}, "FORBIDDEN")
+}
+
 function mergeEvidence(existing: string[], added: readonly string[]): string[] {
   return [...new Set([...existing, ...added])].slice(0, EVIDENCE_MAX)
 }
@@ -196,6 +213,7 @@ export async function reportResolution(input: ReportResolutionInput, actor: Acto
       if (!failure) throw new NotFoundError("No unresolved failure of this session to attach the resolution to", {}, "FEEDBACK_NO_FAILURE")
 
       const scope = input.scope ?? (failure.projectId ? projectScope(failure.projectId) : "global")
+      if (input.scope) await assertMayChooseScope(tx, actor, input.scope, failure.projectId)
       const existing = await repo.findLessonByKey(tx, failure.signature, scope)
       let lessonCreated = false
       let lesson: repo.LessonRow
