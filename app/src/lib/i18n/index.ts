@@ -49,6 +49,7 @@ import * as gitKnowledge from "./git-knowledge"
 import * as planTemplates from "./plan-templates"
 import * as planSchedule from "./plan-schedule"
 import * as milestones from "./milestones"
+import * as workClaims from "./work-claims"
 
 export * from "./languages"
 export * from "./point-units"
@@ -107,7 +108,8 @@ export interface Translations
     gitKnowledge.GitKnowledgeTranslations,
     planTemplates.PlanTemplatesTranslations,
     planSchedule.PlanScheduleTranslations,
-    milestones.MilestonesTranslations {}
+    milestones.MilestonesTranslations,
+    workClaims.WorkClaimsTranslations {}
 
 /** All domain modules, exported for tests (key-set / completeness checks). */
 export const domains = {
@@ -161,6 +163,7 @@ export const domains = {
   "plan-templates": planTemplates,
   "plan-schedule": planSchedule,
   "milestones": milestones,
+  "work-claims": workClaims,
 } as const
 
 const ja: Translations = {
@@ -214,6 +217,7 @@ const ja: Translations = {
   ...planTemplates.ja,
   ...planSchedule.ja,
   ...milestones.ja,
+  ...workClaims.ja,
 }
 
 const en: Translations = {
@@ -267,6 +271,7 @@ const en: Translations = {
   ...planTemplates.en,
   ...planSchedule.en,
   ...milestones.en,
+  ...workClaims.en,
 }
 
 const id: Translations = {
@@ -320,6 +325,7 @@ const id: Translations = {
   ...planTemplates.id,
   ...planSchedule.id,
   ...milestones.id,
+  ...workClaims.id,
 }
 
 const translations: Record<Language, Translations> = { ja, en, id }

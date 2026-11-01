@@ -45,4 +45,37 @@ describe.skipIf(!enabled)("work claims on a real database (KANFLOW_DB_TESTS=1)",
     for (const r of refused) expect(r.reason).toMatchObject({ code: "TASK_CLAIMED" })
     expect(await prisma.workClaim.count({ where: { backlogItemId: ids.pbi, releasedAt: null } })).toBe(1)
   })
+
+  it("a sprint board read (findOpenClaimsOfSprint) finds the sprint's task claims and whole-PBI claims, nothing else", async () => {
+    const repo = await import("../dev-work.repository")
+    const s = { sprint: `${tag}-s`, other: `${tag}-s2`, pbi2: `${tag}-b2`, t1: `${tag}-t1`, t2: `${tag}-t2` }
+    const now = new Date()
+    await prisma.productBacklogItem.create({ data: { id: s.pbi2, projectId: ids.project, displayId: 2, initiative: "synthetic" } })
+    await prisma.sprint.createMany({
+      data: [s.sprint, s.other].map((id) => ({ id, projectId: ids.project, sprintName: id, startDate: now, endDate: now })),
+    })
+    await prisma.sprintBacklogItem.createMany({
+      data: [
+        { id: s.t1, sprintId: s.sprint, pbItemId: ids.pbi, taskName: "synthetic" },
+        { id: s.t2, sprintId: s.other, pbItemId: s.pbi2, taskName: "synthetic" },
+      ],
+    })
+    const base = { projectId: ids.project, userId: ids.users[0], heartbeatAt: now }
+    await prisma.workClaim.createMany({
+      data: [
+        { ...base, id: `${tag}-c1`, backlogItemId: ids.pbi, taskId: s.t1, sessionId: "a" },
+        { ...base, id: `${tag}-c3`, backlogItemId: s.pbi2, taskId: s.t2, sessionId: "c" },
+        { ...base, id: `${tag}-c4`, backlogItemId: s.pbi2, taskId: null, sessionId: "d" },
+      ],
+    })
+    const rows = await repo.findOpenClaimsOfSprint(prisma, ids.project, s.sprint, new Date(now.getTime() - 3_600_000))
+    // The sprint's task claim + the earlier test's whole-PBI claim on the same PBI; not the other sprint's PBI.
+    expect(rows.map((r) => r.id)).toContain(`${tag}-c1`)
+    expect(rows.every((r) => r.backlogItemId === ids.pbi)).toBe(true)
+    expect(rows.some((r) => r.taskId === null)).toBe(true)
+    await prisma.sprintBacklogItem.deleteMany({ where: { id: { in: [s.t1, s.t2] } } })
+    await prisma.sprint.deleteMany({ where: { id: { in: [s.sprint, s.other] } } })
+    await prisma.workClaim.deleteMany({ where: { backlogItemId: s.pbi2 } })
+    await prisma.productBacklogItem.deleteMany({ where: { id: s.pbi2 } })
+  })
 })

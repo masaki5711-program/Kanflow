@@ -173,6 +173,8 @@ Paths are relative to `/api/projects/[projectId]`.
 | `/git/knowledge` | ai.use — names / file counts of the project's AI reference repositories only | | | |
 | `/git/sync` | | git.sync | | |
 | `/git/links`, `/git/summary`, `/git/overview` | project.view | | | |
+| `/dev/claims` (担当中 for the board / PBI panel: `?sprintId=` or `?pbi=`, no session ids; `canModerate` = sprint.manage) | project.view | | | |
+| `/dev/claims/[claimId]/release` | | sprint.manage (moderator release from the PBI panel; logged, holder notified) | | |
 | `/ai-reports` | project.view | | | |
 | `/burndown` | project.view | | | |
 | `/chat` | | ai.use (+ `threadId`: owner only, 404) | | |

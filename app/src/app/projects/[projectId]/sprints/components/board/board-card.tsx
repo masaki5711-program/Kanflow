@@ -8,6 +8,7 @@ import { cn } from "@/components/ui"
 import { CommentsButton } from "@/components/comments/comments-provider"
 import { GitPbiBadge } from "@/components/git-dev/git-summaries-context"
 import { PbiWaitingChip } from "@/components/pbi-dependencies/pbi-dependency-chips"
+import { TaskClaimMarks } from "@/components/work-claims/work-claims-context"
 import { displayAssignees } from "../../lib/task-payload"
 import { taskElementId } from "../../lib/deep-link"
 import BoardCardMenu from "./board-card-menu"
@@ -129,6 +130,8 @@ const BoardCard = memo(function BoardCard({
           <CommentsButton entityId={task.id} name={name} />
         </div>
       </div>
+      {/* 担当中: who (and which AI) works on this task or its whole PBI — from the sprint's one claims read. */}
+      <TaskClaimMarks taskId={task.id} pbiId={task.pbItem.id} />
     </li>
   )
 })
