@@ -26,6 +26,11 @@ export interface RateLimiter {
   peek(key: string): RateLimitStatus
   /** Record a hit and return the status after recording. */
   hit(key: string): RateLimitStatus
+  /**
+   * Check and record in ONE step: a hit is recorded only when the key is under the limit.
+   * `allowed: false` = over the limit (nothing recorded); `status` is the state after the call.
+   */
+  consume(key: string): { allowed: boolean; status: RateLimitStatus }
   /** Forget all hits for a key (e.g. after a successful login). */
   reset(key: string): void
   size(): number
@@ -78,6 +83,15 @@ export function createRateLimiter(opts: RateLimitOptions): RateLimiter {
       const next = [...current(key, now), now]
       store.set(key, next)
       return statusFor(next, now, opts)
+    },
+    consume(key) {
+      const now = clock()
+      const hits = current(key, now)
+      if (hits.length >= opts.limit) return { allowed: false, status: statusFor(hits, now, opts) }
+      if (!store.has(key) && store.size >= maxKeys) sweep(now)
+      const next = [...hits, now]
+      store.set(key, next)
+      return { allowed: true, status: statusFor(next, now, opts) }
     },
     reset(key) {
       store.delete(key)

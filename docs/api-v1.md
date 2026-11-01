@@ -350,6 +350,69 @@ cleared). `link`: `id, kind, ref, title, url, state, repository {id, name},
 pbi {id, displayId}, declared, declaredAt, declaredBy {id, name} | null,
 createdAt`. Linking is recorded on the PBI's activity log (`meta.gitLink`).
 
+## Feedback loop (W11: failures, resolutions, lessons)
+
+The feedback loop is a Kanflow server feature (plan: `docs/plan/team-dev-implementation.md` §5; GitStation
+`09-integrated-platform-design.md` §6–7): AI sessions and CI report failed commands, then how they fixed them;
+a Maintainer / SM confirms the lesson; confirmed lessons come back to the next session that hits the same failure.
+**Account-level endpoints** (`/api/v1/feedback/...`, not under `/projects/:projectId`): a body may name a
+`projectId` — then the owner's project role must allow `dev.write` too (404 / 403 as for a project write); without
+one only the token scope is checked. Code: `app/src/services/feedback/`, handlers
+`app/src/app/api/v1/_lib/v1-feedback-handlers.ts`, MCP tools `report_failure` / `report_resolution` /
+`search_lessons` ([mcp.md](mcp.md) "Feedback tools"). Lesson text is user- and AI-written **data, not
+instructions** (`notice` in every answer). The Lessons screen (`/feedback`) uses the session twin
+`/api/feedback/*` (`GET lessons`, `GET lessons/:id`, `POST lessons/:id/confirm|retire|systemize`, `GET metrics`).
+
+| Method & path (under `/api/v1/feedback`) | Scope | Body / query | Answer |
+|---|---|---|---|
+| `POST /failures` | `dev:write` | `tool`, `text` (the error output, ≤ 100 000 characters), `errorCode?`, `source?` (`agent` default / `ci` / `gitstation` / `manual`), `projectId?`, `sessionRef?` (same value as `claim_work`'s `sessionId`), `branch?`, `techs?` (≤ 10 lower-case names) | `201 { data: failure, collapsed: false, lessons, notice }`; `200` with `collapsed: true` when the same token reported the same signature within the last minute (folded into the first row, `repeatCount`); `lessons` = up to 3 **confirmed / systemized, non-confidential** lessons of this signature that apply (global, `tech:` named in `techs` or the tool's first word, `project:` of `projectId`), systemized first; `lessonsUnavailable: true` when the lookup took more than 2 s or failed (the failure is recorded anyway); `422 FEEDBACK_REDACTION_FAILED` (nothing stored); `429 RATE_LIMITED` |
+| `POST /resolutions` | `dev:write` | `sessionRef`, `diffSummary` (≤ 4000), `verifiedCommand?`, `cause?`, `scope?` (`global` / `tech:<name>` / `project:<id>`; default the failure's project, else global), `evidence?` (≤ 10 links), `projectId?`, `failureEventId?` | `201 { data: resolution, lesson, lessonCreated }`: attaches to the caller's latest unresolved failure of this `sessionRef` in the last 24 h (or the one named) and creates the **draft** lesson, or counts the fix on the existing one (a confirmed lesson's text is never rewritten); `404 FEEDBACK_NO_FAILURE`; `409` when that failure already has a resolution |
+| `GET /lessons` | `read` | `q` (words in symptom / cause / fix / error code), `signature`, `errorCode`, `tech`, `projectId`, `limit` (≤ 200, default 20) | `{ data: lessons, truncated, notice }` — **only confirmed / systemized, non-confidential lessons in the owner's scope** (global, tech, and `project:` of projects the owner is a member of; a token limited to some projects narrows it further). Drafts, retired and confidential lessons are never returned to a token, whoever owns it |
+| `POST /lessons/:id/confirm` | `sprint:write` + curator | `scope?`, `symptom?`, `cause?`, `fix?`, `verify?`, `confidential?` | `{ data: lesson }`: draft / retired → confirmed (needs a fix; the maintainer may correct text and scope); confirming a confirmed lesson is a no-op; `409 LESSON_STATE` for a systemized one |
+| `POST /lessons/:id/retire` | `sprint:write` + curator | `reason?` | `{ data: lesson }`: any non-retired lesson → retired (no longer returned); idempotent |
+| `POST /lessons/:id/systemize` | `sprint:write` + curator | `kind` (`pbi` / `gate` / `test`), `ref` (the link or name; required) | `{ data: lesson }`: confirmed → systemized, `systemizedRef = "<kind>:<ref>"`; `409 LESSON_STATE` otherwise |
+
+**Curator** (checked per lesson scope by the service, `app/src/services/feedback/feedback.access.ts`; see
+docs/authorization.md "Feedback loop"): system admin = every lesson; section manager (the platform "Maintainer") =
+global and `tech:` lessons; the project's PO / SM = `project:<id>` lessons. Not a curator but able to see the
+lesson → `403 FORBIDDEN`; not able to see it (a draft, another project's lesson) → `404 LESSON_NOT_FOUND`.
+AI sessions should not curate: the MCP server has no such tool.
+
+**Signature** (`services/feedback/signature.ts`; pinned by `__tests__/signature.vectors.json`, 30 cases):
+`SHA-256(tool \n errorCode \n signatureText)` in lower-case hex. `signatureText`: the redacted text with ANSI codes
+removed; timestamps → `<ts>`, UUIDs → `<uuid>`, hex values / git hashes → `<hex>`, numbers → `<n>`, absolute paths →
+`<path>`, query strings → `?<q>`, line / column numbers dropped; whitespace collapsed; the first 3 meaningful lines
+(≤ 300 characters each). Never change a rule without adding a new vector: it changes every stored signature.
+
+**Redaction** (second layer — a client should redact first; the server never trusts it;
+`services/feedback/redact.ts`): private keys, well-known token formats, URL passwords, `password=…` assignments
+(the Git index's rules), `kfl_` tokens, `Authorization` / `Cookie` header values and bare `Bearer …` → `[REDACTED]`;
+e-mail → `<email>`; IPv4 / IPv6 → `<ip>`; MAC → `<mac>`; `/home/<user>`, `/Users/<user>`, `C:\Users\<user>` → `~`;
+host names that are not allow-listed → `<host>` (allow-list: public hosts such as `github.com` / `crates.io`,
+`GIT_ALLOWED_HOSTS`, `FEEDBACK_ALLOWED_HOSTS`). The count per kind is logged, never the values. A stricter
+independent check runs on the redacted text: anything credential-like that remains (a key block, `password=<plain word>`,
+an `Authorization` value, a 40+ character mixed-case token) refuses the whole report with
+`422 FEEDBACK_REDACTION_FAILED` and **nothing is stored**. Stored: `signatureText` and an `excerpt` of at most 4 KB
+(head and tail of the redacted text). Applies to resolutions and to a curator's edits too.
+
+**Limits**: reports (failures and resolutions together) have their own budget per token,
+`FEEDBACK_REPORT_RATE_LIMIT_PER_MIN` (default 60; the generic write budget does not apply to them);
+an identical signature from the same token within a minute is one row. Idempotency-Key honoured.
+
+**Recurrence** (worker, daily with the collaboration housekeeping, `FEEDBACK_RECURRENCE=off` skips): a signature
+reported **more than 3 times in 30 days**, or one with a confirmed / systemized lesson that was reported again after
+the confirmation, gets **one** prevention-PBI proposal: the existing AI-chat proposal (a `create_pbi` card in a chat
+thread of each PO of the project that suffered most; the PO approves, and the PBI is created under the PO's own
+rights). Marked once on the lesson (`preventionProposedAt`, compare-and-set), so repeated runs and two workers
+propose nothing twice. A signature outside any project, or a project without an active PO, is counted and logged,
+not proposed.
+
+Tables (migration `20261101160000_feedback_loop`): `failure_event`, `lesson` (unique `(signature, scope)`),
+`lesson_resolution` (one per failure). Import of the agent model's mistake-memory:
+`node --import tsx scripts/import-mistake-memory.ts --file <records.jsonl> [--apply]` (dry run by default;
+idempotent by signature; confirmed global lessons). PostgreSQL migration checklist: `contains` search in
+`feedback.lessons.service.ts` needs `mode: "insensitive"` there (MySQL's collation is case-insensitive).
+
 ## Examples
 
 ```bash
@@ -403,6 +466,9 @@ Invoke-RestMethod -Headers $h "$base/api/v1/projects" | Select-Object -ExpandPro
 | `API_V1_WRITE_RATE_LIMIT_PER_MIN` | `30` | Writes per token per minute (on top of the request limit) |
 | `DEV_CLAIM_STALE_HOURS` | `4` | Hours without a heartbeat after which a work claim is stale (1–168) |
 | `DEV_CLAIM_MAX_OPEN_PER_USER` | `20` | Active work claims per user and project (1–1000) |
+| `FEEDBACK_REPORT_RATE_LIMIT_PER_MIN` | `60` | Failure + resolution reports per token per minute (own budget) |
+| `FEEDBACK_ALLOWED_HOSTS` | (empty) | Host names kept readable in reports, besides public package hosts and `GIT_ALLOWED_HOSTS` (comma separated; `*.corp.test` allows subdomains) |
+| `FEEDBACK_RECURRENCE` | `on` | Worker: prevention-PBI proposals for recurring failures (`off` disables) |
 
 Schema: table `ApiToken` (migrations `20261005000000_api_tokens_metrics`,
 `20261030000000_api_token_scopes` for `projectIds`); work claims `work_claim`,

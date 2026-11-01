@@ -258,7 +258,7 @@ bodies are size-bounded (413). Editing a template never changes plans already lo
   | `comment:write` | `comment.write` |
   | `icebox:write` | `icebox.write` |
   | `daily:write` | `dailyScrum.write` |
-  | `dev:write` | `dev.write` (named `write:dev` in GitStation's plan documents; token-only: work claims, progress comments, MR links of AI sessions — `/api/v1/projects/:projectId/dev/*` and the MCP developer tools; no UI route uses it. Heartbeat and the 触る範囲 declaration `PUT .../dev/claims/:claimId/scope` / `declare_scope` are additionally limited to the claim's own user (403 `FORBIDDEN` for anyone else, PO / SM / admin included); release also allows `sprint.manage`) |
+  | `dev:write` | `dev.write` (named `write:dev` in GitStation's plan documents; token-only: work claims, progress comments, MR links of AI sessions — `/api/v1/projects/:projectId/dev/*` and the MCP developer tools; no UI route uses it. Heartbeat and the 触る範囲 declaration `PUT .../dev/claims/:claimId/scope` / `declare_scope` are additionally limited to the claim's own user (403 `FORBIDDEN` for anyone else, PO / SM / admin included); release also allows `sprint.manage`; it also covers the account-level feedback reports `POST /api/v1/feedback/failures` / `resolutions` and the MCP `report_failure` / `report_resolution`, see "Feedback loop") |
 
   Actions without a scope (delete, trash, members, settings, ...) cannot be done with a token.
 - **Project restriction**: a token may be limited to some projects (`ApiToken.projectIds`, chosen at creation from the active projects the owner can open; anything else → 400 `Unknown project`). Other projects answer 404 and are left out of `/api/v1/projects`. The restriction only narrows: losing access to a listed project still closes it. It is enforced only in `resolveV1ProjectActor`, so every token path into a project — also one that derives the project from a PBI / task / comment id — must go through it. `projectIds: []` on creation is a 400 (never read as "all projects").
@@ -268,6 +268,27 @@ bodies are size-bounded (413). Editing a template never changes plans already lo
 - **Limits**: 120 requests / min per token (`API_V1_RATE_LIMIT_PER_MIN`), 30 failed authentications / min per client IP.
 
 Admin metrics (`GET /api/admin/metrics`, page `/admin/metrics`) use `requireAdmin()` like the other admin routes.
+
+## Feedback loop (W11, 2026-11)
+
+Failures, resolutions and lessons (docs/api-v1.md "Feedback loop"). Account-level, not project-level, so most of it
+is not in the project matrix; the rules:
+
+| Operation | Who |
+|---|---|
+| `POST /api/v1/feedback/failures`, `/resolutions`, MCP `report_failure` / `report_resolution` | token scope `dev:write`; when the body names a `projectId` also `dev.write` in that project (PO / SM / dev; 404 for non-members, 403 for section managers who are not members, 404 outside the token's project restriction) |
+| `GET /api/v1/feedback/lessons`, MCP `search_lessons` | token scope `read`; **only confirmed / systemized, non-confidential lessons**, scope `global` / `tech:*` for everyone, `project:<id>` for members of that project (admin: all; a token limited to some projects: only those) — never drafts or retired lessons, whoever owns the token |
+| `POST /api/v1/feedback/lessons/:id/confirm\|retire\|systemize` | token scope `sprint:write` **and** the owner curates the lesson's scope (below); no MCP tool |
+| `GET /api/feedback/lessons`, `/lessons/:id`, `/metrics`; `POST /api/feedback/lessons/:id/confirm\|retire\|systemize` (session, Lessons screen `/feedback`) | any signed-in user for the shared lessons; the curated scopes add drafts / retired / confidential lessons, the failure history of the signature and the dashboard numbers (`metrics: null` for a user who curates nothing) |
+
+**Curating** (`services/feedback/feedback.access.ts`; the only decision point, used by the token and the session
+routes alike): system `admin` = every lesson; `section_manager` (the platform "Maintainer") = `global` and
+`tech:*` lessons; the project's `po` / `sm` = `project:<id>` lessons; developers, other members and outsiders =
+nothing. A token limited to some projects curates only inside them and never `global` / `tech`. A lesson the user may not see (a draft
+outside their curated scopes) answers `404 LESSON_NOT_FOUND`; one they see but may not curate answers `403 FORBIDDEN`.
+Changing a lesson's scope on confirm needs the right on the new scope too. State machine: draft / retired →
+confirmed → systemized; any non-retired → retired; confirmed / retired / same-link repeats are no-ops, other
+transitions `409 LESSON_STATE`. Systemize requires a link (`pbi` / `gate` / `test` + reference).
 
 ## Chat history and AI jobs (P3, 2026-10)
 

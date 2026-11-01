@@ -3,6 +3,7 @@ import { DailyScheduler, type SchedulerLog } from "./scheduler"
 import { purgeCollaborationHistory, type RetentionResult } from "./jobs/activity-retention"
 import { runNotifyDue, type NotifyDueResult } from "./jobs/notify-due"
 import { purgeChatHistory, type ChatRetentionResult } from "./jobs/chat-retention"
+import { runFeedbackRecurrence, type RecurrenceResult } from "@/services/feedback/feedback.recurrence.service"
 import { runImprovementCheckReminders, type ImprovementReminderResult } from "./jobs/improvement-checks"
 import {
   DEFAULT_AI_JOB_RETENTION_DAYS,
@@ -17,17 +18,19 @@ import {
  * 2. due_soon / overdue notifications
  * 3. retention of chat threads (deleted / idle) and finished AI jobs (P3)
  * 4. 定着確認 reminders of the 改善成果ボード (IMPROVEMENT_CHECK_REMINDERS=off skips)
+ * 5. prevention-PBI proposals for recurring failures (feedback loop, FEEDBACK_RECURRENCE=off skips)
  * Each step fails independently (logged; the others still run).
  */
 
 type CollabConfig = Pick<WorkerConfig, "notifyDueTimes" | "notifyDueSoonDays" | "activityRetentionDays" | "notificationRetentionDays"> &
-  Partial<Pick<WorkerConfig, "chatRetentionDays" | "chatDeletedRetentionDays" | "aiJobRetentionDays" | "improvementReminders">>
+  Partial<Pick<WorkerConfig, "chatRetentionDays" | "chatDeletedRetentionDays" | "aiJobRetentionDays" | "improvementReminders" | "feedbackRecurrence">>
 
 export interface CollabDailyResult {
   retention: RetentionResult | null
   notifyDue: NotifyDueResult | null
   chatRetention: ChatRetentionResult | null
   improvementReminders?: ImprovementReminderResult | null
+  feedbackRecurrence?: RecurrenceResult | null
 }
 
 function errorMessage(err: unknown): string {
@@ -64,7 +67,8 @@ export async function runCollabDaily(cfg: CollabConfig, log: SchedulerLog, signa
     log.error("chat / ai job retention failed", { error: errorMessage(err) })
   }
   const improvementReminders = await runImprovementStep(cfg, log, signal)
-  return { retention, notifyDue, chatRetention, improvementReminders }
+  const feedbackRecurrence = await runFeedbackStep(cfg, log, signal)
+  return { retention, notifyDue, chatRetention, improvementReminders, feedbackRecurrence }
 }
 
 /** Step 4: 定着確認 reminders (skipped when disabled; failures logged, never thrown). */
@@ -76,6 +80,19 @@ async function runImprovementStep(cfg: CollabConfig, log: SchedulerLog, signal?:
     return result
   } catch (err) {
     log.error("improvement check reminders failed", { error: errorMessage(err) })
+    return null
+  }
+}
+
+/** Step 5: prevention-PBI proposals (skipped when disabled; failures logged, never thrown). */
+async function runFeedbackStep(cfg: CollabConfig, log: SchedulerLog, signal?: AbortSignal): Promise<RecurrenceResult | null> {
+  if (cfg.feedbackRecurrence === false) return null
+  try {
+    const result = await runFeedbackRecurrence({ signal })
+    log.info("feedback recurrence done", { ...result })
+    return result
+  } catch (err) {
+    log.error("feedback recurrence failed", { error: errorMessage(err) })
     return null
   }
 }

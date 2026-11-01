@@ -1,0 +1,285 @@
+{
+  "_comment": "Pinned inputs and outputs of services/feedback/signature.ts (synthetic data only). Never edit an existing vector: a changed rule changes every stored signature. Add a new vector instead.",
+  "cases": [
+    {
+      "name": "rust compile error with abs path and line",
+      "tool": "cargo",
+      "errorCode": "E0308",
+      "text": "error[E0308]: mismatched types\n  --> /home/alice/work/forge/crates/forge-core/src/lib.rs:42:17\n   |\n42 |     let x: u32 = \"a\";\n   |                  ^^^ expected `u32`, found `&str`\n",
+      "signature": "ce6f1282372aa957c3eb249beb4a9d494229871a457aadee96eecbed481060fc",
+      "signatureText": "error[E0308]: mismatched types\n--> ~/work/forge/crates/forge-core/src/lib.rs\n<n> | let x: u32 = \"a\";"
+    },
+    {
+      "name": "rust compile error other user other line",
+      "tool": "cargo",
+      "errorCode": "E0308",
+      "text": "error[E0308]: mismatched types\n  --> /Users/bob/work/forge/crates/forge-core/src/lib.rs:7:3\n   |\n7  |     let x: u32 = \"a\";\n   |                  ^^^ expected `u32`, found `&str`\n",
+      "signature": "ce6f1282372aa957c3eb249beb4a9d494229871a457aadee96eecbed481060fc",
+      "signatureText": "error[E0308]: mismatched types\n--> ~/work/forge/crates/forge-core/src/lib.rs\n<n> | let x: u32 = \"a\";"
+    },
+    {
+      "name": "npm ERESOLVE",
+      "tool": "npm",
+      "errorCode": null,
+      "text": "npm ERR! code ERESOLVE\nnpm ERR! ERESOLVE unable to resolve dependency tree\nnpm ERR! Found: react@18.3.1\nnpm ERR! node_modules/react\n",
+      "signature": "b32dc8c621b8f7dcfaa23f2fb7b0304a08c94809b9d88d31bab0ec17e89e145d",
+      "signatureText": "npm ERR! code ERESOLVE\nnpm ERR! ERESOLVE unable to resolve dependency tree\nnpm ERR! Found: react@<n>"
+    },
+    {
+      "name": "timestamped log line",
+      "tool": "ci",
+      "errorCode": null,
+      "text": "2026-10-30T12:34:56.789Z ERROR job 4821 failed: exit code 137\n",
+      "signature": "bd30483a3c6182b385b14eb37c8c3cd6a146cecf3278363895ded3cccbb7845b",
+      "signatureText": "<ts> ERROR job <n> failed: exit code <n>"
+    },
+    {
+      "name": "same log other time and job",
+      "tool": "ci",
+      "errorCode": null,
+      "text": "2026-11-01T01:02:03.004Z ERROR job 99120 failed: exit code 137\n",
+      "signature": "bd30483a3c6182b385b14eb37c8c3cd6a146cecf3278363895ded3cccbb7845b",
+      "signatureText": "<ts> ERROR job <n> failed: exit code <n>"
+    },
+    {
+      "name": "python traceback",
+      "tool": "pytest",
+      "errorCode": null,
+      "text": "Traceback (most recent call last):\n  File \"/srv/app/tests/test_x.py\", line 88, in test_login\n    assert resp.status_code == 200\nAssertionError: assert 500 == 200\n",
+      "signature": "720eb989fb1ab7b8ec5fd68ce1f91fe2d9399afdab6bb43e1121608158a2e7c9",
+      "signatureText": "File \"<path>\", line, in test_login\nassert resp.status_code == <n>\nAssertionError: assert <n> == <n>"
+    },
+    {
+      "name": "uuid and hex in message",
+      "tool": "git",
+      "errorCode": null,
+      "text": "fatal: bad object 3f2a9c1d7e5b4a6c8d0e1f2a3b4c5d6e7f8a9b0c in repo 123e4567-e89b-12d3-a456-426614174000\n",
+      "signature": "d1460fb2efd3db8a3a0fe3a9de07c88163fc9436a80bee09c52b375665922d2f",
+      "signatureText": "fatal: bad object <hex> in repo <uuid>"
+    },
+    {
+      "name": "uuid and hex in message other values",
+      "tool": "git",
+      "errorCode": null,
+      "text": "fatal: bad object aaaa1111bbbb2222cccc3333dddd4444eeee5555 in repo 00000000-0000-4000-8000-000000000000\n",
+      "signature": "d1460fb2efd3db8a3a0fe3a9de07c88163fc9436a80bee09c52b375665922d2f",
+      "signatureText": "fatal: bad object <hex> in repo <uuid>"
+    },
+    {
+      "name": "ansi colours",
+      "tool": "eslint",
+      "errorCode": null,
+      "text": "\u001b[31merror\u001b[0m  'foo' is assigned a value but never used  no-unused-vars\n",
+      "signature": "abc36f04403924212e608ce8f05df7228bb0e12b403005c1aa71213e1085dc6d",
+      "signatureText": "error 'foo' is assigned a value but never used no-unused-vars"
+    },
+    {
+      "name": "windows path",
+      "tool": "node",
+      "errorCode": "ENOENT",
+      "text": "Error: ENOENT: no such file or directory, open 'C:\\Users\\carol\\proj\\data\\input.json'\n",
+      "signature": "a211b69f2c521e533f013e27d21c566be67ed6556a1c59c0157db8622805360c",
+      "signatureText": "Error: ENOENT: no such file or directory, open '~\\proj\\data\\input.json'"
+    },
+    {
+      "name": "email and ip redacted",
+      "tool": "curl",
+      "errorCode": null,
+      "text": "curl: (7) Failed to connect to 10.20.30.41 port 8080 for user dave@example.com\n",
+      "signature": "8c640715a344d6c83888da18b9da45b449412fcb49823613d5881588378d1f2d",
+      "signatureText": "curl: (<n>) Failed to connect to <ip> port <n> for user <email>"
+    },
+    {
+      "name": "internal host redacted",
+      "tool": "git",
+      "errorCode": null,
+      "text": "fatal: unable to access 'https://gitlab.scm.service.infosys.yamaha.com/grp/api.git/': Could not resolve host\n",
+      "signature": "319236b1f545b553eb8610c39e094da55bfa84398f3f4d2144d9a70c5029fcc3",
+      "signatureText": "fatal: unable to access 'https://<host><path>': Could not resolve host"
+    },
+    {
+      "name": "allowed host kept",
+      "tool": "cargo",
+      "errorCode": null,
+      "text": "error: failed to download from `https://crates.io/api/v1/crates/serde/1.0.200/download`\n",
+      "signature": "d29e87b5de87a9f9050e14ce42c73bdf20f551f83736c84924a254b0f623174a",
+      "signatureText": "error: failed to download from `https://crates.io/api/v1/crates/serde/<n>/download`"
+    },
+    {
+      "name": "bearer token redacted",
+      "tool": "curl",
+      "errorCode": "401",
+      "text": "HTTP/1.1 401 Unauthorized\nAuthorization: Bearer abcdef0123456789abcdef0123456789\nbody: invalid token\n",
+      "signature": "e8ee49155382a99f74a22bc42a4ac2afebf93e2e497cdd5cac98c8fe2968c8b1",
+      "signatureText": "HTTP/<n> <n> Unauthorized\nAuthorization: [REDACTED]\nbody: invalid token"
+    },
+    {
+      "name": "error contract code",
+      "tool": "forge",
+      "errorCode": "FG-AUTH-0003",
+      "text": "request 7f3c failed: permission denied for repo 42\n",
+      "signature": "1cd807a39c927f9ba410361a77dc61e719db3e6c975c966ceec692a28ba29974",
+      "signatureText": "request 7f3c failed: permission denied for repo <n>"
+    },
+    {
+      "name": "noise lines skipped",
+      "tool": "cargo",
+      "errorCode": null,
+      "text": "\n   |\n  ^^^^\nstack backtrace:\n   --- \nthread 'main' panicked at 'index out of bounds: the len is 3 but the index is 7'\nnote: run with RUST_BACKTRACE=1\n",
+      "signature": "9d8311b91460a31cf7584c38a320001ae57981ac1ada193355c365001564dc42",
+      "signatureText": "thread 'main' panicked at 'index out of bounds: the len is <n> but the index is <n>'\nnote: run with RUST_BACKTRACE=<n>"
+    },
+    {
+      "name": "only three lines kept",
+      "tool": "make",
+      "errorCode": null,
+      "text": "make: *** [all] Error 2\nmake[1]: Leaving directory\nline three has words\nline four is ignored\nline five is ignored\n",
+      "signature": "8ac384e801be28159190f55206af86db0f28515d14828be0708b37c089bfc1d3",
+      "signatureText": "make: *** [all] Error <n>\nmake[<n>]: Leaving directory\nline three has words"
+    },
+    {
+      "name": "CRLF line endings",
+      "tool": "make",
+      "errorCode": null,
+      "text": "make: *** [all] Error 2\r\nmake[1]: Leaving directory\r\nline three has words\r\n",
+      "signature": "8ac384e801be28159190f55206af86db0f28515d14828be0708b37c089bfc1d3",
+      "signatureText": "make: *** [all] Error <n>\nmake[<n>]: Leaving directory\nline three has words"
+    },
+    {
+      "name": "tool name case and spaces",
+      "tool": "  Cargo  Test ",
+      "errorCode": null,
+      "text": "test result: FAILED. 3 passed; 1 failed\n",
+      "signature": "7e2e9993a61ef0ae17b755d61d2e76060629c7318bfc514388179dfc71d888c1",
+      "signatureText": "test result: FAILED. <n> passed; <n> failed"
+    },
+    {
+      "name": "tool name normalized equal",
+      "tool": "cargo test",
+      "errorCode": null,
+      "text": "test result: FAILED. 8 passed; 2 failed\n",
+      "signature": "7e2e9993a61ef0ae17b755d61d2e76060629c7318bfc514388179dfc71d888c1",
+      "signatureText": "test result: FAILED. <n> passed; <n> failed"
+    },
+    {
+      "name": "url query stripped",
+      "tool": "curl",
+      "errorCode": null,
+      "text": "GET https://api.example.org/v1/items?page=3&token=xyz 500\n",
+      "signature": "44f93b2b1e118e282aaea41adf14bc2a2ebe2d6f86155b67f567b24265036b61",
+      "signatureText": "GET https://<host><path>?<q> <n>"
+    },
+    {
+      "name": "secret assignment redacted",
+      "tool": "deploy",
+      "errorCode": null,
+      "text": "DB_PASSWORD=Sup3rS3cretValue99 rejected by server\n",
+      "signature": "7d0639b5e1a0d8eb2fcca9c2a68877bfb6c76b3a3f6dca52397177eb9c226471",
+      "signatureText": "DB_PASSWORD=[REDACTED] rejected by server"
+    },
+    {
+      "name": "java stack lines kept readable",
+      "tool": "gradle",
+      "errorCode": null,
+      "text": "java.lang.NullPointerException: Cannot invoke \"String.length()\" because \"s\" is null\n\tat com.example.Foo.bar(Foo.java:88)\n\tat com.example.Main.main(Main.java:12)\n",
+      "signature": "3d77cddb18b3042827580157f0a6c9bd36499876b8419b5304390f77378a49fa",
+      "signatureText": "java.lang.NullPointerException: Cannot invoke \"String.length()\" because \"s\" is null\nat com.example.Foo.bar(Foo.java)\nat com.example.Main.main(Main.java)"
+    },
+    {
+      "name": "version numbers normalized",
+      "tool": "npm",
+      "errorCode": null,
+      "text": "npm WARN deprecated left-pad@1.3.0: use String.prototype.padStart()\n",
+      "signature": "aab8c62afae281457210845043b4784eef5a9ba61364cf064809922c4d043755",
+      "signatureText": "npm WARN deprecated left-pad@<n>: use String.prototype.padStart()"
+    },
+    {
+      "name": "version numbers normalized other version",
+      "tool": "npm",
+      "errorCode": null,
+      "text": "npm WARN deprecated left-pad@2.0.1: use String.prototype.padStart()\n",
+      "signature": "aab8c62afae281457210845043b4784eef5a9ba61364cf064809922c4d043755",
+      "signatureText": "npm WARN deprecated left-pad@<n>: use String.prototype.padStart()"
+    },
+    {
+      "name": "vitest failure with line numbers",
+      "tool": "vitest",
+      "errorCode": null,
+      "text": " FAIL  src/services/a.test.ts > a > works\nAssertionError: expected 3 to be 4\n ❯ src/services/a.test.ts:18:21\n",
+      "signature": "a4ddb01e833dee0b56f66794c7bb8bef352ae77e380161ba2f26ee8482f4fd5c",
+      "signatureText": "FAIL src/services/a.test.ts > a > works\nAssertionError: expected <n> to be <n>\n❯ src/services/a.test.ts"
+    },
+    {
+      "name": "vitest failure other line numbers",
+      "tool": "vitest",
+      "errorCode": null,
+      "text": " FAIL  src/services/a.test.ts > a > works\nAssertionError: expected 5 to be 6\n ❯ src/services/a.test.ts:99:3\n",
+      "signature": "a4ddb01e833dee0b56f66794c7bb8bef352ae77e380161ba2f26ee8482f4fd5c",
+      "signatureText": "FAIL src/services/a.test.ts > a > works\nAssertionError: expected <n> to be <n>\n❯ src/services/a.test.ts"
+    },
+    {
+      "name": "mac address redacted",
+      "tool": "ping",
+      "errorCode": null,
+      "text": "arp: entry for aa:bb:cc:dd:ee:ff expired\n",
+      "signature": "cd65ef999bb1f1c772fe51d57d2adbe3a395f13c278b390bec16fb8a6d083a36",
+      "signatureText": "arp: entry for <mac> expired"
+    },
+    {
+      "name": "empty meaningful text",
+      "tool": "ci",
+      "errorCode": null,
+      "text": "\n  ^^^\n 12 34 \n",
+      "signature": "cbce4e5073e967b1214e5c2139588764f19e204a33662dda48c48cd9dcbe429d",
+      "signatureText": ""
+    },
+    {
+      "name": "japanese message",
+      "tool": "kanflow",
+      "errorCode": null,
+      "text": "エラー: 接続がタイムアウトしました (30000 ms)\n",
+      "signature": "f1312afc459c24e0b6ea22803a22d71c6adf7c1b6158bfdea565fce5b918518b",
+      "signatureText": "エラー: 接続がタイムアウトしました (<n> ms)"
+    }
+  ],
+  "equivalent": [
+    [
+      "rust compile error with abs path and line",
+      "rust compile error other user other line"
+    ],
+    [
+      "timestamped log line",
+      "same log other time and job"
+    ],
+    [
+      "uuid and hex in message",
+      "uuid and hex in message other values"
+    ],
+    [
+      "only three lines kept",
+      "CRLF line endings"
+    ],
+    [
+      "tool name case and spaces",
+      "tool name normalized equal"
+    ],
+    [
+      "version numbers normalized",
+      "version numbers normalized other version"
+    ],
+    [
+      "vitest failure with line numbers",
+      "vitest failure other line numbers"
+    ]
+  ],
+  "distinct": [
+    [
+      "error contract code",
+      "timestamped log line"
+    ],
+    [
+      "npm ERESOLVE",
+      "version numbers normalized"
+    ]
+  ]
+}

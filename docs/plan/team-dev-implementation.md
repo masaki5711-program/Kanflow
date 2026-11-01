@@ -106,6 +106,8 @@
 
 署名のベクタ、伏せ字（秘密が残らない・残るなら拒否）、権限（許可と拒否の両方）、上限とまとめ、確認済みだけが返る、機密は返らない、3 回で提案が 1 つだけできる、取り込みの冪等性、MCP の配線、i18n。
 
+- 実装メモ（2026-11-01、W11 の Kanflow 側）: マイグレーション `20261101160000_feedback_loop`（`failure_event` / `lesson`（`(signature, scope)` 一意）/ `lesson_resolution`（失敗 1 件につき 1 件）。`lesson.preventionProposedAt` = 再発防止の提案を出した印）。署名 `services/feedback/signature.ts`（ベクタ 30 件 `__tests__/signature.vectors.json`）、伏せ字 `redact.ts`（Git 索引の秘密の規則を流用 + `kfl_`・Authorization・メール・IP・MAC・ホームのパス・許可リスト外のホスト名。残れば 422 `FEEDBACK_REDACTION_FAILED` で保存しない）。API `/api/v1/feedback/{failures,resolutions,lessons,lessons/:id/{confirm,retire,systemize}}`、MCP `report_failure` / `report_resolution` / `search_lessons`（確認・廃止・仕組み化の道具は作っていない = 人の判断）。報告は専用の上限（`FEEDBACK_REPORT_RATE_LIMIT_PER_MIN`、既定 60）で、既存の書き込みの上限（30）は使わない。確認できる人 = 管理者（全部）・部門長（全体・技術）・プロジェクトの PO/SM（そのプロジェクト）。再発の提案は**既存の提案の仕組み = AI チャットの `create_pbi` 提案**（PO のチャットのスレッドに承認カード）で、ワーカーの日次処理（`collab-daily` の 5 番目の段、`FEEDBACK_RECURRENCE=off` で止める）が出す。画面 `/feedback`（ユーザーメニュー）、取り込み `app/scripts/import-mistake-memory.ts`。**未解決**: 週次の要約（ローカル LLM）は未着手（ダッシュボードの「よく起きる失敗」の表が LLM なしの代わり）、提案を出したときの通知（今はチャットの一覧に出るだけ）、GitStation 側の送信窓口とリポジトリへの教訓の注入（GitStation の仕事）、PostgreSQL 移行時の `contains` 検索の `mode: "insensitive"`。
+
 ## 6. W9 イベント（GitStation の M3 以降）
 
 - `GitStationSource`（`DevSource` の実装）: GitStation の連携の履歴（`…/cursor`）を購読し、MR・パイプライン・タグ・デプロイを数秒で反映する。`provider=gitstation` を `GIT_PROVIDERS` に足す。ポーリングは取りこぼしの保険に残す。

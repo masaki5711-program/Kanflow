@@ -148,6 +148,14 @@ export const API_ERROR_CODES = [
   "AC_NOT_FOUND",
   /** 受入基準 (W5): the PBI already has the maximum number of live criteria. */
   "AC_LIMIT_REACHED",
+  /** フィードバックの輪 (W11): the report still contains something that looks like a credential after redaction; it was not stored. */
+  "FEEDBACK_REDACTION_FAILED",
+  /** フィードバックの輪 (W11): no unresolved failure of this session (and token) to attach the resolution to. */
+  "FEEDBACK_NO_FAILURE",
+  /** フィードバックの輪 (W11): no lesson with this id, or the caller may not see it. */
+  "LESSON_NOT_FOUND",
+  /** フィードバックの輪 (W11): the lesson is not in a state that allows this change (e.g. systemize needs a confirmed lesson). */
+  "LESSON_STATE",
   // Client-side only (set by apiFetch, never sent by the server)
   "NETWORK_ERROR",
 ] as const

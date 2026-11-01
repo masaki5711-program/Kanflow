@@ -2,6 +2,7 @@ import crypto from "node:crypto"
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js"
 import type { ProjectAction, ProjectActor } from "@/lib/authz"
 import { NotFoundError, ValidationError } from "@/services/_shared/errors"
+import type { Actor } from "@/services/_shared/actor"
 import type { ApiPrincipal } from "@/services/api-tokens/api-token-auth"
 import { getPbi, locateEntity, parsePbiRef, type V1EntityKind } from "@/services/api-v1/api-v1.service"
 import type { V1WriteInput } from "@/app/api/v1/_lib/v1-handlers"
@@ -176,6 +177,38 @@ export async function mcpWrite<P extends object>(principal: ApiPrincipal, w: Mcp
     idempotency: w.idempotent ? mcpIdempotency(w.tool, w.scope.projectId, w.params, w.body, w.idempotent.key) : null,
     via: "mcp",
     handler: (body, serviceActor) => w.op({ projectId: w.scope.projectId, actor: w.scope.actor, body, serviceActor, params: w.params }),
+  })
+  if (reply.status >= 400) return toolError(reply.body as Record<string, unknown>, reply.headers)
+  const replayed = reply.headers["Idempotent-Replayed"] === "true"
+  return toolOk(replayed ? { ...reply.body, replayed: true } : reply.body)
+}
+
+export interface McpAccountWrite<P> {
+  tool: string
+  /** The project the call refers to (its role check applies); absent = account-level (token scope only). */
+  projectId?: string
+  action: ProjectAction
+  body: unknown
+  params: P
+  op: (input: { principal: ApiPrincipal; body: unknown; serviceActor: Actor; params: P }) => Promise<object | V1Reply>
+  idempotent?: { key: string | undefined }
+  /** The operation applies its own per-token budget (feedback reports). */
+  ownBudget?: boolean
+}
+
+/** A write that is not about one project (feedback loop): same write path, recorded as `via: "mcp"`. */
+export async function mcpAccountWrite<P extends object>(principal: ApiPrincipal, w: McpAccountWrite<P>): Promise<CallToolResult> {
+  const actor = w.projectId ? await resolveV1ProjectActor(principal, w.projectId) : null
+  const reply = await runV1Write({
+    principal,
+    actor,
+    action: w.action,
+    status: 200,
+    readBody: async () => w.body,
+    idempotency: w.idempotent ? mcpIdempotency(w.tool, w.projectId ?? "-", w.params, w.body, w.idempotent.key) : null,
+    via: "mcp",
+    ownBudget: w.ownBudget,
+    handler: (body, serviceActor) => w.op({ principal, body, serviceActor, params: w.params }),
   })
   if (reply.status >= 400) return toolError(reply.body as Record<string, unknown>, reply.headers)
   const replayed = reply.headers["Idempotent-Replayed"] === "true"

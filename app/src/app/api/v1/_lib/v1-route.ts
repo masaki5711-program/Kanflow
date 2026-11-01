@@ -173,6 +173,14 @@ export function v1ProjectRoute<P extends { projectId: string }>(
  * (403 INSUFFICIENT_SCOPE, naming the missing scope) and the owner's project
  * role allowing it (403 FORBIDDEN) — the same matrix as the UI.
  */
+/** Account-level operations (no project): only the token scope for the action is checked. */
+export function assertV1Scope(principal: ApiPrincipal, action: ProjectAction): void {
+  const scope = scopeForAction(action)
+  if (!scope || !principal.scopes.includes(scope)) {
+    throw new ForbiddenError("Insufficient scope", { requiredScope: scope }, "INSUFFICIENT_SCOPE")
+  }
+}
+
 export function assertV1Action(principal: ApiPrincipal, actor: ProjectActor, action: ProjectAction): void {
   const scope = scopeForAction(action)
   if (!scope || !principal.scopes.includes(scope)) {

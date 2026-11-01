@@ -5,6 +5,7 @@ const m = vi.hoisted(() => ({
   notifyDue: vi.fn(),
   chatPurge: vi.fn(),
   improvement: vi.fn(),
+  feedback: vi.fn(),
   instances: [] as Array<{ opts: { name: string; run: () => Promise<unknown> }; start: ReturnType<typeof vi.fn> }>,
 }))
 
@@ -12,6 +13,7 @@ vi.mock("../jobs/activity-retention", () => ({ purgeCollaborationHistory: m.purg
 vi.mock("../jobs/notify-due", () => ({ runNotifyDue: m.notifyDue }))
 vi.mock("../jobs/chat-retention", () => ({ purgeChatHistory: m.chatPurge }))
 vi.mock("../jobs/improvement-checks", () => ({ runImprovementCheckReminders: m.improvement }))
+vi.mock("@/services/feedback/feedback.recurrence.service", () => ({ runFeedbackRecurrence: m.feedback }))
 vi.mock("../scheduler", () => ({
   DailyScheduler: class {
     start = vi.fn()
@@ -30,9 +32,12 @@ const { describeConfig, loadWorkerConfig, parseSchedule } = await import("../con
 const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
 const CFG = { notifyDueTimes: [{ hour: 7, minute: 45 }], notifyDueSoonDays: 3, activityRetentionDays: 730, notificationRetentionDays: 90 }
 
+const RECURRENCE = { candidates: 1, proposed: 1, alreadyProposed: 0, retired: 0, skippedNoProject: 0, skippedNoPo: 0, failed: 0 }
+
 beforeEach(() => {
   vi.clearAllMocks()
   m.instances.length = 0
+  m.feedback.mockResolvedValue(RECURRENCE)
 })
 
 describe("worker config (collab)", () => {
@@ -82,7 +87,7 @@ describe("runCollabDaily", () => {
     m.chatPurge.mockRejectedValue(new Error("chat"))
     m.improvement.mockRejectedValue(new Error("kaizen"))
     const out2 = await runCollabDaily(CFG, log)
-    expect(out2).toEqual({ retention: null, notifyDue: null, chatRetention: null, improvementReminders: null })
+    expect(out2).toEqual({ retention: null, notifyDue: null, chatRetention: null, improvementReminders: null, feedbackRecurrence: RECURRENCE })
     expect(log.error).toHaveBeenCalledWith("improvement check reminders failed", { error: "kaizen" })
     expect(log.error).toHaveBeenCalledWith("chat / ai job retention failed", { error: "chat" })
     expect(out.retention).toBeNull()
@@ -146,5 +151,31 @@ describe("改善成果ボード 定着確認 reminder step", () => {
     const off = loadWorkerConfig({ IMPROVEMENT_CHECK_REMINDERS: "off" } as unknown as NodeJS.ProcessEnv)
     expect(off.improvementReminders).toBe(false)
     expect(describeConfig(off)).toMatchObject({ improvementReminders: false })
+  })
+})
+
+describe("feedback loop recurrence step (prevention-PBI proposals)", () => {
+  it("runs by default, once per daily run, and is skipped with feedbackRecurrence: false", async () => {
+    const out = await runCollabDaily(CFG, log)
+    expect(m.feedback).toHaveBeenCalledWith({ signal: undefined })
+    expect(out.feedbackRecurrence).toEqual(RECURRENCE)
+    m.feedback.mockClear()
+    const off = await runCollabDaily({ ...CFG, feedbackRecurrence: false }, log)
+    expect(m.feedback).not.toHaveBeenCalled()
+    expect(off.feedbackRecurrence).toBeNull()
+  })
+
+  it("a failing step is logged and does not fail the daily run", async () => {
+    m.feedback.mockRejectedValue(new Error("db down"))
+    const out = await runCollabDaily(CFG, log)
+    expect(out.feedbackRecurrence).toBeNull()
+    expect(log.error).toHaveBeenCalledWith("feedback recurrence failed", { error: "db down" })
+  })
+
+  it("worker config: FEEDBACK_RECURRENCE=off disables, default on", () => {
+    expect(loadWorkerConfig({} as NodeJS.ProcessEnv).feedbackRecurrence).toBe(true)
+    const off = loadWorkerConfig({ FEEDBACK_RECURRENCE: "off" } as unknown as NodeJS.ProcessEnv)
+    expect(off.feedbackRecurrence).toBe(false)
+    expect(describeConfig(off)).toMatchObject({ feedbackRecurrence: false })
   })
 })

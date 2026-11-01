@@ -6,7 +6,7 @@ import type { Actor } from "@/services/_shared/actor"
 import { ConflictError, StatusError } from "@/services/_shared/errors"
 import type { ApiPrincipal } from "@/services/api-tokens/api-token-auth"
 import { loadApiActor } from "@/services/api-v1/api-v1.service"
-import { assertV1Action, V1Reply, v1ProjectRoute, type V1Handler, type V1ProjectContext } from "./v1-route"
+import { assertV1Action, assertV1Scope, resolveV1ProjectActor, V1Reply, v1ProjectRoute, v1Route, type V1Context, type V1Handler, type V1ProjectContext } from "./v1-route"
 
 /**
  * Write routes of /api/v1 (docs/api-v1.md "Writes") and the write tools of
@@ -46,6 +46,8 @@ export interface V1WriteContext<P> extends V1ProjectContext<P> {
 interface WriteOptions {
   /** Honour `Idempotency-Key` (creates). */
   idempotent?: boolean
+  /** The operation applies its own per-token budget (feedback reports): the generic write budget is skipped. */
+  ownBudget?: boolean
 }
 
 /** Idempotency of one write call: `scope` separates surfaces / endpoints, `key` is the caller's key. */
@@ -59,8 +61,12 @@ export interface V1IdempotencyKey {
 /** One write, independent of how it arrived (REST request or MCP tool call). */
 export interface V1WriteCall {
   principal: ApiPrincipal
-  /** The token owner's actor, from resolveV1ProjectActor. */
-  actor: ProjectActor
+  /**
+   * The token owner's actor, from resolveV1ProjectActor. null = an account-level operation that is
+   * not about one project (the feedback loop): only the token scope is checked here and the
+   * handler decides what the owner may do.
+   */
+  actor: ProjectActor | null
   action: ProjectAction
   /** Success status unless the handler returns its own V1Reply. */
   status: number
@@ -70,6 +76,8 @@ export interface V1WriteCall {
   idempotency?: V1IdempotencyKey | null
   /** Recorded in the activity log as meta.via; absent = "api". */
   via?: "mcp"
+  /** The handler applies its own per-token budget, so the generic write budget (API_V1_WRITE_RATE_LIMIT_PER_MIN) is skipped. */
+  ownBudget?: boolean
   handler: (body: unknown, serviceActor: Actor) => Promise<object | V1Reply>
 }
 
@@ -114,7 +122,7 @@ function writeBudget(tokenId: string): V1Reply | null {
   return null
 }
 
-async function readJson(request: Request): Promise<unknown> {
+export async function readJson(request: Request): Promise<unknown> {
   const text = await request.text()
   if (!text.trim()) return {}
   try {
@@ -146,9 +154,12 @@ function asReply(result: object | V1Reply, status: number): V1Reply {
  * body, idempotency, then the handler with the token owner's service actor.
  */
 export async function runV1Write(call: V1WriteCall): Promise<V1Reply> {
-  assertV1Action(call.principal, call.actor, call.action)
-  const limited = writeBudget(call.principal.tokenId)
-  if (limited) return limited
+  if (call.actor) assertV1Action(call.principal, call.actor, call.action)
+  else assertV1Scope(call.principal, call.action)
+  if (!call.ownBudget) {
+    const limited = writeBudget(call.principal.tokenId)
+    if (limited) return limited
+  }
 
   const body = await call.readBody()
   const run = async () => {
@@ -206,6 +217,40 @@ export function v1ProjectWrite<P extends { projectId: string }>(
       action,
       status,
       readBody: () => readJson(ctx.request),
+      idempotency: key === null ? null : { scope: `${ctx.request.method}\n${new URL(ctx.request.url).pathname}`, key },
+      handler: (body, serviceActor) => handler({ ...ctx, body, serviceActor }),
+    })
+  })
+}
+
+export interface V1AccountWriteContext<P> extends V1Context<P> {
+  body: unknown
+  serviceActor: Actor
+}
+
+/**
+ * A write that is not under /projects/:projectId (feedback loop, W11). `projectOf` (optional) names
+ * the project the body refers to: then the owner's project role must allow `action` too (like a
+ * project write); without a project only the token scope is checked and the handler authorizes.
+ */
+export function v1AccountWrite<P extends Record<string, string> = Record<string, never>>(
+  action: ProjectAction,
+  status: number,
+  handler: (ctx: V1AccountWriteContext<P>) => Promise<object | V1Reply>,
+  options: WriteOptions & { projectOf?: (body: unknown) => string | undefined } = {}
+): V1Handler<P> {
+  return v1Route<P>(async (ctx) => {
+    const key = options.idempotent ? ctx.request.headers.get("idempotency-key") : null
+    const early = options.projectOf ? await readJson(ctx.request) : undefined
+    const projectId = options.projectOf ? options.projectOf(early) : undefined
+    const actor = projectId ? await resolveV1ProjectActor(ctx.principal, projectId) : null
+    return runV1Write({
+      principal: ctx.principal,
+      actor,
+      action,
+      status,
+      ownBudget: options.ownBudget,
+      readBody: () => (options.projectOf ? Promise.resolve(early) : readJson(ctx.request)),
       idempotency: key === null ? null : { scope: `${ctx.request.method}\n${new URL(ctx.request.url).pathname}`, key },
       handler: (body, serviceActor) => handler({ ...ctx, body, serviceActor }),
     })

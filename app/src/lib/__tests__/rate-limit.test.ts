@@ -122,3 +122,17 @@ describe("clientIpFromHeaders", () => {
     expect(clientIpFromHeaders(undefined)).toBeNull()
   })
 })
+
+describe("consume (check and record in one step)", () => {
+  it("records a hit only while under the limit", () => {
+    let t = 0
+    const l = createRateLimiter({ limit: 2, windowMs: 1000, now: () => t })
+    expect(l.consume("k").allowed).toBe(true)
+    expect(l.consume("k").allowed).toBe(true)
+    const over = l.consume("k")
+    expect(over.allowed).toBe(false)
+    expect(over.status.limited).toBe(true)
+    t = 1001
+    expect(l.consume("k").allowed).toBe(true)
+  })
+})

@@ -41,6 +41,8 @@ model User {
   apiTokens         ApiToken[]
   /// Work claims (作業の宣言) made through a dev:write token.
   workClaims        WorkClaim[]
+  failureEvents     FailureEvent[]
+  confirmedLessons  Lesson[]                 @relation("LessonConfirmedBy")
   /// Merge request links declared through a dev:write token.
   declaredGitLinks  GitLink[]                @relation("GitLinkDeclaredBy")
 
@@ -328,6 +330,7 @@ model Project {
   gitLinks        GitLink[]
   gitReleases     GitRelease[]
   workClaims      WorkClaim[]
+  failureEvents   FailureEvent[]
   repoChunks      RepoChunk[]
 
   /// Plan template loads into this project's 全体計画.
@@ -1751,4 +1754,91 @@ model GitRelease {
   @@unique([repositoryId, tag])
   @@index([projectId, releasedAt])
   @@map("git_release")
+}
+
+/// フィードバックの輪 (W11, services/feedback; docs/api-v1.md "Feedback"): one reported failure of an AI
+/// session / CI job / GitStation / a person. `signature` = SHA-256 hex of tool + errorCode + the normalized,
+/// redacted first lines (services/feedback/signature); `signatureText` is that redacted, normalized part and
+/// `excerpt` the redacted detail (at most 4 KB). A repeat of the same signature by the same token within a
+/// minute is folded into the first row (`repeatCount`). projectId null = outside any project.
+model FailureEvent {
+  id            String             @id @default(cuid())
+  projectId     String?
+  /// "agent" | "ci" | "gitstation" | "manual".
+  source        String             @db.VarChar(16)
+  signature     String             @db.VarChar(64)
+  signatureText String             @db.VarChar(1000)
+  tool          String             @db.VarChar(100)
+  errorCode     String?            @db.VarChar(64)
+  excerpt       String             @db.Text
+  sessionRef    String?            @db.VarChar(100)
+  branch        String?            @db.VarChar(255)
+  /// Reports folded into this row (same signature, same reporter, within a minute).
+  repeatCount   Int                @default(1)
+  reportedById  String
+  createdAt     DateTime           @default(now())
+  project       Project?           @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  reportedBy    User               @relation(fields: [reportedById], references: [id], onDelete: Cascade)
+  resolutions   LessonResolution[]
+
+  @@index([signature, createdAt])
+  @@index([sessionRef, reportedById, createdAt])
+  @@index([projectId, createdAt])
+  @@index([createdAt])
+  @@map("failure_event")
+}
+
+/// A lesson learned from a failure (W11). state: draft → confirmed (a Maintainer / SM or above) →
+/// systemized (linked to a PBI / gate / test) | retired. Only confirmed / systemized, non-confidential
+/// lessons are ever returned to AI sessions. scope: "global" | "tech:<name>" | "project:<id>" (lower case);
+/// (signature, scope) is unique. evidence is a JSON array of link strings (Text, like other JSON columns).
+model Lesson {
+  id                   String             @id @default(cuid())
+  signature            String             @db.VarChar(64)
+  scope                String             @default("global") @db.VarChar(120)
+  state                String             @default("draft") @db.VarChar(16)
+  symptom              String             @db.Text
+  cause                String?            @db.Text
+  fix                  String?            @db.Text
+  /// A command that shows the fix works.
+  verify               String?            @db.Text
+  evidence             String?            @db.Text
+  errorCode            String?            @db.VarChar(64)
+  confidential         Boolean            @default(false)
+  /// Failures with this signature reported while the lesson was not retired.
+  hits                 Int                @default(0)
+  resolvedCount        Int                @default(0)
+  lastSeenAt           DateTime?
+  confirmedById        String?
+  confirmedAt          DateTime?
+  /// "<kind>:<ref>" (pbi / gate / test) set by systemize.
+  systemizedRef        String?            @db.VarChar(500)
+  /// When the recurrence step proposed a prevention PBI (once per signature; null = not yet).
+  preventionProposedAt DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  confirmedBy          User?              @relation("LessonConfirmedBy", fields: [confirmedById], references: [id], onDelete: SetNull)
+  resolutions          LessonResolution[]
+
+  @@unique([signature, scope])
+  @@index([state, lastSeenAt])
+  @@index([scope])
+  @@map("lesson")
+}
+
+/// How a failure was fixed (W11): ties a failure event (one resolution per event) to a lesson.
+/// diffSummary is redacted; verifiedCommand is the command the reporter ran to check the fix.
+model LessonResolution {
+  id              String       @id @default(cuid())
+  failureEventId  String
+  lessonId        String
+  diffSummary     String       @db.Text
+  verifiedCommand String?      @db.Text
+  createdAt       DateTime     @default(now())
+  failureEvent    FailureEvent @relation(fields: [failureEventId], references: [id], onDelete: Cascade)
+  lesson          Lesson       @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@unique([failureEventId])
+  @@index([lessonId, createdAt])
+  @@map("lesson_resolution")
 }
