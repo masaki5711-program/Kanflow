@@ -14,6 +14,10 @@ import { scheduleFrom, type ScheduleNode } from "@/lib/plan-templates/schedule"
 export const BASE_SCHEDULE_MAX_ITEMS = 500
 export const BASE_SCHEDULE_MAX_DEPTH = 5
 export const BASE_SCHEDULE_MAX_DURATION = 3650
+/** `role`: a short identifier (who does the work, e.g. "procurement"); letters, digits, _ and -. */
+export const BASE_SCHEDULE_ROLE_MAX = 32
+/** `formerKeys` per item (keys this item had in earlier versions of the template). */
+export const BASE_SCHEDULE_MAX_FORMER_KEYS = 10
 
 export interface BaseScheduleItem {
   /** Unique id inside the schedule; `dependsOn` refers to it. */
@@ -26,6 +30,22 @@ export interface BaseScheduleItem {
   /** Keys of items that must finish first (finish to start). */
   dependsOn?: string[]
   children?: BaseScheduleItem[]
+  /**
+   * Optional (plan 12 E0): who does the work, as a short identifier ("procurement", "qa"). Not used for
+   * placement; stored with the load so finished projects can later be compared per role.
+   */
+  role?: string
+  /**
+   * Optional (plan 12 E0): the share of one person's time the item takes, 0..1. Absent = 1 (full time);
+   * never filled in by validation so an old schedule's stored content and hash stay exactly as given.
+   */
+  load?: number
+  /**
+   * Optional (plan 12 E0): keys this item had in earlier versions of the template, so actuals recorded under
+   * an old key still map to it (`keyAliases`). Unique across the schedule and never equal to a current key.
+   * `dependsOn` always uses current keys.
+   */
+  formerKeys?: string[]
 }
 
 export interface BaseSchedule {
@@ -43,6 +63,9 @@ const itemSchema: z.ZodType<BaseScheduleItem> = z.lazy(() =>
     milestone: z.boolean().optional(),
     dependsOn: z.array(keySchema).max(50).optional(),
     children: z.array(itemSchema).max(BASE_SCHEDULE_MAX_ITEMS).optional(),
+    role: z.string().regex(new RegExp(`^[A-Za-z0-9_-]{1,${BASE_SCHEDULE_ROLE_MAX}}$`), `role: letters, digits, _ and - (1-${BASE_SCHEDULE_ROLE_MAX} chars)`).optional(),
+    load: z.number().min(0).max(1).optional(),
+    formerKeys: z.array(keySchema).max(BASE_SCHEDULE_MAX_FORMER_KEYS).optional(),
   })
 )
 
@@ -105,6 +128,40 @@ function fail(code: PlanScheduleErrorCode, message: string): never {
  * Validate and place. Throws PlanScheduleError: more than 500 items, deeper than 5 levels, a duplicate
  * key, an unknown / self / ancestor dependency, a dependency cycle, an invalid start date.
  */
+/** Current keys of the schedule; fails on a duplicate key or a former key that collides (see `keyAliases`). */
+function collectKeys(flat: readonly Flat[]): Set<string> {
+  const keys = new Set<string>()
+  for (const { item } of flat) {
+    if (keys.has(item.key)) fail("PLAN_SCHEDULE_INVALID", `Duplicate key: ${item.key}`)
+    keys.add(item.key)
+  }
+  const former = new Set<string>()
+  for (const { item } of flat) {
+    for (const old of item.formerKeys ?? []) {
+      if (keys.has(old)) fail("PLAN_SCHEDULE_INVALID", `Former key ${old} of ${item.key} is a current key`)
+      if (former.has(old)) fail("PLAN_SCHEDULE_INVALID", `Former key ${old} is listed more than once`)
+      former.add(old)
+    }
+  }
+  return keys
+}
+
+/**
+ * Every key a schedule item answers to → its current key: the current keys map to themselves and each
+ * `formerKeys` entry to the item that lists it. Fails like `planBaseSchedule` on duplicates / collisions.
+ */
+export function keyAliases(schedule: BaseSchedule): Map<string, string> {
+  const flat: Flat[] = []
+  flatten(schedule.items, null, 1, flat)
+  collectKeys(flat)
+  const aliases = new Map<string, string>()
+  for (const { item } of flat) {
+    aliases.set(item.key, item.key)
+    for (const old of item.formerKeys ?? []) aliases.set(old, item.key)
+  }
+  return aliases
+}
+
 export function planBaseSchedule(schedule: BaseSchedule, startDate: string): PlannedSchedule {
   const start = dateFromKey(startDate)
   if (!start) fail("INVALID_DATE", `startDate is not a valid date: ${startDate}`)
@@ -114,11 +171,7 @@ export function planBaseSchedule(schedule: BaseSchedule, startDate: string): Pla
   const deepest = Math.max(...flat.map((f) => f.depth))
   if (deepest > BASE_SCHEDULE_MAX_DEPTH) fail("PLAN_SCHEDULE_TOO_DEEP", `A schedule is at most ${BASE_SCHEDULE_MAX_DEPTH} levels deep (got ${deepest})`)
 
-  const keys = new Set<string>()
-  for (const { item } of flat) {
-    if (keys.has(item.key)) fail("PLAN_SCHEDULE_INVALID", `Duplicate key: ${item.key}`)
-    keys.add(item.key)
-  }
+  const keys = collectKeys(flat)
   const links: TemplateLink[] = []
   for (const { item } of flat) {
     for (const from of item.dependsOn ?? []) {

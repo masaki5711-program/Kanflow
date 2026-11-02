@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { baseScheduleSchema, planBaseSchedule, PlanScheduleError, type BaseSchedule, type BaseScheduleItem } from "../base-schedule"
+import { BASE_SCHEDULE_MAX_FORMER_KEYS, BASE_SCHEDULE_ROLE_MAX, baseScheduleSchema, keyAliases, planBaseSchedule, PlanScheduleError, type BaseSchedule, type BaseScheduleItem } from "../base-schedule"
 
 const leaf = (key: string, durationDays?: number, extra: Partial<BaseScheduleItem> = {}): BaseScheduleItem => ({ key, name: key.toUpperCase(), durationDays, ...extra })
 const code = (fn: () => unknown) => {
@@ -75,5 +75,62 @@ describe("baseScheduleSchema", () => {
     expect(baseScheduleSchema.safeParse({ items: [{ key: "bad key", name: "x" }] }).success).toBe(false)
     expect(baseScheduleSchema.safeParse({ items: [{ key: "a", name: "x", durationDays: 0 }] }).success).toBe(false)
     expect(baseScheduleSchema.safeParse({ items: [] }).success).toBe(false)
+  })
+})
+
+describe("role / load / formerKeys (plan 12 E0)", () => {
+  it("old_schedule_without_role_and_load_still_loads", () => {
+    // A schedule.yml written before E0: no role, no load, no formerKeys anywhere.
+    const parsed = baseScheduleSchema.parse(SAMPLE)
+    expect(parsed).toEqual(SAMPLE) // nothing is injected (the stored content and its hash stay as given)
+    expect(planBaseSchedule(parsed, "2026-11-02").rows).toHaveLength(7)
+  })
+
+  it("accepts role, load (0..1) and formerKeys within their limits", () => {
+    const ok = { items: [leaf("a", 2, { role: "procurement", load: 0.5, formerKeys: ["old-a", "older_a"] }), leaf("b", 1, { load: 0 }), leaf("c", 1, { load: 1 })] }
+    expect(baseScheduleSchema.safeParse(ok).success).toBe(true)
+    expect(planBaseSchedule(ok, "2026-11-02").rows).toHaveLength(3)
+  })
+
+  it.each([
+    ["load above 1", { load: 1.5 }],
+    ["negative load", { load: -0.1 }],
+    ["non-finite load", { load: Number.NaN }],
+    ["role with spaces", { role: "lead engineer" }],
+    ["role too long", { role: "r".repeat(BASE_SCHEDULE_ROLE_MAX + 1) }],
+    ["bad former key", { formerKeys: ["bad key"] }],
+    ["too many former keys", { formerKeys: Array.from({ length: BASE_SCHEDULE_MAX_FORMER_KEYS + 1 }, (_, i) => `f${i}`) }],
+  ])("rejects %s", (_label, extra) => {
+    expect(baseScheduleSchema.safeParse({ items: [leaf("a", 1, extra as Partial<BaseScheduleItem>)] }).success).toBe(false)
+  })
+
+  it("former_keys_map_to_current_key", () => {
+    const s: BaseSchedule = {
+      items: [{ key: "spec", name: "仕様", formerKeys: ["specification"], children: [leaf("req", 5, { formerKeys: ["requirements", "reqs"] })] }, leaf("accept", 1)],
+    }
+    const aliases = keyAliases(s)
+    expect(aliases.get("requirements")).toBe("req")
+    expect(aliases.get("reqs")).toBe("req")
+    expect(aliases.get("specification")).toBe("spec")
+    expect(aliases.get("req")).toBe("req") // a current key maps to itself
+    expect(aliases.get("accept")).toBe("accept")
+    expect(aliases.get("nope")).toBeUndefined()
+    expect(planBaseSchedule(s, "2026-11-02").rows.map((r) => r.key)).toEqual(["spec", "req", "accept"])
+  })
+
+  it("former keys must not collide with a current key, another item's former key, or repeat", () => {
+    const withCurrent = { items: [leaf("a", 1, { formerKeys: ["b"] }), leaf("b", 1)] }
+    const withOther = { items: [leaf("a", 1, { formerKeys: ["x"] }), leaf("b", 1, { formerKeys: ["x"] })] }
+    const repeated = { items: [leaf("a", 1, { formerKeys: ["x", "x"] })] }
+    const ownKey = { items: [leaf("a", 1, { formerKeys: ["a"] })] }
+    for (const s of [withCurrent, withOther, repeated, ownKey]) {
+      expect(code(() => planBaseSchedule(s, "2026-11-02"))).toBe("PLAN_SCHEDULE_INVALID")
+      expect(code(() => keyAliases(s))).toBe("PLAN_SCHEDULE_INVALID")
+    }
+  })
+
+  it("a dependency may not name a former key (dependsOn uses current keys only)", () => {
+    const s = { items: [leaf("a", 1, { formerKeys: ["old"] }), leaf("b", 1, { dependsOn: ["old"] })] }
+    expect(code(() => planBaseSchedule(s, "2026-11-02"))).toBe("PLAN_SCHEDULE_INVALID")
   })
 })
