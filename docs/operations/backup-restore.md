@@ -6,6 +6,19 @@
 > v2 のスクリプトに要るもの: PostgreSQL 16 以上のクライアント（`pg_dump.exe` / `psql.exe`。`KANFLOW_PG_BIN`、無ければ
 > `C:\Program Files\PostgreSQL\<版>\bin` の最新）、`-UseRootCredential` 用のスーパーユーザー
 > （`app\.env` の `DATABASE_ADMIN_USER`、既定 `postgres`、パスワードは `.db-pw`）。
+>
+> **基準の復元先**は、基盤の決定どおり **PostgreSQL 16 + TimescaleDB のコンテナ**（`timescale/timescaledb:2.28.1-pg16`、
+> UTF-8・ICU `und`・ctype `C.UTF-8`、`ops/test-env/compose.yml` と同じ設定）です。v2 のスクリプトはここで確認しています。
+>
+> - **ロケール**: バックアップは元の DB のロケール（provider / collate / ctype / ICU）を `manifest.json` の `dbLocale` に記録し、
+>   復元・訓練はそのロケールで DB を作り直します（訓練は復元後の DB のロケールが一致しないと**不合格**）。
+>   そのロケールが無いサーバー（例: ネイティブの Windows 版 PostgreSQL には `C.UTF-8` が無く、`invalid LC_CTYPE locale name` で
+>   失敗します）へ戻すときは `-UseServerLocale` を付けると、そのサーバーの template1 のロケールで作ります（訓練は警告に留める）。
+>   `dbLocale` の無い古い世代も template1 のロケールを使います。並び順（照合順序）が変わる点に注意。
+> - **TimescaleDB**: イメージが既定の DB に TimescaleDB 拡張を入れていても、ダンプからは `CREATE EXTENSION timescaledb` と
+>   そのカタログを除きます（Kanflow は使っていない）。TimescaleDB の無い PostgreSQL 16 にも復元できます（`postgres:16` で確認済み）。
+> - **取り込みは 1 トランザクション**（`psql --single-transaction -v ON_ERROR_STOP=1`）: 失敗すると復元先は空の DB のままで、途中までの状態は残りません。
+> - **時間の上限**: pg_dump / psql の 1 回の実行は `KANFLOW_PG_TIMEOUT_SEC`（既定 7200 秒）で打ち切り（プロセスを止め、終了コード 124 とログ）。
 
 対象: 本番 1 台構成（Windows, `D:\APP\Kanflow`）。スクリプトはすべて Windows PowerShell 5.1 で動作します。
 

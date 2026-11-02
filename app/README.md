@@ -47,8 +47,15 @@ Never commit `.env`.
   (`"ProductBacklogItem"."projectId"`; unquoted names fold to lower case), use `ON CONFLICT`, no
   `DELETE ... LIMIT`, `(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')` for the UTC clock (columns are
   `timestamp(3)` holding UTC). A failed statement aborts the whole PostgreSQL transaction: best-effort
-  writes inside a caller's transaction go through `bestEffort()` (`src/services/_shared/savepoint.ts`).
-  Named locks are advisory locks (`src/worker/named-lock.ts`, `dedicated-lock.ts`). Every raw-SQL site
+  writes AND reads inside a caller's transaction go through `bestEffort()`
+  (`src/services/_shared/savepoint.ts`); a catch that swallows must rethrow
+  `isFatalTxError(err)` (a failed ROLLBACK TO SAVEPOINT); `bestEffort` calls on one
+  transaction must be sequential (never `Promise.all`).
+- Search: terms of 3+ characters take the trigram path; shorter terms (e.g. 「受入」)
+  use the LIKE path, because pg_trgm has no usable trigram for them.
+- Pool / session (`src/lib/prisma.ts`): `DATABASE_POOL_MAX` (10), `DATABASE_STATEMENT_TIMEOUT_MS`
+  (30000), `DATABASE_LOCK_TIMEOUT_MS` (10000); every session runs with `TimeZone=UTC`.
+- Named locks are advisory locks (`src/worker/named-lock.ts`, `dedicated-lock.ts`). Every raw-SQL site
   has a real-database test in `src/lib/__tests__/postgres.db.test.ts`.
 - Real-database tests (skipped unless `KANFLOW_DB_TESTS=1`): `KANFLOW_DB_TESTS=1 npx vitest run src/lib/__tests__/postgres.db.test.ts src/services/dev-work/__tests__/dev-work.db.test.ts src/services/acceptance-criteria/__tests__/acceptance-criteria.db.test.ts src/services/feedback/__tests__/feedback.db.test.ts`
 - Schema changes: create a migration in development

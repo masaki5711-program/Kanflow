@@ -5,6 +5,18 @@
 > 本番のチェックアウト（別ブランチ）が凍結した MySQL 用マイグレーション（`app/prisma/migrations-mysql/`）と
 > 下記の MySQL 前提の手順を使い続けます。v2 の DB は `app/prisma/migrations/`（`0_init` から）だけを使い、
 > MySQL へは適用できません（schema の provider が `postgresql` で、MySQL のサーバーには接続すらできない）。v2 の main を本番へ自動デプロイしないこと。
+> 移行先の本番 DB は基盤の決定どおり **PostgreSQL 16 + TimescaleDB のコンテナ**（`timescale/timescaledb:2.28.1-pg16`）が基準です。
+>
+> **K2（データ移行・切り替え）で確認すること**:
+> - 本番 DB は UTF-8・ICU `und`（ctype `C.UTF-8`）で template0 から作り、所有者をアプリのユーザーにする。拡張 `citext` / `pg_trgm` は所有者が作れる。
+> - DB の既定タイムゾーンを UTC にする（`ALTER DATABASE scrum_tool SET timezone TO 'UTC'`）。アプリの接続は `-c TimeZone=UTC`
+>   で常に UTC だが、psql など他の接続で `DEFAULT CURRENT_TIMESTAMP` が現地時刻にならないように。
+> - **NUL 文字**（0x00）を含む文字列は PostgreSQL の text に入らない。移行前に MySQL 側で検出して除く。
+> - **NULL の並び順**: MySQL は昇順で NULL が先頭、PostgreSQL は末尾（降順では逆）。NULL を含む列の `orderBy` の画面で並びが変わる。
+> - 大文字小文字を区別しない一意キー（citext: メール・社員番号・セクション名・カテゴリ名・マイルストーンのチェック項目・Git のタグ）。
+>   MySQL の照合順序では大文字小文字だけ違う重複は作れないので通常は違反しないが、移行前に `LOWER(列)` の重複が 0 件か確認する。
+>   citext に長さの上限は無いので、チェック項目とタグは CHECK 制約（255 文字）で旧 `VARCHAR(255)` の上限を保っている。
+> - 不正な JSON（`git_link.outsideScopePaths` は jsonb）、tinyint → boolean、古い行の `requested_at` が現地時刻（UTC+7）のまま、`_prisma_migrations` はコピーしない。
 
 **本番へのデプロイとロールバックはこの文書だけに従ってください。** runbook.md §4、worker.md、
 app/README.md のデプロイ記述はすべてここを参照します。
