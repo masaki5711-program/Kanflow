@@ -5,7 +5,7 @@
  * sourceRef — what the caller supplies, validated, stored verbatim. Two forms:
  *   gitstation:<repo>@<tag>:<path>   a `schedule.yml` in a GitStation repository at a tag / ref
  *                                    (repo: segments of [A-Za-z0-9._-] joined by "/"; tag: [A-Za-z0-9._/+-];
- *                                    path: [A-Za-z0-9._/-], no ".." segment)
+ *                                    path: [A-Za-z0-9._/-]; no "." / ".." / empty segment in repo, tag or path)
  *   template:<id>@v<n>               a Kanflow plan template at version n
  * At most SOURCE_REF_MAX characters. Anything else is refused (400) rather than stored half-understood.
  *
@@ -29,9 +29,11 @@ const TEMPLATE_REF = /^template:([A-Za-z0-9_-]{1,64})@v(\d{1,9})$/
 function parseSourceRef(ref: string): { kind: "gitstation"; repo: string; path: string } | { kind: "template"; id: string } | null {
   const git = GITSTATION_REF.exec(ref)
   if (git) {
-    const path = git[3]
-    if (path.split("/").some((part) => part === ".." || part === "")) return null
-    return { kind: "gitstation", repo: git[1], path }
+    const [, repo, tag, path] = git
+    // No "." / ".." segment and no empty segment anywhere: the parts name a repository, a ref and a file, never a walk.
+    const bad = (value: string) => value.split("/").some((part) => part === "." || part === ".." || part === "")
+    if (bad(repo) || bad(tag) || bad(path)) return null
+    return { kind: "gitstation", repo, path }
   }
   const tpl = TEMPLATE_REF.exec(ref)
   if (tpl) return { kind: "template", id: tpl[1] }

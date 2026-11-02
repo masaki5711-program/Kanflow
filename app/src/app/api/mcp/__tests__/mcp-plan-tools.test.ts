@@ -223,6 +223,27 @@ describe("propose_plan_items", () => {
     expect(proposal.proposalId).toBe(`prop_plan_${createHash("sha256").update(JSON.stringify({ s: startDate, p: schedule })).digest("hex").slice(0, 16)}`)
   })
 
+  it("the digest covers the lineage: same schedule with different card names (= lineages) are different proposals", async () => {
+    await callTool("propose_plan_items", { projectId: "p1", ...SCHEDULE, name: "設備導入" })
+    await callTool("propose_plan_items", { projectId: "p1", ...SCHEDULE, name: "工程改善" })
+    await callTool("propose_plan_items", { projectId: "p1", ...SCHEDULE, name: "  設備導入 " })
+    const [a, b, c] = m.insertMessage.mock.calls.map((call) => JSON.parse(call[1].toolEvents)[0].proposal)
+    expect(a.proposalId).not.toBe(b.proposalId)
+    expect(a.proposalId).toBe(c.proposalId) // the same lineage after normalization
+  })
+
+  it("an explicit lineage that disagrees with its sourceRef is kept but warned about (answer and card text)", async () => {
+    const r = await callTool("propose_plan_items", { projectId: "p1", ...SCHEDULE, sourceRef: "template:clx0abc123@v4", lineage: "template:other" })
+    expect(r.isError).toBeUndefined()
+    expect(r.payload.data.warnings).toEqual([expect.stringContaining('implied by sourceRef')])
+    expect(JSON.parse(m.insertMessage.mock.calls[0][1].toolEvents)[0].proposal.lineage).toBe("template:other")
+    expect(m.insertMessage.mock.calls[0][1].content).toMatch(/注意: 系統/)
+    m.insertMessage.mockClear()
+    const agree = await callTool("propose_plan_items", { projectId: "p1", ...SCHEDULE, sourceRef: "template:clx0abc123@v4", lineage: "template:clx0abc123" })
+    expect(agree.payload.data.warnings).toBeUndefined()
+    expect(m.insertMessage.mock.calls[0][1].content).not.toMatch(/注意/)
+  })
+
   it("a malformed sourceRef is refused and nothing is stored", async () => {
     const r = await callTool("propose_plan_items", { projectId: "p1", ...SCHEDULE, sourceRef: "http://example.test/schedule.yml" })
     expect(r.isError).toBe(true)
