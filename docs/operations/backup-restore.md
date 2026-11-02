@@ -1,5 +1,12 @@
 # Kanflow バックアップ / リストア手順
 
+> **このブランチ（Kanflow v2）のスクリプトは PostgreSQL 用です**（`pg_dump` のプレーン SQL を gzip、`psql` で復元）。
+> **本番サーバーは移行（MR K2）まで MySQL 8.4** で、本番のチェックアウトにある MySQL 用のスクリプト（`mysqldump`）を
+> 使い続けます。下の「本番（MySQL）」と書いた手作業の手順は本番用、それ以外は v2 のスクリプトの説明です。
+> v2 のスクリプトに要るもの: PostgreSQL 16 以上のクライアント（`pg_dump.exe` / `psql.exe`。`KANFLOW_PG_BIN`、無ければ
+> `C:\Program Files\PostgreSQL\<版>\bin` の最新）、`-UseRootCredential` 用のスーパーユーザー
+> （`app\.env` の `DATABASE_ADMIN_USER`、既定 `postgres`、パスワードは `.db-pw`）。
+
 対象: 本番 1 台構成（Windows, `D:\APP\Kanflow`）。スクリプトはすべて Windows PowerShell 5.1 で動作します。
 
 | 項目 | 内容 |
@@ -19,7 +26,7 @@
 
 ```
 <保存先>\daily\kanflow-YYYYMMDD-HHmmss\
-    db-scrum_tool.sql.gz   mysqldump (--single-transaction --routines --events --triggers)
+    db-scrum_tool.sql.gz   pg_dump --format=plain --no-owner --no-privileges（1 つのスナップショット。TimescaleDB のカタログ用スキーマは除外）
     private\               app\private 全体（uploads + templates）
     env\.env               app\.env（ACL: SYSTEM / Administrators / 実行ユーザーのみ）
     manifest.json          作成日時、ダンプの SHA-256、ファイル数、テーブル別行数、git commit
@@ -28,9 +35,12 @@
 - 書き込み中は `<名前>.partial` で作成し、全工程成功時のみリネームします。`.partial` が残っていれば失敗した回です（1 日後に自動削除）。
 - 曜日 `-WeeklyDay`（既定 日曜）の世代は `weekly\` にもコピーされます。
 - 保持数: daily 14 世代、weekly 8 世代（`-DailyKeep` / `-WeeklyKeep`）。
-- ダンプには `CREATE DATABASE` / `USE` を含めていないため、**別名の DB にもリストアできます**（リストア訓練用）。
-- 資格情報は実行時に `app\.env`（`DATABASE_*`、無ければ `DATABASE_URL`）から読み、ACL を絞った一時ファイル経由で mysqldump に渡します。ログや画面には出しません。
-- `mysqldump.exe` は `KanflowMySQL` サービスの ImagePath から探します（見つからない場合は `KANFLOW_MYSQL_BIN` に bin フォルダを指定）。
+- ダンプには `CREATE DATABASE` / `\connect` を含めていないため、**別名の DB にもリストアできます**（リストア訓練用）。
+  完了の印は末尾の `-- PostgreSQL database dump complete`。復元は `DROP DATABASE ... WITH (FORCE)` → `CREATE DATABASE ...
+  TEMPLATE template0 ENCODING 'UTF8' LOCALE_PROVIDER icu ICU_LOCALE 'und'` → `psql -v ON_ERROR_STOP=1`。
+  `-UseRootCredential` で本番 DB を復元したときは、DB と全テーブルの所有者をアプリのユーザー（`DATABASE_USER`）へ戻します。
+- 資格情報は実行時に `app\.env`（`DATABASE_*`、無ければ `DATABASE_URL`）から読み、ACL を絞った一時 PGPASSFILE 経由で pg_dump / psql に渡します（コマンド行にパスワードを出さない）。ログや画面には出しません。
+- `pg_dump.exe` / `psql.exe` は `KANFLOW_PG_BIN`、無ければ `C:\Program Files\PostgreSQL\<版>\bin` から探します。
 
 ### 1.1 二次保存先（オフマシン、必須）
 
@@ -75,7 +85,7 @@ KANFLOW_BACKUP_SECONDARY_DIR=\\NAS01\backup\kanflow
 |------|------|
 | 0 | 成功（WARN 付き成功もあり。ログ末尾が `finished WITH WARNINGS`。二次保存先未設定もここ） |
 | 1 | バックアップ失敗（`BACKUP FAILED: ...` をログ参照、アラート `backup.failed`） |
-| 2 | 設定エラー（.env が読めない、mysqldump が無い、保存先ドライブが無い 等、アラート `backup.config`） |
+| 2 | 設定エラー（.env が読めない、pg_dump が無い、保存先ドライブが無い 等、アラート `backup.config`） |
 | 3 | ローカルは成功、**二次保存先へのコピー / 検証に失敗**（アラート `backup.secondary-failed`）。`deploy.ps1` はローカル世代で続行 |
 
 タスク スケジューラの「前回の実行結果」が 0 以外なら失敗です。
@@ -145,6 +155,19 @@ powershell -NoProfile -ExecutionPolicy Bypass -File D:\APP\Kanflow\ops\backup\re
 
 管理者 PowerShell で、サービスを止めてから実行します（パスワードは対話入力、画面に残りません）。
 
+v2（PostgreSQL）の場合は 1) を次に置き換えます（`$safety` は同じ）:
+
+```powershell
+$pg = "C:\Program Files\PostgreSQL\16\bin"
+Expand-GzipFile -Source $safety -Destination "$env:TEMP\kanflow-undo.sql"
+& "$pg\psql.exe" -h 127.0.0.1 -U postgres -d postgres -c "DROP DATABASE scrum_tool WITH (FORCE)"
+& "$pg\psql.exe" -h 127.0.0.1 -U postgres -d postgres -c "CREATE DATABASE scrum_tool OWNER scrum_app TEMPLATE template0 ENCODING 'UTF8' LOCALE_PROVIDER icu ICU_LOCALE 'und' LOCALE 'C.UTF-8'"
+& "$pg\psql.exe" -h 127.0.0.1 -U scrum_app -d scrum_tool -v ON_ERROR_STOP=1 -f "$env:TEMP\kanflow-undo.sql"
+Remove-Item "$env:TEMP\kanflow-undo.sql"
+```
+
+本番（MySQL、K2 まで）:
+
 ```powershell
 Stop-Service kanflow.exe -Force        # 止まらない/ポートが残る場合は recover.bat の手順を参照
 $mysql = "C:\Program Files\MySQL\MySQL Server 8.4\bin\mysql.exe"
@@ -195,7 +218,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File D:\APP\Kanflow\ops\backup\re
 ```
 
 終了コード: 0 = 合格、1 = 不合格（アラート済み）、2 = 設定エラー（`.db-pw` が無い、世代が無い 等）。
-MySQL の空き容量は本番 DB と同程度を一時的に使います（datadir `D:\APP\Kanflow\mysql-data`）。
+DB サーバーの空き容量は本番 DB と同程度を一時的に使います（本番 MySQL は datadir `D:\APP\Kanflow\mysql-data`）。
 
 ### 4.2 手動フルリストア訓練（四半期に 1 回・本番影響なし）
 
@@ -225,7 +248,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File D:\APP\Kanflow\ops\backup\re
 片付け:
 
 ```powershell
-# 訓練用 DB の削除（root で）
+# 訓練用 DB の削除（v2 = PostgreSQL、スーパーユーザーで）
+& "C:\Program Files\PostgreSQL\16\bin\psql.exe" -h 127.0.0.1 -U postgres -d postgres -c "DROP DATABASE kanflow_drill WITH (FORCE)"
+# 本番（MySQL、K2 まで）
 & "C:\Program Files\MySQL\MySQL Server 8.4\bin\mysql.exe" -u root -p -e "DROP DATABASE kanflow_drill;"
 Remove-Item D:\KanflowDrill -Recurse -Force
 ```
@@ -234,13 +259,15 @@ Remove-Item D:\KanflowDrill -Recurse -Force
 
 | 症状 | 対処 |
 |------|------|
-| `configuration error: mysqldump.exe not found` | `KANFLOW_MYSQL_BIN` に MySQL の bin フォルダを設定 |
-| `mysqldump exited with code 2 ... Access denied ... EVENT/ROUTINE` | アプリユーザーに権限不足 → `-UseRootCredential` を付けてタスク再登録（引数を手で追加） |
+| `configuration error: pg_dump.exe / psql.exe not found` | PostgreSQL 16 以上のクライアントを入れ、`KANFLOW_PG_BIN` に bin フォルダを設定 |
+| `pg_dump exited with code 1 ... permission denied` | アプリユーザーに権限不足 → `-UseRootCredential` を付けてタスク再登録（引数を手で追加） |
+| `psql import exited with 3 ...` | 復元先の作成・取り込みの途中で失敗（`ON_ERROR_STOP`）。メッセージの文を確認。拡張（`citext` / `pg_trgm`）が作れない場合はスーパーユーザーで実行 |
+| （本番 MySQL）`mysqldump.exe not found` / `Access denied ... EVENT/ROUTINE` | 本番のチェックアウトの MySQL 用スクリプトの事象: `KANFLOW_MYSQL_BIN` の設定 / `-UseRootCredential` |
 | `not enough free space` | 保存先の容量確保、または `-DailyKeep` を減らす |
 | `DESTINATION ... IS ON THE SAME DRIVE` WARN | 保存先を E: や NAS に変更 |
 | NAS で `Access is denied` | `-RunAsUser` 付きでタスクを再登録 |
 | 毎回 `backup.secondary-missing` アラート | `app\.env` に `KANFLOW_BACKUP_SECONDARY_DIR=\\NAS\share\kanflow` を設定（または `-SecondaryDestination` でタスク再登録） |
 | exit 3 / `SECONDARY COPY FAILED` | タスク アカウントの共有への書き込み権限、NAS の空き容量、`ops\logs\backup-robocopy.log` を確認。ローカル世代は有効 |
 | `restore-drill.failed` | `ops\logs\restore-drill.log` の `problem:` 行を確認。SHA-256 不一致 = 世代破損、行数差 = バックアップ中の書き込み（再実行で解消するか確認）、`.db-pw` 不在 = exit 2 |
-| `drill database ... KEPT` / `scrum_tool_drill` が残っている | `-KeepDatabase` 実行後、または DROP 失敗。root で `DROP DATABASE scrum_tool_drill;` |
+| `drill database ... KEPT` / `scrum_tool_drill` が残っている | `-KeepDatabase` 実行後、または DROP 失敗。スーパーユーザーで `DROP DATABASE scrum_tool_drill WITH (FORCE);`（本番 MySQL は root で `DROP DATABASE scrum_tool_drill;`） |
 | リストア後 `/api/health` が 503 | `KanflowMySQL` の状態、`app\.env` の DB 設定、デーモンログ（`ops\web\daemon\kanflow.err.log`、ラッパー移設前は `app\node_modules\next\dist\bin\daemon\kanflow.err.log`）を確認 |

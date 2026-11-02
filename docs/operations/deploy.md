@@ -1,5 +1,11 @@
 # Kanflow デプロイ / ロールバック手順（正式版）
 
+> **Kanflow v2（このブランチ）は PostgreSQL 16 で動きます**（基盤共通の `timescale/timescaledb:2.28.1-pg16`、
+> MR K1）。**本番サーバーは承認された移行（MR K2: データ移行ツール + 切り替え）まで MySQL 8.4 のまま**で、
+> 本番のチェックアウト（別ブランチ）が凍結した MySQL 用マイグレーション（`app/prisma/migrations-mysql/`）と
+> 下記の MySQL 前提の手順を使い続けます。v2 の DB は `app/prisma/migrations/`（`0_init` から）だけを使い、
+> MySQL へは適用できません（schema の provider が `postgresql` で、MySQL のサーバーには接続すらできない）。v2 の main を本番へ自動デプロイしないこと。
+
 **本番へのデプロイとロールバックはこの文書だけに従ってください。** runbook.md §4、worker.md、
 app/README.md のデプロイ記述はすべてここを参照します。
 
@@ -255,6 +261,10 @@ node --import tsx scripts/migrate-assignees.ts --apply    # 確認後に投入�
 ## 5b. P3 FULLTEXT 検索（`20261003010000_fulltext_search`）
 
 横断検索（Ctrl+K / `GET /api/search`）とチャットツール `search_work_items` 用に、
+> v2（PostgreSQL）では FULLTEXT の代わりに pg_trgm の GIN インデックス（`*_trgm_idx`、`0_init` に含まれる）を使い、
+> 検索は大文字小文字を区別しない ILIKE + `word_similarity` の順位です（`SEARCH_FULLTEXT` は同じ意味で有効）。
+> この節は本番（MySQL、K2 まで）のマイグレーションの説明です。
+
 `WITH PARSER ngram` の FULLTEXT インデックスを 7 本追加します（PBI / タスク / Icebox / プロジェクト名 /
 プロダクトゴール / `field_translation`（JA↔ID の訳文）/ `Comment.body`）。データは変更しません。
 
@@ -444,6 +454,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File D:\APP\Kanflow\ops\deploy\sw
 5. **`node_modules`**: Phase C をまたいで戻すときは §C3 のロールバック（`node-modules-snapshot.ps1 -Restore`）が必須。
 
 ## 7. 単一インスタンスロック（N8）
+
+> v2（PostgreSQL）: ロックは **セッションのアドバイザリロック**（`pg_try_advisory_lock(hashtextextended('kanflow_worker', 0))`）を
+> **専用の `pg` 接続**で保持し、心拍の確認は `pg_locks`（自分の `pg_backend_pid()` が持っているか）。接続が切れればロックも消え、
+> `verify` が false → 再起動、の流れは同じです。手動実行の排他（AI 監視）は `pg_try_advisory_xact_lock`（トランザクション終了で解放）。
+> 以下は本番（MySQL、K2 まで）の説明です。
 
 ワーカーは `GET_LOCK('kanflow_worker')` を **専用の mariadb 接続**（`DATABASE_*`、無ければ `DATABASE_URL`）で保持します。
 以前は Prisma のプール接続上の長時間トランザクションで保持しており、アプリのプール（5 本）を 1 本占有し、

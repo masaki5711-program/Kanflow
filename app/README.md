@@ -1,6 +1,8 @@
 # Kanflow app (Next.js)
 
-Next.js 16 + React 19 + Prisma 7 (MySQL 8.4 via `@prisma/adapter-mariadb`).
+Next.js 16 + React 19 + Prisma 7 (PostgreSQL 16 via `@prisma/adapter-pg`; platform image
+`timescale/timescaledb:2.28.1-pg16`). **The production server stays on MySQL 8.4 with its own
+checkout until the approved cutover (MR K2)** - this version cannot run against MySQL.
 Operations (services, backups, watchdog) are documented in the repo root
 [README.md](../README.md) and [docs/operations/](../docs/operations/).
 **Deploy and rollback: [docs/operations/deploy.md](../docs/operations/deploy.md)** (the only authoritative procedure).
@@ -28,7 +30,27 @@ Never commit `.env`.
 
 ## Database / Prisma
 
+- **PostgreSQL 16.** Local / test database: `docker compose -f ../ops/test-env/compose.yml up -d --wait`
+  (127.0.0.1:25434, synthetic credentials `kanflow_dev` / `kanflow_dev` / `scrum_tool`, UTF-8 + ICU `und`
+  collation). Point `.env` at it (`DATABASE_URL=postgresql://...` and the matching `DATABASE_*`).
+- Migrations: `prisma/migrations/` is the PostgreSQL history, starting with the baseline `0_init`
+  (re-created from the schema, not translated; it also creates the `citext` and `pg_trgm` extensions).
+  `prisma/migrations-mysql/` holds the 58 frozen MySQL migrations the production server keeps applying
+  until the cutover - never edit them, never add to them, never point the CLI at them from this version.
 - Schema: `prisma/schema.prisma`; client generated to `src/generated/prisma` (`npx prisma generate`, not committed).
+- MySQL `utf8mb4_unicode_ci` compared text case-insensitively; PostgreSQL does not. Rules:
+  user-facing text search uses `contains` with `mode: "insensitive"` (ILIKE); keys that must be unique
+  regardless of case are `@db.Citext` (`User.email`, `User.employeeNumber`, `Section.name`,
+  `AdminCategory.name`, `UserProjectCategory.name`); machine values (ids, hashes, git refs, paths) stay
+  case-sensitive.
+- Raw SQL (`$queryRaw` / `$executeRaw`): double-quote every camelCase / PascalCase identifier
+  (`"ProductBacklogItem"."projectId"`; unquoted names fold to lower case), use `ON CONFLICT`, no
+  `DELETE ... LIMIT`, `(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')` for the UTC clock (columns are
+  `timestamp(3)` holding UTC). A failed statement aborts the whole PostgreSQL transaction: best-effort
+  writes inside a caller's transaction go through `bestEffort()` (`src/services/_shared/savepoint.ts`).
+  Named locks are advisory locks (`src/worker/named-lock.ts`, `dedicated-lock.ts`). Every raw-SQL site
+  has a real-database test in `src/lib/__tests__/postgres.db.test.ts`.
+- Real-database tests (skipped unless `KANFLOW_DB_TESTS=1`): `KANFLOW_DB_TESTS=1 npx vitest run src/lib/__tests__/postgres.db.test.ts src/services/dev-work/__tests__/dev-work.db.test.ts src/services/acceptance-criteria/__tests__/acceptance-criteria.db.test.ts src/services/feedback/__tests__/feedback.db.test.ts`
 - Schema changes: create a migration in development
   (`npx prisma migrate dev --name <change>`), commit `prisma/migrations/<ts>_<change>/`,
   and apply on the server with **`npx prisma migrate deploy`** (deploy.ps1 `-ApplyMigrations`).
@@ -38,7 +60,8 @@ Never commit `.env`.
   `prisma.config.ts`; there is no `--shadow-database-url` flag and `--to-schema-datamodel`
   is now `--to-schema`):
   - migrations vs schema (needs a throw-away shadow DB; CI job `prisma-migrate-check` does this):
-    `$env:SHADOW_DATABASE_URL="mysql://root:pw@127.0.0.1:33999/shadow"; npx prisma migrate diff --from-migrations prisma/migrations --to-schema prisma/schema.prisma --exit-code`
+    `$env:SHADOW_DATABASE_URL="postgresql://kanflow_dev:kanflow_dev@127.0.0.1:25434/prisma_shadow"; npx prisma migrate diff --from-migrations prisma/migrations --to-schema prisma/schema.prisma --exit-code`
+    (create the empty shadow database first: `docker exec kanflow-v2-test-postgres-1 createdb -U kanflow_dev prisma_shadow`)
   - live DB vs schema (**read-only**, safe on production):
     `npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --script`
     (`--exit-code`: 0 = identical, 2 = different)

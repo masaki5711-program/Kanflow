@@ -438,8 +438,8 @@ not proposed.
 Tables (migration `20261101160000_feedback_loop`): `failure_event`, `lesson` (unique `(signature, scope)`),
 `lesson_resolution` (one per failure). Import of the agent model's mistake-memory:
 `node --import tsx scripts/import-mistake-memory.ts --file <records.jsonl> [--apply]` (dry run by default;
-idempotent by signature; confirmed global lessons). PostgreSQL migration checklist: `contains` search in
-`feedback.lessons.service.ts` needs `mode: "insensitive"` there (MySQL's collation is case-insensitive).
+idempotent by signature; confirmed global lessons). The lesson text search (`q`, `feedback.lessons.service.ts`)
+is case-insensitive (`contains` + `mode: "insensitive"` on PostgreSQL, as MySQL's collation was).
 
 ## Examples
 

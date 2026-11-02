@@ -37,8 +37,8 @@ Claude Code から PBI・受入条件・担当タスクを読み、タスク更�
 | レイヤー | 技術 |
 |---------|------|
 | アプリ | Next.js 16（`next build --webpack` / `next start`）、React 19、TypeScript、Tailwind CSS 4 |
-| ORM | Prisma 7（`@prisma/adapter-mariadb`、マイグレーション: `prisma/migrations`） |
-| DB | **MySQL 8.4 ネイティブ**（Windows サービス `KanflowMySQL`, 127.0.0.1:3306） |
+| ORM | Prisma 7（v2: `@prisma/adapter-pg`、マイグレーション: `prisma/migrations`（PostgreSQL、`0_init` から）。本番の MySQL 用は `prisma/migrations-mysql`（凍結）） |
+| DB | **v2（このブランチ）: PostgreSQL 16**（`timescale/timescaledb:2.28.1-pg16`）。**本番サーバーは移行（MR K2）まで MySQL 8.4 ネイティブ**（Windows サービス `KanflowMySQL`, 127.0.0.1:3306） |
 | 常駐 | **node-windows サービス `kanflow.exe`**（表示名 "Kanflow"、LocalSystem、ポート 3000） |
 | 文書編集 | Collabora Online コンテナ（Rancher Desktop / dockerd, :9980） |
 | AI | Ollama（:11434, 既定モデル `qwen3.8:27b-q4_K_M`） |
@@ -75,6 +75,31 @@ Kanflow/
 ├── docker-compose-collabora.yml / collabora-coolwsd.xml
 └── mysql-data/                 MySQL datadir + my.ini（git 管理外）
 ```
+
+## v2（PostgreSQL）の DB
+
+v2 は PostgreSQL 16 で動きます。本番サーバーは承認された移行（MR K2）まで MySQL 8.4 のままで、
+下の「本番サーバーの新規構築」の手順 1・4 は**その MySQL の本番用**です。
+
+- ローカル / テスト用の DB: `docker compose -f ops/test-env/compose.yml up -d --wait`
+  （プロジェクト名 `kanflow-v2-test`、**127.0.0.1:25434 のみ**、名前付きボリューム、**合成の資格情報**
+  `kanflow_dev` / `kanflow_dev` / DB `scrum_tool`。合成データ専用）
+- `app\.env`（コミット禁止）: `DATABASE_URL="postgresql://kanflow_dev:kanflow_dev@127.0.0.1:25434/scrum_tool"`、
+  `DATABASE_HOST=127.0.0.1` / `DATABASE_PORT=25434` / `DATABASE_USER` / `DATABASE_PASSWORD` / `DATABASE_NAME` を同じ値に
+- `cd app && npx prisma generate && npx prisma migrate deploy`（`0_init` が `citext` と `pg_trgm` 拡張も作る。
+  DB の所有者なら作れる = スーパーユーザー不要）
+- 初期管理者（合成の値で）:
+  ```powershell
+  $hash = node -e "process.stdout.write(require('bcryptjs').hashSync(process.argv[1], 12))" "<合成のパスワード>"
+  # SQL via stdin (no quoting through docker / PowerShell arguments); "" = a literal " in PowerShell.
+  "INSERT INTO ""User"" (id,name,email,password,role,""isActive"",language,""createdAt"",""updatedAt"") VALUES ('bootstrap-admin','Admin','admin@example.local','$hash','admin',true,'ja',(now() AT TIME ZONE 'UTC'),(now() AT TIME ZONE 'UTC'));" |
+    docker exec -i kanflow-v2-test-postgres-1 psql -v ON_ERROR_STOP=1 -U kanflow_dev -d scrum_tool
+  ```
+- 実 DB のテスト: `KANFLOW_DB_TESTS=1 npx vitest run src/lib/__tests__/postgres.db.test.ts src/services/dev-work/__tests__/dev-work.db.test.ts src/services/acceptance-criteria/__tests__/acceptance-criteria.db.test.ts src/services/feedback/__tests__/feedback.db.test.ts`
+- MySQL との違い（アプリ側で吸収済み）: メール・社員番号・セクション名・カテゴリ名は `citext`（大文字小文字を区別しない一意）、
+  文字列の検索は `contains` + `mode: "insensitive"`（ILIKE）、FULLTEXT（ngram）は pg_trgm の GIN インデックス + ILIKE +
+  `word_similarity` の順位、`GET_LOCK` はアドバイザリロック。DB は UTF-8 + ICU `und` の照合順序で作る（並び順を
+  MySQL の `utf8mb4_unicode_ci` に近づけるため。`ops/test-env/compose.yml` の `POSTGRES_INITDB_ARGS`）。
 
 ## 本番サーバーの新規構築
 
@@ -130,13 +155,13 @@ Kanflow/
 cd app
 npm install
 npx prisma generate
-npm run dev            # http://localhost:3000 （本番と同じ DB を使う場合は -p 3001 等で別ポートに）
+npm run dev            # http://localhost:3000 （DB は v2 の PostgreSQL: 上の「v2（PostgreSQL）の DB」。本番の DB は使わない）
 npm run typecheck
 npm run lint
 npm test
 ```
 
-CI: `.gitlab-ci.yml`（lint / typecheck / test / npm audit / Prisma マイグレーションのドリフト検出）。
+CI: `.github/workflows/ci.yml`（[docs/ci.md](docs/ci.md)、PostgreSQL 16 のサービスコンテナで移行・ドリフト・実 DB テスト・E2E）、`.gitlab-ci.yml`（lint / typecheck / test / npm audit / Prisma マイグレーションのドリフト検出）。
 
 ## 権限モデル
 
@@ -158,7 +183,7 @@ CI: `.gitlab-ci.yml`（lint / typecheck / test / npm audit / Prisma マイグレ
 | 症状 | 対策 |
 |------|------|
 | サービス再起動後に 1067 で停止、err ログに `EADDRINUSE` | 旧 `next start` がポート 3000 を保持 → `recover.bat` |
-| `/api/health` が 503（db: error） | `Get-Service KanflowMySQL`、`app\.env` の `DATABASE_*`、`mysql-logs\error.log` |
+| `/api/health` が 503（db: error） | 本番（MySQL）: `Get-Service KanflowMySQL`、`app\.env` の `DATABASE_*`、`mysql-logs\error.log`。v2（PostgreSQL）: `docker compose -f ops/test-env/compose.yml ps`、`app\.env` の `DATABASE_*`（ポート 25434） |
 | `ER_CANNOT_RETRIEVE_RSA_KEY` / pool timeout | `src/lib/prisma.ts` の `allowPublicKeyRetrieval: true` を確認（MySQL 8.4 の caching_sha2） |
 | 「認識されていない WOPI ホストです」 | Collabora を `--force-recreate`（aliasgroup がホスト名と一致しているか） |
 | AI 応答が極端に遅い | Ollama を `setup\start-ollama.bat` で起動し直す（`OLLAMA_NUM_CTX` と `OLLAMA_CONTEXT_LENGTH` を一致させる） |

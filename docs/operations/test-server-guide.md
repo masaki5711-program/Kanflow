@@ -8,6 +8,13 @@
 
 本番の手順の正は今までどおり [deploy.md](./deploy.md)。**この文書とガイドはテストサーバー専用で、本番は変更しない。**
 
+> **2026-11-02 追記（MR K1）**: ブランチ `feat/L4-db-postgresql` 以降の Kanflow v2 は **PostgreSQL 16**
+> （`timescale/timescaledb:2.28.1-pg16`）で動く。下の表の MySQL の手順 1・6・11 は K1 より前のコミット用。
+> v2 では手順 1 を `docker compose -f ops/test-env/compose.yml up -d --wait`（127.0.0.1:25434、合成の資格情報、
+> または同じ設定の PostgreSQL 16）に、`DATABASE_URL` を `postgresql://...` に、手順 5 のマイグレーションを
+> `0_init`（1 本）に、手順 6 の INSERT を `psql` の `"User"`（ルートの `README.md`「v2（PostgreSQL）の DB」）に、
+> 手順 11 の実 DB テストを 4 本（[../ci.md](../ci.md)）に読み替える。本番は移行（MR K2）まで MySQL のまま。
+
 ## 手順の要約
 
 | # | 内容 | 根拠 |
