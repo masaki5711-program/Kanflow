@@ -32,6 +32,15 @@ Changes nothing outside the drill database and %TEMP%. Needs the PostgreSQL
 superuser password file D:\APP\Kanflow\.db-pw (user DATABASE_ADMIN_USER,
 default "postgres"; the app user cannot CREATE databases).
 
+Locale: the drill database is created with the SOURCE database's locale
+recorded in the manifest (dbLocale: provider / collate / ctype / ICU) and the
+drill FAILS if the restored database does not carry it. -UseServerLocale uses
+the target server's template1 settings instead (e.g. restoring a Linux
+"C.UTF-8" backup onto a native Windows PostgreSQL that has no such locale);
+the mismatch is then logged as a warning, not a failure. The reference target
+is the platform PostgreSQL 16 + TimescaleDB container (UTF-8, ICU "und",
+ctype C.UTF-8), where the recorded locale always exists.
+
 Exit codes: 0 = drill passed, 1 = drill failed, 2 = configuration error.
 
 .EXAMPLE
@@ -49,7 +58,8 @@ param(
     [ValidateRange(0, 1000000)][int]$RowDriftMin = 10,
     [string[]]$KeyTables = @("User", "Project", "_prisma_migrations"),
     [switch]$KeepDatabase,
-    [switch]$NoSuccessAlert
+    [switch]$NoSuccessAlert,
+    [switch]$UseServerLocale
 )
 
 $ErrorActionPreference = "Stop"
@@ -145,7 +155,7 @@ function Save-DrillResult([hashtable]$r) {
 
 # ======================================================================
 $started = Get-Date
-$result = @{ startedAt = $started.ToString("o"); generation = $null; drillDatabase = $null; passed = $false; problems = @(); durationSec = $null; importSec = $null }
+$result = @{ startedAt = $started.ToString("o"); generation = $null; drillDatabase = $null; passed = $false; problems = @(); durationSec = $null; importSec = $null; locale = $null }
 $sqlFile = $null
 $drillCfg = $null
 $binDir = $null
@@ -188,9 +198,22 @@ try {
     Assert-KanflowDrillDatabaseName -Name $drillCfg.Database -ProductionName $prodName
     $importStart = Get-Date
     $created = $true
-    Import-KanflowDump -DbConfig $drillCfg -PgBinDir $binDir -SqlFile $sqlFile
+    $sourceLocale = $null
+    if ($m.PSObject.Properties.Name -contains "dbLocale" -and $m.dbLocale) { $sourceLocale = $m.dbLocale }
+    $wantLocale = $(if ($UseServerLocale -or -not $sourceLocale) { $null } else { $sourceLocale })
+    if (-not $sourceLocale) { Log "manifest has no dbLocale (older backup) - drill database uses the server's template1 locale" "WARN" }
+    $usedLocale = Import-KanflowDump -DbConfig $drillCfg -PgBinDir $binDir -SqlFile $sqlFile -Locale $wantLocale
+    $result.locale = $usedLocale
     $result.importSec = [int]((Get-Date) - $importStart).TotalSeconds
     Log "import into $($drillCfg.Database) finished in $($result.importSec)s"
+
+    # The locale must have arrived on the restored database (collation = sort order, ctype = trigram/case rules).
+    $actualLocale = Get-KanflowDbLocale -DbConfig $drillCfg -PgBinDir $binDir
+    Log ("drill database locale: provider={0} collate={1} ctype={2} icu={3}" -f $actualLocale.Provider, $actualLocale.Collate, $actualLocale.Ctype, $actualLocale.IcuLocale)
+    if ($sourceLocale -and -not (Test-KanflowLocaleEqual $sourceLocale $actualLocale)) {
+        $msg = ("locale differs from the source: provider={0} collate={1} ctype={2} icu={3}" -f $sourceLocale.Provider, $sourceLocale.Collate, $sourceLocale.Ctype, $sourceLocale.IcuLocale)
+        if ($UseServerLocale) { Log "$msg (-UseServerLocale)" "WARN" } else { $problems.Add($msg) }
+    }
 
     $counts = Get-KanflowTableCounts -DbConfig $drillCfg -PgBinDir $binDir
     if ($counts.Count -ne $x.CreateTables) { $problems.Add("drill database has $($counts.Count) tables, dump creates $($x.CreateTables)") }

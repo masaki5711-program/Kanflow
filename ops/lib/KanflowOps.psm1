@@ -213,14 +213,28 @@ function New-PgPassFile {
     param([Parameter(Mandatory = $true)]$DbConfig)
 
     $path = Join-Path ([System.IO.Path]::GetTempPath()) ("kanflow-pgpass-{0}.conf" -f ([guid]::NewGuid().ToString("N")))
+    # Empty file first; the password is written only after the ACL is locked.
     [System.IO.File]::WriteAllText($path, "", (New-Object System.Text.UTF8Encoding($false)))
     $me = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
     & icacls.exe $path /inheritance:r /grant:r "${me}:(F)" "*S-1-5-18:(F)" "*S-1-5-32-544:(F)" | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+        throw "could not restrict the ACL of the temporary password file (icacls exit $LASTEXITCODE); nothing written"
+    }
 
     $esc = { param([string]$v) $v.Replace('\', '\\').Replace(':', '\:') }
     $line = "{0}:{1}:*:{2}:{3}" -f (& $esc $DbConfig.Host), $DbConfig.Port, (& $esc $DbConfig.User), (& $esc ([string]$DbConfig.Password))
     [System.IO.File]::WriteAllText($path, $line + "`n", (New-Object System.Text.UTF8Encoding($false)))
     return $path
+}
+
+function Get-PgTimeoutSec {
+    <# Bound of one pg_dump / psql run: KANFLOW_PG_TIMEOUT_SEC (environment or app\.env), default 7200 s. #>
+    $raw = $null
+    try { $raw = Get-KanflowSetting -Name "KANFLOW_PG_TIMEOUT_SEC" } catch { $raw = $null }
+    $n = 0
+    if ($raw -and [int]::TryParse([string]$raw, [ref]$n) -and $n -gt 0) { return $n }
+    return 7200
 }
 
 function Get-PgConnectionArgs {
@@ -242,14 +256,16 @@ function Invoke-PgClient {
         [Parameter(Mandatory = $true)][string]$PassFile,
         [string]$StdinFile,
         [string]$StdoutFile,
-        [string]$StderrFile
+        [string]$StderrFile,
+        # Whole-run bound (pg_dump / import can take long; a hung client must not hang the task).
+        [int]$TimeoutSec = (Get-PgTimeoutSec)
     )
     $saved = @{ PGPASSFILE = $env:PGPASSFILE; PGCONNECT_TIMEOUT = $env:PGCONNECT_TIMEOUT; PGCLIENTENCODING = $env:PGCLIENTENCODING }
     try {
         $env:PGPASSFILE = $PassFile
         $env:PGCONNECT_TIMEOUT = "15"
         $env:PGCLIENTENCODING = "UTF8"
-        return (Invoke-NativeProcess -FilePath $FilePath -Arguments $Arguments -StdinFile $StdinFile -StdoutFile $StdoutFile -StderrFile $StderrFile)
+        return (Invoke-NativeProcess -FilePath $FilePath -Arguments $Arguments -StdinFile $StdinFile -StdoutFile $StdoutFile -StderrFile $StderrFile -TimeoutSec $TimeoutSec)
     } finally {
         foreach ($k in $saved.Keys) {
             if ($null -eq $saved[$k]) { Remove-Item -LiteralPath "Env:$k" -ErrorAction SilentlyContinue } else { Set-Item -LiteralPath "Env:$k" -Value $saved[$k] }
@@ -269,19 +285,33 @@ function Invoke-NativeProcess {
         [Parameter(Mandatory = $true)][string]$Arguments,
         [string]$StdinFile,
         [string]$StdoutFile,
-        [string]$StderrFile
+        [string]$StderrFile,
+        # 0 = wait forever (previous behaviour). Otherwise the process is killed after
+        # this many seconds, a warning is written (and appended to StderrFile) and 124 returned.
+        [int]$TimeoutSec = 0
     )
     $p = @{
         FilePath     = $FilePath
         ArgumentList = $Arguments
         NoNewWindow  = $true
-        Wait         = $true
         PassThru     = $true
     }
     if ($StdinFile) { $p.RedirectStandardInput = $StdinFile }
     if ($StdoutFile) { $p.RedirectStandardOutput = $StdoutFile }
     if ($StderrFile) { $p.RedirectStandardError = $StderrFile }
+    if ($TimeoutSec -le 0) { $p.Wait = $true }
     $proc = Start-Process @p
+    if ($TimeoutSec -le 0) { return $proc.ExitCode }
+    $null = $proc.Handle   # cache the handle so ExitCode is readable after the wait
+    if (-not $proc.WaitForExit($TimeoutSec * 1000)) {
+        try { Stop-Process -Id $proc.Id -Force -ErrorAction Stop } catch { Write-Verbose "kill failed: $($_.Exception.Message)" }
+        [void]$proc.WaitForExit(10000)
+        $msg = "TIMEOUT: {0} killed after {1}s" -f (Split-Path -Leaf $FilePath), $TimeoutSec
+        Write-Warning $msg
+        if ($StderrFile) { try { Add-Content -LiteralPath $StderrFile -Value $msg -Encoding UTF8 } catch { Write-Verbose "stderr append failed" } }
+        return 124
+    }
+    $proc.WaitForExit()
     return $proc.ExitCode
 }
 
@@ -309,7 +339,7 @@ function Invoke-PgQuery {
         # The statement goes through a file: no quoting of SQL on the command line.
         [System.IO.File]::WriteAllText($sqlFile, $Sql, (New-Object System.Text.UTF8Encoding($false)))
         $argString = "{0} -d {1} -X -q -A -t -F `"`t`" -v ON_ERROR_STOP=1 -f `"{2}`"" -f (Get-PgConnectionArgs $DbConfig), $Database, $sqlFile
-        $code = Invoke-PgClient -FilePath (Join-Path $PgBinDir "psql.exe") -Arguments $argString -PassFile $PassFile -StdoutFile $out -StderrFile $err
+        $code = Invoke-PgClient -FilePath (Join-Path $PgBinDir "psql.exe") -Arguments $argString -PassFile $PassFile -StdoutFile $out -StderrFile $err -TimeoutSec 600
         if ($code -ne 0) {
             $msg = ([System.IO.File]::ReadAllText($err)).Trim()
             throw "psql exited with $code : $msg"
@@ -696,6 +726,9 @@ function Export-KanflowDatabase {
     }
     $tail = @(Get-Content -LiteralPath $sqlFile -Tail 8 -Encoding UTF8)
     if (@($tail -match "^-- PostgreSQL database dump complete").Count -eq 0) { throw "dump file is incomplete (no 'PostgreSQL database dump complete' trailer)" }
+    # The platform image pre-installs TimescaleDB; Kanflow does not use it. Without these
+    # lines the dump restores into any PostgreSQL 16 (with or without TimescaleDB).
+    [void](Remove-KanflowDumpExtensionLines -Path $sqlFile)
 
     $rawBytes = (Get-Item -LiteralPath $sqlFile).Length
     Compress-GzipFile -Source $sqlFile -Destination $OutFile
@@ -707,6 +740,100 @@ function Export-KanflowDatabase {
         Sha256   = (Get-FileSha256 -Path $OutFile)
         Warnings = $errText
     }
+}
+
+function Remove-KanflowDumpExtensionLines {
+    <#
+    .SYNOPSIS
+    Rewrite a plain pg_dump file without the statements that need TimescaleDB
+    ("CREATE EXTENSION ... timescaledb", "COMMENT ON EXTENSION timescaledb").
+    Line-based (COPY data never starts a line with these keywords: newlines in
+    values are escaped). Returns the number of lines removed.
+    #>
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $pattern = '^(CREATE EXTENSION (IF NOT EXISTS )?timescaledb\b|COMMENT ON EXTENSION timescaledb\b)'
+    $tmp = "$Path.filtered"
+    $enc = New-Object System.Text.UTF8Encoding($false)
+    $removed = 0
+    $reader = New-Object System.IO.StreamReader($Path, $enc)
+    try {
+        $writer = New-Object System.IO.StreamWriter($tmp, $false, $enc)
+        try {
+            $writer.NewLine = "`n"
+            while ($null -ne ($line = $reader.ReadLine())) {
+                if ($line -match $pattern) { $removed++; continue }
+                $writer.WriteLine($line)
+            }
+        } finally { $writer.Dispose() }
+    } finally { $reader.Dispose() }
+    Move-Item -LiteralPath $tmp -Destination $Path -Force
+    return $removed
+}
+
+function Get-KanflowDbLocale {
+    <#
+    .SYNOPSIS
+    Locale settings of a database (default: the configured one) or, with
+    -ServerDefault, of the server's template1 (always valid on that server).
+    Returns Provider ("icu"|"libc"), Collate, Ctype, IcuLocale.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]$DbConfig,
+        [Parameter(Mandatory = $true)][string]$PgBinDir,
+        [switch]$ServerDefault
+    )
+    $pass = New-PgPassFile -DbConfig $DbConfig
+    try {
+        $where = $(if ($ServerDefault) { "datname = 'template1'" } else { "datname = current_database()" })
+        $db = $(if ($ServerDefault) { "postgres" } else { $DbConfig.Database })
+        $sql = "SELECT CASE datlocprovider WHEN 'i' THEN 'icu' ELSE 'libc' END, datcollate, datctype, COALESCE(daticulocale, '') FROM pg_database WHERE $where"
+        $line = @(Invoke-PgQuery -PgBinDir $PgBinDir -DbConfig $DbConfig -PassFile $pass -Sql $sql -Database $db) | Select-Object -First 1
+        $parts = @($line -split "`t")
+        if ($parts.Count -lt 4) { throw "could not read the database locale" }
+        return [pscustomobject]@{ Provider = $parts[0]; Collate = $parts[1]; Ctype = $parts[2]; IcuLocale = $parts[3] }
+    } finally {
+        Remove-Item -LiteralPath $pass -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Get-KanflowCreateDatabaseSql {
+    <#
+    .SYNOPSIS
+    CREATE DATABASE statement (from template0, UTF-8) with the given locale
+    (from Get-KanflowDbLocale or a backup manifest's dbLocale). Every value is
+    validated (no quotes) before it is put into the statement.
+    #>
+    param(
+        [Parameter(Mandatory = $true)][string]$Name,
+        [Parameter(Mandatory = $true)]$Locale,
+        [string]$Owner
+    )
+    if ($Name -notmatch '^[A-Za-z0-9_]{1,63}$') { throw "invalid database name" }
+    if ($Owner -and $Owner -notmatch '^[A-Za-z0-9_]{1,63}$') { throw "invalid owner role name" }
+    $ok = '^[A-Za-z0-9 _.,@()-]{1,100}$'
+    foreach ($k in @("Collate", "Ctype")) {
+        if ([string]$Locale.$k -notmatch $ok) { throw "invalid locale value for ${k}: '$($Locale.$k)'" }
+    }
+    $sql = "CREATE DATABASE `"$Name`""
+    if ($Owner) { $sql += " OWNER `"$Owner`"" }
+    $sql += " TEMPLATE template0 ENCODING 'UTF8'"
+    if ($Locale.Provider -eq "icu") {
+        if ([string]$Locale.IcuLocale -notmatch $ok) { throw "invalid ICU locale: '$($Locale.IcuLocale)'" }
+        $sql += " LOCALE_PROVIDER icu ICU_LOCALE '$($Locale.IcuLocale)'"
+    } elseif ($Locale.Provider -eq "libc") {
+        $sql += " LOCALE_PROVIDER libc"
+    } else {
+        throw "invalid locale provider: '$($Locale.Provider)'"
+    }
+    $sql += " LC_COLLATE '$($Locale.Collate)' LC_CTYPE '$($Locale.Ctype)'"
+    return $sql
+}
+
+function Test-KanflowLocaleEqual {
+    param($A, $B)
+    if ($null -eq $A -or $null -eq $B) { return $false }
+    return ($A.Provider -eq $B.Provider -and $A.Collate -eq $B.Collate -and $A.Ctype -eq $B.Ctype -and ([string]$A.IcuLocale) -eq ([string]$B.IcuLocale))
 }
 
 function Get-KanflowTableCounts {
@@ -746,7 +873,8 @@ function Test-IsAdministrator {
 Export-ModuleMember -Function Get-KanflowRoot, Get-KanflowPaths, Get-KanflowDaemonLogFiles, Get-KanflowEnvValue, `
     Get-TranslationWorkerMode, Get-WorkerHeartbeatFile, Get-WorkerHeartbeat, Restart-KanflowWorker, `
     Read-DotEnv, Get-KanflowDbConfig, `
-    Get-PgBinDir, New-PgPassFile, Get-PgConnectionArgs, Invoke-PgClient, Invoke-NativeProcess, Invoke-PgQuery, `
+    Get-PgBinDir, New-PgPassFile, Get-PgConnectionArgs, Get-PgTimeoutSec, Invoke-PgClient, Invoke-NativeProcess, Invoke-PgQuery, `
+    Remove-KanflowDumpExtensionLines, Get-KanflowDbLocale, Get-KanflowCreateDatabaseSql, Test-KanflowLocaleEqual, `
     Compress-GzipFile, Expand-GzipFile, Get-FileSha256, Invoke-Robocopy, `
     Get-PortListenerPids, Get-ServicePid, Test-KanflowHealth, Wait-Condition, `
     Stop-KanflowService, Start-KanflowService, Restart-KanflowService, `

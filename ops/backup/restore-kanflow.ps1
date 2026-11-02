@@ -23,6 +23,11 @@ another folder, e.g.
   -TargetDatabase kanflow_drill -PrivateTarget D:\KanflowDrill\private -NoServiceStop -UseRootCredential
 (-UseRootCredential because the app user normally cannot CREATE other databases.)
 
+Locale: the database is re-created with the SOURCE database's locale from the
+manifest (dbLocale). -UseServerLocale takes the target server's template1
+settings instead (restoring onto a server where that locale does not exist).
+The reference target is the platform PostgreSQL 16 + TimescaleDB container.
+
 Exit codes: 0 = success / dry-run OK, 1 = failure, 2 = aborted or invalid input.
 
 .EXAMPLE
@@ -46,6 +51,7 @@ param(
     [switch]$NoServiceStop,
     [switch]$NoSafetyBackup,
     [switch]$Force,
+    [switch]$UseServerLocale,
     [string]$ServiceName = "kanflow.exe"
 )
 
@@ -100,12 +106,15 @@ function Test-DatabaseExists($db, [string]$binDir) {
     }
 }
 
-function Restore-Database($db, [string]$binDir, [string]$sqlFile) {
+function Restore-Database($db, [string]$binDir, [string]$sqlFile, $manifest) {
     Log "database $($db.Database): drop, re-create and import..."
     # Restored as the superuser (-UseRootCredential): hand the database back to the app user.
     $owner = $(if ($UseRootCredential) { (Get-KanflowDbConfig).User } else { $null })
-    Import-KanflowDump -DbConfig $db -PgBinDir $binDir -SqlFile $sqlFile -Owner $owner
-    Log "database import finished"
+    $locale = $null
+    if (-not $UseServerLocale -and $manifest.PSObject.Properties.Name -contains "dbLocale" -and $manifest.dbLocale) { $locale = $manifest.dbLocale }
+    if (-not $locale) { Log "using the target server's template1 locale (-UseServerLocale or no dbLocale in the manifest)" "WARN" }
+    $used = Import-KanflowDump -DbConfig $db -PgBinDir $binDir -SqlFile $sqlFile -Owner $owner -Locale $locale
+    Log ("database import finished (locale provider={0} collate={1} ctype={2} icu={3})" -f $used.Provider, $used.Collate, $used.Ctype, $used.IcuLocale)
 }
 
 function Restore-Private([string]$gen, [string]$target) {
@@ -212,7 +221,7 @@ try {
                 Log "safety dump of current $($db.Database): $safety"
             }
         }
-        Restore-Database $db $binDir $sqlFile
+        Restore-Database $db $binDir $sqlFile $checked.Manifest
     }
     if (-not $SkipPrivate) { Restore-Private $gen $PrivateTarget }
     if ($RestoreEnv) { Restore-EnvFile $gen }

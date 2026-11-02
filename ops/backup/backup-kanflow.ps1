@@ -272,6 +272,9 @@ try {
 
     $dump = Invoke-DatabaseDump $db $binDir $partialDir
     $rowCounts = Get-RowCountsSafe $db $binDir
+    # Source locale (provider / collate / ctype / ICU): restores re-create the database with it.
+    $dbLocale = Get-KanflowDbLocale -DbConfig $db -PgBinDir $binDir
+    Log ("database locale: provider={0} collate={1} ctype={2} icu={3}" -f $dbLocale.Provider, $dbLocale.Collate, $dbLocale.Ctype, $dbLocale.IcuLocale)
     $priv = Copy-PrivateFiles $partialDir
     Copy-EnvFile $partialDir
 
@@ -282,6 +285,7 @@ try {
         createdAt     = $started.ToString("o")
         host          = $env:COMPUTERNAME
         database      = $db.Database
+        dbLocale      = $dbLocale
         dump          = $dump
         tableRowCounts = $rowCounts
         privateFiles  = $(if ($priv) { $priv.Files } else { 0 })

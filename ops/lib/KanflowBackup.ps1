@@ -62,6 +62,8 @@ function Expand-KanflowDump {
     $sql = Join-Path ([System.IO.Path]::GetTempPath()) ("kanflow-dump-{0}.sql" -f ([guid]::NewGuid().ToString("N")))
     try {
         Expand-GzipFile -Source $DumpPath -Destination $sql
+        # Older dumps may still carry CREATE EXTENSION timescaledb: drop it so they restore anywhere.
+        [void](Remove-KanflowDumpExtensionLines -Path $sql)
         $tail = @(Get-Content -LiteralPath $sql -Tail 8 -Encoding UTF8)
         if (@($tail -match "^-- PostgreSQL database dump complete").Count -eq 0) { throw "dump has no 'PostgreSQL database dump complete' trailer" }
         $switching = @(Select-String -LiteralPath $sql -Pattern '^\s*(\\connect\b|\\c\s|CREATE\s+DATABASE\b)' -Encoding UTF8 | Select-Object -First 1)
@@ -79,34 +81,50 @@ function Expand-KanflowDump {
 function Import-KanflowDump {
     <#
     .SYNOPSIS
-    DROP (WITH FORCE) + CREATE $DbConfig.Database (UTF-8, ICU "und" collation
-    like every Kanflow PostgreSQL, from template0 so no pre-installed extension
-    comes along) and import $SqlFile (from Expand-KanflowDump) into it with
-    ON_ERROR_STOP. With -Owner the new database and every table / sequence /
-    view are handed to that role afterwards (restore as the superuser, run the
-    app as its own user). Destructive: callers guard the name.
+    DROP (WITH FORCE) + CREATE $DbConfig.Database from template0 (UTF-8, no
+    pre-installed extension) with the locale -Locale - normally the SOURCE
+    database's settings recorded in the backup manifest (dbLocale). Without
+    -Locale (older generations, or -UseServerLocale in the scripts) the target
+    server's template1 settings are used: always valid on that server, e.g. a
+    native Windows PostgreSQL that has no "C.UTF-8" libc locale. Then imports
+    $SqlFile (from Expand-KanflowDump) with ON_ERROR_STOP in ONE transaction
+    (--single-transaction): a failed import leaves an empty database, never a
+    partial one. With -Owner the database and every table / sequence / view are
+    handed to that role afterwards. Returns the locale used. Destructive:
+    callers guard the name.
     #>
     param(
         [Parameter(Mandatory = $true)]$DbConfig,
         [Parameter(Mandatory = $true)][string]$PgBinDir,
         [Parameter(Mandatory = $true)][string]$SqlFile,
-        [string]$Owner
+        [string]$Owner,
+        $Locale
     )
     $name = $DbConfig.Database
     if ($name -notmatch '^[A-Za-z0-9_]{1,63}$') { throw "invalid database name" }
     if ($Owner -and $Owner -notmatch '^[A-Za-z0-9_]{1,63}$') { throw "invalid owner role name" }
+    if ($null -eq $Locale) { $Locale = Get-KanflowDbLocale -DbConfig $DbConfig -PgBinDir $PgBinDir -ServerDefault }
+    $create = Get-KanflowCreateDatabaseSql -Name $name -Locale $Locale
     $pass = New-PgPassFile -DbConfig $DbConfig
     $err = Join-Path ([System.IO.Path]::GetTempPath()) ("kanflow-import-{0}.err" -f ([guid]::NewGuid().ToString("N")))
+    $out = Join-Path ([System.IO.Path]::GetTempPath()) ("kanflow-import-{0}.out" -f ([guid]::NewGuid().ToString("N")))
     try {
         # Two statements, two calls: DROP / CREATE DATABASE cannot run inside one implicit transaction.
         [void](Invoke-PgQuery -PgBinDir $PgBinDir -DbConfig $DbConfig -PassFile $pass -Sql ("DROP DATABASE IF EXISTS `"{0}`" WITH (FORCE)" -f $name))
-        [void](Invoke-PgQuery -PgBinDir $PgBinDir -DbConfig $DbConfig -PassFile $pass -Sql ("CREATE DATABASE `"{0}`" TEMPLATE template0 ENCODING 'UTF8' LOCALE_PROVIDER icu ICU_LOCALE 'und' LOCALE 'C.UTF-8'" -f $name))
+        try {
+            [void](Invoke-PgQuery -PgBinDir $PgBinDir -DbConfig $DbConfig -PassFile $pass -Sql $create)
+        } catch {
+            if ($_.Exception.Message -match "invalid (LC_COLLATE|LC_CTYPE) locale name|ICU locale") {
+                throw ("this server does not have the source locale (provider={0} collate={1} ctype={2} icu={3}); re-run with -UseServerLocale to use the locale of this server. {4}" -f $Locale.Provider, $Locale.Collate, $Locale.Ctype, $Locale.IcuLocale, $_.Exception.Message)
+            }
+            throw
+        }
         $code = Invoke-PgClient -FilePath (Join-Path $PgBinDir "psql.exe") `
-            -Arguments ("{0} -d {1} -X -q -v ON_ERROR_STOP=1 -f `"{2}`"" -f (Get-PgConnectionArgs $DbConfig), $name, $SqlFile) `
-            -PassFile $pass -StdoutFile ([System.IO.Path]::GetTempFileName()) -StderrFile $err
+            -Arguments ("{0} -d {1} -X -q --single-transaction -v ON_ERROR_STOP=1 -f `"{2}`"" -f (Get-PgConnectionArgs $DbConfig), $name, $SqlFile) `
+            -PassFile $pass -StdoutFile $out -StderrFile $err
         if ($code -ne 0) {
             $msg = if (Test-Path -LiteralPath $err) { ([System.IO.File]::ReadAllText($err)).Trim() } else { "" }
-            throw "psql import exited with $code : $msg"
+            throw "psql import exited with $code (nothing imported: single transaction) : $msg"
         }
         if ($Owner) {
             [void](Invoke-PgQuery -PgBinDir $PgBinDir -DbConfig $DbConfig -PassFile $pass -Sql ("ALTER DATABASE `"{0}`" OWNER TO `"{1}`"" -f $name, $Owner))
@@ -122,8 +140,9 @@ END`$`$;
 "@
             [void](Invoke-PgQuery -PgBinDir $PgBinDir -DbConfig $DbConfig -PassFile $pass -Sql $reown -Database $name)
         }
+        return $Locale
     } finally {
-        Remove-Item -LiteralPath $pass, $err -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $pass, $err, $out -Force -ErrorAction SilentlyContinue
     }
 }
 
