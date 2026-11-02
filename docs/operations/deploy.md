@@ -450,6 +450,11 @@ mysql -u scrum_app -p scrum_tool -e "SHOW COLUMNS FROM PlanItem; SHOW TABLES LIK
   `PlanItem.templateKey`（VARCHAR(40) NULL）、`PlanItem.scheduleLoadId`（NULL、FK `plan_schedule_load`、記録の削除時 NULL）、
   新しい表 `plan_schedule_load`（UNIQUE (`projectId`, `proposalId`)、索引 `lineage`）。
   - **コードとの順序**: 新ビルドは新列に書きます。**マイグレーションを先に適用**してください（未適用だと読み込みの承認が 500 になります）。
+  - **ロック**: Prisma はこのファイルを 1 つのトランザクションで流すので、ロックはコミットまで続きます。`PlanItem` の索引の作成（`CONCURRENTLY` は使えない）は
+    作り終わるまで**全体計画への書き込みを止め**、FK の追加は `SHARE ROW EXCLUSIVE` で `PlanItem` を全件読みます（列はすべて NULL なので軽い）。
+    `PlanItem` は全体計画の行（1 プロジェクト 2,000 行まで）なので数秒の見込みですが、**利用の少ない時間帯**に適用してください。将来 `PlanItem` が大きくなったら、別のマイグレーションで
+    `ADD CONSTRAINT … NOT VALID` → `VALIDATE CONSTRAINT`（書き込みを止めない）と、Prisma の外で `CREATE INDEX CONCURRENTLY` に分けるのが代わりの手です。
+    事前に件数を確認: `psql -c 'SELECT count(*) FROM "PlanItem"'`
   - 確認（読み取りのみ）: `psql -c "\d plan_schedule_load"`、`psql -c "SELECT column_name FROM information_schema.columns WHERE table_name = 'PlanItem' AND column_name IN ('templateKey', 'scheduleLoadId')"`
   - ロールバック: ビルドを戻すだけなら列・表は残してかまいません（旧ビルドは参照しない）。
 - **任意の埋め戻し**（自動では動きません。`migrate deploy` の**後**、必要なときに一度。テンプレートから読み込んだ既存の計画の行に key を付ける）:

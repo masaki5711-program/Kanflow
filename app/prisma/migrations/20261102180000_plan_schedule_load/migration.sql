@@ -8,8 +8,19 @@
 --                          UNIQUE (projectId, proposalId): an approved proposal loads once, also under concurrency
 --                          (NULL proposalIds do not collide); it also serves lookups by projectId.
 --
--- Lock impact: nullable ADD COLUMNs are metadata-only in PostgreSQL; the new FK validates against an all-NULL
--- column; the PlanItem index is built on a table of plan rows (small). Append-only: never edit, add a new one.
+-- Lock impact (Prisma runs this file in ONE transaction, so every lock below is held until COMMIT):
+--   * ALTER TABLE "PlanItem" ADD COLUMN (nullable, no default): metadata-only, but takes ACCESS EXCLUSIVE briefly.
+--   * CREATE INDEX "PlanItem_scheduleLoadId_idx": not CONCURRENTLY (impossible inside a transaction) - takes SHARE
+--     on "PlanItem" and BLOCKS WRITES to the plan for the duration of the build (one pass over the table).
+--   * ADD CONSTRAINT "PlanItem_scheduleLoadId_fkey": takes SHARE ROW EXCLUSIVE on "PlanItem" (writes blocked) and
+--     scans every row to validate it (all NULL here, so it is cheap, but it is still a full scan).
+-- PlanItem holds master-plan rows (at most 2,000 live rows per project), so this is expected to take seconds - check
+-- SELECT count(*) FROM "PlanItem" first and apply in a quiet window anyway (docs/operations/deploy.md section 5f). If PlanItem were ever large, the alternative is a separate
+-- migration: ADD CONSTRAINT ... NOT VALID, then ALTER TABLE ... VALIDATE CONSTRAINT (SHARE UPDATE EXCLUSIVE, writes
+-- allowed), and CREATE INDEX CONCURRENTLY run outside Prisma's transaction.
+-- Append-only: never edit an applied migration, add a new one. (This comment was corrected before the migration
+-- was deployed anywhere but disposable test databases.)
+
 -- AlterTable
 ALTER TABLE "PlanItem" ADD COLUMN     "scheduleLoadId" TEXT,
 ADD COLUMN     "templateKey" VARCHAR(40);
