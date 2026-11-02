@@ -19,7 +19,7 @@ import { resolveAssignees } from "@/lib/assignees"
 import { logger } from "@/lib/logger"
 import { publishAfterCommit } from "@/lib/realtime/after-commit"
 import type { Db } from "./db"
-import { bestEffort } from "./savepoint"
+import { bestEffort, isFatalTxError } from "./savepoint"
 
 const log = logger.child({ module: "notifications" })
 
@@ -126,8 +126,10 @@ export async function notify(
   if (candidates.length === 0) return 0
   let recipients: string[]
   try {
-    recipients = await eligibleRecipients(db, candidates, input.type)
+    // Savepoint: a failed read must not abort the caller's PostgreSQL transaction either.
+    recipients = await bestEffort(db, () => eligibleRecipients(db, candidates, input.type))
   } catch (err) {
+    if (isFatalTxError(err)) throw err
     log.warn("notification recipient lookup failed", { type: input.type, error: errorMessage(err) })
     return 0
   }
@@ -148,6 +150,7 @@ export async function notify(
       const n = await bestEffort(db, () => channel.deliver(db, rows))
       if (channel === inAppChannel) delivered = n
     } catch (err) {
+      if (isFatalTxError(err)) throw err
       log.warn("notification delivery failed", { channel: channel.name, type: input.type, error: errorMessage(err) })
     }
   }
@@ -172,13 +175,16 @@ export async function notify(
  */
 export async function projectMemberIds(db: Db, projectId: string, roles?: readonly string[]): Promise<string[]> {
   try {
-    const rows = await db.projectMember.findMany({
-      where: { projectId, ...(roles ? { role: { in: [...roles] } } : {}) },
-      select: { userId: true },
-      take: MAX_RECIPIENTS,
-    })
+    const rows = await bestEffort(db, () =>
+      db.projectMember.findMany({
+        where: { projectId, ...(roles ? { role: { in: [...roles] } } : {}) },
+        select: { userId: true },
+        take: MAX_RECIPIENTS,
+      })
+    )
     return rows.map((r) => r.userId)
   } catch (err) {
+    if (isFatalTxError(err)) throw err
     log.warn("project member lookup failed", { projectId, error: errorMessage(err) })
     return []
   }
@@ -192,14 +198,17 @@ export async function projectMemberIds(db: Db, projectId: string, roles?: readon
 export async function resolveAssigneeUserIds(db: Db, projectId: string, raw: string | null | undefined): Promise<string[]> {
   if (!raw?.trim()) return []
   try {
-    const members = await db.projectMember.findMany({
-      where: { projectId },
-      select: { userId: true, user: { select: { name: true } } },
-      take: MAX_RECIPIENTS,
-    })
+    const members = await bestEffort(db, () =>
+      db.projectMember.findMany({
+        where: { projectId },
+        select: { userId: true, user: { select: { name: true } } },
+        take: MAX_RECIPIENTS,
+      })
+    )
     const scope = members.map((m) => ({ id: m.userId, name: m.user.name }))
     return resolveAssignees(raw, scope).userIds
   } catch (err) {
+    if (isFatalTxError(err)) throw err
     log.warn("assignee resolution failed", { projectId, error: errorMessage(err) })
     return []
   }

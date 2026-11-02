@@ -15,6 +15,7 @@ import { publishAfterCommit } from "@/lib/realtime/after-commit"
 import type { Actor } from "@/services/_shared/actor"
 import { defaultDb, withTransaction, type Db } from "@/services/_shared/db"
 import { isUniqueViolation, NotFoundError } from "@/services/_shared/errors"
+import { bestEffort } from "@/services/_shared/savepoint"
 import * as repo from "./reactions.repository"
 import { REACTION_EMOJIS, type ReactionsQuery, type ReactionSummary, type ReactionTargetType, type ToggleReactionInput } from "./reactions.schemas"
 
@@ -100,7 +101,11 @@ export async function toggleReaction(projectId: string, input: ToggleReactionInp
       return false
     }
     try {
-      await repo.createReaction(tx, { projectId, targetType: target.type, targetId: target.id, userId: actor.userId, emoji: input.emoji })
+      // Savepoint: on PostgreSQL the unique violation would otherwise abort the whole
+      // transaction and its COMMIT would silently become a ROLLBACK.
+      await bestEffort(tx, () =>
+        repo.createReaction(tx, { projectId, targetType: target.type, targetId: target.id, userId: actor.userId, emoji: input.emoji })
+      )
     } catch (err) {
       // A double click raced us: the reaction is there, which is what was asked for.
       if (!isUniqueViolation(err)) throw err

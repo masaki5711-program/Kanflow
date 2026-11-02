@@ -1,5 +1,11 @@
-import { describe, expect, it, vi } from "vitest"
-import { bestEffort } from "../savepoint"
+import { beforeEach, describe, expect, it, vi } from "vitest"
+
+const log = vi.hoisted(() => ({ warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() }))
+vi.mock("@/lib/logger", () => ({ logger: { child: () => log } }))
+
+import { bestEffort, SavepointRollbackError } from "../savepoint"
+
+beforeEach(() => vi.clearAllMocks())
 
 function txDouble(failOn?: string) {
   const statements: string[] = []
@@ -35,10 +41,17 @@ describe("bestEffort", () => {
     expect(statements[1]).toBe(`ROLLBACK TO ${statements[0]}`)
   })
 
-  it("still reports the original error when even the rollback fails", async () => {
-    const { tx } = txDouble("ROLLBACK")
+  it("a failed ROLLBACK TO SAVEPOINT is logged and thrown (the transaction must fail visibly), keeping the cause", async () => {
+    const { tx, statements } = txDouble("ROLLBACK")
     const boom = new Error("insert failed")
-    await expect(bestEffort(tx, async () => Promise.reject(boom))).rejects.toBe(boom)
+    const err = await bestEffort(tx, async () => Promise.reject(boom)).catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(SavepointRollbackError)
+    expect((err as SavepointRollbackError).cause).toBe(boom)
+    expect((err as Error).message).toContain(statements[0].replace("SAVEPOINT ", ""))
+    expect(log.error).toHaveBeenCalledWith(
+      "rollback to savepoint failed; the transaction is unusable",
+      expect.objectContaining({ savepoint: statements[0].replace("SAVEPOINT ", ""), error: "connection gone", cause: "insert failed" })
+    )
   })
 
   it("uses a fresh savepoint name per call (nested / interleaved calls do not collide)", async () => {

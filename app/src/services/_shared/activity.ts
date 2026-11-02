@@ -22,7 +22,7 @@ import { logger } from "@/lib/logger"
 import { publishAfterCommit } from "@/lib/realtime/after-commit"
 import type { Actor } from "./actor"
 import type { Db } from "./db"
-import { bestEffort } from "./savepoint"
+import { bestEffort, isFatalTxError } from "./savepoint"
 
 const log = logger.child({ module: "activity" })
 
@@ -288,8 +288,12 @@ export function withParentPbi(entityType: string, row: Row | null | undefined, m
 async function findParentPbi(tx: Db, entityType: string, entityId: string): Promise<{ pbItemId: string | null } | null> {
   try {
     const where = { where: { id: entityId }, select: { pbItemId: true } }
-    return entityType === "sprint_task" ? await tx.sprintBacklogItem.findUnique(where) : await tx.releaseBacklogItem.findUnique(where)
+    // Savepoint: a failed read must not abort the caller's PostgreSQL transaction either.
+    return await bestEffort(tx, () =>
+      entityType === "sprint_task" ? tx.sprintBacklogItem.findUnique(where) : tx.releaseBacklogItem.findUnique(where)
+    )
   } catch (err) {
+    if (isFatalTxError(err)) throw err
     log.warn("activity parent lookup failed", { entityType, entityId, error: errorMessage(err) })
     return null
   }
@@ -325,6 +329,7 @@ export async function logActivity(tx: Db, input: ActivityInput): Promise<void> {
       actorId: input.actor?.userId || undefined,
     })
   } catch (err) {
+    if (isFatalTxError(err)) throw err
     log.warn("activity log write failed", {
       entityType: input.entityType,
       entityId: input.entityId,
@@ -390,34 +395,40 @@ export async function logUpdate(tx: Db, ref: EntityRef & { before: Row | null; a
   return changes
 }
 
+async function readSnapshot(tx: Db, entityType: ActivityEntityType, id: string): Promise<Row | null> {
+  const where = { where: { id } }
+  switch (entityType) {
+    case "pbi":
+      return tx.productBacklogItem.findUnique(where)
+    case "sprint_task":
+      return tx.sprintBacklogItem.findUnique(where)
+    case "sprint":
+      return tx.sprint.findUnique(where)
+    case "icebox":
+      return tx.iceboxItem.findUnique(where)
+    case "goal":
+      return tx.productGoal.findUnique(where)
+    case "release":
+      return tx.releaseBacklogItem.findUnique(where)
+    case "plan_item":
+      return tx.planItem.findUnique(where)
+    case "member":
+      return tx.projectMember.findUnique(where)
+    case "project":
+      return tx.project.findUnique(where)
+  }
+}
+
 /**
  * Current row of an entity (by primary key) for a before/after diff, or null
  * when it cannot be read. Never throws.
  */
 export async function loadSnapshot(tx: Db, entityType: ActivityEntityType, id: string): Promise<Row | null> {
   try {
-    const where = { where: { id } }
-    switch (entityType) {
-      case "pbi":
-        return await tx.productBacklogItem.findUnique(where)
-      case "sprint_task":
-        return await tx.sprintBacklogItem.findUnique(where)
-      case "sprint":
-        return await tx.sprint.findUnique(where)
-      case "icebox":
-        return await tx.iceboxItem.findUnique(where)
-      case "goal":
-        return await tx.productGoal.findUnique(where)
-      case "release":
-        return await tx.releaseBacklogItem.findUnique(where)
-      case "plan_item":
-        return await tx.planItem.findUnique(where)
-      case "member":
-        return await tx.projectMember.findUnique(where)
-      case "project":
-        return await tx.project.findUnique(where)
-    }
+    // Savepoint: a failed read must not abort the caller's PostgreSQL transaction either.
+    return await bestEffort(tx, () => readSnapshot(tx, entityType, id))
   } catch (err) {
+    if (isFatalTxError(err)) throw err
     log.warn("activity snapshot read failed", { entityType, id, error: errorMessage(err) })
     return null
   }

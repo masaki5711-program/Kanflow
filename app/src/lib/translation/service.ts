@@ -3,7 +3,8 @@ import { prisma } from "@/lib/prisma"
 import { aiLog } from "@/lib/ai-monitor"
 import { detectLocale, sourceHash, splitLegacyPairs } from "./detect-locale"
 import { pickTranslatableFields, type FieldInputs } from "./pick-fields"
-import { bestEffort } from "@/services/_shared/savepoint"
+import { logger } from "@/lib/logger"
+import { bestEffort, isFatalTxError } from "@/services/_shared/savepoint"
 import {
   ENTITY_LIVE_FILTER,
   ENTITY_TABLES,
@@ -44,6 +45,8 @@ export type { FieldInputs }
 
 const LEGACY_MODEL = "legacy-pairs"
 
+const log = logger.child({ module: "translation" })
+
 /** The database's current UTC time as `timestamp(3)` (columns hold UTC without a zone, like Prisma writes them). */
 const UTC_NOW = Prisma.raw(`(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::timestamp(3)`)
 
@@ -76,6 +79,7 @@ export async function enqueueTranslations(
   try {
     await bestEffort(db, () => enqueueNow(entityType, entityId, fields, db))
   } catch (err) {
+    if (isFatalTxError(err)) throw err
     aiLog("XLATE_ENQUEUE", `failed ${entityType}/${entityId}: ${err instanceof Error ? err.message : String(err)}`)
   }
 }
@@ -145,8 +149,10 @@ export async function deleteTranslationsFor(
 ): Promise<void> {
   try {
     await bestEffort(db, () => db.fieldTranslation.deleteMany({ where: { entityType, entityId } }))
-  } catch {
-    // best effort — leftovers are removed by purgeOrphanTranslations()
+  } catch (err) {
+    if (isFatalTxError(err)) throw err
+    // Best effort — leftovers are removed by purgeOrphanTranslations(); logged so a failure is visible.
+    log.warn("translation cleanup failed; left for purgeOrphanTranslations", { entityType, entityId, error: err instanceof Error ? err.message : String(err) })
   }
 }
 
