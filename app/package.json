@@ -57,6 +57,7 @@
     "eslint": "^9",
     "eslint-config-next": "^16.3.7",
     "jsdom": "^26.1.0",
+    "mysql2": "^3.24.6",
     "node-windows": "^1.0.0-beta.8",
     "playwright-core": "^1.59.1",
     "tailwindcss": "^4",
