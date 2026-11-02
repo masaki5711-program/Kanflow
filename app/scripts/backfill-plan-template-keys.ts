@@ -20,6 +20,10 @@
  * PlanItem.version (not a user edit). One transaction per load; a load whose content cannot be read or whose
  * write fails is reported and the run continues (exit code 1 at the end).
  *
+ * Positional keys (`_pos-<path>`) are positions in THAT load's template snapshot: compare them only between rows
+ * of the same templateApplicationId (or loads of the same template version). An edited template can put another
+ * stage at the same position; stages with their own `key` are comparable across versions.
+ *
  * Lineage of these rows: their templateApplicationId → template id and version, i.e. the same family the
  * load record would name `template:<templateId>` (sourceRef `template:<templateId>@v<templateVersion>`).
  * No plan_schedule_load record is created for old template loads.
@@ -42,7 +46,8 @@ function parseArgs(argv: readonly string[]): Args {
     if (a === "--apply") args.apply = true
     else if (a === "--dry-run") args.apply = false
     else if (a === "--help" || a === "-h") args.help = true
-    else if (a === "--project" && argv[i + 1]) args.projectId = argv[++i]
+    // A missing value or another flag in its place ("--project --apply") is refused, never taken as the id.
+    else if (a === "--project" && argv[i + 1] && !argv[i + 1].startsWith("--")) args.projectId = argv[++i]
     else args.unknown.push(a)
   }
   return args
@@ -105,7 +110,6 @@ async function main(): Promise<number> {
             continue
           }
           const plan = planTemplateKeyBackfill(content, rows)
-          totals.matched += plan.counts.matched
           totals.ambiguous += plan.counts.ambiguous
           totals.unmatched += plan.counts.unmatched
           totals.alreadySet += plan.counts.alreadySet
@@ -120,6 +124,8 @@ async function main(): Promise<number> {
             })
             totals.written += written
           }
+          // matched = rows that got (or in a dry run would get) a key: in --apply only what was really written.
+          totals.matched += args.apply ? written : plan.counts.matched
           const c = plan.counts
           out(`${label}: rows ${rows.length}, ${args.apply ? `written ${written}` : `would write ${plan.updates.length}`}, ambiguous ${c.ambiguous}, unmatched ${c.unmatched}, already set ${c.alreadySet}`)
         } catch (err) {

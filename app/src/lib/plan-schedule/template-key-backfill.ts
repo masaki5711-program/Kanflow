@@ -14,7 +14,10 @@
  *
  * The key written is the stage's own `key`, or — for a stage without one (keys are optional in templates) —
  * its positional key `_pos-<path>` (path of sibling indexes in the template, e.g. `_pos-0-2-1`). A positional
- * key that equals an explicit key elsewhere in the template is ambiguous and stays null. Rows that already
+ * key that equals an explicit key elsewhere in the template is ambiguous and stays null.
+ * A positional key is only comparable within one templateApplicationId (one template snapshot): a later version
+ * of the template can put a different stage at the same path. Stages with their own `key` are comparable across
+ * versions. Rows that already
  * have a key are never changed (a second run writes nothing).
  */
 import type { PlanTemplateContent, TemplateNode } from "@/lib/plan-templates/schema"
