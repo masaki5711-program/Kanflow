@@ -36,6 +36,7 @@ describe("loadBaseSchedule", () => {
     vi.mocked(planRepo.insertDependency).mockResolvedValue({ id: "d", predecessorId: "", successorId: "" })
     vi.mocked(planRepo.insertScheduleLoad).mockResolvedValue({ id: "load1" } as never)
     vi.mocked(planRepo.copyBaseline).mockResolvedValue(4)
+    vi.mocked(planRepo.hasBaseline).mockResolvedValue(false)
   })
 
   it("inserts parents first with dated leaves, dependencies and one recalculation in one transaction", async () => {
@@ -92,6 +93,21 @@ describe("loadBaseSchedule", () => {
     const recalcOrder = vi.mocked(recalcPlanProgress).mock.invocationCallOrder[0]
     const baselineOrder = vi.mocked(planRepo.copyBaseline).mock.invocationCallOrder[0]
     expect(baselineOrder).toBeGreaterThan(recalcOrder)
+  })
+
+  it("an impossible start date (2026-02-30) is a ValidationError and nothing is written", async () => {
+    const err = await loadBaseSchedule("p1", { startDate: "2026-02-30", schedule: SCHEDULE }, ACTOR).catch((e) => e)
+    expect(err).toBeInstanceOf(ValidationError)
+    expect(planRepo.insertScheduleLoad).not.toHaveBeenCalled()
+  })
+
+  it("a project that already froze a baseline keeps it: the new rows get none (added scope shows as variance)", async () => {
+    vi.mocked(planRepo.hasBaseline).mockResolvedValueOnce(true)
+    const out = await loadBaseSchedule("p1", { startDate: "2026-11-02", schedule: SCHEDULE }, ACTOR)
+    expect(planRepo.hasBaseline).toHaveBeenCalledWith(TX, "p1")
+    expect(vi.mocked(planRepo.hasBaseline).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(planRepo.insertPlanItem).mock.invocationCallOrder[0])
+    expect(planRepo.copyBaseline).not.toHaveBeenCalled()
+    expect(out.baselineSet).toBe(false)
   })
 
   it("load_records_source_ref_and_hash: one load record before the rows, in the same transaction", async () => {

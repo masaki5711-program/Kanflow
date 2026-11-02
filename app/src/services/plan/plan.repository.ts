@@ -245,6 +245,15 @@ export function copyBaseline(db: Db, projectId: string, ids?: readonly string[])
   return db.$executeRaw`UPDATE "PlanItem" SET "baselineStart" = "plannedStart", "baselineEnd" = "plannedEnd" WHERE "projectId" = ${projectId} AND "deletedAt" IS NULL${scope}`
 }
 
+/** True when a live row of the project already carries a baseline (the project froze one earlier). */
+export async function hasBaseline(db: Db, projectId: string): Promise<boolean> {
+  const row = await db.planItem.findFirst({
+    where: { projectId, ...NOT_DELETED, OR: [{ baselineStart: { not: null } }, { baselineEnd: { not: null } }] },
+    select: { id: true },
+  })
+  return row !== null
+}
+
 export async function clearBaseline(db: Db, projectId: string): Promise<number> {
   const res = await db.planItem.updateMany({
     where: { projectId, ...NOT_DELETED, OR: [{ baselineStart: { not: null } }, { baselineEnd: { not: null } }] },

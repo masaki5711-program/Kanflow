@@ -8,8 +8,9 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
  *   KANFLOW_DB_TESTS=1 npx vitest run src/services/plan/__tests__/plan.base-schedule.db.test.ts
  *
  * What it pins (the things mocks cannot show): every created row carries its template key, the load record and
- * a baseline equal to the planned dates AFTER the parents' spans were derived; a failure part-way leaves no rows
- * and no load record; two concurrent approvals of one proposal load exactly once (unique load record).
+ * a baseline equal to the planned dates AFTER the parents' spans were derived (only when the project had no baseline
+ * yet; an existing baseline is kept and the new rows get none); a failure part-way leaves no rows and no load record;
+ * two concurrent approvals of one proposal load exactly once (unique load record).
  */
 const enabled = process.env.KANFLOW_DB_TESTS === "1"
 
@@ -103,5 +104,29 @@ describe.skipIf(!enabled)("plan load on a real database (KANFLOW_DB_TESTS=1)", (
     expect(rejected[0].reason.code ?? rejected[0].reason.errorCode).toBe("PLAN_ALREADY_LOADED")
     expect(await prisma.planScheduleLoad.count({ where: { projectId: ids.project, proposalId: `${tag}-c` } })).toBe(1)
     expect(await prisma.planItem.count({ where: { projectId: ids.project } })).toBe(before + 4)
+  })
+
+  it("a project that already has a baseline keeps it: the loaded rows get no baseline", async () => {
+    const other = `${tag}-p2`
+    await prisma.project.create({ data: { id: other, name: `${tag} frozen` } })
+    try {
+      const frozenStart = new Date("2026-10-01T00:00:00.000Z")
+      const frozenEnd = new Date("2026-10-10T00:00:00.000Z")
+      const existing = await prisma.planItem.create({
+        data: { projectId: other, name: "existing", plannedStart: frozenStart, plannedEnd: frozenEnd, baselineStart: frozenStart, baselineEnd: frozenEnd },
+      })
+      const out = await svc.loadBaseSchedule(other, { startDate: "2026-11-02", schedule: SCHEDULE }, actor)
+      expect(out.baselineSet).toBe(false)
+      const loaded = await prisma.planItem.findMany({ where: { projectId: other, id: { not: existing.id } } })
+      expect(loaded).toHaveLength(4)
+      for (const r of loaded) expect([r.baselineStart, r.baselineEnd]).toEqual([null, null])
+      const kept = await prisma.planItem.findUniqueOrThrow({ where: { id: existing.id } })
+      expect([day(kept.baselineStart), day(kept.baselineEnd)]).toEqual(["2026-10-01", "2026-10-10"])
+    } finally {
+      await prisma.planItem.deleteMany({ where: { projectId: other } })
+      await prisma.planScheduleLoad.deleteMany({ where: { projectId: other } })
+      await prisma.activityLog.deleteMany({ where: { projectId: other } })
+      await prisma.project.deleteMany({ where: { id: other } })
+    }
   })
 })

@@ -7,7 +7,9 @@
  * plan 12 E0 (learning from actuals): the same transaction records the load (plan_schedule_load: sourceRef,
  * lineage, sha256 of the canonical schedule JSON, the schedule, start date) before the rows, stamps every
  * created row — parents and leaves — with its schedule item key (templateKey) and the load (scheduleLoadId),
- * and sets the baseline to the planned dates once the recalculation has derived the parents' spans.
+ * and — only when the project has no baseline yet — sets the baseline of the new rows to their planned dates
+ * once the recalculation has derived the parents' spans. A project that already froze a baseline keeps it as
+ * the reference: the added rows stay without one (the plan shows them as added scope, not as on-time).
  */
 import { createHash } from "node:crypto"
 import type { Prisma } from "@/generated/prisma/client"
@@ -27,6 +29,8 @@ export interface LoadBaseScheduleResult {
   rootIds: string[]
   plannedStart: string
   plannedEnd: string
+  /** The new rows got baseline = planned (false: the project already had a baseline, left as it was). */
+  baselineSet: boolean
 }
 
 export interface LoadBaseScheduleInput {
@@ -52,6 +56,9 @@ export async function loadBaseSchedule(projectId: string, input: LoadBaseSchedul
   const scheduleHash = createHash("sha256").update(canonicalJson(input.schedule)).digest("hex")
   const sourceRef = input.sourceRef ?? null
   const lineage = input.lineage ?? defaultLineage({ sourceRef, scheduleHash })
+  const startDate = dateFromKey(input.startDate)
+  // planBaseSchedule rejected an invalid date already; this only narrows the type and fails loudly if not.
+  if (!startDate) throw new ValidationError(`startDate is not a valid date: ${input.startDate}`, {}, "INVALID_DATE")
   const leafKeys = new Set(planned.rows.filter((r) => !planned.rows.some((c) => c.parentKey === r.key)).map((r) => r.key))
   return withTransaction(async (tx) => {
     // The same approved proposal loads once (a double approval, a replayed request): 409, nothing written.
@@ -68,7 +75,7 @@ export async function loadBaseSchedule(projectId: string, input: LoadBaseSchedul
         lineage,
         scheduleHash,
         content: input.schedule as unknown as Prisma.InputJsonValue,
-        startDate: dateFromKey(input.startDate) as Date, // validated by planBaseSchedule above
+        startDate,
         skipWeekends: input.schedule.skipWeekends === true,
         estimateRunId: null,
         loadedById: actor.userId || null,
@@ -79,6 +86,8 @@ export async function loadBaseSchedule(projectId: string, input: LoadBaseSchedul
       if (input.proposalId && isUniqueViolation(error)) throw alreadyLoaded()
       throw error
     }
+    // Read before the new rows exist: does the project already have a baseline of its own?
+    const baselineFrozen = await planRepo.hasBaseline(tx, projectId)
     const baseSort = await planRepo.nextPlanSortOrder(tx, projectId, null)
     const ids = new Map<string, string>()
     for (const r of planned.rows) {
@@ -110,14 +119,14 @@ export async function loadBaseSchedule(projectId: string, input: LoadBaseSchedul
     }
     await recalcPlanProgress(projectId, [...ids.values()], tx)
     // Baseline = the plan as loaded; after the recalc so the parents' derived spans are included.
-    await planRepo.copyBaseline(tx, projectId, [...ids.values()])
+    if (!baselineFrozen) await planRepo.copyBaseline(tx, projectId, [...ids.values()])
     await logActivity(tx, {
       projectId,
       entityType: "project",
       entityId: projectId,
       action: "update",
       actor,
-      diff: { changes: { planBaseSchedule: { from: null, to: input.startDate } }, meta: { count: planned.rows.length, dependencies: dependencyCount, scheduleLoadId: load.id } },
+      diff: { changes: { planBaseSchedule: { from: null, to: input.startDate } }, meta: { count: planned.rows.length, dependencies: dependencyCount, scheduleLoadId: load.id, baselineSet: !baselineFrozen } },
     })
     return {
       createdCount: planned.rows.length,
@@ -125,6 +134,7 @@ export async function loadBaseSchedule(projectId: string, input: LoadBaseSchedul
       rootIds: planned.rows.filter((r) => r.parentKey === null).map((r) => ids.get(r.key) as string),
       plannedStart: planned.plannedStart,
       plannedEnd: planned.plannedEnd,
+      baselineSet: !baselineFrozen,
     }
   })
 }
