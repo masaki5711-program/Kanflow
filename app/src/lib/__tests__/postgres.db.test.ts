@@ -55,6 +55,7 @@ describe.skipIf(!enabled)("PostgreSQL specifics on a real database (KANFLOW_DB_T
     await prisma.gitRepository.deleteMany({ where: { projectId: ids.project } })
     await prisma.gitIntegration.deleteMany({ where: { projectId: ids.project } })
     await prisma.fieldTranslation.deleteMany({ where: { entityId: { startsWith: tag } } })
+    await prisma.gitRelease.deleteMany({ where: { projectId: ids.project } })
     await prisma.planItem.deleteMany({ where: { projectId: ids.project } })
     await prisma.activityLog.deleteMany({ where: { projectId: ids.project } })
     await prisma.sprintBacklogItem.deleteMany({ where: { id: ids.task } })
@@ -96,6 +97,22 @@ describe.skipIf(!enabled)("PostgreSQL specifics on a real database (KANFLOW_DB_T
       await expect(prisma.userProjectCategory.create({ data: { userId: ids.user, name: "FAVOURITES" } })).rejects.toMatchObject({ code: "P2002" })
     })
 
+    it("milestone checklist labels and git release tags are unique regardless of case (citext, MySQL parity)", async () => {
+      const plan = await prisma.planItem.create({ data: { id: `${tag}-plci`, projectId: ids.project, name: "milestone" } })
+      await prisma.milestoneChecklistState.create({ data: { planItemId: plan.id, label: "Design Review" } })
+      await expect(prisma.milestoneChecklistState.create({ data: { planItemId: plan.id, label: "design review" } })).rejects.toMatchObject({ code: "P2002" })
+      expect(await prisma.milestoneChecklistState.findUnique({ where: { planItemId_label: { planItemId: plan.id, label: "DESIGN REVIEW" } } })).not.toBeNull()
+
+      await prisma.gitRepository.create({
+        data: { id: `${tag}-rel`, projectId: ids.project, name: "rel", webUrl: "https://git.example.test/g/rel", apiBase: "https://git.example.test/api/v4", repoPath: "g/rel" },
+      })
+      const rel = { projectId: ids.project, repositoryId: `${tag}-rel`, url: "https://git.example.test/g/rel/-/tags/v1.0", releasedAt: new Date() }
+      await prisma.gitRelease.create({ data: { ...rel, tag: "v1.0" } })
+      await expect(prisma.gitRelease.create({ data: { ...rel, tag: "V1.0" } })).rejects.toMatchObject({ code: "P2002" })
+      // Leave no plan rows behind for the baseline test of the same project.
+      await prisma.planItem.delete({ where: { id: plan.id } })
+    })
+
     it("the member lookup by e-mail and the admin duplicate check ignore case", async () => {
       const users = await import("@/services/users/users.repository")
       expect((await users.findUserWith(prisma, { email: `ALICE.${tag}@example.test` }))?.id).toBe(ids.user)
@@ -131,6 +148,8 @@ describe.skipIf(!enabled)("PostgreSQL specifics on a real database (KANFLOW_DB_T
       expect(await hrefsOf(`export TO csv ${tag}`)).toContain(`icebox:${ids.icebox}`)
       expect(await hrefsOf(`kanflow sprint planning ${tag}`)).toContain(`project:${ids.project}`)
       expect(await hrefsOf("受入基準")).toContain(`pbi:${ids.pbi}`)
+      // A 2-character term cannot use a trigram index: it takes the LIKE path, still case-insensitive.
+      expect(await hrefsOf("受入")).toContain(`pbi:${ids.pbi}`)
 
       await prisma.fieldTranslation.create({
         data: { entityType: "backlog_item", entityId: ids.pbi2, field: "initiative", sourceLocale: "ja", sourceHash: "h", textJa: "その他", textId: `Pengujian Lain ${tag}`, status: "done" },
@@ -297,6 +316,29 @@ describe.skipIf(!enabled)("PostgreSQL specifics on a real database (KANFLOW_DB_T
         git.updateGitSettings(ids.project, { autoCompleteOnMerge: true }, actor),
       ])
       expect(await prisma.gitIntegration.findUnique({ where: { projectId: ids.project } })).toMatchObject({ enabled: true, autoCompleteOnMerge: true })
+    })
+  })
+
+  describe("transactions and sessions", () => {
+    it("a failing bestEffort statement inside $transaction leaves the outer write committed", async () => {
+      const { bestEffort } = await import("@/services/_shared/savepoint")
+      const projectId = `${tag}-p-be`
+      let caught: unknown = null
+      await prisma.$transaction(async (tx) => {
+        // Unique violation (e-mail already taken, citext) - swallowed by the caller, like a reaction double click.
+        await bestEffort(tx, () => tx.user.create({ data: { id: `${tag}-be`, name: "be", email: `alice.${tag}@example.test`, password: "x" } })).catch((e: unknown) => {
+          caught = e
+        })
+        await tx.project.create({ data: { id: projectId, name: "outer write" } })
+      })
+      expect(caught).toMatchObject({ code: "P2002" })
+      expect(await prisma.project.count({ where: { id: projectId } })).toBe(1)
+    })
+
+    it("app sessions run in UTC with statement and lock timeouts", async () => {
+      const rows = await prisma.$queryRaw<Array<{ tz: string; st: string; lt: string }>>`
+        SELECT current_setting('TimeZone') AS tz, current_setting('statement_timeout') AS st, current_setting('lock_timeout') AS lt`
+      expect(rows[0]).toEqual({ tz: "UTC", st: "30s", lt: "10s" })
     })
   })
 

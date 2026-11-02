@@ -1,6 +1,8 @@
 generator client {
-  provider = "prisma-client"
-  output   = "../src/generated/prisma"
+  provider        = "prisma-client"
+  output          = "../src/generated/prisma"
+  /// partialIndexes: FieldTranslation's English-backfill index (WHERE clause).
+  previewFeatures = ["partialIndexes"]
 }
 
 datasource db {
@@ -1021,6 +1023,9 @@ model FieldTranslation {
 
   @@id([entityType, entityId, field])
   @@index([status, priority(sort: Desc), requestedAt])
+  /// The worker's English-backfill claim (claimEnglishBackfill): only rows still waiting for their English side.
+  /// The predicate is written in PostgreSQL's normalized form (pg_get_expr) so the drift check compares equal.
+  @@index([priority(sort: Desc), updatedAt(sort: Desc)], map: "field_translation_en_backfill_idx", where: raw("((status)::text = 'done'::text) AND (text_en IS NULL) AND (source_locale = ANY (ARRAY['ja'::bpchar, 'id'::bpchar]))"))
   @@index([textJa(ops: raw("gin_trgm_ops"))], type: Gin, map: "field_translation_text_ja_trgm_idx")
   @@index([textId(ops: raw("gin_trgm_ops"))], type: Gin, map: "field_translation_text_id_trgm_idx")
   @@map("field_translation")
@@ -1550,7 +1555,8 @@ model MilestoneBoardSeed {
 model MilestoneChecklistState {
   id            String   @id @default(cuid())
   planItemId    String
-  label         String   @db.VarChar(255)
+  /// citext: unique per plan item regardless of case (MySQL utf8mb4_unicode_ci parity).
+  label         String   @db.Citext
   checkedById   String?
   checkedByName String?  @db.VarChar(255)
   checkedAt     DateTime @default(now())
@@ -1753,7 +1759,8 @@ model GitRelease {
   id           String        @id @default(cuid())
   projectId    String
   repositoryId String
-  tag          String        @db.VarChar(255)
+  /// citext: unique per repository regardless of case, as on MySQL (sync upserts by tag).
+  tag          String        @db.Citext
   /// GitLab release title; null for a bare tag.
   name         String?       @db.VarChar(255)
   /// GitLab release description (Markdown); null for a bare tag.
