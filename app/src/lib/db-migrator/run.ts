@@ -70,6 +70,11 @@ export interface MigrationReport {
 
 const SAMPLE = 20
 const FUTURE_TOLERANCE_MIN = 10
+/**
+ * Columns that record when a row was written and therefore can never be in the future.
+ * Planning dates (plannedEnd, due dates, ...) legitimately are, so they are not probed.
+ */
+const WRITE_TIMESTAMP = /^(created|updated|requested)(At|_at)$/
 
 /** Known local-time writers (docs/operations/worker.md "UTC_TIMESTAMP"): reported, never shifted. */
 const LOCAL_TIME_PROBES = [{ table: "field_translation", column: "requested_at", laterThan: ["translated_at", "started_at"] }]
@@ -134,7 +139,7 @@ async function sourceDataChecks(source: SourcePort, m: TableMapping, issues: Iss
     }
     if ((c.kind === "timestamp" || c.kind === "timestamptz" || c.kind === "date") && (c.sourceType === "datetime" || c.sourceType === "timestamp" || c.sourceType === "date")) {
       checks.push({ code: "INVALID_DATETIME", column: c.name, expr: `(YEAR(${q}) = 0 OR MONTH(${q}) = 0 OR DAYOFMONTH(${q}) = 0)`, severity: "error", message: "zero date" })
-      checks.push({
+      if (WRITE_TIMESTAMP.test(c.name)) checks.push({
         code: "FUTURE_TIMESTAMP",
         column: c.name,
         expr: `${q} > UTC_TIMESTAMP(3) + INTERVAL ${FUTURE_TOLERANCE_MIN} MINUTE`,
@@ -430,19 +435,19 @@ async function verifyAll(ports: Ports, tables: readonly TableMapping[], opts: Ru
   const out: TableComparison[] = []
   await ports.source.beginSnapshot()
   await ports.target.begin(true)
-  try {
-    for (const m of tables) {
-      const c = await compareSortedStreams(m.table, sourceKeyed(ports.source, m, opts), targetKeyed(ports.target, m), m.pkKinds)
-      out.push(c)
-      log(
-        `[verify] ${m.table}: ${c.match ? "OK" : "MISMATCH"} source ${c.sourceRows} / target ${c.targetRows} rows, sha256 ${c.sourceHash.slice(0, 12)}${c.match ? "" : ` vs ${c.targetHash.slice(0, 12)}`}` +
-          (c.differences.length > 0 ? `; first differences: ${c.differences.map((d) => `${d.kind} ${d.key}`).join("; ")}` : ""),
-      )
-    }
-  } finally {
-    await ports.target.commit()
-    await ports.source.endSnapshot()
+  // No finally: after a failed stream the source connection may be paused mid-result, so
+  // nothing more is sent to it - the caller closes both connections, which ends the
+  // snapshot and the read-only transaction.
+  for (const m of tables) {
+    const c = await compareSortedStreams(m.table, sourceKeyed(ports.source, m, opts), targetKeyed(ports.target, m), m.pkKinds)
+    out.push(c)
+    log(
+      `[verify] ${m.table}: ${c.match ? "OK" : "MISMATCH"} source ${c.sourceRows} / target ${c.targetRows} rows, sha256 ${c.sourceHash.slice(0, 12)}${c.match ? "" : ` vs ${c.targetHash.slice(0, 12)}`}` +
+        (c.differences.length > 0 ? `; first differences: ${c.differences.map((d) => `${d.kind} ${d.key}`).join("; ")}` : ""),
+    )
   }
+  await ports.target.commit()
+  await ports.source.endSnapshot()
   return out
 }
 
@@ -595,7 +600,9 @@ export async function runMigrator(opts: RunOptions, ports: Ports, hooks: RunHook
     log(mismatched.length === 0 ? `[verify] all ${comparisons.length} tables match` : `[verify] MISMATCH in ${mismatched.length} table(s): ${mismatched.join(", ")}`)
     return finish(mismatched.length === 0 ? "ok" : "verify-failed", mismatched.length === 0 ? EXIT.ok : EXIT.verifyFailed)
   } catch (e) {
-    if (snapshotOpen) await ports.source.endSnapshot().catch((x: unknown) => log(`[error] closing the source snapshot failed too: ${String(x)}`))
+    // The source snapshot (if open) is NOT ended here: the connection may be stuck behind a
+    // half-read stream. Closing the connection (connect.ts) ends it.
+    if (snapshotOpen) log("[error] source snapshot left to the connection close")
     report.error = e instanceof Error ? e.message : String(e)
     log(`[error] ${report.error}`)
     return finish("error", EXIT.error)

@@ -103,7 +103,14 @@ export async function openMysqlSource(endpoint: Endpoint, password: string, stat
       for await (const row of s) yield row as SourceRow
     },
     close: async () => {
-      await p.end().catch(() => conn.destroy())
+      // A graceful end can wait behind a half-read stream; it is bounded, then the socket is destroyed.
+      let timer: NodeJS.Timeout | undefined
+      const bounded = new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, 5_000)
+      })
+      await Promise.race([p.end().catch(() => undefined), bounded])
+      clearTimeout(timer)
+      conn.destroy()
     },
   }
   return port

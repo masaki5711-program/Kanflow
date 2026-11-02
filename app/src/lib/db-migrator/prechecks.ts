@@ -20,7 +20,8 @@
  *   CITEXT_DUPLICATE         values that collide under citext in a unique key
  *   FK_CYCLE_UNBREAKABLE     see order.ts
  * Warnings (reported, never "fixed"):
- *   FUTURE_TIMESTAMP         DATETIME more than 10 min ahead of UTC now (local-time write?)
+ *   FUTURE_TIMESTAMP         write timestamp (createdAt / updatedAt / requested_at) more than
+ *                            10 min ahead of UTC now: a local-time write (planning dates are not probed)
  *   LOCAL_TIME_SUSPECT       field_translation.requested_at later than its own
  *                            translated_at / started_at + 1 h: written in server local
  *                            time (UTC+7) by builds before 2026-10 (docs/operations/worker.md)

@@ -29,6 +29,7 @@ const targetSchema: TargetSchema = {
         { name: "parentId", typname: "text", typtype: "b", pgType: "text", nullable: true, maxLength: null, isCitext: false },
         { name: "meta", typname: "jsonb", typtype: "b", pgType: "jsonb", nullable: true, maxLength: null, isCitext: false },
         { name: "createdAt", typname: "timestamp", typtype: "b", pgType: "timestamp(3) without time zone", nullable: false, maxLength: null, isCitext: false },
+        { name: "plannedEnd", typname: "timestamp", typtype: "b", pgType: "timestamp(3) without time zone", nullable: true, maxLength: null, isCitext: false },
       ],
     },
   ],
@@ -61,6 +62,7 @@ const sourceSchema: SourceSchema = {
         { name: "parentId", dataType: "varchar", columnType: "varchar(191)", nullable: true, maxLength: 191 },
         { name: "meta", dataType: "json", columnType: "json", nullable: true, maxLength: null },
         { name: "createdAt", dataType: "datetime", columnType: "datetime(3)", nullable: false, maxLength: null },
+        { name: "plannedEnd", dataType: "datetime", columnType: "datetime(3)", nullable: true, maxLength: null },
       ],
     },
   ],
@@ -69,8 +71,8 @@ const sourceSchema: SourceSchema = {
 const data: Record<string, SourceRow[]> = {
   Project: [{ id: "p1", name: "Alpha", active: "1" }],
   PlanItem: [
-    { id: "i1", projectId: "p1", parentId: "i2", meta: '{"a":1}', createdAt: "2026-01-01 00:00:00.000" },
-    { id: "i2", projectId: "p1", parentId: null, meta: null, createdAt: "2026-01-01 00:00:00.000" },
+    { id: "i1", projectId: "p1", parentId: "i2", meta: '{"a":1}', createdAt: "2026-01-01 00:00:00.000", plannedEnd: "2031-01-01 00:00:00.000" },
+    { id: "i2", projectId: "p1", parentId: null, meta: null, createdAt: "2026-01-01 00:00:00.000", plannedEnd: null },
   ],
 }
 
@@ -159,6 +161,15 @@ describe("runMigrator", () => {
     expect(report.copy).toBeUndefined()
   })
 
+  it("checks only write timestamps for future values (legacy local time), every DATETIME for zero dates", async () => {
+    const source = fakeSource()
+    await runMigrator(base, { source, target: fakeTarget() })
+    const scan = source.statements.find((s) => s.includes("k2:scan:PlanItem")) ?? ""
+    expect(scan).toContain("`createdAt` > UTC_TIMESTAMP(3)")
+    expect(scan).not.toContain("`plannedEnd` > UTC_TIMESTAMP(3)")
+    expect(scan).toContain("YEAR(`plannedEnd`) = 0")
+  })
+
   it("the write detector of this test does see writes in migrate mode", async () => {
     const source = fakeSource()
     const target = fakeTarget()
@@ -241,5 +252,28 @@ describe("runMigrator", () => {
     const codes = report.precheck.errors.map((e) => e.code)
     expect(codes).toContain("SCHEMA_COLUMN_MISMATCH")
     expect(codes).toContain("SCHEMA_TABLE_MISSING_IN_TARGET")
+  })
+
+  it("a failing verification stream ends the run with exit 3 and sends nothing more to the source", async () => {
+    // A half-read mysql2 stream leaves the connection paused: a COMMIT queued behind it would
+    // hang. After a stream failure the run must stop using the source (closing it ends the snapshot).
+    const source = fakeSource()
+    const calls: string[] = []
+    let streamFailed = false
+    source.endSnapshot = async () => {
+      calls.push(streamFailed ? "endSnapshot-after-failure" : "endSnapshot")
+    }
+    source.stream = async function* (sql) {
+      source.statements.push(sql)
+      if (sql.includes("k2:verify:")) {
+        streamFailed = true
+        throw new Error("connection reset while streaming")
+      }
+    }
+    const report = await runMigrator({ ...base, mode: "verify-only" }, { source, target: fakeTarget() })
+    expect(report.outcome).toBe("error")
+    expect(report.exitCode).toBe(3)
+    expect(report.error).toContain("connection reset")
+    expect(calls).not.toContain("endSnapshot-after-failure")
   })
 })
