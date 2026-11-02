@@ -51,13 +51,15 @@ export interface CliArgs {
   invalidJsonFile: string | null
   /** server-local offset probed by LOCAL_OFFSET_SUSPECT (production: UTC+7) */
   localOffsetHours: number
+  /** the reviewed dry run's report; required with --accept-warnings */
+  dryRunReport: string | null
 }
 
 export const USAGE = `usage: node --import tsx scripts/migrate-mysql-to-pg.ts \
     --source mysql://<user>@<host>:<port>/<db> --target postgresql://<user>@<host>:<port>/<db> \
     --expect-target <host>:<port>/<db> [--dry-run | --verify-only] \
     [--source-identity <id> --target-identity <id>]   (required without --dry-run/--verify-only; printed by the dry run) \
-    [--accept-warnings CODE,...] [--allow-invalid-json --invalid-json-file <file.jsonl>] \
+    [--accept-warnings CODE,... --dry-run-report <dry-run.json>] [--allow-invalid-json --invalid-json-file <file.jsonl>] \
     [--source-ca <ca.pem>] [--target-ca <ca.pem>]     (required for non-loopback hosts: TLS with verification) \
     [--batch-size 1-10000 (1000)] [--statement-timeout-sec <n> (900)] [--local-offset-hours <n> (7)] \
     [--report <file.json>] [--deny-file <file>] [--source-password-file <file>] [--target-password-file <file>]
@@ -123,6 +125,7 @@ export function parseArgs(argv: readonly string[]): CliArgs {
     acceptWarnings: [],
     invalidJsonFile: null,
     localOffsetHours: 7,
+    dryRunReport: null,
     batchSize: 1000,
     allowInvalidJson: false,
     reportPath: null,
@@ -190,6 +193,9 @@ export function parseArgs(argv: readonly string[]): CliArgs {
       case "--target-identity":
         out.targetIdentity = value(i++, a)
         break
+      case "--dry-run-report":
+        out.dryRunReport = value(i++, a)
+        break
       case "--invalid-json-file":
         out.invalidJsonFile = value(i++, a)
         break
@@ -220,6 +226,9 @@ export function parseArgs(argv: readonly string[]): CliArgs {
   const mode: Mode = dryRun ? "dry-run" : verifyOnly ? "verify-only" : "migrate"
   if (mode === "migrate" && (out.sourceIdentity === null || out.targetIdentity === null)) {
     throw usage("a migrate run needs --source-identity and --target-identity (printed by the dry run against the same servers)")
+  }
+  if (out.acceptWarnings.length > 0 && out.dryRunReport === null) {
+    throw usage("--accept-warnings needs --dry-run-report <dry-run.json>: accepted warnings may not grow beyond the reviewed dry run")
   }
   if (out.allowInvalidJson && out.invalidJsonFile === null) {
     throw usage("--allow-invalid-json needs --invalid-json-file <file.jsonl> (the nulled keys and original values are written there, never to stdout)")

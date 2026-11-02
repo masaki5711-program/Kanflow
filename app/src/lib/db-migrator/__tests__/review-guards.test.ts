@@ -61,7 +61,7 @@ describe("new required arguments", () => {
   })
 
   it("parses --accept-warnings and rejects unknown codes", () => {
-    const a = parseArgs(["--source", SRC, "--target", TGT, ...EXPECT, ...IDS, "--accept-warnings", "LOCAL_TIME_SUSPECT,FUTURE_TIMESTAMP"])
+    const a = parseArgs(["--source", SRC, "--target", TGT, ...EXPECT, ...IDS, "--accept-warnings", "LOCAL_TIME_SUSPECT,FUTURE_TIMESTAMP", "--dry-run-report", "dry.json"])
     expect(a.acceptWarnings).toEqual(["LOCAL_TIME_SUSPECT", "FUTURE_TIMESTAMP"])
     expect(code(() => parseArgs(["--source", SRC, "--target", TGT, ...EXPECT, ...IDS, "--accept-warnings", "NUL_BYTE"]))).toBe("USAGE")
     expect(code(() => parseArgs(["--source", SRC, "--target", TGT, ...EXPECT, ...IDS, "--accept-warnings", "BOGUS"]))).toBe("USAGE")

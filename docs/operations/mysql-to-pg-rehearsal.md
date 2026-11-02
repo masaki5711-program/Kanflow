@@ -30,7 +30,7 @@ export KANFLOW_MIGRATOR_DENY_TARGETS="127.0.0.1:25434/*,kanflow-pg.internal:5432
 A="--source mysql://k2_reader@127.0.0.1:23306/scrum_tool_synthetic --target postgresql://k2_pg@127.0.0.1:25435/scrum_tool --expect-target 127.0.0.1:25435/scrum_tool"
 node --import tsx scripts/migrate-mysql-to-pg.ts $A --dry-run --report dry-run.json        # exit 4: 警告の判断が要る、同一性を表示
 node --import tsx scripts/migrate-mysql-to-pg.ts $A --source-identity <表示された値> --target-identity <表示された値> \
-  --accept-warnings FUTURE_TIMESTAMP,LOCAL_TIME_SUSPECT,TIMESTAMP_BEFORE_CREATED,LOCAL_OFFSET_SUSPECT --report migrate.json
+  --accept-warnings FUTURE_TIMESTAMP,LOCAL_TIME_SUSPECT,TIMESTAMP_BEFORE_CREATED,LOCAL_OFFSET_SUSPECT --dry-run-report dry-run.json --report migrate.json
 node --import tsx scripts/migrate-mysql-to-pg.ts $A --verify-only --report verify.json
 
 docker compose -p kanflow-k2-test -f ../ops/test-env/migrator-compose.yml down -v   # 後片付け

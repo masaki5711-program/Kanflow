@@ -19,7 +19,7 @@
  * Nothing printed or reported contains a row value: issues carry primary keys
  * (and short hashes of values), errors are passed through sanitizeError.
  */
-import { createHash } from "node:crypto"
+import { createHmac, randomBytes } from "node:crypto"
 import { canonicalRow, canonicalValue, ConversionError, toTargetText, type SourceValue, type TargetKind } from "./convert"
 import { MigratorError } from "./errors"
 import { planCopyOrder, type CopyPlan, type FkEdge } from "./order"
@@ -50,6 +50,35 @@ export interface RunOptions {
   expectSourceIdentity?: string | null
   expectTargetIdentity?: string | null
   localOffsetHours?: number
+  /** the dry run's warnings for the same source (--dry-run-report); required to accept warnings */
+  warningBaseline?: WarningBaseline | null
+  /** server identities that must never be a target (deny-list "id:" entries) */
+  denyTargetIdentities?: readonly string[]
+}
+
+export interface WarningBaseline {
+  sourceIdentity: string
+  warnings: { code: string; table?: string; column?: string; count: number }[]
+}
+
+/**
+ * An accepted warning may not grow between the dry run (reviewed by the
+ * approver) and the migrate run, nor appear only now, nor come from another
+ * source. Returns the problems (empty = fine).
+ */
+export function checkWarningBaseline(warnings: readonly Issue[], baseline: WarningBaseline, sourceIdentity: string): string[] {
+  if (baseline.sourceIdentity !== sourceIdentity) {
+    return [`the --dry-run-report is from a different source (${baseline.sourceIdentity}, now ${sourceIdentity})`]
+  }
+  const key = (w: { code: string; table?: string; column?: string }) => `${w.code} ${w.table ?? "-"}.${w.column ?? "-"}`
+  const before = new Map(baseline.warnings.map((w) => [key(w), w.count]))
+  const out: string[] = []
+  for (const w of warnings) {
+    const prev = before.get(key(w))
+    if (prev === undefined) out.push(`${key(w)}: ${w.count} row(s), not in the dry run that was reviewed`)
+    else if (w.count > prev) out.push(`${key(w)}: grew since the reviewed dry run (${prev} -> ${w.count})`)
+  }
+  return out
 }
 
 /** One value --allow-invalid-json will copy as NULL. Goes to the protected side file only. */
@@ -116,8 +145,15 @@ function keyOf(row: SourceRow | TargetRow, pk: readonly string[]): string {
   return formatKey(pk.map((k) => (row[k] === null || row[k] === undefined ? null : String(row[k]))))
 }
 
-export function shortHash(value: string): string {
-  return createHash("sha256").update(value, "utf8").digest("hex").slice(0, 12)
+/**
+ * Value fingerprint for reports: HMAC-SHA256 with a random key that lives only
+ * for one run. Equal values group within a report; the hash cannot be
+ * compared with a precomputed list (e.g. hashes of known e-mail addresses)
+ * or linked across runs.
+ */
+export function makeValueHasher(): (value: string) => string {
+  const key = randomBytes(32)
+  return (value) => createHmac("sha256", key).update(value, "utf8").digest("hex").slice(0, 16)
 }
 
 /** Converted text; `nulled` = an invalid JSON value replaced by NULL under --allow-invalid-json. */
@@ -263,6 +299,7 @@ async function orphanChecks(source: SourcePort, schema: TargetSchema, tables: re
 }
 
 async function citextChecks(source: SourcePort, schema: TargetSchema, tables: readonly TableMapping[], issues: Issue[]): Promise<void> {
+  const fingerprint = makeValueHasher()
   const byName = new Map(tables.map((t) => [t.table, t]))
   for (const uk of citextUniqueKeys(schema)) {
     const m = byName.get(uk.table)
@@ -285,7 +322,7 @@ async function citextChecks(source: SourcePort, schema: TargetSchema, tables: re
       column: uk.columns.join(","),
       count: dups.length,
       // Never the value itself (personal data): a short hash to group, plus the keys.
-      sampleKeys: dups.slice(0, SAMPLE).map((d) => `value#${shortHash(d.value)} <- ${d.keys.join(", ")}`),
+      sampleKeys: dups.slice(0, SAMPLE).map((d) => `value#${fingerprint(d.value)} <- ${d.keys.join(", ")}`),
       message: `${uk.name}: ${dups.length} value(s) collide case-insensitively (citext); resolve them in the source first (keys listed, values not printed)`,
     })
   }
@@ -506,17 +543,17 @@ async function namedExtras(ports: Ports, m: TableMapping, v: TableVerifier, opts
 
 async function verifySequences(ports: Ports, schema: TargetSchema, comparisons: TableComparison[]): Promise<void> {
   for (const s of schema.sequences) {
+    const c = comparisons.find((x) => x.table === s.table)
+    // A sequence on a table that was not verified would be skipped silently: fail loudly instead.
+    if (!c) throw new Error(`sequence ${s.sequence} belongs to table ${s.table}, which is not among the verified tables`)
     const [r] = await ports.target.query(
       `${tag("verify-seq", s.table)} SELECT (SELECT COALESCE(MAX(${pgIdent(s.column)}), 0) FROM ${pgIdent(s.table)})::text AS mx, last_value::text AS lv, is_called::text AS called FROM ${s.sequence.split(".").map(pgIdent).join(".")}`,
     )
     const next = r.called === "true" || r.called === "t" ? BigInt(r.lv ?? "0") + BigInt(1) : BigInt(r.lv ?? "0")
     if (next <= BigInt(r.mx ?? "0")) {
-      const c = comparisons.find((x) => x.table === s.table)
-      if (c) {
-        c.match = false
-        c.differenceCount++
-        c.differences.push({ kind: "sequence-behind", key: `${s.sequence} next ${next} <= max ${r.mx}` })
-      }
+      c.match = false
+      c.differenceCount++
+      c.differences.push({ kind: "sequence-behind", key: `${s.sequence} next ${next} <= max ${r.mx}` })
     }
   }
 }
@@ -603,6 +640,9 @@ export async function runMigrator(opts: RunOptions, ports: Ports, hooks: RunHook
         }
       }
     }
+    if ((opts.denyTargetIdentities ?? []).includes(tgtInfo.identity)) {
+      issues.push({ code: "IDENTITY_MISMATCH", severity: "error", count: 1, sampleKeys: [], message: `target server identity ${tgtInfo.identity} is on the deny list (id: entry)` })
+    }
     if (srcInfo.charset !== "utf8mb4") {
       issues.push({ code: "SOURCE_CHARSET", severity: "warning", count: 1, sampleKeys: [], message: `source database default charset is ${srcInfo.charset}, production uses utf8mb4` })
     }
@@ -682,6 +722,19 @@ export async function runMigrator(opts: RunOptions, ports: Ports, hooks: RunHook
         return finish("needs-decision", EXIT.needsDecision)
       }
       return finish("ok", EXIT.ok)
+    }
+    if (opts.mode === "migrate" && report.unacceptedWarnings.length === 0 && report.acceptedWarnings.some((w) => w.code !== "INVALID_JSON")) {
+      const reviewed = report.precheck.warnings.filter((w) => w.code !== "INVALID_JSON")
+      const problems = opts.warningBaseline
+        ? checkWarningBaseline(reviewed, opts.warningBaseline, srcInfo.identity)
+        : ["accepting warnings needs the reviewed dry run's report (--dry-run-report)"]
+      if (problems.length > 0) {
+        for (const p of problems) log(`[precheck] REFUSED: ${p}`)
+        report.unacceptedWarnings = [...new Set(reviewed.map((w) => w.code))]
+        await ports.source.endSnapshot()
+        snapshotOpen = false
+        return finish("precheck-failed", EXIT.refused)
+      }
     }
     if (opts.mode === "migrate" && report.unacceptedWarnings.length > 0) {
       log(`[precheck] REFUSED: warnings need an explicit decision after review: --accept-warnings ${report.unacceptedWarnings.join(",")}`)

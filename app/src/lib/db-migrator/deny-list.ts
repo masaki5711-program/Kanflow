@@ -18,6 +18,8 @@ export interface DenyEntry {
   port: number | "*"
   database: string
   raw: string
+  /** "id:<server identity>" entries: refused after connecting (see identityDenyList) */
+  identity?: string
 }
 
 const LOOPBACK = new Set(["localhost", "127.0.0.1", "::1", "[::1]", "0:0:0:0:0:0:0:1"])
@@ -28,6 +30,11 @@ export function normalizeHost(host: string): string {
 }
 
 function parseEntry(raw: string): DenyEntry {
+  if (raw.startsWith("id:")) {
+    const identity = raw.slice(3).trim()
+    if (identity === "") throw new MigratorError("DENY_LIST_INVALID", `empty identity in deny-list entry "${raw}"`)
+    return { host: "", port: "*", database: "", raw, identity }
+  }
   const m = /^(\[[^\]]+\]|[^:/\s]+)(?::([^/\s]+))?(?:\/(\S+))?$/.exec(raw)
   if (!m) throw new MigratorError("DENY_LIST_INVALID", `cannot parse deny-list entry "${raw}"`)
   const [, host, port, db] = m
@@ -61,7 +68,13 @@ export function loadDenyList(env: Record<string, string | undefined>, fileText: 
   return entries
 }
 
+/** Server identities (as printed by the dry run) that must never be a target. */
+export function identityDenyList(entries: readonly DenyEntry[]): string[] {
+  return entries.flatMap((e) => (e.identity === undefined ? [] : [e.identity]))
+}
+
 function matches(e: DenyEntry, t: Endpoint): boolean {
+  if (e.identity !== undefined) return false
   return (
     (e.host === "*" || e.host === normalizeHost(t.host)) &&
     (e.port === "*" || e.port === t.port) &&

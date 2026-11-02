@@ -1,4 +1,6 @@
 import { execFileSync, spawn } from "node:child_process"
+import fs from "node:fs"
+import os from "node:os"
 import path from "node:path"
 import type { Connection, RowDataPacket } from "mysql2/promise"
 import { Client } from "pg"
@@ -8,7 +10,7 @@ import { cliMain } from "../cli"
 import { runWithConnections } from "../connect"
 import { openMysqlSource } from "../mysql-port"
 import { openPgTarget } from "../pg-port"
-import { runMigrator, type InvalidJsonRecord, type MigrationReport, type RunHooks, type RunOptions } from "../run"
+import { runMigrator, type InvalidJsonRecord, type MigrationReport, type RunHooks, type RunOptions, type WarningBaseline } from "../run"
 import { myIdent, pgIdent } from "../sql"
 import { applyMysqlSchema, dropAllTables, injectDefect, openSeedConnection, seedSynthetic } from "../../../../scripts/seed-mysql-synthetic"
 
@@ -50,6 +52,8 @@ async function pgClient(database: string): Promise<Client> {
 }
 
 let identities = { source: "", target: "" }
+let warningBaseline: WarningBaseline | null = null
+let dryRunReportFile = ""
 
 async function run(mode: RunOptions["mode"], extra: Partial<RunOptions> = {}, hooks: RunHooks = {}): Promise<MigrationReport> {
   const source = await openMysqlSource(sourceEp, SECRETS.mysqlReader, TIMEOUT_MS)
@@ -63,6 +67,7 @@ async function run(mode: RunOptions["mode"], extra: Partial<RunOptions> = {}, ho
         acceptWarnings: SEEDED_WARNINGS,
         expectSourceIdentity: identities.source,
         expectTargetIdentity: identities.target,
+        warningBaseline,
         ...extra,
       },
       { source, target },
@@ -126,6 +131,11 @@ describe.skipIf(!enabled)("MySQL -> PostgreSQL migrator on synthetic containers 
     identities = { source: (await source.serverInfo()).identity, target: (await target.serverInfo()).identity }
     await source.close()
     await target.close()
+    // The reviewed dry run: its warnings bound what a migrate run may accept.
+    const dry = await run("dry-run", { acceptWarnings: [] })
+    warningBaseline = { sourceIdentity: identities.source, warnings: dry.precheck.warnings.map((w) => ({ code: w.code, table: w.table, column: w.column, count: w.count })) }
+    dryRunReportFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "k2-it-")), "dry-run.json")
+    fs.writeFileSync(dryRunReportFile, JSON.stringify(dry))
   }, 600_000)
 
   afterAll(async () => {
@@ -238,7 +248,7 @@ describe.skipIf(!enabled)("MySQL -> PostgreSQL migrator on synthetic containers 
         "--target", `postgresql://k2_pg@127.0.0.1:${PG_PORT}/${PG_DB}`,
         "--expect-target", `127.0.0.1:${PG_PORT}/${PG_DB}`,
         "--source-identity", identities.source, "--target-identity", identities.target,
-        "--accept-warnings", SEEDED_WARNINGS.join(","),
+        "--accept-warnings", SEEDED_WARNINGS.join(","), "--dry-run-report", dryRunReportFile,
         "--batch-size", "1",
       ],
       {
@@ -283,7 +293,7 @@ describe.skipIf(!enabled)("MySQL -> PostgreSQL migrator on synthetic containers 
       expect(dup?.table).toBe("User")
       expect(dup?.sampleKeys.join(" ")).toContain(keys[0])
       expect(dup?.sampleKeys.join(" ")).toContain(keys[1])
-      expect(dup?.sampleKeys[0]).toMatch(/^value#[0-9a-f]{12} <- /)
+      expect(dup?.sampleKeys[0]).toMatch(/^value#[0-9a-f]{16} <- /)
       const [now] = await seedConn.query<RowDataPacket[]>("SELECT email FROM `user`")
       const output = lines.join("\n") + JSON.stringify(r)
       for (const e of [...seededEmails, ...now.map((x) => String(x.email))]) expect(output).not.toContain(e)

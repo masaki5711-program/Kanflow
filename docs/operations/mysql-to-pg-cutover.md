@@ -36,17 +36,20 @@
   Everyone / Users / Authenticated Users などに権限があれば拒否する。ログと報告書にパスワードは出ない。
 - **拒否リスト**（必須）: `KANFLOW_MIGRATOR_DENY_TARGETS="host:port/db,…"` と `--deny-file <file>`（1 行 1 件、`#` はコメント、
   port / db は `*` 可、localhost / 127.0.0.1 / ::1 は同じ扱い、DNS は引かない＝別名もすべて書く）。1 件も無いと起動しない。
-  移行先が一致すると**接続する前に**拒否。移行元と同じ host:port も拒否。
+  移行先が一致すると**接続する前に**拒否。移行元と同じ host:port も拒否。`id:<サーバーの同一性>`（乾式の実行が表示する値）の行も書け、
+  接続した後に同一性が一致すれば拒否する（ホスト名の別名に頼らない）。
 - **サーバーの同一性**: 乾式の実行が `--source-identity <MySQL の @@server_uuid> --target-identity <PG の system_identifier/DB の oid>` を表示する。
   本実行はこの 2 つが必須で、接続した先と違えば拒否（前日に確かめた DB と別の DB に書かない）。移行先の DB を作り直したら乾式の実行からやり直す。
 - **警告は人が判断する**: 時刻の警告などがあると、乾式の実行は exit 4、本実行は exit 2 で止まる。内容を確認して
-  `--accept-warnings CODE,…` に**すべて**並べたときだけ進む（報告書の `acceptedWarnings` に残る）。
+  `--accept-warnings CODE,…` に**すべて**並べ、承認者が確認した乾式の実行の報告書を `--dry-run-report` で渡したときだけ進む。
+  同じ移行元（`--source-identity`）のその報告書より件数が増えた警告・新しく出た警告があれば拒否（報告書の `acceptedWarnings` に残る）。
 - 移行先のアプリの表に 1 行でもあると拒否する（空にする検査を飛ばす方法は無い）。
 - 書き込みは**1 つのトランザクション**: コピー → 遅延した FK の更新 → シーケンスの再設定 → **同じトランザクションの中で照合** →
   全表一致のときだけ COMMIT。不一致・失敗・中断（強制終了・接続断を含む）では移行先は空のスキーマのまま。COMMIT の後に ANALYZE。
 - 照合: 表ごとに件数と内容のハッシュ（各行の正規化した表現の SHA-256、移行元のキーの順）を比べ、行ごとに突き合わせて
   違う主キーを示す。読み取りはすべて区切った短い SQL（キーの範囲ごと）。
-- **出力に行の値を出さない**: 事前検査・照合・エラーは主キー（と値の短いハッシュ）だけを出し、DB のエラーの中の値は伏せる。
+- **出力に行の値を出さない**: 事前検査・照合・エラーは主キー（と値のハッシュ: 実行ごとに作る乱数の鍵の HMAC-SHA256。
+  同じ報告書の中だけで同じ値をまとめられ、既知の値の一覧とも別の実行とも照合できない）だけを出し、DB のエラーの中の値は伏せる。
   例外は `--invalid-json-file`（§3、元の値を保存する保護されたファイル）。主キーが複数の列のとき（例: `field_translation`）はその列の値が出る。
 - 終了コード: `0` 成功 / `1` 照合の不一致（**何も COMMIT していない**）/ `2` 拒否（安全装置・事前検査・未判断の警告）/
   `3` 失敗（報告書の `committed`: `false` = 移行先は空、`"unknown"` = COMMIT の結果が不明 → **まず `--verify-only`**）/
@@ -105,12 +108,58 @@ icacls "$dir\mysql-reader.pw" /inheritance:r /grant:r "$($env:USERNAME):(R)" "SY
 合成データでは分からない本番のデータの事前検査の結果・所要時間を、本番に触れずに確かめます。**個人データを含むので社内（オンプレ）から出さず、
 終わったら必ず消す**。承認者の OK を得てから:
 
-1. 直近の本番の MySQL のバックアップ（`ops\backup` の世代）を、本番ではない使い捨ての MySQL に復元する（例: 本番サーバー上の別ポートの MySQL
-   コンテナ、DB 名は `scrum_tool_rehearsal`）。本番の `KanflowMySQL` には復元しない。
-2. 使い捨ての PG の DB（例 `scrum_tool_rehearsal`）を §5 の手順で作る。
-3. §3 の乾式の実行と §6 の本実行を、この 2 つの DB に対して行う（拒否リストには本番の新しい PG を入れておく）。
-4. 結果（警告の件数・エラー・所要時間）を作業記録に残し、§3 の判断の材料にする。
-5. 使い捨ての MySQL / PG を消す（`DROP DATABASE` とコンテナの削除）。報告書と `--invalid-json-file` も §9 の規則で扱う。
+**守ること**: 社内（オンプレ）の機械だけで行う（本番サーバー、または承認された社内の検証機。クラウドや個人の PC は不可）。
+コンテナは **127.0.0.1 にだけ**公開する（`-p 127.0.0.1:<port>:3306`。`-p <port>:3306` は全インターフェースに開くので禁止）。
+root のパスワードは**生成して、ACL で絞ったファイルにだけ**置く（コマンドラインや環境変数の値に書かない。`*_PASSWORD_FILE` で渡す）。
+作成と削除の時刻・コマンド・確認の結果を作業記録に残す。
+
+1. 作業フォルダと生成したパスワードのファイル（Windows PowerShell）:
+
+   ```powershell
+   $dir = "C:\KanflowCutover\rehearsal"
+   New-Item -ItemType Directory -Force $dir | Out-Null
+   icacls $dir /inheritance:r /grant:r "$($env:USERNAME):(OI)(CI)F" "SYSTEM:(OI)(CI)F" "Administrators:(OI)(CI)F"
+   foreach ($n in "mysql-root.pw", "pg-root.pw") {
+     $b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b)
+     [IO.File]::WriteAllText("$dir\$n", [Convert]::ToBase64String($b)); Remove-Variable b
+   }
+   ```
+
+2. 使い捨ての MySQL（本番と同じ版・文字コード・`lower_case_table_names`。ポートは本番の 3306 と別）:
+
+   ```powershell
+   docker run -d --name kanflow-k2-rehearsal-mysql -p 127.0.0.1:23307:3306 `
+     -v "$dir\mysql-root.pw:/run/secrets/root:ro" -e MYSQL_ROOT_PASSWORD_FILE=/run/secrets/root `
+     -v kanflow-k2-rehearsal-mysql-data:/var/lib/mysql `
+     mysql:8.4 --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --lower-case-table-names=<本番の値>
+   docker port kanflow-k2-rehearsal-mysql      # 127.0.0.1:23307 だけが出ること（0.0.0.0 が出たら直ちに削除）
+   ```
+
+3. 直近の本番の MySQL のバックアップ（`ops\backup` の世代のダンプ）を `$dir` に展開し、取り込む（パスワードはコンテナの中のファイルから読む）:
+
+   ```powershell
+   docker exec kanflow-k2-rehearsal-mysql sh -c 'MYSQL_PWD="$(cat /run/secrets/root)" mysql -uroot -e "CREATE DATABASE scrum_tool_rehearsal CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"'
+   docker cp "$dir\dump.sql" kanflow-k2-rehearsal-mysql:/tmp/dump.sql
+   docker exec kanflow-k2-rehearsal-mysql sh -c 'MYSQL_PWD="$(cat /run/secrets/root)" mysql -uroot --default-character-set=utf8mb4 scrum_tool_rehearsal < /tmp/dump.sql && rm /tmp/dump.sql'
+   ```
+
+   移行用の読み取り専用ユーザーも §1 の GRANT と同じ形で作る（パスワードは §1 の方法で別のファイルに）。本番の `KanflowMySQL` には復元しない。
+4. 使い捨ての PG（同じ規則: `-p 127.0.0.1:25436:5432`、`-e POSTGRES_PASSWORD_FILE=/run/secrets/root`、`$dir\pg-root.pw` を読み取り専用で mount、
+   イメージ `timescale/timescaledb:2.28.1-pg16`、`POSTGRES_INITDB_ARGS` は `ops/test-env/compose.yml` と同じ、volume `kanflow-k2-rehearsal-pg-data`）に、
+   §5 の手順で `scrum_tool_rehearsal` を作る。
+5. §3 の乾式の実行と §6 の本実行を、この 2 つの DB に対して行う（拒否リストには本番の新しい PG を入れておく）。
+6. 結果（警告の件数・エラー・所要時間）を作業記録に残し、§3 の判断の材料にする。
+7. **削除して記録する**（作業記録に時刻・コマンド・出力を貼る）:
+
+   ```powershell
+   docker rm -f kanflow-k2-rehearsal-mysql kanflow-k2-rehearsal-pg
+   docker volume rm kanflow-k2-rehearsal-mysql-data kanflow-k2-rehearsal-pg-data
+   Remove-Item $dir -Recurse -Force                      # 展開したダンプとパスワードのファイル
+   docker ps -a --filter name=kanflow-k2-rehearsal       # 何も出ないこと
+   docker volume ls --filter name=kanflow-k2-rehearsal   # 何も出ないこと
+   ```
+
+   リハーサルの報告書と `--invalid-json-file` も §9 の規則で扱う（本番のデータの主キーを含む）。
 
 ## 2. 拒否リスト（`[MUTATING — needs approval]`: ファイルを作る）
 
@@ -120,6 +169,7 @@ icacls "$dir\mysql-reader.pw" /inheritance:r /grant:r "$($env:USERNAME):(R)" "SY
 ```text
 # C:\KanflowCutover\deny-targets.txt  （リポジトリに入れない）
 127.0.0.1:25434/*          # v2 の試験用インスタンス
+id:<使用中の PG の system_identifier/oid>   # 乾式の実行の [identity] の値。別名の多いサーバーに
 <他の業務の PG のホスト>:5432/*
 ```
 
@@ -232,6 +282,7 @@ node --import tsx scripts/migrate-mysql-to-pg.ts `
      --expect-target <pg-host>:<port>/scrum_tool `
      --source-identity <乾式の実行の値> --target-identity <乾式の実行の値> `
      --accept-warnings <承認者と判断したコード,…> `
+     --dry-run-report C:\KanflowCutover\dry-run-<日時>.json `
      --target-ca C:\KanflowCutover\pg-ca.pem `
      --source-password-file C:\KanflowCutover\mysql-reader.pw `
      --target-password-file C:\KanflowCutover\pg-app.pw `
@@ -319,6 +370,7 @@ PG のその時点のバックアップ（`ops\backup\backup-kanflow.ps1`、v2 �
 **拒否リストへの追加のチェック**（承認者が確認して作業記録にサインする）:
 
 - [ ] 運用者の手元の `deny-targets.txt`（今後の作業で使う保管場所の写し）に `<pg-host>:<port>/scrum_tool` と、その別名（ホスト名・IP）をすべて追加した
+- [ ] 新しい本番の PG の同一性（§6 の本実行の `[identity]` の target の値）を `id:<値>` として同じファイルに追加した
 - [ ] `KANFLOW_MIGRATOR_DENY_TARGETS` を使う端末・タスクにも同じ値を設定した
 - [ ] 確認: 乾式の実行を新しい本番の PG に向けると `TARGET_DENIED`（exit 2、接続なし）になる
 

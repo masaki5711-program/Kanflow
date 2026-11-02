@@ -6,9 +6,9 @@
  * secrets (redacted on the object) and no row values (sanitized errors).
  */
 import { describeEndpoint, parseArgs, resolvePasswords, USAGE, type CliArgs, type Passwords } from "./args"
-import { assertExpectedTarget, assertTargetAllowed, loadDenyList } from "./deny-list"
+import { assertExpectedTarget, assertTargetAllowed, identityDenyList, loadDenyList } from "./deny-list"
 import { isRefusal, MigratorError } from "./errors"
-import { EXIT, type InvalidJsonRecord, type MigrationReport, type RunHooks } from "./run"
+import { EXIT, type InvalidJsonRecord, type MigrationReport, type RunHooks, type RunOptions, type WarningBaseline } from "./run"
 import { redactDeep, sanitizeError } from "./sanitize"
 
 export interface CliDeps {
@@ -24,7 +24,7 @@ export interface CliDeps {
   writeSideFile?: (file: string, content: string) => void
   print: (line: string) => void
   /** Opens the connections, runs, closes. */
-  run: (args: CliArgs, passwords: Passwords, log: (line: string) => void, hooks?: Omit<RunHooks, "log">) => Promise<MigrationReport>
+  run: (args: CliArgs, passwords: Passwords, log: (line: string) => void, hooks?: Omit<RunHooks, "log">, extra?: Partial<RunOptions>) => Promise<MigrationReport>
 }
 
 export function redact(text: string, secrets: readonly string[]): string {
@@ -53,6 +53,16 @@ function errorReport(args: CliArgs, error: string): MigrationReport {
   }
 }
 
+/** The reviewed dry run's warnings, from its JSON report. */
+export function baselineFromReport(text: string): WarningBaseline {
+  const r = JSON.parse(text) as Partial<MigrationReport>
+  const identity = r.sourceServer?.identity
+  if (r.mode !== "dry-run" || typeof identity !== "string" || !Array.isArray(r.precheck?.warnings)) {
+    throw new MigratorError("USAGE", "--dry-run-report is not the JSON report of a dry run")
+  }
+  return { sourceIdentity: identity, warnings: r.precheck.warnings.map((w) => ({ code: w.code, table: w.table, column: w.column, count: w.count })) }
+}
+
 export async function cliMain(argv: readonly string[], deps: CliDeps): Promise<number> {
   let args: CliArgs
   try {
@@ -71,10 +81,20 @@ export async function cliMain(argv: readonly string[], deps: CliDeps): Promise<n
   }
 
   let passwords: Passwords
+  const extra: Partial<RunOptions> = {}
   try {
     assertExpectedTarget(args.target, args.expectTarget)
     const denyText = args.denyFile === null ? null : deps.readFile(args.denyFile)
-    assertTargetAllowed(args.target, args.source, loadDenyList(deps.env, denyText))
+    const deny = loadDenyList(deps.env, denyText)
+    assertTargetAllowed(args.target, args.source, deny)
+    extra.denyTargetIdentities = identityDenyList(deny)
+    if (args.dryRunReport !== null) {
+      try {
+        extra.warningBaseline = baselineFromReport(deps.readFile(args.dryRunReport))
+      } catch (e) {
+        throw e instanceof MigratorError ? new MigratorError("SIDE_FILE", e.message) : new MigratorError("SIDE_FILE", `--dry-run-report unreadable: ${sanitizeError(e)}`)
+      }
+    }
     passwords = resolvePasswords(args, deps.env, deps.platform, { readFile: deps.readFile, statMode: deps.statMode })
     if (deps.platform === "win32" && deps.aclCheck) {
       for (const f of [args.sourcePasswordFile, args.targetPasswordFile]) if (f !== null) deps.aclCheck(f)
@@ -102,7 +122,7 @@ export async function cliMain(argv: readonly string[], deps: CliDeps): Promise<n
   }
   let report: MigrationReport
   try {
-    report = await deps.run(args, passwords, log, hooks)
+    report = await deps.run(args, passwords, log, hooks, extra)
   } catch (e) {
     // Connection / setup failure: still leave a report behind.
     report = errorReport(args, sanitizeError(e))

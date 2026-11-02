@@ -288,9 +288,37 @@ describe("runMigrator", () => {
     expect(refused).toMatchObject({ outcome: "precheck-failed", exitCode: 2 })
     expect(target.transactions).toEqual([])
 
-    const ok = await runMigrator({ ...migrate, acceptWarnings: ["FUTURE_TIMESTAMP"] }, { source: fakeSource({ flag }), target: fakeTarget() })
+    const noBaseline = await runMigrator({ ...migrate, acceptWarnings: ["FUTURE_TIMESTAMP"] }, { source: fakeSource({ flag }), target: fakeTarget() })
+    expect(noBaseline).toMatchObject({ outcome: "precheck-failed", exitCode: 2 })
+
+    const warningBaseline = { sourceIdentity: IDS.source, warnings: dry.precheck.warnings.map((w) => ({ code: w.code, table: w.table, column: w.column, count: w.count })) }
+    const ok = await runMigrator({ ...migrate, acceptWarnings: ["FUTURE_TIMESTAMP"], warningBaseline }, { source: fakeSource({ flag }), target: fakeTarget() })
     expect(ok).toMatchObject({ outcome: "ok", exitCode: 0, committed: true, unacceptedWarnings: [] })
     expect(ok.acceptedWarnings).toEqual([{ code: "FUTURE_TIMESTAMP", count: 1, table: "PlanItem", column: "createdAt" }])
+  })
+
+  it("refuses accepted warnings that grew since the reviewed dry run, and deny-listed target identities", async () => {
+    const lines: string[] = []
+    const warningBaseline = { sourceIdentity: IDS.source, warnings: [{ code: "FUTURE_TIMESTAMP", table: "PlanItem", column: "createdAt", count: 0 }] }
+    const target = fakeTarget()
+    const grew = await runMigrator({ ...migrate, acceptWarnings: ["FUTURE_TIMESTAMP"], warningBaseline }, { source: fakeSource({ flag: "UTC_TIMESTAMP" }), target }, { log: (l) => lines.push(l) })
+    expect(grew).toMatchObject({ outcome: "precheck-failed", exitCode: 2 })
+    expect(lines.join(" | ")).toContain("0 -> 1")
+    expect(target.transactions).toEqual([])
+
+    const denied = await runMigrator({ ...base, denyTargetIdentities: [IDS.target] }, { source: fakeSource(), target: fakeTarget() })
+    expect(denied.exitCode).toBe(2)
+    expect(denied.precheck.errors[0].message).toContain("deny list")
+  })
+
+  it("a sequence on a table outside the verified set fails loudly", async () => {
+    const target = fakeTarget()
+    target.introspect = async () => ({ ...targetSchema, sequences: [{ table: "Ghost", column: "id", sequence: "public.Ghost_id_seq" }] })
+    const q = target.query
+    target.query = async (sql, params) => (sql.includes("k2:verify-seq") ? [{ mx: "1", lv: "1", called: "true" }] : q(sql, params))
+    const report = await runMigrator({ ...base, mode: "verify-only" }, { source: fakeSource(), target })
+    expect(report.exitCode).toBe(3)
+    expect(report.error).toContain("Ghost")
   })
 
   it("--allow-invalid-json hands keys + originals to the side-file hook before writing and checks the nulled set", async () => {

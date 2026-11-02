@@ -20,19 +20,10 @@
  * Library + tests:         src/lib/db-migrator/
  */
 import fs from "node:fs"
-import path from "node:path"
+import { writeAtomic } from "../src/lib/db-migrator/atomic-file"
 import { cliMain } from "../src/lib/db-migrator/cli"
 import { runWithConnections } from "../src/lib/db-migrator/connect"
 import { checkWindowsAcl } from "../src/lib/db-migrator/file-acl"
-
-/** temp file in the same directory + rename: a reader never sees a half-written file. Owner-only mode. */
-function writeAtomic(file: string, content: string): void {
-  const abs = path.resolve(file)
-  fs.mkdirSync(path.dirname(abs), { recursive: true })
-  const tmp = `${abs}.${process.pid}.tmp`
-  fs.writeFileSync(tmp, content, { encoding: "utf8", mode: 0o600, flag: "wx" })
-  fs.renameSync(tmp, abs)
-}
 
 cliMain(process.argv.slice(2), {
   env: process.env,
@@ -43,7 +34,7 @@ cliMain(process.argv.slice(2), {
   writeReport: (f, report) => writeAtomic(f, `${JSON.stringify(report, null, 2)}\n`),
   writeSideFile: (f, content) => writeAtomic(f, content),
   print: (line) => process.stdout.write(`${new Date().toISOString()} ${line}\n`),
-  run: (args, passwords, log, hooks) => runWithConnections(args, passwords, log, hooks),
+  run: (args, passwords, log, hooks, extra) => runWithConnections(args, passwords, log, hooks, extra),
 })
   .then((code) => {
     process.exitCode = code

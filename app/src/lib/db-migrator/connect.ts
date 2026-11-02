@@ -4,10 +4,16 @@ import type { CliArgs, Passwords } from "./args"
 import { openMysqlSource } from "./mysql-port"
 import { openPgTarget } from "./pg-port"
 import type { SourcePort, TargetPort } from "./ports"
-import { runMigrator, type MigrationReport, type RunHooks } from "./run"
+import { runMigrator, type MigrationReport, type RunHooks, type RunOptions } from "./run"
 import { sanitizeError } from "./sanitize"
 
-export async function runWithConnections(args: CliArgs, passwords: Passwords, log: (line: string) => void, hooks: Omit<RunHooks, "log"> = {}): Promise<MigrationReport> {
+export async function runWithConnections(
+  args: CliArgs,
+  passwords: Passwords,
+  log: (line: string) => void,
+  hooks: Omit<RunHooks, "log"> = {},
+  extra: Partial<RunOptions> = {},
+): Promise<MigrationReport> {
   if (args.mode === "help") throw new Error("help mode has nothing to run")
   const timeoutMs = args.statementTimeoutSec * 1000
   const ca = (f: string | null): string | null => (f === null ? null : fs.readFileSync(f, "utf8"))
@@ -25,6 +31,7 @@ export async function runWithConnections(args: CliArgs, passwords: Passwords, lo
         expectSourceIdentity: args.sourceIdentity,
         expectTargetIdentity: args.targetIdentity,
         localOffsetHours: args.localOffsetHours,
+        ...extra,
       },
       { source, target },
       { ...hooks, log },
