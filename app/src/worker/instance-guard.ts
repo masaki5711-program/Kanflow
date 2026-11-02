@@ -2,7 +2,7 @@ import type { NamedLockHandle } from "./named-lock"
 
 /**
  * Single-instance guard: exactly one worker per database holds
- * GET_LOCK('kanflow_worker'). A second instance does not exit (a service
+ * the advisory lock "kanflow_worker". A second instance does not exit (a service
  * manager would just restart it in a loop) — it waits as a hot standby and
  * takes over as soon as the active worker's session ends.
  */
@@ -20,7 +20,7 @@ export interface SingleInstanceOptions {
   /**
    * One non-blocking attempt: the handle, null when another session holds
    * the lock; rejects when the database is unreachable. Production passes
-   * acquireDedicatedLock (own mariadb connection, see ./dedicated-lock).
+   * acquireDedicatedLock (own pg connection, see ./dedicated-lock).
    */
   acquire: (name: string) => Promise<NamedLockHandle | null>
   sleep?: (ms: number, signal?: AbortSignal) => Promise<void>

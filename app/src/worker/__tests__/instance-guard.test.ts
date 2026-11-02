@@ -33,15 +33,17 @@ describe("lockResultIsOne", () => {
 })
 
 describe("acquireNamedLock", () => {
-  test("acquires with GET_LOCK(name, 0), verifies on the same tx and releases", async () => {
-    const { client, queries } = fakeClient(() => [{ v: BigInt(1) }])
+  test("acquires with pg_try_advisory_xact_lock, verifies on the same tx, releases by ending the tx", async () => {
+    const { client, queries } = fakeClient(() => [{ v: true }])
     const handle = await acquireNamedLock(client, "kanflow_worker")
     expect(handle).not.toBeNull()
-    expect(queries[0]).toContain("GET_LOCK(")
+    expect(queries[0]).toContain("pg_try_advisory_xact_lock(hashtextextended(")
     await expect(handle!.verify()).resolves.toBe(true)
-    expect(queries[1]).toContain("IS_USED_LOCK(")
+    expect(queries[1]).toContain("pg_locks")
+    expect(queries[1]).toContain("pid = pg_backend_pid()")
     await handle!.release()
-    expect(queries[2]).toContain("RELEASE_LOCK(")
+    // No unlock statement: the transaction-level lock ends with the transaction.
+    expect(queries).toHaveLength(2)
     await expect(handle!.verify()).resolves.toBe(false)
     expect(client.$transaction).toHaveBeenCalledTimes(1)
   })
@@ -52,7 +54,7 @@ describe("acquireNamedLock", () => {
   })
 
   test("verify() is false when the session no longer owns the lock", async () => {
-    const { client } = fakeClient((sql) => (sql.includes("IS_USED_LOCK") ? [{ v: null }] : [{ v: 1 }]))
+    const { client } = fakeClient((sql) => (sql.includes("pg_locks") ? [{ v: false }] : [{ v: true }]))
     const handle = await acquireNamedLock(client, "kanflow_worker")
     await expect(handle!.verify()).resolves.toBe(false)
     await handle!.release()
@@ -60,7 +62,7 @@ describe("acquireNamedLock", () => {
 
   test("verify() is false when the pinned connection died", async () => {
     const { client } = fakeClient((sql) => {
-      if (sql.includes("IS_USED_LOCK")) throw new Error("connection lost")
+      if (sql.includes("pg_locks")) throw new Error("connection lost")
       return [{ v: 1 }]
     })
     const handle = await acquireNamedLock(client, "kanflow_worker")
@@ -78,7 +80,7 @@ describe("acquireSingleInstance", () => {
   test("waits as standby until the other instance's lock is gone", async () => {
     let calls = 0
     const { client } = fakeClient((sql) => {
-      if (sql.includes("GET_LOCK")) return [{ v: ++calls >= 3 ? 1 : 0 }]
+      if (sql.includes("pg_try_advisory_xact_lock")) return [{ v: ++calls >= 3 }]
       return [{ v: 1 }]
     })
     const sleep = vi.fn(async () => undefined)

@@ -24,7 +24,7 @@ import { resolveMaxInvestigations } from "./surveillance-limits"
  * only reports older than SURVEILLANCE_RETENTION_DAYS (alias
  * AI_REPORT_RETENTION_DAYS, default 90) are removed — this sweep is the only
  * AiReport deletion. Each run then converts a batch of legacy single-language
- * reports to JA/ID bilingual (best effort). A MySQL named lock makes the
+ * reports to JA/ID bilingual (best effort). A named advisory lock makes the
  * run exclusive across processes (web manual trigger vs. worker schedule).
  *
  * Cost guards: agent runs only when anomalies or follow-up items exist, and

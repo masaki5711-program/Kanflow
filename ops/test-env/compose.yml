@@ -1,0 +1,51 @@
+# =====================================================================
+#  Kanflow v2 - local / test-instance PostgreSQL (NOT production)
+#
+#  PostgreSQL 16 + TimescaleDB 2.28.1, the platform-wide database spec.
+#  Kanflow does not use TimescaleDB features yet; the image is the same one
+#  every platform database runs so there is a single engine to operate.
+#
+#    docker compose -f ops/test-env/compose.yml up -d --wait
+#    docker compose -f ops/test-env/compose.yml down        # keep data
+#    docker compose -f ops/test-env/compose.yml down -v     # drop data
+#
+#  Bound to 127.0.0.1:25434 only. The credentials below are SYNTHETIC
+#  (kanflow_dev / kanflow_dev): this database holds synthetic test data
+#  only and must never be reachable from the network or hold real data.
+#  Matching app/.env (uncommitted):
+#    DATABASE_URL="postgresql://kanflow_dev:kanflow_dev@127.0.0.1:25434/scrum_tool"
+#    DATABASE_HOST=127.0.0.1  DATABASE_PORT=25434
+#    DATABASE_USER=kanflow_dev  DATABASE_PASSWORD=kanflow_dev  DATABASE_NAME=scrum_tool
+#  Production keeps MySQL 8.4 until the approved cutover (MR K2).
+# =====================================================================
+name: kanflow-v2-test
+
+services:
+  postgres:
+    image: timescale/timescaledb:2.28.1-pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: kanflow_dev
+      POSTGRES_PASSWORD: kanflow_dev
+      POSTGRES_DB: scrum_tool
+      # Same cluster settings as every Kanflow PostgreSQL (CI, test, the K2
+      # production cutover): UTF-8; ICU root collation "und" so ORDER BY on
+      # text sorts like MySQL's utf8mb4_unicode_ci did (a < B < c, not
+      # byte order); character classes from C.UTF-8 so pg_trgm extracts
+      # trigrams from Japanese / Indonesian text, not only ASCII.
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale-provider=icu --icu-locale=und --locale=C.UTF-8"
+      # Telemetry off: on-prem, no outbound calls.
+      TIMESCALEDB_TELEMETRY: "off"
+    command: ["postgres", "-c", "timescaledb.telemetry_level=off"]
+    ports:
+      - "127.0.0.1:25434:5432"
+    volumes:
+      - kanflow-v2-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U kanflow_dev -d scrum_tool"]
+      interval: 3s
+      timeout: 5s
+      retries: 40
+
+volumes:
+  kanflow-v2-pgdata:

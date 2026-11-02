@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const m = vi.hoisted(() => ({ adapterArgs: [] as unknown[], clientArgs: [] as unknown[] }))
 
-vi.mock("@prisma/adapter-mariadb", () => ({
-  PrismaMariaDb: class {
+vi.mock("@prisma/adapter-pg", () => ({
+  PrismaPg: class {
     constructor(opts: unknown) {
       m.adapterArgs.push(opts)
     }
@@ -42,11 +42,13 @@ describe("prisma client", () => {
     const { prisma } = await load()
     expect(m.adapterArgs[0]).toMatchObject({
       host: "localhost",
-      port: 3306,
-      user: "root",
+      port: 5432,
+      user: "postgres",
       password: "pw",
       database: "scrum_tool",
-      allowPublicKeyRetrieval: true,
+      max: 5,
+      connectionTimeoutMillis: 10_000,
+      idleTimeoutMillis: 60_000,
     })
     expect(g.prisma).toBe(prisma)
     // A second load reuses the cached instance.
@@ -58,12 +60,12 @@ describe("prisma client", () => {
   it("uses explicit env values", async () => {
     vi.stubEnv("NODE_ENV", "production")
     vi.stubEnv("DATABASE_HOST", "db")
-    vi.stubEnv("DATABASE_PORT", "3307")
+    vi.stubEnv("DATABASE_PORT", "5433")
     vi.stubEnv("DATABASE_USER", "app")
     vi.stubEnv("DATABASE_PASSWORD", "secret")
     vi.stubEnv("DATABASE_NAME", "kanflow")
     await load()
-    expect(m.adapterArgs[0]).toMatchObject({ host: "db", port: 3307, user: "app", database: "kanflow" })
+    expect(m.adapterArgs[0]).toMatchObject({ host: "db", port: 5433, user: "app", database: "kanflow" })
     expect(g.prisma).toBeUndefined()
   })
 

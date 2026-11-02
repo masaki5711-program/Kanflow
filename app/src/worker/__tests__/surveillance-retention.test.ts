@@ -31,11 +31,11 @@ vi.mock("@/services/_shared/notifications", () => ({ notify: vi.fn(async () => 0
 
 import { buildGoal, extractPreviousFindings, pruneOldReports, retentionCutoff, runSurveillance } from "../jobs/surveillance"
 
-/** $transaction fake: GET_LOCK answers `lockFree`, other statements 1. */
+/** $transaction fake: the advisory lock attempt answers `lockFree`, other statements 1. */
 function lockTx(lockFree: boolean) {
   mocks.transaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) =>
     fn({
-      $queryRaw: async (strings: TemplateStringsArray) => [{ v: strings.join("").includes("GET_LOCK") ? (lockFree ? 1 : 0) : 1 }],
+      $queryRaw: async (strings: TemplateStringsArray) => [{ v: strings.join("").includes("pg_try_advisory_xact_lock") ? (lockFree ? 1 : 0) : 1 }],
     })
   )
 }

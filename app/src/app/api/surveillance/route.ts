@@ -17,7 +17,7 @@ import { SingleFlightJobRunner } from "@/worker/jobs/job-runner"
  *     → 200 job record (status running | done | failed | aborted, result)
  *
  * Concurrent triggers never double-run: an in-process mutex returns the
- * running job, and a MySQL named lock inside runSurveillance() skips the
+ * running job, and a named advisory lock inside runSurveillance() skips the
  * run when the worker (or another web process) is already running it.
  */
 

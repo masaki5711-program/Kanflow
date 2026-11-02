@@ -12,7 +12,7 @@
 //
 // Graceful stop: `stopparentfirst` makes the node-windows wrapper send an IPC
 // "shutdown" message instead of killing the process; the worker aborts the
-// in-flight translation (rows go back to pending), releases its MySQL lock
+// in-flight translation (rows go back to pending), releases its database lock
 // and exits within WORKER_SHUTDOWN_TIMEOUT_MS (default 25 s, < stoptimeout).
 //
 // Run as administrator:

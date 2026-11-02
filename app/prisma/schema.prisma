@@ -4,13 +4,14 @@ generator client {
 }
 
 datasource db {
-  provider = "mysql"
+  provider = "postgresql"
 }
 
 model User {
   id                String                   @id @default(cuid())
   name              String
-  email             String                   @unique
+  /// citext: unique and compared case-insensitively, as under MySQL utf8mb4_unicode_ci (login, invites).
+  email             String                   @unique @db.Citext
   password          String
   avatarUrl         String?                  @db.Text
   createdAt         DateTime                 @default(now())
@@ -20,7 +21,7 @@ model User {
   /// Bumped to revoke every JWT issued for this user (deactivate / role change / password reset).
   tokenVersion      Int                      @default(0)
   language          String                   @default("ja")
-  employeeNumber    String?                  @unique
+  employeeNumber    String?                  @unique @db.Citext
   department        String?
   accounts          Account[]
   memberships       ProjectMember[]
@@ -135,7 +136,7 @@ model PlanTemplate {
   visibility    String    @default("public") @db.VarChar(10)
   ownerId       String?
   ownerName     String?   @db.VarChar(255)
-  content       String    @db.MediumText
+  content       String    @db.Text
   version       Int       @default(0)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -159,7 +160,7 @@ model PlanTemplateRevision {
   name         String   @db.VarChar(255)
   description  String?  @db.Text
   visibility   String   @db.VarChar(10)
-  content      String   @db.MediumText
+  content      String   @db.Text
   /// create | update | reset | duplicate
   action       String   @db.VarChar(16)
   editedById   String?
@@ -181,7 +182,7 @@ model PlanTemplateApplication {
   templateName    String   @db.VarChar(255)
   templateVersion Int
   /// The template content as loaded (later template edits never change it).
-  content         String   @db.MediumText
+  content         String   @db.Text
   /// JSON string[] of the top-level PlanItem ids created by this load.
   createdRootIds  String   @db.Text
   appliedById     String?
@@ -346,7 +347,7 @@ model Project {
   milestoneMetrics  MilestoneMetric[]
 
   @@index([deletedAt])
-  @@fulltext([name], map: "ft_project_name")
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "Project_name_trgm_idx")
 }
 
 model AiReport {
@@ -373,7 +374,8 @@ model AiReport {
 
 model Section {
   id          String           @id @default(cuid())
-  name        String           @unique
+  /// citext: "Line A" and "line a" are the same section (MySQL utf8mb4_unicode_ci parity).
+  name        String           @unique @db.Citext
   description String?          @db.Text
   sortOrder   Int              @default(0)
   createdAt   DateTime         @default(now())
@@ -421,7 +423,8 @@ model UserProjectFavorite {
 
 model AdminCategory {
   id          String                    @id @default(cuid())
-  name        String
+  /// citext: unique per section regardless of case (MySQL utf8mb4_unicode_ci parity).
+  name        String                    @db.Citext
   color       String                    @default("gray")
   sortOrder   Int                       @default(0)
   sectionId   String?
@@ -471,7 +474,8 @@ model ProductGoal {
   project      Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@index([projectId])
-  @@fulltext([title, description], map: "ft_goal_text")
+  @@index([title(ops: raw("gin_trgm_ops"))], type: Gin, map: "ProductGoal_title_trgm_idx")
+  @@index([description(ops: raw("gin_trgm_ops"))], type: Gin, map: "ProductGoal_description_trgm_idx")
 }
 
 model IceboxItem {
@@ -505,7 +509,9 @@ model IceboxItem {
   @@unique([projectId, displayId])
   @@index([projectId])
   @@index([projectId, deletedAt])
-  @@fulltext([request, background, pbEpic], map: "ft_icebox_text")
+  @@index([request(ops: raw("gin_trgm_ops"))], type: Gin, map: "IceboxItem_request_trgm_idx")
+  @@index([background(ops: raw("gin_trgm_ops"))], type: Gin, map: "IceboxItem_background_trgm_idx")
+  @@index([pbEpic(ops: raw("gin_trgm_ops"))], type: Gin, map: "IceboxItem_pbEpic_trgm_idx")
 }
 
 model IceboxAttachment {
@@ -575,7 +581,10 @@ model ProductBacklogItem {
   @@index([iceboxItemId])
   @@index([productGoalId])
   @@index([planItemId])
-  @@fulltext([initiative, epic, userStory, acceptanceCriteria], map: "ft_pbi_text")
+  @@index([initiative(ops: raw("gin_trgm_ops"))], type: Gin, map: "ProductBacklogItem_initiative_trgm_idx")
+  @@index([epic(ops: raw("gin_trgm_ops"))], type: Gin, map: "ProductBacklogItem_epic_trgm_idx")
+  @@index([userStory(ops: raw("gin_trgm_ops"))], type: Gin, map: "ProductBacklogItem_userStory_trgm_idx")
+  @@index([acceptanceCriteria(ops: raw("gin_trgm_ops"))], type: Gin, map: "ProductBacklogItem_acceptanceCriteria_trgm_idx")
 }
 
 /// One acceptance criterion of a PBI (W5). Display id `PBI-<n>/AC-<seq>`: `seq` counts up per
@@ -790,7 +799,7 @@ model SprintBacklogItem {
   @@index([sprintId])
   @@index([pbItemId])
   @@index([carriedFromId])
-  @@fulltext([taskName], map: "ft_task_name")
+  @@index([taskName(ops: raw("gin_trgm_ops"))], type: Gin, map: "SprintBacklogItem_taskName_trgm_idx")
 }
 
 model ReleaseBacklogItem {
@@ -960,7 +969,8 @@ model ProjectAttachment {
 model UserProjectCategory {
   id          String                          @id @default(cuid())
   userId      String
-  name        String
+  /// citext: unique per user regardless of case (MySQL utf8mb4_unicode_ci parity).
+  name        String                          @db.Citext
   color       String                          @default("gray")
   sortOrder   Int                             @default(0)
   createdAt   DateTime                        @default(now())
@@ -1011,7 +1021,8 @@ model FieldTranslation {
 
   @@id([entityType, entityId, field])
   @@index([status, priority(sort: Desc), requestedAt])
-  @@fulltext([textJa, textId], map: "ft_translation_text")
+  @@index([textJa(ops: raw("gin_trgm_ops"))], type: Gin, map: "field_translation_text_ja_trgm_idx")
+  @@index([textId(ops: raw("gin_trgm_ops"))], type: Gin, map: "field_translation_text_id_trgm_idx")
   @@map("field_translation")
 }
 
@@ -1131,7 +1142,7 @@ model Comment {
   @@index([entityType, entityId, createdAt])
   @@index([projectId, createdAt])
   @@index([authorId])
-  @@fulltext([body], map: "ft_comment_body")
+  @@index([body(ops: raw("gin_trgm_ops"))], type: Gin, map: "Comment_body_trgm_idx")
 }
 
 /// @mentions parsed from Comment.body (drives mention notifications).
@@ -1191,7 +1202,7 @@ model ChatMessage {
   id         String     @id @default(cuid())
   threadId   String
   role       String     @db.VarChar(16)
-  content    String     @db.MediumText
+  content    String     @db.Text
   toolEvents String?    @db.Text
   partial    Boolean    @default(false)
   createdAt  DateTime   @default(now())
@@ -1389,7 +1400,9 @@ model RepoChunk {
 
   @@index([repositoryId, path, chunkNo])
   @@index([projectId])
-  @@fulltext([path, heading, content], map: "ft_repo_chunk_text")
+  @@index([path(ops: raw("gin_trgm_ops"))], type: Gin, map: "repo_chunk_path_trgm_idx")
+  @@index([heading(ops: raw("gin_trgm_ops"))], type: Gin, map: "repo_chunk_heading_trgm_idx")
+  @@index([content(ops: raw("gin_trgm_ops"))], type: Gin, map: "repo_chunk_content_trgm_idx")
   @@map("repo_chunk")
 }
 

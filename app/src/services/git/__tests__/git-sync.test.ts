@@ -360,10 +360,10 @@ describe("syncRepository — externalId and cursors", () => {
     expect(stored()).toMatchObject({ mrCursorAt: legacy, commitCursorAt: new Date(NOW.getTime() - COMMIT_LAG_MS), syncCursor: legacy })
   })
 
-  it("the migration seeds both new cursors from syncCursor", async () => {
+  it("the (frozen MySQL) migration seeds both new cursors from syncCursor", async () => {
     const fs = await import("node:fs")
     const path = await import("node:path")
-    const sql = fs.readFileSync(path.resolve(__dirname, "../../../../prisma/migrations/20261030120000_git_sync_cursors/migration.sql"), "utf8")
+    const sql = fs.readFileSync(path.resolve(__dirname, "../../../../prisma/migrations-mysql/20261030120000_git_sync_cursors/migration.sql"), "utf8")
     expect(sql).toMatch(/UPDATE `git_repository`\s+SET `mrCursorAt` = `syncCursor`, `mrCursorSeen` = 0, `commitCursorAt` = `syncCursor`\s+WHERE `syncCursor` IS NOT NULL/)
     expect(sql).toMatch(/ALTER TABLE `git_link` ADD COLUMN `goneAt` DATETIME\(3\) NULL/)
     // Additive only: nothing is dropped or made NOT NULL.

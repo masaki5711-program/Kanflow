@@ -1,4 +1,4 @@
-import { PrismaMariaDb } from "@prisma/adapter-mariadb"
+import { PrismaPg } from "@prisma/adapter-pg"
 import { PrismaClient } from "@/generated/prisma/client"
 
 const globalForPrisma = globalThis as unknown as {
@@ -12,20 +12,25 @@ function getRequiredEnv(key: string, defaultForDev?: string): string {
   throw new Error(`Required environment variable ${key} is not set`)
 }
 
+/** Connection attempt bound: an unreachable database fails a request instead of hanging it. */
+export const DB_CONNECT_TIMEOUT_MS = 10_000
+/** Idle pooled connections are closed after this long. */
+export const DB_IDLE_TIMEOUT_MS = 60_000
+
 function createPrismaClient() {
-  const adapter = new PrismaMariaDb({
+  // PostgreSQL 16 (node-postgres pool via the Prisma driver adapter). Same
+  // discrete DATABASE_* variables as before the MySQL -> PostgreSQL move;
+  // prisma.config.ts (CLI) reads DATABASE_URL.
+  const adapter = new PrismaPg({
     host: getRequiredEnv("DATABASE_HOST", "localhost"),
-    port: Number(getRequiredEnv("DATABASE_PORT", "3306")),
-    user: getRequiredEnv("DATABASE_USER", "root"),
+    port: Number(getRequiredEnv("DATABASE_PORT", "5432")),
+    user: getRequiredEnv("DATABASE_USER", "postgres"),
     password: getRequiredEnv("DATABASE_PASSWORD"),
     database: getRequiredEnv("DATABASE_NAME", "scrum_tool"),
-    connectionLimit: 5,
-    // MySQL 8.4 uses caching_sha2_password. Over a non-TLS loopback
-    // connection the mariadb driver must fetch the server's RSA public key
-    // to encrypt the password; without this it fails with
-    // ER_CANNOT_RETRIEVE_RSA_KEY and the pool times out. Safe here because
-    // the connection is local (127.0.0.1).
-    allowPublicKeyRetrieval: true,
+    max: 5,
+    connectionTimeoutMillis: DB_CONNECT_TIMEOUT_MS,
+    idleTimeoutMillis: DB_IDLE_TIMEOUT_MS,
+    application_name: "kanflow",
   })
   return new PrismaClient({ adapter })
 }
