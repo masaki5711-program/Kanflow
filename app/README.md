@@ -73,7 +73,21 @@ Never commit `.env`.
     `npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --script`
     (`--exit-code`: 0 = identical, 2 = different)
   - applied vs pending migrations (read-only): `npx prisma migrate status`
-- There is no seed script. The first admin user is created once by hand (see root README).
+- There is no seed script for the app database. The first admin user is created once by hand (see root README).
+  (`scripts/seed-mysql-synthetic.ts` only fills the synthetic MySQL of the K2 migrator rehearsal.)
+
+## MySQL -> PostgreSQL data migration (K2)
+
+`scripts/migrate-mysql-to-pg.ts` copies the production MySQL data into a PostgreSQL schema created by
+`prisma migrate deploy` (data only, FK order, one transaction, count + content-hash verification per table).
+Library and unit tests: `src/lib/db-migrator/`. Endpoints come only from `--source` / `--target`
+(never from `DATABASE_URL`); passwords from `KANFLOW_MIGRATOR_*_PASSWORD` or a password file; a deny list
+(`KANFLOW_MIGRATOR_DENY_TARGETS` / `--deny-file`) is mandatory. Procedure and approvals:
+`docs/operations/mysql-to-pg-cutover.md`; rehearsal: `docs/operations/mysql-to-pg-rehearsal.md`.
+
+- Unit tests run with `npm test`. Integration tests against the synthetic containers of
+  `ops/test-env/migrator-compose.yml` (MySQL 127.0.0.1:23306, PostgreSQL 127.0.0.1:25435):
+  `KANFLOW_MIGRATOR_TESTS=1 npx vitest run src/lib/db-migrator`
 
 ## Health endpoint
 
