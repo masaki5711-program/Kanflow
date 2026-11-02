@@ -7,6 +7,7 @@
  */
 import { createHash } from "node:crypto"
 import { baseScheduleSchema, planBaseSchedule, PlanScheduleError, startDateSchema, type BaseSchedule } from "@/lib/plan-schedule/base-schedule"
+import { lineageFromSource, lineageSchema, sourceRefSchema } from "@/lib/plan-schedule/schedule-source"
 import { chatProposalSchema, type PlanLoadProposal } from "@/lib/chat-proposals"
 import type { Actor } from "@/services/_shared/actor"
 import { defaultDb, withTransaction } from "@/services/_shared/db"
@@ -22,6 +23,10 @@ export const proposePlanItemsSchema = z.object({
   /** Shown as the card heading (e.g. the base repository's name). */
   name: z.string().trim().max(200).optional(),
   reason: z.string().trim().max(1000).optional(),
+  /** plan 12 E0: where the schedule came from (gitstation:<repo>@<tag>:<path> | template:<id>@v<n>). */
+  sourceRef: sourceRefSchema.optional(),
+  /** plan 12 E0: template family stable across versions; derived from sourceRef / name when absent. */
+  lineage: lineageSchema.optional(),
 })
 export type ProposePlanItemsInput = z.infer<typeof proposePlanItemsSchema>
 
@@ -31,7 +36,7 @@ const PREVIEW_ROWS = 60
 /** Child names shown under each top-level row of the card ("+N more" for the rest). */
 const PREVIEW_CHILDREN = 5
 
-export function buildPlanLoadProposal(input: { startDate: string; schedule: BaseSchedule; name?: string; reason?: string }): PlanLoadProposal {
+export function buildPlanLoadProposal(input: { startDate: string; schedule: BaseSchedule; name?: string; reason?: string; sourceRef?: string; lineage?: string }): PlanLoadProposal {
   let planned
   try {
     planned = planBaseSchedule(input.schedule, input.startDate)
@@ -51,7 +56,14 @@ export function buildPlanLoadProposal(input: { startDate: string; schedule: Base
     .filter((r) => r.parentKey === null)
     .slice(0, PREVIEW_ROWS)
     .map((r) => ({ name: r.name.slice(0, 500), plannedStart: r.plannedStart, plannedEnd: r.plannedEnd, isMilestone: r.isMilestone, children: childCount.get(r.key) ?? 0, childNames: childNames.get(r.key) ?? [] }))
-  const digest = createHash("sha256").update(JSON.stringify({ s: input.startDate, p: input.schedule })).digest("hex").slice(0, 16)
+  // Only what the caller gave enters the digest: a call without sourceRef / lineage keeps its pre-E0 proposal id.
+  const digest = createHash("sha256")
+    .update(JSON.stringify({ s: input.startDate, p: input.schedule, ...(input.sourceRef && { r: input.sourceRef }), ...(input.lineage && { l: input.lineage }) }))
+    .digest("hex")
+    .slice(0, 16)
+  // The lineage is fixed here when the caller knows more than the load will (its own card name); without a
+  // source or a name the load derives it from the content hash. The default heading is never a lineage.
+  const lineage = input.lineage ?? lineageFromSource({ sourceRef: input.sourceRef, name: input.name }) ?? undefined
   const proposal = {
     kind: "plan_load" as const,
     proposalId: `prop_plan_${digest}`,
@@ -62,6 +74,8 @@ export function buildPlanLoadProposal(input: { startDate: string; schedule: Base
     plannedStart: planned.plannedStart,
     plannedEnd: planned.plannedEnd,
     schedule: input.schedule,
+    ...(input.sourceRef && { sourceRef: input.sourceRef }),
+    ...(lineage && { lineage }),
     preview,
     reason: input.reason ?? "",
   }

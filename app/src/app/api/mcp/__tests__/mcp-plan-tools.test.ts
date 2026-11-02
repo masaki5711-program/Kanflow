@@ -196,4 +196,36 @@ describe("propose_plan_items", () => {
     const r = await callTool("propose_plan_items", { projectId: "p1", startDate: "2026-11-02", items: fat })
     expect(r.payload.code).toBe("PLAN_PROPOSAL_TOO_LARGE")
   })
+
+  // plan 12 E0: where the schedule came from travels with the proposal to the approval.
+  it("carries sourceRef and the lineage (derived from it when absent) in the proposal", async () => {
+    await callTool("propose_plan_items", { projectId: "p1", ...SCHEDULE, sourceRef: "gitstation:equipment-spec@v1.2.0:schedule.yml" })
+    const proposal = JSON.parse(m.insertMessage.mock.calls[0][1].toolEvents)[0].proposal
+    expect(proposal).toMatchObject({ sourceRef: "gitstation:equipment-spec@v1.2.0:schedule.yml", lineage: "gitstation:equipment-spec:schedule.yml" })
+  })
+
+  it("an explicit lineage is kept; without a source the card's own name (not the default heading) names the lineage", async () => {
+    await callTool("propose_plan_items", { projectId: "p1", ...SCHEDULE, lineage: "設備導入の標準工程" })
+    await callTool("propose_plan_items", { projectId: "p1", ...SCHEDULE, name: "設備導入" })
+    await callTool("propose_plan_items", { projectId: "p1", ...SCHEDULE })
+    const [a, b, c] = m.insertMessage.mock.calls.map((call) => JSON.parse(call[1].toolEvents)[0].proposal)
+    expect(a.lineage).toBe("設備導入の標準工程")
+    expect(b.lineage).toBe("name:設備導入")
+    expect(c.lineage).toBeUndefined() // decided by the load from the content hash
+    expect(a.proposalId).not.toBe(c.proposalId) // a different lineage is a different proposal
+  })
+
+  it("old schedules keep their proposal id (no sourceRef / lineage → same digest as before E0)", async () => {
+    await callTool("propose_plan_items", { projectId: "p1", ...SCHEDULE })
+    const proposal = JSON.parse(m.insertMessage.mock.calls[0][1].toolEvents)[0].proposal
+    const { createHash } = await import("node:crypto")
+    const { startDate, ...schedule } = SCHEDULE
+    expect(proposal.proposalId).toBe(`prop_plan_${createHash("sha256").update(JSON.stringify({ s: startDate, p: schedule })).digest("hex").slice(0, 16)}`)
+  })
+
+  it("a malformed sourceRef is refused and nothing is stored", async () => {
+    const r = await callTool("propose_plan_items", { projectId: "p1", ...SCHEDULE, sourceRef: "http://example.test/schedule.yml" })
+    expect(r.isError).toBe(true)
+    expect(m.createThread).not.toHaveBeenCalled()
+  })
 })

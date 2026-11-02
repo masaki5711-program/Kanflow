@@ -1,5 +1,6 @@
 import { z } from "zod"
 import { baseScheduleSchema } from "@/lib/plan-schedule/base-schedule"
+import { lineageSchema, sourceRefSchema } from "@/lib/plan-schedule/schedule-source"
 import { templateContentSchema } from "@/lib/plan-templates/schema"
 
 /**
@@ -183,6 +184,9 @@ export const planLoadProposalSchema = z.object({
   plannedStart: day,
   plannedEnd: day,
   schedule: baseScheduleSchema,
+  /** Where the schedule came from and its template family (plan 12 E0); absent on cards made before E0. */
+  sourceRef: sourceRefSchema.optional(),
+  lineage: lineageSchema.optional(),
   preview: z.array(z.object({ name: shortText, plannedStart: day, plannedEnd: day, isMilestone: z.boolean(), children: z.number().int().min(0), childNames: z.array(shortText).max(5).optional() })).max(60),
   reason: z.string().max(1000),
 })

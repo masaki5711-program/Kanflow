@@ -82,7 +82,18 @@ export function proposalRequests(projectId: string, proposal: ChatProposal): Pro
     case "plan_edit":
       return proposal.ops.flatMap((op) => planOpRequests(base, op))
     case "plan_load":
-      return [{ url: `${base}/plan/load`, method: "POST", json: { startDate: proposal.startDate, schedule: proposal.schedule, proposalId: proposal.proposalId } }]
+      return [{
+        url: `${base}/plan/load`,
+        method: "POST",
+        json: {
+          startDate: proposal.startDate,
+          schedule: proposal.schedule,
+          proposalId: proposal.proposalId,
+          // plan 12 E0: where it came from; cards made before E0 have neither.
+          ...(proposal.sourceRef && { sourceRef: proposal.sourceRef }),
+          ...(proposal.lineage && { lineage: proposal.lineage }),
+        },
+      }]
     case "sprint_schedule":
       return [{
         url: `${base}/sprints/${encodeURIComponent(proposal.sprint.id)}`,
