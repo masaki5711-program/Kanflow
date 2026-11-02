@@ -1,25 +1,27 @@
 /**
- * Verification: per table, both sides are streamed in the SAME order - the
- * primary key compared as UTF-8 bytes (MySQL `CAST(col AS BINARY)`,
- * PostgreSQL `col::text COLLATE "C"`; integer key parts numerically) - and
- * each row is reduced to its canonical serialization (convert.ts).
+ * Verification, table by table, in bounded statements:
  *
- * - count and SHA-256 over the ordered canonical rows, per side;
- * - a merge walk over the two ordered streams names the first differing keys
- *   (missing in target / extra in target / content differs) with bounded memory.
+ * - the source is read in keyset chunks in its own primary-key order (index
+ *   range scans, one bounded statement per chunk - no table-long stream);
+ * - for each chunk the target rows with the same keys are fetched by key;
+ * - every row is reduced to its canonical serialization (convert.ts) and the
+ *   pairs are compared: missing in target / content differs;
+ * - SHA-256 over the canonical rows in source key order is kept per side;
+ * - counts are compared; when the target has more rows than were matched, an
+ *   extra-key pass (target keys checked against the source) names them.
  *
- * The native collations cannot be used for the order: utf8mb4_unicode_ci and
- * ICU "und" sort text differently, so the streams would not line up.
+ * Keys are compared as canonical text, so the order of the two engines'
+ * collations does not matter.
  */
-import { createHash } from "node:crypto"
-import type { TargetKind } from "./convert"
+import { createHash, type Hash } from "node:crypto"
 
-export interface KeyedRow {
-  key: (string | null)[]
+export interface VerifyRow {
+  /** formatted canonical primary key */
+  key: string
   canon: string
 }
 
-export type DifferenceKind = "missing-in-target" | "extra-in-target" | "content-differs"
+export type DifferenceKind = "missing-in-target" | "extra-in-target" | "content-differs" | "sequence-behind"
 
 export interface Difference {
   kind: DifferenceKind
@@ -37,87 +39,69 @@ export interface TableComparison {
   differences: Difference[]
 }
 
-export function compareKeys(a: readonly (string | null)[], b: readonly (string | null)[], kinds: readonly TargetKind[]): number {
-  for (let i = 0; i < kinds.length; i++) {
-    const x = a[i]
-    const y = b[i]
-    if (x === y) continue
-    if (x === null) return -1
-    if (y === null) return 1
-    if (kinds[i] === "integer") {
-      const d = BigInt(x) - BigInt(y)
-      if (d !== BigInt(0)) return d < BigInt(0) ? -1 : 1
-      continue
-    }
-    const c = Buffer.compare(Buffer.from(x, "utf8"), Buffer.from(y, "utf8"))
-    if (c !== 0) return c
-  }
-  return 0
-}
-
 export function formatKey(key: readonly (string | null)[]): string {
   return key.length === 1 ? String(key[0]) : JSON.stringify(key)
 }
 
-export async function compareSortedStreams(
-  table: string,
-  source: AsyncIterable<KeyedRow>,
-  target: AsyncIterable<KeyedRow>,
-  keyKinds: readonly TargetKind[],
-  maxDifferences = 20,
-): Promise<TableComparison> {
-  const sh = createHash("sha256")
-  const th = createHash("sha256")
-  const si = source[Symbol.asyncIterator]()
-  const ti = target[Symbol.asyncIterator]()
-  let sourceRows = 0
-  let targetRows = 0
-  let differenceCount = 0
-  const differences: Difference[] = []
-  const note = (kind: DifferenceKind, key: (string | null)[]): void => {
-    differenceCount++
-    if (differences.length < maxDifferences) differences.push({ kind, key: formatKey(key) })
-  }
-  const nextS = async (): Promise<KeyedRow | null> => {
-    const r = await si.next()
-    if (r.done) return null
-    sourceRows++
-    sh.update(`${r.value.canon}\n`)
-    return r.value
-  }
-  const nextT = async (): Promise<KeyedRow | null> => {
-    const r = await ti.next()
-    if (r.done) return null
-    targetRows++
-    th.update(`${r.value.canon}\n`)
-    return r.value
+export class TableVerifier {
+  private readonly sh: Hash = createHash("sha256")
+  private readonly th: Hash = createHash("sha256")
+  private matchedRows = 0
+  private count = 0
+  private readonly diffs: Difference[] = []
+
+  constructor(
+    readonly table: string,
+    private readonly maxDifferences = 20,
+  ) {}
+
+  get matched(): number {
+    return this.matchedRows
   }
 
-  let s = await nextS()
-  let t = await nextT()
-  while (s !== null || t !== null) {
-    if (t === null || (s !== null && compareKeys(s.key, t.key, keyKinds) < 0)) {
-      note("missing-in-target", s!.key)
-      s = await nextS()
-    } else if (s === null || compareKeys(s.key, t.key, keyKinds) > 0) {
-      note("extra-in-target", t.key)
-      t = await nextT()
-    } else {
-      if (s.canon !== t.canon) note("content-differs", s.key)
-      s = await nextS()
-      t = await nextT()
+  private note(kind: DifferenceKind, key: string): void {
+    this.count++
+    if (this.diffs.length < this.maxDifferences) this.diffs.push({ kind, key })
+  }
+
+  /** One source chunk (in source key order) and the target rows found for its keys. */
+  addChunk(source: readonly VerifyRow[], target: ReadonlyMap<string, string>): void {
+    for (const s of source) {
+      this.sh.update(`${s.canon}\n`)
+      const t = target.get(s.key)
+      if (t === undefined) {
+        this.note("missing-in-target", s.key)
+        continue
+      }
+      this.matchedRows++
+      this.th.update(`${t}\n`)
+      if (t !== s.canon) this.note("content-differs", s.key)
     }
   }
-  const sourceHash = sh.digest("hex")
-  const targetHash = th.digest("hex")
-  return {
-    table,
-    sourceRows,
-    targetRows,
-    sourceHash,
-    targetHash,
-    match: differenceCount === 0 && sourceRows === targetRows && sourceHash === targetHash,
-    differenceCount,
-    differences,
+
+  addExtras(keys: readonly string[]): void {
+    for (const k of keys) {
+      this.th.update(`!extra ${k}\n`)
+      this.note("extra-in-target", k)
+    }
+  }
+
+  addProblem(kind: DifferenceKind, key: string): void {
+    this.note(kind, key)
+  }
+
+  result(sourceRows: number, targetRows: number): TableComparison {
+    const sourceHash = this.sh.digest("hex")
+    const targetHash = this.th.digest("hex")
+    return {
+      table: this.table,
+      sourceRows,
+      targetRows,
+      sourceHash,
+      targetHash,
+      match: this.count === 0 && sourceRows === targetRows && this.matchedRows === targetRows && sourceHash === targetHash,
+      differenceCount: this.count,
+      differences: this.diffs,
+    }
   }
 }

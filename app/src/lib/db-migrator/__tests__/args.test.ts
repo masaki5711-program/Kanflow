@@ -7,6 +7,7 @@ import { MigratorError } from "../errors"
 
 const SRC = "mysql://reader@127.0.0.1:23306/scrum_tool"
 const TGT = "postgresql://writer@127.0.0.1:25435/scrum_tool"
+const REQ = ["--expect-target", "127.0.0.1:25435/scrum_tool", "--source-identity", "s-id", "--target-identity", "t-id"]
 
 function codeOf(fn: () => unknown): string | undefined {
   try {
@@ -19,7 +20,7 @@ function codeOf(fn: () => unknown): string | undefined {
 
 describe("parseArgs", () => {
   it("parses the required endpoints and defaults", () => {
-    const a = parseArgs(["--source", SRC, "--target", TGT])
+    const a = parseArgs(["--source", SRC, "--target", TGT, ...REQ, ...REQ])
     expect(a.mode).toBe("migrate")
     expect(a.source).toMatchObject({ scheme: "mysql", user: "reader", host: "127.0.0.1", port: 23306, database: "scrum_tool" })
     expect(a.target).toMatchObject({ scheme: "postgresql", user: "writer", host: "127.0.0.1", port: 25435, database: "scrum_tool" })
@@ -32,8 +33,8 @@ describe("parseArgs", () => {
     const before = process.env.DATABASE_URL
     process.env.DATABASE_URL = "postgresql://kanflow:x@127.0.0.1:5432/scrum_tool"
     try {
-      expect(codeOf(() => parseArgs(["--source", SRC]))).toBe("USAGE")
-      expect(codeOf(() => parseArgs(["--target", TGT]))).toBe("USAGE")
+      expect(codeOf(() => parseArgs(["--source", SRC, ...REQ]))).toBe("USAGE")
+      expect(codeOf(() => parseArgs(["--target", TGT, ...REQ]))).toBe("USAGE")
       expect(codeOf(() => parseArgs([]))).toBe("USAGE")
     } finally {
       if (before === undefined) delete process.env.DATABASE_URL
@@ -49,33 +50,33 @@ describe("parseArgs", () => {
   it("requires the right scheme on each side", () => {
     expect(codeOf(() => parseArgs(["--source", TGT, "--target", TGT]))).toBe("USAGE")
     expect(codeOf(() => parseArgs(["--source", SRC, "--target", SRC]))).toBe("USAGE")
-    expect(parseArgs(["--source", SRC, "--target", "postgres://w@db.internal/scrum_tool"]).target.port).toBe(5432)
-    expect(parseArgs(["--source", "mysql://r@db.internal/scrum_tool", "--target", TGT]).source.port).toBe(3306)
+    expect(parseArgs(["--source", SRC, "--target", "postgres://w@localhost/scrum_tool", ...REQ]).target.port).toBe(5432)
+    expect(parseArgs(["--source", "mysql://r@localhost/scrum_tool", "--target", TGT, ...REQ]).source.port).toBe(3306)
   })
 
   it("rejects missing user / database, query strings and unknown flags", () => {
     expect(codeOf(() => parseArgs(["--source", "mysql://127.0.0.1:23306/scrum_tool", "--target", TGT]))).toBe("USAGE")
     expect(codeOf(() => parseArgs(["--source", "mysql://r@127.0.0.1:23306/", "--target", TGT]))).toBe("USAGE")
     expect(codeOf(() => parseArgs(["--source", `${SRC}?ssl=1`, "--target", TGT]))).toBe("USAGE")
-    expect(codeOf(() => parseArgs(["--source", SRC, "--target", TGT, "--target-empty-check=skip"]))).toBe("USAGE")
-    expect(codeOf(() => parseArgs(["--source", SRC, "--target", TGT, "--force"]))).toBe("USAGE")
+    expect(codeOf(() => parseArgs(["--source", SRC, "--target", TGT, ...REQ, "--target-empty-check=skip"]))).toBe("USAGE")
+    expect(codeOf(() => parseArgs(["--source", SRC, "--target", TGT, ...REQ, "--force"]))).toBe("USAGE")
   })
 
   it("parses modes and options", () => {
-    expect(parseArgs(["--source", SRC, "--target", TGT, "--dry-run"]).mode).toBe("dry-run")
-    expect(parseArgs(["--source", SRC, "--target", TGT, "--verify-only"]).mode).toBe("verify-only")
-    expect(codeOf(() => parseArgs(["--source", SRC, "--target", TGT, "--dry-run", "--verify-only"]))).toBe("USAGE")
+    expect(parseArgs(["--source", SRC, "--target", TGT, ...REQ, "--dry-run"]).mode).toBe("dry-run")
+    expect(parseArgs(["--source", SRC, "--target", TGT, ...REQ, "--verify-only"]).mode).toBe("verify-only")
+    expect(codeOf(() => parseArgs(["--source", SRC, "--target", TGT, ...REQ, "--dry-run", "--verify-only"]))).toBe("USAGE")
     const a = parseArgs([
-      "--source", SRC, "--target", TGT, "--batch-size", "250", "--allow-invalid-json", "--report", "out.json",
+      "--source", SRC, "--target", TGT, ...REQ, "--batch-size", "250", "--allow-invalid-json", "--invalid-json-file", "n.jsonl", "--report", "out.json",
       "--deny-file", "deny.txt", "--source-password-file", "s.pw", "--target-password-file", "t.pw", "--statement-timeout-sec", "60",
     ])
     expect(a).toMatchObject({
       batchSize: 250, allowInvalidJson: true, reportPath: "out.json", denyFile: "deny.txt",
       sourcePasswordFile: "s.pw", targetPasswordFile: "t.pw", statementTimeoutSec: 60,
     })
-    expect(codeOf(() => parseArgs(["--source", SRC, "--target", TGT, "--batch-size", "0"]))).toBe("USAGE")
-    expect(codeOf(() => parseArgs(["--source", SRC, "--target", TGT, "--batch-size", "20000"]))).toBe("USAGE")
-    expect(codeOf(() => parseArgs(["--source", SRC, "--target", TGT, "--batch-size"]))).toBe("USAGE")
+    expect(codeOf(() => parseArgs(["--source", SRC, "--target", TGT, ...REQ, "--batch-size", "0"]))).toBe("USAGE")
+    expect(codeOf(() => parseArgs(["--source", SRC, "--target", TGT, ...REQ, "--batch-size", "20000"]))).toBe("USAGE")
+    expect(codeOf(() => parseArgs(["--source", SRC, "--target", TGT, ...REQ, "--batch-size"]))).toBe("USAGE")
   })
 
   it("--help short-circuits", () => {
@@ -85,14 +86,14 @@ describe("parseArgs", () => {
 
 describe("describeEndpoint", () => {
   it("never contains a password", () => {
-    const a = parseArgs(["--source", SRC, "--target", TGT])
+    const a = parseArgs(["--source", SRC, "--target", TGT, ...REQ, ...REQ])
     expect(describeEndpoint(a.source)).toBe("mysql://reader@127.0.0.1:23306/scrum_tool")
     expect(describeEndpoint(a.target)).toBe("postgresql://writer@127.0.0.1:25435/scrum_tool")
   })
 })
 
 describe("resolvePasswords", () => {
-  const base = parseArgs(["--source", SRC, "--target", TGT])
+  const base = parseArgs(["--source", SRC, "--target", TGT, ...REQ, ...REQ])
 
   it("reads passwords from the dedicated env variables", () => {
     const p = resolvePasswords(base, { KANFLOW_MIGRATOR_SOURCE_PASSWORD: "s", KANFLOW_MIGRATOR_TARGET_PASSWORD: "t" }, "linux")

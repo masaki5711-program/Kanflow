@@ -15,10 +15,12 @@ import { describeEndpoint, type Endpoint } from "./args"
 import type { SourcePort, SourceRow, SourceServerInfo } from "./ports"
 import type { SourceSchema, SourceTable } from "./schema"
 import { tag } from "./sql"
+import { mysqlSsl } from "./tls"
 
 const BINARY_TYPES = new Set(["binary", "varbinary", "tinyblob", "blob", "mediumblob", "longblob"])
 
-export async function openMysqlSource(endpoint: Endpoint, password: string, statementTimeoutMs: number): Promise<SourcePort> {
+export async function openMysqlSource(endpoint: Endpoint, password: string, statementTimeoutMs: number, caPem: string | null = null): Promise<SourcePort> {
+  const ssl = mysqlSsl(endpoint.host, caPem)
   const binaryColumns = new Set<string>()
   const typeCast: TypeCast = (field, next) => {
     if (field.type === "JSON") return field.string("utf8")
@@ -40,6 +42,7 @@ export async function openMysqlSource(endpoint: Endpoint, password: string, stat
     dateStrings: true,
     multipleStatements: false,
     typeCast,
+    ...(ssl ? { ssl } : {}),
   })
   let lastError: Error | null = null
   conn.on("error", (e: Error) => {
@@ -54,14 +57,16 @@ export async function openMysqlSource(endpoint: Endpoint, password: string, stat
   await p.connect()
   await query("SET SESSION time_zone = '+00:00'")
   await query("SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+  // Server-side bound for SELECTs as well (the driver timeout only stops waiting).
+  await query(`SET SESSION max_execution_time = ${Math.max(1, Math.floor(statementTimeoutMs))}`)
 
   const port: SourcePort = {
     describe: () => describeEndpoint(endpoint),
     serverInfo: async (): Promise<SourceServerInfo> => {
       const [r] = await query(
-        `${tag("server-info")} SELECT VERSION() AS v, @@character_set_database AS cs, @@collation_database AS co, @@lower_case_table_names AS l`,
+        `${tag("server-info")} SELECT VERSION() AS v, @@character_set_database AS cs, @@collation_database AS co, @@lower_case_table_names AS l, @@server_uuid AS id`,
       )
-      return { version: String(r.v), charset: String(r.cs), collation: String(r.co), lowerCaseTableNames: Number(r.l) }
+      return { version: String(r.v), charset: String(r.cs), collation: String(r.co), lowerCaseTableNames: Number(r.l), identity: String(r.id) }
     },
     introspect: async (): Promise<SourceSchema> => {
       const cols = await query(

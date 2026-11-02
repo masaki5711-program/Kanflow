@@ -132,3 +132,38 @@ describe("stableStringify / jsonHasNul", () => {
     expect(jsonHasNul({ a: ["x", 1, true, null] })).toBe(false)
   })
 })
+
+describe("review follow-ups: exact JSON numbers, date-only timestamps, value-free errors", () => {
+  it("compares JSON numbers exactly as decimals (no double rounding, exponent forms equal)", () => {
+    expect(canonicalValue("jsonb", '{"a":1e300}')).toBe(canonicalValue("jsonb", `{"a":1${"0".repeat(300)}}`))
+    expect(canonicalValue("jsonb", "[0.1]")).toBe(canonicalValue("jsonb", "[0.10]"))
+    expect(canonicalValue("jsonb", "[1.5e3]")).toBe(canonicalValue("jsonb", "[1500]"))
+    expect(canonicalValue("jsonb", "[-0.0]")).toBe(canonicalValue("jsonb", "[0]"))
+    expect(canonicalValue("jsonb", "[12345678901234567890]")).not.toBe(canonicalValue("jsonb", "[12345678901234567891]"))
+    expect(canonicalValue("jsonb", '{"b":"x","a":{"d":[1,{"z":null}],"c":true}}')).toBe('{"a":{"c":true,"d":[1,{"z":null}]},"b":"x"}')
+    expect(canonicalValue("jsonb", '{"a":1,"a":2}')).toBe('{"a":2}')
+    expect(canonicalValue("jsonb", '"\u00e9\n"')).toBe(canonicalValue("jsonb", '"é\n"'))
+  })
+
+  it("a DATE copied into a timestamp column canonicalizes like PostgreSQL's midnight output", () => {
+    expect(canonicalValue("timestamp", "2026-01-01")).toBe(canonicalValue("timestamp", "2026-01-01 00:00:00"))
+  })
+
+  it("conversion errors never carry the offending value", () => {
+    const secret = "alice@example.test"
+    for (const [kind, v] of [
+      ["boolean", secret],
+      ["integer", secret],
+      ["float", secret],
+      ["timestamp", secret],
+      ["jsonb", secret],
+    ] as const) {
+      try {
+        toTargetText(v, col(kind))
+        expect.unreachable()
+      } catch (e) {
+        expect((e as Error).message).not.toContain(secret)
+      }
+    }
+  })
+})

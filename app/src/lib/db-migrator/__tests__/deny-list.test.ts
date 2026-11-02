@@ -1,16 +1,16 @@
 import { describe, expect, it } from "vitest"
 import { assertTargetAllowed, loadDenyList, parseDenyEntries } from "../deny-list"
 import { MigratorError } from "../errors"
-import { parseArgs } from "../args"
+import { parseEndpoint } from "../args"
 
 const SRC = "mysql://reader@127.0.0.1:23306/scrum_tool"
 
 function target(url: string) {
-  return parseArgs(["--source", SRC, "--target", url]).target
+  return parseEndpoint(url, "postgresql", "--target")
 }
 
 function source(url: string) {
-  return parseArgs(["--source", url, "--target", "postgresql://w@10.0.0.9:5432/x"]).source
+  return parseEndpoint(url, "mysql", "--source")
 }
 
 function refusal(fn: () => void): string | undefined {

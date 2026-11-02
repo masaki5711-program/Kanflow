@@ -76,3 +76,16 @@ export function assertTargetAllowed(target: Endpoint, source: Endpoint, deny: re
     throw new MigratorError("TARGET_DENIED", `target ${describeEndpoint(target)} is the source server`)
   }
 }
+
+/**
+ * --expect-target host:port/db: the operator states the target a second time,
+ * independently of --target; any difference (typo, pasted wrong URL) refuses.
+ */
+export function assertExpectedTarget(target: Endpoint, expect: string): void {
+  const m = /^(\[[^\]]+\]|[^:/\s]+):(\d{1,5})\/(\S+)$/.exec(expect.trim())
+  const ok =
+    m !== null && normalizeHost(m[1]) === normalizeHost(target.host) && Number(m[2]) === target.port && m[3] === target.database
+  if (!ok) {
+    throw new MigratorError("EXPECT_TARGET_MISMATCH", `--expect-target does not equal the --target endpoint ${describeEndpoint(target)} (format host:port/db)`)
+  }
+}

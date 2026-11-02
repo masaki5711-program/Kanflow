@@ -86,10 +86,10 @@ const DECIMAL_RE = /^-?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?$/i
 
 function assertDatetime(s: string, withTime: boolean): void {
   const m = DATETIME_RE.exec(s)
-  if (!m || (withTime && m[4] === undefined)) throw new ConversionError("INVALID_DATETIME", `not a datetime: ${JSON.stringify(s)}`)
+  if (!m || (withTime && m[4] === undefined)) throw new ConversionError("INVALID_DATETIME", "not a datetime")
   const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])]
   if (y === 0 || mo < 1 || mo > 12 || d < 1 || d > 31) {
-    throw new ConversionError("INVALID_DATETIME", `zero / invalid date ${JSON.stringify(s)}`)
+    throw new ConversionError("INVALID_DATETIME", "zero / invalid date")
   }
 }
 
@@ -124,14 +124,14 @@ export function toTargetText(value: SourceValue, col: ColumnMapping): string | n
     case "boolean":
       if (value === "0") return "false"
       if (value === "1") return "true"
-      throw new ConversionError("BOOLEAN_DOMAIN", `tinyint value ${JSON.stringify(value)} is neither 0 nor 1`)
+      throw new ConversionError("BOOLEAN_DOMAIN", "tinyint value is neither 0 nor 1")
     case "integer":
-      if (!INTEGER_RE.test(value)) throw new ConversionError("INVALID_NUMBER", `not an integer: ${JSON.stringify(value)}`)
+      if (!INTEGER_RE.test(value)) throw new ConversionError("INVALID_NUMBER", "not an integer")
       return value
     case "float":
     case "numeric":
       if (!DECIMAL_RE.test(value) || !Number.isFinite(Number(value))) {
-        throw new ConversionError("INVALID_NUMBER", `not a number: ${JSON.stringify(value)}`)
+        throw new ConversionError("INVALID_NUMBER", "not a number")
       }
       return value
     case "timestamp":
@@ -169,15 +169,116 @@ export function stableStringify(v: unknown): string {
   return JSON.stringify(v)
 }
 
-const TS_RE = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?(?:([+-])(\d{2})(?::?(\d{2}))?|Z)?$/
+/**
+ * Exact decimal form of a JSON number token: no double rounding (MySQL prints
+ * 1e300, jsonb prints 1 followed by 300 zeros; 12345678901234567890 must not
+ * equal ...891). Result: [-]digits with the decimal exponent, trailing zeros stripped.
+ */
+export function canonicalNumber(token: string): string {
+  const m = /^(-?)(\d+)(?:\.(\d+))?(?:[eE]([-+]?\d+))?$/.exec(token)
+  if (!m) throw new SyntaxError("bad number")
+  let digits = `${m[2]}${m[3] ?? ""}`
+  let exp = Number(m[4] ?? "0") - (m[3] ?? "").length
+  digits = digits.replace(/^0+/, "")
+  if (digits === "") return "0"
+  const trail = /0+$/.exec(digits)?.[0].length ?? 0
+  digits = digits.slice(0, digits.length - trail)
+  exp += trail
+  return exp === 0 ? `${m[1]}${digits}` : `${m[1]}${digits}e${exp}`
+}
+
+const WS = new Set([" ", String.fromCharCode(9), String.fromCharCode(10), String.fromCharCode(13)])
+
+/** Canonical JSON text: keys sorted (last duplicate wins, as in jsonb / MySQL 8), numbers exact. */
+export function canonicalJson(text: string): string {
+  let i = 0
+  const ws = (): void => {
+    while (i < text.length && WS.has(text[i])) i++
+  }
+  const str = (): string => {
+    const start = i
+    i++
+    while (i < text.length && text[i] !== '"') i += text[i] === "\\" ? 2 : 1
+    if (text[i] !== '"') throw new SyntaxError("unterminated string")
+    i++
+    return JSON.stringify(JSON.parse(text.slice(start, i)) as string)
+  }
+  const value = (): string => {
+    ws()
+    const c = text[i]
+    if (c === "{") {
+      i++
+      const entries = new Map<string, string>()
+      ws()
+      if (text[i] === "}") {
+        i++
+        return "{}"
+      }
+      for (;;) {
+        ws()
+        if (text[i] !== '"') throw new SyntaxError("key expected")
+        const k = str()
+        ws()
+        if (text[i++] !== ":") throw new SyntaxError(": expected")
+        entries.set(k, value())
+        ws()
+        if (text[i] === ",") {
+          i++
+          continue
+        }
+        if (text[i++] !== "}") throw new SyntaxError("} expected")
+        break
+      }
+      return `{${[...entries.keys()].sort().map((k) => `${k}:${entries.get(k)}`).join(",")}}`
+    }
+    if (c === "[") {
+      i++
+      const items: string[] = []
+      ws()
+      if (text[i] === "]") {
+        i++
+        return "[]"
+      }
+      for (;;) {
+        items.push(value())
+        ws()
+        if (text[i] === ",") {
+          i++
+          continue
+        }
+        if (text[i++] !== "]") throw new SyntaxError("] expected")
+        break
+      }
+      return `[${items.join(",")}]`
+    }
+    if (c === '"') return str()
+    for (const lit of ["true", "false", "null"]) {
+      if (text.startsWith(lit, i)) {
+        i += lit.length
+        return lit
+      }
+    }
+    const m = /^-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?/.exec(text.slice(i))
+    if (!m) throw new SyntaxError("value expected")
+    i += m[0].length
+    return canonicalNumber(m[0])
+  }
+  const out = value()
+  ws()
+  if (i !== text.length) throw new SyntaxError("trailing data")
+  return out
+}
+
+const TS_RE = /^(\d{4}-\d{2}-\d{2})(?:[ T](\d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?)?(?:([+-])(\d{2})(?::?(\d{2}))?|Z)?$/
 
 function canonicalTimestamp(s: string, withZone: boolean): string {
   const m = TS_RE.exec(s)
   if (!m) return `!unparsed:${s}`
   const frac = (m[3] ?? "").padEnd(6, "0")
-  if (!withZone) return `${m[1]} ${m[2]}.${frac}`
+  const time = m[2] ?? "00:00:00"
+  if (!withZone) return `${m[1]} ${time}.${frac}`
   const offsetMin = m[4] === undefined ? 0 : (m[4] === "-" ? -1 : 1) * (Number(m[5]) * 60 + Number(m[6] ?? "0"))
-  const utc = new Date(Date.parse(`${m[1]}T${m[2]}Z`) - offsetMin * 60_000)
+  const utc = new Date(Date.parse(`${m[1]}T${time}Z`) - offsetMin * 60_000)
   return `${utc.toISOString().slice(0, 19).replace("T", " ")}.${frac}Z`
 }
 
@@ -202,7 +303,7 @@ export function canonicalValue(kind: TargetKind, text: string | null): string | 
     case "json":
     case "jsonb":
       try {
-        return stableStringify(JSON.parse(text))
+        return canonicalJson(text)
       } catch {
         return `!json:${text}`
       }

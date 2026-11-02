@@ -28,13 +28,27 @@
  *   SOURCE_CHARSET / TARGET_LOCALE / SOURCE_TABLE_NAME_CASE
  */
 import { targetKindOf, type ColumnMapping, type TargetKind } from "./convert"
-import { EXCLUDED_TABLES, type SourceSchema, type SourceTable, type TargetSchema, type TargetTable, type TargetUniqueKey } from "./schema"
+import {
+  EXCLUDED_TABLES,
+  type SourceColumn,
+  type SourceSchema,
+  type SourceTable,
+  type TargetColumn,
+  type TargetSchema,
+  type TargetTable,
+  type TargetUniqueKey,
+} from "./schema"
 
 export type IssueCode =
   | "SCHEMA_TABLE_MISSING_IN_TARGET"
   | "SCHEMA_TABLE_MISSING_IN_SOURCE"
   | "SCHEMA_COLUMN_MISMATCH"
   | "SCHEMA_TYPE_INCOMPATIBLE"
+  | "SCHEMA_PRECISION"
+  | "NO_TABLES"
+  | "IDENTITY_MISMATCH"
+  | "TIMESTAMP_BEFORE_CREATED"
+  | "LOCAL_OFFSET_SUSPECT"
   | "NO_PRIMARY_KEY"
   | "TARGET_NOT_MIGRATED"
   | "TARGET_NOT_EMPTY"
@@ -54,9 +68,24 @@ export type IssueCode =
   | "FUTURE_TIMESTAMP"
   | "LOCAL_TIME_SUSPECT"
 
+/**
+ * Warnings a migrate run refuses unless the operator lists them in
+ * --accept-warnings after review (a dry run with any of them exits 4).
+ * INVALID_JSON is accepted by --allow-invalid-json itself.
+ */
+export const ACCEPTABLE_WARNINGS = [
+  "FUTURE_TIMESTAMP",
+  "LOCAL_TIME_SUSPECT",
+  "TIMESTAMP_BEFORE_CREATED",
+  "LOCAL_OFFSET_SUSPECT",
+  "TARGET_LOCALE",
+  "SOURCE_CHARSET",
+] as const
+
 export interface Issue {
   code: IssueCode
-  severity: "error" | "warning"
+  /** info: recorded, needs no decision (e.g. lower_case_table_names) */
+  severity: "error" | "warning" | "info"
   table?: string
   column?: string
   count: number
@@ -123,6 +152,40 @@ function sourceTableFor(target: TargetTable, byExact: Map<string, SourceTable>, 
   return lower.length === 1 ? lower[0] : null
 }
 
+const INT_BITS: Record<string, number> = { tinyint: 8, smallint: 16, mediumint: 24, int: 32, integer: 32, bigint: 64, year: 16 }
+const PG_INT_BITS: Record<string, number> = { int2: 16, int4: 32, int8: 64 }
+
+/** Values of the source type that the target type cannot hold exactly; null = fine. */
+function precisionProblem(sc: SourceColumn, tc: TargetColumn, kind: TargetKind): string | null {
+  const num = (re: RegExp, s: string): number[] | null => {
+    const m = re.exec(s)
+    return m ? m.slice(1).map((x) => (x === undefined ? NaN : Number(x))) : null
+  }
+  if (kind === "timestamp" || kind === "timestamptz") {
+    const srcFsp = num(/\((\d)\)/, sc.columnType)?.[0] ?? 0
+    const tgtFsp = num(/^timestamp\((\d)\)/, tc.pgType)?.[0] ?? 6
+    return tgtFsp < srcFsp ? `fractional seconds ${srcFsp} -> ${tgtFsp} would be rounded` : null
+  }
+  if (kind === "numeric") {
+    const [sp, ss] = num(/\((\d+)(?:,(\d+))?\)/, sc.columnType) ?? [10, 0]
+    const t = num(/^numeric\((\d+)(?:,(\d+))?\)/, tc.pgType)
+    if (t === null) return null
+    const [tp, ts] = [t[0], Number.isNaN(t[1]) ? 0 : t[1]]
+    const srcScale = Number.isNaN(ss) ? 0 : ss
+    return ts < srcScale || tp - ts < sp - srcScale ? `${sc.columnType} does not fit ${tc.pgType}` : null
+  }
+  if (kind === "integer") {
+    const bits = INT_BITS[sc.dataType] ?? 64
+    const need = bits + (/unsigned/.test(sc.columnType) ? 1 : 0)
+    const cap = PG_INT_BITS[tc.typname] ?? 64
+    return need > cap ? `${sc.columnType} does not fit ${tc.pgType}` : null
+  }
+  if (kind === "float") {
+    return sc.dataType === "double" && tc.typname === "float4" ? "double -> real loses precision" : null
+  }
+  return null
+}
+
 export function checkSchemaCompat(source: SourceSchema, target: TargetSchema): { issues: Issue[]; mappings: Map<string, MappedColumn[]>; tables: TableMapping[] } {
   const issues: Issue[] = []
   const mappings = new Map<string, MappedColumn[]>()
@@ -170,6 +233,12 @@ export function checkSchemaCompat(source: SourceSchema, target: TargetSchema): {
         ok = false
         continue
       }
+      const precision = precisionProblem(sc, tc, kind)
+      if (precision !== null) {
+        issues.push(issue("SCHEMA_PRECISION", `${tt.name}.${tc.name}: ${precision}`, { table: tt.name, column: tc.name }))
+        ok = false
+        continue
+      }
       cols.push({
         name: tc.name,
         kind,
@@ -200,7 +269,7 @@ export function checkSchemaCompat(source: SourceSchema, target: TargetSchema): {
   if (caseFolded > 0) {
     issues.push(
       issue("SOURCE_TABLE_NAME_CASE", `${caseFolded} source table(s) matched case-insensitively (MySQL lower_case_table_names)`, {
-        severity: "warning",
+        severity: "info",
         count: caseFolded,
       }),
     )

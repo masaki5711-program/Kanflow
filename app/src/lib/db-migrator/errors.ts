@@ -15,6 +15,10 @@ export type MigratorErrorCode =
   | "FK_CYCLE_UNBREAKABLE"
   | "FK_UNKNOWN_TABLE"
   | "CONVERSION"
+  | "TLS_REQUIRED"
+  | "EXPECT_TARGET_MISMATCH"
+  | "IDENTITY_MISMATCH"
+  | "SIDE_FILE"
 
 export class MigratorError extends Error {
   readonly code: MigratorErrorCode

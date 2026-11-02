@@ -1,27 +1,31 @@
 /**
  * MySQL -> PostgreSQL data migration (MR K2): orchestration.
  *
- *   introspect both sides -> pre-checks -> (dry run stops here)
- *   -> copy every table in FK order inside ONE PostgreSQL transaction
- *      (deferred FKs filled by UPDATE, sequences reset) -> COMMIT
- *   -> verify counts + ordered content hashes against a fresh source snapshot.
+ *   introspect both sides -> server identities -> pre-checks -> warning decision
+ *   -> (dry run stops here)
+ *   -> ONE PostgreSQL transaction: lock, copy every table in FK order, fill the
+ *      deferred FKs, reset sequences, VERIFY against the copy's source snapshot
+ *      -> COMMIT only when every table matches (a mismatch rolls back: the target
+ *      stays empty) -> ANALYZE.
  *
- * Idempotency / re-run: the whole copy is a single transaction on the target,
- * so an interruption at any point (error, kill, lost connection) rolls back to
- * the empty schema and the run is simply repeated - there is no partial state
- * and no state file to get wrong. The target-empty pre-check (re-checked under
- * ACCESS EXCLUSIVE locks inside the transaction) refuses anything else.
- * Kanflow's data volume (well below the size where one transaction is a
- * concern for PostgreSQL) makes this the simplest correct choice.
+ * Idempotency / re-run: an interruption at any point before COMMIT (error, kill,
+ * lost connection) leaves the empty schema and the run is simply repeated - no
+ * partial state, no state file. If the outcome of COMMIT itself is unknown
+ * (report.committed = "unknown"), `--verify-only` tells which side it fell on.
+ * The target-empty pre-check (re-checked under ACCESS EXCLUSIVE locks inside the
+ * transaction) refuses anything else.
  *
- * The source is read inside START TRANSACTION WITH CONSISTENT SNAPSHOT, READ
- * ONLY: pre-checks and copy see one point in time even if the freeze leaks.
+ * The source is read inside START TRANSACTION WITH CONSISTENT SNAPSHOT, READ ONLY.
+ * Nothing printed or reported contains a row value: issues carry primary keys
+ * (and short hashes of values), errors are passed through sanitizeError.
  */
+import { createHash } from "node:crypto"
 import { canonicalRow, canonicalValue, ConversionError, toTargetText, type SourceValue, type TargetKind } from "./convert"
 import { MigratorError } from "./errors"
 import { planCopyOrder, type CopyPlan, type FkEdge } from "./order"
-import type { SourcePort, SourceRow, TargetPort } from "./ports"
+import type { SourcePort, SourceRow, TargetPort, TargetRow } from "./ports"
 import {
+  ACCEPTABLE_WARNINGS,
   checkSchemaCompat,
   CitextDuplicateFinder,
   citextUniqueKeys,
@@ -30,23 +34,46 @@ import {
   type MappedColumn,
   type TableMapping,
 } from "./prechecks"
+import { sanitizeError } from "./sanitize"
 import type { TargetSchema } from "./schema"
 import { myIdent, pgIdent, tag } from "./sql"
-import { compareSortedStreams, formatKey, type KeyedRow, type TableComparison } from "./verify"
+import { planTimestampProbes, type TimestampCoverage } from "./timestamps"
+import { formatKey, TableVerifier, type TableComparison, type VerifyRow } from "./verify"
 
 export interface RunOptions {
   mode: "migrate" | "dry-run" | "verify-only"
   batchSize: number
   allowInvalidJson: boolean
+  /** warning codes the operator reviewed (--accept-warnings) */
+  acceptWarnings?: readonly string[]
+  /** identities printed by the dry run; a migrate run refuses without / on mismatch */
+  expectSourceIdentity?: string | null
+  expectTargetIdentity?: string | null
+  localOffsetHours?: number
+}
+
+/** One value --allow-invalid-json will copy as NULL. Goes to the protected side file only. */
+export interface InvalidJsonRecord {
+  table: string
+  column: string
+  key: string
+  original: string
 }
 
 export interface RunHooks {
   log?: (line: string) => void
   /** Called after each table's rows are inserted (inside the transaction). Tests use it to interrupt. */
   onTableCopied?: (table: string) => void | Promise<void>
+  /**
+   * Receives the values --allow-invalid-json will null, BEFORE any write; the CLI writes
+   * them to the protected --invalid-json-file. Throwing aborts the run (nothing written).
+   */
+  onInvalidJsonNulled?: (records: InvalidJsonRecord[]) => void | Promise<void>
+  /** Test hook: runs inside the copy transaction after the copy, before verification. */
+  afterCopy?: (target: TargetPort) => Promise<void>
 }
 
-export const EXIT = { ok: 0, verifyFailed: 1, refused: 2, error: 3, usage: 64 } as const
+export const EXIT = { ok: 0, verifyFailed: 1, refused: 2, error: 3, needsDecision: 4, usage: 64 } as const
 
 export interface MigrationReport {
   mode: RunOptions["mode"]
@@ -57,27 +84,26 @@ export interface MigrationReport {
   target: string
   sourceServer?: Record<string, unknown>
   targetServer?: Record<string, unknown>
-  precheck: { errors: Issue[]; warnings: Issue[] }
+  precheck: { errors: Issue[]; warnings: Issue[]; info: Issue[] }
+  /** warnings the operator accepted (--accept-warnings / --allow-invalid-json) */
+  acceptedWarnings: { code: string; count: number; table?: string; column?: string }[]
+  /** warning codes that still need a decision */
+  unacceptedWarnings: string[]
+  timestampAnalysis: TimestampCoverage[]
   sourceCounts: Record<string, number>
   plan?: { order: string[]; deferred: string[] }
-  copy?: { tables: { table: string; rows: number; ms: number }[]; deferredUpdates: number; sequencesReset: string[]; ms: number }
-  verification?: { tables: TableComparison[]; mismatched: string[]; ms: number }
+  copy?: { tables: { table: string; rows: number; ms: number }[]; deferredUpdates: number; sequencesReset: string[]; invalidJsonNulled: number; ms: number }
+  verification?: { tables: TableComparison[]; mismatched: string[]; insideTransaction: boolean; ms: number }
+  /** true = COMMIT succeeded; "unknown" = COMMIT was sent but its outcome is not known (run --verify-only) */
+  committed: boolean | "unknown"
+  analyze?: "ok" | "failed"
   timings: Record<string, number>
-  outcome: "ok" | "precheck-failed" | "verify-failed" | "error"
+  outcome: "ok" | "precheck-failed" | "needs-decision" | "verify-failed" | "error"
   exitCode: number
   error?: string
 }
 
 const SAMPLE = 20
-const FUTURE_TOLERANCE_MIN = 10
-/**
- * Columns that record when a row was written and therefore can never be in the future.
- * Planning dates (plannedEnd, due dates, ...) legitimately are, so they are not probed.
- */
-const WRITE_TIMESTAMP = /^(created|updated|requested)(At|_at)$/
-
-/** Known local-time writers (docs/operations/worker.md "UTC_TIMESTAMP"): reported, never shifted. */
-const LOCAL_TIME_PROBES = [{ table: "field_translation", column: "requested_at", laterThan: ["translated_at", "started_at"] }]
 
 interface Ports {
   source: SourcePort
@@ -86,32 +112,31 @@ interface Ports {
 
 // ---------------------------------------------------------------- helpers
 
-function keyOf(row: SourceRow, pk: readonly string[]): string {
-  return formatKey(pk.map((k) => (row[k] === null ? null : String(row[k]))))
+function keyOf(row: SourceRow | TargetRow, pk: readonly string[]): string {
+  return formatKey(pk.map((k) => (row[k] === null || row[k] === undefined ? null : String(row[k]))))
 }
 
-function sourceText(value: SourceValue, col: MappedColumn, allowInvalidJson: boolean): string | null {
+export function shortHash(value: string): string {
+  return createHash("sha256").update(value, "utf8").digest("hex").slice(0, 12)
+}
+
+/** Converted text; `nulled` = an invalid JSON value replaced by NULL under --allow-invalid-json. */
+function sourceText(value: SourceValue, col: MappedColumn, allowInvalidJson: boolean): { text: string | null; nulled: boolean } {
   try {
-    return toTargetText(value, col)
+    return { text: toTargetText(value, col), nulled: false }
   } catch (e) {
-    if (e instanceof ConversionError && e.code === "INVALID_JSON" && allowInvalidJson && col.nullable) return null
+    if (e instanceof ConversionError && e.code === "INVALID_JSON" && allowInvalidJson && col.nullable) return { text: null, nulled: true }
     throw e
   }
 }
 
-function pkOrderMy(m: TableMapping, binary: boolean): string {
-  return m.primaryKey
-    .map((k, i) => (binary && m.pkKinds[i] !== "integer" ? `CAST(${myIdent(k)} AS BINARY)` : myIdent(k)))
-    .join(", ")
+function pkOrderMy(m: TableMapping): string {
+  return m.primaryKey.map(myIdent).join(", ")
 }
 
-function pkOrderPg(m: TableMapping): string {
-  return m.primaryKey.map((k, i) => (m.pkKinds[i] === "integer" ? pgIdent(k) : `${pgIdent(k)}::text COLLATE "C"`)).join(", ")
-}
-
-function keysetWhere(pk: readonly string[], last: readonly unknown[] | null): string {
+function keysetMy(pk: readonly string[], last: readonly unknown[] | null, joiner: "WHERE" | "AND"): string {
   if (last === null) return ""
-  return `WHERE (${pk.map(myIdent).join(", ")}) > (${pk.map(() => "?").join(", ")})`
+  return `${joiner} (${pk.map(myIdent).join(", ")}) > (${pk.map(() => "?").join(", ")})`
 }
 
 function fkEdges(schema: TargetSchema, tables: readonly TableMapping[]): FkEdge[] {
@@ -124,9 +149,13 @@ function fkEdges(schema: TargetSchema, tables: readonly TableMapping[]): FkEdge[
     }))
 }
 
+function colOf(m: TableMapping, name: string): MappedColumn {
+  return m.columns.find((c) => c.name === name)!
+}
+
 // ---------------------------------------------------------------- pre-checks
 
-async function sourceDataChecks(source: SourcePort, m: TableMapping, issues: Issue[]): Promise<void> {
+async function sourceDataChecks(source: SourcePort, m: TableMapping, issues: Issue[], coverage: TimestampCoverage[], offsetHours: number): Promise<void> {
   const t = myIdent(m.sourceTable)
   const checks: { code: IssueCode; column: string; expr: string; severity: Issue["severity"]; message: string }[] = []
   for (const c of m.columns) {
@@ -139,13 +168,6 @@ async function sourceDataChecks(source: SourcePort, m: TableMapping, issues: Iss
     }
     if ((c.kind === "timestamp" || c.kind === "timestamptz" || c.kind === "date") && (c.sourceType === "datetime" || c.sourceType === "timestamp" || c.sourceType === "date")) {
       checks.push({ code: "INVALID_DATETIME", column: c.name, expr: `(YEAR(${q}) = 0 OR MONTH(${q}) = 0 OR DAYOFMONTH(${q}) = 0)`, severity: "error", message: "zero date" })
-      if (WRITE_TIMESTAMP.test(c.name)) checks.push({
-        code: "FUTURE_TIMESTAMP",
-        column: c.name,
-        expr: `${q} > UTC_TIMESTAMP(3) + INTERVAL ${FUTURE_TOLERANCE_MIN} MINUTE`,
-        severity: "warning",
-        message: `more than ${FUTURE_TOLERANCE_MIN} min in the future (UTC): possibly written in server local time; copied unchanged`,
-      })
     }
     if (c.lengthLimit !== null) {
       checks.push({ code: "LENGTH_OVERFLOW", column: c.name, expr: `CHAR_LENGTH(${q}) > ${c.lengthLimit}`, severity: "error", message: `longer than ${c.lengthLimit} characters` })
@@ -154,22 +176,16 @@ async function sourceDataChecks(source: SourcePort, m: TableMapping, issues: Iss
       checks.push({ code: "NULL_IN_NOT_NULL", column: c.name, expr: `${q} IS NULL`, severity: "error", message: "NULL in a column that is NOT NULL in the target" })
     }
   }
-  for (const p of LOCAL_TIME_PROBES) {
-    const names = new Set(m.columns.map((c) => c.name))
-    if (p.table !== m.table || !names.has(p.column) || !p.laterThan.every((c) => names.has(c))) continue
-    checks.push({
-      code: "LOCAL_TIME_SUSPECT",
-      column: p.column,
-      expr: `${myIdent(p.column)} > COALESCE(${p.laterThan.map(myIdent).join(", ")}) + INTERVAL 1 HOUR`,
-      severity: "warning",
-      message: `later than ${p.laterThan.join(" / ")} + 1 h: legacy server-local-time (UTC+7) write; copied unchanged, not shifted`,
-    })
-  }
+  const ts = planTimestampProbes(m, offsetHours)
+  coverage.push(...ts.coverage)
+  for (const c of ts.checks) checks.push({ ...c, severity: "warning" })
   if (checks.length === 0) return
   const sums = checks.map((c, i) => `COALESCE(SUM(${c.expr}), 0) AS f${i}`).join(", ")
   const [counts] = await source.query(`${tag("scan", m.table)} SELECT ${sums} FROM ${t}`)
   for (let i = 0; i < checks.length; i++) {
-    const n = Number(counts?.[`f${i}`] ?? 0)
+    const raw = counts?.[`f${i}`]
+    if (raw === undefined) throw new Error(`pre-check scan of ${m.table} returned no value for ${checks[i].code} ${checks[i].column}`)
+    const n = Number(raw ?? 0)
     if (n === 0) continue
     const c = checks[i]
     const rows = await source.query(`${tag("sample", m.table)} SELECT ${m.primaryKey.map(myIdent).join(", ")} FROM ${t} WHERE ${c.expr} LIMIT ${SAMPLE}`)
@@ -185,22 +201,24 @@ async function sourceDataChecks(source: SourcePort, m: TableMapping, issues: Iss
   }
 }
 
-async function jsonChecks(source: SourcePort, m: TableMapping, allowInvalidJson: boolean, issues: Issue[]): Promise<void> {
+async function jsonChecks(source: SourcePort, m: TableMapping, allowInvalidJson: boolean, issues: Issue[], records: InvalidJsonRecord[]): Promise<void> {
   for (const c of m.columns.filter((x) => x.kind === "json" || x.kind === "jsonb")) {
     const sql = `${tag("json", m.table)} SELECT ${[...m.primaryKey, c.name].map(myIdent).join(", ")} FROM ${myIdent(m.sourceTable)} WHERE ${myIdent(c.name)} IS NOT NULL`
     let count = 0
     const sample: string[] = []
+    const mapped = allowInvalidJson && c.nullable
     for await (const row of source.stream(sql)) {
       try {
         toTargetText(row[c.name], c)
       } catch (e) {
         if (!(e instanceof ConversionError)) throw e
         count++
-        if (sample.length < SAMPLE) sample.push(keyOf(row, m.primaryKey))
+        const key = keyOf(row, m.primaryKey)
+        if (sample.length < SAMPLE) sample.push(key)
+        if (mapped) records.push({ table: m.table, column: c.name, key, original: String(row[c.name]) })
       }
     }
     if (count === 0) continue
-    const mapped = allowInvalidJson && c.nullable
     issues.push({
       code: "INVALID_JSON",
       severity: mapped ? "warning" : "error",
@@ -209,7 +227,7 @@ async function jsonChecks(source: SourcePort, m: TableMapping, allowInvalidJson:
       count,
       sampleKeys: sample,
       message: mapped
-        ? `${m.table}.${c.name}: ${count} invalid JSON value(s) will be copied as NULL (--allow-invalid-json)`
+        ? `${m.table}.${c.name}: ${count} invalid JSON value(s) will be copied as NULL (--allow-invalid-json; keys and originals in the --invalid-json-file)`
         : `${m.table}.${c.name}: ${count} value(s) are not valid JSON for PostgreSQL (unparsable or \\u0000)${c.nullable ? "; --allow-invalid-json copies them as NULL" : ""}`,
     })
   }
@@ -266,13 +284,14 @@ async function citextChecks(source: SourcePort, schema: TargetSchema, tables: re
       table: m.table,
       column: uk.columns.join(","),
       count: dups.length,
-      sampleKeys: dups.slice(0, SAMPLE).map((d) => `${d.value} <- ${d.keys.join(", ")}`),
-      message: `${uk.name}: ${dups.length} value(s) collide case-insensitively (citext); resolve them in the source first`,
+      // Never the value itself (personal data): a short hash to group, plus the keys.
+      sampleKeys: dups.slice(0, SAMPLE).map((d) => `value#${shortHash(d.value)} <- ${d.keys.join(", ")}`),
+      message: `${uk.name}: ${dups.length} value(s) collide case-insensitively (citext); resolve them in the source first (keys listed, values not printed)`,
     })
   }
 }
 
-async function targetChecks(target: TargetPort, schema: TargetSchema, tables: readonly TableMapping[], issues: Issue[], requireEmpty: boolean): Promise<void> {
+async function targetChecks(target: TargetPort, schema: TargetSchema, tables: readonly TableMapping[], issues: Issue[], requireEmpty: boolean, locale: { localeProvider: string; icuLocale: string | null; encoding: string }): Promise<void> {
   const applied = schema.migrations.filter((x) => !x.rolledBack)
   const unfinished = applied.filter((x) => !x.finished)
   if (applied.length === 0 || unfinished.length > 0) {
@@ -284,17 +303,16 @@ async function targetChecks(target: TargetPort, schema: TargetSchema, tables: re
       message: applied.length === 0 ? "target has no applied Prisma migration: run `npx prisma migrate deploy` first" : "target has unfinished/failed Prisma migrations",
     })
   }
-  const info = await target.serverInfo()
-  if (info.encoding.toUpperCase() !== "UTF8") {
-    issues.push({ code: "TARGET_ENCODING", severity: "error", count: 1, sampleKeys: [], message: `target database encoding is ${info.encoding}, expected UTF8` })
+  if (locale.encoding.toUpperCase() !== "UTF8") {
+    issues.push({ code: "TARGET_ENCODING", severity: "error", count: 1, sampleKeys: [], message: `target database encoding is ${locale.encoding}, expected UTF8` })
   }
-  if (info.localeProvider !== "icu" || info.icuLocale !== "und") {
+  if (locale.localeProvider !== "icu" || locale.icuLocale !== "und") {
     issues.push({
       code: "TARGET_LOCALE",
       severity: "warning",
       count: 1,
       sampleKeys: [],
-      message: `target locale is ${info.localeProvider}/${info.icuLocale ?? "-"}; the platform standard is ICU "und" (sort order differs)`,
+      message: `target locale is ${locale.localeProvider}/${locale.icuLocale ?? "-"}; the platform standard is ICU "und" (sort order differs)`,
     })
   }
   if (!requireEmpty || tables.length === 0) return
@@ -328,6 +346,7 @@ async function copyTable(
   deferredCols: ReadonlySet<string>,
   opts: RunOptions,
   total: number,
+  nulled: Set<string>,
   log: (l: string) => void,
 ): Promise<number> {
   const cols = m.columns
@@ -340,7 +359,7 @@ async function copyTable(
   let nextLog = 0
   let logged = -1
   for (;;) {
-    const sql = `${tag("copy", m.table)} SELECT ${select} FROM ${myIdent(m.sourceTable)} ${keysetWhere(m.primaryKey, last)} ORDER BY ${pkOrderMy(m, false)} LIMIT ${opts.batchSize}`
+    const sql = `${tag("copy", m.table)} SELECT ${select} FROM ${myIdent(m.sourceTable)} ${keysetMy(m.primaryKey, last, "WHERE")} ORDER BY ${pkOrderMy(m)} LIMIT ${opts.batchSize}`
     const rows = await ports.source.query(sql, last ?? [])
     if (rows.length === 0) break
     const arrays: (string | null)[][] = cols.map(() => [])
@@ -351,7 +370,9 @@ async function copyTable(
           return
         }
         try {
-          arrays[i].push(sourceText(row[c.name], c, opts.allowInvalidJson))
+          const r = sourceText(row[c.name], c, opts.allowInvalidJson)
+          if (r.nulled) nulled.add(`${m.table}\u0001${c.name}\u0001${keyOf(row, m.primaryKey)}`)
+          arrays[i].push(r.text)
         } catch (e) {
           if (e instanceof ConversionError) {
             throw new MigratorError("CONVERSION", `${m.table}.${c.name} key ${keyOf(row, m.primaryKey)}: ${e.code} ${e.message}`)
@@ -378,21 +399,19 @@ async function copyTable(
 async function applyDeferred(ports: Ports, m: TableMapping, edge: FkEdge, opts: RunOptions): Promise<number> {
   const pk = m.primaryKey
   const fkCols = edge.columns
-  const colOf = (n: string): MappedColumn => m.columns.find((c) => c.name === n)!
   const notNull = fkCols.map((c) => `${myIdent(c)} IS NOT NULL`).join(" OR ")
   const all = [...pk, ...fkCols]
   const update =
-    `${tag("deferred-update", m.table)} UPDATE ${pgIdent(m.table)} AS t SET ${fkCols.map((c, i) => `${pgIdent(c)} = u.f${i}::${colOf(c).pgType}`).join(", ")} ` +
+    `${tag("deferred-update", m.table)} UPDATE ${pgIdent(m.table)} AS t SET ${fkCols.map((c, i) => `${pgIdent(c)} = u.f${i}::${colOf(m, c).pgType}`).join(", ")} ` +
     `FROM unnest(${all.map((_, i) => `$${i + 1}::text[]`).join(", ")}) AS u(${[...pk.map((_, i) => `k${i}`), ...fkCols.map((_, i) => `f${i}`)].join(", ")}) ` +
-    `WHERE ${pk.map((k, i) => `t.${pgIdent(k)} = u.k${i}::${colOf(k).pgType}`).join(" AND ")}`
+    `WHERE ${pk.map((k, i) => `t.${pgIdent(k)} = u.k${i}::${colOf(m, k).pgType}`).join(" AND ")}`
   let last: unknown[] | null = null
   let updated = 0
   for (;;) {
-    const keyset = last === null ? "" : `AND (${pk.map(myIdent).join(", ")}) > (${pk.map(() => "?").join(", ")})`
-    const sql = `${tag("deferred", m.table)} SELECT ${all.map(myIdent).join(", ")} FROM ${myIdent(m.sourceTable)} WHERE (${notNull}) ${keyset} ORDER BY ${pkOrderMy(m, false)} LIMIT ${opts.batchSize}`
+    const sql = `${tag("deferred", m.table)} SELECT ${all.map(myIdent).join(", ")} FROM ${myIdent(m.sourceTable)} WHERE (${notNull}) ${keysetMy(pk, last, "AND")} ORDER BY ${pkOrderMy(m)} LIMIT ${opts.batchSize}`
     const rows = await ports.source.query(sql, last ?? [])
     if (rows.length === 0) break
-    const arrays = all.map((n) => rows.map((r) => toTargetText(r[n], colOf(n))))
+    const arrays = all.map((n) => rows.map((r) => toTargetText(r[n], colOf(m, n))))
     await ports.target.query(update, arrays)
     updated += rows.length
     const lastRow = rows[rows.length - 1]
@@ -404,50 +423,117 @@ async function applyDeferred(ports: Ports, m: TableMapping, edge: FkEdge, opts: 
 
 // ---------------------------------------------------------------- verify
 
-async function* sourceKeyed(source: SourcePort, m: TableMapping, opts: RunOptions): AsyncIterable<KeyedRow> {
+function targetByKeysSql(m: TableMapping): string {
+  const pk = m.primaryKey
+  return (
+    `${tag("verify-keys", m.table)} SELECT ${m.columns.map((c) => `t.${pgIdent(c.name)}`).join(", ")} FROM ${pgIdent(m.table)} AS t ` +
+    `JOIN unnest(${pk.map((_, i) => `$${i + 1}::text[]`).join(", ")}) AS k(${pk.map((_, i) => `k${i}`).join(", ")}) ` +
+    `ON ${pk.map((k, i) => `t.${pgIdent(k)} = k.k${i}::${colOf(m, k).pgType}`).join(" AND ")}`
+  )
+}
+
+function canonKey(m: TableMapping, texts: readonly (string | null)[]): string {
+  return formatKey(m.primaryKey.map((_, i) => canonicalValue(m.pkKinds[i], texts[i])))
+}
+
+async function verifyTable(ports: Ports, m: TableMapping, opts: RunOptions): Promise<TableComparison> {
   const kinds: TargetKind[] = m.columns.map((c) => c.kind)
   const pkIdx = m.primaryKey.map((k) => m.columns.findIndex((c) => c.name === k))
-  const sql = `${tag("verify", m.table)} SELECT ${m.columns.map((c) => myIdent(c.name)).join(", ")} FROM ${myIdent(m.sourceTable)} ORDER BY ${pkOrderMy(m, true)}`
-  for await (const row of source.stream(sql)) {
-    const texts = m.columns.map((c) => {
-      try {
-        return sourceText(row[c.name], c, opts.allowInvalidJson)
-      } catch (e) {
-        if (e instanceof ConversionError) return `!${e.code}`
-        throw e
-      }
+  const v = new TableVerifier(m.table)
+  const [sc] = await ports.source.query(`${tag("verify-count", m.table)} SELECT COUNT(*) AS n FROM ${myIdent(m.sourceTable)}`)
+  const [tc] = await ports.target.query(`${tag("verify-count", m.table)} SELECT COUNT(*) AS n FROM ${pgIdent(m.table)}`)
+  const sourceRows = Number(sc?.n ?? NaN)
+  const targetRows = Number(tc?.n ?? NaN)
+  const byKeys = targetByKeysSql(m)
+  let last: unknown[] | null = null
+  for (;;) {
+    const rows = await ports.source.query(
+      `${tag("verify", m.table)} SELECT ${m.columns.map((c) => myIdent(c.name)).join(", ")} FROM ${myIdent(m.sourceTable)} ${keysetMy(m.primaryKey, last, "WHERE")} ORDER BY ${pkOrderMy(m)} LIMIT ${opts.batchSize}`,
+      last ?? [],
+    )
+    if (rows.length === 0) break
+    const chunk: VerifyRow[] = rows.map((row) => {
+      const texts = m.columns.map((c) => {
+        try {
+          return sourceText(row[c.name], c, opts.allowInvalidJson).text
+        } catch (e) {
+          if (e instanceof ConversionError) return `!${e.code}`
+          throw e
+        }
+      })
+      return { key: canonKey(m, pkIdx.map((i) => texts[i])), canon: canonicalRow(kinds, texts) }
     })
-    yield { key: pkIdx.map((i) => canonicalValue(kinds[i], texts[i])), canon: canonicalRow(kinds, texts) }
+    const keyArrays = m.primaryKey.map((k) => rows.map((r) => toTargetText(r[k], colOf(m, k))))
+    const found = await ports.target.query(byKeys, keyArrays)
+    const map = new Map<string, string>()
+    for (const t of found) {
+      const texts = m.columns.map((c) => t[c.name] ?? null)
+      map.set(canonKey(m, pkIdx.map((i) => texts[i])), canonicalRow(kinds, texts))
+    }
+    v.addChunk(chunk, map)
+    const lastRow = rows[rows.length - 1]
+    last = m.primaryKey.map((k) => lastRow[k])
+    if (rows.length < opts.batchSize) break
+  }
+  if (targetRows !== v.matched) await namedExtras(ports, m, v, opts)
+  return v.result(sourceRows, targetRows)
+}
+
+/** Target keys without an exactly equal source key (only run when counts disagree). */
+async function namedExtras(ports: Ports, m: TableMapping, v: TableVerifier, opts: RunOptions): Promise<void> {
+  const pk = m.primaryKey
+  let last: (string | null)[] | null = null
+  for (;;) {
+    const where = last === null ? "" : `WHERE (${pk.map((k) => pgIdent(k)).join(", ")}) > (${pk.map((k, i) => `$${i + 1}::${colOf(m, k).pgType}`).join(", ")})`
+    const rows = await ports.target.query(
+      `${tag("verify-extra", m.table)} SELECT ${pk.map((k) => pgIdent(k)).join(", ")} FROM ${pgIdent(m.table)} ${where} ORDER BY ${pk.map((k) => pgIdent(k)).join(", ")} LIMIT ${opts.batchSize}`,
+      last ?? [],
+    )
+    if (rows.length === 0) break
+    const placeholders = rows.map(() => `(${pk.map(() => "?").join(", ")})`).join(", ")
+    const params = rows.flatMap((r) => pk.map((k) => r[k]))
+    const present = await ports.source.query(
+      `${tag("verify-extra", m.table)} SELECT ${pk.map(myIdent).join(", ")} FROM ${myIdent(m.sourceTable)} WHERE (${pk.map(myIdent).join(", ")}) IN (${placeholders})`,
+      params,
+    )
+    const have = new Set(present.map((r) => canonKey(m, pk.map((k) => (r[k] === null ? null : String(r[k]))))))
+    v.addExtras(rows.map((r) => canonKey(m, pk.map((k) => r[k] ?? null))).filter((k) => !have.has(k)))
+    const lastRow = rows[rows.length - 1]
+    last = pk.map((k) => lastRow[k] ?? null)
+    if (rows.length < opts.batchSize) break
   }
 }
 
-async function* targetKeyed(target: TargetPort, m: TableMapping): AsyncIterable<KeyedRow> {
-  const kinds: TargetKind[] = m.columns.map((c) => c.kind)
-  const pkIdx = m.primaryKey.map((k) => m.columns.findIndex((c) => c.name === k))
-  const sql = `${tag("verify", m.table)} SELECT ${m.columns.map((c) => pgIdent(c.name)).join(", ")} FROM ${pgIdent(m.table)} ORDER BY ${pkOrderPg(m)}`
-  for await (const row of target.stream(sql)) {
-    const texts = m.columns.map((c) => row[c.name] ?? null)
-    yield { key: pkIdx.map((i) => canonicalValue(kinds[i], texts[i])), canon: canonicalRow(kinds, texts) }
+async function verifySequences(ports: Ports, schema: TargetSchema, comparisons: TableComparison[]): Promise<void> {
+  for (const s of schema.sequences) {
+    const [r] = await ports.target.query(
+      `${tag("verify-seq", s.table)} SELECT (SELECT COALESCE(MAX(${pgIdent(s.column)}), 0) FROM ${pgIdent(s.table)})::text AS mx, last_value::text AS lv, is_called::text AS called FROM ${s.sequence.split(".").map(pgIdent).join(".")}`,
+    )
+    const next = r.called === "true" || r.called === "t" ? BigInt(r.lv ?? "0") + BigInt(1) : BigInt(r.lv ?? "0")
+    if (next <= BigInt(r.mx ?? "0")) {
+      const c = comparisons.find((x) => x.table === s.table)
+      if (c) {
+        c.match = false
+        c.differenceCount++
+        c.differences.push({ kind: "sequence-behind", key: `${s.sequence} next ${next} <= max ${r.mx}` })
+      }
+    }
   }
 }
 
-async function verifyAll(ports: Ports, tables: readonly TableMapping[], opts: RunOptions, log: (l: string) => void): Promise<TableComparison[]> {
+async function verifyAll(ports: Ports, schema: TargetSchema, tables: readonly TableMapping[], opts: RunOptions, log: (l: string) => void): Promise<TableComparison[]> {
   const out: TableComparison[] = []
-  await ports.source.beginSnapshot()
-  await ports.target.begin(true)
-  // No finally: after a failed stream the source connection may be paused mid-result, so
-  // nothing more is sent to it - the caller closes both connections, which ends the
-  // snapshot and the read-only transaction.
   for (const m of tables) {
-    const c = await compareSortedStreams(m.table, sourceKeyed(ports.source, m, opts), targetKeyed(ports.target, m), m.pkKinds)
+    const c = await verifyTable(ports, m, opts)
     out.push(c)
+  }
+  await verifySequences(ports, schema, out)
+  for (const c of out) {
     log(
-      `[verify] ${m.table}: ${c.match ? "OK" : "MISMATCH"} source ${c.sourceRows} / target ${c.targetRows} rows, sha256 ${c.sourceHash.slice(0, 12)}${c.match ? "" : ` vs ${c.targetHash.slice(0, 12)}`}` +
+      `[verify] ${c.table}: ${c.match ? "OK" : "MISMATCH"} source ${c.sourceRows} / target ${c.targetRows} rows, sha256 ${c.sourceHash.slice(0, 12)}${c.match ? "" : ` vs ${c.targetHash.slice(0, 12)}`}` +
         (c.differences.length > 0 ? `; first differences: ${c.differences.map((d) => `${d.kind} ${d.key}`).join("; ")}` : ""),
     )
   }
-  await ports.target.commit()
-  await ports.source.endSnapshot()
   return out
 }
 
@@ -464,8 +550,12 @@ export async function runMigrator(opts: RunOptions, ports: Ports, hooks: RunHook
     durationMs: 0,
     source: ports.source.describe(),
     target: ports.target.describe(),
-    precheck: { errors: [], warnings: [] },
+    precheck: { errors: [], warnings: [], info: [] },
+    acceptedWarnings: [],
+    unacceptedWarnings: [],
+    timestampAnalysis: [],
     sourceCounts: {},
+    committed: false,
     timings,
     outcome: "ok",
     exitCode: EXIT.ok,
@@ -487,6 +577,7 @@ export async function runMigrator(opts: RunOptions, ports: Ports, hooks: RunHook
   }
 
   let snapshotOpen = false
+  let txOpen = false
   try {
     const issues: Issue[] = []
     const [srcSchema, tgtSchema, srcInfo, tgtInfo] = await phase("introspect", async () =>
@@ -494,12 +585,33 @@ export async function runMigrator(opts: RunOptions, ports: Ports, hooks: RunHook
     )
     report.sourceServer = { ...srcInfo }
     report.targetServer = { ...tgtInfo }
+    log(`[identity] source ${srcInfo.identity} / target ${tgtInfo.identity}`)
+    if (opts.mode === "migrate") {
+      const want = [
+        ["source", opts.expectSourceIdentity, srcInfo.identity],
+        ["target", opts.expectTargetIdentity, tgtInfo.identity],
+      ] as const
+      for (const [side, expected, actual] of want) {
+        if (!expected || expected !== actual) {
+          issues.push({
+            code: "IDENTITY_MISMATCH",
+            severity: "error",
+            count: 1,
+            sampleKeys: [],
+            message: `${side} server identity ${actual} does not equal --${side}-identity ${expected ?? "(missing)"} recorded at the dry run: a different server / database than the one checked`,
+          })
+        }
+      }
+    }
     if (srcInfo.charset !== "utf8mb4") {
       issues.push({ code: "SOURCE_CHARSET", severity: "warning", count: 1, sampleKeys: [], message: `source database default charset is ${srcInfo.charset}, production uses utf8mb4` })
     }
     const compat = checkSchemaCompat(srcSchema, tgtSchema)
     issues.push(...compat.issues)
     const tables = compat.tables
+    if (tables.length === 0) {
+      issues.push({ code: "NO_TABLES", severity: "error", count: 1, sampleKeys: [], message: "no table maps between source and target: nothing would be copied or verified" })
+    }
 
     let plan: CopyPlan | null = null
     try {
@@ -516,12 +628,13 @@ export async function runMigrator(opts: RunOptions, ports: Ports, hooks: RunHook
 
     await ports.source.beginSnapshot()
     snapshotOpen = true
+    const invalidJson: InvalidJsonRecord[] = []
     await phase("precheck", async () => {
-      await targetChecks(ports.target, tgtSchema, ordered, issues, opts.mode !== "verify-only")
+      await targetChecks(ports.target, tgtSchema, ordered, issues, opts.mode !== "verify-only", tgtInfo)
       if (opts.mode === "verify-only") return
       for (const m of ordered) {
-        await sourceDataChecks(ports.source, m, issues)
-        await jsonChecks(ports.source, m, opts.allowInvalidJson, issues)
+        await sourceDataChecks(ports.source, m, issues, report.timestampAnalysis, opts.localOffsetHours ?? 7)
+        await jsonChecks(ports.source, m, opts.allowInvalidJson, issues, invalidJson)
       }
       await orphanChecks(ports.source, tgtSchema, ordered, issues)
       await citextChecks(ports.source, tgtSchema, ordered, issues)
@@ -532,9 +645,28 @@ export async function runMigrator(opts: RunOptions, ports: Ports, hooks: RunHook
     }
     report.precheck.errors = issues.filter((i) => i.severity === "error")
     report.precheck.warnings = issues.filter((i) => i.severity === "warning")
+    report.precheck.info = issues.filter((i) => i.severity === "info")
     for (const i of issues) log(`[precheck] ${i.severity.toUpperCase()} ${i.code} ${i.message}${i.sampleKeys.length > 0 ? ` - keys: ${i.sampleKeys.join(" | ")}` : ""}`)
+    if (opts.mode !== "verify-only") {
+      const cov = report.timestampAnalysis
+      const probed = cov.filter((c) => c.probes.length > 0).length
+      const partial = cov.filter((c) => c.probes.length > 0 && c.notProbed.length > 0).length
+      const none = cov.filter((c) => c.probes.length === 0).length
+      log(`[precheck] timestamp analysis: ${cov.length} column(s); ${probed} probed (${partial} only partially), ${none} not probed (business dates) - details: report.timestampAnalysis`)
+    }
+
+    // Warning decision: nothing that needs a human judgement may end as a plain success.
+    const accepted = new Set(opts.acceptWarnings ?? [])
+    const isAccepted = (w: Issue): boolean => (w.code === "INVALID_JSON" ? opts.allowInvalidJson : (ACCEPTABLE_WARNINGS as readonly string[]).includes(w.code) && accepted.has(w.code))
+    const decision = opts.mode === "verify-only" ? [] : report.precheck.warnings
+    report.acceptedWarnings = decision.filter(isAccepted).map((w) => ({ code: w.code, count: w.count, table: w.table, column: w.column }))
+    report.unacceptedWarnings = [...new Set(decision.filter((w) => !isAccepted(w)).map((w) => w.code))]
+
     const totalRows = Object.values(report.sourceCounts).reduce((a, b) => a + b, 0)
-    log(`[precheck] ${ordered.length} tables, ${totalRows} source rows, ${report.precheck.errors.length} error(s), ${report.precheck.warnings.length} warning(s)`)
+    log(
+      `[precheck] ${ordered.length} tables, ${totalRows} source rows, ${report.precheck.errors.length} error(s), ${report.precheck.warnings.length} warning(s)` +
+        (report.unacceptedWarnings.length > 0 ? `; needing a decision: ${report.unacceptedWarnings.join(",")}` : ""),
+    )
     if (report.precheck.errors.length > 0 || plan === null) {
       await ports.source.endSnapshot()
       snapshotOpen = false
@@ -544,67 +676,127 @@ export async function runMigrator(opts: RunOptions, ports: Ports, hooks: RunHook
       await ports.source.endSnapshot()
       snapshotOpen = false
       log("[dry-run] no writes performed")
+      log(`[dry-run] for the migrate run against these servers: --source-identity ${srcInfo.identity} --target-identity ${tgtInfo.identity}`)
+      if (report.unacceptedWarnings.length > 0) {
+        log(`[dry-run] review the warnings above; a migrate run needs --accept-warnings ${report.unacceptedWarnings.join(",")}`)
+        return finish("needs-decision", EXIT.needsDecision)
+      }
       return finish("ok", EXIT.ok)
     }
-
-    if (opts.mode === "migrate") {
-      const copyStart = Date.now()
-      const deferredBy = new Map<string, Set<string>>()
-      for (const e of plan.deferred) deferredBy.set(e.table, new Set([...(deferredBy.get(e.table) ?? []), ...e.columns]))
-      const copied: { table: string; rows: number; ms: number }[] = []
-      let deferredUpdates = 0
-      const sequencesReset: string[] = []
-      await ports.target.begin(false)
-      try {
-        await ports.target.query(`${tag("lock")} LOCK TABLE ${ordered.map((t) => pgIdent(t.table)).join(", ")} IN ACCESS EXCLUSIVE MODE`)
-        const raced = await nonEmptyTables(ports.target, ordered)
-        if (raced.length > 0) throw new Error(`target tables became non-empty before the copy started: ${raced.join(", ")}`)
-        for (const m of ordered) {
-          const s = Date.now()
-          const rows = await copyTable(ports, m, deferredBy.get(m.table) ?? new Set(), opts, report.sourceCounts[m.table], log)
-          copied.push({ table: m.table, rows, ms: Date.now() - s })
-          await hooks.onTableCopied?.(m.table)
-        }
-        for (const e of plan.deferred) {
-          const n = await applyDeferred(ports, ordered.find((t) => t.table === e.table)!, e, opts)
-          deferredUpdates += n
-          log(`[copy] deferred ${e.name}: ${n} row(s) updated`)
-        }
-        for (const s of tgtSchema.sequences) {
-          await ports.target.query(
-            `${tag("setval", s.table)} SELECT setval($1::regclass, COALESCE((SELECT MAX(${pgIdent(s.column)}) FROM ${pgIdent(s.table)}), 0) + 1, false)`,
-            [s.sequence],
-          )
-          sequencesReset.push(s.sequence)
-        }
-        await ports.target.commit()
-      } catch (e) {
-        await ports.target.rollback().catch((re: unknown) => log(`[copy] ROLLBACK failed too: ${String(re)}`))
-        throw e
-      }
+    if (opts.mode === "migrate" && report.unacceptedWarnings.length > 0) {
+      log(`[precheck] REFUSED: warnings need an explicit decision after review: --accept-warnings ${report.unacceptedWarnings.join(",")}`)
       await ports.source.endSnapshot()
       snapshotOpen = false
-      report.copy = { tables: copied, deferredUpdates, sequencesReset, ms: Date.now() - copyStart }
-      timings.copy = report.copy.ms
-      log(`[copy] committed ${copied.reduce((a, b) => a + b.rows, 0)} rows in ${report.copy.ms} ms`)
-    } else {
-      await ports.source.endSnapshot()
-      snapshotOpen = false
+      return finish("precheck-failed", EXIT.refused)
     }
 
+    if (opts.mode === "verify-only") {
+      await ports.source.endSnapshot()
+      snapshotOpen = false
+      const vStart = Date.now()
+      await ports.source.beginSnapshot()
+      snapshotOpen = true
+      await ports.target.begin(true)
+      txOpen = true
+      const comparisons = await verifyAll(ports, tgtSchema, ordered, opts, log)
+      await ports.target.commit()
+      txOpen = false
+      await ports.source.endSnapshot()
+      snapshotOpen = false
+      const mismatched = comparisons.filter((c) => !c.match).map((c) => c.table)
+      report.verification = { tables: comparisons, mismatched, insideTransaction: false, ms: Date.now() - vStart }
+      timings.verify = report.verification.ms
+      log(mismatched.length === 0 ? `[verify] all ${comparisons.length} tables match` : `[verify] MISMATCH in ${mismatched.length} table(s): ${mismatched.join(", ")}`)
+      return finish(mismatched.length === 0 ? "ok" : "verify-failed", mismatched.length === 0 ? EXIT.ok : EXIT.verifyFailed)
+    }
+
+    // ---- migrate
+    if (invalidJson.length > 0) {
+      if (!hooks.onInvalidJsonNulled) throw new MigratorError("SIDE_FILE", "invalid JSON would be nulled but no side file writer is configured")
+      await hooks.onInvalidJsonNulled(invalidJson)
+    }
+    const copyStart = Date.now()
+    const deferredBy = new Map<string, Set<string>>()
+    for (const e of plan.deferred) deferredBy.set(e.table, new Set([...(deferredBy.get(e.table) ?? []), ...e.columns]))
+    const copied: { table: string; rows: number; ms: number }[] = []
+    let deferredUpdates = 0
+    const sequencesReset: string[] = []
+    const nulled = new Set<string>()
+    await ports.target.begin(false)
+    txOpen = true
+    await ports.target.query(`${tag("lock")} LOCK TABLE ${ordered.map((t) => pgIdent(t.table)).join(", ")} IN ACCESS EXCLUSIVE MODE`)
+    const raced = await nonEmptyTables(ports.target, ordered)
+    if (raced.length > 0) throw new Error(`target tables became non-empty before the copy started: ${raced.join(", ")}`)
+    for (const m of ordered) {
+      const s = Date.now()
+      const rows = await copyTable(ports, m, deferredBy.get(m.table) ?? new Set(), opts, report.sourceCounts[m.table], nulled, log)
+      copied.push({ table: m.table, rows, ms: Date.now() - s })
+      await hooks.onTableCopied?.(m.table)
+    }
+    for (const e of plan.deferred) {
+      const n = await applyDeferred(ports, ordered.find((t) => t.table === e.table)!, e, opts)
+      deferredUpdates += n
+      log(`[copy] deferred ${e.name}: ${n} row(s) updated`)
+    }
+    for (const s of tgtSchema.sequences) {
+      await ports.target.query(
+        `${tag("setval", s.table)} SELECT setval($1::regclass, COALESCE((SELECT MAX(${pgIdent(s.column)}) FROM ${pgIdent(s.table)}), 0) + 1, false)`,
+        [s.sequence],
+      )
+      sequencesReset.push(s.sequence)
+    }
+    const expectedNulled = new Set(invalidJson.map((r) => `${r.table}\u0001${r.column}\u0001${r.key}`))
+    if (nulled.size !== expectedNulled.size || [...nulled].some((k) => !expectedNulled.has(k))) {
+      throw new Error(`the copy nulled ${nulled.size} invalid JSON value(s) but the pre-check listed ${expectedNulled.size}: source changed during the run?`)
+    }
+    report.copy = { tables: copied, deferredUpdates, sequencesReset, invalidJsonNulled: nulled.size, ms: Date.now() - copyStart }
+    timings.copy = report.copy.ms
+    log(`[copy] ${copied.reduce((a, b) => a + b.rows, 0)} rows written in ${report.copy.ms} ms (not committed yet)`)
+    await hooks.afterCopy?.(ports.target)
+
+    // Verify inside the transaction, against the same source snapshot the copy read.
     const vStart = Date.now()
-    const comparisons = await verifyAll(ports, ordered, opts, log)
+    const comparisons = await verifyAll(ports, tgtSchema, ordered, opts, log)
     const mismatched = comparisons.filter((c) => !c.match).map((c) => c.table)
-    report.verification = { tables: comparisons, mismatched, ms: Date.now() - vStart }
+    report.verification = { tables: comparisons, mismatched, insideTransaction: true, ms: Date.now() - vStart }
     timings.verify = report.verification.ms
-    log(mismatched.length === 0 ? `[verify] all ${comparisons.length} tables match` : `[verify] MISMATCH in ${mismatched.length} table(s): ${mismatched.join(", ")}`)
-    return finish(mismatched.length === 0 ? "ok" : "verify-failed", mismatched.length === 0 ? EXIT.ok : EXIT.verifyFailed)
+    if (mismatched.length > 0) {
+      await ports.target.rollback()
+      txOpen = false
+      log(`[verify] MISMATCH in ${mismatched.length} table(s): ${mismatched.join(", ")} - ROLLED BACK, the target is empty`)
+      await ports.source.endSnapshot()
+      snapshotOpen = false
+      return finish("verify-failed", EXIT.verifyFailed)
+    }
+    report.committed = "unknown"
+    await ports.target.commit()
+    txOpen = false
+    report.committed = true
+    log(`[verify] all ${comparisons.length} tables match - COMMITTED`)
+    await ports.source.endSnapshot()
+    snapshotOpen = false
+    try {
+      for (const m of ordered) await ports.target.query(`${tag("analyze", m.table)} ANALYZE ${pgIdent(m.table)}`)
+      report.analyze = "ok"
+    } catch (e) {
+      report.analyze = "failed"
+      log(`[analyze] failed (data is committed; run ANALYZE by hand): ${sanitizeError(e)}`)
+    }
+    return finish("ok", EXIT.ok)
   } catch (e) {
+    report.error = sanitizeError(e)
+    if (txOpen) {
+      try {
+        await ports.target.rollback()
+        if (report.committed !== "unknown") report.committed = false
+      } catch (re) {
+        log(`[error] ROLLBACK failed too: ${sanitizeError(re)}`)
+      }
+    }
     // The source snapshot (if open) is NOT ended here: the connection may be stuck behind a
     // half-read stream. Closing the connection (connect.ts) ends it.
     if (snapshotOpen) log("[error] source snapshot left to the connection close")
-    report.error = e instanceof Error ? e.message : String(e)
-    log(`[error] ${report.error}`)
+    log(`[error] ${report.error}${report.committed === "unknown" ? " - COMMIT outcome unknown: run --verify-only before anything else" : ""}`)
     return finish("error", EXIT.error)
   }
 }

@@ -14,11 +14,12 @@ import { describeEndpoint, type Endpoint } from "./args"
 import type { TargetPort, TargetRow, TargetServerInfo } from "./ports"
 import type { TargetSchema, TargetTable } from "./schema"
 import { tag } from "./sql"
+import { pgSsl } from "./tls"
 
 const SCHEMA = "public"
-const FETCH = 1000
 
-export async function openPgTarget(endpoint: Endpoint, password: string, opts: { readOnly: boolean; statementTimeoutMs: number }): Promise<TargetPort> {
+export async function openPgTarget(endpoint: Endpoint, password: string, opts: { readOnly: boolean; statementTimeoutMs: number; caPem?: string | null }): Promise<TargetPort> {
+  const ssl = pgSsl(endpoint.host, opts.caPem ?? null)
   const options = ["-c TimeZone=UTC", "-c lock_timeout=30000", opts.readOnly ? "-c default_transaction_read_only=on" : ""].filter(Boolean).join(" ")
   const client = new Client({
     host: endpoint.host,
@@ -27,6 +28,7 @@ export async function openPgTarget(endpoint: Endpoint, password: string, opts: {
     password,
     database: endpoint.database,
     application_name: "kanflow-k2-migrator",
+    ...(ssl ? { ssl } : {}),
     connectionTimeoutMillis: 10_000,
     statement_timeout: opts.statementTimeoutMs,
     query_timeout: opts.statementTimeoutMs + 5_000,
@@ -38,7 +40,6 @@ export async function openPgTarget(endpoint: Endpoint, password: string, opts: {
     lastError = e
   })
   await client.connect()
-  let cursorSeq = 0
 
   const query = async (sql: string, params: readonly unknown[] = []): Promise<TargetRow[]> => {
     if (lastError) throw lastError
@@ -52,10 +53,11 @@ export async function openPgTarget(endpoint: Endpoint, password: string, opts: {
       const [r] = await query(
         `${tag("server-info")} SELECT current_setting('server_version') AS v, pg_encoding_to_char(d.encoding) AS enc,
            CASE d.datlocprovider WHEN 'i' THEN 'icu' WHEN 'c' THEN 'libc' ELSE d.datlocprovider::text END AS p,
-           COALESCE(to_jsonb(d) ->> 'daticulocale', to_jsonb(d) ->> 'datlocale') AS icu
+           COALESCE(to_jsonb(d) ->> 'daticulocale', to_jsonb(d) ->> 'datlocale') AS icu,
+           (SELECT system_identifier::text FROM pg_control_system()) || '/' || d.oid::text AS ident
          FROM pg_database d WHERE d.datname = current_database()`,
       )
-      return { version: String(r.v), encoding: String(r.enc), localeProvider: String(r.p), icuLocale: r.icu }
+      return { version: String(r.v), encoding: String(r.enc), localeProvider: String(r.p), icuLocale: r.icu, identity: String(r.ident) }
     },
     introspect: async (): Promise<TargetSchema> => {
       const cols = await query(
@@ -144,19 +146,6 @@ export async function openPgTarget(endpoint: Endpoint, password: string, opts: {
       }
     },
     query,
-    stream: async function* (sql: string, params: readonly unknown[] = []) {
-      const name = `k2_cursor_${++cursorSeq}`
-      await query(`DECLARE ${name} NO SCROLL CURSOR FOR ${sql}`, params)
-      try {
-        for (;;) {
-          const rows = await query(`FETCH FORWARD ${FETCH} FROM ${name}`)
-          if (rows.length === 0) break
-          for (const r of rows) yield r
-        }
-      } finally {
-        await query(`CLOSE ${name}`)
-      }
-    },
     begin: async (readOnly: boolean) => {
       if (!readOnly && opts.readOnly) throw new Error("write transaction requested on a read-only (dry-run / verify-only) connection")
       await query(readOnly ? "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY" : "BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE")
@@ -168,7 +157,14 @@ export async function openPgTarget(endpoint: Endpoint, password: string, opts: {
       await query("ROLLBACK")
     },
     close: async () => {
-      await client.end()
+      // Bounded: a graceful end must not hang the CLI; the socket is dropped after 5 s.
+      let timer: NodeJS.Timeout | undefined
+      const bounded = new Promise<"timeout">((resolve) => {
+        timer = setTimeout(() => resolve("timeout"), 5_000)
+      })
+      const r = await Promise.race([client.end().then(() => "ok" as const), bounded])
+      clearTimeout(timer)
+      if (r === "timeout") (client as unknown as { connection?: { stream?: { destroy(): void } } }).connection?.stream?.destroy()
     },
   }
   return port

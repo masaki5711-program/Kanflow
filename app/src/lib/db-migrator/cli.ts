@@ -1,26 +1,56 @@
 /**
  * CLI flow of scripts/migrate-mysql-to-pg.ts, with every side effect injected:
- *   parse argv -> deny list -> target guard -> passwords -> run -> report.
- * The guards run BEFORE any connection is opened.
+ *   parse argv -> --expect-target -> deny list -> target guard -> passwords (mode / ACL)
+ *   -> run -> report.
+ * The guards run BEFORE any connection is opened. Output and reports carry no
+ * secrets (redacted on the object) and no row values (sanitized errors).
  */
 import { describeEndpoint, parseArgs, resolvePasswords, USAGE, type CliArgs, type Passwords } from "./args"
-import { assertTargetAllowed, loadDenyList } from "./deny-list"
+import { assertExpectedTarget, assertTargetAllowed, loadDenyList } from "./deny-list"
 import { isRefusal, MigratorError } from "./errors"
-import { EXIT, type MigrationReport } from "./run"
+import { EXIT, type InvalidJsonRecord, type MigrationReport, type RunHooks } from "./run"
+import { redactDeep, sanitizeError } from "./sanitize"
 
 export interface CliDeps {
   env: Record<string, string | undefined>
   platform: NodeJS.Platform
   readFile: (file: string) => string
   statMode: (file: string) => number
+  /** Windows: throws when the file's ACL grants a broad group (file-acl.ts). */
+  aclCheck?: (file: string) => void
+  /** Atomic (temp + rename) write of a JSON report. */
   writeReport: (file: string, report: MigrationReport) => void
+  /** Atomic write of a protected (owner-only) side file. */
+  writeSideFile?: (file: string, content: string) => void
   print: (line: string) => void
   /** Opens the connections, runs, closes. */
-  run: (args: CliArgs, passwords: Passwords, log: (line: string) => void) => Promise<MigrationReport>
+  run: (args: CliArgs, passwords: Passwords, log: (line: string) => void, hooks?: Omit<RunHooks, "log">) => Promise<MigrationReport>
 }
 
 export function redact(text: string, secrets: readonly string[]): string {
   return secrets.filter((s) => s.length > 0).reduce((t, s) => t.split(s).join("***"), text)
+}
+
+function errorReport(args: CliArgs, error: string): MigrationReport {
+  const now = new Date().toISOString()
+  return {
+    mode: args.mode as MigrationReport["mode"],
+    startedAt: now,
+    finishedAt: now,
+    durationMs: 0,
+    source: describeEndpoint(args.source),
+    target: describeEndpoint(args.target),
+    precheck: { errors: [], warnings: [], info: [] },
+    acceptedWarnings: [],
+    unacceptedWarnings: [],
+    timestampAnalysis: [],
+    sourceCounts: {},
+    committed: false,
+    timings: {},
+    outcome: "error",
+    exitCode: EXIT.error,
+    error,
+  }
 }
 
 export async function cliMain(argv: readonly string[], deps: CliDeps): Promise<number> {
@@ -42,33 +72,51 @@ export async function cliMain(argv: readonly string[], deps: CliDeps): Promise<n
 
   let passwords: Passwords
   try {
+    assertExpectedTarget(args.target, args.expectTarget)
     const denyText = args.denyFile === null ? null : deps.readFile(args.denyFile)
     assertTargetAllowed(args.target, args.source, loadDenyList(deps.env, denyText))
     passwords = resolvePasswords(args, deps.env, deps.platform, { readFile: deps.readFile, statMode: deps.statMode })
+    if (deps.platform === "win32" && deps.aclCheck) {
+      for (const f of [args.sourcePasswordFile, args.targetPasswordFile]) if (f !== null) deps.aclCheck(f)
+    }
   } catch (e) {
     if (e instanceof MigratorError) {
       deps.print(`refused: ${e.message}`)
       return isRefusal(e.code) ? EXIT.refused : EXIT.usage
     }
-    deps.print(`refused: cannot read ${args.denyFile ?? "the deny file"}: ${(e as NodeJS.ErrnoException).code ?? String(e)}`)
+    deps.print(`refused: cannot read a configured file: ${(e as NodeJS.ErrnoException).code ?? sanitizeError(e)}`)
     return EXIT.refused
   }
 
   const secrets = [passwords.source, passwords.target]
   const log = (line: string): void => deps.print(redact(line, secrets))
   log(`mode: ${args.mode}; source ${describeEndpoint(args.source)} -> target ${describeEndpoint(args.target)}; batch ${args.batchSize}`)
+  const hooks: Omit<RunHooks, "log"> = {}
+  if (args.invalidJsonFile !== null) {
+    const file = args.invalidJsonFile
+    hooks.onInvalidJsonNulled = (records: InvalidJsonRecord[]) => {
+      if (!deps.writeSideFile) throw new MigratorError("SIDE_FILE", "no side-file writer configured")
+      deps.writeSideFile(file, records.map((r) => JSON.stringify(r)).join("\n") + "\n")
+      log(`[precheck] ${records.length} invalid JSON value(s) (keys + originals) written to ${file}`)
+    }
+  }
   let report: MigrationReport
   try {
-    report = await deps.run(args, passwords, log)
+    report = await deps.run(args, passwords, log, hooks)
   } catch (e) {
-    log(`failed: ${e instanceof Error ? e.message : String(e)}`)
-    return EXIT.error
+    // Connection / setup failure: still leave a report behind.
+    report = errorReport(args, sanitizeError(e))
+    log(`failed: ${report.error}`)
   }
+  report = redactDeep(report, secrets)
   if (args.reportPath !== null) {
-    const safe = JSON.parse(redact(JSON.stringify(report), secrets)) as MigrationReport
-    deps.writeReport(args.reportPath, safe)
-    log(`report: ${args.reportPath}`)
+    try {
+      deps.writeReport(args.reportPath, report)
+      log(`report: ${args.reportPath}`)
+    } catch (e) {
+      log(`ERROR: the report could not be written to ${args.reportPath} (${sanitizeError(e)}); the run itself ended with exit ${report.exitCode} (${report.outcome}, committed=${String(report.committed)})`)
+    }
   }
-  log(`outcome: ${report.outcome} (exit ${report.exitCode}) in ${report.durationMs ?? 0} ms`)
+  log(`outcome: ${report.outcome} (exit ${report.exitCode}, committed=${String(report.committed)}) in ${report.durationMs ?? 0} ms`)
   return report.exitCode
 }

@@ -1,35 +1,30 @@
 import { describe, expect, it } from "vitest"
-import { runMigrator, type RunOptions } from "../run"
-import type { SourcePort, SourceRow, TargetPort } from "../ports"
+import { runMigrator, type InvalidJsonRecord, type RunOptions } from "../run"
+import type { SourcePort, SourceRow, TargetPort, TargetRow } from "../ports"
 import type { SourceSchema, TargetSchema } from "../schema"
 
 /**
  * Orchestration with in-memory ports. Every statement the migrator sends starts
- * with a `/* k2:<purpose>:<table> *\/` tag; the fakes route on it and record
- * everything so a test can prove what was (not) written.
+ * with a `/* k2:<purpose>:<table> *\/` tag; the fakes route on it. The fake
+ * target is a tiny transactional store (inserts, deferred updates, lookups by
+ * key, rollback), so a migrate run can verify inside its transaction and commit.
  */
+
+const col = (name: string, typname: string, pgType: string, nullable: boolean) => ({ name, typname, typtype: "b", pgType, nullable, maxLength: null, isCitext: typname === "citext" })
 
 const targetSchema: TargetSchema = {
   tables: [
-    {
-      name: "Project",
-      primaryKey: ["id"],
-      columns: [
-        { name: "id", typname: "text", typtype: "b", pgType: "text", nullable: false, maxLength: null, isCitext: false },
-        { name: "name", typname: "citext", typtype: "b", pgType: "citext", nullable: false, maxLength: null, isCitext: true },
-        { name: "active", typname: "bool", typtype: "b", pgType: "boolean", nullable: false, maxLength: null, isCitext: false },
-      ],
-    },
+    { name: "Project", primaryKey: ["id"], columns: [col("id", "text", "text", false), col("name", "citext", "citext", false), col("active", "bool", "boolean", false)] },
     {
       name: "PlanItem",
       primaryKey: ["id"],
       columns: [
-        { name: "id", typname: "text", typtype: "b", pgType: "text", nullable: false, maxLength: null, isCitext: false },
-        { name: "projectId", typname: "text", typtype: "b", pgType: "text", nullable: false, maxLength: null, isCitext: false },
-        { name: "parentId", typname: "text", typtype: "b", pgType: "text", nullable: true, maxLength: null, isCitext: false },
-        { name: "meta", typname: "jsonb", typtype: "b", pgType: "jsonb", nullable: true, maxLength: null, isCitext: false },
-        { name: "createdAt", typname: "timestamp", typtype: "b", pgType: "timestamp(3) without time zone", nullable: false, maxLength: null, isCitext: false },
-        { name: "plannedEnd", typname: "timestamp", typtype: "b", pgType: "timestamp(3) without time zone", nullable: true, maxLength: null, isCitext: false },
+        col("id", "text", "text", false),
+        col("projectId", "text", "text", false),
+        col("parentId", "text", "text", true),
+        col("meta", "jsonb", "jsonb", true),
+        col("createdAt", "timestamp", "timestamp(3) without time zone", false),
+        col("plannedEnd", "timestamp", "timestamp(3) without time zone", true),
       ],
     },
   ],
@@ -42,39 +37,36 @@ const targetSchema: TargetSchema = {
   migrations: [{ name: "0_init", finished: true, rolledBack: false }],
 }
 
+const scol = (name: string, dataType: string, columnType: string, nullable: boolean) => ({ name, dataType, columnType, nullable, maxLength: null })
 const sourceSchema: SourceSchema = {
   tables: [
-    {
-      name: "Project",
-      primaryKey: ["id"],
-      columns: [
-        { name: "id", dataType: "varchar", columnType: "varchar(191)", nullable: false, maxLength: 191 },
-        { name: "name", dataType: "varchar", columnType: "varchar(191)", nullable: false, maxLength: 191 },
-        { name: "active", dataType: "tinyint", columnType: "tinyint(1)", nullable: false, maxLength: null },
-      ],
-    },
+    { name: "Project", primaryKey: ["id"], columns: [scol("id", "varchar", "varchar(191)", false), scol("name", "varchar", "varchar(191)", false), scol("active", "tinyint", "tinyint(1)", false)] },
     {
       name: "PlanItem",
       primaryKey: ["id"],
       columns: [
-        { name: "id", dataType: "varchar", columnType: "varchar(191)", nullable: false, maxLength: 191 },
-        { name: "projectId", dataType: "varchar", columnType: "varchar(191)", nullable: false, maxLength: 191 },
-        { name: "parentId", dataType: "varchar", columnType: "varchar(191)", nullable: true, maxLength: 191 },
-        { name: "meta", dataType: "json", columnType: "json", nullable: true, maxLength: null },
-        { name: "createdAt", dataType: "datetime", columnType: "datetime(3)", nullable: false, maxLength: null },
-        { name: "plannedEnd", dataType: "datetime", columnType: "datetime(3)", nullable: true, maxLength: null },
+        scol("id", "varchar", "varchar(191)", false),
+        scol("projectId", "varchar", "varchar(191)", false),
+        scol("parentId", "varchar", "varchar(191)", true),
+        scol("meta", "json", "json", true),
+        scol("createdAt", "datetime", "datetime(3)", false),
+        scol("plannedEnd", "datetime", "datetime(3)", true),
       ],
     },
   ],
 }
 
-const data: Record<string, SourceRow[]> = {
-  Project: [{ id: "p1", name: "Alpha", active: "1" }],
-  PlanItem: [
-    { id: "i1", projectId: "p1", parentId: "i2", meta: '{"a":1}', createdAt: "2026-01-01 00:00:00.000", plannedEnd: "2031-01-01 00:00:00.000" },
-    { id: "i2", projectId: "p1", parentId: null, meta: null, createdAt: "2026-01-01 00:00:00.000", plannedEnd: null },
-  ],
+function baseData(): Record<string, SourceRow[]> {
+  return {
+    Project: [{ id: "p1", name: "Alpha", active: "1" }],
+    PlanItem: [
+      { id: "i1", projectId: "p1", parentId: "i2", meta: '{"a":1}', createdAt: "2026-01-01 00:00:00.000", plannedEnd: "2031-01-01 00:00:00.000" },
+      { id: "i2", projectId: "p1", parentId: null, meta: null, createdAt: "2026-01-01 00:00:00.000", plannedEnd: null },
+    ],
+  }
 }
+
+const IDS = { source: "src-uuid", target: "sys/16384" }
 
 function tagOf(sql: string): { purpose: string; table: string } {
   const m = /^\/\* k2:([a-z-]+):?([^*]*?) \*\//.exec(sql)
@@ -82,161 +74,269 @@ function tagOf(sql: string): { purpose: string; table: string } {
   return { purpose: m[1], table: m[2] }
 }
 
-function fakeSource(): SourcePort & { statements: string[] } {
+interface FakeSourceOpts {
+  data?: Record<string, SourceRow[]>
+  /** scan expressions containing this marker report 1 offending row */
+  flag?: string
+}
+
+function fakeSource(o: FakeSourceOpts = {}): SourcePort & { statements: string[]; calls: string[] } {
+  const data = o.data ?? baseData()
   const statements: string[] = []
-  const copied = new Set<string>()
+  const calls: string[] = []
   return {
     statements,
+    calls,
     describe: () => "mysql://fake@src:3306/db",
-    serverInfo: async () => ({ version: "8.4.0", charset: "utf8mb4", collation: "utf8mb4_unicode_ci" }),
+    serverInfo: async () => ({ version: "8.4.0", charset: "utf8mb4", collation: "utf8mb4_unicode_ci", identity: IDS.source }),
     introspect: async () => sourceSchema,
-    beginSnapshot: async () => {},
-    endSnapshot: async () => {},
-    query: async (sql) => {
+    beginSnapshot: async () => {
+      calls.push("beginSnapshot")
+    },
+    endSnapshot: async () => {
+      calls.push("endSnapshot")
+    },
+    query: async (sql, params) => {
       statements.push(sql)
       const { purpose, table } = tagOf(sql)
-      if (purpose === "count") return [{ n: String(data[table].length) }]
-      if (purpose === "copy" || purpose === "deferred") {
-        if (copied.has(`${purpose}:${table}`)) return []
-        copied.add(`${purpose}:${table}`)
-        return data[table]
+      if (purpose === "count" || purpose === "verify-count") return [{ n: String(data[table].length) }]
+      if (purpose === "scan") {
+        const out: SourceRow = {}
+        for (const m of sql.matchAll(/COALESCE\(SUM\((.*?)\), 0\) AS f(\d+)/g)) out[`f${m[2]}`] = o.flag && m[1].includes(o.flag) ? "1" : "0"
+        return [out]
       }
+      if (purpose === "sample") return [{ id: data[table][0].id }]
+      // keyset reads: the whole table on the first call (params empty), nothing after
+      if (purpose === "copy" || purpose === "deferred" || purpose === "verify") return params && params.length > 0 ? [] : data[table]
       return []
     },
     stream: async function* (sql) {
       statements.push(sql)
       const { purpose, table } = tagOf(sql)
-      if (purpose === "verify") for (const row of data[table]) yield row
+      if (purpose === "json" || purpose === "citext") for (const row of data[table]) yield row
     },
     close: async () => {},
   }
 }
 
-function fakeTarget(): TargetPort & { statements: string[]; transactions: string[] } {
+type Store = Record<string, TargetRow[]>
+
+function fakeTarget(): TargetPort & { statements: string[]; transactions: string[]; store: Store } {
   const statements: string[] = []
   const transactions: string[] = []
-  return {
+  let committed: Store = {}
+  let work: Store = {}
+  const colsOf = (t: string) => targetSchema.tables.find((x) => x.name === t)!.columns.map((c) => c.name)
+  const port = {
     statements,
     transactions,
+    get store() {
+      return work
+    },
     describe: () => "postgresql://fake@tgt:5432/db",
-    serverInfo: async () => ({ version: "16.4", encoding: "UTF8", localeProvider: "icu", icuLocale: "und" }),
+    serverInfo: async () => ({ version: "16.4", encoding: "UTF8", localeProvider: "icu", icuLocale: "und", identity: IDS.target }),
     introspect: async () => targetSchema,
-    query: async (sql) => {
+    query: async (sql: string, params?: readonly unknown[]): Promise<TargetRow[]> => {
       statements.push(sql)
-      tagOf(sql)
+      const { purpose, table } = tagOf(sql)
+      const p = (params ?? []) as (string | null)[][]
+      if (purpose === "nonempty") return Object.entries(work).filter(([, r]) => r.length > 0).map(([t]) => ({ t }))
+      if (purpose === "insert") {
+        const cols = colsOf(table)
+        const rows = (work[table] ??= [])
+        for (let i = 0; i < p[0].length; i++) rows.push(Object.fromEntries(cols.map((c, k) => [c, p[k][i]])))
+        return []
+      }
+      if (purpose === "deferred-update") {
+        const set = [...sql.matchAll(/"(\w+)" = u\.f\d+/g)].map((m) => m[1])
+        for (let i = 0; i < p[0].length; i++) {
+          const row = (work[table] ?? []).find((r) => r.id === p[0][i])
+          if (row) set.forEach((c, k) => (row[c] = p[1 + k][i]))
+        }
+        return []
+      }
+      if (purpose === "verify-count") return [{ n: String((work[table] ?? []).length) }]
+      if (purpose === "verify-keys") return (work[table] ?? []).filter((r) => p[0].includes(r.id as string))
       return []
     },
-    stream: async function* (sql) {
-      statements.push(sql)
-      tagOf(sql)
-    },
-    begin: async (readOnly) => {
+    begin: async (readOnly: boolean) => {
       transactions.push(readOnly ? "begin-ro" : "begin-rw")
+      work = structuredClone(committed)
     },
     commit: async () => {
       transactions.push("commit")
+      committed = structuredClone(work)
     },
     rollback: async () => {
       transactions.push("rollback")
+      work = structuredClone(committed)
     },
     close: async () => {},
   }
+  return port
 }
 
 const base: RunOptions = { mode: "dry-run", batchSize: 1000, allowInvalidJson: false }
-const WRITE = /^\/\* k2:[^*]+\*\/\s*(INSERT|UPDATE|DELETE|TRUNCATE|LOCK|SELECT\s+setval|ALTER|CREATE|DROP)/i
+const migrate: RunOptions = { ...base, mode: "migrate", expectSourceIdentity: IDS.source, expectTargetIdentity: IDS.target }
+const WRITE = /^\/\* k2:[^*]+\*\/\s*(INSERT|UPDATE|DELETE|TRUNCATE|LOCK|SELECT\s+setval|ALTER|CREATE|DROP|ANALYZE)/i
 
 describe("runMigrator", () => {
-  it("--dry-run runs the pre-checks and counts, and writes nothing", async () => {
-    const source = fakeSource()
+  it("--dry-run runs the pre-checks and counts, writes nothing and prints the identities for the migrate run", async () => {
+    const lines: string[] = []
     const target = fakeTarget()
-    const report = await runMigrator(base, { source, target })
-    expect(report.outcome).toBe("ok")
-    expect(report.exitCode).toBe(0)
+    const report = await runMigrator(base, { source: fakeSource(), target }, { log: (l) => lines.push(l) })
+    expect(report).toMatchObject({ outcome: "ok", exitCode: 0, committed: false })
     expect(report.sourceCounts).toEqual({ Project: 1, PlanItem: 2 })
-    expect(report.plan?.order).toEqual(["Project", "PlanItem"])
     expect(report.plan?.deferred).toEqual(["PlanItem_parentId_fkey"])
     expect(target.statements.filter((s) => WRITE.test(s))).toEqual([])
-    expect(target.transactions).not.toContain("begin-rw")
-    expect(report.copy).toBeUndefined()
+    expect(target.transactions).toEqual([])
+    expect(lines.join("\n")).toContain(`--source-identity ${IDS.source} --target-identity ${IDS.target}`)
   })
 
-  it("checks only write timestamps for future values (legacy local time), every DATETIME for zero dates", async () => {
+  it("probes only event timestamps for the future and every DATETIME for zero dates; records coverage", async () => {
     const source = fakeSource()
-    await runMigrator(base, { source, target: fakeTarget() })
+    const report = await runMigrator(base, { source, target: fakeTarget() })
     const scan = source.statements.find((s) => s.includes("k2:scan:PlanItem")) ?? ""
     expect(scan).toContain("`createdAt` > UTC_TIMESTAMP(3)")
     expect(scan).not.toContain("`plannedEnd` > UTC_TIMESTAMP(3)")
     expect(scan).toContain("YEAR(`plannedEnd`) = 0")
+    expect(report.timestampAnalysis.map((c) => `${c.table}.${c.column}`)).toEqual(["PlanItem.createdAt", "PlanItem.plannedEnd"])
   })
 
-  it("the write detector of this test does see writes in migrate mode", async () => {
-    const source = fakeSource()
+  it("migrate: copies, verifies INSIDE the transaction, then commits and analyzes", async () => {
     const target = fakeTarget()
-    const report = await runMigrator({ ...base, mode: "migrate" }, { source, target })
-    const writes = target.statements.filter((s) => WRITE.test(s))
-    expect(writes.some((s) => s.includes("k2:insert:Project"))).toBe(true)
-    expect(writes.some((s) => s.includes("k2:deferred-update:PlanItem"))).toBe(true)
-    expect(target.transactions).toEqual(expect.arrayContaining(["begin-rw", "commit"]))
-    // The fake target returns no rows on verification: the run must fail loudly.
-    expect(report.outcome).toBe("verify-failed")
-    expect(report.exitCode).toBe(1)
-    expect(report.copy?.tables.map((t) => [t.table, t.rows])).toEqual([["Project", 1], ["PlanItem", 2]])
+    const report = await runMigrator(migrate, { source: fakeSource(), target })
+    expect(report.error).toBeUndefined()
+    expect(report).toMatchObject({ outcome: "ok", exitCode: 0, committed: true, analyze: "ok" })
+    expect(report.verification).toMatchObject({ insideTransaction: true, mismatched: [] })
+    expect(target.transactions).toEqual(["begin-rw", "commit"])
+    const verifyAt = target.statements.findIndex((s) => s.includes("k2:verify-keys"))
+    const analyzeAt = target.statements.findIndex((s) => s.includes("k2:analyze"))
+    expect(verifyAt).toBeGreaterThan(-1)
+    expect(analyzeAt).toBeGreaterThan(verifyAt)
+    expect(target.store.PlanItem.find((r) => r.id === "i1")?.parentId).toBe("i2")
   })
 
   it("inserts the deferred self-reference as NULL first, then updates it", async () => {
-    const source = fakeSource()
     const target = fakeTarget()
     const inserts: (readonly unknown[])[] = []
+    const q = target.query
     target.query = async (sql, params) => {
-      target.statements.push(sql)
       if (sql.includes("k2:insert:PlanItem")) inserts.push(params ?? [])
-      return []
+      return q(sql, params)
     }
-    await runMigrator({ ...base, mode: "migrate" }, { source, target })
-    // column order id, projectId, parentId, meta, createdAt -> parentId array is all NULL
+    await runMigrator(migrate, { source: fakeSource(), target })
     expect(inserts[0][2]).toEqual([null, null])
     expect(inserts[0][3]).toEqual(['{"a":1}', null])
   })
 
-  it("refuses with exit 2 and does not open a write transaction when a pre-check fails", async () => {
-    const source = fakeSource()
+  it("a verification mismatch inside the transaction rolls back: nothing committed, exit 1", async () => {
     const target = fakeTarget()
-    target.query = async (sql) => {
-      target.statements.push(sql)
-      if (sql.includes("k2:nonempty")) return [{ t: "Project" }]
-      return []
-    }
-    const report = await runMigrator({ ...base, mode: "migrate" }, { source, target })
-    expect(report.outcome).toBe("precheck-failed")
-    expect(report.exitCode).toBe(2)
-    expect(report.precheck.errors.map((e) => e.code)).toContain("TARGET_NOT_EMPTY")
-    expect(target.transactions).not.toContain("begin-rw")
-    expect(target.statements.filter((s) => WRITE.test(s))).toEqual([])
+    const report = await runMigrator(migrate, { source: fakeSource(), target }, {
+      afterCopy: async () => {
+        target.store.Project[0].name = "Tampered"
+      },
+    })
+    expect(report).toMatchObject({ outcome: "verify-failed", exitCode: 1, committed: false })
+    expect(report.verification?.mismatched).toEqual(["Project"])
+    expect(target.transactions).toEqual(["begin-rw", "rollback"])
+    expect(target.store).toEqual({})
   })
 
-  it("rolls back and reports exit 3 when the copy is interrupted", async () => {
-    const source = fakeSource()
+  it("refuses with exit 2 and does not open a write transaction when a pre-check fails", async () => {
     const target = fakeTarget()
-    const report = await runMigrator({ ...base, mode: "migrate" }, { source, target }, {
+    const q = target.query
+    target.query = async (sql, params) => (sql.includes("k2:nonempty") ? [{ t: "Project" }] : q(sql, params))
+    const report = await runMigrator(migrate, { source: fakeSource(), target })
+    expect(report).toMatchObject({ outcome: "precheck-failed", exitCode: 2 })
+    expect(report.precheck.errors.map((e) => e.code)).toContain("TARGET_NOT_EMPTY")
+    expect(target.transactions).toEqual([])
+  })
+
+  it("rolls back and reports exit 3 (committed false) when the copy is interrupted", async () => {
+    const target = fakeTarget()
+    const report = await runMigrator(migrate, { source: fakeSource(), target }, {
       onTableCopied: (table) => {
         if (table === "Project") throw new Error("simulated interruption")
       },
     })
-    expect(report.outcome).toBe("error")
-    expect(report.exitCode).toBe(3)
+    expect(report).toMatchObject({ outcome: "error", exitCode: 3, committed: false })
     expect(report.error).toContain("simulated interruption")
-    expect(target.transactions).toContain("rollback")
-    expect(target.transactions).not.toContain("commit")
+    expect(target.transactions).toEqual(["begin-rw", "rollback"])
+  })
+
+  it("refuses a migrate run without the dry-run identities or against a different server", async () => {
+    for (const opts of [
+      { ...migrate, expectSourceIdentity: null },
+      { ...migrate, expectTargetIdentity: "other/1" },
+    ]) {
+      const target = fakeTarget()
+      const report = await runMigrator(opts, { source: fakeSource(), target })
+      expect(report.exitCode).toBe(2)
+      expect(report.precheck.errors.map((e) => e.code)).toEqual(["IDENTITY_MISMATCH"])
+      expect(target.transactions).toEqual([])
+    }
+  })
+
+  it("warnings need an explicit decision: dry run exit 4, migrate exit 2, accepted -> ok and recorded", async () => {
+    const flag = "UTC_TIMESTAMP"
+    const dry = await runMigrator(base, { source: fakeSource({ flag }), target: fakeTarget() })
+    expect(dry).toMatchObject({ outcome: "needs-decision", exitCode: 4, unacceptedWarnings: ["FUTURE_TIMESTAMP"] })
+
+    const target = fakeTarget()
+    const refused = await runMigrator(migrate, { source: fakeSource({ flag }), target })
+    expect(refused).toMatchObject({ outcome: "precheck-failed", exitCode: 2 })
+    expect(target.transactions).toEqual([])
+
+    const ok = await runMigrator({ ...migrate, acceptWarnings: ["FUTURE_TIMESTAMP"] }, { source: fakeSource({ flag }), target: fakeTarget() })
+    expect(ok).toMatchObject({ outcome: "ok", exitCode: 0, committed: true, unacceptedWarnings: [] })
+    expect(ok.acceptedWarnings).toEqual([{ code: "FUTURE_TIMESTAMP", count: 1, table: "PlanItem", column: "createdAt" }])
+  })
+
+  it("--allow-invalid-json hands keys + originals to the side-file hook before writing and checks the nulled set", async () => {
+    const data = baseData()
+    data.PlanItem[0].meta = '{"a":"x\\u0000y"}'
+    const target = fakeTarget()
+    const records: InvalidJsonRecord[] = []
+    const order: string[] = []
+    const report = await runMigrator({ ...migrate, allowInvalidJson: true }, { source: fakeSource({ data }), target }, {
+      onInvalidJsonNulled: (r) => {
+        records.push(...r)
+        order.push(`hook:${target.transactions.length}`)
+      },
+    })
+    expect(report).toMatchObject({ outcome: "ok", committed: true })
+    expect(records).toEqual([{ table: "PlanItem", column: "meta", key: "i1", original: '{"a":"x\\u0000y"}' }])
+    expect(order).toEqual(["hook:0"])
+    expect(report.copy?.invalidJsonNulled).toBe(1)
+    expect(target.store.PlanItem.find((r) => r.id === "i1")?.meta).toBeNull()
+    expect(JSON.stringify(report)).not.toContain("x\\\\u0000y")
+  })
+
+  it("--allow-invalid-json without a side-file writer aborts before any write", async () => {
+    const data = baseData()
+    data.PlanItem[0].meta = "{not json"
+    const target = fakeTarget()
+    const report = await runMigrator({ ...migrate, allowInvalidJson: true }, { source: fakeSource({ data }), target })
+    expect(report.exitCode).toBe(3)
+    expect(target.transactions).toEqual([])
+  })
+
+  it("refuses when no table maps (nothing would be copied)", async () => {
+    const source = fakeSource()
+    source.introspect = async () => ({ tables: [] })
+    const target = fakeTarget()
+    target.introspect = async () => ({ ...targetSchema, tables: [], foreignKeys: [], uniqueKeys: [] })
+    const report = await runMigrator(base, { source, target })
+    expect(report.precheck.errors.map((e) => e.code)).toContain("NO_TABLES")
+    expect(report.exitCode).toBe(2)
   })
 
   it("refuses a target whose Prisma migrations are missing or failed", async () => {
-    const source = fakeSource()
     const target = fakeTarget()
     target.introspect = async () => ({ ...targetSchema, migrations: [{ name: "0_init", finished: false, rolledBack: false }] })
-    const report = await runMigrator(base, { source, target })
+    const report = await runMigrator(base, { source: fakeSource(), target })
     expect(report.precheck.errors.map((e) => e.code)).toContain("TARGET_NOT_MIGRATED")
-    expect(report.exitCode).toBe(2)
   })
 
   it("refuses a schema mismatch between source and target", async () => {
@@ -244,8 +344,8 @@ describe("runMigrator", () => {
     source.introspect = async () => ({
       tables: [
         sourceSchema.tables[0],
-        { ...sourceSchema.tables[1], columns: [...sourceSchema.tables[1].columns, { name: "legacy", dataType: "text", columnType: "text", nullable: true, maxLength: null }] },
-        { name: "orphan_table", primaryKey: ["id"], columns: [{ name: "id", dataType: "int", columnType: "int", nullable: false, maxLength: null }] },
+        { ...sourceSchema.tables[1], columns: [...sourceSchema.tables[1].columns, scol("legacy", "text", "text", true)] },
+        { name: "orphan_table", primaryKey: ["id"], columns: [scol("id", "int", "int", false)] },
       ],
     })
     const report = await runMigrator(base, { source, target: fakeTarget() })
@@ -254,26 +354,48 @@ describe("runMigrator", () => {
     expect(codes).toContain("SCHEMA_TABLE_MISSING_IN_TARGET")
   })
 
-  it("a failing verification stream ends the run with exit 3 and sends nothing more to the source", async () => {
-    // A half-read mysql2 stream leaves the connection paused: a COMMIT queued behind it would
-    // hang. After a stream failure the run must stop using the source (closing it ends the snapshot).
+  it("a failing verification read ends with exit 3 and sends nothing more to the source", async () => {
     const source = fakeSource()
-    const calls: string[] = []
-    let streamFailed = false
-    source.endSnapshot = async () => {
-      calls.push(streamFailed ? "endSnapshot-after-failure" : "endSnapshot")
-    }
-    source.stream = async function* (sql) {
-      source.statements.push(sql)
+    const q = source.query
+    let failed = false
+    source.query = async (sql, params) => {
       if (sql.includes("k2:verify:")) {
-        streamFailed = true
-        throw new Error("connection reset while streaming")
+        failed = true
+        throw new Error("connection reset while reading")
       }
+      if (failed) source.calls.push("query-after-failure")
+      return q(sql, params)
     }
     const report = await runMigrator({ ...base, mode: "verify-only" }, { source, target: fakeTarget() })
-    expect(report.outcome).toBe("error")
+    expect(report).toMatchObject({ outcome: "error", exitCode: 3 })
+    expect(source.calls.filter((c) => c === "query-after-failure" || c === "endSnapshot").length).toBe(1) // only the pre-verify endSnapshot
+  })
+
+  it("never puts a row value from a database error into the report", async () => {
+    const target = fakeTarget()
+    const q = target.query
+    target.query = async (sql, params) => {
+      if (sql.includes("k2:insert:Project")) {
+        throw Object.assign(new Error('invalid input syntax for type boolean: "secret.person@example.test"'), { code: "22P02" })
+      }
+      return q(sql, params)
+    }
+    const lines: string[] = []
+    const report = await runMigrator(migrate, { source: fakeSource(), target }, { log: (l) => lines.push(l) })
     expect(report.exitCode).toBe(3)
-    expect(report.error).toContain("connection reset")
-    expect(calls).not.toContain("endSnapshot-after-failure")
+    expect(report.error).toContain("22P02")
+    expect(JSON.stringify(report) + lines.join("\n")).not.toContain("secret.person@example.test")
+  })
+
+  it("verify-only flags a sequence behind its column's maximum", async () => {
+    const target = fakeTarget()
+    target.introspect = async () => ({ ...targetSchema, sequences: [{ table: "Project", column: "id", sequence: "public.Project_id_seq" }] })
+    const q = target.query
+    target.query = async (sql, params) => (sql.includes("k2:verify-seq") ? [{ mx: "5", lv: "3", called: "true" }] : q(sql, params))
+    // populate the committed store through a migrate run first
+    await runMigrator(migrate, { source: fakeSource(), target })
+    const report = await runMigrator({ ...base, mode: "verify-only" }, { source: fakeSource(), target })
+    expect(report.exitCode).toBe(1)
+    expect(report.verification?.tables.find((t) => t.table === "Project")?.differences.map((d) => d.kind)).toContain("sequence-behind")
   })
 })

@@ -19,6 +19,8 @@ export interface SourceServerInfo {
   collation: string
   /** @@lower_case_table_names (1 = the Windows default: table names stored in lower case) */
   lowerCaseTableNames?: number
+  /** @@server_uuid: recorded by the dry run, required to match by the migrate run */
+  identity: string
 }
 
 export interface TargetServerInfo {
@@ -26,6 +28,8 @@ export interface TargetServerInfo {
   encoding: string
   localeProvider: string
   icuLocale: string | null
+  /** <pg_control_system().system_identifier>/<database oid>: recorded by the dry run */
+  identity: string
 }
 
 export interface SourcePort {
@@ -45,9 +49,8 @@ export interface TargetPort {
   describe(): string
   serverInfo(): Promise<TargetServerInfo>
   introspect(): Promise<TargetSchema>
+  /** Every statement is bounded (keyset chunks); there is no long-running target stream. */
   query(sql: string, params?: readonly unknown[]): Promise<TargetRow[]>
-  /** Cursor-based stream; must be called inside begin()/commit(). */
-  stream(sql: string, params?: readonly unknown[]): AsyncIterable<TargetRow>
   /** readOnly: REPEATABLE READ READ ONLY (one snapshot for verification); otherwise READ COMMITTED read-write. */
   begin(readOnly: boolean): Promise<void>
   commit(): Promise<void>

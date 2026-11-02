@@ -116,3 +116,32 @@ describe("checkSchemaCompat", () => {
     expect(r.mappings.get("T")?.find((m) => m.name === "id")?.lengthLimit).toBeNull()
   })
 })
+
+describe("checkSchemaCompat: precision / scale / fraction / width (refused before writing)", () => {
+  const mk = (src: { dataType: string; columnType: string }, tgt: { typname: string; pgType: string }) =>
+    checkSchemaCompat(
+      { tables: [{ name: "T", primaryKey: ["id"], columns: [{ name: "id", dataType: "int", columnType: "int", nullable: false, maxLength: null }, { name: "v", nullable: true, maxLength: null, ...src }] }] },
+      {
+        tables: [{ name: "T", primaryKey: ["id"], columns: [tcol("id", "int4", { pgType: "integer", nullable: false }), tcol("v", tgt.typname, { pgType: tgt.pgType })] }],
+      } as unknown as TargetSchema,
+    ).issues.map((i) => i.code)
+
+  it("refuses losing fractional seconds", () => {
+    expect(mk({ dataType: "datetime", columnType: "datetime(6)" }, { typname: "timestamp", pgType: "timestamp(3) without time zone" })).toEqual(["SCHEMA_PRECISION"])
+    expect(mk({ dataType: "datetime", columnType: "datetime(3)" }, { typname: "timestamp", pgType: "timestamp(3) without time zone" })).toEqual([])
+    expect(mk({ dataType: "datetime", columnType: "datetime" }, { typname: "timestamp", pgType: "timestamp(3) without time zone" })).toEqual([])
+  })
+  it("refuses a narrower decimal", () => {
+    expect(mk({ dataType: "decimal", columnType: "decimal(10,4)" }, { typname: "numeric", pgType: "numeric(10,2)" })).toEqual(["SCHEMA_PRECISION"])
+    expect(mk({ dataType: "decimal", columnType: "decimal(12,2)" }, { typname: "numeric", pgType: "numeric(10,2)" })).toEqual(["SCHEMA_PRECISION"])
+    expect(mk({ dataType: "decimal", columnType: "decimal(10,2)" }, { typname: "numeric", pgType: "numeric(12,4)" })).toEqual([])
+    expect(mk({ dataType: "decimal", columnType: "decimal(10,2)" }, { typname: "numeric", pgType: "numeric" })).toEqual([])
+  })
+  it("refuses a narrower integer or float", () => {
+    expect(mk({ dataType: "bigint", columnType: "bigint" }, { typname: "int4", pgType: "integer" })).toEqual(["SCHEMA_PRECISION"])
+    expect(mk({ dataType: "int", columnType: "int unsigned" }, { typname: "int4", pgType: "integer" })).toEqual(["SCHEMA_PRECISION"])
+    expect(mk({ dataType: "int", columnType: "int" }, { typname: "int2", pgType: "smallint" })).toEqual(["SCHEMA_PRECISION"])
+    expect(mk({ dataType: "int", columnType: "int" }, { typname: "int4", pgType: "integer" })).toEqual([])
+    expect(mk({ dataType: "double", columnType: "double" }, { typname: "float4", pgType: "real" })).toEqual(["SCHEMA_PRECISION"])
+  })
+})
