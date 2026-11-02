@@ -91,18 +91,20 @@ function Confirm-Restore([string]$targetDb) {
 }
 
 function Test-DatabaseExists($db, [string]$binDir) {
-    $opt = New-MySqlOptionFile -DbConfig $db
+    $pass = New-PgPassFile -DbConfig $db
     try {
-        $rows = @(Invoke-MySqlQuery -MySqlBinDir $binDir -OptionFile $opt -Sql ("SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name='{0}'" -f $db.Database))
+        $rows = @(Invoke-PgQuery -PgBinDir $binDir -DbConfig $db -PassFile $pass -Sql ("SELECT COUNT(*) FROM pg_database WHERE datname = '{0}'" -f $db.Database))
         return ($rows.Count -gt 0 -and [int]$rows[0] -gt 0)
     } finally {
-        Remove-Item -LiteralPath $opt -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $pass -Force -ErrorAction SilentlyContinue
     }
 }
 
 function Restore-Database($db, [string]$binDir, [string]$sqlFile) {
     Log "database $($db.Database): drop, re-create and import..."
-    Import-KanflowDump -DbConfig $db -MySqlBinDir $binDir -SqlFile $sqlFile
+    # Restored as the superuser (-UseRootCredential): hand the database back to the app user.
+    $owner = $(if ($UseRootCredential) { (Get-KanflowDbConfig).User } else { $null })
+    Import-KanflowDump -DbConfig $db -PgBinDir $binDir -SqlFile $sqlFile -Owner $owner
     Log "database import finished"
 }
 
@@ -163,7 +165,7 @@ try {
         $db.Database = $TargetDatabase
     }
     if (-not $PrivateTarget) { $PrivateTarget = $paths.Private }
-    $binDir = Get-MySqlBinDir
+    $binDir = Get-PgBinDir
 
     $touchesProd = ((-not $SkipDatabase) -and $db.Database -eq $prodDbName) -or
         ((-not $SkipPrivate) -and ([System.IO.Path]::GetFullPath($PrivateTarget).TrimEnd('\') -ieq $paths.Private.TrimEnd('\'))) -or
@@ -206,7 +208,7 @@ try {
             New-Item -ItemType Directory -Path $safetyDir -Force | Out-Null
             if (Test-DatabaseExists $db $binDir) {
                 $safety = Join-Path $safetyDir ("pre-restore-{0}-{1}.sql.gz" -f $db.Database, $stamp)
-                [void](Export-KanflowDatabase -DbConfig $db -MySqlBinDir $binDir -OutFile $safety)
+                [void](Export-KanflowDatabase -DbConfig $db -PgBinDir $binDir -OutFile $safety)
                 Log "safety dump of current $($db.Database): $safety"
             }
         }
@@ -218,7 +220,7 @@ try {
     if (-not $SkipDatabase) {
         Write-Host ""
         Write-Host "Row counts in $($db.Database):" -ForegroundColor Cyan
-        $counts = Get-KanflowTableCounts -DbConfig $db -MySqlBinDir $binDir
+        $counts = Get-KanflowTableCounts -DbConfig $db -PgBinDir $binDir
         $expected = $null
         if ($checked.Manifest.PSObject.Properties.Name -contains "tableRowCounts") { $expected = $checked.Manifest.tableRowCounts }
         Compare-RowCounts $expected $counts

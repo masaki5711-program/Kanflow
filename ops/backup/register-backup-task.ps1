@@ -59,7 +59,7 @@ if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
     Write-Host "[INFO] existing task '$TaskName' removed"
 }
 
-$description = "Kanflow daily backup (MySQL dump + app\private + app\.env) to $Destination, secondary $secondaryText. Log: ops\logs\backup.log"
+$description = "Kanflow daily backup (PostgreSQL dump + app\private + app\.env) to $Destination, secondary $secondaryText. Log: ops\logs\backup.log"
 if ($RunAsUser) {
     $cred = Get-Credential -UserName $RunAsUser -Message "Password for the backup task account (needs write access to $Destination)"
     Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $settings `

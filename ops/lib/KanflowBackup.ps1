@@ -9,7 +9,7 @@
 # =====================================================================
 
 $script:GenerationNamePattern = '^kanflow-\d{8}-\d{6}$'
-$script:ReservedDatabases = @("mysql", "sys", "information_schema", "performance_schema")
+$script:ReservedDatabases = @("postgres", "template0", "template1")
 
 function Get-KanflowDirStats {
     param([Parameter(Mandatory = $true)][string]$Path)
@@ -51,19 +51,20 @@ function Test-KanflowBackupGeneration {
 function Expand-KanflowDump {
     <#
     .SYNOPSIS
-    Expand a .sql.gz dump to a temp .sql and check it: "-- Dump completed"
-    trailer present, and NO "USE" / "CREATE DATABASE" statements (a dump with
-    them would import into the database it names instead of the one chosen by
-    the caller - e.g. production during a drill). Returns SqlFile,
-    CreateTables. The caller deletes SqlFile. Throws on any problem.
+    Expand a .sql.gz dump (pg_dump plain format) to a temp .sql and check it:
+    "-- PostgreSQL database dump complete" trailer present, and NO
+    "\connect" / "\c" / "CREATE DATABASE" (a dump with them would import into
+    the database it names instead of the one chosen by the caller - e.g.
+    production during a drill). Returns SqlFile, CreateTables. The caller
+    deletes SqlFile. Throws on any problem.
     #>
     param([Parameter(Mandatory = $true)][string]$DumpPath)
     $sql = Join-Path ([System.IO.Path]::GetTempPath()) ("kanflow-dump-{0}.sql" -f ([guid]::NewGuid().ToString("N")))
     try {
         Expand-GzipFile -Source $DumpPath -Destination $sql
-        $tail = @(Get-Content -LiteralPath $sql -Tail 3 -Encoding UTF8)
-        if (@($tail -match "^-- Dump completed").Count -eq 0) { throw "dump has no 'Dump completed' trailer" }
-        $switching = @(Select-String -LiteralPath $sql -Pattern '^\s*(USE\s|CREATE\s+DATABASE\b|CREATE\s+SCHEMA\b)' -Encoding UTF8 | Select-Object -First 1)
+        $tail = @(Get-Content -LiteralPath $sql -Tail 8 -Encoding UTF8)
+        if (@($tail -match "^-- PostgreSQL database dump complete").Count -eq 0) { throw "dump has no 'PostgreSQL database dump complete' trailer" }
+        $switching = @(Select-String -LiteralPath $sql -Pattern '^\s*(\\connect\b|\\c\s|CREATE\s+DATABASE\b)' -Encoding UTF8 | Select-Object -First 1)
         if ($switching.Count -gt 0) {
             throw ("dump switches database at line {0} ('{1}') - refusing to import it into a chosen database" -f $switching[0].LineNumber, $switching[0].Line.Trim())
         }
@@ -78,31 +79,51 @@ function Expand-KanflowDump {
 function Import-KanflowDump {
     <#
     .SYNOPSIS
-    DROP + CREATE (utf8mb4_unicode_ci) $DbConfig.Database and import $SqlFile
-    (from Expand-KanflowDump) into it. Destructive: callers guard the name.
+    DROP (WITH FORCE) + CREATE $DbConfig.Database (UTF-8, ICU "und" collation
+    like every Kanflow PostgreSQL, from template0 so no pre-installed extension
+    comes along) and import $SqlFile (from Expand-KanflowDump) into it with
+    ON_ERROR_STOP. With -Owner the new database and every table / sequence /
+    view are handed to that role afterwards (restore as the superuser, run the
+    app as its own user). Destructive: callers guard the name.
     #>
     param(
         [Parameter(Mandatory = $true)]$DbConfig,
-        [Parameter(Mandatory = $true)][string]$MySqlBinDir,
-        [Parameter(Mandatory = $true)][string]$SqlFile
+        [Parameter(Mandatory = $true)][string]$PgBinDir,
+        [Parameter(Mandatory = $true)][string]$SqlFile,
+        [string]$Owner
     )
     $name = $DbConfig.Database
-    if ($name -notmatch '^[A-Za-z0-9_]{1,64}$') { throw "invalid database name" }
-    $opt = New-MySqlOptionFile -DbConfig $DbConfig
+    if ($name -notmatch '^[A-Za-z0-9_]{1,63}$') { throw "invalid database name" }
+    if ($Owner -and $Owner -notmatch '^[A-Za-z0-9_]{1,63}$') { throw "invalid owner role name" }
+    $pass = New-PgPassFile -DbConfig $DbConfig
     $err = Join-Path ([System.IO.Path]::GetTempPath()) ("kanflow-import-{0}.err" -f ([guid]::NewGuid().ToString("N")))
     try {
-        $bt = [char]96
-        $recreate = "DROP DATABASE IF EXISTS {1}{0}{1}; CREATE DATABASE {1}{0}{1} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" -f $name, $bt
-        [void](Invoke-MySqlQuery -MySqlBinDir $MySqlBinDir -OptionFile $opt -Sql $recreate)
-        $code = Invoke-NativeProcess -FilePath (Join-Path $MySqlBinDir "mysql.exe") `
-            -Arguments ("--defaults-extra-file=`"{0}`" --default-character-set=utf8mb4 {1}" -f $opt, $name) `
-            -StdinFile $SqlFile -StderrFile $err
+        # Two statements, two calls: DROP / CREATE DATABASE cannot run inside one implicit transaction.
+        [void](Invoke-PgQuery -PgBinDir $PgBinDir -DbConfig $DbConfig -PassFile $pass -Sql ("DROP DATABASE IF EXISTS `"{0}`" WITH (FORCE)" -f $name))
+        [void](Invoke-PgQuery -PgBinDir $PgBinDir -DbConfig $DbConfig -PassFile $pass -Sql ("CREATE DATABASE `"{0}`" TEMPLATE template0 ENCODING 'UTF8' LOCALE_PROVIDER icu ICU_LOCALE 'und' LOCALE 'C.UTF-8'" -f $name))
+        $code = Invoke-PgClient -FilePath (Join-Path $PgBinDir "psql.exe") `
+            -Arguments ("{0} -d {1} -X -q -v ON_ERROR_STOP=1 -f `"{2}`"" -f (Get-PgConnectionArgs $DbConfig), $name, $SqlFile) `
+            -PassFile $pass -StdoutFile ([System.IO.Path]::GetTempFileName()) -StderrFile $err
         if ($code -ne 0) {
             $msg = if (Test-Path -LiteralPath $err) { ([System.IO.File]::ReadAllText($err)).Trim() } else { "" }
-            throw "mysql import exited with $code : $msg"
+            throw "psql import exited with $code : $msg"
+        }
+        if ($Owner) {
+            [void](Invoke-PgQuery -PgBinDir $PgBinDir -DbConfig $DbConfig -PassFile $pass -Sql ("ALTER DATABASE `"{0}`" OWNER TO `"{1}`"" -f $name, $Owner))
+            $reown = @"
+DO `$`$DECLARE r record; BEGIN
+  FOR r IN SELECT c.relname, c.relkind FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+           WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p', 'S', 'v', 'm') LOOP
+    EXECUTE format('ALTER %s public.%I OWNER TO %I',
+      CASE r.relkind WHEN 'S' THEN 'SEQUENCE' WHEN 'v' THEN 'VIEW' WHEN 'm' THEN 'MATERIALIZED VIEW' ELSE 'TABLE' END,
+      r.relname, '$Owner');
+  END LOOP;
+END`$`$;
+"@
+            [void](Invoke-PgQuery -PgBinDir $PgBinDir -DbConfig $DbConfig -PassFile $pass -Sql $reown -Database $name)
         }
     } finally {
-        Remove-Item -LiteralPath $opt, $err -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $pass, $err -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -110,7 +131,7 @@ function Assert-KanflowDrillDatabaseName {
     <#
     .SYNOPSIS
     Throw unless $Name is safe to DROP/CREATE for a restore drill: plain
-    identifier, contains "drill", is not a MySQL system schema and is NOT the
+    identifier, contains "drill", is not a PostgreSQL system database and is NOT the
     production database ($ProductionName, from app\.env). Called before every
     destructive statement of ops\backup\restore-drill.ps1.
     #>
@@ -118,8 +139,8 @@ function Assert-KanflowDrillDatabaseName {
         [Parameter(Mandatory = $true)][AllowEmptyString()][string]$Name,
         [Parameter(Mandatory = $true)][string]$ProductionName
     )
-    if ($Name -notmatch '^[A-Za-z0-9_]{1,64}$') { throw "drill database name '$Name' is not a plain identifier" }
+    if ($Name -notmatch '^[A-Za-z0-9_]{1,63}$') { throw "drill database name '$Name' is not a plain identifier" }
     if ($Name -notmatch '(?i)drill') { throw "drill database name '$Name' must contain 'drill'" }
     if ($Name -ieq $ProductionName) { throw "refusing to use the PRODUCTION database '$ProductionName' as drill target" }
-    if ($script:ReservedDatabases -contains $Name.ToLowerInvariant()) { throw "refusing to use system schema '$Name'" }
+    if ($script:ReservedDatabases -contains $Name.ToLowerInvariant()) { throw "refusing to use system database '$Name'" }
 }

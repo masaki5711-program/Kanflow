@@ -4,7 +4,7 @@
 #  Import-Module "$PSScriptRoot\..\lib\KanflowOps.psm1"
 #
 #  Secrets policy: values read from app\.env / .db-pw are only ever passed
-#  to child processes through a temporary, ACL-restricted MySQL option file.
+#  to child processes through a temporary, ACL-restricted PGPASSFILE.
 #  Nothing in this module prints or logs a secret.
 #  Keep this file ASCII-only.
 # =====================================================================
@@ -118,9 +118,11 @@ function Get-KanflowDbConfig {
     <#
     .SYNOPSIS
     Resolve DB connection settings from app\.env (DATABASE_HOST/PORT/USER/
-    PASSWORD/NAME, falling back to DATABASE_URL). With -UseRootCredential the
-    user becomes "root" and the password is read from D:\APP\Kanflow\.db-pw.
-    Returns an object whose Password must never be printed.
+    PASSWORD/NAME, falling back to DATABASE_URL). PostgreSQL (Kanflow v2).
+    With -UseRootCredential the user becomes the PostgreSQL superuser
+    (DATABASE_ADMIN_USER in app\.env, default "postgres") and the password is
+    read from D:\APP\Kanflow\.db-pw. Returns an object whose Password must
+    never be printed.
     #>
     [CmdletBinding()]
     param(
@@ -129,7 +131,7 @@ function Get-KanflowDbConfig {
     )
 
     $envMap = Read-DotEnv -Path $EnvFile
-    $cfg = [ordered]@{ Host = $null; Port = 3306; User = $null; Password = $null; Database = $null }
+    $cfg = [ordered]@{ Host = $null; Port = 5432; User = $null; Password = $null; Database = $null }
 
     if ($envMap.ContainsKey("DATABASE_URL") -and $envMap["DATABASE_URL"]) {
         try {
@@ -160,77 +162,99 @@ function Get-KanflowDbConfig {
 
     if ($UseRootCredential) {
         $pwFile = (Get-KanflowPaths).DbPwFile
-        if (-not (Test-Path -LiteralPath $pwFile)) { throw "root password file not found: $pwFile" }
-        $cfg.User = "root"
+        if (-not (Test-Path -LiteralPath $pwFile)) { throw "admin password file not found: $pwFile" }
+        $cfg.User = $(if ($envMap["DATABASE_ADMIN_USER"]) { $envMap["DATABASE_ADMIN_USER"] } else { "postgres" })
         $cfg.Password = ([System.IO.File]::ReadAllText($pwFile)).Trim()
     }
 
     if (-not $cfg.User) { throw "database user not found in $EnvFile" }
     if (-not $cfg.Database) { throw "database name not found in $EnvFile" }
-    if ($cfg.Database -notmatch '^[A-Za-z0-9_$]+$') { throw "unexpected characters in database name" }
+    if ($cfg.Database -notmatch '^[A-Za-z0-9_]+$') { throw "unexpected characters in database name" }
+    if ($cfg.User -notmatch '^[A-Za-z0-9_.@-]+$') { throw "unexpected characters in database user" }
     return [pscustomobject]$cfg
 }
 
 # ---------------------------------------------------------------------
-# MySQL client helpers
+# PostgreSQL client helpers (pg_dump.exe / psql.exe)
 # ---------------------------------------------------------------------
-function Get-MySqlBinDir {
+function Get-PgBinDir {
     <#
     .SYNOPSIS
-    Locate the MySQL bin directory: $env:KANFLOW_MYSQL_BIN, then the
-    KanflowMySQL service ImagePath, then the default 8.4 install path.
+    Locate the PostgreSQL client bin directory (pg_dump.exe, psql.exe):
+    $env:KANFLOW_PG_BIN, then the newest C:\Program Files\PostgreSQL\<major>\bin.
+    The client major version must be >= the server's (16).
     #>
     [CmdletBinding()]
-    param([string]$ServiceName = "KanflowMySQL")
+    param()
 
     $candidates = @()
-    if ($env:KANFLOW_MYSQL_BIN) { $candidates += $env:KANFLOW_MYSQL_BIN }
-    # Registry instead of WMI/CIM: WMI queries have been observed to hang on this host.
-    try {
-        $imagePath = (Get-ItemProperty -LiteralPath ("HKLM:\SYSTEM\CurrentControlSet\Services\{0}" -f $ServiceName) -ErrorAction Stop).ImagePath
-        if ($imagePath) {
-            $m = [regex]::Match($imagePath, '^\s*"([^"]+)"|^\s*(\S+)')
-            $exe = $m.Groups[1].Value
-            if (-not $exe) { $exe = $m.Groups[2].Value }
-            if ($exe) { $candidates += (Split-Path -Parent $exe) }
-        }
-    } catch {
-        Write-Verbose "service lookup failed: $($_.Exception.Message)"
+    if ($env:KANFLOW_PG_BIN) { $candidates += $env:KANFLOW_PG_BIN }
+    $base = "C:\Program Files\PostgreSQL"
+    if (Test-Path -LiteralPath $base) {
+        $candidates += @(Get-ChildItem -LiteralPath $base -Directory -ErrorAction SilentlyContinue |
+                Where-Object { $_.Name -match '^\d+$' } | Sort-Object { [int]$_.Name } -Descending |
+                ForEach-Object { Join-Path $_.FullName "bin" })
     }
-    $candidates += "C:\Program Files\MySQL\MySQL Server 8.4\bin"
-
     foreach ($dir in $candidates) {
-        if ($dir -and (Test-Path -LiteralPath (Join-Path $dir "mysqldump.exe"))) { return $dir }
+        if ($dir -and (Test-Path -LiteralPath (Join-Path $dir "pg_dump.exe")) -and (Test-Path -LiteralPath (Join-Path $dir "psql.exe"))) { return $dir }
     }
-    throw "mysqldump.exe not found (set KANFLOW_MYSQL_BIN to the MySQL bin directory)"
+    throw "pg_dump.exe / psql.exe not found (set KANFLOW_PG_BIN to the PostgreSQL client bin directory)"
 }
 
-function New-MySqlOptionFile {
+function New-PgPassFile {
     <#
     .SYNOPSIS
-    Write a [client] option file with the credentials into %TEMP% and lock its
-    ACL to the current user, SYSTEM and Administrators. Caller must delete it.
+    Write a libpq password file (host:port:*:user:password) with the
+    credentials into %TEMP% and lock its ACL to the current user, SYSTEM and
+    Administrators. Pass it to the client via PGPASSFILE (Invoke-PgClient).
+    The password never appears on a command line. Caller must delete it.
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory = $true)]$DbConfig)
 
-    $path = Join-Path ([System.IO.Path]::GetTempPath()) ("kanflow-my-{0}.cnf" -f ([guid]::NewGuid().ToString("N")))
+    $path = Join-Path ([System.IO.Path]::GetTempPath()) ("kanflow-pgpass-{0}.conf" -f ([guid]::NewGuid().ToString("N")))
     [System.IO.File]::WriteAllText($path, "", (New-Object System.Text.UTF8Encoding($false)))
     $me = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
     & icacls.exe $path /inheritance:r /grant:r "${me}:(F)" "*S-1-5-18:(F)" "*S-1-5-32-544:(F)" | Out-Null
 
-    $pw = [string]$DbConfig.Password
-    $pwEscaped = $pw.Replace('\', '\\').Replace('"', '\"')
-    $content = @(
-        "[client]",
-        ("host={0}" -f $DbConfig.Host),
-        ("port={0}" -f $DbConfig.Port),
-        ("user={0}" -f $DbConfig.User),
-        ('password="{0}"' -f $pwEscaped),
-        "default-character-set=utf8mb4"
-    ) -join "`r`n"
-    [System.IO.File]::WriteAllText($path, $content + "`r`n", (New-Object System.Text.UTF8Encoding($false)))
+    $esc = { param([string]$v) $v.Replace('\', '\\').Replace(':', '\:') }
+    $line = "{0}:{1}:*:{2}:{3}" -f (& $esc $DbConfig.Host), $DbConfig.Port, (& $esc $DbConfig.User), (& $esc ([string]$DbConfig.Password))
+    [System.IO.File]::WriteAllText($path, $line + "`n", (New-Object System.Text.UTF8Encoding($false)))
     return $path
+}
+
+function Get-PgConnectionArgs {
+    <# -h/-p/-U arguments (no password: that comes from the PGPASSFILE). #>
+    param([Parameter(Mandatory = $true)]$DbConfig)
+    return ("-h {0} -p {1} -U `"{2}`" -w" -f $DbConfig.Host, $DbConfig.Port, $DbConfig.User)
+}
+
+function Invoke-PgClient {
+    <#
+    .SYNOPSIS
+    Run a PostgreSQL client (psql.exe / pg_dump.exe) with PGPASSFILE pointing
+    at $PassFile for this child only, and a connect timeout. Returns the exit code.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$FilePath,
+        [Parameter(Mandatory = $true)][string]$Arguments,
+        [Parameter(Mandatory = $true)][string]$PassFile,
+        [string]$StdinFile,
+        [string]$StdoutFile,
+        [string]$StderrFile
+    )
+    $saved = @{ PGPASSFILE = $env:PGPASSFILE; PGCONNECT_TIMEOUT = $env:PGCONNECT_TIMEOUT; PGCLIENTENCODING = $env:PGCLIENTENCODING }
+    try {
+        $env:PGPASSFILE = $PassFile
+        $env:PGCONNECT_TIMEOUT = "15"
+        $env:PGCLIENTENCODING = "UTF8"
+        return (Invoke-NativeProcess -FilePath $FilePath -Arguments $Arguments -StdinFile $StdinFile -StdoutFile $StdoutFile -StderrFile $StderrFile)
+    } finally {
+        foreach ($k in $saved.Keys) {
+            if ($null -eq $saved[$k]) { Remove-Item -LiteralPath "Env:$k" -ErrorAction SilentlyContinue } else { Set-Item -LiteralPath "Env:$k" -Value $saved[$k] }
+        }
+    }
 }
 
 function Invoke-NativeProcess {
@@ -261,33 +285,38 @@ function Invoke-NativeProcess {
     return $proc.ExitCode
 }
 
-function Invoke-MySqlQuery {
+function Invoke-PgQuery {
     <#
     .SYNOPSIS
-    Run a SQL statement with the mysql client (batch, no headers) and return the
-    output lines. Throws on non-zero exit.
+    Run ONE SQL statement with psql (unaligned, tuples only, tab-separated,
+    ON_ERROR_STOP) and return the output lines. Connects to -Database, or to
+    the maintenance database "postgres" when omitted (DROP / CREATE DATABASE).
+    Throws on non-zero exit.
     #>
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory = $true)][string]$MySqlBinDir,
-        [Parameter(Mandatory = $true)][string]$OptionFile,
+        [Parameter(Mandatory = $true)][string]$PgBinDir,
+        [Parameter(Mandatory = $true)]$DbConfig,
+        [Parameter(Mandatory = $true)][string]$PassFile,
         [Parameter(Mandatory = $true)][string]$Sql,
-        [string]$Database
+        [string]$Database = "postgres"
     )
+    if ($Database -notmatch '^[A-Za-z0-9_]+$') { throw "invalid database name" }
     $out = [System.IO.Path]::GetTempFileName()
     $err = [System.IO.Path]::GetTempFileName()
+    $sqlFile = [System.IO.Path]::GetTempFileName()
     try {
-        $sqlArg = $Sql.Replace('"', '\"')
-        $argString = "--defaults-extra-file=`"$OptionFile`" -N -B -e `"$sqlArg`""
-        if ($Database) { $argString += " $Database" }
-        $code = Invoke-NativeProcess -FilePath (Join-Path $MySqlBinDir "mysql.exe") -Arguments $argString -StdoutFile $out -StderrFile $err
+        # The statement goes through a file: no quoting of SQL on the command line.
+        [System.IO.File]::WriteAllText($sqlFile, $Sql, (New-Object System.Text.UTF8Encoding($false)))
+        $argString = "{0} -d {1} -X -q -A -t -F `"`t`" -v ON_ERROR_STOP=1 -f `"{2}`"" -f (Get-PgConnectionArgs $DbConfig), $Database, $sqlFile
+        $code = Invoke-PgClient -FilePath (Join-Path $PgBinDir "psql.exe") -Arguments $argString -PassFile $PassFile -StdoutFile $out -StderrFile $err
         if ($code -ne 0) {
             $msg = ([System.IO.File]::ReadAllText($err)).Trim()
-            throw "mysql exited with $code : $msg"
+            throw "psql exited with $code : $msg"
         }
-        return @([System.IO.File]::ReadAllLines($out, [System.Text.Encoding]::UTF8))
+        return @([System.IO.File]::ReadAllLines($out, [System.Text.Encoding]::UTF8) | Where-Object { $_ -ne "" })
     } finally {
-        Remove-Item -LiteralPath $out, $err -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $out, $err, $sqlFile -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -628,32 +657,33 @@ function Restart-KanflowWorker {
 function Export-KanflowDatabase {
     <#
     .SYNOPSIS
-    mysqldump one database (consistent InnoDB snapshot, routines, events,
-    triggers; no CREATE DATABASE / USE so it can be restored under another
-    name) into <OutFile> (.sql.gz). Throws on failure or incomplete dump.
+    pg_dump one database as plain SQL (one consistent snapshot; no owner /
+    privileges; no CREATE DATABASE / \connect so it can be restored under
+    another name) into <OutFile> (.sql.gz). The TimescaleDB catalog schemas
+    are excluded (the platform image may pre-install the extension; Kanflow
+    has no hypertables). Throws on failure or incomplete dump.
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]$DbConfig,
-        [Parameter(Mandatory = $true)][string]$MySqlBinDir,
+        [Parameter(Mandatory = $true)][string]$PgBinDir,
         [Parameter(Mandatory = $true)][string]$OutFile
     )
     if (-not $OutFile.EndsWith(".sql.gz")) { throw "OutFile must end with .sql.gz" }
     $sqlFile = $OutFile.Substring(0, $OutFile.Length - 3)
     $errFile = "$sqlFile.err.txt"
-    $opt = New-MySqlOptionFile -DbConfig $DbConfig
+    $pass = New-PgPassFile -DbConfig $DbConfig
     try {
         $argList = @(
-            "--defaults-extra-file=`"$opt`"",
-            "--single-transaction", "--quick", "--routines", "--events", "--triggers",
-            "--hex-blob", "--no-tablespaces", "--set-gtid-purged=OFF",
-            "--default-character-set=utf8mb4",
-            "--result-file=`"$sqlFile`"",
+            (Get-PgConnectionArgs $DbConfig),
+            "--format=plain", "--no-owner", "--no-privileges", "--encoding=UTF8",
+            "--exclude-schema=`"_timescaledb*`"", "--exclude-schema=`"timescaledb_*`"",
+            "--file=`"$sqlFile`"",
             $DbConfig.Database
         ) -join " "
-        $code = Invoke-NativeProcess -FilePath (Join-Path $MySqlBinDir "mysqldump.exe") -Arguments $argList -StderrFile $errFile
+        $code = Invoke-PgClient -FilePath (Join-Path $PgBinDir "pg_dump.exe") -Arguments $argList -PassFile $pass -StderrFile $errFile
     } finally {
-        Remove-Item -LiteralPath $opt -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $pass -Force -ErrorAction SilentlyContinue
     }
     $errText = ""
     if (Test-Path -LiteralPath $errFile) {
@@ -662,10 +692,10 @@ function Export-KanflowDatabase {
     }
     if ($code -ne 0) {
         Remove-Item -LiteralPath $sqlFile -Force -ErrorAction SilentlyContinue
-        throw "mysqldump exited with code $code : $errText"
+        throw "pg_dump exited with code $code : $errText"
     }
-    $tail = @(Get-Content -LiteralPath $sqlFile -Tail 3 -Encoding UTF8)
-    if (@($tail -match "^-- Dump completed").Count -eq 0) { throw "dump file is incomplete (no 'Dump completed' trailer)" }
+    $tail = @(Get-Content -LiteralPath $sqlFile -Tail 8 -Encoding UTF8)
+    if (@($tail -match "^-- PostgreSQL database dump complete").Count -eq 0) { throw "dump file is incomplete (no 'PostgreSQL database dump complete' trailer)" }
 
     $rawBytes = (Get-Item -LiteralPath $sqlFile).Length
     Compress-GzipFile -Source $sqlFile -Destination $OutFile
@@ -682,28 +712,29 @@ function Export-KanflowDatabase {
 function Get-KanflowTableCounts {
     <#
     .SYNOPSIS
-    Exact row count per base table of a database. Returns an ordered hashtable.
+    Exact row count per base table of the database's public schema. Returns an
+    ordered hashtable. Table names are double-quoted (PascalCase names).
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]$DbConfig,
-        [Parameter(Mandatory = $true)][string]$MySqlBinDir
+        [Parameter(Mandatory = $true)][string]$PgBinDir
     )
-    $opt = New-MySqlOptionFile -DbConfig $DbConfig
+    $pass = New-PgPassFile -DbConfig $DbConfig
     try {
-        $listSql = "SELECT table_name FROM information_schema.tables WHERE table_schema='{0}' AND table_type='BASE TABLE' ORDER BY table_name" -f $DbConfig.Database
-        $tables = @(Invoke-MySqlQuery -MySqlBinDir $MySqlBinDir -OptionFile $opt -Sql $listSql | Where-Object { $_ -match '^[A-Za-z0-9_$]+$' })
+        $listSql = "SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname = 'public' ORDER BY tablename"
+        $tables = @(Invoke-PgQuery -PgBinDir $PgBinDir -DbConfig $DbConfig -PassFile $pass -Sql $listSql -Database $DbConfig.Database |
+                Where-Object { $_ -match '^[A-Za-z0-9_]+$' })
         $counts = [ordered]@{}
         if ($tables.Count -eq 0) { return $counts }
-        $bt = [char]96
-        $sql = ($tables | ForEach-Object { "SELECT '{0}', COUNT(*) FROM {1}{0}{1}" -f $_, $bt }) -join " UNION ALL "
-        foreach ($line in @(Invoke-MySqlQuery -MySqlBinDir $MySqlBinDir -OptionFile $opt -Sql $sql -Database $DbConfig.Database)) {
+        $sql = ($tables | ForEach-Object { "SELECT '{0}', COUNT(*) FROM public.`"{0}`"" -f $_ }) -join " UNION ALL "
+        foreach ($line in @(Invoke-PgQuery -PgBinDir $PgBinDir -DbConfig $DbConfig -PassFile $pass -Sql $sql -Database $DbConfig.Database)) {
             $parts = $line -split "`t"
             if ($parts.Count -eq 2) { $counts[$parts[0]] = [long]$parts[1] }
         }
         return $counts
     } finally {
-        Remove-Item -LiteralPath $opt -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $pass -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -715,7 +746,7 @@ function Test-IsAdministrator {
 Export-ModuleMember -Function Get-KanflowRoot, Get-KanflowPaths, Get-KanflowDaemonLogFiles, Get-KanflowEnvValue, `
     Get-TranslationWorkerMode, Get-WorkerHeartbeatFile, Get-WorkerHeartbeat, Restart-KanflowWorker, `
     Read-DotEnv, Get-KanflowDbConfig, `
-    Get-MySqlBinDir, New-MySqlOptionFile, Invoke-NativeProcess, Invoke-MySqlQuery, `
+    Get-PgBinDir, New-PgPassFile, Get-PgConnectionArgs, Invoke-PgClient, Invoke-NativeProcess, Invoke-PgQuery, `
     Compress-GzipFile, Expand-GzipFile, Get-FileSha256, Invoke-Robocopy, `
     Get-PortListenerPids, Get-ServicePid, Test-KanflowHealth, Wait-Condition, `
     Stop-KanflowService, Start-KanflowService, Restart-KanflowService, `

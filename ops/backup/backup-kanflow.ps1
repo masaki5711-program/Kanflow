@@ -1,12 +1,12 @@
 <#
 .SYNOPSIS
-Kanflow backup: MySQL dump (gzip) + app\private (uploads, templates) + app\.env.
+Kanflow backup: PostgreSQL dump (gzip) + app\private (uploads, templates) + app\.env.
 
 .DESCRIPTION
 Creates one "generation" folder per run:
 
   <Destination>\daily\kanflow-YYYYMMDD-HHmmss\
-      db-<database>.sql.gz     mysqldump --single-transaction --routines --events --triggers
+      db-<database>.sql.gz     pg_dump --format=plain --no-owner --no-privileges (one snapshot)
       private\                 robocopy of app\private (uploads + templates)
       env\.env                 copy of app\.env (ACL restricted to Administrators/SYSTEM)
       manifest.json            sizes, SHA-256 of the dump, versions (no secrets)
@@ -16,9 +16,14 @@ Retention: newest <DailyKeep> daily and <WeeklyKeep> weekly generations are kept
 A generation is written as "<name>.partial" and renamed only when every step
 succeeded, so a half-written backup is never mistaken for a good one.
 
-Credentials are read from app\.env at runtime (or root + .db-pw with
--UseRootCredential) and handed to mysqldump through a temporary ACL-locked
-option file. Nothing secret is printed or logged.
+Credentials are read from app\.env at runtime (or the PostgreSQL superuser
+DATABASE_ADMIN_USER + .db-pw with -UseRootCredential) and handed to pg_dump
+through a temporary ACL-locked PGPASSFILE. Nothing secret is printed or logged.
+The PostgreSQL 16+ client tools come from KANFLOW_PG_BIN or
+C:\Program Files\PostgreSQL\<major>\bin (Get-PgBinDir).
+
+Kanflow v2 (this branch) is PostgreSQL. The production server keeps its MySQL
+backup scripts (its own checkout) until the approved cutover (MR K2).
 
 Secondary (off-machine) copy - REQUIRED for the scheduled backup:
   -SecondaryDestination, else KANFLOW_BACKUP_SECONDARY_DIR (environment or
@@ -89,9 +94,9 @@ function Test-DestinationDrive([string]$dest) {
 }
 
 function Invoke-DatabaseDump($db, [string]$binDir, [string]$genDir) {
-    Log ("mysqldump {0}@{1}:{2}/{3}" -f $db.User, $db.Host, $db.Port, $db.Database)
-    $dump = Export-KanflowDatabase -DbConfig $db -MySqlBinDir $binDir -OutFile (Join-Path $genDir ("db-{0}.sql.gz" -f $db.Database))
-    if ($dump.Warnings) { Log "mysqldump stderr: $($dump.Warnings)" "WARN" }
+    Log ("pg_dump {0}@{1}:{2}/{3}" -f $db.User, $db.Host, $db.Port, $db.Database)
+    $dump = Export-KanflowDatabase -DbConfig $db -PgBinDir $binDir -OutFile (Join-Path $genDir ("db-{0}.sql.gz" -f $db.Database))
+    if ($dump.Warnings) { Log "pg_dump stderr: $($dump.Warnings)" "WARN" }
     Log ("dump ok: {0:N1} MB raw -> {1:N1} MB gz" -f ($dump.RawBytes / 1MB), ($dump.GzBytes / 1MB))
     return [pscustomobject]@{ File = $dump.File; RawBytes = $dump.RawBytes; GzBytes = $dump.GzBytes; Sha256 = $dump.Sha256 }
 }
@@ -99,7 +104,7 @@ function Invoke-DatabaseDump($db, [string]$binDir, [string]$genDir) {
 function Get-RowCountsSafe($db, [string]$binDir) {
     # Recorded for restore drills. Taken right after the dump (not the same
     # snapshot), so tiny differences are possible if users were writing.
-    try { return (Get-KanflowTableCounts -DbConfig $db -MySqlBinDir $binDir) } catch {
+    try { return (Get-KanflowTableCounts -DbConfig $db -PgBinDir $binDir) } catch {
         Log "row counts not recorded: $($_.Exception.Message)" "WARN"
         return $null
     }
@@ -238,7 +243,7 @@ try {
     try {
         Test-DestinationDrive $Destination
         $db = Get-KanflowDbConfig -UseRootCredential:$UseRootCredential
-        $binDir = Get-MySqlBinDir
+        $binDir = Get-PgBinDir
     } catch {
         Log "configuration error: $($_.Exception.Message)" "ERROR"
         Send-KanflowAlert -Key "backup.config" -Severity Error -Source backup -Title "Backup did not run (configuration error)" `

@@ -10,7 +10,7 @@ production database, app\private or app\.env. Monthly task: register-restore-dri
   2. verify it: manifest, dump SHA-256, private\ file count vs manifest
   3. expand the dump; refuse it if it contains USE / CREATE DATABASE
   4. DROP + CREATE the drill database (default "<production db>_drill",
-     e.g. scrum_tool_drill) and import the dump (root credential from .db-pw)
+     e.g. scrum_tool_drill) and import the dump (superuser credential from .db-pw)
   5. sanity checks on the drill database:
        - every table of the manifest exists (no table lost)
        - row count per table within max(-RowDriftMin, -RowDriftPct %) of the
@@ -28,8 +28,9 @@ destructive statement): the drill database name must be a plain identifier,
 contain "drill", and differ from DATABASE_NAME in app\.env; system schemas are
 refused; dumps that switch database are refused.
 
-Changes nothing outside the drill database and %TEMP%. Needs the MySQL root
-password file D:\APP\Kanflow\.db-pw (the app user cannot CREATE databases).
+Changes nothing outside the drill database and %TEMP%. Needs the PostgreSQL
+superuser password file D:\APP\Kanflow\.db-pw (user DATABASE_ADMIN_USER,
+default "postgres"; the app user cannot CREATE databases).
 
 Exit codes: 0 = drill passed, 1 = drill failed, 2 = configuration error.
 
@@ -83,12 +84,11 @@ function New-DrillDbConfig($rootCfg, [string]$name) {
 
 function Remove-DrillDatabase($drillCfg, [string]$binDir, [string]$prodName) {
     Assert-KanflowDrillDatabaseName -Name $drillCfg.Database -ProductionName $prodName
-    $opt = New-MySqlOptionFile -DbConfig $drillCfg
+    $pass = New-PgPassFile -DbConfig $drillCfg
     try {
-        $bt = [char]96
-        [void](Invoke-MySqlQuery -MySqlBinDir $binDir -OptionFile $opt -Sql ("DROP DATABASE IF EXISTS {1}{0}{1}" -f $drillCfg.Database, $bt))
+        [void](Invoke-PgQuery -PgBinDir $binDir -DbConfig $drillCfg -PassFile $pass -Sql ("DROP DATABASE IF EXISTS `"{0}`" WITH (FORCE)" -f $drillCfg.Database))
     } finally {
-        Remove-Item -LiteralPath $opt -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $pass -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -162,7 +162,7 @@ try {
         $drillName = $(if ($DrillDatabase) { $DrillDatabase } else { "{0}_drill" -f $prodName })
         Assert-KanflowDrillDatabaseName -Name $drillName -ProductionName $prodName
         $drillCfg = New-DrillDbConfig $rootCfg $drillName
-        $binDir = Get-MySqlBinDir
+        $binDir = Get-PgBinDir
         $gen = Resolve-DrillGeneration
     } catch {
         $result.problems = @("configuration: $($_.Exception.Message)")
@@ -188,11 +188,11 @@ try {
     Assert-KanflowDrillDatabaseName -Name $drillCfg.Database -ProductionName $prodName
     $importStart = Get-Date
     $created = $true
-    Import-KanflowDump -DbConfig $drillCfg -MySqlBinDir $binDir -SqlFile $sqlFile
+    Import-KanflowDump -DbConfig $drillCfg -PgBinDir $binDir -SqlFile $sqlFile
     $result.importSec = [int]((Get-Date) - $importStart).TotalSeconds
     Log "import into $($drillCfg.Database) finished in $($result.importSec)s"
 
-    $counts = Get-KanflowTableCounts -DbConfig $drillCfg -MySqlBinDir $binDir
+    $counts = Get-KanflowTableCounts -DbConfig $drillCfg -PgBinDir $binDir
     if ($counts.Count -ne $x.CreateTables) { $problems.Add("drill database has $($counts.Count) tables, dump creates $($x.CreateTables)") }
     foreach ($p in @(Compare-DrillCounts $m $counts)) { $problems.Add($p) }
 

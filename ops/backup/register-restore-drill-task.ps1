@@ -44,7 +44,7 @@ $script = Join-Path $PSScriptRoot "restore-drill.ps1"
 if (-not (Test-Path -LiteralPath $script)) { Write-Host "[ERROR] not found: $script" -ForegroundColor Red; exit 1 }
 if ($BackupRoot -match '"' -or $RunAsUser -match '"') { Write-Host "[ERROR] invalid argument" -ForegroundColor Red; exit 1 }
 if (-not (Test-Path -LiteralPath (Get-KanflowPaths).DbPwFile)) {
-    Write-Host "[WARN] $((Get-KanflowPaths).DbPwFile) not found - the drill needs the MySQL root password file" -ForegroundColor Yellow
+    Write-Host "[WARN] $((Get-KanflowPaths).DbPwFile) not found - the drill needs the PostgreSQL superuser password file" -ForegroundColor Yellow
 }
 
 $command = "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$script`""
