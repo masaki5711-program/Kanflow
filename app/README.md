@@ -57,7 +57,7 @@ Never commit `.env`.
   (30000), `DATABASE_LOCK_TIMEOUT_MS` (10000); every session runs with `TimeZone=UTC`.
 - Named locks are advisory locks (`src/worker/named-lock.ts`, `dedicated-lock.ts`). Every raw-SQL site
   has a real-database test in `src/lib/__tests__/postgres.db.test.ts`.
-- Real-database tests (skipped unless `KANFLOW_DB_TESTS=1`): `KANFLOW_DB_TESTS=1 npx vitest run src/lib/__tests__/postgres.db.test.ts src/services/dev-work/__tests__/dev-work.db.test.ts src/services/acceptance-criteria/__tests__/acceptance-criteria.db.test.ts src/services/feedback/__tests__/feedback.db.test.ts`
+- Real-database tests (skipped unless `KANFLOW_DB_TESTS=1`): `KANFLOW_DB_TESTS=1 npx vitest run src/lib/__tests__/postgres.db.test.ts src/services/dev-work/__tests__/dev-work.db.test.ts src/services/acceptance-criteria/__tests__/acceptance-criteria.db.test.ts src/services/feedback/__tests__/feedback.db.test.ts src/services/plan/__tests__/plan.base-schedule.db.test.ts`
 - Schema changes: create a migration in development
   (`npx prisma migrate dev --name <change>`), commit `prisma/migrations/<ts>_<change>/`,
   and apply on the server with **`npx prisma migrate deploy`** (deploy.ps1 `-ApplyMigrations`).

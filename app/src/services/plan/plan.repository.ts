@@ -291,3 +291,25 @@ export function insertPlanLoadMarker(db: Db, data: { projectId: string; proposal
     select: { id: true },
   })
 }
+
+/**
+ * The load record of /plan/load (plan 12 E0), written in the load's transaction before its rows (they point at
+ * it). UNIQUE (projectId, proposalId): a concurrent second load of one proposal fails here with P2002.
+ */
+export function insertScheduleLoad(
+  db: Db,
+  data: {
+    projectId: string
+    proposalId: string | null
+    sourceRef: string | null
+    lineage: string
+    scheduleHash: string
+    content: Prisma.InputJsonValue
+    startDate: Date
+    skipWeekends: boolean
+    estimateRunId: string | null
+    loadedById: string | null
+  }
+) {
+  return db.planScheduleLoad.create({ data, select: { id: true } })
+}
