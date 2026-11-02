@@ -81,8 +81,10 @@ Never commit `.env`.
 `scripts/migrate-mysql-to-pg.ts` copies the production MySQL data into a PostgreSQL schema created by
 `prisma migrate deploy` (data only, FK order, one transaction, count + content-hash verification per table).
 Library and unit tests: `src/lib/db-migrator/`. Endpoints come only from `--source` / `--target`
-(never from `DATABASE_URL`); passwords from `KANFLOW_MIGRATOR_*_PASSWORD` or a password file; a deny list
-(`KANFLOW_MIGRATOR_DENY_TARGETS` / `--deny-file`) is mandatory. Procedure and approvals:
+(never from `DATABASE_URL`) plus `--expect-target`; passwords from `KANFLOW_MIGRATOR_*_PASSWORD` or a password file; a deny list
+(`KANFLOW_MIGRATOR_DENY_TARGETS` / `--deny-file`) is mandatory; non-loopback hosts need TLS with a CA (`--source-ca` / `--target-ca`).
+A migrate run needs the server identities printed by the dry run and `--accept-warnings` for every warning it reports
+(dry run exit 4); verification runs inside the copy transaction before COMMIT. No row values are printed. Procedure and approvals:
 `docs/operations/mysql-to-pg-cutover.md`; rehearsal: `docs/operations/mysql-to-pg-rehearsal.md`.
 
 - Unit tests run with `npm test`. Integration tests against the synthetic containers of
