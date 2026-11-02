@@ -1,7 +1,6 @@
 import { Prisma } from "@/generated/prisma/client"
 import { prisma } from "@/lib/prisma"
 import { withFulltext } from "@/lib/fulltext/fallback"
-import { MIN_TERM_LENGTH } from "@/lib/fulltext/search-terms"
 import { termsMatch, termsScore, type TermMode } from "@/lib/fulltext/trigram-sql"
 import { supportedProviderFilter } from "./git-provider"
 
@@ -40,6 +39,8 @@ const PER_FILE = 2
 const CANDIDATES = 40
 const SNIPPET_CHARS = 350
 const MAX_KEYWORDS = 8
+/** Shortest keyword kept (2 = Japanese words like 「定義」); keywords under 3 characters make the search take the LIKE path. */
+const KEYWORD_MIN_LENGTH = 2
 
 /**
  * Knowledge repositories of a project (empty when the integration is off or none is switched on).
@@ -76,7 +77,7 @@ export function extractKeywords(query: string): string[] {
   // Same separators as lib/fulltext (no LIKE wildcard or punctuation survives into the query).
   const coarse = query.split(/[^\p{L}\p{M}\p{N}]+/u).filter(Boolean)
   const fine = coarse.flatMap((t) => t.split(/\p{Script=Hiragana}+/u)).flatMap((t) => t.match(/[\p{Script=Han}\p{Script=Katakana}ー]+|[^\p{Script=Han}\p{Script=Katakana}ー]+/gu) ?? [])
-  const cleaned = fine.filter((t) => Array.from(t).length >= MIN_TERM_LENGTH && !STOPWORDS.has(t.toLowerCase()))
+  const cleaned = fine.filter((t) => Array.from(t).length >= KEYWORD_MIN_LENGTH && !STOPWORDS.has(t.toLowerCase()))
   return [...new Set(cleaned)].slice(0, MAX_KEYWORDS)
 }
 

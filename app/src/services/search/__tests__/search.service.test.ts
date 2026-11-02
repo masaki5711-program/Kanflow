@@ -193,12 +193,12 @@ describe("searchEverything (FULLTEXT path)", () => {
       pbi: [{ id: "b1", score: 5 }, { id: "b2", score: 4 }],
     })
     vi.mocked(repo.findPbis).mockResolvedValue([
-      { id: "b1", displayId: 120, initiative: "PBI 12 follow-up", userStory: null, status: "ready", project: P1 },
-      { id: "b2", displayId: 121, initiative: "PBI 12 again", userStory: null, status: "ready", project: P1 },
-      { id: "b12", displayId: 12, initiative: "target", userStory: null, status: "ready", project: P1 },
+      { id: "b1", displayId: 1230, initiative: "PBI 123 follow-up", userStory: null, status: "ready", project: P1 },
+      { id: "b2", displayId: 1231, initiative: "PBI 123 again", userStory: null, status: "ready", project: P1 },
+      { id: "b12", displayId: 123, initiative: "target", userStory: null, status: "ready", project: P1 },
     ])
-    const out = await searchEverything(MEMBER, { q: "PBI 12", limit: 2 })
-    expect(vi.mocked(repo.findPbis).mock.calls[0][2]).toMatchObject({ displayId: 12, take: 4 })
+    const out = await searchEverything(MEMBER, { q: "PBI 123", limit: 2 }) // every term 3+ characters: the trigram path
+    expect(vi.mocked(repo.findPbis).mock.calls[0][2]).toMatchObject({ displayId: 123, take: 4 })
     expect(out.groups[0].items.map((p) => p.id)).toEqual(["b12", "b1"])
   })
 

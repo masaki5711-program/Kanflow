@@ -32,9 +32,11 @@ describe("withFulltext", () => {
     expect(await withFulltext("login", async () => null, like)).toEqual(["like"])
   })
 
-  it("uses LIKE directly for short terms", async () => {
+  it("uses LIKE directly for terms shorter than 3 characters (no trigram, would scan)", async () => {
     const fulltext = vi.fn(async () => ["ft"])
     expect(await withFulltext("機", fulltext, async () => ["like"])).toEqual(["like"])
+    expect(await withFulltext("受入", fulltext, async () => ["like"])).toEqual(["like"])
+    expect(await withFulltext("ab cde", fulltext, async () => ["like"])).toEqual(["like"])
     expect(fulltext).not.toHaveBeenCalled()
   })
 

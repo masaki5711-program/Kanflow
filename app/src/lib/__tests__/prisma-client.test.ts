@@ -46,9 +46,13 @@ describe("prisma client", () => {
       user: "postgres",
       password: "pw",
       database: "scrum_tool",
-      max: 5,
+      max: 10,
       connectionTimeoutMillis: 10_000,
       idleTimeoutMillis: 60_000,
+      statement_timeout: 30_000,
+      lock_timeout: 10_000,
+      // Sessions run in UTC: TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP and raw SQL clocks stay UTC.
+      options: "-c TimeZone=UTC",
     })
     expect(g.prisma).toBe(prisma)
     // A second load reuses the cached instance.
@@ -67,6 +71,30 @@ describe("prisma client", () => {
     await load()
     expect(m.adapterArgs[0]).toMatchObject({ host: "db", port: 5433, user: "app", database: "kanflow" })
     expect(g.prisma).toBeUndefined()
+  })
+
+  it("takes pool size and timeouts from the environment (validated)", async () => {
+    vi.stubEnv("NODE_ENV", "production")
+    for (const [k, v] of Object.entries({ DATABASE_HOST: "db", DATABASE_PORT: "5432", DATABASE_USER: "u", DATABASE_PASSWORD: "p", DATABASE_NAME: "n" })) vi.stubEnv(k, v)
+    vi.stubEnv("DATABASE_POOL_MAX", "4")
+    vi.stubEnv("DATABASE_STATEMENT_TIMEOUT_MS", "5000")
+    vi.stubEnv("DATABASE_LOCK_TIMEOUT_MS", "2000")
+    await load()
+    expect(m.adapterArgs[0]).toMatchObject({ max: 4, statement_timeout: 5000, lock_timeout: 2000 })
+  })
+
+  it.each(["abc", "0", "70000", "54.3"])("rejects DATABASE_PORT=%s instead of connecting to a wrong port", async (port) => {
+    vi.stubEnv("NODE_ENV", "production")
+    for (const [k, v] of Object.entries({ DATABASE_HOST: "db", DATABASE_USER: "u", DATABASE_PASSWORD: "p", DATABASE_NAME: "n" })) vi.stubEnv(k, v)
+    vi.stubEnv("DATABASE_PORT", port)
+    await expect(load()).rejects.toThrow("DATABASE_PORT must be an integer between 1 and 65535")
+  })
+
+  it("rejects a non-numeric timeout / pool size", async () => {
+    vi.stubEnv("NODE_ENV", "development")
+    vi.stubEnv("DATABASE_PASSWORD", "pw")
+    vi.stubEnv("DATABASE_STATEMENT_TIMEOUT_MS", "soon")
+    await expect(load()).rejects.toThrow("DATABASE_STATEMENT_TIMEOUT_MS must be a positive integer")
   })
 
   it("fails fast in production when a required variable is missing", async () => {

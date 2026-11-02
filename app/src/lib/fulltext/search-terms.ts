@@ -12,11 +12,13 @@
  */
 
 /**
- * Shortest term the trigram path takes. A 1-character term would match
- * almost every row (and cannot use a trigram index), so such queries stay on
- * the plain LIKE path. Same threshold as the old ngram token size.
+ * Shortest term the trigram path takes. pg_trgm extracts no usable trigram
+ * from a term of 1-2 characters, so `ILIKE '%ab%'` cannot use the GIN index
+ * and would scan; such queries take the plain LIKE path instead (same scan,
+ * but without the word_similarity ranking work, and bounded by the take
+ * limits there). Short Japanese terms (「受入」) therefore use LIKE.
  */
-export const MIN_TERM_LENGTH = 2
+export const MIN_TERM_LENGTH = 3
 
 /**
  * Anything that is not a letter, mark or digit separates terms. This removes

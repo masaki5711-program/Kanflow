@@ -1,4 +1,7 @@
+import { logger } from "@/lib/logger"
 import { lockResultIsOne, type NamedLockHandle } from "./named-lock"
+
+const log = logger.child({ module: "worker-lock" })
 
 /**
  * Session-level PostgreSQL advisory lock held on a DEDICATED connection (not
@@ -31,9 +34,18 @@ export const OWNS_LOCK_SQL =
   " AND classid = ((hashtextextended($1, 0) >> 32) & 4294967295)::oid AND objid = (hashtextextended($1, 0) & 4294967295)::oid) AS v"
 export const UNLOCK_SQL = "SELECT pg_advisory_unlock(hashtextextended($1, 0)) AS v"
 
-/** Connect / per-statement bound: a hung server never blocks the worker's start-up forever. */
+/** Connect / per-statement bounds: a hung server never blocks the worker's start-up or heartbeat forever. */
 const CONNECT_TIMEOUT_MS = 10_000
+/** Server-side cancel of one statement. */
 const STATEMENT_TIMEOUT_MS = 15_000
+/** Client-side bound of one query (also covers a dead socket the server cannot answer on). */
+const QUERY_TIMEOUT_MS = 20_000
+/** A graceful end() that does not finish in this time is replaced by destroying the socket. */
+export const LOCK_END_TIMEOUT_MS = 5_000
+
+function errorText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
+}
 
 export type LockConnect = () => Promise<LockConnection>
 
@@ -86,18 +98,44 @@ export function createLockConnect(env: NodeJS.ProcessEnv): LockConnect {
       ...cfg,
       connectionTimeoutMillis: CONNECT_TIMEOUT_MS,
       statement_timeout: STATEMENT_TIMEOUT_MS,
+      query_timeout: QUERY_TIMEOUT_MS,
       // TCP keep-alive so a half-open socket is noticed; verify() does the rest.
       keepAlive: true,
       keepAliveInitialDelayMillis: 30_000,
       application_name: "kanflow-worker-lock",
     })
     // A dropped connection emits "error"; unhandled it would crash the process.
-    // verify() then fails and the worker restarts cleanly.
-    client.on("error", () => undefined)
+    // Logged once; verify() then fails and the worker restarts cleanly.
+    let errorLogged = false
+    client.on("error", (err: Error) => {
+      if (errorLogged) return
+      errorLogged = true
+      log.warn("lock connection error", { error: errorText(err) })
+    })
     await client.connect()
+    // pg.Client has no destroy(): tear the socket down directly (the session ends,
+    // the server drops the advisory lock with it).
+    const destroy = () => {
+      ;(client as unknown as { connection?: { stream?: { destroy?: () => void } } }).connection?.stream?.destroy?.()
+    }
     return {
       query: async (sql, values) => (await client.query(sql, values)).rows,
-      end: () => client.end(),
+      destroy,
+      end: async () => {
+        let timer: ReturnType<typeof setTimeout> | undefined
+        const timedOut = new Promise<"timeout">((resolve) => {
+          timer = setTimeout(() => resolve("timeout"), LOCK_END_TIMEOUT_MS)
+        })
+        try {
+          const outcome = await Promise.race([client.end().then(() => "ended" as const), timedOut])
+          if (outcome === "timeout") {
+            log.warn("lock connection did not close in time; destroyed", { timeoutMs: LOCK_END_TIMEOUT_MS })
+            destroy()
+          }
+        } finally {
+          clearTimeout(timer)
+        }
+      },
     }
   }
 }
@@ -129,13 +167,19 @@ export async function acquireDedicatedLock(connect: LockConnect, name: string): 
     return null
   }
   let released: Promise<void> | null = null
+  let verifyFailureLogged = false
   return {
     name,
     verify: async () => {
       if (released) return false
       try {
         return lockResultIsOne(await conn.query(OWNS_LOCK_SQL, [name]))
-      } catch {
+      } catch (err) {
+        // false = "lock lost" (the caller restarts); logged once, not every heartbeat.
+        if (!verifyFailureLogged) {
+          verifyFailureLogged = true
+          log.warn("lock ownership check failed", { lock: name, error: errorText(err) })
+        }
         return false
       }
     },
