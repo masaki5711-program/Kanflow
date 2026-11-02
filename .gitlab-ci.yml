@@ -20,7 +20,7 @@ variables:
   NPM_CONFIG_FUND: "false"
   NPM_CONFIG_UPDATE_NOTIFIER: "false"
   # Dummy, non-secret value: prisma.config.ts reads DATABASE_URL; generate never connects.
-  DATABASE_URL: "mysql://ci:ci@127.0.0.1:3306/kanflow_ci"
+  DATABASE_URL: "postgresql://ci:ci@127.0.0.1:5432/kanflow_ci"
   # Set to "1" (CI/CD variable or pipeline input) to collect coverage.
   RUN_COVERAGE: "0"
 
@@ -100,28 +100,32 @@ npm-audit:
 
 # Detect drift between prisma/schema.prisma and prisma/migrations (someone
 # edited the schema without creating a migration, or edited an applied
-# migration). Replays all migrations into a throw-away MySQL 8.4 shadow DB.
+# migration). Replays all migrations into a throw-away PostgreSQL 16 shadow DB
+# (platform image; the service's POSTGRES_DB is that shadow database).
 prisma-migrate-check:
   stage: migrate-check
   extends: .node_app
   services:
-    - name: mysql:8.4
-      alias: mysql
+    - name: timescale/timescaledb:2.28.1-pg16
+      alias: postgres
   variables:
-    # Throw-away service container that only lives for this job - no secret involved.
-    MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
-    MYSQL_ROOT_HOST: "%"
-    SHADOW_DATABASE_URL: "mysql://root@mysql:3306/prisma_shadow"
+    # Throw-away service container that only lives for this job - synthetic, no secret involved.
+    POSTGRES_USER: "kanflow_ci"
+    POSTGRES_PASSWORD: "kanflow_ci"
+    POSTGRES_DB: "prisma_shadow"
+    POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale-provider=icu --icu-locale=und --locale=C.UTF-8"
+    TIMESCALEDB_TELEMETRY: "off"
+    SHADOW_DATABASE_URL: "postgresql://kanflow_ci:kanflow_ci@postgres:5432/prisma_shadow"
   script:
     - |
-      echo "waiting for MySQL service..."
+      echo "waiting for PostgreSQL service..."
       node -e '
         const net = require("net");
         const deadline = Date.now() + 120000;
         (function probe() {
-          const s = net.connect(3306, "mysql");
+          const s = net.connect(5432, "postgres");
           s.on("connect", () => { s.end(); setTimeout(() => process.exit(0), 5000); });
-          s.on("error", () => { if (Date.now() > deadline) { console.error("MySQL not reachable"); process.exit(1); } setTimeout(probe, 2000); });
+          s.on("error", () => { if (Date.now() > deadline) { console.error("PostgreSQL not reachable"); process.exit(1); } setTimeout(probe, 2000); });
         })();'
     # prisma.config.ts picks up SHADOW_DATABASE_URL (Prisma 7 has no --shadow-database-url flag).
     # DATABASE_URL stays the dummy value above: migrate diff --from-migrations never connects to it.

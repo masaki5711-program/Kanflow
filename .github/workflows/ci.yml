@@ -34,7 +34,7 @@ jobs:
     timeout-minutes: 30
     env:
       # Dummy, non-secret: prisma.config.ts reads DATABASE_URL; generate never connects.
-      DATABASE_URL: mysql://ci:ci@127.0.0.1:3306/kanflow_ci
+      DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/kanflow_ci
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -46,7 +46,7 @@ jobs:
       - run: npx prisma generate
       - run: npx tsc --noEmit
       - run: npx eslint .
-      # The DB test (dev-work.db.test.ts) skips itself here (no KANFLOW_DB_TESTS).
+      # The DB tests (*.db.test.ts) skip themselves here (no KANFLOW_DB_TESTS).
       - run: npx vitest run
       # The production worker service runs a pre-built bundle (no tsx at runtime):
       # build it and check it starts (--dry-run never touches the database).
@@ -59,31 +59,33 @@ jobs:
           node src/worker/service-entry.mjs --dry-run
 
   db:
-    name: migrations + DB tests (MySQL 8.4)
+    name: migrations + DB tests (PostgreSQL 16)
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # Throw-away MySQL 8.4 (production: MySQL 8.4 via @prisma/adapter-mariadb).
-    # The credentials are synthetic and live only as long as this job.
+    # Throw-away PostgreSQL 16 in the platform image (TimescaleDB 2.28.1; same
+    # cluster settings as ops/test-env/compose.yml: UTF-8, ICU "und"
+    # collation). The credentials are synthetic and live only as long as this job.
     services:
-      mysql:
-        image: mysql:8.4
+      postgres:
+        image: timescale/timescaledb:2.28.1-pg16
         env:
-          MYSQL_ROOT_PASSWORD: root_ci
-          MYSQL_DATABASE: kanflow_ci
-          MYSQL_USER: kanflow_ci
-          MYSQL_PASSWORD: kanflow_ci
-        ports: ["3306:3306"]
-        # TCP ping: the entrypoint's init server has networking off, so this
-        # turns healthy only once the real server accepts connections.
+          POSTGRES_USER: kanflow_ci
+          POSTGRES_PASSWORD: kanflow_ci
+          POSTGRES_DB: kanflow_ci
+          POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale-provider=icu --icu-locale=und --locale=C.UTF-8"
+          TIMESCALEDB_TELEMETRY: "off"
+        ports: ["5432:5432"]
+        # TCP check: the entrypoint's init server listens on the socket only,
+        # so this turns healthy only once the real server accepts connections.
         options: >-
-          --health-cmd "mysqladmin ping --protocol=tcp -h 127.0.0.1 -uroot -proot_ci"
+          --health-cmd "pg_isready -h 127.0.0.1 -U kanflow_ci -d kanflow_ci"
           --health-interval 3s --health-timeout 5s --health-retries 40
     env:
       # prisma.config.ts (migrate deploy / migrate diff)
-      DATABASE_URL: mysql://kanflow_ci:kanflow_ci@127.0.0.1:3306/kanflow_ci
-      # src/lib/prisma.ts (MariaDB driver adapter) - used by the DB tests
+      DATABASE_URL: postgresql://kanflow_ci:kanflow_ci@127.0.0.1:5432/kanflow_ci
+      # src/lib/prisma.ts (node-postgres driver adapter) - used by the DB tests
       DATABASE_HOST: 127.0.0.1
-      DATABASE_PORT: "3306"
+      DATABASE_PORT: "5432"
       DATABASE_USER: kanflow_ci
       DATABASE_PASSWORD: kanflow_ci
       DATABASE_NAME: kanflow_ci
@@ -99,10 +101,14 @@ jobs:
       - run: npx prisma migrate deploy
       # schema.prisma and prisma/migrations must not drift (an edited applied
       # migration, or a schema change without a migration). Replays every
-      # migration into a shadow database; root may create it.
+      # migration into a shadow database, which must exist beforehand.
+      - name: create the shadow database
+        env:
+          PG_CONTAINER: ${{ job.services.postgres.id }}
+        run: docker exec "$PG_CONTAINER" createdb -U kanflow_ci prisma_shadow
       - name: schema / migrations drift check
         env:
-          SHADOW_DATABASE_URL: mysql://root:root_ci@127.0.0.1:3306/prisma_shadow
+          SHADOW_DATABASE_URL: postgresql://kanflow_ci:kanflow_ci@127.0.0.1:5432/prisma_shadow
         run: |
           set +e
           npx prisma migrate diff \
@@ -116,31 +122,34 @@ jobs:
             npx prisma migrate diff --from-migrations prisma/migrations --to-schema prisma/schema.prisma --script || true
           fi
           exit $rc
-      - name: DB tests (real MySQL)
+      # Every real-database test file (postgres.db.test.ts pins the PostgreSQL
+      # specifics: case-insensitive keys and search, ported raw SQL, advisory locks).
+      - name: DB tests (real PostgreSQL)
         env:
           KANFLOW_DB_TESTS: "1"
-        run: npx vitest run src/services/dev-work/__tests__/dev-work.db.test.ts
+        run: npx vitest run src/lib/__tests__/postgres.db.test.ts src/services/dev-work/__tests__/dev-work.db.test.ts src/services/acceptance-criteria/__tests__/acceptance-criteria.db.test.ts src/services/feedback/__tests__/feedback.db.test.ts
 
   e2e:
     name: e2e (Playwright, smoke + write flows)
     runs-on: ubuntu-latest
     timeout-minutes: 45
     services:
-      mysql:
-        image: mysql:8.4
+      postgres:
+        image: timescale/timescaledb:2.28.1-pg16
         env:
-          MYSQL_ROOT_PASSWORD: root_ci
-          MYSQL_DATABASE: kanflow_e2e
-          MYSQL_USER: kanflow_ci
-          MYSQL_PASSWORD: kanflow_ci
-        ports: ["3306:3306"]
+          POSTGRES_USER: kanflow_ci
+          POSTGRES_PASSWORD: kanflow_ci
+          POSTGRES_DB: kanflow_e2e
+          POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale-provider=icu --icu-locale=und --locale=C.UTF-8"
+          TIMESCALEDB_TELEMETRY: "off"
+        ports: ["5432:5432"]
         options: >-
-          --health-cmd "mysqladmin ping --protocol=tcp -h 127.0.0.1 -uroot -proot_ci"
+          --health-cmd "pg_isready -h 127.0.0.1 -U kanflow_ci -d kanflow_e2e"
           --health-interval 3s --health-timeout 5s --health-retries 40
     env:
-      DATABASE_URL: mysql://kanflow_ci:kanflow_ci@127.0.0.1:3306/kanflow_e2e
+      DATABASE_URL: postgresql://kanflow_ci:kanflow_ci@127.0.0.1:5432/kanflow_e2e
       DATABASE_HOST: 127.0.0.1
-      DATABASE_PORT: "3306"
+      DATABASE_PORT: "5432"
       DATABASE_USER: kanflow_ci
       DATABASE_PASSWORD: kanflow_ci
       DATABASE_NAME: kanflow_e2e
@@ -185,12 +194,12 @@ jobs:
       # throw-away projects. Synthetic user, this job's database only.
       - name: seed the E2E user
         env:
-          MYSQL_CONTAINER: ${{ job.services.mysql.id }}
+          PG_CONTAINER: ${{ job.services.postgres.id }}
         run: |
           hash="$(node -e 'process.stdout.write(require("bcryptjs").hashSync(process.env.E2E_PASSWORD, 10))')"
-          docker exec -i "$MYSQL_CONTAINER" mysql -ukanflow_ci -pkanflow_ci kanflow_e2e <<SQL
-          INSERT INTO \`User\` (id, name, email, password, updatedAt, isActive, role, language)
-          VALUES ('e2e-ci-user', 'E2E CI', '${E2E_USER}', '${hash}', CURRENT_TIMESTAMP(3), 1, 'member', 'ja');
+          docker exec -i "$PG_CONTAINER" psql -v ON_ERROR_STOP=1 -U kanflow_ci -d kanflow_e2e <<SQL
+          INSERT INTO "User" (id, name, email, password, "updatedAt", "isActive", role, language)
+          VALUES ('e2e-ci-user', 'E2E CI', '${E2E_USER}', '${hash}', (now() AT TIME ZONE 'UTC'), true, 'member', 'ja');
           SQL
       - run: npm run build
       - name: start the server (next start, port 3001)
