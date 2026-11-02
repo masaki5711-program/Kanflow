@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { aiLog } from "@/lib/ai-monitor"
 import { detectLocale, sourceHash, splitLegacyPairs } from "./detect-locale"
 import { pickTranslatableFields, type FieldInputs } from "./pick-fields"
+import { bestEffort } from "@/services/_shared/savepoint"
 import {
   ENTITY_LIVE_FILTER,
   ENTITY_TABLES,
@@ -43,13 +44,27 @@ export type { FieldInputs }
 
 const LEGACY_MODEL = "legacy-pairs"
 
+/** The database's current UTC time as `timestamp(3)` (columns hold UTC without a zone, like Prisma writes them). */
+const UTC_NOW = Prisma.raw(`(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::timestamp(3)`)
+
+/**
+ * A PostgreSQL quoted identifier. Only ever called with names from the static
+ * tables in ./types (never user input); quoting keeps camelCase / PascalCase
+ * names from being folded to lower case.
+ */
+function quoteIdent(name: string): string {
+  return `"${name.replace(/"/g, '""')}"`
+}
+
 /** Upper bound of ids per `IN (...)` when deleting rows of many entities. */
 const DELETE_CHUNK = 1000
 
 /**
  * Pick the translatable fields out of an entity record and enqueue them.
  * Never throws. Pass `db` (a transaction client) to enqueue atomically with
- * the entity write; a failed statement does not abort a MySQL transaction.
+ * the entity write. On PostgreSQL a failed statement aborts the whole
+ * transaction, so the enqueue runs under a savepoint (bestEffort): a failure
+ * is rolled back to it and the caller's entity write still commits.
  */
 export async function enqueueTranslations(
   entityType: TranslatableEntity,
@@ -59,7 +74,7 @@ export async function enqueueTranslations(
 ): Promise<void> {
   const fields = pickTranslatableFields(entityType, record)
   try {
-    await enqueueNow(entityType, entityId, fields, db)
+    await bestEffort(db, () => enqueueNow(entityType, entityId, fields, db))
   } catch (err) {
     aiLog("XLATE_ENQUEUE", `failed ${entityType}/${entityId}: ${err instanceof Error ? err.message : String(err)}`)
   }
@@ -94,30 +109,30 @@ export async function enqueueNow(
     const translatedAt: Date | null = null
     // Same hash → leave the row alone (only refresh priority). Different hash
     // → reset to pending with the new source text and clear the other side.
-    // `source_hash` is assigned last: MySQL evaluates the SET list in order.
+    // Every SET expression sees the OLD row (field_translation.*), so the
+    // order of the assignments does not matter (unlike MySQL's SET list).
     await db.$executeRaw`
       INSERT INTO field_translation
         (entity_type, entity_id, field, source_locale, source_hash, text_ja, text_id, text_en,
          status, priority, attempts, last_error, model, requested_at, started_at, translated_at, updated_at)
       VALUES
         (${entityType}, ${entityId}, ${field}, ${source}, ${hash}, ${textJa}, ${textId}, ${textEn},
-         ${status}, ${priority}, 0, NULL, ${model}, UTC_TIMESTAMP(3), NULL, ${translatedAt}, UTC_TIMESTAMP(3))
-      AS new
-      ON DUPLICATE KEY UPDATE
-        text_ja       = IF(field_translation.source_hash = new.source_hash, field_translation.text_ja, new.text_ja),
-        text_id       = IF(field_translation.source_hash = new.source_hash, field_translation.text_id, new.text_id),
-        text_en       = IF(field_translation.source_hash = new.source_hash, field_translation.text_en, new.text_en),
-        status        = IF(field_translation.source_hash = new.source_hash, field_translation.status, new.status),
-        attempts      = IF(field_translation.source_hash = new.source_hash, field_translation.attempts, 0),
-        last_error    = IF(field_translation.source_hash = new.source_hash, field_translation.last_error, NULL),
-        model         = IF(field_translation.source_hash = new.source_hash, field_translation.model, new.model),
-        requested_at  = IF(field_translation.source_hash = new.source_hash, field_translation.requested_at, UTC_TIMESTAMP(3)),
-        started_at    = IF(field_translation.source_hash = new.source_hash, field_translation.started_at, NULL),
-        translated_at = IF(field_translation.source_hash = new.source_hash, field_translation.translated_at, new.translated_at),
-        source_locale = IF(field_translation.source_hash = new.source_hash, field_translation.source_locale, new.source_locale),
-        priority      = new.priority,
-        updated_at    = UTC_TIMESTAMP(3),
-        source_hash   = new.source_hash
+         ${status}, ${priority}, 0, NULL, ${model}, ${UTC_NOW}, NULL, ${translatedAt}::timestamp(3), ${UTC_NOW})
+      ON CONFLICT (entity_type, entity_id, field) DO UPDATE SET
+        text_ja       = CASE WHEN field_translation.source_hash = EXCLUDED.source_hash THEN field_translation.text_ja ELSE EXCLUDED.text_ja END,
+        text_id       = CASE WHEN field_translation.source_hash = EXCLUDED.source_hash THEN field_translation.text_id ELSE EXCLUDED.text_id END,
+        text_en       = CASE WHEN field_translation.source_hash = EXCLUDED.source_hash THEN field_translation.text_en ELSE EXCLUDED.text_en END,
+        status        = CASE WHEN field_translation.source_hash = EXCLUDED.source_hash THEN field_translation.status ELSE EXCLUDED.status END,
+        attempts      = CASE WHEN field_translation.source_hash = EXCLUDED.source_hash THEN field_translation.attempts ELSE 0 END,
+        last_error    = CASE WHEN field_translation.source_hash = EXCLUDED.source_hash THEN field_translation.last_error ELSE NULL END,
+        model         = CASE WHEN field_translation.source_hash = EXCLUDED.source_hash THEN field_translation.model ELSE EXCLUDED.model END,
+        requested_at  = CASE WHEN field_translation.source_hash = EXCLUDED.source_hash THEN field_translation.requested_at ELSE ${UTC_NOW} END,
+        started_at    = CASE WHEN field_translation.source_hash = EXCLUDED.source_hash THEN field_translation.started_at ELSE NULL END,
+        translated_at = CASE WHEN field_translation.source_hash = EXCLUDED.source_hash THEN field_translation.translated_at ELSE EXCLUDED.translated_at END,
+        source_locale = CASE WHEN field_translation.source_hash = EXCLUDED.source_hash THEN field_translation.source_locale ELSE EXCLUDED.source_locale END,
+        priority      = EXCLUDED.priority,
+        updated_at    = ${UTC_NOW},
+        source_hash   = EXCLUDED.source_hash
     `
   }
 }
@@ -129,7 +144,7 @@ export async function deleteTranslationsFor(
   db: TranslationDb = prisma
 ): Promise<void> {
   try {
-    await db.fieldTranslation.deleteMany({ where: { entityType, entityId } })
+    await bestEffort(db, () => db.fieldTranslation.deleteMany({ where: { entityType, entityId } }))
   } catch {
     // best effort — leftovers are removed by purgeOrphanTranslations()
   }
@@ -279,9 +294,9 @@ export async function purgeOrphanTranslations(opts: { dryRun?: boolean } = {}): 
 }
 
 function orphanCondition(entity: TranslatableEntity): Prisma.Sql {
-  const table = Prisma.raw(`\`${ENTITY_TABLES[entity]}\``)
+  const table = Prisma.raw(quoteIdent(ENTITY_TABLES[entity]))
   return Prisma.sql`entity_type = ${entity}
-    AND NOT EXISTS (SELECT 1 FROM ${table} t WHERE t.\`id\` = field_translation.entity_id)`
+    AND NOT EXISTS (SELECT 1 FROM ${table} t WHERE t."id" = field_translation.entity_id)`
 }
 
 async function countOrphans(entity: TranslatableEntity): Promise<number> {
@@ -294,8 +309,12 @@ async function countOrphans(entity: TranslatableEntity): Promise<number> {
 async function deleteOrphans(entity: TranslatableEntity): Promise<number> {
   let deleted = 0
   for (;;) {
+    // PostgreSQL has no DELETE ... LIMIT: pick one batch of keys, delete those.
     const n = await prisma.$executeRaw`
-      DELETE FROM field_translation WHERE ${orphanCondition(entity)} LIMIT ${PURGE_BATCH}
+      DELETE FROM field_translation
+      WHERE (entity_type, entity_id, field) IN (
+        SELECT entity_type, entity_id, field FROM field_translation WHERE ${orphanCondition(entity)} LIMIT ${PURGE_BATCH}
+      )
     `
     deleted += n
     if (n < PURGE_BATCH) return deleted
@@ -321,10 +340,10 @@ async function enqueueIfEntityAlive(
   field: string,
   id: string
 ): Promise<boolean> {
-  const col = Prisma.raw(`\`${field}\``)
+  const col = Prisma.raw(quoteIdent(field))
   return prisma.$transaction(async (tx) => {
     const alive = await tx.$queryRaw<Array<{ txt: string | null }>>`
-      SELECT ${col} AS txt FROM ${Prisma.raw(`\`${table}\``)} t WHERE t.\`id\` = ${id} AND ${liveFilter(entity)} FOR SHARE
+      SELECT ${col} AS txt FROM ${Prisma.raw(quoteIdent(table))} t WHERE t."id" = ${id} AND ${liveFilter(entity)} FOR SHARE
     `
     const txt = alive[0]?.txt
     if (!txt || !txt.trim()) return false
@@ -345,16 +364,16 @@ export async function backfillTranslations(limit = 200): Promise<number> {
     const table = ENTITY_TABLES[entity]
     for (const field of Object.keys(TRANSLATABLE_FIELDS[entity])) {
       if (remaining <= 0) break
-      const col = Prisma.raw(`t.\`${field}\``)
+      const col = Prisma.raw(`t.${quoteIdent(field)}`)
       const rows = await prisma.$queryRaw<Array<{ id: string; txt: string }>>`
-        SELECT t.\`id\` AS id, ${col} AS txt
-        FROM ${Prisma.raw(`\`${table}\``)} t
+        SELECT t."id" AS id, ${col} AS txt
+        FROM ${Prisma.raw(quoteIdent(table))} t
         WHERE ${col} IS NOT NULL AND TRIM(${col}) <> '' AND ${liveFilter(entity)}
           AND NOT EXISTS (
             SELECT 1 FROM field_translation ft
-            WHERE ft.entity_type = ${entity} AND ft.entity_id = t.\`id\` AND ft.field = ${field}
+            WHERE ft.entity_type = ${entity} AND ft.entity_id = t."id" AND ft.field = ${field}
           )
-        ORDER BY t.\`id\`
+        ORDER BY t."id"
         LIMIT ${remaining}
       `
       for (const r of rows) {

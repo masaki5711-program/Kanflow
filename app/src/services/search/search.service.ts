@@ -199,16 +199,16 @@ async function loadRankedPbis(ids: string[], { scope, limit, displayId }: Search
 }
 
 /**
- * MATCH … AGAINST (ngram) candidates of the accessible projects, merged with
+ * Trigram (pg_trgm ILIKE, word_similarity-ranked) candidates of the accessible projects, merged with
  * translation hits and ordered by relevance. Returns null when there is no
  * candidate at all, so the caller retries with LIKE.
  */
-async function fulltextSearch(input: SearchInput, booleanQuery: string): Promise<Found | null> {
+async function fulltextSearch(input: SearchInput, terms: readonly string[]): Promise<Found | null> {
   const projectIds = await ft.findAccessibleProjectIds(defaultDb, input.scope)
   if (projectIds.length === 0) return NOTHING_FOUND
   const [direct, translations] = await Promise.all([
-    ft.findFulltextCandidates(defaultDb, projectIds, booleanQuery),
-    ft.findTranslationFulltext(defaultDb, booleanQuery),
+    ft.findFulltextCandidates(defaultDb, projectIds, terms),
+    ft.findTranslationFulltext(defaultDb, terms),
   ])
   const translated = groupTranslationRanks(translations)
   const ranked = Object.fromEntries(
@@ -230,8 +230,8 @@ async function fulltextSearch(input: SearchInput, booleanQuery: string): Promise
 /**
  * Global search over PBIs, sprint tasks, Icebox items, projects and product
  * goals of the projects the viewer can access (trashed rows excluded).
- * Text matches either language (source columns + FieldTranslation). FULLTEXT
- * (ngram, relevance-ordered) when available, else LIKE — see withFulltext.
+ * Text matches either language (source columns + FieldTranslation), case-insensitively.
+ * Trigram path (relevance-ordered) when available, else LIKE — see withFulltext.
  * At most `limit` hits per type; empty groups are omitted.
  */
 export async function searchEverything(viewer: SearchViewer, query: SearchQuery): Promise<SearchResultDto> {
@@ -243,7 +243,7 @@ export async function searchEverything(viewer: SearchViewer, query: SearchQuery)
   }
   const found = await withFulltext(
     query.q,
-    (booleanQuery) => fulltextSearch(input, booleanQuery),
+    (terms) => fulltextSearch(input, terms),
     () => likeSearch(input)
   )
 

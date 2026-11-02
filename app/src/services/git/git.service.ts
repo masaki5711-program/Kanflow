@@ -170,7 +170,7 @@ type Tx = Prisma.TransactionClient
  * and a new repository cannot both pass their checks concurrently.
  */
 async function lockProject(tx: Tx, projectId: string): Promise<void> {
-  await tx.$queryRaw`SELECT id FROM \`Project\` WHERE id = ${projectId} FOR UPDATE`
+  await tx.$queryRaw`SELECT "id" FROM "Project" WHERE "id" = ${projectId} FOR UPDATE`
 }
 
 /** The project's source, which must be one Kanflow can read (no integration row yet = the default). */

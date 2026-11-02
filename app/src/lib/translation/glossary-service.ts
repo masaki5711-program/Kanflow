@@ -140,7 +140,7 @@ export async function listGlossary(q: {
   const where = {
     ...(q.source ? { sourceLocale: q.source } : {}),
     ...(q.q?.trim()
-      ? { OR: [{ term: { contains: q.q.trim() } }, { translation: { contains: q.q.trim() } }] }
+      ? { OR: [{ term: { contains: q.q.trim(), mode: "insensitive" as const } }, { translation: { contains: q.q.trim(), mode: "insensitive" as const } }] }
       : {}),
   }
   const [rows, total] = await Promise.all([
@@ -196,7 +196,7 @@ export async function retranslateGlossary(ids?: string[]): Promise<{ requeued: n
 
 /** Done rows whose source text contains `term` go back to pending. Returns the count. */
 async function invalidateTerm(source: TranslationLocale, term: string): Promise<number> {
-  const textWhere = source === "ja" ? { textJa: { contains: term } } : { textId: { contains: term } }
+  const textWhere = source === "ja" ? { textJa: { contains: term, mode: "insensitive" as const } } : { textId: { contains: term, mode: "insensitive" as const } }
   const r = await prisma.fieldTranslation.updateMany({
     where: { status: "done", sourceLocale: source, ...textWhere },
     data: { status: "pending", attempts: 0, lastError: null, requestedAt: new Date() },

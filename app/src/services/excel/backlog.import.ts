@@ -20,7 +20,7 @@ import { IMPORT_MAX_BYTES, IMPORT_MAX_ROWS } from "./excel.limits"
 import { loadWorkbook } from "./excel.shared"
 
 export { IMPORT_MAX_BYTES, IMPORT_MAX_ROWS }
-/** userStory has no schema limit; keep it within a MySQL TEXT column (3-byte UTF-8). */
+/** userStory has no schema limit; kept within the old MySQL TEXT size (PostgreSQL text is unbounded) so rows stay portable. */
 export const USER_STORY_MAX = 20_000
 const POINTS_MAX = 1_000_000
 

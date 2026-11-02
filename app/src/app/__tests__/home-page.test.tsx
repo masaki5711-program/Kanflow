@@ -128,7 +128,7 @@ describe("HomePage (server)", () => {
     const taskWhere = m.prisma.sprintBacklogItem.findMany.mock.calls[0][0].where
     expect(taskWhere.OR).toEqual([
       { assignees: { some: { userId: "u1" } } },
-      { assignees: { none: {} }, assignee: { contains: "Taro" } },
+      { assignees: { none: {} }, assignee: { contains: "Taro", mode: "insensitive" } },
     ])
     expect(taskWhere.pbItem).toEqual({ deletedAt: null })
     expect(taskWhere.sprint.project.deletedAt).toBeNull()

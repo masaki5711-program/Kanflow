@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 /**
  * Entity-first tools through the REAL projectScope → locateEntity →
  * api-v1.repository → resolveV1ProjectActor path. Only the Prisma client is a
- * stub (the repo has no MariaDB harness for vitest; DB-backed checks live in
+ * stub (the unit suite has no database; DB-backed checks live in
  * the Playwright e2e suites), so the queries and the restriction logic are
  * the production code.
  */

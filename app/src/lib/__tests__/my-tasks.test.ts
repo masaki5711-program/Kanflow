@@ -6,7 +6,7 @@ describe("myTaskAssigneeWhere", () => {
     expect(myTaskAssigneeWhere("u1", " Taro ")).toEqual({
       OR: [
         { assignees: { some: { userId: "u1" } } },
-        { assignees: { none: {} }, assignee: { contains: "Taro" } },
+        { assignees: { none: {} }, assignee: { contains: "Taro", mode: "insensitive" } },
       ],
     })
   })

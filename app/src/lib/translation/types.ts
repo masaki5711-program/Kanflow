@@ -122,9 +122,9 @@ export const ENTITY_TABLES: Record<TranslatableEntity, string> = {
  * whose text is never shown must not be sent to the model.
  */
 export const ENTITY_LIVE_FILTER: Partial<Record<TranslatableEntity, string>> = {
-  comment: "t.`deletedAt` IS NULL",
+  comment: "t.\"deletedAt\" IS NULL",
   // Mirrors of comments have no own body (the comment is translated instead).
-  team_message: "t.`deletedAt` IS NULL AND t.`body` IS NOT NULL",
+  team_message: "t.\"deletedAt\" IS NULL AND t.\"body\" IS NOT NULL",
 }
 
 export function translationPriority(entity: TranslatableEntity, field: string): number {

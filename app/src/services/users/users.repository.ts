@@ -104,10 +104,10 @@ export function searchActiveUsers(db: Db, q: string, excludeProjectId: string | 
     where: {
       isActive: true,
       OR: [
-        { name: { contains: q } },
-        { email: { contains: q } },
-        { employeeNumber: { contains: q } },
-        { department: { contains: q } },
+        { name: { contains: q, mode: "insensitive" } },
+        { email: { contains: q, mode: "insensitive" } },
+        { employeeNumber: { contains: q, mode: "insensitive" } },
+        { department: { contains: q, mode: "insensitive" } },
       ],
     },
     select: {

@@ -145,12 +145,12 @@ describe("searchEverything (FULLTEXT path)", () => {
     vi.mocked(ft.findTranslationFulltext).mockResolvedValue([])
   })
 
-  it("looks up candidates with the boolean query inside the viewer's accessible projects", async () => {
+  it("looks up candidates with the search terms inside the viewer's accessible projects", async () => {
     await searchEverything(MEMBER, { q: "login api", limit: 5 })
     const scope = { deletedAt: null, members: { some: { userId: "u1" } } }
     expect(ft.findAccessibleProjectIds).toHaveBeenCalledWith(DEFAULT_DB, scope)
-    expect(ft.findFulltextCandidates).toHaveBeenCalledWith(DEFAULT_DB, ["p1"], "+login* +api*")
-    expect(ft.findTranslationFulltext).toHaveBeenCalledWith(DEFAULT_DB, "+login* +api*")
+    expect(ft.findFulltextCandidates).toHaveBeenCalledWith(DEFAULT_DB, ["p1"], ["login", "api"])
+    expect(ft.findTranslationFulltext).toHaveBeenCalledWith(DEFAULT_DB, ["login", "api"])
   })
 
   it("loads ranked candidates through the scoped repository and orders them by relevance", async () => {
@@ -233,9 +233,9 @@ describe("searchEverything (FULLTEXT path)", () => {
     expect(vi.mocked(repo.findPbis).mock.calls[0][2]).toMatchObject({ pattern: "機 能" })
   })
 
-  it("falls back to LIKE when the FULLTEXT index is missing (MySQL 1191)", async () => {
+  it("falls back to LIKE when pg_trgm is missing (PostgreSQL 42883)", async () => {
     vi.mocked(ft.findFulltextCandidates).mockRejectedValue(
-      Object.assign(new Error("Raw query failed. Code: `1191`."), { meta: { driverAdapterError: { cause: { code: 1191 } } } })
+      Object.assign(new Error("Raw query failed. Code: `42883`. Message: `function word_similarity(unknown, text) does not exist`"), { meta: { driverAdapterError: { cause: { code: "42883" } } } })
     )
     await searchEverything(MEMBER, { q: "login", limit: 5 })
     expect(vi.mocked(repo.findPbis).mock.calls[0][2]).toMatchObject({ pattern: "login" })

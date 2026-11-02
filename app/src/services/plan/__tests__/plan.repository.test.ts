@@ -108,7 +108,12 @@ describe("plan.repository", () => {
     const where = db.fn("productBacklogItem.findMany").mock.calls[0][0].where
     expect(where.projectId).toBe("p1")
     expect(where.deletedAt).toBeNull()
-    expect(where.OR).toEqual([{ displayId: 12 }, { initiative: { contains: "12" } }, { epic: { contains: "12" } }, { userStory: { contains: "12" } }])
+    expect(where.OR).toEqual([
+      { displayId: 12 },
+      { initiative: { contains: "12", mode: "insensitive" } },
+      { epic: { contains: "12", mode: "insensitive" } },
+      { userStory: { contains: "12", mode: "insensitive" } },
+    ])
     expect(db.fn("productBacklogItem.findMany").mock.calls[0][0].take).toBe(repo.LINKABLE_LIMIT)
     await repo.findLinkablePbis(db.client, "p1", undefined, null)
     expect(db.fn("productBacklogItem.findMany").mock.calls[1][0].where).toEqual({ projectId: "p1", deletedAt: null })
@@ -118,8 +123,8 @@ describe("plan.repository", () => {
     const executeRaw = vi.fn(async () => 4)
     await expect(repo.copyBaseline({ $executeRaw: executeRaw } as never, "p1", ["a", "b"])).resolves.toBe(4)
     const [strings, ...values] = executeRaw.mock.calls[0] as unknown as [string[], ...unknown[]]
-    expect(strings.join("?")).toContain("SET `baselineStart` = `plannedStart`, `baselineEnd` = `plannedEnd`")
-    expect(strings.join("?")).toContain("`deletedAt` IS NULL")
+    expect(strings.join("?")).toContain(`SET "baselineStart" = "plannedStart", "baselineEnd" = "plannedEnd"`)
+    expect(strings.join("?")).toContain(`"deletedAt" IS NULL`)
     expect(values[0]).toBe("p1")
     expect(JSON.stringify(values[1])).toContain("a")
     await repo.copyBaseline({ $executeRaw: executeRaw } as never, "p1")

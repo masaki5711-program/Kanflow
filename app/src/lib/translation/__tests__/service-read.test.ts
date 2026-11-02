@@ -142,8 +142,8 @@ describe("enqueueNow branches", () => {
     expect(values).toContain("pending")
     expect(values).not.toContain("done")
     expect(values).toContain("legacy-pairs")
-    // translatedAt is the last bound value and stays null until English exists.
-    expect(values[values.length - 1]).toBeNull()
+    // translatedAt (bound right after the model and the requested_at clock) stays null until English exists.
+    expect(values[values.indexOf("legacy-pairs") + 2]).toBeNull()
   })
 
   it("stores an English source in text_en as pending, with ja/id left null", async () => {

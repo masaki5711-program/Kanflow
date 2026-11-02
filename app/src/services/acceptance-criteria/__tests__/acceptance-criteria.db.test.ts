@@ -1,15 +1,15 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
 /**
- * Seq allocation of 受入基準 against a REAL MariaDB / MySQL (the rest of the suite mocks Prisma).
+ * Seq allocation of 受入基準 against a REAL PostgreSQL (the rest of the suite mocks Prisma).
  * Skipped unless KANFLOW_DB_TESTS=1 and DATABASE_* point at a migrated, disposable test database
- * (synthetic rows only, removed afterwards):
+ * (synthetic rows only, removed afterwards), e.g. the container of ops/test-env/compose.yml:
  *
- *   KANFLOW_DB_TESTS=1 DATABASE_PASSWORD=... DATABASE_NAME=kanflow_test npx vitest run src/services/acceptance-criteria/__tests__/acceptance-criteria.db.test.ts
+ *   KANFLOW_DB_TESTS=1 npx vitest run src/services/acceptance-criteria/__tests__/acceptance-criteria.db.test.ts
  *
  * Checks what the PBI row lock + READ COMMITTED transaction exist for: concurrent adds get distinct
  * seqs, a deleted item's seq is never handed out again, and (pbiId, seq) is unique.
- * Re-run at the PostgreSQL migration (the lock is a raw `SELECT ... FOR UPDATE`).
+ * The lock is a raw `SELECT ... FOR UPDATE` on the quoted "ProductBacklogItem" table.
  */
 const enabled = process.env.KANFLOW_DB_TESTS === "1"
 

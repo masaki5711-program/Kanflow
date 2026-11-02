@@ -319,7 +319,7 @@ describe("search_work_items", () => {
     expect(m.sbiFindMany.mock.calls[0][0].where).toEqual({
       sprint: { projectId: "p1" },
       pbItem: { deletedAt: null },
-      taskName: { contains: "Login" },
+      taskName: { contains: "Login", mode: "insensitive" },
     })
     expect(out.keyword).toBe("Login")
     expect(out.hit_count).toBe(4)

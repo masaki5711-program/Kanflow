@@ -1,7 +1,8 @@
 import { Prisma } from "@/generated/prisma/client"
 import { prisma } from "@/lib/prisma"
 import { withFulltext } from "@/lib/fulltext/fallback"
-import { NGRAM_TOKEN_SIZE } from "@/lib/fulltext/boolean-query"
+import { MIN_TERM_LENGTH } from "@/lib/fulltext/search-terms"
+import { termsMatch, termsScore, type TermMode } from "@/lib/fulltext/trigram-sql"
 import { supportedProviderFilter } from "./git-provider"
 
 /**
@@ -9,9 +10,9 @@ import { supportedProviderFilter } from "./git-provider"
  * tools. Everything is scoped to ONE project and to its repositories that
  * are switched on as AI knowledge while the Git integration is on.
  *
- * The MATCH column list must equal the FULLTEXT index ft_repo_chunk_text
- * (migration 20261016000000_repo_knowledge); without it withFulltext falls
- * back to LIKE.
+ * The trigram path searches path / heading / content (pg_trgm GIN indexes
+ * repo_chunk_*_trgm_idx, migration 0_init) case-insensitively; without
+ * pg_trgm withFulltext falls back to LIKE.
  */
 
 export interface KnowledgeRepo {
@@ -72,10 +73,10 @@ const STOPWORDS = new Set([
  * changes, so 「OEEとOLEの計算方法の違いは？」 → OEE, OLE, 計算方法.
  */
 export function extractKeywords(query: string): string[] {
-  // Same separators as lib/fulltext (no boolean-mode operator can survive into the query).
+  // Same separators as lib/fulltext (no LIKE wildcard or punctuation survives into the query).
   const coarse = query.split(/[^\p{L}\p{M}\p{N}]+/u).filter(Boolean)
   const fine = coarse.flatMap((t) => t.split(/\p{Script=Hiragana}+/u)).flatMap((t) => t.match(/[\p{Script=Han}\p{Script=Katakana}ー]+|[^\p{Script=Han}\p{Script=Katakana}ー]+/gu) ?? [])
-  const cleaned = fine.filter((t) => Array.from(t).length >= NGRAM_TOKEN_SIZE && !STOPWORDS.has(t.toLowerCase()))
+  const cleaned = fine.filter((t) => Array.from(t).length >= MIN_TERM_LENGTH && !STOPWORDS.has(t.toLowerCase()))
   return [...new Set(cleaned)].slice(0, MAX_KEYWORDS)
 }
 
@@ -99,12 +100,14 @@ export function snippetOf(content: string, keywords: readonly string[]): string 
 
 type ChunkRow = { id: string; repositoryId: string; path: string; heading: string | null; anchor: string | null; content: string; score: number }
 
-function fulltextChunks(repoIds: readonly string[], projectId: string, booleanQuery: string): Promise<ChunkRow[]> {
+const CHUNK_COLS = [Prisma.raw(`"path"`), Prisma.raw(`"heading"`), Prisma.raw(`"content"`)]
+
+function fulltextChunks(repoIds: readonly string[], projectId: string, terms: readonly string[], mode: TermMode): Promise<ChunkRow[]> {
   return prisma.$queryRaw<ChunkRow[]>(Prisma.sql`
-    SELECT \`id\`, \`repositoryId\`, \`path\`, \`heading\`, \`anchor\`, \`content\`, MATCH(\`path\`, \`heading\`, \`content\`) AGAINST (${booleanQuery} IN BOOLEAN MODE) AS score
-    FROM \`repo_chunk\`
-    WHERE \`projectId\` = ${projectId} AND \`repositoryId\` IN (${Prisma.join([...repoIds])})
-      AND MATCH(\`path\`, \`heading\`, \`content\`) AGAINST (${booleanQuery} IN BOOLEAN MODE)
+    SELECT "id", "repositoryId", "path", "heading", "anchor", "content", ${termsScore(CHUNK_COLS, terms)} AS score
+    FROM "repo_chunk"
+    WHERE "projectId" = ${projectId} AND "repositoryId" IN (${Prisma.join([...repoIds])})
+      AND ${termsMatch(CHUNK_COLS, terms, mode)}
     ORDER BY score DESC LIMIT ${CANDIDATES}`)
 }
 
@@ -114,7 +117,11 @@ async function likeChunks(repoIds: readonly string[], projectId: string, keyword
     where: {
       projectId,
       repositoryId: { in: [...repoIds] },
-      OR: keywords.flatMap((k) => [{ content: { contains: k } }, { heading: { contains: k } }, { path: { contains: k } }]),
+      OR: keywords.flatMap((k) => [
+        { content: { contains: k, mode: "insensitive" as const } },
+        { heading: { contains: k, mode: "insensitive" as const } },
+        { path: { contains: k, mode: "insensitive" as const } },
+      ]),
     },
     select: { id: true, repositoryId: true, path: true, heading: true, anchor: true, content: true },
     take: 200,
@@ -131,9 +138,9 @@ async function rankedChunks(repoIds: readonly string[], projectId: string, keywo
   return withFulltext(
     keywords.join(" "),
     async (allTerms) => {
-      const strict = await fulltextChunks(repoIds, projectId, allTerms)
+      const strict = await fulltextChunks(repoIds, projectId, allTerms, "all")
       if (strict.length >= SEARCH_LIMIT || keywords.length < 2) return strict.length > 0 ? strict : null
-      const loose = await fulltextChunks(repoIds, projectId, keywords.map((k) => `${k}*`).join(" "))
+      const loose = await fulltextChunks(repoIds, projectId, keywords, "any")
       const merged = [...strict, ...loose.filter((l) => !strict.some((s) => s.id === l.id))]
       return merged.length > 0 ? merged : null
     },
@@ -145,7 +152,7 @@ async function rankedChunks(repoIds: readonly string[], projectId: string, keywo
 const HEADING_BOOST = 0.5
 const PATH_BOOST = 0.5
 
-/** Pure: FULLTEXT / LIKE score boosted by keyword hits in heading and path, best first. */
+/** Pure: trigram / LIKE score boosted by keyword hits in heading and path, best first. */
 export function rerank<T extends Pick<ChunkRow, "path" | "heading" | "score">>(rows: readonly T[], keywords: readonly string[]): T[] {
   const hits = (text: string) => keywords.filter((k) => text.includes(k.toLowerCase())).length
   return rows
@@ -205,7 +212,8 @@ type ChunkScope = { projectId: string; repositoryId: { in: string[] } }
 async function uniquePathContaining(scope: ChunkScope, text: string): Promise<{ repositoryId: string; path: string } | { candidates: string[] } | null> {
   if (!text) return null
   const rows = await prisma.repoChunk.findMany({
-    where: { ...scope, chunkNo: 0, path: { contains: text } },
+    // Case-insensitive like the MySQL collation was: "Docs/OEE.md" still finds docs/oee.md.
+    where: { ...scope, chunkNo: 0, path: { contains: text, mode: "insensitive" } },
     select: { repositoryId: true, path: true },
     take: 10,
   })

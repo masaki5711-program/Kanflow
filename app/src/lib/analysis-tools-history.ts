@@ -150,7 +150,7 @@ async function resolveCompareSprints(projectId: string, args: Record<string, unk
   if (a && b) {
     const find = (ref: string) =>
       prisma.sprint.findFirst({
-        where: { projectId, OR: [{ id: ref }, { sprintName: { contains: ref } }] },
+        where: { projectId, OR: [{ id: ref }, { sprintName: { contains: ref, mode: "insensitive" } }] },
         orderBy: { startDate: "desc" },
         select,
       })
@@ -249,7 +249,7 @@ async function resolveCommentTarget(projectId: string, args: Record<string, unkn
     const name = strArg(args.task_name, 100)
     if (!taskId && !name) return { error: "task needs id or task_name" }
     const rows = await prisma.sprintBacklogItem.findMany({
-      where: { sprint: { projectId }, ...LIVE_PBI, ...(taskId ? { id: taskId } : { taskName: { contains: name } }) },
+      where: { sprint: { projectId }, ...LIVE_PBI, ...(taskId ? { id: taskId } : { taskName: { contains: name, mode: "insensitive" } }) },
       select: { id: true, taskName: true },
       take: 5,
     })

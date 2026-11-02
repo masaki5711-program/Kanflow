@@ -55,8 +55,13 @@ describe("translation service — write side", () => {
   it("stamps requested_at/updated_at in UTC to match Prisma-written timestamps", async () => {
     const tx = fakeTx()
     await svc.enqueueTranslations("product_goal", "g1", { title: "目標" }, tx as never)
-    const sql = (tx.$executeRaw.mock.calls[0][0] as TemplateStringsArray).join("?")
-    expect(sql).toContain("UTC_TIMESTAMP(3)")
+    const call = tx.$executeRaw.mock.calls[0] as unknown[]
+    const sql = (call[0] as TemplateStringsArray).join("?")
+    expect(sql).toContain("ON CONFLICT (entity_type, entity_id, field) DO UPDATE SET")
+    // requested_at / updated_at come from one SQL fragment: the database clock in UTC.
+    const fragments = call.slice(1).filter((v): v is { sql: string } => typeof v === "object" && v !== null && "sql" in v)
+    expect(fragments.length).toBeGreaterThanOrEqual(3)
+    for (const f of fragments) expect(f.sql).toContain("AT TIME ZONE 'UTC'")
     expect(sql).not.toContain("NOW(")
   })
 
@@ -142,7 +147,7 @@ describe("backfillTranslations", () => {
     await svc.backfillTranslations(5)
     const scans = m.global.$queryRaw.mock.calls.map((c) => JSON.stringify(c))
     const commentScan = scans.find((c) => c.includes('"comment"') && c.includes('"body"'))
-    expect(commentScan).toContain("t.`deletedAt` IS NULL")
+    expect(commentScan).toContain('t.\\"deletedAt\\" IS NULL')
     const pbiScan = scans.find((c) => c.includes('"backlog_item"'))
     expect(pbiScan).not.toContain("deletedAt")
   })

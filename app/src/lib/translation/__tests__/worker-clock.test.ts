@@ -69,7 +69,7 @@ describe("translation worker clock handling", () => {
 
     // Assert
     const sql = (mocks.queryRaw.mock.calls[0]?.[0] as TemplateStringsArray).join("?")
-    expect(sql).toContain("requested_at <= UTC_TIMESTAMP(3)")
+    expect(sql).toContain("requested_at <= (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')")
     expect(sql).not.toContain("NOW(")
   })
 })

@@ -214,9 +214,9 @@ export function findLinkablePbis(db: Db, projectId: string, q: string | undefine
       ? {
           OR: [
             ...(displayId !== null ? [{ displayId }] : []),
-            { initiative: { contains: text } },
-            { epic: { contains: text } },
-            { userStory: { contains: text } },
+            { initiative: { contains: text, mode: "insensitive" } },
+            { epic: { contains: text, mode: "insensitive" } },
+            { userStory: { contains: text, mode: "insensitive" } },
           ],
         }
       : {}),
@@ -241,8 +241,8 @@ export function findLinkablePbis(db: Db, projectId: string, q: string | undefine
 
 /** Copy planned dates into the baseline of live rows (all of the project, or `ids`). Returns the row count. */
 export function copyBaseline(db: Db, projectId: string, ids?: readonly string[]): Promise<number> {
-  const scope = ids && ids.length > 0 ? Prisma.sql` AND \`id\` IN (${Prisma.join([...ids])})` : Prisma.empty
-  return db.$executeRaw`UPDATE \`PlanItem\` SET \`baselineStart\` = \`plannedStart\`, \`baselineEnd\` = \`plannedEnd\` WHERE \`projectId\` = ${projectId} AND \`deletedAt\` IS NULL${scope}`
+  const scope = ids && ids.length > 0 ? Prisma.sql` AND "id" IN (${Prisma.join([...ids])})` : Prisma.empty
+  return db.$executeRaw`UPDATE "PlanItem" SET "baselineStart" = "plannedStart", "baselineEnd" = "plannedEnd" WHERE "projectId" = ${projectId} AND "deletedAt" IS NULL${scope}`
 }
 
 export async function clearBaseline(db: Db, projectId: string): Promise<number> {

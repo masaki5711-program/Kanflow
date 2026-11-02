@@ -44,9 +44,9 @@ export function normalizeQuery(raw: string): string {
 }
 
 /**
- * Escape `\`, `%` and `_` so user input is matched literally by MySQL LIKE
+ * Escape `\`, `%` and `_` so user input is matched literally by LIKE / ILIKE
  * (Prisma's `contains` wraps the value in `%…%` but does not escape it;
- * backslash is MySQL's default LIKE escape character).
+ * backslash is PostgreSQL's default LIKE escape character, as it was MySQL's).
  */
 export function escapeLike(text: string): string {
   return text.replace(/[\\%_]/g, (c) => `\\${c}`)
@@ -84,9 +84,12 @@ export function accessibleProjectWhere(viewer: SearchViewer) {
   return { deletedAt: null, ...member }
 }
 
-/** `[{ col: { contains: pattern } }, …]` for an OR list. `pattern` must already be escaped. */
-export function containsAny(fields: readonly string[], pattern: string): Array<Record<string, { contains: string }>> {
-  return fields.map((f) => ({ [f]: { contains: pattern } }))
+/**
+ * `[{ col: { contains: pattern, mode: "insensitive" } }, …]` for an OR list. `pattern` must
+ * already be escaped. Case-insensitive like MySQL's utf8mb4_unicode_ci was (PostgreSQL ILIKE).
+ */
+export function containsAny(fields: readonly string[], pattern: string): Array<Record<string, { contains: string; mode: "insensitive" }>> {
+  return fields.map((f) => ({ [f]: { contains: pattern, mode: "insensitive" as const } }))
 }
 
 export type SearchEntity = (typeof TRANSLATION_ENTITY)[SearchType]
@@ -119,7 +122,7 @@ export function searchHref(type: SearchType, projectId: string, id: string): str
   }
 }
 
-/** An id with its FULLTEXT relevance (MATCH … AGAINST score). */
+/** An id with its trigram relevance (word_similarity score). */
 export interface RankedId {
   id: string
   score: number

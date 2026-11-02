@@ -73,8 +73,9 @@ function filterWhere(input: SearchLessonsInput): Prisma.LessonWhereInput[] {
     and.push({ scope: { in: scopes } })
   }
   if (input.q) {
-    // Plain `contains`: case-insensitive on MySQL's default collation. PostgreSQL needs `mode: "insensitive"` (migration checklist).
-    and.push({ OR: [{ symptom: { contains: input.q } }, { cause: { contains: input.q } }, { fix: { contains: input.q } }, { errorCode: { contains: input.q } }] })
+    // Case-insensitive (ILIKE), as the MySQL utf8mb4_unicode_ci collation was.
+    const q = { contains: input.q, mode: "insensitive" as const }
+    and.push({ OR: [{ symptom: q }, { cause: q }, { fix: q }, { errorCode: q }] })
   }
   return and
 }

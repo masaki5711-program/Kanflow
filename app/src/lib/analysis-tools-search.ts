@@ -9,7 +9,7 @@ import { groupTranslationRanks, orderByRank, rankIds } from "@/services/search/s
 /**
  * Keyword search behind the chat tool `search_work_items`: PBIs, Icebox
  * requests and sprint tasks of ONE project (trashed rows excluded).
- * FULLTEXT (ngram, relevance-ordered, also matching the other language via
+ * Trigram path (pg_trgm, relevance-ordered, also matching the other language via
  * FieldTranslation) when available, else LIKE — see withFulltext.
  */
 
@@ -46,7 +46,7 @@ function findIcebox(projectId: string, filter: IdFilter | { OR: object[] }) {
   })
 }
 
-function findTasks(projectId: string, filter: IdFilter | { taskName: { contains: string } }) {
+function findTasks(projectId: string, filter: IdFilter | { taskName: { contains: string; mode: "insensitive" } }) {
   return prisma.sprintBacklogItem.findMany({
     where: { sprint: { projectId }, ...LIVE_PBI, ...filter },
     select: TASK_SELECT,
@@ -63,10 +63,16 @@ interface Found {
 async function likeSearch(projectId: string, keyword: string): Promise<Found> {
   const [pbis, icebox, tasks] = await Promise.all([
     findPbis(projectId, {
-      OR: [{ initiative: { contains: keyword } }, { epic: { contains: keyword } }, { userStory: { contains: keyword } }],
+      OR: [
+        { initiative: { contains: keyword, mode: "insensitive" } },
+        { epic: { contains: keyword, mode: "insensitive" } },
+        { userStory: { contains: keyword, mode: "insensitive" } },
+      ],
     }),
-    findIcebox(projectId, { OR: [{ request: { contains: keyword } }, { background: { contains: keyword } }] }),
-    findTasks(projectId, { taskName: { contains: keyword } }),
+    findIcebox(projectId, {
+      OR: [{ request: { contains: keyword, mode: "insensitive" } }, { background: { contains: keyword, mode: "insensitive" } }],
+    }),
+    findTasks(projectId, { taskName: { contains: keyword, mode: "insensitive" } }),
   ])
   return { pbis, icebox, tasks }
 }
@@ -76,13 +82,13 @@ async function loadRanked<R extends { id: string }>(ids: string[], find: (f: IdF
   return orderByRank(await find({ id: { in: ids } }), ids)
 }
 
-async function fulltextSearch(projectId: string, booleanQuery: string): Promise<Found | null> {
+async function fulltextSearch(projectId: string, terms: readonly string[]): Promise<Found | null> {
   const scope = [projectId]
   const [pbiHits, iceboxHits, taskHits, translations] = await Promise.all([
-    ft.fulltextPbiIds(prisma, scope, booleanQuery, WORK_ITEM_SEARCH_LIMIT),
-    ft.fulltextIceboxIds(prisma, scope, booleanQuery, WORK_ITEM_SEARCH_LIMIT),
-    ft.fulltextTaskIds(prisma, scope, booleanQuery, WORK_ITEM_SEARCH_LIMIT),
-    ft.findTranslationFulltext(prisma, booleanQuery, ["pbi", "icebox", "task"]),
+    ft.fulltextPbiIds(prisma, scope, terms, WORK_ITEM_SEARCH_LIMIT),
+    ft.fulltextIceboxIds(prisma, scope, terms, WORK_ITEM_SEARCH_LIMIT),
+    ft.fulltextTaskIds(prisma, scope, terms, WORK_ITEM_SEARCH_LIMIT),
+    ft.findTranslationFulltext(prisma, terms, ["pbi", "icebox", "task"]),
   ])
   const translated = groupTranslationRanks(translations)
   const pbiIds = rankIds(pbiHits, translated.backlog_item)
@@ -103,7 +109,7 @@ async function fulltextSearch(projectId: string, booleanQuery: string): Promise<
 export async function searchWorkItems(projectId: string, keyword: string) {
   const { pbis, icebox, tasks } = await withFulltext(
     keyword,
-    (booleanQuery) => fulltextSearch(projectId, booleanQuery),
+    (terms) => fulltextSearch(projectId, terms),
     () => likeSearch(projectId, keyword)
   )
   return [

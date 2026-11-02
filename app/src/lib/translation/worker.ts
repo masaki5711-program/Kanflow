@@ -200,7 +200,7 @@ async function runTick(): Promise<TickResult> {
     if (!gate.isIdle(QUIET_MS)) return remember({ processed: 0, skipped: "ai-busy" })
     const admission = state.admission?.() ?? { allow: true }
     if (!admission.allow) return remember({ processed: 0, skipped: admission.reason ?? "not-admitted" })
-    let rows = await claim(Math.max(1, Math.min(BATCH, admission.batch ?? BATCH)))
+    let rows = await claimPending(Math.max(1, Math.min(BATCH, admission.batch ?? BATCH)))
     // Nothing pending: in the quiet window, add English to one older row at a time.
     if (rows.length === 0 && inBackfillWindow(process.env.TRANSLATION_EN_BACKFILL_HOURS)) rows = await claimEnglishBackfill(1)
     if (rows.length === 0) return remember({ processed: 0, skipped: null })
@@ -256,13 +256,16 @@ async function clampFutureRequests(): Promise<void> {
   })
 }
 
-/** Claim pending rows in priority order; SKIP LOCKED keeps concurrent workers apart. */
-async function claim(limit: number): Promise<Row[]> {
+/**
+ * Claim pending rows in priority order; SKIP LOCKED keeps concurrent workers apart.
+ * Exported for the real-database test (src/lib/__tests__/postgres.db.test.ts).
+ */
+export async function claimPending(limit: number): Promise<Row[]> {
   return prisma.$transaction(async (tx) => {
     const picked = await tx.$queryRaw<Array<{ entity_type: string; entity_id: string; field: string }>>`
       SELECT entity_type, entity_id, field
       FROM field_translation
-      WHERE status = 'pending' AND requested_at <= UTC_TIMESTAMP(3)
+      WHERE status = 'pending' AND requested_at <= (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')
       ORDER BY priority DESC, requested_at ASC
       LIMIT ${limit}
       FOR UPDATE SKIP LOCKED

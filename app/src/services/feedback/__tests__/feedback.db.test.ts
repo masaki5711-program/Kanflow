@@ -1,11 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
 /**
- * The feedback loop against a REAL MariaDB / MySQL (the rest of the suite mocks Prisma). Skipped unless
+ * The feedback loop against a REAL PostgreSQL (the rest of the suite mocks Prisma). Skipped unless
  * KANFLOW_DB_TESTS=1 and DATABASE_* point at a migrated, disposable test database (synthetic rows only,
- * removed afterwards):
+ * removed afterwards), e.g. the container of ops/test-env/compose.yml:
  *
- *   KANFLOW_DB_TESTS=1 DATABASE_PASSWORD=... DATABASE_NAME=kanflow_test npx vitest run src/services/feedback/__tests__/feedback.db.test.ts
+ *   KANFLOW_DB_TESTS=1 npx vitest run src/services/feedback/__tests__/feedback.db.test.ts
  *
  * What it pins (the things mocks cannot show): the (signature, scope) unique key, one resolution per
  * failure under concurrent reports, the report → resolution → draft lesson → confirm path, and that two

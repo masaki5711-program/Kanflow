@@ -80,7 +80,7 @@ describe("upsertGlossary", () => {
     expect(reverse.create).toMatchObject({ term: "KAIZEN", translation: "改善", autoReverse: true })
     await flush()
     expect(fieldTranslation.updateMany).toHaveBeenCalledWith({
-      where: { status: "done", sourceLocale: "ja", textJa: { contains: "改善" } },
+      where: { status: "done", sourceLocale: "ja", textJa: { contains: "改善", mode: "insensitive" } },
       data: expect.objectContaining({ status: "pending", attempts: 0 }),
     })
   })
@@ -97,7 +97,7 @@ describe("upsertGlossary", () => {
     await svc.upsertGlossary({ sourceLocale: "id", targetLocale: "ja", term: "rapat", translation: "会議" }, "u1")
     expect(glossary.upsert).toHaveBeenCalledTimes(1)
     await flush()
-    expect(fieldTranslation.updateMany.mock.calls[0][0].where).toMatchObject({ textId: { contains: "rapat" } })
+    expect(fieldTranslation.updateMany.mock.calls[0][0].where).toMatchObject({ textId: { contains: "rapat", mode: "insensitive" } })
   })
 
   it("refreshes an auto-generated reverse row", async () => {
@@ -184,7 +184,7 @@ describe("admin operations", () => {
     glossary.findMany.mockResolvedValue([row()])
     glossary.count.mockResolvedValue(1)
     const out = await svc.listGlossary({ q: " 改 ", source: "ja", limit: 10, offset: 5 })
-    const where = { sourceLocale: "ja", OR: [{ term: { contains: "改" } }, { translation: { contains: "改" } }] }
+    const where = { sourceLocale: "ja", OR: [{ term: { contains: "改", mode: "insensitive" } }, { translation: { contains: "改", mode: "insensitive" } }] }
     expect(glossary.findMany).toHaveBeenCalledWith({ where, orderBy: { updatedAt: "desc" }, take: 10, skip: 5 })
     expect(glossary.count).toHaveBeenCalledWith({ where })
     expect(out.total).toBe(1)

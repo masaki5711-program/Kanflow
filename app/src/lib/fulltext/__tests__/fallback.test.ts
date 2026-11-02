@@ -6,7 +6,9 @@ vi.mock("@/lib/logger", () => ({ logger: { child: () => log } }))
 const { withFulltext, resetFulltextFallback, FULLTEXT_RETRY_MS } = await import("../fallback")
 
 const missingIndex = () =>
-  Object.assign(new Error("Raw query failed. Code: `1191`."), { meta: { driverAdapterError: { cause: { code: 1191 } } } })
+  Object.assign(new Error("Raw query failed. Code: `42883`. Message: `function word_similarity(unknown, text) does not exist`"), {
+    meta: { driverAdapterError: { cause: { code: "42883" } } },
+  })
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -18,14 +20,14 @@ afterEach(() => {
 })
 
 describe("withFulltext", () => {
-  it("runs the FULLTEXT path with the boolean query and skips LIKE when it returns rows", async () => {
-    const fulltext = vi.fn(async (q: string) => [q])
+  it("runs the trigram path with the search terms and skips LIKE when it returns rows", async () => {
+    const fulltext = vi.fn(async (terms: readonly string[]) => [...terms])
     const like = vi.fn(async () => ["like"])
-    expect(await withFulltext("login api", fulltext, like)).toEqual(["+login* +api*"])
+    expect(await withFulltext("login api", fulltext, like)).toEqual(["login", "api"])
     expect(like).not.toHaveBeenCalled()
   })
 
-  it("falls back to LIKE when FULLTEXT finds nothing (null)", async () => {
+  it("falls back to LIKE when the trigram path finds nothing (null)", async () => {
     const like = vi.fn(async () => ["like"])
     expect(await withFulltext("login", async () => null, like)).toEqual(["like"])
   })
@@ -43,7 +45,7 @@ describe("withFulltext", () => {
     expect(fulltext).not.toHaveBeenCalled()
   })
 
-  it("falls back on a missing FULLTEXT index, warns once and pauses FULLTEXT for a while", async () => {
+  it("falls back when pg_trgm is missing, warns once and pauses the trigram path for a while", async () => {
     vi.useFakeTimers({ now: 1_000_000 })
     const fulltext = vi.fn(async () => {
       throw missingIndex()

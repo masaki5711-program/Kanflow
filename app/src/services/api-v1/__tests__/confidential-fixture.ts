@@ -1,7 +1,7 @@
 /**
  * In-memory stand-in for the parts of Prisma that the confidential-PBI rule (D-5) touches, with a tiny
  * `where` evaluator, so the REAL repository filters and the REAL masking helpers run against data
- * (the repo has no MariaDB harness for vitest). Synthetic data only.
+ * (the unit suite has no database). Synthetic data only.
  *
  * Project p1 holds a normal PBI (pbA, PBI-1) and a confidential one (pbC, PBI-2) with a task, a claim,
  * a release copy and activity rows each. Everything about pbC carries the word SECRET: no answer to a

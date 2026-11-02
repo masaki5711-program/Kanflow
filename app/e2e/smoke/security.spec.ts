@@ -16,7 +16,7 @@ test.describe("health", () => {
     expect(["ok", "error"]).toContain(body.status)
     expect(body).toHaveProperty("db")
     // Must never leak connection details.
-    expect(JSON.stringify(body)).not.toMatch(/mysql:|password|DATABASE_URL/i)
+    expect(JSON.stringify(body)).not.toMatch(/mysql:|postgres(ql)?:|password|DATABASE_URL/i)
   })
 })
 

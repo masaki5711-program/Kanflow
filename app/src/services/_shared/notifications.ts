@@ -19,6 +19,7 @@ import { resolveAssignees } from "@/lib/assignees"
 import { logger } from "@/lib/logger"
 import { publishAfterCommit } from "@/lib/realtime/after-commit"
 import type { Db } from "./db"
+import { bestEffort } from "./savepoint"
 
 const log = logger.child({ module: "notifications" })
 
@@ -143,7 +144,8 @@ export async function notify(
   let delivered = 0
   for (const channel of channels) {
     try {
-      const n = await channel.deliver(db, rows)
+      // Savepoint: a failed delivery must not abort the caller's PostgreSQL transaction.
+      const n = await bestEffort(db, () => channel.deliver(db, rows))
       if (channel === inAppChannel) delivered = n
     } catch (err) {
       log.warn("notification delivery failed", { channel: channel.name, type: input.type, error: errorMessage(err) })

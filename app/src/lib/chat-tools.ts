@@ -70,7 +70,7 @@ const handlers: Record<string, ToolHandler> = {
         : undefined
     const where: Record<string, unknown> = { projectId }
     if (nameContains) {
-      where.originalName = { contains: nameContains }
+      where.originalName = { contains: nameContains, mode: "insensitive" }
     }
     const rows = await prisma.projectAttachment.findMany({
       where,

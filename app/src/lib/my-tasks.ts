@@ -14,7 +14,7 @@ export function myTaskAssigneeWhere(userId: string, userName: string | null | un
   const byId = { assignees: { some: { userId } } }
   const name = userName?.trim()
   if (!name) return byId
-  return { OR: [byId, { assignees: { none: {} }, assignee: { contains: name } }] }
+  return { OR: [byId, { assignees: { none: {} }, assignee: { contains: name, mode: "insensitive" as const } }] }
 }
 
 export interface MyTaskCandidate {

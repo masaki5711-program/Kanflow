@@ -22,6 +22,7 @@ import { logger } from "@/lib/logger"
 import { publishAfterCommit } from "@/lib/realtime/after-commit"
 import type { Actor } from "./actor"
 import type { Db } from "./db"
+import { bestEffort } from "./savepoint"
 
 const log = logger.child({ module: "activity" })
 
@@ -301,7 +302,8 @@ export async function logActivity(tx: Db, input: ActivityInput): Promise<void> {
     if (parent) input = { ...input, diff: { ...input.diff, meta: { ...input.diff?.meta, pbItemId: parent.pbItemId } } }
   }
   try {
-    await tx.activityLog.create({
+    // Savepoint: a failed insert must not abort the caller's PostgreSQL transaction.
+    await bestEffort(tx, () => tx.activityLog.create({
       data: {
         projectId: input.projectId,
         entityType: input.entityType,
@@ -312,7 +314,7 @@ export async function logActivity(tx: Db, input: ActivityInput): Promise<void> {
         actorName: input.actor?.userName ?? null,
         diff: serializeDiff(withVia(input.diff, input.actor)),
       },
-    })
+    }))
     // Live refresh of the project's open screens (ids only; delivered after the commit).
     publishAfterCommit({
       type: "activity",

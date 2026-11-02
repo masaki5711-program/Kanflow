@@ -100,7 +100,7 @@ describe("list_attachments", () => {
     const out = await runTool("list_attachments", { projectId: "p1", args: { name_contains: " secret " } })
     expect(m.attFindMany.mock.calls[0][0].where).toEqual({
       projectId: "p1",
-      originalName: { contains: "secret" },
+      originalName: { contains: "secret", mode: "insensitive" },
     })
     expect(out).toBe("No attachments found.")
   })

@@ -109,7 +109,7 @@ describe("get_release_status", () => {
     const where = m.releaseFindMany.mock.calls[0][0].where
     expect(where.projectId).toBe("p1")
     expect(where.OR).toEqual([{ pbItemId: null }, { pbItem: { deletedAt: null } }])
-    expect(where.releaseVersion).toEqual({ contains: "v1" })
+    expect(where.releaseVersion).toEqual({ contains: "v1", mode: "insensitive" })
   })
 })
 

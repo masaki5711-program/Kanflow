@@ -18,19 +18,19 @@ if [ -n "$missing" ]; then
   exit 1
 fi
 
-# 2. Wait for MySQL to accept connections (belt-and-suspenders beyond healthcheck)
-echo "Waiting for MySQL at ${DATABASE_HOST}:${DATABASE_PORT}..."
+# 2. Wait for the database (PostgreSQL) to accept connections (belt-and-suspenders beyond healthcheck)
+echo "Waiting for PostgreSQL at ${DATABASE_HOST}:${DATABASE_PORT}..."
 timeout=30
 elapsed=0
 while ! nc -z "$DATABASE_HOST" "$DATABASE_PORT" 2>/dev/null; do
   elapsed=$((elapsed + 1))
   if [ "$elapsed" -ge "$timeout" ]; then
-    echo "ERROR: MySQL not reachable after ${timeout}s"
+    echo "ERROR: PostgreSQL not reachable after ${timeout}s"
     exit 1
   fi
   sleep 1
 done
-echo "MySQL is ready."
+echo "PostgreSQL is ready."
 
 # 3. Run Prisma migrations
 echo "Running database migrations..."

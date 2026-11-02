@@ -232,7 +232,7 @@ describe("updateGitSettings", () => {
     await svc.updateGitSettings(PROJECT_ID, { provider: "gitlab" }, ACTOR)
     expect(txLog).toEqual(["begin", "lock", "count", "upsert", "end"])
     const sql = (queryRawMock.mock.calls[0][0] as TemplateStringsArray).join("?")
-    expect(sql).toMatch(/SELECT id FROM `Project` WHERE id = \? FOR UPDATE/)
+    expect(sql).toMatch(/SELECT "id" FROM "Project" WHERE "id" = \? FOR UPDATE/)
     expect(queryRawMock.mock.calls[0][1]).toBe(PROJECT_ID)
   })
 

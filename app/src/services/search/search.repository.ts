@@ -20,7 +20,7 @@ export const TRANSLATION_MATCH_CAP = 300
 export type ProjectScope = Prisma.ProjectWhereInput
 
 export interface EntityMatch {
-  /** Escaped LIKE pattern (without the surrounding %); null = match `ids` only (FULLTEXT candidates). */
+  /** Escaped LIKE pattern (without the surrounding %); null = match `ids` only (trigram candidates). */
   pattern: string | null
   /** Ids matched through the translated text. */
   ids: readonly string[]
@@ -45,7 +45,15 @@ export function findTranslationMatches(db: Db, pattern: string) {
   return db.fieldTranslation.findMany({
     where: {
       OR: targets,
-      AND: [{ OR: [{ textJa: { contains: pattern } }, { textId: { contains: pattern } }, { textEn: { contains: pattern } }] }],
+      AND: [
+        {
+          OR: [
+            { textJa: { contains: pattern, mode: "insensitive" } },
+            { textId: { contains: pattern, mode: "insensitive" } },
+            { textEn: { contains: pattern, mode: "insensitive" } },
+          ],
+        },
+      ],
     },
     select: { entityType: true, entityId: true },
     orderBy: { updatedAt: "desc" },

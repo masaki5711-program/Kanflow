@@ -31,37 +31,39 @@ export function projectQuotaBytes(env: Env = process.env): number | null {
 /**
  * Bytes currently stored for the project. Raw SQL with the sum cast to text:
  * the total can exceed the INT range of `fileSize` (2 GiB), which a Prisma
- * `_sum` on an Int column would have to represent as Int.
+ * `_sum` on an Int column would have to represent as Int. (SUM of an integer
+ * column is BIGINT on PostgreSQL; identifiers are quoted because unquoted
+ * names fold to lower case.)
  */
 export async function projectStorageUsed(db: Db, projectId: string): Promise<number> {
   const rows = await db.$queryRaw<Array<{ total: unknown }>>`
     SELECT CAST(
-      (SELECT COALESCE(SUM(pa.fileSize), 0) FROM ProjectAttachment pa WHERE pa.projectId = ${projectId})
-      + (SELECT COALESCE(SUM(ia.fileSize), 0)
-           FROM IceboxAttachment ia
-           JOIN IceboxItem ii ON ii.id = ia.iceboxItemId
-          WHERE ii.projectId = ${projectId})
-      + (SELECT COALESCE(SUM(ta.fileSize), 0)
-           FROM TeamMessageAttachment ta
-           JOIN TeamMessage tm ON tm.id = ta.messageId
-          WHERE tm.projectId = ${projectId})
-      + (SELECT COALESCE(SUM(pa2.fileSize), 0)
+      (SELECT COALESCE(SUM(pa."fileSize"), 0) FROM "ProjectAttachment" pa WHERE pa."projectId" = ${projectId})
+      + (SELECT COALESCE(SUM(ia."fileSize"), 0)
+           FROM "IceboxAttachment" ia
+           JOIN "IceboxItem" ii ON ii."id" = ia."iceboxItemId"
+          WHERE ii."projectId" = ${projectId})
+      + (SELECT COALESCE(SUM(ta."fileSize"), 0)
+           FROM "TeamMessageAttachment" ta
+           JOIN "TeamMessage" tm ON tm."id" = ta."messageId"
+          WHERE tm."projectId" = ${projectId})
+      + (SELECT COALESCE(SUM(pa2."fileSize"), 0)
            FROM pbi_attachment pa2
-           JOIN ProductBacklogItem pbi ON pbi.id = pa2.backlogItemId
-          WHERE pbi.projectId = ${projectId})
-      + (SELECT COALESCE(SUM(ip.fileSize), 0)
+           JOIN "ProductBacklogItem" pbi ON pbi."id" = pa2."backlogItemId"
+          WHERE pbi."projectId" = ${projectId})
+      + (SELECT COALESCE(SUM(ip."fileSize"), 0)
            FROM improvement_photo ip
-           JOIN ReleaseBacklogItem rbi ON rbi.id = ip.releaseItemId
-          WHERE rbi.projectId = ${projectId})
-      + (SELECT COALESCE(SUM(pp.fileSize), 0)
+           JOIN "ReleaseBacklogItem" rbi ON rbi."id" = ip."releaseItemId"
+          WHERE rbi."projectId" = ${projectId})
+      + (SELECT COALESCE(SUM(pp."fileSize"), 0)
            FROM punch_photo pp
-           JOIN punch_item pi ON pi.id = pp.punchItemId
-          WHERE pi.projectId = ${projectId})
-      + (SELECT COALESCE(SUM(hf.fileSize), 0)
+           JOIN punch_item pi ON pi."id" = pp."punchItemId"
+          WHERE pi."projectId" = ${projectId})
+      + (SELECT COALESCE(SUM(hf."fileSize"), 0)
            FROM handover_file hf
-           JOIN handover_document hd ON hd.id = hf.documentId
-          WHERE hd.projectId = ${projectId})
-    AS CHAR) AS total`
+           JOIN handover_document hd ON hd."id" = hf."documentId"
+          WHERE hd."projectId" = ${projectId})
+    AS TEXT) AS total`
   const total = Number(rows[0]?.total ?? 0)
   return Number.isFinite(total) ? total : 0
 }

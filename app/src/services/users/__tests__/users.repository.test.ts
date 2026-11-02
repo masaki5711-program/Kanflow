@@ -95,10 +95,10 @@ describe("users.repository", () => {
     const [without] = db.fn("user.findMany").mock.calls[1]
     expect(withProject.where.isActive).toBe(true)
     expect(withProject.where.OR).toEqual([
-      { name: { contains: "yam" } },
-      { email: { contains: "yam" } },
-      { employeeNumber: { contains: "yam" } },
-      { department: { contains: "yam" } },
+      { name: { contains: "yam", mode: "insensitive" } },
+      { email: { contains: "yam", mode: "insensitive" } },
+      { employeeNumber: { contains: "yam", mode: "insensitive" } },
+      { department: { contains: "yam", mode: "insensitive" } },
     ])
     expect(withProject.take).toBe(LIST_LIMITS.userSearch)
     expect(withProject.select.memberships).toEqual({ where: { projectId: "p1" }, select: { id: true } })

@@ -14,7 +14,7 @@
  *   e.g. Next.js "[projectId]" directories), control characters, more than
  *   SCOPE_VALUE_MAX characters. Case is kept and compared exactly (repositories are
  *   case-sensitive), so dedupe and comparison happen here, never in the database
- *   (MySQL's collation is case-insensitive, PostgreSQL's is not).
+ *   (the database must not decide: MySQL's collation was case-insensitive, PostgreSQL's is not).
  * - Overlap of two entries:
  *   path × path   — equal, or one is a prefix of the other on a "/" boundary
  *                   ("app/src" covers "app/src/x.ts", not "app/srcx");

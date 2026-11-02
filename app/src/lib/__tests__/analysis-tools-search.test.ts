@@ -47,14 +47,14 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs())
 
 describe("searchWorkItems (FULLTEXT)", () => {
-  it("looks up candidates of this project only, with the boolean query", async () => {
+  it("looks up candidates of this project only, with the search terms", async () => {
     m.pbiIds.mockResolvedValue([{ id: "b1", score: 1 }])
     m.pbiFindMany.mockResolvedValue([{ id: "b1", displayId: 1, initiative: "Login", userStory: null, status: "ready", workloadScore: 2 }])
     await searchWorkItems("p1", "login form")
     for (const f of [m.pbiIds, m.iceIds, m.taskIds]) {
-      expect(f).toHaveBeenCalledWith(prisma, ["p1"], "+login* +form*", WORK_ITEM_SEARCH_LIMIT)
+      expect(f).toHaveBeenCalledWith(prisma, ["p1"], ["login", "form"], WORK_ITEM_SEARCH_LIMIT)
     }
-    expect(m.translations).toHaveBeenCalledWith(prisma, "+login* +form*", ["pbi", "icebox", "task"])
+    expect(m.translations).toHaveBeenCalledWith(prisma, ["login", "form"], ["pbi", "icebox", "task"])
   })
 
   it("reloads candidates with the project / soft-delete filters and keeps relevance order", async () => {
@@ -81,16 +81,16 @@ describe("searchWorkItems (FULLTEXT)", () => {
   it("falls back to LIKE when FULLTEXT finds nothing", async () => {
     await searchWorkItems("p1", "login")
     expect(m.pbiFindMany.mock.calls[0][0].where.OR).toEqual([
-      { initiative: { contains: "login" } },
-      { epic: { contains: "login" } },
-      { userStory: { contains: "login" } },
+      { initiative: { contains: "login", mode: "insensitive" } },
+      { epic: { contains: "login", mode: "insensitive" } },
+      { userStory: { contains: "login", mode: "insensitive" } },
     ])
   })
 
-  it("falls back to LIKE when the FULLTEXT index is missing", async () => {
-    m.pbiIds.mockRejectedValue(Object.assign(new Error("x"), { meta: { driverAdapterError: { cause: { code: 1191 } } } }))
+  it("falls back to LIKE when pg_trgm is missing (42883)", async () => {
+    m.pbiIds.mockRejectedValue(Object.assign(new Error("Raw query failed. Code: `42883`. Message: `function word_similarity(unknown, text) does not exist`"), { meta: { driverAdapterError: { cause: { code: "42883" } } } }))
     await searchWorkItems("p1", "login")
-    expect(m.sbiFindMany.mock.calls[0][0].where.taskName).toEqual({ contains: "login" })
+    expect(m.sbiFindMany.mock.calls[0][0].where.taskName).toEqual({ contains: "login", mode: "insensitive" })
   })
 })
 
@@ -103,7 +103,7 @@ describe("searchWorkItems (LIKE)", () => {
     expect(m.iceFindMany.mock.calls[1][0].where).toEqual({
       projectId: "p1",
       deletedAt: null,
-      OR: [{ request: { contains: "login" } }, { background: { contains: "login" } }],
+      OR: [{ request: { contains: "login", mode: "insensitive" } }, { background: { contains: "login", mode: "insensitive" } }],
     })
   })
 

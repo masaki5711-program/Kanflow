@@ -13,7 +13,7 @@ describe("search.repository", () => {
     await repo.findTranslationMatches(db.client, "x\\_y")
     const args = whereOf(db, "fieldTranslation.findMany")
     expect(args.where.AND).toEqual([
-      { OR: [{ textJa: { contains: "x\\_y" } }, { textId: { contains: "x\\_y" } }, { textEn: { contains: "x\\_y" } }] },
+      { OR: [{ textJa: { contains: "x\\_y", mode: "insensitive" } }, { textId: { contains: "x\\_y", mode: "insensitive" } }, { textEn: { contains: "x\\_y", mode: "insensitive" } }] },
     ])
     expect(args.where.OR).toEqual(
       expect.arrayContaining([
@@ -35,10 +35,10 @@ describe("search.repository", () => {
     expect(args.where.deletedAt).toBeNull()
     expect(args.where.project).toBe(SCOPE)
     expect(args.where.OR).toEqual([
-      { initiative: { contains: "a\\%b" } },
-      { epic: { contains: "a\\%b" } },
-      { userStory: { contains: "a\\%b" } },
-      { acceptanceCriteria: { contains: "a\\%b" } },
+      { initiative: { contains: "a\\%b", mode: "insensitive" } },
+      { epic: { contains: "a\\%b", mode: "insensitive" } },
+      { userStory: { contains: "a\\%b", mode: "insensitive" } },
+      { acceptanceCriteria: { contains: "a\\%b", mode: "insensitive" } },
       { id: { in: ["b9"] } },
       { displayId: 12 },
     ])
@@ -67,7 +67,7 @@ describe("search.repository", () => {
     const args = whereOf(db, "sprintBacklogItem.findMany")
     expect(args.where.pbItem).toEqual({ deletedAt: null })
     expect(args.where.sprint).toEqual({ project: SCOPE })
-    expect(args.where.OR).toEqual([{ taskName: { contains: "a\\%b" } }, { id: { in: ["t1"] } }])
+    expect(args.where.OR).toEqual([{ taskName: { contains: "a\\%b", mode: "insensitive" } }, { id: { in: ["t1"] } }])
   })
 
   it("findIceboxItems: live items of accessible projects", async () => {
@@ -82,13 +82,13 @@ describe("search.repository", () => {
     const db = fakeDb()
     await repo.findProjects(db.client, SM_SCOPE, match({ ids: ["p2"] }))
     const args = whereOf(db, "project.findMany")
-    expect(args.where).toEqual({ AND: [SM_SCOPE, { OR: [{ name: { contains: "a\\%b" } }, { id: { in: ["p2"] } }] }] })
+    expect(args.where).toEqual({ AND: [SM_SCOPE, { OR: [{ name: { contains: "a\\%b", mode: "insensitive" } }, { id: { in: ["p2"] } }] }] })
   })
 
   it("findGoals: goals of accessible projects (title / description)", async () => {
     const db = fakeDb()
     await repo.findGoals(db.client, SCOPE, match())
     const args = whereOf(db, "productGoal.findMany")
-    expect(args.where).toEqual({ project: SCOPE, OR: [{ title: { contains: "a\\%b" } }, { description: { contains: "a\\%b" } }] })
+    expect(args.where).toEqual({ project: SCOPE, OR: [{ title: { contains: "a\\%b", mode: "insensitive" } }, { description: { contains: "a\\%b", mode: "insensitive" } }] })
   })
 })

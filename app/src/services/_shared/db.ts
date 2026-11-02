@@ -32,8 +32,9 @@ export function withTransaction<T>(fn: (tx: Db) => Promise<T>, options: Transact
 export interface TransactionOptions {
   /**
    * "ReadCommitted": every statement reads the latest committed rows instead of the
-   * snapshot taken at the transaction's first read (MariaDB's default REPEATABLE
-   * READ). Needed when a row lock serializes a check-then-insert (work claims):
+   * snapshot taken at the transaction's first read. PostgreSQL's default is already
+   * READ COMMITTED; stating it keeps the guarantee explicit (MySQL's default was
+   * REPEATABLE READ). Needed when a row lock serializes a check-then-insert (work claims):
    * the reads after the lock must see what the previous lock holder committed.
    */
   isolationLevel?: "ReadCommitted"

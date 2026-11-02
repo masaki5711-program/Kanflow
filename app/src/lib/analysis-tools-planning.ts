@@ -239,7 +239,7 @@ export const planningHandlers: Record<string, ToolHandler> = {
         projectId,
         // Items whose PBI is in the trash are hidden like the PBI itself.
         OR: [{ pbItemId: null }, LIVE_PBI],
-        ...(version ? { releaseVersion: { contains: version } } : {}),
+        ...(version ? { releaseVersion: { contains: version, mode: "insensitive" } } : {}),
       },
       select: {
         releaseVersion: true, releaseDate: true, status: true, initiative: true, userStory: true,

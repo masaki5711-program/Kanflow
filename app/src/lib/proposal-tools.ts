@@ -265,7 +265,7 @@ async function findTask(projectId: string, args: Record<string, unknown>) {
     where: {
       sprint: { projectId, ...(taskId ? {} : { status: { in: OPEN_SPRINTS } }) },
       ...LIVE_PBI,
-      ...(taskId ? { id: taskId } : { taskName: { contains: name } }),
+      ...(taskId ? { id: taskId } : { taskName: { contains: name, mode: "insensitive" } }),
     },
     select: { id: true, taskName: true, status: true, version: true, sprintId: true },
     take: 5,
@@ -351,7 +351,7 @@ async function proposeSprintPbi(projectId: string, args: Record<string, unknown>
   if (!pbi) return err("PBI not found in this project (use its #number)")
   const sprintName = strArg(args.sprint, 100)
   const sprints = await prisma.sprint.findMany({
-    where: { projectId, status: { in: OPEN_SPRINTS }, ...(sprintName ? { sprintName: { contains: sprintName } } : {}) },
+    where: { projectId, status: { in: OPEN_SPRINTS }, ...(sprintName ? { sprintName: { contains: sprintName, mode: "insensitive" } } : {}) },
     orderBy: { startDate: "desc" },
     take: 5,
     select: { id: true, sprintName: true },

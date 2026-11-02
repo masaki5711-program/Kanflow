@@ -44,7 +44,7 @@ function daysUntil(d: Date): number {
 async function resolveSprint(projectId: string, sprintName?: string) {
   if (sprintName) {
     return prisma.sprint.findFirst({
-      where: { projectId, sprintName: { contains: sprintName } },
+      where: { projectId, sprintName: { contains: sprintName, mode: "insensitive" } },
       orderBy: { startDate: "desc" },
     })
   }

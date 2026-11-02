@@ -13,12 +13,12 @@ export function findPbi(db: Db, projectId: string, ref: { id: string } | { displ
 /**
  * Serializes the allocation of `seq` on one PBI: an exclusive row lock on the PBI, taken
  * inside the create transaction before `max(seq)` is read. Same statement as
- * dev-work.repository.lockPbi (PostgreSQL: identical `SELECT ... FOR UPDATE`; listed with the
- * raw SQL to re-test at the PostgreSQL migration). The transaction runs READ COMMITTED so the
- * `max(seq)` read after the lock sees what the previous lock holder committed.
+ * dev-work.repository.lockPbi; the table name is quoted (PostgreSQL folds unquoted names to
+ * lower case). The transaction runs READ COMMITTED so the `max(seq)` read after the lock sees
+ * what the previous lock holder committed (acceptance-criteria.db.test.ts).
  */
 export async function lockPbi(db: Db, pbiId: string): Promise<void> {
-  await db.$queryRaw`SELECT id FROM ProductBacklogItem WHERE id = ${pbiId} FOR UPDATE`
+  await db.$queryRaw`SELECT "id" FROM "ProductBacklogItem" WHERE "id" = ${pbiId} FOR UPDATE`
 }
 
 /** Live criteria of a PBI in `seq` order (bounded by AC_MAX_PER_PBI at write time). */

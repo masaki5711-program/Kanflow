@@ -85,8 +85,8 @@ describe("accessibleProjectWhere", () => {
 })
 
 describe("containsAny", () => {
-  it("builds one contains clause per column", () => {
-    expect(containsAny(["a", "b"], "x\\%")).toEqual([{ a: { contains: "x\\%" } }, { b: { contains: "x\\%" } }])
+  it("builds one case-insensitive contains clause per column", () => {
+    expect(containsAny(["a", "b"], "x\\%")).toEqual([{ a: { contains: "x\\%", mode: "insensitive" } }, { b: { contains: "x\\%", mode: "insensitive" } }])
   })
 })
 

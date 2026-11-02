@@ -68,6 +68,7 @@ describe("redactText: key names, look-alike text, hosts and paths (review harden
     ["_KEY", "STRIPE_KEY=somevalue123", "somevalue123"],
     ["camelCase", 'config {"apiKey": "plainvalue"}', "plainvalue"],
     ["DATABASE_URL", "DATABASE_URL=mysql://app:pw@db.corp.test/x", "pw@"],
+    ["DATABASE_URL (PostgreSQL)", "DATABASE_URL=postgresql://app:pgpw@db.corp.test:5432/x", "pgpw@"],
     ["URL with user only", "git clone https://deploy@git.example.test/x.git", "deploy@"],
     ["JSON key", '{"client_secret": "abcdefghij"}', "abcdefghij"],
     ["full-width key", "ＤＢ＿ＰＡＳＳ＝fullwidthvalue", "fullwidthvalue"],

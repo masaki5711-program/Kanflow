@@ -1,11 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
 /**
- * Concurrency of work claims against a REAL MariaDB / MySQL (the rest of the suite
+ * Concurrency of work claims against a REAL PostgreSQL (the rest of the suite
  * mocks Prisma). Skipped unless KANFLOW_DB_TESTS=1 and DATABASE_* point at a
- * migrated, disposable test database (synthetic rows only, removed afterwards):
+ * migrated, disposable test database (synthetic rows only, removed afterwards),
+ * e.g. the container of ops/test-env/compose.yml:
  *
- *   KANFLOW_DB_TESTS=1 DATABASE_PASSWORD=... DATABASE_NAME=kanflow_test npx vitest run src/services/dev-work/__tests__/dev-work.db.test.ts
+ *   KANFLOW_DB_TESTS=1 npx vitest run src/services/dev-work/__tests__/dev-work.db.test.ts
  *
  * It checks the property the PBI row lock + READ COMMITTED transaction exist for:
  * concurrent first claims of one target never both win.

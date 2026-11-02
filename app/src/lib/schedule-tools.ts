@@ -377,7 +377,7 @@ async function proposePlanEdit(projectId: string, args: Record<string, unknown>)
 async function proposeSprintSchedule(projectId: string, args: Record<string, unknown>): Promise<string> {
   const name = strArg(args.sprint, 100)
   const sprints = await prisma.sprint.findMany({
-    where: { projectId, status: { in: OPEN_SPRINTS }, ...(name ? { sprintName: { contains: name } } : {}) },
+    where: { projectId, status: { in: OPEN_SPRINTS }, ...(name ? { sprintName: { contains: name, mode: "insensitive" } } : {}) },
     orderBy: { startDate: "desc" },
     take: 5,
     select: { id: true, sprintName: true, startDate: true, endDate: true, version: true },

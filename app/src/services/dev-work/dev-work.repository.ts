@@ -56,7 +56,7 @@ export function findTask(db: Db, projectId: string, taskId: string) {
  * concurrent first claims could both insert.
  */
 export async function lockPbi(db: Db, backlogItemId: string): Promise<void> {
-  await db.$queryRaw`SELECT id FROM ProductBacklogItem WHERE id = ${backlogItemId} FOR UPDATE`
+  await db.$queryRaw`SELECT "id" FROM "ProductBacklogItem" WHERE "id" = ${backlogItemId} FOR UPDATE`
 }
 
 /** Active (open, heartbeat at or after `since`) claims on a PBI, newest heartbeat first, ACTIVE_CLAIMS_PER_PBI_LIMIT + 1 rows. */

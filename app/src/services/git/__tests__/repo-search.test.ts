@@ -85,8 +85,9 @@ describe("searchRepoDocs", () => {
     queryRaw.mockResolvedValueOnce([1, 2, 3, 4, 5, 6].map((i) => row({ id: `c${i}`, path: i <= 3 ? "a.md" : `f${i}.md`, score: 10 - i })))
     const hits = await search.searchRepoDocs("p1", [REPO], "OEE")
     const sql = queryRaw.mock.calls[0][0] as { values: unknown[]; sql: string }
-    expect(sql.sql).toContain("MATCH(`path`, `heading`, `content`)")
-    expect(sql.values).toEqual(expect.arrayContaining(["p1", "r1", "+OEE*"]))
+    expect(sql.sql).toMatch(/"path" ILIKE \? OR "heading" ILIKE \? OR "content" ILIKE \?/)
+    expect(sql.sql).toContain('FROM "repo_chunk"')
+    expect(sql.values).toEqual(expect.arrayContaining(["p1", "r1", "OEE", "%OEE%"]))
     expect(hits.map((h) => h.path)).toEqual(["a.md", "a.md", "f4.md", "f5.md"])
     expect(hits[0]).toMatchObject({ repository: "仕様書", url: "https://gitlab.example/g/spec/-/blob/abc123/a.md" })
   })
@@ -94,16 +95,22 @@ describe("searchRepoDocs", () => {
   it("fills up with any-keyword matches when all keywords find too little", async () => {
     queryRaw.mockResolvedValueOnce([row({ id: "strict" })]).mockResolvedValueOnce([row({ id: "strict" }), row({ id: "loose", path: "b.md" })])
     const hits = await search.searchRepoDocs("p1", [REPO], "OEE OLE")
-    expect((queryRaw.mock.calls[1][0] as { values: unknown[] }).values).toContain("OEE* OLE*")
+    const strict = (queryRaw.mock.calls[0][0] as { sql: string }).sql.replace(/\s+/g, " ")
+    const loose = queryRaw.mock.calls[1][0] as { sql: string; values: unknown[] }
+    // Strict: both keywords required (AND between the per-term groups); loose: any keyword (OR).
+    expect(strict).toMatch(/\) AND \(/)
+    expect(loose.sql.replace(/\s+/g, " ")).toMatch(/\) OR \(/)
+    expect(loose.values).toEqual(expect.arrayContaining(["%OEE%", "%OLE%"]))
     expect(hits).toHaveLength(2)
   })
 
-  it("falls back to LIKE (ranked by keyword hits) when FULLTEXT is off", async () => {
+  it("falls back to case-insensitive LIKE (ranked by keyword hits) when the trigram path is off", async () => {
     vi.stubEnv("SEARCH_FULLTEXT", "off")
     chunkFindMany.mockResolvedValue([row({ id: "one", content: "OEE only" }), row({ id: "both", path: "b.md", content: "OEE and OLE" })])
     const hits = await search.searchRepoDocs("p1", [REPO], "OEE OLE")
     expect(queryRaw).not.toHaveBeenCalled()
     expect(chunkFindMany.mock.calls[0][0].where).toMatchObject({ projectId: "p1", repositoryId: { in: ["r1"] } })
+    expect(chunkFindMany.mock.calls[0][0].where.OR[0]).toEqual({ content: { contains: "OEE", mode: "insensitive" } })
     expect(hits.map((h) => h.path)).toEqual(["b.md", "docs/a.md"])
   })
 
