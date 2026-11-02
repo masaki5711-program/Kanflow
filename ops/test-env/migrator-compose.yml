@@ -25,7 +25,7 @@ services:
     image: mysql:8.4
     environment:
       MYSQL_ROOT_PASSWORD: k2_root_synthetic
-      MYSQL_DATABASE: scrum_tool
+      MYSQL_DATABASE: scrum_tool_synthetic
       MYSQL_USER: k2_app
       MYSQL_PASSWORD: k2_app_synthetic
       # Production keeps the server clock in local time (UTC+7); the rehearsal

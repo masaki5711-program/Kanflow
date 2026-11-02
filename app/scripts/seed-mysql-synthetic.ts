@@ -4,7 +4,7 @@
  * MySQL) and any non-loopback host.
  *
  *   KANFLOW_SEED_MYSQL_PASSWORD=k2_app_synthetic \
- *   node --import tsx scripts/seed-mysql-synthetic.ts --target mysql://k2_app@127.0.0.1:23306/scrum_tool \
+ *   node --import tsx scripts/seed-mysql-synthetic.ts --target mysql://k2_app@127.0.0.1:23306/scrum_tool_synthetic \
  *     [--apply-schema] [--rows-per-table 6] [--seed 42] [--inject nul|invalid-json|case-dup]
  *
  * --apply-schema  replays the frozen MySQL migrations (prisma/migrations-mysql, the
@@ -29,6 +29,7 @@ import type { Connection, RowDataPacket } from "mysql2/promise"
 import { parseEndpoint, type Endpoint } from "../src/lib/db-migrator/args"
 import { normalizeHost } from "../src/lib/db-migrator/deny-list"
 import { planCopyOrder, type FkEdge } from "../src/lib/db-migrator/order"
+import { myIdent } from "../src/lib/db-migrator/sql"
 
 export type Injection = "nul" | "invalid-json" | "case-dup"
 
@@ -57,9 +58,20 @@ interface Fk {
 
 // ------------------------------------------------------------ guards
 
+/** Synthetic databases are named <anything>_synthetic; the production database (scrum_tool) never is. */
+export const SYNTHETIC_DB = /_synthetic$/
+
 export function assertSyntheticEndpoint(e: Endpoint): void {
   if (normalizeHost(e.host) !== "loopback") throw new Error(`refusing: ${e.host} is not a loopback host (synthetic containers only)`)
   if (e.port === 3306) throw new Error("refusing: port 3306 is the production MySQL port")
+  if (!SYNTHETIC_DB.test(e.database)) throw new Error(`refusing: database ${e.database} is not named *_synthetic`)
+}
+
+/** After connecting: the server must agree that this is a synthetic database (not a tunnel to another one). */
+export async function assertSyntheticServer(conn: Connection): Promise<void> {
+  const [r] = await conn.query<RowDataPacket[]>("SELECT DATABASE() AS db")
+  const db = String(r[0]?.db ?? "")
+  if (!SYNTHETIC_DB.test(db)) throw new Error(`refusing: connected database ${db} is not named *_synthetic`)
 }
 
 // ------------------------------------------------------------ schema
@@ -82,7 +94,7 @@ export async function dropAllTables(conn: Connection): Promise<void> {
   const [rows] = await conn.query<RowDataPacket[]>("SELECT TABLE_NAME AS t FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()")
   if (rows.length === 0) return
   await conn.query("SET FOREIGN_KEY_CHECKS = 0")
-  for (const r of rows) await conn.query(`DROP TABLE \`${String(r.t)}\``)
+  for (const r of rows) await conn.query(`DROP TABLE ${myIdent(String(r.t))}`)
   await conn.query("SET FOREIGN_KEY_CHECKS = 1")
 }
 
@@ -314,6 +326,28 @@ export async function seedSynthetic(conn: Connection, opts: { rowsPerTable: numb
         const unique = uniqueCols.has(c.name)
         row[c.name] = c.nullable && !unique && g.chance(0.15) ? null : g.value(c, unique)
       }
+      // Coherent event times: createdAt first, every other *At / *_at after it and never in the
+      // 7 h +- 30 min local-offset window, so only the deliberate legacy rows below trip the
+      // migrator's timestamp probes.
+      const created = t.cols.find((c) => c.name === "createdAt" || c.name === "created_at")
+      const base = Date.parse(`${g.date().replace(" ", "T")}Z`)
+      for (const c of t.cols) {
+        if ((c.dataType !== "datetime" && c.dataType !== "timestamp") || row[c.name] === null || row[c.name] === undefined) continue
+        if (!/(At|_at)$/.test(c.name)) continue
+        if (c === created) {
+          row[c.name] = fmtDate(base)
+          continue
+        }
+        let d = g.int(30 * 86_400_000)
+        if (d > 6.5 * 3_600_000 && d < 7.5 * 3_600_000) d += 3_600_000
+        row[c.name] = fmtDate(base + d)
+      }
+      // One legacy row: createdAt written by the database default in server local time (UTC+7),
+      // updatedAt by Prisma in UTC -> updatedAt 7 h "before" createdAt.
+      if (lower(tname) === "user" && i === 0 && created) {
+        row[created.name] = fmtDate(base + 7 * 3_600_000)
+        row.updatedAt = fmtDate(base)
+      }
       // Legacy local-time rows (docs/operations/worker.md): requested_at written with NOW(3) at UTC+7.
       if (lower(tname) === "field_translation" && i < opts.rowsPerTable) {
         // Coherent UTC rows: requested <= started <= translated.
@@ -335,7 +369,7 @@ export async function seedSynthetic(conn: Connection, opts: { rowsPerTable: numb
       uniqueSets.forEach((u, k) => u.seen.add(tuples[k]))
       const names = Object.keys(row)
       const [res] = await conn.query<mysql.ResultSetHeader>(
-        `INSERT INTO \`${tname}\` (${names.map((n) => `\`${n}\``).join(", ")}) VALUES (${names.map(() => "?").join(", ")})`,
+        `INSERT INTO ${myIdent(tname)} (${names.map(myIdent).join(", ")}) VALUES (${names.map(() => "?").join(", ")})`,
         names.map((n) => row[n]),
       )
       const auto = t.cols.find((c) => c.autoIncrement)
@@ -359,7 +393,7 @@ export async function seedSynthetic(conn: Connection, opts: { rowsPerTable: numb
       const p = e.table === e.refTable ? rows[g.int(i)] : g.pick(parents)
       if (!p) continue
       await conn.query(
-        `UPDATE \`${e.table}\` SET ${e.columns.map((c) => `\`${c}\` = ?`).join(", ")} WHERE ${t.pk.map((k) => `\`${k}\` = ?`).join(" AND ")}`,
+        `UPDATE ${myIdent(e.table)} SET ${e.columns.map((c) => `${myIdent(c)} = ?`).join(", ")} WHERE ${t.pk.map((k) => `${myIdent(k)} = ?`).join(" AND ")}`,
         [...e.refColumns.map((c) => p[c]), ...t.pk.map((k) => rows[i][k])],
       )
     }
@@ -379,20 +413,20 @@ async function tableNamed(conn: Connection, name: string): Promise<string> {
 /** Adds one defect; returns the primary key(s) it touched and an undo that restores the old values. */
 export async function injectDefect(conn: Connection, kind: Injection): Promise<{ keys: string[]; undo: () => Promise<void> }> {
   const firstIds = async (t: string, n: number): Promise<string[]> => {
-    const [r] = await conn.query<RowDataPacket[]>(`SELECT id FROM \`${t}\` ORDER BY id LIMIT ${n}`)
+    const [r] = await conn.query<RowDataPacket[]>(`SELECT id FROM ${myIdent(t)} ORDER BY id LIMIT ${n}`)
     return r.map((x) => String(x.id))
   }
   const setAndUndo = async (t: string, c: string, values: { id: string; value: string; asJson?: boolean }[]) => {
     const [old] = await conn.query<RowDataPacket[]>(
-      `SELECT id, CAST(\`${c}\` AS CHAR) AS v FROM \`${t}\` WHERE id IN (${values.map(() => "?").join(", ")})`,
+      `SELECT id, CAST(${myIdent(c)} AS CHAR) AS v FROM ${myIdent(t)} WHERE id IN (${values.map(() => "?").join(", ")})`,
       values.map((v) => v.id),
     )
     for (const v of values) {
-      await conn.query(`UPDATE \`${t}\` SET \`${c}\` = ${v.asJson ? "CAST(? AS JSON)" : "?"} WHERE id = ?`, [v.value, v.id])
+      await conn.query(`UPDATE ${myIdent(t)} SET ${myIdent(c)} = ${v.asJson ? "CAST(? AS JSON)" : "?"} WHERE id = ?`, [v.value, v.id])
     }
     return async () => {
       for (const o of old) {
-        await conn.query(`UPDATE \`${t}\` SET \`${c}\` = ${values[0].asJson && o.v !== null ? "CAST(? AS JSON)" : "?"} WHERE id = ?`, [o.v, o.id])
+        await conn.query(`UPDATE ${myIdent(t)} SET ${myIdent(c)} = ${values[0].asJson && o.v !== null ? "CAST(? AS JSON)" : "?"} WHERE id = ?`, [o.v, o.id])
       }
     }
   }
@@ -420,7 +454,7 @@ export async function injectDefect(conn: Connection, kind: Injection): Promise<{
 
 export async function openSeedConnection(endpoint: Endpoint, password: string): Promise<Connection> {
   assertSyntheticEndpoint(endpoint)
-  return mysql.createConnection({
+  const conn = await mysql.createConnection({
     host: endpoint.host,
     port: endpoint.port,
     user: endpoint.user,
@@ -430,6 +464,13 @@ export async function openSeedConnection(endpoint: Endpoint, password: string): 
     multipleStatements: true,
     connectTimeout: 10_000,
   })
+  try {
+    await assertSyntheticServer(conn)
+  } catch (e) {
+    conn.destroy()
+    throw e
+  }
+  return conn
 }
 
 // ------------------------------------------------------------ CLI
