@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Activity, Building2, ChevronDown, KeyRound, Languages, ListChecks, ShieldCheck, Tags, Trash2, Users } from "lucide-react"
+import { Activity, Building2, ChevronDown, KeyRound, Languages, ListChecks, NotebookPen, ShieldCheck, Tags, Trash2, Users } from "lucide-react"
 import { useLanguage } from "@/lib/language-context"
 import { cn } from "@/components/ui"
 import type { Translations } from "@/lib/i18n"
@@ -29,6 +29,7 @@ export function adminLinks(t: Translations): AdminLink[] {
     { href: "/admin/trash", label: t.trashAdminMenu, Icon: Trash2 },
     { href: "/admin/api-tokens", label: t.apiTokenAdminMenu, Icon: KeyRound },
     { href: "/admin/metrics", label: t.metricsAdminMenu, Icon: Activity },
+    { href: "/admin/plan-lesson-rules", label: t.plrAdminLink, Icon: NotebookPen },
   ]
 }
 

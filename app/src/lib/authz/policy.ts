@@ -89,6 +89,14 @@ export const PROJECT_ACTIONS = [
    * progress comment, link a merge request of a registered repository to a PBI.
    */
   "dev.write",
+  /**
+   * 反省点の規則 (plan 12 §2.3, E3) of this project's own `project` scope: confirm a draft (one at a time, with its
+   * numbers shown) and retire a rule. Drafting / editing a draft is "plan.write". Rules of the `shared` scope
+   * (lineage / project type) are decided by `canConfirmLineageRule` (admins only), never by this action.
+   */
+  "plan.lessonRule.confirm",
+  /** Ask an admin to widen a confirmed `project` rule of this project to a lineage / project type (昇格の申請). */
+  "plan.lessonRule.requestPromotion",
 ] as const
 export type ProjectAction = (typeof PROJECT_ACTIONS)[number]
 
@@ -134,6 +142,8 @@ const POLICY: Readonly<Record<ProjectAction, readonly Grantee[]>> = {
   "git.configure": PO_SM,
   "git.sync": MEMBER,
   "dev.write": MEMBER,
+  "plan.lessonRule.confirm": PO_SM,
+  "plan.lessonRule.requestPromotion": PO,
 }
 
 export function isSystemAdmin(actor: Pick<ProjectActor, "systemRole">): boolean {
@@ -161,6 +171,15 @@ export function can(actor: ProjectActor, action: ProjectAction): boolean {
   const allowed = POLICY[action]
   if (!allowed) return false
   return granteesOf(actor).some((g) => allowed.includes(g))
+}
+
+/**
+ * Confirm or retire a lesson rule of the `shared` scope (lineage / project type) and confirm or reject a promotion
+ * request: system admins only, until Kanflow has a notion of a lineage owner (plan 12 §4, §9 Q6). Not expressible
+ * with `can()` because such a rule reaches beyond one project.
+ */
+export function canConfirmLineageRule(actor: Pick<ProjectActor, "systemRole">): boolean {
+  return isSystemAdmin(actor)
 }
 
 export type AccessVia = "admin" | "member" | "section_manager"

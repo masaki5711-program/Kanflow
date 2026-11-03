@@ -1,6 +1,7 @@
 "use client"
 
 import { CalendarRange, Crosshair, Diamond, LayoutTemplate, ListChecks, Maximize2, Plus } from "lucide-react"
+import { useRouter } from "next/navigation"
 import { CardMenu, type CardMenuItem } from "@/app/projects/[projectId]/backlog/card-menu"
 import { Button, PageHeader, cn } from "@/components/ui"
 import { useLanguage } from "@/lib/language-context"
@@ -34,11 +35,14 @@ interface Props {
   onToggleSelecting: () => void
   hasItems: boolean
   hasUndated: boolean
+  /** 反省点の規則 page of this project (plan 12 E3); omitted = no menu entry. */
+  lessonRulesUrl?: string
 }
 
 /** Page header (h1) with zoom switch, today jump, "show everything", add actions and a "more" menu. */
 export function PlanToolbar(props: Props) {
   const { t } = useLanguage()
+  const router = useRouter()
   const zoomLabel: Record<PlanZoom, string> = {
     day: t.planZoomDay,
     week: t.planZoomWeek,
@@ -59,6 +63,7 @@ export function PlanToolbar(props: Props) {
       : []),
     { key: "export", label: t.planExport, onSelect: () => window.location.assign(props.exportUrl) },
     { key: "print", label: t.planPrint, onSelect: props.onPrint },
+    ...(props.lessonRulesUrl ? [{ key: "lesson-rules", label: t.plrOpenFromPlan, onSelect: () => router.push(props.lessonRulesUrl as string) }] : []),
   ]
 
   return (

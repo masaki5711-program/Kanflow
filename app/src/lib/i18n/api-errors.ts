@@ -82,6 +82,12 @@ export interface ApiErrorsTranslations {
   apiErrPlanScheduleInvalid: string
   apiErrPlanProposalTooLarge: string
   apiErrPlanAlreadyLoaded: string
+  apiErrPlanRuleInvalid: string
+  apiErrPlanRuleNotFound: string
+  apiErrPlanRuleChanged: string
+  apiErrPlanRuleState: string
+  apiErrPlanRulePromotionBlocked: string
+  apiErrPlanRuleLimit: string
   apiErrFileRequired: string
   apiErrFileEmpty: string
   apiErrFileMissing: string
@@ -209,6 +215,12 @@ export const API_ERROR_MESSAGE_KEYS: Readonly<Record<ApiErrorCode, ApiErrorMessa
   PLAN_SCHEDULE_INVALID: "apiErrPlanScheduleInvalid",
   PLAN_PROPOSAL_TOO_LARGE: "apiErrPlanProposalTooLarge",
   PLAN_ALREADY_LOADED: "apiErrPlanAlreadyLoaded",
+  PLAN_RULE_INVALID: "apiErrPlanRuleInvalid",
+  PLAN_RULE_NOT_FOUND: "apiErrPlanRuleNotFound",
+  PLAN_RULE_CHANGED: "apiErrPlanRuleChanged",
+  PLAN_RULE_STATE: "apiErrPlanRuleState",
+  PLAN_RULE_PROMOTION_BLOCKED: "apiErrPlanRulePromotionBlocked",
+  PLAN_RULE_LIMIT: "apiErrPlanRuleLimit",
   FILE_REQUIRED: "apiErrFileRequired",
   FILE_EMPTY: "apiErrFileEmpty",
   FILE_MISSING: "apiErrFileMissing",
@@ -343,6 +355,12 @@ export const ja: ApiErrorsTranslations = {
   apiErrPlanScheduleInvalid: "計画の内容（キー・依存）に誤りがあります",
   apiErrPlanProposalTooLarge: "計画が大きすぎて提案にできません",
   apiErrPlanAlreadyLoaded: "この計画の読み込みは、すでにこのプロジェクトに反映済みです",
+  apiErrPlanRuleInvalid: "反省点の規則の内容が正しくありません",
+  apiErrPlanRuleNotFound: "反省点の規則が見つかりません",
+  apiErrPlanRuleChanged: "反省点の規則が変更されています。読み込み直して、種類と数字を確かめてからやり直してください",
+  apiErrPlanRuleState: "反省点の規則の状態が変わっています。読み込み直してからやり直してください",
+  apiErrPlanRulePromotionBlocked: "この規則は他のプロジェクトへ広げられません（振り返りから作った規則か、出典が機密です）",
+  apiErrPlanRuleLimit: "このプロジェクトの規則（下書きと確定）が上限に達しています。使わない規則を廃止してから書いてください",
   apiErrFileRequired: "ファイルがありません",
   apiErrFileEmpty: "ファイルが空です",
   apiErrFileMissing: "ファイルが見つかりません",
@@ -471,6 +489,12 @@ export const en: ApiErrorsTranslations = {
   apiErrPlanScheduleInvalid: "The schedule has an invalid key or dependency",
   apiErrPlanProposalTooLarge: "The schedule is too large to propose",
   apiErrPlanAlreadyLoaded: "This plan proposal was already loaded into this project",
+  apiErrPlanRuleInvalid: "The lesson rule is not valid",
+  apiErrPlanRuleNotFound: "Lesson rule not found",
+  apiErrPlanRuleChanged: "The lesson rule has changed. Reload, check its kind and numbers, and try again",
+  apiErrPlanRuleState: "The lesson rule's state has changed. Reload and try again",
+  apiErrPlanRulePromotionBlocked: "This rule cannot be shared with other projects (it comes from a retrospective or cites a confidential source)",
+  apiErrPlanRuleLimit: "This project has reached the limit of draft and confirmed rules. Retire rules you no longer use first",
   apiErrFileRequired: "No file was provided",
   apiErrFileEmpty: "The file is empty",
   apiErrFileMissing: "The file was not found",
@@ -599,6 +623,12 @@ export const id: ApiErrorsTranslations = {
   apiErrPlanScheduleInvalid: "Jadwal memiliki kunci atau ketergantungan yang tidak valid",
   apiErrPlanProposalTooLarge: "Jadwal terlalu besar untuk diusulkan",
   apiErrPlanAlreadyLoaded: "Usulan rencana ini sudah dimuat ke proyek ini",
+  apiErrPlanRuleInvalid: "Aturan pelajaran tidak valid",
+  apiErrPlanRuleNotFound: "Aturan pelajaran tidak ditemukan",
+  apiErrPlanRuleChanged: "Aturan pelajaran telah berubah. Muat ulang, periksa jenis dan angkanya, lalu coba lagi",
+  apiErrPlanRuleState: "Status aturan pelajaran telah berubah. Muat ulang lalu coba lagi",
+  apiErrPlanRulePromotionBlocked: "Aturan ini tidak dapat dibagikan ke proyek lain (berasal dari retrospektif atau mengutip sumber rahasia)",
+  apiErrPlanRuleLimit: "Proyek ini telah mencapai batas aturan draf dan terkonfirmasi. Nonaktifkan aturan yang tidak dipakai terlebih dahulu",
   apiErrFileRequired: "Tidak ada file yang dikirim",
   apiErrFileEmpty: "File kosong",
   apiErrFileMissing: "File tidak ditemukan",

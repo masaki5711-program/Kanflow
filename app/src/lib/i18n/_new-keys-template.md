@@ -40,6 +40,7 @@ Rules:
 | `backlog.ts` | `projects/[id]/backlog` | `backlog*` |
 | `backlog-ops.ts` | Backlog daily operations: PBI modal link, URL filters, drag & drop, bulk actions, undo, done paging | `backlog*` (ops keys) |
 | `plan.ts` | `projects/[id]/plan` (master plan) | `plan*` |
+| `plan-lesson-rules.ts` | `projects/[id]/plan/lesson-rules` and `/admin/plan-lesson-rules` (反省点の規則, plan 12 E3) | `plr*` |
 | `releases.ts` | `projects/[id]/releases` | `release*` |
 | `sprints.ts` | `projects/[id]/sprints` list/create/edit, PBI import | `sprint*` (not below) |
 | `sprint-tasks.ts` | Sprint tasks, task modal, daily scrum, burndown (`burndown/`) | `task*`, `sprintTask*`, `sprintDailyScrum*`, `burndown*`, `completionToIcebox*` |

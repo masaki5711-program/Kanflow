@@ -3,6 +3,7 @@ import {
   PROJECT_ACTIONS,
   accessVia,
   can,
+  canConfirmLineageRule,
   type ProjectAction,
   type ProjectActor,
 } from "@/lib/authz/policy"
@@ -74,6 +75,8 @@ const EXPECTED: Record<ProjectAction, Persona[]> = {
   "git.configure": PO_SM,
   "git.sync": MEMBERS,
   "dev.write": MEMBERS,
+  "plan.lessonRule.confirm": PO_SM,
+  "plan.lessonRule.requestPromotion": PO,
 }
 
 const cases = PROJECT_ACTIONS.flatMap((action) =>
@@ -111,5 +114,13 @@ describe("accessVia()", () => {
     ["outsider", null],
   ] as const)("%s → %s", (persona, via) => {
     expect(accessVia(ACTORS[persona])).toBe(via)
+  })
+})
+
+describe("canConfirmLineageRule()", () => {
+  // plan 12 §4: shared (lineage / project-type) rules and promotions are confirmed by admins only — not by the PO /
+  // SM of the source project, not by a section manager.
+  it.each(ALL.map((persona) => ({ persona, allowed: persona === "admin" })))("$persona → $allowed", ({ persona, allowed }) => {
+    expect(canConfirmLineageRule(ACTORS[persona])).toBe(allowed)
   })
 })
