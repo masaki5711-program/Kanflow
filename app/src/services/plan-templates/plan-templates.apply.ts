@@ -44,11 +44,11 @@ export interface ApplyResult {
  * inside the caller's transaction; returns the placed items. Parents' spans are
  * derived by the progress recalc the caller runs.
  */
-async function placeDates(tx: Db, projectId: string, rootIds: string[] | null, startDate: string, skipWeekends: boolean): Promise<ScheduledDates[]> {
+async function placeDates(tx: Db, projectId: string, rootIds: string[] | null, startDate: string, skipWeekends: boolean, notBefore?: Readonly<Record<string, string>>): Promise<ScheduledDates[]> {
   const rows = await planRepo.findPlanItems(tx, projectId)
   const nodes = rows.map((r) => ({ ...r, plannedStart: toDateKeyOrNull(r.plannedStart), plannedEnd: toDateKeyOrNull(r.plannedEnd) }))
   const dependencies = await planRepo.findDependencies(tx, projectId)
-  const placed = scheduleFrom(nodes, rootIds, startDate, { skipWeekends, dependencies })
+  const placed = scheduleFrom(nodes, rootIds, startDate, { skipWeekends, dependencies, notBefore: notBefore ? new Map(Object.entries(notBefore)) : undefined })
   for (const p of placed) {
     await planRepo.updatePlanItem(tx, p.id, { plannedStart: dateFromKey(p.plannedStart), plannedEnd: dateFromKey(p.plannedEnd), ...BUMP_VERSION })
   }
@@ -226,7 +226,7 @@ export async function savePlanAsTemplate(projectId: string, input: SavePlanAsTem
 export async function scheduleFromStart(projectId: string, input: ScheduleFromInput, actor: Actor): Promise<{ updated: number; items: ScheduledDates[] }> {
   if (!dateFromKey(input.startDate)) throw new ValidationError("日付が不正です", {}, "INVALID_DATE")
   return withTransaction(async (tx) => {
-    const placed = await placeDates(tx, projectId, input.rootIds ?? null, input.startDate, input.skipWeekends === true)
+    const placed = await placeDates(tx, projectId, input.rootIds ?? null, input.startDate, input.skipWeekends === true, input.notBefore)
     if (placed.length > 0) {
       await recalcPlanProgress(projectId, placed.map((p) => p.id), tx)
       await logActivity(tx, {

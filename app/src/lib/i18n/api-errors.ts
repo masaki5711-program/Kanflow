@@ -93,6 +93,12 @@ export interface ApiErrorsTranslations {
   apiErrPlanActualsChanged: string
   apiErrPlanActualsUserActive: string
   apiErrPlanActualsCurrent: string
+  apiErrPlanRoleAssignmentInvalid: string
+  apiErrCapacityOverlap: string
+  apiErrCapacityNotFound: string
+  apiErrCapacityChanged: string
+  apiErrCapacityNotMember: string
+  apiErrPlanLoadTooLarge: string
   apiErrFileRequired: string
   apiErrFileEmpty: string
   apiErrFileMissing: string
@@ -231,6 +237,12 @@ export const API_ERROR_MESSAGE_KEYS: Readonly<Record<ApiErrorCode, ApiErrorMessa
   PLAN_ACTUALS_CHANGED: "apiErrPlanActualsChanged",
   PLAN_ACTUALS_USER_ACTIVE: "apiErrPlanActualsUserActive",
   PLAN_ACTUALS_CURRENT: "apiErrPlanActualsCurrent",
+  PLAN_ROLE_ASSIGNMENT_INVALID: "apiErrPlanRoleAssignmentInvalid",
+  CAPACITY_OVERLAP: "apiErrCapacityOverlap",
+  CAPACITY_NOT_FOUND: "apiErrCapacityNotFound",
+  CAPACITY_CHANGED: "apiErrCapacityChanged",
+  CAPACITY_NOT_MEMBER: "apiErrCapacityNotMember",
+  PLAN_LOAD_TOO_LARGE: "apiErrPlanLoadTooLarge",
   FILE_REQUIRED: "apiErrFileRequired",
   FILE_EMPTY: "apiErrFileEmpty",
   FILE_MISSING: "apiErrFileMissing",
@@ -376,6 +388,12 @@ export const ja: ApiErrorsTranslations = {
   apiErrPlanActualsChanged: "実績のスナップショットが変更されています。読み込み直してからやり直してください",
   apiErrPlanActualsUserActive: "在籍中の利用者の実績は仮名化できません",
   apiErrPlanActualsCurrent: "最新の記録は記録ごとには仮名化できません。退職者ごとに行ってください",
+  apiErrPlanRoleAssignmentInvalid: "役割に割り当てられるのは、このプロジェクトのメンバーだけです",
+  apiErrCapacityOverlap: "同じ人の期間が重なっています",
+  apiErrCapacityNotFound: "稼働量の行が見つかりません",
+  apiErrCapacityChanged: "稼働量が変更されています。読み込み直してからやり直してください",
+  apiErrCapacityNotMember: "選んだ人はこのプロジェクトのメンバーではありません。メンバーから選んでください",
+  apiErrPlanLoadTooLarge: "負荷を数える項目が多すぎます。期間を短くしてください",
   apiErrFileRequired: "ファイルがありません",
   apiErrFileEmpty: "ファイルが空です",
   apiErrFileMissing: "ファイルが見つかりません",
@@ -515,6 +533,12 @@ export const en: ApiErrorsTranslations = {
   apiErrPlanActualsChanged: "The actuals snapshot has changed. Reload and try again",
   apiErrPlanActualsUserActive: "The actuals of an active user cannot be pseudonymised",
   apiErrPlanActualsCurrent: "The latest record cannot be pseudonymised as a whole. Pseudonymise by retired user instead",
+  apiErrPlanRoleAssignmentInvalid: "Only members of this project can be assigned to a role",
+  apiErrCapacityOverlap: "The period overlaps another one of the same person",
+  apiErrCapacityNotFound: "Capacity entry not found",
+  apiErrCapacityChanged: "The capacity has changed. Reload and try again",
+  apiErrCapacityNotMember: "The selected person is not a member of this project. Pick a member",
+  apiErrPlanLoadTooLarge: "Too many items to count the load. Choose a shorter period",
   apiErrFileRequired: "No file was provided",
   apiErrFileEmpty: "The file is empty",
   apiErrFileMissing: "The file was not found",
@@ -654,6 +678,12 @@ export const id: ApiErrorsTranslations = {
   apiErrPlanActualsChanged: "Snapshot realisasi telah berubah. Muat ulang lalu coba lagi",
   apiErrPlanActualsUserActive: "Realisasi pengguna yang masih aktif tidak dapat disamarkan",
   apiErrPlanActualsCurrent: "Catatan terbaru tidak dapat disamarkan sekaligus. Samarkan per pengguna yang sudah keluar",
+  apiErrPlanRoleAssignmentInvalid: "Hanya anggota proyek ini yang dapat ditugaskan ke suatu peran",
+  apiErrCapacityOverlap: "Periodenya tumpang tindih dengan periode lain dari orang yang sama",
+  apiErrCapacityNotFound: "Data kapasitas tidak ditemukan",
+  apiErrCapacityChanged: "Kapasitas telah berubah. Muat ulang lalu coba lagi",
+  apiErrCapacityNotMember: "Orang yang dipilih bukan anggota proyek ini. Pilih salah satu anggota",
+  apiErrPlanLoadTooLarge: "Terlalu banyak item untuk menghitung beban. Pilih periode yang lebih pendek",
   apiErrFileRequired: "Tidak ada file yang dikirim",
   apiErrFileEmpty: "File kosong",
   apiErrFileMissing: "File tidak ditemukan",

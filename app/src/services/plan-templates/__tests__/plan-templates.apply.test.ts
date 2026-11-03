@@ -147,6 +147,20 @@ describe("plan-templates.apply", () => {
     await expect(apply.scheduleFromStart("p1", { startDate: "2026-02-30" }, ACTOR)).rejects.toMatchObject({ code: "INVALID_DATE" })
   })
 
+  it("not_before_respected_by_server_recompute: schedule-from passes notBefore through to the dates it writes", async () => {
+    vi.mocked(planRepo.findPlanItems).mockResolvedValue([planRow({ id: "a", plannedStart: null, plannedEnd: null, durationDays: 2, sortOrder: 1 })] as never)
+    const out = await apply.scheduleFromStart("p1", { startDate: "2026-11-02", skipWeekends: true, notBefore: { a: "2026-11-04" } }, ACTOR)
+    expect(out.items).toEqual([{ id: "a", plannedStart: "2026-11-04", plannedEnd: "2026-11-05" }])
+  })
+
+  it("the schedule-from body takes notBefore as item id → calendar day, at most 2000", async () => {
+    const { scheduleFromSchema } = await import("../plan-templates.schemas")
+    expect(scheduleFromSchema.safeParse({ startDate: "2026-11-02", notBefore: { a: "2026-11-04" } }).success).toBe(true)
+    expect(scheduleFromSchema.safeParse({ startDate: "2026-11-02", notBefore: { a: "11/04/2026" } }).success).toBe(false)
+    const many = Object.fromEntries(Array.from({ length: 2001 }, (_, i) => [`id${i}`, "2026-11-04"]))
+    expect(scheduleFromSchema.safeParse({ startDate: "2026-11-02", notBefore: many }).success).toBe(false)
+  })
+
   it("save-as-template turns the plan into stages (durations from dates) owned by the caller", async () => {
     vi.mocked(planRepo.findPlanItems).mockResolvedValue([
       planRow({ id: "a", name: "準備", plannedStart: day("2026-10-01"), plannedEnd: day("2026-10-05") }),

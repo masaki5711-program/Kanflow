@@ -63,6 +63,14 @@ export interface ScheduleOptions {
    * leaves. Leaves without a predecessor keep following each other in order.
    */
   dependencies?: readonly ScheduleDependency[]
+  /**
+   * Earliest start per leaf id ("YYYY-MM-DD", plan 12 E4): a levelled plan passes each leaf's levelled start as a
+   * constraint, so recomputing on the server never pulls a leaf earlier than levelling placed it (it may only move
+   * later, when a predecessor ends later). A leaf with a notBefore does not follow the sequential order of the leaves
+   * without a predecessor: it starts at max(its notBefore, its predecessors' end + 1). It still advances that order,
+   * so in mixed input a later leaf without notBefore follows it (a levelled plan gives every leaf a notBefore).
+   */
+  notBefore?: ReadonlyMap<string, string>
 }
 
 /** 1970-01-01 (day 0) was a Thursday; 0 = Sunday … 6 = Saturday. */
@@ -141,7 +149,12 @@ export function scheduleFrom(nodes: readonly ScheduleNode[], rootIds: readonly s
       return
     }
     const ends = predLeaves(chain, leaf.id).flatMap((id) => endOf.get(id) ?? [])
-    const wanted = ends.length > 0 ? Math.max(startDay, ...ends.map((e) => e + 1)) : cursor
+    const notBeforeKey = options.notBefore?.get(leaf.id)
+    const notBeforeDate = notBeforeKey ? dateFromKey(notBeforeKey) : null
+    // A leaf with a notBefore is placed by it (and its predecessors), not by the sequential cursor: levelling runs
+    // independent leaves in parallel, and following the cursor would serialise them again.
+    const base = ends.length > 0 ? Math.max(startDay, ...ends.map((e) => e + 1)) : notBeforeDate ? startDay : cursor
+    const wanted = notBeforeDate ? Math.max(base, dayIndex(notBeforeDate)) : base
     const days = Math.max(1, leaf.durationDays ?? DEFAULT_SCHEDULE_DAYS)
     const first = skipWeekends ? nextWeekday(wanted) : wanted
     const last = lastDayOf(first, days, skipWeekends)

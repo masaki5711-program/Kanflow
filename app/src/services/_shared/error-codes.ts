@@ -116,6 +116,17 @@ export const API_ERROR_CODES = [
   "PLAN_ACTUALS_USER_ACTIVE",
   /** Pseudonymisation by snapshot is only for superseded (old) snapshots; the current one goes by retired user. */
   "PLAN_ACTUALS_CURRENT",
+  /** Levelling (plan 12 E4): a role is assigned to someone who is not an explicit member of the project. */
+  "PLAN_ROLE_ASSIGNMENT_INVALID",
+  /** 稼働量: the period overlaps another row of the same person (and project). */
+  "CAPACITY_OVERLAP",
+  /** 稼働量: no such row for this person / project. */
+  "CAPACITY_NOT_FOUND",
+  /** 稼働量: the row changed since it was shown (version). */
+  "CAPACITY_CHANGED",
+  /** 稼働量: an allocation to a project is only for its explicit members. */
+  "CAPACITY_NOT_MEMBER",
+  "PLAN_LOAD_TOO_LARGE",
   // Files / folders
   "FILE_REQUIRED",
   "FILE_EMPTY",
