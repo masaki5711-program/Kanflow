@@ -47,6 +47,8 @@ export interface GitLabMergeRequest {
   source_branch: string
   updated_at: string
   merged_at: string | null
+  /** When the MR was opened (GitLab `created_at`; plan 12 E1 MR-set lead time). */
+  created_at?: string | null
   author?: { name?: string; username?: string } | null
 }
 

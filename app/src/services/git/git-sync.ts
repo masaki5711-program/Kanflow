@@ -299,7 +299,7 @@ interface FailedPipeline {
 }
 
 /** Stored columns a sync writes (compared to skip rewriting an unchanged link). */
-const LINK_SELECT = { title: true, url: true, state: true, pipeline: true, author: true, sourceBranch: true, occurredAt: true, mergedAt: true, goneAt: true, declaredAt: true } as const
+const LINK_SELECT = { title: true, url: true, state: true, pipeline: true, author: true, sourceBranch: true, occurredAt: true, mergedAt: true, openedAt: true, goneAt: true, declaredAt: true } as const
 type LinkData = Record<keyof typeof LINK_SELECT, unknown>
 
 const comparable = (v: unknown) => (v instanceof Date ? v.getTime() : (v ?? null))
@@ -331,6 +331,8 @@ async function writeLinks(projectId: string, repositoryId: string, drafts: reado
       sourceBranch: d.sourceBranch,
       occurredAt: d.occurredAt,
       mergedAt: d.mergedAt,
+      // An unknown open time keeps the stored one (a listing without it must not erase it).
+      openedAt: d.openedAt ?? (before?.openedAt as Date | null | undefined) ?? null,
       // Seen in this sync: a branch marked gone that came back is live again.
       goneAt: null,
       // Git itself names the PBI now: a link a developer declared becomes a Git-derived one
@@ -386,7 +388,8 @@ async function refreshDeclaredLinks(
   for (const row of rows) {
     const mr = byRef.get(row.ref)
     if (!mr || row.kind !== "mr" || !row.declaredAt || drafted.has(`${row.ref}|${row.backlogItemId}`)) continue
-    const data = { ...mergeRequestFields(mr, now), pipeline: row.pipeline, goneAt: null, declaredAt: row.declaredAt }
+    const fields = mergeRequestFields(mr, now)
+    const data = { ...fields, openedAt: fields.openedAt ?? row.openedAt, pipeline: row.pipeline, goneAt: null, declaredAt: row.declaredAt }
     if (isSameLink(row, data)) continue
     await prisma.gitLink.updateMany({ where: { id: row.id }, data })
     changed++

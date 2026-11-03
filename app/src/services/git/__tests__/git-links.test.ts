@@ -37,6 +37,13 @@ describe("linksFromMergeRequest", () => {
     expect(drafts.map((d) => d.pbiNumber)).toEqual([3, 5])
   })
 
+  it("keeps the MR's open time when the source sends one, and never guesses it (plan 12 E1)", () => {
+    const [opened] = linksFromMergeRequest(mr({ created_at: "2026-09-20T01:02:03.000Z" }), NOW)
+    expect(opened.openedAt).toEqual(new Date("2026-09-20T01:02:03.000Z"))
+    const [garbled] = linksFromMergeRequest(mr({ created_at: "not a date" }), NOW)
+    expect(garbled.openedAt).toBeNull()
+  })
+
   it("maps every field of a merge request", () => {
     const [draft] = linksFromMergeRequest(mr(), NOW)
     expect(draft).toEqual({
@@ -51,6 +58,7 @@ describe("linksFromMergeRequest", () => {
       sourceBranch: "feature/PBI-3-login",
       occurredAt: new Date("2026-09-30T12:00:00.000Z"),
       mergedAt: null,
+      openedAt: null,
     })
   })
 
@@ -119,6 +127,7 @@ describe("linksFromBranch", () => {
       sourceBranch: "feature/PBI-8-x",
       occurredAt: new Date("2026-09-28T00:00:00.000Z"),
       mergedAt: null,
+      openedAt: null,
     })
   })
 
@@ -171,6 +180,7 @@ describe("linksFromCommit", () => {
       sourceBranch: null,
       occurredAt: new Date("2026-09-27T00:00:00.000Z"),
       mergedAt: null,
+      openedAt: null,
     })
   })
 

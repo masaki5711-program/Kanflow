@@ -1015,8 +1015,10 @@ describe("syncRepository — full success: links, pipelines, gone branches, auto
   })
 
   it("isSameLink compares every written column (dates by time, null ≡ undefined)", () => {
-    const data = { title: "t", url: "u", state: null, pipeline: "success", author: "a", sourceBranch: null, occurredAt: new Date(NOW), mergedAt: null, goneAt: null, declaredAt: null }
+    const data = { title: "t", url: "u", state: null, pipeline: "success", author: "a", sourceBranch: null, occurredAt: new Date(NOW), mergedAt: null, openedAt: null, goneAt: null, declaredAt: null }
     expect(isSameLink(null, data)).toBe(false)
+    // A newly learned open time rewrites the link (plan 12 E1).
+    expect(isSameLink(data, { ...data, openedAt: new Date(NOW) })).toBe(false)
     expect(isSameLink({ ...data, occurredAt: new Date(NOW.getTime()) }, data)).toBe(true)
     expect(isSameLink({ ...data, mergedAt: undefined }, data)).toBe(true)
     expect(isSameLink({ ...data, pipeline: "failed" }, data)).toBe(false)

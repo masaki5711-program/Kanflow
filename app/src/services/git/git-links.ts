@@ -19,6 +19,8 @@ export interface LinkDraft {
   sourceBranch: string | null
   occurredAt: Date
   mergedAt: Date | null
+  /** MR only: when it was opened; null = unknown (writers keep the stored value then). */
+  openedAt: Date | null
 }
 
 const cut = (s: string | null | undefined, max: number) => (s ?? "").slice(0, max)
@@ -44,7 +46,14 @@ export function mergeRequestFields(mr: DevMergeRequest, now: Date): Omit<LinkDra
     sourceBranch: cut(mr.sourceBranch, 255) || null,
     occurredAt: date(mr.updatedAt, now),
     mergedAt: mr.mergedAt ? date(mr.mergedAt, now) : null,
+    openedAt: openedDate(mr.openedAt),
   }
+}
+
+/** A real date or null — never "now": an unknown open time must stay unknown (plan 12 E1: null, not a guess). */
+function openedDate(s: string | null | undefined): Date | null {
+  const d = s ? new Date(s) : null
+  return d && !Number.isNaN(d.getTime()) ? d : null
 }
 
 /** MR keys come from the title and the source branch (not the description: "related to PBI-3" is noise). */
@@ -71,6 +80,7 @@ export function linksFromBranch(branch: DevBranch, now: Date): LinkDraft[] {
     sourceBranch: cut(branch.name, 255),
     occurredAt: date(branch.headCommittedAt, now),
     mergedAt: null,
+    openedAt: null,
   }))
 }
 
@@ -88,6 +98,7 @@ export function linksFromCommit(commit: DevCommit, now: Date): LinkDraft[] {
     sourceBranch: null,
     occurredAt: date(commit.committedAt, now),
     mergedAt: null,
+    openedAt: null,
   }))
 }
 

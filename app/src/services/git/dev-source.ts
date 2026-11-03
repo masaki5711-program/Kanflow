@@ -29,6 +29,8 @@ export interface DevMergeRequest {
   author: string | null
   updatedAt: string
   mergedAt: string | null
+  /** When the MR was opened, if the source knows (null / absent = unknown: the stored value is kept). */
+  openedAt?: string | null
 }
 
 export interface DevCommit {

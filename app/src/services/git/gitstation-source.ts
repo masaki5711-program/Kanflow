@@ -297,6 +297,7 @@ function fromSnapshot(mr: GitStationMergeRequest, now: Date): MergeRequestState 
     author: text(mr.author?.name) ?? null,
     updatedAt: text(mr.updated_at) ?? now.toISOString(),
     mergedAt: state === "merged" ? text(mr.merged_at) : null,
+    openedAt: text(mr.opened_at) ?? null,
   }
 }
 
@@ -324,6 +325,8 @@ function applyMergeRequestEvent(prev: MergeRequestState | undefined, e: GitStati
     author: (isObject(d.author) ? text(d.author.name) : null) ?? prev?.author ?? null,
     updatedAt: e.occurred_at,
     mergedAt,
+    // The opened event's time is when the MR was opened; later events keep what is known.
+    openedAt: text(d.opened_at) ?? (e.type === "merge_request.opened" ? e.occurred_at : (prev?.openedAt ?? null)),
   }
 }
 

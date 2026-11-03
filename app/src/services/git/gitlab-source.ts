@@ -146,6 +146,7 @@ export const toDevMergeRequest = (mr: GitLabMergeRequest): DevMergeRequest => ({
   author: mr.author?.name ?? mr.author?.username ?? null,
   updatedAt: mr.updated_at,
   mergedAt: mr.merged_at,
+  openedAt: mr.created_at ?? null,
 })
 
 export const toDevCommit = (c: GitLabCommit): DevCommit => ({

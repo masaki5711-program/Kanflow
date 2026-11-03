@@ -68,6 +68,8 @@ export interface GitStationMergeRequest {
   author?: { name?: string | null } | null
   updated_at?: string | null
   merged_at?: string | null
+  /** When the MR was opened (plan 02 G1; absent until GitStation sends it). */
+  opened_at?: string | null
 }
 
 export interface GitStationBranch {
