@@ -88,6 +88,11 @@ export interface ApiErrorsTranslations {
   apiErrPlanRuleState: string
   apiErrPlanRulePromotionBlocked: string
   apiErrPlanRuleLimit: string
+  apiErrPlanActualsIncomplete: string
+  apiErrPlanActualsNotFound: string
+  apiErrPlanActualsChanged: string
+  apiErrPlanActualsUserActive: string
+  apiErrPlanActualsCurrent: string
   apiErrFileRequired: string
   apiErrFileEmpty: string
   apiErrFileMissing: string
@@ -221,6 +226,11 @@ export const API_ERROR_MESSAGE_KEYS: Readonly<Record<ApiErrorCode, ApiErrorMessa
   PLAN_RULE_STATE: "apiErrPlanRuleState",
   PLAN_RULE_PROMOTION_BLOCKED: "apiErrPlanRulePromotionBlocked",
   PLAN_RULE_LIMIT: "apiErrPlanRuleLimit",
+  PLAN_ACTUALS_INCOMPLETE: "apiErrPlanActualsIncomplete",
+  PLAN_ACTUALS_NOT_FOUND: "apiErrPlanActualsNotFound",
+  PLAN_ACTUALS_CHANGED: "apiErrPlanActualsChanged",
+  PLAN_ACTUALS_USER_ACTIVE: "apiErrPlanActualsUserActive",
+  PLAN_ACTUALS_CURRENT: "apiErrPlanActualsCurrent",
   FILE_REQUIRED: "apiErrFileRequired",
   FILE_EMPTY: "apiErrFileEmpty",
   FILE_MISSING: "apiErrFileMissing",
@@ -361,6 +371,11 @@ export const ja: ApiErrorsTranslations = {
   apiErrPlanRuleState: "反省点の規則の状態が変わっています。読み込み直してからやり直してください",
   apiErrPlanRulePromotionBlocked: "この規則は他のプロジェクトへ広げられません（振り返りから作った規則か、出典が機密です）",
   apiErrPlanRuleLimit: "このプロジェクトの規則（下書きと確定）が上限に達しています。使わない規則を廃止してから書いてください",
+  apiErrPlanActualsIncomplete: "実績に確かめてほしい項目があります。一覧を確かめてから確定してください",
+  apiErrPlanActualsNotFound: "実績のスナップショットが見つかりません",
+  apiErrPlanActualsChanged: "実績のスナップショットが変更されています。読み込み直してからやり直してください",
+  apiErrPlanActualsUserActive: "在籍中の利用者の実績は仮名化できません",
+  apiErrPlanActualsCurrent: "最新の記録は記録ごとには仮名化できません。退職者ごとに行ってください",
   apiErrFileRequired: "ファイルがありません",
   apiErrFileEmpty: "ファイルが空です",
   apiErrFileMissing: "ファイルが見つかりません",
@@ -495,6 +510,11 @@ export const en: ApiErrorsTranslations = {
   apiErrPlanRuleState: "The lesson rule's state has changed. Reload and try again",
   apiErrPlanRulePromotionBlocked: "This rule cannot be shared with other projects (it comes from a retrospective or cites a confidential source)",
   apiErrPlanRuleLimit: "This project has reached the limit of draft and confirmed rules. Retire rules you no longer use first",
+  apiErrPlanActualsIncomplete: "Some items of the actuals need checking. Review the list, then finalize",
+  apiErrPlanActualsNotFound: "Actuals snapshot not found",
+  apiErrPlanActualsChanged: "The actuals snapshot has changed. Reload and try again",
+  apiErrPlanActualsUserActive: "The actuals of an active user cannot be pseudonymised",
+  apiErrPlanActualsCurrent: "The latest record cannot be pseudonymised as a whole. Pseudonymise by retired user instead",
   apiErrFileRequired: "No file was provided",
   apiErrFileEmpty: "The file is empty",
   apiErrFileMissing: "The file was not found",
@@ -629,6 +649,11 @@ export const id: ApiErrorsTranslations = {
   apiErrPlanRuleState: "Status aturan pelajaran telah berubah. Muat ulang lalu coba lagi",
   apiErrPlanRulePromotionBlocked: "Aturan ini tidak dapat dibagikan ke proyek lain (berasal dari retrospektif atau mengutip sumber rahasia)",
   apiErrPlanRuleLimit: "Proyek ini telah mencapai batas aturan draf dan terkonfirmasi. Nonaktifkan aturan yang tidak dipakai terlebih dahulu",
+  apiErrPlanActualsIncomplete: "Beberapa item realisasi perlu diperiksa. Tinjau daftarnya, lalu finalkan",
+  apiErrPlanActualsNotFound: "Snapshot realisasi tidak ditemukan",
+  apiErrPlanActualsChanged: "Snapshot realisasi telah berubah. Muat ulang lalu coba lagi",
+  apiErrPlanActualsUserActive: "Realisasi pengguna yang masih aktif tidak dapat disamarkan",
+  apiErrPlanActualsCurrent: "Catatan terbaru tidak dapat disamarkan sekaligus. Samarkan per pengguna yang sudah keluar",
   apiErrFileRequired: "Tidak ada file yang dikirim",
   apiErrFileEmpty: "File kosong",
   apiErrFileMissing: "File tidak ditemukan",

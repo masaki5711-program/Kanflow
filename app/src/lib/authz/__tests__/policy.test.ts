@@ -4,6 +4,7 @@ import {
   accessVia,
   can,
   canConfirmLineageRule,
+  canPseudonymizeActuals,
   type ProjectAction,
   type ProjectActor,
 } from "@/lib/authz/policy"
@@ -77,6 +78,7 @@ const EXPECTED: Record<ProjectAction, Persona[]> = {
   "dev.write": MEMBERS,
   "plan.lessonRule.confirm": PO_SM,
   "plan.lessonRule.requestPromotion": PO,
+  "plan.actualsFinalize": PO_SM,
 }
 
 const cases = PROJECT_ACTIONS.flatMap((action) =>
@@ -122,5 +124,12 @@ describe("canConfirmLineageRule()", () => {
   // SM of the source project, not by a section manager.
   it.each(ALL.map((persona) => ({ persona, allowed: persona === "admin" })))("$persona → $allowed", ({ persona, allowed }) => {
     expect(canConfirmLineageRule(ACTORS[persona])).toBe(allowed)
+  })
+})
+
+describe("canPseudonymizeActuals()", () => {
+  // plan 12 §4 / Q8: pseudonymising actuals owners is admins only (pseudonymize_denied_for_non_admin).
+  it.each(ALL.map((persona) => ({ persona, allowed: persona === "admin" })))("$persona → $allowed", ({ persona, allowed }) => {
+    expect(canPseudonymizeActuals(ACTORS[persona])).toBe(allowed)
   })
 })

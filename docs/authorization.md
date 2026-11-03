@@ -77,6 +77,7 @@ System admins skip the membership lookup; every request (admins included) does o
 | `dev.write` | Y | Y | Y | Y | - |
 | `plan.lessonRule.confirm` | Y | Y | Y | - | - |
 | `plan.lessonRule.requestPromotion` | Y | Y | - | - | - |
+| `plan.actualsFinalize` | Y | Y | Y | - | - |
 
 Rules of the `shared` scope (反省点の規則 widened to a lineage / project type) and promotion requests are confirmed
 by **system admins only** (`canConfirmLineageRule`, plan 12 §4) — not expressible per project.
@@ -120,6 +121,9 @@ Paths are relative to `/api/projects/[projectId]`.
 | `/plan/lesson-rules/[ruleId]/confirm` (one rule; body repeats kind + params) | | plan.lessonRule.confirm | | |
 | `/plan/lesson-rules/[ruleId]/retire` | | plan.lessonRule.confirm | | |
 | `/plan/lesson-rules/[ruleId]/promotion` (share request) | | plan.lessonRule.requestPromotion | | |
+| `/plan/actuals` (実績を確定, plan 12 E1; GET also answers `permissions`) | project.view | plan.actualsFinalize | | |
+| `/plan/actuals/[snapshotId]` (leaves: roles and days, never owners) | project.view | | PATCH: plan.actualsFinalize (`includeInLearning` + reason) | |
+| `/attributes` (設備・工程・タグ) | project.view | | PUT: project.update | |
 | `/releases` | project.view | | | |
 | `/releases/[id]` | | | release.manage | release.manage |
 | `/releases/import` | | release.manage | | |
@@ -264,6 +268,19 @@ bodies are size-bounded (413). Editing a template never changes plans already lo
 - Confidentiality is checked **at use time**, never stored: a cited PBI / lesson that is confidential now, gone,
   trashed or moved makes a shared rule stop outside its source project, and blocks a promotion request or confirm.
   A rule drafted from a retrospective stays `project` scope (400 `PLAN_RULE_PROMOTION_BLOCKED`).
+
+## 実績のスナップショット (actuals, plan 12 E1, 2026-11)
+
+- 実績を確定 (`plan.actualsFinalize`, PO / SM) freezes the project's actuals. Re-finalizing adds a snapshot and marks the
+  previous one superseded; rows are never rewritten. The learning switch (`includeInLearning`) is the same action,
+  needs a reason, and is audited.
+- Screens and the API return roles and days, never the owner of a leaf or the owner's concurrency (those exist for
+  m_u learning only).
+- Confidentiality is checked at use time: every reader of the per-PBI numbers goes through `learnableItemFacts`
+  (a PBI that is confidential, trashed or gone NOW is left out; a leaf whose PBIs are all confidential is not learned
+  from).
+- Pseudonymising owners (`POST /api/admin/plan-actuals/pseudonymize`, by retired user or by snapshot) is **system
+  admins only** (`canPseudonymizeActuals`): owners become role names, numbers never change, audited per project.
 
 ## REST API and access tokens (P4, 2026-10; scopes 2026-10-30)
 
