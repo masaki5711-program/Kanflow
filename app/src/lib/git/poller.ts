@@ -1,12 +1,13 @@
 import { prisma } from "@/lib/prisma"
 import { logger } from "@/lib/logger"
 import { pollIntervalSec } from "@/services/git/git.service"
-import { syncRepository } from "@/services/git/git-sync"
+import { syncRepository, type SyncResult } from "@/services/git/git-sync"
+import { syncGitStationFeeds } from "@/services/git/gitstation-feed-sync"
 import { runKnowledgeTick } from "@/services/git/repo-index-runner"
 
 /**
- * Background GitLab sync (polling: GitLab on Google Cloud cannot reach the
- * LAN, so webhooks are impossible). Every GIT_SYNC_INTERVAL_SEC (default 180 s)
+ * Background Git sync (polling: GitLab on Google Cloud cannot reach the
+ * LAN, so webhooks are impossible; GitStation is read through its event feed, one read per feed). Every GIT_SYNC_INTERVAL_SEC (default 180 s)
  * each repository of an enabled project is synced, one after another; a tick
  * never overlaps the previous one. Projects with the integration off cost
  * one indexed query per tick. After the sync, repositories used as AI
@@ -27,12 +28,13 @@ let timer: ReturnType<typeof setInterval> | null = null
 let running = false
 
 /** One pass over every enabled repository. Exported for tests and the CLI. */
-export async function runGitSyncTick(sync: typeof syncRepository = syncRepository): Promise<number> {
+export async function runGitSyncTick(sync: typeof syncRepository = syncRepository, syncFeeds: () => Promise<SyncResult[]> = () => syncGitStationFeeds()): Promise<number> {
   if (running) return 0
   running = true
   try {
+    // GitStation repositories share their integration's feed: read once per feed below, not per repository.
     const repos = await prisma.gitRepository.findMany({
-      where: { project: { deletedAt: null, gitIntegration: { enabled: true } } },
+      where: { project: { deletedAt: null, gitIntegration: { enabled: true, provider: { not: "gitstation" } } } },
       select: { id: true },
       orderBy: { syncedAt: { sort: "asc", nulls: "first" } },
     })
@@ -41,7 +43,12 @@ export async function runGitSyncTick(sync: typeof syncRepository = syncRepositor
       // "provider": the sync refused a provider Kanflow cannot read and logged it once already.
       if (!result.ok && result.error !== "disabled" && result.error !== "provider") log.warn("repository sync failed", { repositoryId: r.id, error: result.error })
     }
-    return repos.length
+    const station = await syncFeeds()
+    for (const result of station) {
+      // "busy": a 今すぐ同期 holds that feed right now (one reader per feed); it is read again next tick.
+      if (!result.ok && result.error !== "disabled" && result.error !== "busy") log.warn("repository sync failed", { repositoryId: result.repositoryId, error: result.error })
+    }
+    return repos.length + station.length
   } catch (err) {
     log.error("git sync tick failed", { error: err instanceof Error ? err.message : String(err) })
     return 0

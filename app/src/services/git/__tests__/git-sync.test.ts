@@ -40,6 +40,8 @@ vi.mock("@/lib/prisma", () => ({
       updateMany: (...a: unknown[]) => gitLinkUpdateMany(...a),
     },
     sprintBacklogItem: { findMany: (...a: unknown[]) => sprintBacklogItemFindMany(...a) },
+    // syncProject asks the provider first (GitStation reads each feed once); GitLab here.
+    gitIntegration: { findUnique: async () => null },
     gitRelease: {
       findMany: (...a: unknown[]) => gitReleaseFindMany(...a),
       upsert: (...a: unknown[]) => gitReleaseUpsert(...a),
@@ -54,7 +56,12 @@ vi.mock("@/services/sprint-backlog/sprint-backlog.service", () => ({ updateTask:
 const publishAfterCommit = vi.fn()
 vi.mock("@/lib/realtime/after-commit", () => ({ publishAfterCommit: (...a: unknown[]) => publishAfterCommit(...a) }))
 
-const { syncRepository, syncProject, syncErrorMessage, GIT_ACTOR, isSameLink, LOOKBACK_DAYS } = await import("../git-sync")
+const gitSync = await import("../git-sync")
+const { syncErrorMessage, GIT_ACTOR, isSameLink, LOOKBACK_DAYS } = gitSync
+type GitLabFactory = NonNullable<import("../dev-source").DevClients["gitlab"]>
+// The sync takes provider-neutral clients; these tests drive the GitLab one.
+const syncRepository = (id: string, factory: GitLabFactory, now?: Date) => gitSync.syncRepository(id, { gitlab: factory }, now)
+const syncProject = (id: string, factory: GitLabFactory) => gitSync.syncProject(id, { gitlab: factory })
 const { GitLabError } = await import("@/lib/git/gitlab-client")
 const { cursorsFromRow, cursorsToRow, resetForResync, MIN_WINDOW_SEC } = await import("../git-sync-cursors")
 const { COMMIT_LAG_MS, MAX_COMMIT_LISTINGS, MAX_MR_REQUESTS, MR_OVERLAP_MS, SKIP_ESCALATE_AT } = await import("../git-sync-listings")

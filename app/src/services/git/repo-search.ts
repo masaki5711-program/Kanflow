@@ -2,7 +2,7 @@ import { Prisma } from "@/generated/prisma/client"
 import { prisma } from "@/lib/prisma"
 import { withFulltext } from "@/lib/fulltext/fallback"
 import { termsMatch, termsScore, type TermMode } from "@/lib/fulltext/trigram-sql"
-import { supportedProviderFilter } from "./git-provider"
+import { indexableProviderFilter } from "./dev-source"
 
 /**
  * Search and read of the knowledge index (repo_chunk) for the AI chat
@@ -44,11 +44,11 @@ const KEYWORD_MIN_LENGTH = 2
 
 /**
  * Knowledge repositories of a project (empty when the integration is off or none is switched on).
- * Only a provider Kanflow can read: links are built in that source's URL scheme (blobUrl: GitLab).
+ * Only a source that can read repository files (GitLab): links are built in that source's URL scheme (blobUrl).
  */
 export async function listKnowledgeRepos(projectId: string): Promise<KnowledgeRepo[]> {
   const rows = await prisma.gitRepository.findMany({
-    where: { projectId, aiKnowledge: true, project: { deletedAt: null, gitIntegration: { enabled: true, provider: supportedProviderFilter() } } },
+    where: { projectId, aiKnowledge: true, project: { deletedAt: null, gitIntegration: { enabled: true, provider: indexableProviderFilter() } } },
     select: { id: true, name: true, webUrl: true, indexedSha: true, indexTargetSha: true, indexedFiles: true, indexedAt: true },
     orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
   })

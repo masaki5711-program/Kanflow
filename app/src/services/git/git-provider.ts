@@ -10,9 +10,9 @@ import { ConflictError, ValidationError } from "@/services/_shared/errors"
  * (projectId) makes a second integration impossible; `assertOneSource` keeps a
  * project with repositories from switching its source underneath them.
  *
- * Only "gitlab" is accepted today; "gitstation" joins with its DevSource (M3).
+ * "gitlab" (polled REST v4) and "gitstation" (the integration event feed, M3 K3).
  */
-export const GIT_PROVIDERS = ["gitlab"] as const
+export const GIT_PROVIDERS = ["gitlab", "gitstation"] as const
 export type GitProvider = (typeof GIT_PROVIDERS)[number]
 export const DEFAULT_GIT_PROVIDER: GitProvider = "gitlab"
 

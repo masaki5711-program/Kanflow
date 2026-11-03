@@ -28,6 +28,19 @@ export function allowedHosts(env: NodeJS.ProcessEnv = process.env): string[] {
     .filter(Boolean)
 }
 
+/**
+ * GitStation hosts (GITSTATION_ALLOWED_HOSTS, comma separated; default none): kept apart from
+ * GIT_ALLOWED_HOSTS so a GitStation service-account token is only ever sent to a GitStation host,
+ * and a GitLab token never to one. Checked when a GitStation repository is added / tested and
+ * again by the GitStation client on every connection.
+ */
+export function stationAllowedHosts(env: NodeJS.ProcessEnv = process.env): string[] {
+  return (env.GITSTATION_ALLOWED_HOSTS ?? "")
+    .split(",")
+    .map((h) => h.trim().toLowerCase())
+    .filter(Boolean)
+}
+
 /** Repository location, or null for anything that is not a repository URL on an allowed host. */
 export function parseRepoUrl(input: string, hosts: readonly string[] = allowedHosts()): RepoLocation | null {
   const raw = input.trim()

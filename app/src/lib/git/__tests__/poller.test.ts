@@ -9,6 +9,8 @@ vi.mock("@/services/git/git.service", () => ({ pollIntervalSec: vi.fn(() => 180)
 vi.mock("@/services/sprint-backlog/sprint-backlog.service", () => ({ updateTask: vi.fn() }))
 
 const { shouldStartGitPoller, runGitSyncTick } = await import("../poller")
+/** No GitStation feed in these tests (the feed pass has its own tests). */
+const noFeeds = vi.fn(async () => [])
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -40,10 +42,10 @@ describe("runGitSyncTick", () => {
   it("queries only enabled, live projects' repositories, oldest-synced first", async () => {
     gitRepositoryFindMany.mockResolvedValue([{ id: "r1" }, { id: "r2" }])
     const sync = vi.fn().mockResolvedValue({ repositoryId: "x", ok: true, links: 0 })
-    const count = await runGitSyncTick(sync)
+    const count = await runGitSyncTick(sync, noFeeds)
     expect(count).toBe(2)
     expect(gitRepositoryFindMany).toHaveBeenCalledWith({
-      where: { project: { deletedAt: null, gitIntegration: { enabled: true } } },
+      where: { project: { deletedAt: null, gitIntegration: { enabled: true, provider: { not: "gitstation" } } } },
       select: { id: true },
       orderBy: { syncedAt: { sort: "asc", nulls: "first" } },
     })
@@ -51,31 +53,43 @@ describe("runGitSyncTick", () => {
     expect(sync).toHaveBeenNthCalledWith(2, "r2")
   })
 
+  it("reads every GitStation feed once per tick after the GitLab repositories and warns for their failures", async () => {
+    gitRepositoryFindMany.mockResolvedValue([{ id: "r1" }])
+    const sync = vi.fn().mockResolvedValue({ repositoryId: "r1", ok: true, links: 0 })
+    const feeds = vi.fn(async () => [
+      { repositoryId: "g1", ok: true, links: 1 },
+      { repositoryId: "g2", ok: false, links: 0, error: "auth" },
+    ])
+    expect(await runGitSyncTick(sync, feeds)).toBe(3)
+    expect(feeds).toHaveBeenCalledTimes(1)
+    expect(noopLog.warn).toHaveBeenCalledWith("repository sync failed", { repositoryId: "g2", error: "auth" })
+  })
+
   it("logs a warning for a repository sync failure that is not merely 'disabled'", async () => {
     gitRepositoryFindMany.mockResolvedValue([{ id: "r1" }])
     const sync = vi.fn().mockResolvedValue({ repositoryId: "r1", ok: false, links: 0, error: "auth" })
-    await runGitSyncTick(sync)
+    await runGitSyncTick(sync, noFeeds)
     expect(noopLog.warn).toHaveBeenCalledWith("repository sync failed", { repositoryId: "r1", error: "auth" })
   })
 
   it("does not warn when a repository is simply disabled", async () => {
     gitRepositoryFindMany.mockResolvedValue([{ id: "r1" }])
     const sync = vi.fn().mockResolvedValue({ repositoryId: "r1", ok: false, links: 0, error: "disabled" })
-    await runGitSyncTick(sync)
+    await runGitSyncTick(sync, noFeeds)
     expect(noopLog.warn).not.toHaveBeenCalled()
   })
 
   it("does not warn every tick for a provider Kanflow cannot read (the sync refused it and logged it once)", async () => {
     gitRepositoryFindMany.mockResolvedValue([{ id: "r1" }])
     const sync = vi.fn().mockResolvedValue({ repositoryId: "r1", ok: false, links: 0, error: "provider" })
-    await runGitSyncTick(sync)
+    await runGitSyncTick(sync, noFeeds)
     expect(noopLog.warn).not.toHaveBeenCalled()
   })
 
   it("returns 0 and logs an error when the repository lookup itself fails", async () => {
     gitRepositoryFindMany.mockRejectedValue(new Error("db down"))
     const sync = vi.fn()
-    const count = await runGitSyncTick(sync)
+    const count = await runGitSyncTick(sync, noFeeds)
     expect(count).toBe(0)
     expect(sync).not.toHaveBeenCalled()
     expect(noopLog.error).toHaveBeenCalledWith("git sync tick failed", { error: "db down" })
@@ -90,8 +104,8 @@ describe("runGitSyncTick", () => {
       return { repositoryId: "r1", ok: true, links: 0 }
     })
 
-    const first = runGitSyncTick(slowSync)
-    const second = runGitSyncTick(slowSync)
+    const first = runGitSyncTick(slowSync, noFeeds)
+    const second = runGitSyncTick(slowSync, noFeeds)
     const secondResult = await second
     expect(secondResult).toBe(0)
     expect(gitRepositoryFindMany).toHaveBeenCalledTimes(1)
@@ -103,8 +117,8 @@ describe("runGitSyncTick", () => {
   it("allows a new tick to run again once the previous one finished", async () => {
     gitRepositoryFindMany.mockResolvedValue([{ id: "r1" }])
     const sync = vi.fn().mockResolvedValue({ repositoryId: "r1", ok: true, links: 0 })
-    await runGitSyncTick(sync)
-    await runGitSyncTick(sync)
+    await runGitSyncTick(sync, noFeeds)
+    await runGitSyncTick(sync, noFeeds)
     expect(gitRepositoryFindMany).toHaveBeenCalledTimes(2)
   })
 })

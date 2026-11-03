@@ -1,4 +1,4 @@
-# GitLab integration (Git 連携)
+# Git integration (Git 連携: GitLab, GitStation)
 
 Optional, per project, **off by default**. Kanflow is also used by
 process-improvement teams that never touch Git: while a project has it off,
@@ -43,13 +43,15 @@ below), so name the branch or the merge request after the PBI.
 
 The sync reads through a thin, swappable layer, **DevSource**
 (`app/src/services/git/dev-source.ts`): merge requests and commits changed
-since a cursor, branches, pipelines and tags, as normalized records. The only
-implementation today is **GitLabSource** (`gitlab-source.ts`); a
-GitStationSource replaces it for projects that moved to GitStation (M3).
+since a cursor, branches, pipelines and tags, as normalized records. Two
+implementations: **GitLabSource** (`gitlab-source.ts`, polled REST v4) and
+**GitStationSource** (`gitstation-source.ts`, GitStation's integration event
+feed — see "GitStation (M3 K3)" below).
 
-- `git_integration.provider` names the source. Only `gitlab` is accepted (the
-  default; migration `20261030140000_git_integration_provider`). Any other
-  value is refused by the settings API (`PUT …/git` `{ provider }` → 400
+- `git_integration.provider` names the source: `gitlab` (the default; migration
+  `20261030140000_git_integration_provider`) or `gitstation` (migration
+  `20261103120000_gitstation_feed`, with `git_integration.stationIntegrationId`).
+  Any other value is refused by the settings API (`PUT …/git` `{ provider }` → 400
   `GIT_PROVIDER_UNSUPPORTED`), by リポジトリ追加 and 過去分を再同期 (400), by the
   sync (the repository shows the message; nothing is read), by the knowledge
   index (manual run fails with the message; the background tick and the AI
@@ -76,14 +78,113 @@ GitStationSource replaces it for projects that moved to GitStation (M3).
   computes the reset from the repository row alone and never decodes the
   stored cursor (DevSource contract, tested for every source).
 
-#### M3 で直すこと (GitStationSource)
+#### Done in M3 K3 (GitStationSource)
 
-- Return `provider` in the GET settings DTO (and a selector in チーム設定).
-- `syncRepository`'s client parameter: provider-neutral (`DevClients`) instead of
-  the GitLab `ClientFactory`.
-- `GIT_ACTOR.userName` ("GitLab" in the activity log) from the provider.
-- `testConnection` / リポジトリ追加 and the knowledge index (`repo-index`,
-  `blobUrl`) through the source instead of the GitLab client.
+- GET settings returns `provider` and `stationIntegrationId`; チーム設定 has a
+  取り込み元 selector (locked while repositories exist) and the 連携 ID field.
+- `syncRepository(id, clients: DevClients)` takes provider-neutral clients.
+- The activity log names the source of an automatic completion
+  (`gitActor(provider)`: "GitLab" / "GitStation").
+- 接続テスト / リポジトリ追加 go through the source (`locate`); the knowledge index
+  only indexes sources that can read files (`DevSourceKind.readsRepositoryFiles`:
+  GitLab yes, GitStation not yet — its file API is not in the contract) and
+  the AI search lists only those (`indexableProviderFilter`).
+
+### GitStation (M3 K3): the integration event feed
+
+GitStation offers what GitLab cannot: an **event feed** per integration
+(plan 02 §5.7 / §11.2, `GET /api/v1/integrations/{id}/events?after=…`), in
+order, with an opaque cursor, so nothing that happens between two polls is
+missed — a merge request opened and closed inside one interval arrives as both
+events, and a merge request closed without merging arrives as
+`merge_request.closed` (the 02 §8.2 problem of the GitLab polling).
+
+**One cursor per integration, not per repository** (`git_station_feed`). One
+GitStation integration (one service account) covers up to 200 repositories,
+possibly of several Kanflow projects. Reading the feed once per repository
+would read the same events N times and let N cursors over one feed drift
+apart. So `gitstation-feed-sync.ts` sits above the per-repository DevSource:
+every read of a feed
+
+1. takes the feed's **lease** (`leaseOwner` / `leaseUntil`, 10 min): one reader
+   per feed — the poller, 今すぐ同期 and プロジェクトの同期 never overlap, so a
+   merge is never written or notified twice (a second reader gets `busy`);
+2. checks every repository is still bound to its own Kanflow project
+   (`locate`). A **permanent** failure (not bound, 401 / 403 / 404, host not
+   allowed) → that repository is skipped, marked (`stationRereadAt`) and
+   logged with its event count (`gitstation repository skipped`); the cursor
+   moves on. A **transient** failure (network, timeout, 429, 503, unexpected
+   answer) → the cursor is **held**;
+3. reads the feed once (re-reading the state of marked / new repositories),
+   routes each event (`routeFeed`) and writes every repository through the
+   same code as the GitLab sync (`git-sync.writeRead`). A repository that
+   cannot be written → the cursor is **held** (re-reading is idempotent) — but
+   after **3 consecutive** write failures (`stationWriteFailures`) it is
+   **quarantined**: skipped, marked, 「…3 回続けて書き込めなかったため…」,
+   log `gitstation repository quarantined` (error), and the cursor moves on.
+   Its state is re-read once it can be written again;
+4. saves the cursor as a **compare-and-set** on (generation, previous cursor,
+   lease), then the repository statuses, then the notifications and
+   auto-complete. If the compare-and-set fails, the log names what changed
+   (`generation` / `cursor` / `lease`) and nothing more is written.
+
+The lease is **renewed** after the binding checks, after the feed read and
+before each repository write; a read whose renewal fails (it lost the lease)
+stops writing (`gitstation feed lease lost`). A second reader gets `busy`
+(info; warn after 3 in a row for the same feed).
+
+A held cursor sets 「…イベントの履歴の位置を進めていません…」 on the feed
+**and on every repository of it** (a failing one keeps its own message), logs
+`gitstation feed cursor kept` with the reason and the count of consecutive
+holds (`git_station_feed.consecutiveHolds`; warn, **error from the 3rd**), and
+resets the count once the cursor moves again. This was the smallest
+change that keeps the GitLab path untouched: the GitLab sync still reads per
+repository with its own cursor columns; the DevSource contract (codec,
+`readChanges`, branches, tags, errors) is implemented by GitStationSource too
+and tested by the same `dev-source-contract.ts`.
+
+| Point | Rule |
+|---|---|
+| Feed key | `(apiBase, integrationId, HMAC(server key, token)[:32])`. Different tokens may see different things, so they get different feeds. Neither the token nor a plain hash of it is stored there |
+| Binding | A repository is read only while GitStation binds it to **exactly** its own Kanflow project (`kanflow_project_ids` of `GET /projects/{path}` = `[that project]`): checked by 接続テスト / リポジトリ追加 and on every read. Re-read state, branches and tags carry no work items, so a repository bound to several projects (forbidden by plan 02 §2) or another one is refused rather than filtered. Not bound → 「…このプロジェクトだけに結び付けられていません…」 on that repository, `stationRereadAt` set; when the binding returns its state is re-read |
+| Routing | An event reaches a Kanflow repository only when its `data.project` is the repository's path **and** its `work_items` name the repository's own Kanflow project (`provider = kanflow`, `project_id`). Logged once per read with samples: events naming one of these projects that match no repository (`gitstation events match no repository`), events that cannot be used (`… not usable`, id + type), state items that do not parse, events of an unexpected shape |
+| Cursor | `gitstation:v1:<GitStation cursor>` in `git_station_feed.cursor`, never parsed. A malformed / empty / over-long `next_cursor`, or `has_more` without the cursor moving, is `invalid_response` with the position kept (never mistaken for 「過去分を再同期」) |
+| Restart | Empty position (first read, 過去分を再同期) and 410 `FG-INT-0007` (any reason, logged `gitstation feed restarted`): take `GET …/events/cursor` **first**, re-read every repository's merge requests through the dev-status listing (`state=all`: merge requests older than the retention come back too), then read the feed from that head. If the head cannot be taken, the read keeps the position it **started** from. **Gap:** commits linked before the head are not in the state and are not re-read (no commit listing in the contract) |
+| Per-repository re-read | A repository new to the feed (`syncedAt` null) or marked (`stationRereadAt`: skipped, quarantined, without a token / integration id, 過去分を再同期) gets its state re-read without restarting the feed. A failing re-read (or more than 2,000 merge requests: a cut-short state is not trusted, 「…上限（マージリクエスト 2000 件）を超えました…」) is reported on that repository only, counted in `stationRereadFailures`, kept marked and **backed off** (`stationRereadNextAt`: 10 min, 20 min, 40 min … at most a day) — it never blocks the others' recovery |
+| Dedupe | At least once: the same event id (`evt_…`) is kept once per read; writes are idempotent across reads |
+| Unknown / unused event types | Skipped (pipelines and deployments are M4 in GitStation; `work_item.linked` is not used yet — links still come from the PBI key in the title / branch / message). The state of a merge request comes from lifecycle events only (opened / reopened / merged / closed); another event's `data.state` is used only when nothing is known yet |
+| 400 `FG-INT-0008` | The position is kept and every repository of the feed shows 「同期位置の記録を読み取れません…過去分を再同期…」 |
+| 429 / 503 | Retried up to 2 times inside the poll, waiting `Retry-After` (at most 10 s; longer = next poll; each retry logged). Then a failure ("次回の同期で再試行します") with the position kept |
+| 過去分を再同期 | Restarts the repository's feed (cursor emptied, feed generation bumped so a read already running does not write its cursor back) in one transaction with the repository's own generation and mark. Refused (400 `GIT_RESYNC_UNAVAILABLE`) without an integration id or a readable token |
+| 今すぐ同期 / プロジェクトの同期 | Read the whole feed of the repository / of each of the project's feeds once (all repositories of a feed are written: the shared cursor must not pass their events) |
+| Pipelines | `null` until GitStation puts pipelines in the feed (M4) |
+| AI の参照資料 | Refused for GitStation repositories (400 `GIT_KNOWLEDGE_UNSUPPORTED`): no file API in the contract yet |
+| Requests | `Authorization: Bearer <service-account token>`, 15 s timeout, responses over 4 MiB refused, `redirect: "error"` (the token never follows a redirect). The host must be in **`GITSTATION_ALLOWED_HOSTS`** (separate from `GIT_ALLOWED_HOSTS`, default none): checked when switching a project to GitStation (400 `GITSTATION_HOST_NOT_ALLOWED`), when a repository is added / tested, and again by the client on every connection |
+
+**Rotating the server key** (`INTEGRATION_SECRET_KEY`, or `AUTH_SECRET` when
+it is unset) changes every feed key: the token fingerprint is an HMAC under that
+key, and the sealed tokens themselves become unreadable (the settings page asks
+for the tokens again). After the tokens are entered again, the next poll creates
+**new** `git_station_feed` rows with an empty cursor — a restart: head cursor,
+every repository's state re-read, then the feed from that head (commits linked
+before it are not re-read). Nothing is replayed twice in a harmful way: links
+are written idempotently and a merge already stored is not notified again. The
+old rows are orphaned (no repository maps to them any more); they hold no
+secret and can be deleted with approval:
+`DELETE FROM git_station_feed WHERE "readAt" < now() - interval '7 days'` after
+checking that every GitStation repository synced since the rotation.
+
+Settings for a project on GitStation: set `GITSTATION_ALLOWED_HOSTS=<host>` on
+the server, then チーム設定 → Git 連携 → 取り込み元「GitStation」, the 連携 ID
+GitStation's administrator gave the integration (starts with a letter or
+digit), and the integration's service-account token as the access token.
+Repository URLs are GitStation's `https://<host>/<group>/<repo>`.
+
+Shapes GitStation's plan 02 does not define yet (dev-status listing per
+repository, branches, tags, `commit.linked` data, the fields of
+`merge_request.*` events, `kanflow_project_ids`) are proposed in
+`docs/integration/gitstation-contract-proposal.md`; the fake GitStation of the
+tests (`__tests__/fake-gitstation.ts`) pins them until GitStation's I1 lands.
 
 ### Cursors (one per listing, GitLab)
 

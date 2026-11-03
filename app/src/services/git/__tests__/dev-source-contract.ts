@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import type { DevCursor, DevSource, DevSourceKind } from "../dev-source"
 
 /**
- * What every DevSource must do for the sync (GitLab today, GitStation in M3).
+ * What every DevSource must do for the sync (GitLab, GitStation).
  * An implementation's test calls this with a source kind and a way to connect
  * it to a fake remote holding one PBI merge request, commit and branch, or to
  * one where every request fails.
@@ -85,7 +85,9 @@ export function describeDevSourceContract(name: string, setup: () => DevSourceCo
       expect(branches.complete).toBe(true)
       expect(branches.items).toEqual([expect.objectContaining({ name: expect.stringContaining("PBI-3"), url: expect.stringMatching(/^https:/) })])
       const changes = await source.readChanges(setup().kind.cursors.fromRow(setup().freshRow, now), now)
-      await expect(source.pipelineStatus(changes.mergeRequests[0].ref)).resolves.toEqual(expect.anything())
+      // A status, or null when the source has none (GitStation until pipelines reach its feed, M4).
+      const status = await source.pipelineStatus(changes.mergeRequests[0].ref)
+      expect(status === null || typeof status === "string").toBe(true)
     })
 
     it("a failing remote never throws from readChanges: failures are reported with a message to show", async () => {

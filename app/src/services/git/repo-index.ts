@@ -3,6 +3,7 @@ import { open } from "@/lib/secret-box"
 import { GitLabError, type GitLabClient } from "@/lib/git/gitlab-client"
 import { logger } from "@/lib/logger"
 import { publishAfterCommit } from "@/lib/realtime/after-commit"
+import { devSourceFor } from "./dev-source"
 import { readableProvider, UnsupportedProviderError } from "./git-provider"
 import { defaultClientFactory, syncErrorMessage, type ClientFactory } from "./gitlab-source"
 import { chunkFile } from "./repo-chunker"
@@ -59,6 +60,9 @@ function loadRepo(repositoryId: string) {
   })
 }
 
+/** GitStation's file API is not in the integration contract yet (M3): its repositories are not indexed. */
+export const KNOWLEDGE_UNSUPPORTED_MESSAGE = "この取り込み元のリポジトリは、まだ AI の参照資料に使えません（GitStation は今後対応）。"
+
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 export async function indexRepository(repositoryId: string, opts: IndexOptions = {}): Promise<IndexResult> {
@@ -66,8 +70,10 @@ export async function indexRepository(repositoryId: string, opts: IndexOptions =
   const integration = repo?.project.gitIntegration
   const base = { repositoryId, processed: 0, skipped: 0 }
   if (!repo || repo.project.deletedAt || !integration?.enabled || !repo.aiKnowledge) return { ...base, status: "disabled" }
-  // Only GitLab can be indexed: any other provider is never sent to GitLab (logged once per repository).
-  if (readableProvider(repositoryId, integration.provider, "index") !== "gitlab") return fail(repo, new UnsupportedProviderError(integration.provider).message)
+  // Only a source that can read repository files is indexed (GitLab); nothing is ever sent to GitLab instead.
+  const provider = readableProvider(repositoryId, integration.provider, "index")
+  if (!provider) return fail(repo, new UnsupportedProviderError(integration.provider).message)
+  if (!devSourceFor(provider).readsRepositoryFiles) return fail(repo, KNOWLEDGE_UNSUPPORTED_MESSAGE)
   const sealed = repo.tokenCipher ?? integration.tokenCipher
   const token = sealed ? open(sealed) : null
   if (!token) return fail(repo, "アクセストークンが未設定か、読み取れません。設定画面で入れ直してください。")

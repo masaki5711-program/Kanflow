@@ -103,15 +103,24 @@ describe("indexRepository — guards", () => {
     expect((await run(fakeClient())).status).toBe("disabled")
   })
 
-  it("never sends a provider Kanflow cannot read to GitLab: refused with the provider message, logged once", async () => {
+  it("does not index a GitStation repository (its file API is not in the contract yet) and never asks GitLab", async () => {
     db.repo = repoRow({ project: { deletedAt: null, gitIntegration: { enabled: true, provider: "gitstation", tokenCipher: "sealed" } } })
+    const { KNOWLEDGE_UNSUPPORTED_MESSAGE } = await import("../repo-index")
+    const factory = vi.fn(() => fakeClient())
+    const result = await indexRepository("r1", { factory: factory as never })
+    expect(result).toMatchObject({ status: "failed", error: KNOWLEDGE_UNSUPPORTED_MESSAGE })
+    expect(factory).not.toHaveBeenCalled()
+  })
+
+  it("never sends a provider Kanflow cannot read to GitLab: refused with the provider message, logged once", async () => {
+    db.repo = repoRow({ project: { deletedAt: null, gitIntegration: { enabled: true, provider: "bitbucket", tokenCipher: "sealed" } } })
     const client = fakeClient()
     const factory = vi.fn(() => client)
     const first = await indexRepository("r1", { factory: factory as never })
     await indexRepository("r1", { factory: factory as never })
-    expect(first).toMatchObject({ status: "failed", error: expect.stringContaining("gitstation") })
+    expect(first).toMatchObject({ status: "failed", error: expect.stringContaining("bitbucket") })
     expect(factory).not.toHaveBeenCalled()
-    expect(noopLog.error.mock.calls.filter((c) => c[0] === "git provider unsupported")).toEqual([["git provider unsupported", { repositoryId: "r1", provider: "gitstation", skipped: "index" }]])
+    expect(noopLog.error.mock.calls.filter((c) => c[0] === "git provider unsupported")).toEqual([["git provider unsupported", { repositoryId: "r1", provider: "bitbucket", skipped: "index" }]])
   })
 
   it("costs one request when the branch did not move", async () => {

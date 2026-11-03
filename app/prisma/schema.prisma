@@ -1340,9 +1340,12 @@ model GitIntegration {
   projectId           String   @id
   enabled             Boolean  @default(false)
   /// Where the project's development data is read from (services/git/git-provider):
-  /// only "gitlab" today; "gitstation" joins with its DevSource (M3). Validated by the
-  /// settings API and the source factory; cannot change while repositories exist.
+  /// "gitlab" (polled REST v4) or "gitstation" (the integration event feed, M3 K3).
+  /// Validated by the settings API and the source factory; cannot change while repositories exist.
   provider            String   @default("gitlab") @db.VarChar(32)
+  /// provider "gitstation": GitStation's integration id (opaque, plan 02 §5.7). The feed of
+  /// that integration is read once per poll for every project using it (git_station_feed).
+  stationIntegrationId String? @db.VarChar(64)
   /// Access token (group or project token, read_api), AES-256-GCM sealed by lib/secret-box. Never returned by the API.
   tokenCipher         String?  @db.Text
   /// Last 4 characters, shown as "••••abcd" so people can tell which token is set.
@@ -1354,6 +1357,37 @@ model GitIntegration {
   project             Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@map("git_integration")
+}
+
+/// The GitStation event feed of one integration as one service-account token sees it
+/// (services/git/gitstation-feed-sync): ONE opaque cursor per (GitStation, integration, token),
+/// read once per poll and dispatched to every Kanflow repository it covers. Different tokens
+/// get different rows (their visibility may differ). Holds no secret: only a SHA-256 prefix of
+/// the token identifies it.
+model GitStationFeed {
+  id               String    @id @default(cuid())
+  /// https://host of GitStation (the repositories' apiBase).
+  apiBase          String    @db.VarChar(255)
+  integrationId    String    @db.VarChar(64)
+  /// First 32 hex characters of SHA-256(token).
+  tokenFingerprint String    @db.VarChar(32)
+  /// "gitstation:v1:<GitStation cursor>"; null = not read yet / restarted (re-read the state first).
+  cursor           String?   @db.Text
+  /// Bumped by 過去分を再同期: a read that started under an older generation does not write its cursor.
+  generation       Int       @default(0)
+  /// Lease of the read in progress (one reader per feed: the poller and 今すぐ同期 never overlap).
+  leaseOwner       String?   @db.VarChar(36)
+  leaseUntil       DateTime?
+  /// Consecutive reads that held the cursor (the log escalates after 3).
+  consecutiveHolds Int       @default(0)
+  readAt           DateTime?
+  lastError        String?   @db.VarChar(500)
+  lastErrorAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@unique([apiBase, integrationId, tokenFingerprint])
+  @@map("git_station_feed")
 }
 
 /// One GitLab repository of a project (a project may have several: front end,
@@ -1397,6 +1431,15 @@ model GitRepository {
   /// Bumped by 過去分を再同期: a sync writes its cursors only while the generation it
   /// started with is unchanged, so a sync already running cannot undo a resync.
   syncGeneration    Int?         @default(0)
+  /// GitStation: this repository's merge requests must be re-read from GitStation's state
+  /// (not bound for a while, its state re-read failed, …) — set since then; cleared once re-read.
+  stationRereadAt   DateTime?
+  /// GitStation: consecutive failed state re-reads of this repository (shown in the log).
+  stationRereadFailures Int        @default(0)
+  /// GitStation: no state re-read before this time (exponential back-off after failed re-reads).
+  stationRereadNextAt   DateTime?
+  /// GitStation: consecutive reads in which this repository could not be written (quarantined at 3).
+  stationWriteFailures  Int        @default(0)
   lastError         String?      @db.VarChar(500)
   lastErrorAt       DateTime?
   sortOrder         Int          @default(0)

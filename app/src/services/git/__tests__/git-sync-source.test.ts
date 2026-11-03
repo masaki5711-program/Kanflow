@@ -69,7 +69,7 @@ function fakeSource(): DevSource {
   }
 }
 
-const fakeKind: DevSourceKind = { provider: "gitlab", cursors: { fromRow, toRow, restart: vi.fn() }, connect }
+const fakeKind: DevSourceKind = { provider: "gitlab", actorName: "GitLab", readsRepositoryFiles: true, cursors: { fromRow, toRow, restart: vi.fn() }, connect }
 const devSourceFor = vi.fn((provider: unknown) => {
   if (provider !== "gitlab") throw new Error(`unexpected provider ${String(provider)}`)
   return fakeKind
@@ -120,7 +120,7 @@ describe("syncRepository through a DevSource", () => {
     const result = await syncRepository("r1", undefined, NOW)
     expect(result).toMatchObject({ ok: true, links: 3 })
     expect(devSourceFor).toHaveBeenCalledWith("gitlab")
-    expect(connect).toHaveBeenCalledWith({ repositoryId: "r1", apiBase: "https://source.example", repoPath: "g/r", externalId: null, token: "token" }, expect.objectContaining({ gitlab: expect.any(Function) }))
+    expect(connect).toHaveBeenCalledWith(expect.objectContaining({ repositoryId: "r1", projectId: ROW.projectId, apiBase: "https://source.example", repoPath: "g/r", externalId: null, token: "token" }), {})
     expect(fromRow).toHaveBeenCalledWith(ROW, NOW)
     expect(readChanges).toHaveBeenCalledWith(START, NOW)
   })

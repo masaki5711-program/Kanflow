@@ -127,7 +127,7 @@ jobs:
       - name: DB tests (real PostgreSQL)
         env:
           KANFLOW_DB_TESTS: "1"
-        run: npx vitest run src/lib/__tests__/postgres.db.test.ts src/services/dev-work/__tests__/dev-work.db.test.ts src/services/acceptance-criteria/__tests__/acceptance-criteria.db.test.ts src/services/feedback/__tests__/feedback.db.test.ts src/services/plan/__tests__/plan.base-schedule.db.test.ts
+        run: npx vitest run src/lib/__tests__/postgres.db.test.ts src/services/dev-work/__tests__/dev-work.db.test.ts src/services/acceptance-criteria/__tests__/acceptance-criteria.db.test.ts src/services/feedback/__tests__/feedback.db.test.ts src/services/plan/__tests__/plan.base-schedule.db.test.ts src/services/git/__tests__/gitstation-feed-sync.db.test.ts
 
   e2e:
     name: e2e (Playwright, smoke + write flows)

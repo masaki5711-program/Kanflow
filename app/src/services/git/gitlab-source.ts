@@ -332,6 +332,8 @@ async function readLookback(
 
 export const gitLabSourceKind: DevSourceKind = {
   provider: "gitlab",
+  actorName: "GitLab",
+  readsRepositoryFiles: true,
   cursors: gitLabCursorCodec,
   connect: (connection: DevConnection, clients?: DevClients) => createGitLabSource(connection, clients?.gitlab),
 }
