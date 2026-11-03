@@ -1335,6 +1335,8 @@ model GitStationFeed {
   /// Lease of the read in progress (one reader per feed: the poller and 今すぐ同期 never overlap).
   leaseOwner       String?   @db.VarChar(36)
   leaseUntil       DateTime?
+  /// Consecutive reads that held the cursor (the log escalates after 3).
+  consecutiveHolds Int       @default(0)
   readAt           DateTime?
   lastError        String?   @db.VarChar(500)
   lastErrorAt      DateTime?
@@ -1391,6 +1393,10 @@ model GitRepository {
   stationRereadAt   DateTime?
   /// GitStation: consecutive failed state re-reads of this repository (shown in the log).
   stationRereadFailures Int        @default(0)
+  /// GitStation: no state re-read before this time (exponential back-off after failed re-reads).
+  stationRereadNextAt   DateTime?
+  /// GitStation: consecutive reads in which this repository could not be written (quarantined at 3).
+  stationWriteFailures  Int        @default(0)
   lastError         String?      @db.VarChar(500)
   lastErrorAt       DateTime?
   sortOrder         Int          @default(0)

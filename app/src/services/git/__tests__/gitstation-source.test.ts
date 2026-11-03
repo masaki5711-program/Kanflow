@@ -265,7 +265,7 @@ describe("GitStation feed", () => {
     station.rawEvents({ events: [{ id: "evt_x", type: "merge_request.opened" }, "junk", { id: "evt_y", type: "merge_request.opened", occurred_at: "2026-10-01T00:00:00Z", data: { project: REPO, iid: 3, title: "t", url: `${STATION}/t` }, work_items: station.workItem("PBI-1") }], next_cursor: "aead.next", has_more: false })
     const changes = await sourceOn(station).readChanges(here(station), NOW)
     expect(changes.mergeRequests.map((m) => m.ref)).toEqual(["3"])
-    expect(logs.warn).toHaveBeenCalledWith("gitstation events of an unexpected shape skipped", expect.objectContaining({ count: 2 }))
+    expect(logs.warn).toHaveBeenCalledWith("gitstation events of an unexpected shape skipped", expect.objectContaining({ count: 2, samples: [{ id: "evt_x", type: "merge_request.opened" }, { id: null, type: null }] }))
   })
 
   it("an empty or over-long next_cursor is invalid_response (not 'resync'), keeping the position", async () => {
@@ -410,6 +410,22 @@ describe("GitStation feed", () => {
     let caught: unknown
     await source.locate().catch((e: unknown) => (caught = e))
     expect(source.describeError(caught)).toMatchObject({ kind: "not_bound", expected: true, message: expect.stringContaining("結び付けられていません") })
+  })
+})
+
+describe("GitStation messages", () => {
+  it("truncated and host_not_allowed have their own messages, shown in the viewer's language (ja / en / id)", async () => {
+    const { syncMessageKey } = await import("@/lib/git/sync-messages")
+    const { ja, en, id } = await import("@/lib/i18n/git")
+    const source = sourceOn(createFakeGitStation())
+    for (const kind of ["truncated", "host_not_allowed"] as const) {
+      const info = source.describeError(new GitStationError(kind, "x"))
+      expect(info.expected).toBe(false)
+      const key = syncMessageKey(info.message)
+      expect(key).not.toBeNull()
+      for (const t of [ja, en, id]) expect(t[key!].length).toBeGreaterThan(10)
+      expect(ja[key!]).toBe(info.message)
+    }
   })
 })
 

@@ -1,5 +1,5 @@
 import { createGitStationClient, GitStationError, MAX_CURSOR_LENGTH, type GitStationClient, type GitStationClientOptions, type GitStationEvent, type GitStationMergeRequest } from "@/lib/git/gitstation-client"
-import { CURSOR_INVALID_MESSAGE } from "@/lib/git/sync-messages"
+import { CURSOR_INVALID_MESSAGE, STATION_HOST_NOT_ALLOWED_MESSAGE, STATION_NOT_BOUND_MESSAGE, STATION_TRUNCATED_MESSAGE } from "@/lib/git/sync-messages"
 import { logger } from "@/lib/logger"
 import type {
   DevBranchListing,
@@ -205,6 +205,7 @@ export async function readFeed(
 
   const seen = new Set<string>()
   let malformed = 0
+  const malformedSamples: { id: string | null; type: string | null }[] = []
   let more = true
   for (let page = 0; page < MAX_FEED_PAGES && more; page++) {
     let result
@@ -223,6 +224,7 @@ export async function readFeed(
       break
     }
     malformed += result.malformed
+    for (const sample of result.malformedSamples ?? []) if (malformedSamples.length < 5) malformedSamples.push(sample)
     if (result.hasMore && result.nextCursor === after) {
       failures.push({ kind: "feed", error: new GitStationError("invalid_response", "GitStation feed has more events but did not move its cursor") })
       break
@@ -236,7 +238,7 @@ export async function readFeed(
     after = result.nextCursor
     more = result.hasMore
   }
-  if (malformed > 0) log.warn("gitstation events of an unexpected shape skipped", { ...context, count: malformed })
+  if (malformed > 0) log.warn("gitstation events of an unexpected shape skipped", { ...context, count: malformed, samples: malformedSamples })
   if (more && failures.length === 0) log.info("git sync backlog", { ...context, kind: "feed" })
   return { start, events, snapshots, rereadFailures, cursor: encodeStationCursor(after), failures, restarted }
 }
@@ -438,8 +440,7 @@ export function changesFor(read: FeedRead, repository: FeedRepository, now: Date
 
 // ------------------------------------------------------------------ errors
 
-export const NOT_BOUND_MESSAGE =
-  "このリポジトリは GitStation でこのプロジェクトだけに結び付けられていません。GitStation の管理者に、このプロジェクトへの結び付けを依頼してください（結び付けが戻ると状態を取り直します）。"
+export const NOT_BOUND_MESSAGE = STATION_NOT_BOUND_MESSAGE
 
 /**
  * The repository is visible to the integration's service account but GitStation does not bind it to
@@ -486,9 +487,9 @@ export function gitStationErrorMessage(err: unknown): string {
     case "invalid_response":
       return "GitStation から想定外の応答がありました。次回の同期で再試行します（続く場合は管理者に連絡してください）。"
     case "truncated":
-      return "GitStation の状態の取り直しが上限（マージリクエスト 2000 件）を超えました。管理者に連絡してください。"
+      return STATION_TRUNCATED_MESSAGE
     case "host_not_allowed":
-      return "GitStation のホストが許可されていません（GITSTATION_ALLOWED_HOSTS）。管理者に連絡してください。"
+      return STATION_HOST_NOT_ALLOWED_MESSAGE
     default:
       return `GitStation がエラーを返しました（${err.status ?? "?"}）。次回の同期で再試行します。`
   }

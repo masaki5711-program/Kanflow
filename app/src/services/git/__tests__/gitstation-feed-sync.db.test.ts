@@ -79,7 +79,7 @@ describe.skipIf(!enabled)("GitStation feed sync on a real database (KANFLOW_DB_T
     station.bind("tools/cli", [ids.projectB])
     await prisma.gitStationFeed.deleteMany({ where: { apiBase: STATION, integrationId: INTEGRATION } })
     await prisma.gitLink.deleteMany({ where: { projectId: { in: [ids.projectA, ids.projectB] } } })
-    await prisma.gitRepository.updateMany({ where: { id: { in: [...ownIds] } }, data: { syncedAt: null, stationRereadAt: null, stationRereadFailures: 0, lastError: null } })
+    await prisma.gitRepository.updateMany({ where: { id: { in: [...ownIds] } }, data: { syncedAt: null, stationRereadAt: null, stationRereadFailures: 0, stationRereadNextAt: null, stationWriteFailures: 0, lastError: null } })
     await prisma.gitIntegration.updateMany({ where: { projectId: { in: [ids.projectA, ids.projectB] } }, data: { stationIntegrationId: INTEGRATION } })
   })
 
@@ -194,11 +194,12 @@ describe.skipIf(!enabled)("GitStation feed sync on a real database (KANFLOW_DB_T
     expect((await prisma.gitRepository.findUniqueOrThrow({ where: { id: ids.repoA1 } })).lastError).toContain("過去分を再同期")
   })
 
-  it("a repository without the integration id fails with its message and does not join the feed", async () => {
+  it("a repository without the integration id fails with its message, does not join the feed, and is marked for a re-read", async () => {
     await prisma.gitIntegration.update({ where: { projectId: ids.projectB }, data: { stationIntegrationId: null } })
     const results = await sync()
     expect(results.find((r) => r.repositoryId === ids.repoB)).toMatchObject({ ok: false, error: "integration" })
     expect(results.filter((r) => r.ok)).toHaveLength(2)
+    expect((await prisma.gitRepository.findUniqueOrThrow({ where: { id: ids.repoB } })).stationRereadAt).not.toBeNull()
   })
 
   it("does not move the cursor when a repository could not be written (and says so on the feed)", async () => {
@@ -220,7 +221,7 @@ describe.skipIf(!enabled)("GitStation feed sync on a real database (KANFLOW_DB_T
     expect(feed.lastError).toBe(feedSync.HELD_MESSAGE)
   })
 
-  it("does not move the cursor when a repository's binding could not be checked (GitStation answered 503)", async () => {
+  it("does not move the cursor when a repository's binding could not be checked (transient: 503), and every repository shows the hold", async () => {
     await started()
     const before = (await feedRow()).cursor
     station.mergeRequest("merge_request.opened", 3, { project: "tools/cli" }, station.workItem("PBI-1", ids.projectB))
@@ -229,6 +230,80 @@ describe.skipIf(!enabled)("GitStation feed sync on a real database (KANFLOW_DB_T
     expect(results.find((r) => r.repositoryId === ids.repoB)).toMatchObject({ ok: false, error: "unavailable" })
     expect((await feedRow()).cursor).toBe(before)
     expect(eventRequests()).toHaveLength(0)
+    // A healthy-looking repository shows the hold too; the failing one keeps its own message.
+    expect((await prisma.gitRepository.findUniqueOrThrow({ where: { id: ids.repoA1 } })).lastError).toBe(feedSync.HELD_MESSAGE)
+    expect((await prisma.gitRepository.findUniqueOrThrow({ where: { id: ids.repoB } })).lastError).not.toBe(feedSync.HELD_MESSAGE)
+  })
+
+  it("counts consecutive holds on the feed (the log escalates at 3) and resets them once the cursor moves", async () => {
+    await started()
+    for (let i = 0; i < 3; i++) {
+      station.fail("/projects/tools%2Fcli", 503, {}, { "retry-after": "999" })
+      await sync()
+    }
+    expect((await feedRow()).consecutiveHolds).toBe(3)
+    await sync()
+    expect((await feedRow()).consecutiveHolds).toBe(0)
+  })
+
+  it.each([401, 403, 404])("a repository whose binding check answers %i is skipped and marked; the shared cursor moves on", async (status) => {
+    await started()
+    station.mergeRequest("merge_request.opened", 1, { project: "app/portal" }, station.workItem("PBI-1", ids.projectA))
+    station.fail("/projects/tools%2Fcli", status, {})
+    const results = await sync()
+    expect(results.find((r) => r.repositoryId === ids.repoB)).toMatchObject({ ok: false })
+    expect(results.filter((r) => r.ok)).toHaveLength(2)
+    expect((await feedRow()).cursor).toBe(`gitstation:v1:${station.head()}`)
+    expect((await prisma.gitRepository.findUniqueOrThrow({ where: { id: ids.repoB } })).stationRereadAt).not.toBeNull()
+  })
+
+  it("a repository that cannot be written 3 times in a row is set aside: the first two hold the cursor, the third lets it move", async () => {
+    await started()
+    const before = (await feedRow()).cursor
+    station.mergeRequest("merge_request.opened", 3, { project: "tools/cli", source_branch: "feature/PBI-1-cli" }, station.workItem("PBI-1", ids.projectB))
+    const delegate = prisma.gitLink
+    const original = delegate.upsert.bind(delegate) as (...args: unknown[]) => unknown
+    let failing = true
+    vi.spyOn(delegate, "upsert").mockImplementation(((...args: unknown[]) => {
+      const where = (args[0] as { create?: { repositoryId?: string } }).create
+      if (failing && where?.repositoryId === ids.repoB) return Promise.reject(new Error("synthetic write failure"))
+      return original(...args)
+    }) as never)
+    try {
+      await sync()
+      await sync()
+      expect((await feedRow()).cursor).toBe(before)
+      expect((await prisma.gitRepository.findUniqueOrThrow({ where: { id: ids.repoB } })).stationWriteFailures).toBe(2)
+      await sync()
+    } finally {
+      failing = false
+    }
+    expect((await feedRow()).cursor).toBe(`gitstation:v1:${station.head()}`)
+    const quarantined = await prisma.gitRepository.findUniqueOrThrow({ where: { id: ids.repoB } })
+    expect(quarantined.stationWriteFailures).toBe(3)
+    expect(quarantined.stationRereadAt).not.toBeNull()
+    expect(quarantined.lastError).toContain("書き込めなかった")
+    // Once it can be written again, its state is re-read (the event it missed comes back) and the count resets.
+    await sync()
+    expect(await prisma.gitLink.findFirst({ where: { repositoryId: ids.repoB, ref: "3" } })).toMatchObject({ state: "opened" })
+    expect((await prisma.gitRepository.findUniqueOrThrow({ where: { id: ids.repoB } })).stationWriteFailures).toBe(0)
+  })
+
+  it("a read that loses its lease stops writing (nothing stored, cursor unchanged)", async () => {
+    await started()
+    const before = await feedRow()
+    station.mergeRequest("merge_request.opened", 1, { project: "app/portal" }, station.workItem("PBI-1", ids.projectA))
+    fetchImpl = async (input, init) => {
+      if (new URL(String(input)).pathname.endsWith("/events")) {
+        await prisma.gitStationFeed.update({ where: { id: before.id }, data: { leaseOwner: "another-reader", leaseUntil: new Date(Date.now() + 60_000) } })
+      }
+      return station.fetchImpl(input, init)
+    }
+    const results = await sync()
+    expect(results.every((r) => r.error === "lease_lost")).toBe(true)
+    expect(await prisma.gitLink.count({ where: { repositoryId: ids.repoA1 } })).toBe(0)
+    expect((await feedRow()).cursor).toBe(before.cursor)
+    await prisma.gitStationFeed.update({ where: { id: before.id }, data: { leaseOwner: null, leaseUntil: null } })
   })
 
   it("a repository GitStation no longer binds to its project is skipped and marked; its state is re-read when the binding returns", async () => {
@@ -261,14 +336,31 @@ describe.skipIf(!enabled)("GitStation feed sync on a real database (KANFLOW_DB_T
     const failed = await prisma.gitRepository.findUniqueOrThrow({ where: { id: ids.repoA2 } })
     expect(failed.stationRereadFailures).toBe(1)
     expect(failed.stationRereadAt).not.toBeNull()
+    expect(failed.stationRereadNextAt?.getTime()).toBe(NOW.getTime() + feedSync.rereadBackoffMs(0))
+    // Backed off: the next read does not ask again before that time.
     station.restoreState("app/api")
+    station.requests.length = 0
+    await sync()
+    expect(stateRequests()).toEqual([])
+    await prisma.gitRepository.update({ where: { id: ids.repoA2 }, data: { stationRereadNextAt: new Date(NOW.getTime() - 1) } })
     await sync()
     const done = await prisma.gitRepository.findUniqueOrThrow({ where: { id: ids.repoA2 } })
-    expect(done).toMatchObject({ stationRereadAt: null, stationRereadFailures: 0 })
+    expect(done).toMatchObject({ stationRereadAt: null, stationRereadFailures: 0, stationRereadNextAt: null })
   })
 
   it("a GitStation repository cannot be AI knowledge (no file API yet)", async () => {
     await expect(service.updateRepository(ids.projectA, ids.repoA1, { aiKnowledge: true }, actor)).rejects.toMatchObject({ status: 400, code: "GIT_KNOWLEDGE_UNSUPPORTED" })
+  })
+
+  it("permanent failures skip, transient ones hold; re-reads back off exponentially up to a day", async () => {
+    const { GitStationError } = await import("@/lib/git/gitstation-client")
+    const { NotBoundError } = await import("../gitstation-source")
+    for (const kind of ["auth", "forbidden", "not_found", "host_not_allowed"] as const) expect(feedSync.isPermanentFailure(new GitStationError(kind, "x"))).toBe(true)
+    expect(feedSync.isPermanentFailure(new NotBoundError())).toBe(true)
+    for (const kind of ["network", "rate_limited", "unavailable", "invalid_response", "http"] as const) expect(feedSync.isPermanentFailure(new GitStationError(kind, "x"))).toBe(false)
+    expect(feedSync.isPermanentFailure(new Error("db down"))).toBe(false)
+    expect([0, 1, 2].map(feedSync.rereadBackoffMs)).toEqual([600_000, 1_200_000, 2_400_000])
+    expect(feedSync.rereadBackoffMs(30)).toBe(86_400_000)
   })
 
   it("the activity of an automatic completion names GitStation", () => {

@@ -261,18 +261,27 @@ export function createGitStationClient({ apiBase, token, integrationId, fetchImp
   }
 
   /** A malformed page (or cursor) is invalid_response — never stored, never mistaken for "resync". */
-  function feedPage(body: unknown): GitStationFeedPage & { malformed: number } {
+  function feedPage(body: unknown): GitStationFeedPage & { malformed: number; malformedSamples: { id: string | null; type: string | null }[] } {
     if (!isObject(body) || !Array.isArray(body.events) || !validCursor(body.next_cursor) || typeof body.has_more !== "boolean") {
       throw new GitStationError("invalid_response", "GitStation feed page has an unexpected shape")
     }
     const events: GitStationEvent[] = []
     let malformed = 0
+    const malformedSamples: { id: string | null; type: string | null }[] = []
     for (const raw of body.events) {
       const e = parseEvent(raw)
-      if (e) events.push(e)
-      else malformed++
+      if (e) {
+        events.push(e)
+        continue
+      }
+      malformed++
+      // Id and type when the event has them (bounded), so the event can be found in GitStation.
+      if (malformedSamples.length < 5) {
+        const r = isObject(raw) ? raw : {}
+        malformedSamples.push({ id: str(r.id) ? r.id.slice(0, 64) : null, type: str(r.type) ? r.type.slice(0, 64) : null })
+      }
     }
-    return { events, nextCursor: body.next_cursor, hasMore: body.has_more, malformed }
+    return { events, nextCursor: body.next_cursor, hasMore: body.has_more, malformed, malformedSamples }
   }
 
   async function list<T>(path: string, key: string, query: Query, maxPages: number): Promise<Listing<T>> {
@@ -294,7 +303,7 @@ export function createGitStationClient({ apiBase, token, integrationId, fetchImp
 
   return {
     /** Events after `after` (null = from the beginning the integration may see). */
-    async events(after: string | null, limit = FEED_PAGE_LIMIT): Promise<GitStationFeedPage & { malformed: number }> {
+    async events(after: string | null, limit = FEED_PAGE_LIMIT): Promise<GitStationFeedPage & { malformed: number; malformedSamples: { id: string | null; type: string | null }[] }> {
       return feedPage(await send(`/integrations/${integration}/events`, { after: after ?? undefined, limit }))
     },
 

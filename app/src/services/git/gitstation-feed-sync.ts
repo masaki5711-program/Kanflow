@@ -3,7 +3,8 @@ import type { Prisma } from "@/generated/prisma/client"
 import { prisma } from "@/lib/prisma"
 import { logger } from "@/lib/logger"
 import { keyedDigest } from "@/lib/secret-box"
-import { CURSOR_INVALID_MESSAGE } from "@/lib/git/sync-messages"
+import { CURSOR_INVALID_MESSAGE, STATION_HELD_MESSAGE, STATION_QUARANTINED_MESSAGE } from "@/lib/git/sync-messages"
+import { GitStationError } from "@/lib/git/gitstation-client"
 import type { DevClients, DevConnection, DevSource } from "./dev-source"
 import { fail, failureMessage, MISSING_TOKEN_MESSAGE, repositoryToken, withBranches, writeRead, type SyncIntegration, type SyncRepositoryRow, type SyncResult } from "./git-sync"
 import {
@@ -11,6 +12,7 @@ import {
   describeGitStationError,
   gitStationCursorCodec,
   MISSING_INTEGRATION_MESSAGE,
+  MissingIntegrationError,
   NotBoundError,
   readFeed,
   routeFeed,
@@ -30,9 +32,12 @@ import {
  * 4. saves the cursor as a compare-and-set on (generation, previous cursor, lease), then the
  *    repository statuses, then runs the notifications / auto-complete.
  *
- * The cursor is HELD (not moved) when any repository could not be checked or written: re-reading is
- * idempotent. A repository that is not bound is skipped (logged with the number of its events) and
- * marked, so its state is re-read when the binding returns — its events are never silently lost.
+ * The cursor is HELD (not moved) only for transient failures (network, timeout, 429, 503, unexpected
+ * answers) of a repository's check or write: re-reading is idempotent, and every repository shows the
+ * hold. A permanent failure (not bound, 401 / 403 / 404, host not allowed) or a repository that could
+ * not be written 3 times in a row is skipped (logged with the number of its events) and marked, so its
+ * state is re-read once it works again — it never stalls the shared feed, and its events are never
+ * silently lost. The lease is renewed between phases; a read that lost it stops writing.
  *
  * Why above the per-repository DevSource and not inside it: the feed spans up to 200 bound
  * repositories, so reading it once per repository would re-read the same events N times, and N
@@ -44,7 +49,15 @@ const log = logger.child({ module: "git-sync" })
 /** A read holds its feed at most this long; a crashed reader's lease expires. */
 const LEASE_MS = 10 * 60_000
 
-export const HELD_MESSAGE = "リポジトリを確かめられない・書き込めないものがあったため、イベントの履歴の位置を進めていません。次回の同期でやり直します。"
+export const HELD_MESSAGE = STATION_HELD_MESSAGE
+/** Consecutive write failures after which a repository is set aside (the cursor no longer waits for it). */
+export const QUARANTINE_AFTER = 3
+/** Consecutive held reads after which the hold is logged as an error. */
+const HOLD_ESCALATE_AFTER = 3
+/** Consecutive busy results (per feed, per process) after which they are logged as a warning. */
+const BUSY_WARN_AFTER = 3
+const REREAD_BACKOFF_BASE_MS = 10 * 60_000
+const REREAD_BACKOFF_CAP_MS = 24 * 60 * 60_000
 
 /** Which token a feed belongs to: an HMAC under the server key (a database dump cannot test token guesses). */
 export function tokenFingerprint(token: string): string {
@@ -132,6 +145,9 @@ function groupByFeed(repos: SyncRepositoryRow[]): { groups: FeedGroup[]; invalid
   return { groups: [...groups.values()], invalid }
 }
 
+/** Busy results per feed in this process (the log escalates when a feed stays busy). */
+const busyCounts = new Map<string, number>()
+
 async function acquireLease(feedId: string): Promise<string | null> {
   const owner = randomUUID()
   const now = new Date()
@@ -142,10 +158,31 @@ async function acquireLease(feedId: string): Promise<string | null> {
   return r.count === 1 ? owner : null
 }
 
+/** Extends this read's lease; false = it was lost (expired and taken, or the row changed): stop writing. */
+async function renewLease(feedId: string, owner: string): Promise<boolean> {
+  const r = await prisma.gitStationFeed.updateMany({ where: { id: feedId, leaseOwner: owner }, data: { leaseUntil: new Date(Date.now() + LEASE_MS) } })
+  return r.count === 1
+}
+
 async function releaseLease(feedId: string, owner: string): Promise<void> {
   await prisma.gitStationFeed
     .updateMany({ where: { id: feedId, leaseOwner: owner }, data: { leaseOwner: null, leaseUntil: null } })
     .catch((err: unknown) => log.error("gitstation feed lease not released", { feedId, error: errorText(err) }))
+}
+
+/**
+ * A failure that will not go away by reading again (not bound, 401 / 403 / 404, host not allowed, no
+ * integration id): the repository is skipped and marked, and the shared cursor moves on. Anything
+ * else (network, timeout, 429, 503, invalid_response …) is transient: the cursor is held.
+ */
+export function isPermanentFailure(err: unknown): boolean {
+  if (err instanceof NotBoundError || err instanceof MissingIntegrationError) return true
+  return err instanceof GitStationError && (err.kind === "auth" || err.kind === "forbidden" || err.kind === "not_found" || err.kind === "host_not_allowed")
+}
+
+/** Next state re-read after `failures` consecutive failed ones: 10 min, 20 min, 40 min … at most a day. */
+export function rereadBackoffMs(failures: number): number {
+  return Math.min(REREAD_BACKOFF_CAP_MS, REREAD_BACKOFF_BASE_MS * 2 ** Math.max(0, failures))
 }
 
 /** A repository's failure as a result and the status to store (logged here, stored by the caller). */
@@ -167,9 +204,13 @@ async function syncFeed(group: FeedGroup, clients: DevClients, now: Date): Promi
     feed = await prisma.gitStationFeed.upsert({ where: { apiBase_integrationId_tokenFingerprint: group.key }, create: group.key, update: {} })
     owner = await acquireLease(feed.id)
     if (!owner) {
-      log.info("gitstation feed busy: another read holds it", { feedId: feed.id })
+      const busy = (busyCounts.get(feed.id) ?? 0) + 1
+      busyCounts.set(feed.id, busy)
+      if (busy >= BUSY_WARN_AFTER) log.warn("gitstation feed busy: another read holds it", { feedId: feed.id, consecutive: busy })
+      else log.info("gitstation feed busy: another read holds it", { feedId: feed.id, consecutive: busy })
       return repositoryIds.map((repositoryId) => ({ repositoryId, ok: false, links: 0, error: "busy" }))
     }
+    busyCounts.delete(feed.id)
     return await readAndWrite(feed, owner, group, clients, now)
   } catch (err) {
     log.error("gitstation feed sync failed", { feedId: feed?.id ?? null, repositoryIds, error: errorText(err) })
@@ -183,35 +224,39 @@ async function syncFeed(group: FeedGroup, clients: DevClients, now: Date): Promi
 
 async function readAndWrite(feed: Feed, owner: string, group: FeedGroup, clients: DevClients, now: Date): Promise<SyncResult[]> {
   const context = { feedId: feed.id }
+  const memberIds = group.members.map((m) => m.repo.id)
+  const byId = new Map(group.members.map((m) => [m.repo.id, m]))
   const results = new Map<string, SyncResult>()
   const statuses = new Map<string, Record<string, unknown>>()
+  /** Columns of git_repository stored with each status (re-read marks, write-failure counts). */
+  const extras = new Map<string, Record<string, unknown>>()
   const finishes: (() => Promise<SyncResult>)[] = []
-  const rereadMarks = new Map<string, "set" | "failed" | "clear">()
+  /** Repositories that failed in a way that holds the cursor (their own status explains why). */
+  const ownFailure = new Set<string>()
 
+  const addExtra = (id: string, data: Record<string, unknown>) => extras.set(id, { ...(extras.get(id) ?? {}), ...data })
+  const markReread = (id: string) => addExtra(id, { stationRereadAt: byId.get(id)?.repo.stationRereadAt ?? now })
+  const resultsInOrder = () => memberIds.map((id) => results.get(id) ?? { repositoryId: id, ok: false, links: 0, error: "held" })
   const storeStatuses = async () => {
-    const writes = [...statuses].map(([id, data]) => {
-      const mark = rereadMarks.get(id)
-      const member = group.members.find((m) => m.repo.id === id)
-      const reread =
-        mark === "clear"
-          ? { stationRereadAt: null, stationRereadFailures: 0 }
-          : mark === "failed"
-            ? { stationRereadAt: member?.repo.stationRereadAt ?? now, stationRereadFailures: { increment: 1 } }
-            : mark === "set"
-              ? { stationRereadAt: member?.repo.stationRereadAt ?? now }
-              : {}
-      return prisma.gitRepository.update({ where: { id }, data: { ...data, ...reread } })
-    })
+    const writes = [...new Set([...statuses.keys(), ...extras.keys()])].map((id) => prisma.gitRepository.update({ where: { id }, data: { ...(statuses.get(id) ?? {}), ...(extras.get(id) ?? {}) } }))
     if (writes.length > 0) await prisma.$transaction(writes)
   }
+  const leaseLost = (phase: string) => {
+    log.warn("gitstation feed lease lost: nothing more is written", { ...context, phase })
+    return memberIds.map((id) => results.get(id) ?? { repositoryId: id, ok: false, links: 0, error: "lease_lost" })
+  }
+  /** Holds the cursor: every repository shows it (its own failure message where it has one). */
   const hold = async (reason: string) => {
-    log.warn("gitstation feed cursor kept", { ...context, reason })
-    await prisma.gitStationFeed.update({ where: { id: feed.id }, data: { lastError: HELD_MESSAGE, lastErrorAt: now } })
+    const holds = feed.consecutiveHolds + 1
+    if (holds >= HOLD_ESCALATE_AFTER) log.error("gitstation feed cursor kept", { ...context, reason, consecutiveHolds: holds })
+    else log.warn("gitstation feed cursor kept", { ...context, reason, consecutiveHolds: holds })
+    if (!(await renewLease(feed.id, owner))) return leaseLost("hold")
+    await prisma.gitStationFeed.update({ where: { id: feed.id }, data: { lastError: HELD_MESSAGE, lastErrorAt: now, consecutiveHolds: { increment: 1 } } })
+    for (const id of memberIds) if (!ownFailure.has(id)) statuses.set(id, { lastError: HELD_MESSAGE, lastErrorAt: now })
     await storeStatuses()
     // Repositories already written keep their notifications / auto-complete (a re-read finds no change to trigger them again).
     for (const finish of finishes) await finish()
-    // Repositories not reached because the read was held: nothing written, nothing stored.
-    return group.members.map((m) => results.get(m.repo.id) ?? { repositoryId: m.repo.id, ok: false, links: 0, error: "held" })
+    return resultsInOrder()
   }
 
   // An unreadable stored position: every repository says so; nothing is read.
@@ -219,14 +264,14 @@ async function readAndWrite(feed: Feed, owner: string, group: FeedGroup, clients
   try {
     cursor = gitStationCursorCodec.fromRow(feed, now)
   } catch (err) {
-    log.error("git sync failed", { ...context, kind: "feed", repositoryIds: group.members.map((m) => m.repo.id), error: errorText(err) })
+    log.error("git sync failed", { ...context, kind: "feed", repositoryIds: memberIds, error: errorText(err) })
     await prisma.gitStationFeed.update({ where: { id: feed.id }, data: { lastError: CURSOR_INVALID_MESSAGE, lastErrorAt: now } })
-    for (const m of group.members) {
-      results.set(m.repo.id, { repositoryId: m.repo.id, ok: false, links: 0, error: "cursor" })
-      statuses.set(m.repo.id, { lastError: CURSOR_INVALID_MESSAGE, lastErrorAt: now })
+    for (const id of memberIds) {
+      results.set(id, { repositoryId: id, ok: false, links: 0, error: "cursor" })
+      statuses.set(id, { lastError: CURSOR_INVALID_MESSAGE, lastErrorAt: now })
     }
     await storeStatuses()
-    return group.members.map((m) => results.get(m.repo.id)!)
+    return resultsInOrder()
   }
 
   let client
@@ -237,14 +282,15 @@ async function readAndWrite(feed: Feed, owner: string, group: FeedGroup, clients
       const f = failure(m.repo.id, null, err, now)
       results.set(m.repo.id, f.result)
       statuses.set(m.repo.id, f.status)
+      ownFailure.add(m.repo.id)
     }
     return hold("client")
   }
 
-  // Binding check. Not bound: skipped and marked (its state is re-read when the binding returns).
-  // Anything else (GitStation down, 401 …): the cursor is held.
+  // Binding check. A permanent failure (not bound, 401 / 403 / 404 …): skipped and marked — its state
+  // is re-read when it works again — and the cursor moves on. A transient one: the cursor is held.
   const bound: { m: FeedMember; source: DevSource }[] = []
-  const notBound: FeedMember[] = []
+  const skipped: FeedMember[] = []
   let held = false
   for (const m of group.members) {
     const source = createGitStationSource(connection(m), clients.gitstation)
@@ -255,72 +301,100 @@ async function readAndWrite(feed: Feed, owner: string, group: FeedGroup, clients
       const f = failure(m.repo.id, source, err, now)
       results.set(m.repo.id, f.result)
       statuses.set(m.repo.id, f.status)
-      if (err instanceof NotBoundError) {
-        notBound.push(m)
-        rereadMarks.set(m.repo.id, "set")
-      } else held = true
+      if (isPermanentFailure(err)) {
+        skipped.push(m)
+        markReread(m.repo.id)
+      } else {
+        ownFailure.add(m.repo.id)
+        held = true
+      }
     }
   }
   if (held) return hold("a repository could not be checked")
+  if (!(await renewLease(feed.id, owner))) return leaseLost("after binding checks")
 
-  const reread = bound.filter(({ m }) => m.repo.syncedAt === null || m.repo.stationRereadAt !== null).map(({ m }) => m.repo.repoPath)
+  const due = (m: FeedMember) => (m.repo.syncedAt === null || m.repo.stationRereadAt !== null) && (m.repo.stationRereadNextAt === null || m.repo.stationRereadNextAt <= now)
+  const reread = bound.filter(({ m }) => due(m)).map(({ m }) => m.repo.repoPath)
   const read = await readFeed(client, cursor, bound.map(({ m }) => m.repo.repoPath), context, reread)
   if (read.restarted) log.info("gitstation state re-read", { ...context, reason: read.restarted, repositories: bound.length })
   const routed = routeFeed(
     read,
-    [...bound.map(({ m }) => m), ...notBound].map((m) => ({ id: m.repo.id, repoPath: m.repo.repoPath, projectId: m.repo.projectId })),
+    [...bound.map(({ m }) => m), ...skipped].map((m) => ({ id: m.repo.id, repoPath: m.repo.repoPath, projectId: m.repo.projectId })),
     now,
     context,
   )
-  for (const m of notBound) log.warn("gitstation repository skipped: not bound", { ...context, repositoryId: m.repo.id, skippedEvents: routed.eventCounts.get(m.repo.id) ?? 0 })
+  for (const m of skipped) log.warn("gitstation repository skipped", { ...context, repositoryId: m.repo.id, error: results.get(m.repo.id)?.error, skippedEvents: routed.eventCounts.get(m.repo.id) ?? 0 })
+  if (!(await renewLease(feed.id, owner))) return leaseLost("after feed read")
 
   for (const { m, source } of bound) {
+    if (!(await renewLease(feed.id, owner))) return leaseLost("before repository write")
+    const id = m.repo.id
     try {
-      const changes = routed.changes.get(m.repo.id)!
+      const changes = routed.changes.get(id)!
       const written = await writeRead(m.repo, m.integration, "gitstation", source, await withBranches(source, changes, now), now)
-      statuses.set(m.repo.id, written.status)
+      statuses.set(id, written.status)
       finishes.push(async () => {
         const r = await written.finish()
-        results.set(m.repo.id, r)
+        results.set(id, r)
         return r
       })
+      addExtra(id, { stationWriteFailures: 0 })
       const path = m.repo.repoPath.toLowerCase()
-      if (read.rereadFailures.has(path)) {
-        rereadMarks.set(m.repo.id, "failed")
-        log.warn("gitstation state re-read failed", { ...context, repositoryId: m.repo.id, consecutiveFailures: m.repo.stationRereadFailures + 1 })
-      } else if (read.snapshots.has(path)) rereadMarks.set(m.repo.id, "clear")
-      results.set(m.repo.id, { repositoryId: m.repo.id, ok: changes.failures.length === 0, links: 0 })
+      const rereadFailure = read.rereadFailures.get(path)
+      if (rereadFailure !== undefined) {
+        const failures = m.repo.stationRereadFailures + 1
+        addExtra(id, { stationRereadAt: m.repo.stationRereadAt ?? now, stationRereadFailures: failures, stationRereadNextAt: new Date(now.getTime() + rereadBackoffMs(failures - 1)) })
+        log.warn("gitstation state re-read failed", { ...context, repositoryId: id, consecutiveFailures: failures, nextAttemptInMs: rereadBackoffMs(failures - 1) })
+      } else if (read.snapshots.has(path)) addExtra(id, { stationRereadAt: null, stationRereadFailures: 0, stationRereadNextAt: null })
+      results.set(id, { repositoryId: id, ok: changes.failures.length === 0, links: 0 })
     } catch (err) {
-      const f = failure(m.repo.id, source, err, now)
-      results.set(m.repo.id, f.result)
-      statuses.set(m.repo.id, f.status)
-      held = true
+      const f = failure(id, source, err, now)
+      results.set(id, f.result)
+      const failures = m.repo.stationWriteFailures + 1
+      addExtra(id, { stationWriteFailures: failures })
+      if (failures >= QUARANTINE_AFTER) {
+        // Set aside: it keeps failing; the others go on and its state is re-read later.
+        log.error("gitstation repository quarantined", { ...context, repositoryId: id, consecutiveWriteFailures: failures, skippedEvents: routed.eventCounts.get(id) ?? 0 })
+        statuses.set(id, { lastError: STATION_QUARANTINED_MESSAGE, lastErrorAt: now })
+        markReread(id)
+      } else {
+        statuses.set(id, f.status)
+        ownFailure.add(id)
+        held = true
+      }
     }
   }
   if (held) return hold("a repository could not be written")
 
   // Compare-and-set: only from the position this read started at, under this read's lease and generation.
-  const feedStatus = read.failures.length > 0 ? { lastError: failureMessage(read.failures, bound[0]?.source ?? createGitStationSource(connection(group.members[0]), clients.gitstation)).slice(0, 500), lastErrorAt: now } : { readAt: now, lastError: null, lastErrorAt: null }
+  const feedStatus =
+    read.failures.length > 0
+      ? { lastError: failureMessage(read.failures, bound[0]?.source ?? createGitStationSource(connection(group.members[0]), clients.gitstation)).slice(0, 500), lastErrorAt: now }
+      : { readAt: now, lastError: null, lastErrorAt: null }
   const saved = await prisma.gitStationFeed.updateMany({
     where: { id: feed.id, generation: feed.generation, cursor: feed.cursor, leaseOwner: owner },
-    data: { ...gitStationCursorCodec.toRow(read.cursor), ...feedStatus },
+    data: { ...gitStationCursorCodec.toRow(read.cursor), ...feedStatus, consecutiveHolds: 0 },
   })
   if (saved.count === 0) {
-    log.info("gitstation feed cursor not saved: the feed was restarted meanwhile", context)
-    await prisma.gitStationFeed.update({ where: { id: feed.id }, data: feedStatus })
-    // The re-read marks stay: the restarted feed re-reads anyway.
-    for (const [id, mark] of rereadMarks) if (mark === "clear") rereadMarks.delete(id)
+    const now2 = await prisma.gitStationFeed.findUnique({ where: { id: feed.id }, select: { generation: true, cursor: true, leaseOwner: true } })
+    const mismatched = !now2 ? ["row"] : [now2.generation !== feed.generation && "generation", now2.cursor !== feed.cursor && "cursor", now2.leaseOwner !== owner && "lease"].filter(Boolean)
+    log.warn("gitstation feed cursor not saved: nothing more is written", { ...context, mismatched })
+    return memberIds.map((id) => results.get(id) ?? { repositoryId: id, ok: false, links: 0, error: "lease_lost" })
   }
   await storeStatuses()
   for (const finish of finishes) await finish()
-  return group.members.map((m) => results.get(m.repo.id)!)
+  return resultsInOrder()
 }
 
 /** Reads every feed that has a selected repository (all its repositories are written); returns the selected repositories' results. */
 async function syncSelected(selected: (repo: SyncRepositoryRow) => boolean, clients: DevClients, now: Date): Promise<SyncResult[]> {
   const { groups, invalid } = groupByFeed(await loadRepositories())
   const results: SyncResult[] = []
-  for (const i of invalid.filter((x) => selected(x.repo))) results.push(await fail(i.repo.id, i.kind, i.message, now))
+  for (const i of invalid.filter((x) => selected(x.repo))) {
+    results.push(await fail(i.repo.id, i.kind, i.message, now))
+    // Out of its feed until fixed: its state is re-read once it can join again.
+    await prisma.gitRepository.updateMany({ where: { id: i.repo.id, stationRereadAt: null }, data: { stationRereadAt: now } })
+  }
   for (const group of groups.filter((g) => g.members.some((m) => selected(m.repo)))) {
     const ids = new Set(group.members.filter((m) => selected(m.repo)).map((m) => m.repo.id))
     results.push(...(await syncFeed(group, clients, now)).filter((r) => ids.has(r.repositoryId)))
