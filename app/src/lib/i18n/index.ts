@@ -49,6 +49,7 @@ import * as gitKnowledge from "./git-knowledge"
 import * as planTemplates from "./plan-templates"
 import * as planSchedule from "./plan-schedule"
 import * as planLessonRules from "./plan-lesson-rules"
+import * as planActuals from "./plan-actuals"
 import * as milestones from "./milestones"
 import * as workClaims from "./work-claims"
 import * as acceptanceCriteria from "./acceptance-criteria"
@@ -112,6 +113,7 @@ export interface Translations
     planTemplates.PlanTemplatesTranslations,
     planSchedule.PlanScheduleTranslations,
     planLessonRules.PlanLessonRulesTranslations,
+    planActuals.PlanActualsTranslations,
     milestones.MilestonesTranslations,
     workClaims.WorkClaimsTranslations,
     acceptanceCriteria.AcceptanceCriteriaTranslations,
@@ -169,6 +171,7 @@ export const domains = {
   "plan-templates": planTemplates,
   "plan-schedule": planSchedule,
   "plan-lesson-rules": planLessonRules,
+  "plan-actuals": planActuals,
   "milestones": milestones,
   "work-claims": workClaims,
   "acceptance-criteria": acceptanceCriteria,
@@ -226,6 +229,7 @@ const ja: Translations = {
   ...planTemplates.ja,
   ...planSchedule.ja,
   ...planLessonRules.ja,
+  ...planActuals.ja,
   ...milestones.ja,
   ...workClaims.ja,
   ...acceptanceCriteria.ja,
@@ -283,6 +287,7 @@ const en: Translations = {
   ...planTemplates.en,
   ...planSchedule.en,
   ...planLessonRules.en,
+  ...planActuals.en,
   ...milestones.en,
   ...workClaims.en,
   ...acceptanceCriteria.en,
@@ -340,6 +345,7 @@ const id: Translations = {
   ...planTemplates.id,
   ...planSchedule.id,
   ...planLessonRules.id,
+  ...planActuals.id,
   ...milestones.id,
   ...workClaims.id,
   ...acceptanceCriteria.id,
