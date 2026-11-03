@@ -1,0 +1,66 @@
+# =====================================================================
+#  Kanflow v2 - MySQL -> PostgreSQL migrator rehearsal (MR K2). NOT production.
+#
+#  Two throw-away databases holding SYNTHETIC data only:
+#    mysql     MySQL 8.4 source  (utf8mb4 / utf8mb4_unicode_ci, like production)
+#    postgres  PostgreSQL 16 + TimescaleDB target (same cluster settings as
+#              ops/test-env/compose.yml and the K2 production target)
+#
+#    docker compose -p kanflow-k2-test -f ops/test-env/migrator-compose.yml up -d --wait
+#    docker compose -p kanflow-k2-test -f ops/test-env/migrator-compose.yml down -v
+#
+#  Bound to 127.0.0.1 only (23306 / 25435). Credentials are SYNTHETIC and only
+#  valid for these containers:
+#    MySQL       root / k2_root_synthetic, app user k2_app / k2_app_synthetic,
+#                read-only migrator user k2_reader / k2_reader_synthetic
+#                (created by mysql-init/01-reader.sql with the GRANT the
+#                cutover runbook recommends)
+#    PostgreSQL  k2_pg / k2_pg_synthetic, database scrum_tool
+#  Usage: docs/operations/mysql-to-pg-rehearsal.md
+# =====================================================================
+name: kanflow-k2-test
+
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: k2_root_synthetic
+      MYSQL_DATABASE: scrum_tool_synthetic
+      MYSQL_USER: k2_app
+      MYSQL_PASSWORD: k2_app_synthetic
+      # Production keeps the server clock in local time (UTC+7); the rehearsal
+      # does the same so the migrator's UTC-session rule is exercised.
+      TZ: Asia/Jakarta
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=+07:00
+      # Windows MySQL default (production runs on Windows): table names are
+      # stored in lower case; the migrator maps them back case-insensitively.
+      - --lower-case-table-names=1
+    ports:
+      - "127.0.0.1:23306:3306"
+    volumes:
+      - ./mysql-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -pk2_root_synthetic --silent"]
+      interval: 3s
+      timeout: 5s
+      retries: 60
+
+  postgres:
+    image: timescale/timescaledb:2.28.1-pg16
+    environment:
+      POSTGRES_USER: k2_pg
+      POSTGRES_PASSWORD: k2_pg_synthetic
+      POSTGRES_DB: scrum_tool
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale-provider=icu --icu-locale=und --locale=C.UTF-8"
+      TIMESCALEDB_TELEMETRY: "off"
+    command: ["postgres", "-c", "timescaledb.telemetry_level=off", "-c", "timezone=UTC"]
+    ports:
+      - "127.0.0.1:25435:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U k2_pg -d scrum_tool"]
+      interval: 3s
+      timeout: 5s
+      retries: 40

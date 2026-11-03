@@ -17,6 +17,10 @@
 >   MySQL の照合順序では大文字小文字だけ違う重複は作れないので通常は違反しないが、移行前に `LOWER(列)` の重複が 0 件か確認する。
 >   citext に長さの上限は無いので、チェック項目とタグは CHECK 制約（255 文字）で旧 `VARCHAR(255)` の上限を保っている。
 > - 不正な JSON（`git_link.outsideScopePaths` は jsonb）、tinyint → boolean、古い行の `requested_at` が現地時刻（UTC+7）のまま、`_prisma_migrations` はコピーしない。
+>
+> 上の項目はすべて移行ツール（`app/scripts/migrate-mysql-to-pg.ts`）の事前検査が検出・報告する（NUL・不正な JSON・citext の重複は中止、
+> 現地時刻の `requested_at` は報告だけでずらさない）。**切り替えの手順は [mysql-to-pg-cutover.md](./mysql-to-pg-cutover.md)**、
+> 合成データのリハーサルの記録は [mysql-to-pg-rehearsal.md](./mysql-to-pg-rehearsal.md)。
 
 **本番へのデプロイとロールバックはこの文書だけに従ってください。** runbook.md §4、worker.md、
 app/README.md のデプロイ記述はすべてここを参照します。
