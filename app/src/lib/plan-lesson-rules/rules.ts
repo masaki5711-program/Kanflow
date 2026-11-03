@@ -31,23 +31,19 @@ export type LessonRuleKind = (typeof RULE_KIND_ORDER)[number]
 export const RULE_STATES = ["draft", "confirmed", "retired"] as const
 export type LessonRuleState = (typeof RULE_STATES)[number]
 
-/** Most \`add_dependency\` rules one application may apply. */
+/** Most `add_dependency` rules one application may apply. */
 export const ADDED_DEPENDENCIES_MAX = 30
 /** The placed end may move at most to the template's span × this (the ratio maximum, plan 12 §3.2). */
 export const END_SPAN_MAX_FACTOR = SCALE_FACTOR_MAX
 
-/** Object-prototype names that must never be used as a key a rule creates or a role (prototype pollution). */
-const FORBIDDEN_NAMES = new Set(["__proto__", "prototype", "constructor"])
-/** Suffixes \`applyLessonRules\` generates for split parts and buffers; a new item may not claim them. */
+/** Suffixes `applyLessonRules` generates for split parts and buffers; a new item may not claim them. */
 export const GENERATED_KEY_SUFFIX = /_(?:p\d+|buf\d+)$/
 
 const keySchema = z
   .string()
   .regex(/^[A-Za-z0-9_-]{1,40}$/, "key: letters, digits, _ and - (1-40 chars)")
   .refine((k) => k !== "__proto__", "key: __proto__ is not allowed")
-const newKeySchema = keySchema
-  .refine((k) => !FORBIDDEN_NAMES.has(k), "newKey: reserved name")
-  .refine((k) => !GENERATED_KEY_SUFFIX.test(k), "newKey: the suffixes _pN and _bufN are reserved for split parts and buffers")
+const newKeySchema = keySchema.refine((k) => !GENERATED_KEY_SUFFIX.test(k), "newKey: the suffixes _pN and _bufN are reserved for split parts and buffers")
 const roleSchema = z
   .string()
   .regex(new RegExp(`^[A-Za-z0-9_-]{1,${BASE_SCHEDULE_ROLE_MAX}}$`), `role: letters, digits, _ and - (1-${BASE_SCHEDULE_ROLE_MAX} chars)`)
@@ -58,12 +54,18 @@ const roleSchema = z
 /** C0 / C1 controls, line / paragraph separators and format characters (bidi overrides, zero-width, BOM, soft hyphen). */
 const INVISIBLE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u
 const MARKUP = /[<>`]|\[[^\]]*\]\(|&[#a-z0-9]+;/i
-/** A URL anywhere (scheme://, www.) or a leading URI scheme (javascript:, mailto:, data:). */
-const LINK = /(?:[a-z][a-z0-9+.-]*:\/\/|www\.|^[a-z][a-z0-9+.-]*:)/i
+/**
+ * A URL anywhere (scheme://, www.) or a dangerous / linkifiable URI scheme anywhere in the name (a word boundary
+ * keeps "QA: 試験" legal; "javascript:", "x mailto:" are refused). Names are always escaped on display; this only
+ * keeps links and script schemes out of plan rows and approval cards.
+ */
+const LINK = /(?:[a-z][a-z0-9+.-]*:\/\/|www\.|\b(?:javascript|vbscript|data|file|mailto|tel|sms|blob|about|https?|ftp|wss?)\s*:)/i
+/** Spreadsheet formula triggers (CSV / XLSX / Collabora exports of plan rows). */
+const FORMULA = /^[=+\-@]/
 
 /**
- * A short plain-text item name: NFKC-normalised, trimmed, 1-80 chars, no invisible characters, markup or URLs.
- * A name starting with an ASCII word and a colon ("QA: …") is refused as a possible scheme; 「設計：…」 is fine.
+ * A short plain-text item name: NFKC-normalised (the stored name is the normalised one: ① → 1, half-width kana →
+ * full-width), trimmed, 1-80 chars, no invisible characters, markup, URLs, URI schemes or a leading formula sign.
  */
 export const plainNameSchema = z
   .string()
@@ -76,6 +78,7 @@ export const plainNameSchema = z
       .refine((s) => !INVISIBLE.test(s), "name: no control, format or line-break characters")
       .refine((s) => !MARKUP.test(s), "name: no markup")
       .refine((s) => !LINK.test(s), "name: no URLs or URI schemes")
+      .refine((s) => !FORMULA.test(s), "name: may not start with = + - @")
   )
 
 export const scaleDurationParams = z.object({ key: keySchema, factor: z.number().finite().min(SCALE_FACTOR_MIN).max(SCALE_FACTOR_MAX) }).strict()

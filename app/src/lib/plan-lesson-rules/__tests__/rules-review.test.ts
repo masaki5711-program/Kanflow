@@ -18,6 +18,11 @@ describe("review fixes — schemas", () => {
     expect(plainNameSchema.safeParse("設計：レビュー").success).toBe(true)
   })
 
+  it("re-review: ordinary 'word:' names pass; dangerous schemes anywhere and formula signs are refused", () => {
+    for (const name of ["QA: 試験", "QA：試験", "Phase 2: 据え付け", "metadata 整理"]) expect(plainNameSchema.safeParse(name).success).toBe(true)
+    for (const name of ["x mailto:a@b.c", "見る JavaScript:void(0)", "tel:0312345678", "=SUM(A1)", "+1 調整", "-準備", "@担当"]) expect(plainNameSchema.safeParse(name).success).toBe(false)
+  })
+
   it("H1: __proto__ is refused as a rule key and as a role", () => {
     expect(ok({ id: "r", state: "confirmed", kind: "scale_duration", params: { key: "__proto__", factor: 1.2 } })).toBe(false)
     expect(ok({ id: "r", state: "confirmed", kind: "cap_parallel", params: { role: "__proto__", max: 2 } })).toBe(false)
