@@ -5,13 +5,19 @@
 
 # MISTAKES — 過去の失敗と実証済みの修正
 
-記録 1 件。検索: `node scripts/mistakes.js search "<エラー文>"`
+記録 2 件。検索: `node scripts/mistakes.js search "<エラー文>"`
 
 ## 📌 Pinned（再発性・致命度の高いミス — 常時注意）
 
 _なし_
 
 ## 最近の記録
+
+### Kanflow logger takes (message, context), not pino-style (context, message)
+- 署名: `error TS2345: Argument of type { ...; err: string; } is not assignable to parameter of type string (log.warn / log.error call)`
+- 原因: src/lib/logger has the signature log.warn(message: string, context?: object); writing the pino order log.warn({ ... }, "msg") passes an object as the message
+- 修正: Call log.warn("what happened", { ruleId, error: err instanceof Error ? err.message : String(err) }) - message first, context object second (see src/services/git/git-scope-check.ts)
+- weight 2 / 再発 0 / 2026-11-03 / mk-20261103-7bc753
 
 ### JS ブロックコメント内の `*/` によるコメント早期終端 (SyntaxError)
 - 署名: ``SyntaxError: Unexpected identifier / Unexpected token` — エラー行はコメントの途中を指す`
