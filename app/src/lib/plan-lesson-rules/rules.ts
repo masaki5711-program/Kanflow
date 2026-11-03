@@ -31,31 +31,59 @@ export type LessonRuleKind = (typeof RULE_KIND_ORDER)[number]
 export const RULE_STATES = ["draft", "confirmed", "retired"] as const
 export type LessonRuleState = (typeof RULE_STATES)[number]
 
-const keySchema = z.string().regex(/^[A-Za-z0-9_-]{1,40}$/, "key: letters, digits, _ and - (1-40 chars)")
-const roleSchema = z.string().regex(new RegExp(`^[A-Za-z0-9_-]{1,${BASE_SCHEDULE_ROLE_MAX}}$`), `role: letters, digits, _ and - (1-${BASE_SCHEDULE_ROLE_MAX} chars)`)
+/** Most \`add_dependency\` rules one application may apply. */
+export const ADDED_DEPENDENCIES_MAX = 30
+/** The placed end may move at most to the template's span × this (the ratio maximum, plan 12 §3.2). */
+export const END_SPAN_MAX_FACTOR = SCALE_FACTOR_MAX
 
-// Control characters (incl. newlines), markup and links are refused rather than cleaned: a name is shown in the
-// plan and on the approval card, and the drafting step (E6) is the place that turns free text into a plain name.
-const CONTROL = new RegExp("[\u0000-\u001f\u007f-\u009f\u2028\u2029]")
+/** Object-prototype names that must never be used as a key a rule creates or a role (prototype pollution). */
+const FORBIDDEN_NAMES = new Set(["__proto__", "prototype", "constructor"])
+/** Suffixes \`applyLessonRules\` generates for split parts and buffers; a new item may not claim them. */
+export const GENERATED_KEY_SUFFIX = /_(?:p\d+|buf\d+)$/
+
+const keySchema = z
+  .string()
+  .regex(/^[A-Za-z0-9_-]{1,40}$/, "key: letters, digits, _ and - (1-40 chars)")
+  .refine((k) => k !== "__proto__", "key: __proto__ is not allowed")
+const newKeySchema = keySchema
+  .refine((k) => !FORBIDDEN_NAMES.has(k), "newKey: reserved name")
+  .refine((k) => !GENERATED_KEY_SUFFIX.test(k), "newKey: the suffixes _pN and _bufN are reserved for split parts and buffers")
+const roleSchema = z
+  .string()
+  .regex(new RegExp(`^[A-Za-z0-9_-]{1,${BASE_SCHEDULE_ROLE_MAX}}$`), `role: letters, digits, _ and - (1-${BASE_SCHEDULE_ROLE_MAX} chars)`)
+  .refine((r) => r !== "__proto__", "role: __proto__ is not allowed")
+
+// Refused rather than cleaned: a name is shown in the plan and on the approval card, and the drafting step (E6) is
+// the place that turns free text into a plain name. Checked after NFKC, so fullwidth ＜ ： ／ ． fold to ASCII first.
+/** C0 / C1 controls, line / paragraph separators and format characters (bidi overrides, zero-width, BOM, soft hyphen). */
+const INVISIBLE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u
 const MARKUP = /[<>`]|\[[^\]]*\]\(|&[#a-z0-9]+;/i
-const LINK = /(?:[a-z][a-z0-9+.-]*:\/\/|www\.)/i
+/** A URL anywhere (scheme://, www.) or a leading URI scheme (javascript:, mailto:, data:). */
+const LINK = /(?:[a-z][a-z0-9+.-]*:\/\/|www\.|^[a-z][a-z0-9+.-]*:)/i
 
-/** A short plain-text item name: trimmed, 1-80 chars, no control characters, markup or URLs. */
+/**
+ * A short plain-text item name: NFKC-normalised, trimmed, 1-80 chars, no invisible characters, markup or URLs.
+ * A name starting with an ASCII word and a colon ("QA: …") is refused as a possible scheme; 「設計：…」 is fine.
+ */
 export const plainNameSchema = z
   .string()
-  .trim()
-  .min(1)
-  .max(RULE_NAME_MAX)
-  .refine((s) => !CONTROL.test(s), "name: no control characters or line breaks")
-  .refine((s) => !MARKUP.test(s), "name: no markup")
-  .refine((s) => !LINK.test(s), "name: no URLs")
+  .transform((s) => s.normalize("NFKC").trim())
+  .pipe(
+    z
+      .string()
+      .min(1)
+      .max(RULE_NAME_MAX)
+      .refine((s) => !INVISIBLE.test(s), "name: no control, format or line-break characters")
+      .refine((s) => !MARKUP.test(s), "name: no markup")
+      .refine((s) => !LINK.test(s), "name: no URLs or URI schemes")
+  )
 
 export const scaleDurationParams = z.object({ key: keySchema, factor: z.number().finite().min(SCALE_FACTOR_MIN).max(SCALE_FACTOR_MAX) }).strict()
 export const addBufferParams = z.object({ afterKey: keySchema, days: z.number().int().min(BUFFER_DAYS_MIN).max(BUFFER_DAYS_MAX) }).strict()
 export const addPrerequisiteParams = z
   .object({
     beforeKey: keySchema,
-    newKey: keySchema,
+    newKey: newKeySchema,
     name: plainNameSchema,
     durationDays: z.number().int().min(1).max(BASE_SCHEDULE_MAX_DURATION),
     role: roleSchema.optional(),
