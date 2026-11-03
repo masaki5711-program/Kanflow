@@ -18,11 +18,13 @@ export function resolveConfig(partial?: Partial<EstimateConfig>): EstimateConfig
   const cfg: EstimateConfig = { ...ESTIMATE_DEFAULTS }
   for (const [k, v] of Object.entries(partial ?? {})) {
     if (v === undefined) continue
-    if (!(k in ESTIMATE_DEFAULTS)) throw new RangeError(`unknown estimate setting: ${k}`)
+    if (!Object.hasOwn(ESTIMATE_DEFAULTS, k)) throw new RangeError(`unknown estimate setting: ${k}`)
     if (typeof v !== "number" || !Number.isFinite(v) || v < 0) throw new RangeError(`estimate setting ${k} must be a finite number >= 0 (got ${String(v)})`)
     cfg[k as keyof EstimateConfig] = v
   }
   if (cfg.halfLifeDays <= 0 || cfg.shrinkK <= 0 || cfg.ratioMin <= 0 || cfg.ratioMin > cfg.ratioMax || cfg.maxDays < 1) throw new RangeError("estimate settings out of range")
+  // Hidden-path days are computed in whole tenths, so the ratio bounds must be whole tenths too.
+  for (const b of [cfg.ratioMin, cfg.ratioMax]) if (Math.abs(b * 10 - Math.round(b * 10)) > 1e-9) throw new RangeError("ratioMin / ratioMax must be multiples of 0.1")
   cfg.minHiddenSources = Math.max(cfg.minHiddenSources, ESTIMATE_DEFAULTS.minHiddenSources)
   return cfg
 }
@@ -60,11 +62,21 @@ export function typePrior(observations: readonly Observation[], ctx: EstimateCon
     if (ctx.visibleProjectIds.has(o.sourceProjectId)) visible.push({ x, w })
     else hidden.push({ projectId: o.sourceProjectId, orderAt: o.finalizedAt, x, w })
   }
-  const hid = aggregate(hiddenUnitKey("type", [ctx.projectType]), hidden, cfg, ctx, sink)
+  const hid = aggregate(hiddenUnitKey("type", [ctx.projectType, visibleSignature(same, ctx)]), hidden, cfg, ctx, sink)
   const pool = hid ? [...visible, { x: hid.x, w: hid.w }] : visible
   if (pool.length === 0) return { mu0: 0, n: 0, hiddenInfluenced: false, hiddenSourceProjectIds: [] }
   const n = visible.length + (hid ? hid.hPrime - 2 : 0)
   return { mu0: (n / (n + cfg.typePriorK)) * weightedMedian(pool), n, hiddenInfluenced: hid !== null, hiddenSourceProjectIds: hid?.projectIds ?? [] }
+}
+
+/**
+ * The viewer's visibility class for a unit: the visible projects among its usable observations. Held states are
+ * kept per class (review MEDIUM): viewers with different visible sets have different hidden sets, and one class's
+ * published aggregate must never stand in for another's. Only RELEVANT projects count, so joining an unrelated
+ * project does not reset a viewer's history.
+ */
+function visibleSignature(obs: readonly Observation[], ctx: EstimateContext): string[] {
+  return [...new Set(obs.filter((o) => ctx.visibleProjectIds.has(o.sourceProjectId)).map((o) => o.sourceProjectId))]
 }
 
 function medianOrHidden(V: readonly MatchedObservation[], hid: HiddenAggregate | null): number {
@@ -109,7 +121,8 @@ export function estimateLeaf(leaf: EstimateLeaf, observations: readonly Observat
   const matched = matchLeaf(leaf, usableAt(observations, ctx.referenceDate), ctx, cfg)
   const V = matched.filter((m) => m.visible)
   const Hm = matched.filter((m) => !m.visible)
-  const unit = (kind: "ratio" | "lag" | "load") => hiddenUnitKey(kind, [ctx.lineage, ctx.projectType, ctx.attributes, leaf.key, leaf.name, leaf.formerKeys ?? []])
+  const signature = visibleSignature(V.map((v) => v.obs), ctx)
+  const unit = (kind: "ratio" | "lag" | "load") => hiddenUnitKey(kind, [ctx.lineage, ctx.projectType, ctx.attributes, leaf.key, leaf.name, leaf.formerKeys ?? [], signature])
   const hid = aggregate(unit("ratio"), hiddenPoints(Hm, (m) => m.x), cfg, ctx, sink)
 
   let kept: MatchedObservation[] = []
@@ -210,7 +223,8 @@ export function learnParallelCap(userKey: string, peaks: readonly ParallelPeak[]
     if (ctx.visibleProjectIds.has(p.projectId)) visible.push({ x: p.peak, w })
     else hidden.push({ projectId: p.projectId, orderAt: p.finalizedAt, x: p.peak, w })
   }
-  const hid = aggregate(hiddenUnitKey("parallel", [userKey]), hidden, cfg, ctx, sink)
+  const visibleIds = [...new Set(usable.filter((p) => ctx.visibleProjectIds.has(p.projectId)).map((p) => p.projectId))]
+  const hid = aggregate(hiddenUnitKey("parallel", [userKey, visibleIds]), hidden, cfg, ctx, sink)
   const pool = hid ? [...visible, { x: hid.x, w: hid.w }] : visible
   if (pool.length === 0) return { cap: cfg.defaultParallelCap, hiddenInfluenced: false }
   const n = effectiveN(visible.map((v) => v.w)) + (hid ? hid.hPrime - 2 : 0)

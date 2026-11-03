@@ -76,8 +76,12 @@ function weightedMean(ps: readonly HiddenPoint[]): number {
 
 /**
  * Key of a hidden-aggregation unit in the GLOBAL held-state store: everything that decides which points the unit
- * aggregates (kind, lineage, project type, attributes, leaf key / name / former keys). The member set is NOT part of
- * the key — the hold rule compares it.
+ * aggregates (kind, lineage, project type, attributes, leaf key / name / former keys) and the viewer's visibility
+ * class (the visible projects among the unit's observations). The member set is NOT part of the key — the hold rule
+ * compares it.
+ *
+ * Known residual (for E5's store, review MEDIUM 2): a project LEAVING an even h' (6 used → 5 left → 4 used) changes the
+ * length, so it is recomputed; the change then mixes two projects' values (y2 and y6) instead of exposing one.
  */
 export function hiddenUnitKey(kind: "ratio" | "lag" | "load" | "type" | "parallel", parts: readonly (string | readonly string[])[]): string {
   return JSON.stringify([kind, ...parts.map((p) => (typeof p === "string" ? p : [...p].toSorted()))])

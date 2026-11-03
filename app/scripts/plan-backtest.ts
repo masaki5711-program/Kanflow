@@ -19,7 +19,12 @@ function seedArg(): number | undefined {
     console.error(`--seed needs an integer (got ${raw ?? "nothing"})`)
     process.exit(2)
   }
-  return Number(raw)
+  const n = Number(raw)
+  if (!Number.isSafeInteger(n)) {
+    console.error(`--seed is out of range (got ${raw})`)
+    process.exit(2)
+  }
+  return n
 }
 
 const seed = seedArg()

@@ -47,7 +47,19 @@ describe("held hidden aggregate (review H1/H2)", () => {
     // A different project (another start date, another run) reading the same global store.
     const other = estimatePlan({ items: [{ key: "impl", name: "実装", durationDays: 10 }] }, changed, ctx([], { previousHidden: store }), "2027-01-04")
     expect(other.leaves[0].r50).toBe(plan.leaves[0].r50)
-    expect([...plan.hiddenStates.keys()]).toContain(hiddenUnitKey("ratio", ["sw", "software", [], "impl", "実装", []]))
+    expect([...plan.hiddenStates.keys()]).toContain(hiddenUnitKey("ratio", ["sw", "software", [], "impl", "実装", [], []]))
+  })
+
+  it("viewers with different visible sets never share a held state", () => {
+    const all = [1.0, 1.1, 1.2, 1.3, 1.9].map((r, i) => obs(`p${i + 1}`, r, { finalizedAt: `2026-05-0${i + 1}` }))
+    const sinkY = new Map()
+    estimateLeaf(LEAF, all, ctx(["p1"]), NO_PRIOR, sinkY)
+    const sinkX = new Map()
+    estimateLeaf(LEAF, all, ctx([], { previousHidden: sinkY }), NO_PRIOR, sinkX)
+    const [keyY] = [...sinkY.keys()].filter((k) => k.startsWith('["ratio"'))
+    const [keyX] = [...sinkX.keys()].filter((k) => k.startsWith('["ratio"'))
+    expect(keyX).not.toBe(keyY)
+    expect(sinkX.get(keyX).projectIds).toEqual(["p1", "p2", "p3", "p4"])
   })
 
   it("the last state survives a unit falling below the floor", () => {
@@ -87,6 +99,8 @@ describe("robustness (review M1/M3/M4/L1)", () => {
     expect(() => resolveConfig({ shrinkK: Number.NaN })).toThrow()
     expect(() => resolveConfig({ ratioMin: 4 })).toThrow()
     expect(() => resolveConfig({ nope: 1 } as never)).toThrow()
+    expect(() => resolveConfig({ toString: 1 } as never)).toThrow()
+    expect(() => resolveConfig({ ratioMax: 2.95 })).toThrow()
   })
 
   it("a non-numeric template duration is refused", () => {
