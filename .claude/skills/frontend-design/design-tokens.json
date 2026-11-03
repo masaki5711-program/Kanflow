@@ -1,0 +1,95 @@
+{
+  "$comment": "ZEVA-Link default design tokens. This is the STARTING point for any L4 (Next.js) back-office / dashboard UI — consume these instead of ad-hoc values, then override per product direction. Map into Tailwind theme.extend or CSS custom properties. Factory-floor operator terminals follow factory-floor-ui-designer instead.",
+  "meta": {
+    "name": "zeva-link-default",
+    "version": "1.0.0",
+    "modes": ["light", "dark"],
+    "grid": "8pt"
+  },
+  "color": {
+    "light": {
+      "bg": "#F7F8FA",
+      "surface": "#FFFFFF",
+      "surfaceRaised": "#FFFFFF",
+      "surfaceSunken": "#EEF1F5",
+      "border": "#DDE3EA",
+      "borderStrong": "#B9C2CE",
+      "textPrimary": "#151A21",
+      "textSecondary": "#4A5665",
+      "textMuted": "#7A8698",
+      "primary": "#1D5FBF",
+      "primaryHover": "#174C99",
+      "primaryText": "#FFFFFF",
+      "accent": "#0E9384",
+      "focusRing": "#2E7CF6"
+    },
+    "dark": {
+      "bg": "#0F1318",
+      "surface": "#171C23",
+      "surfaceRaised": "#1E252E",
+      "surfaceSunken": "#0B0E12",
+      "border": "#2A333F",
+      "borderStrong": "#3D4A59",
+      "textPrimary": "#E8ECF1",
+      "textSecondary": "#A7B2C0",
+      "textMuted": "#718092",
+      "primary": "#5B96E8",
+      "primaryHover": "#7DACEF",
+      "primaryText": "#0F1318",
+      "accent": "#2FB8A6",
+      "focusRing": "#5B96E8"
+    },
+    "semantic": {
+      "$comment": "Status colors double as SPC / alert severity. Readable in both modes; never rely on color alone — pair with an icon or label.",
+      "ok": { "light": "#1B7F3B", "dark": "#4ADE80" },
+      "warning": { "light": "#B45309", "dark": "#FBBF24" },
+      "critical": { "light": "#B91C1C", "dark": "#F87171" },
+      "info": { "light": "#1D5FBF", "dark": "#5B96E8" },
+      "offline": { "light": "#6B7280", "dark": "#9CA3AF" }
+    }
+  },
+  "typography": {
+    "pairings": [
+      {
+        "name": "default-ja",
+        "display": "'Inter Tight', 'Noto Sans JP', sans-serif",
+        "body": "'Inter', 'Noto Sans JP', sans-serif",
+        "mono": "'JetBrains Mono', 'Noto Sans Mono', monospace",
+        "$comment": "Default for JA/EN/ID mixed UI. Noto Sans JP carries CJK; Inter Tight gives headings character."
+      },
+      {
+        "name": "technical",
+        "display": "'IBM Plex Sans', 'IBM Plex Sans JP', sans-serif",
+        "body": "'IBM Plex Sans', 'IBM Plex Sans JP', sans-serif",
+        "mono": "'IBM Plex Mono', monospace"
+      }
+    ],
+    "scale": { "xs": 12, "sm": 14, "base": 16, "lg": 20, "xl": 24, "2xl": 32, "3xl": 40, "display": 48 },
+    "lineHeight": { "body": 1.6, "heading": 1.25, "dense": 1.4 },
+    "weightRoles": { "data": 600, "label": 500, "body": 400, "heading": 700 },
+    "numeric": "font-variant-numeric: tabular-nums (MANDATORY on KPI values, tables, and timestamps)"
+  },
+  "spacing": { "unit": 8, "scale": [4, 8, 16, 24, 32, 48, 64, 96], "sectionGap": 48, "cardPadding": 24, "densePadding": 16 },
+  "radius": { "sm": 6, "md": 10, "lg": 16, "full": 9999, "$comment": "Vary radius by component role — do not apply one radius uniformly everywhere." },
+  "elevation": {
+    "flat": "none",
+    "raised": "0 1px 2px rgb(15 23 42 / 0.06), 0 4px 12px rgb(15 23 42 / 0.08)",
+    "overlay": "0 8px 30px rgb(15 23 42 / 0.18)",
+    "darkModeNote": "In dark mode prefer surface lightness steps (surface -> surfaceRaised) over shadows."
+  },
+  "motion": {
+    "durationFast": "150ms",
+    "durationNormal": "250ms",
+    "easeOut": "cubic-bezier(0.16, 1, 0.3, 1)",
+    "rules": ["animate transform/opacity only", "respect prefers-reduced-motion", "one directed entrance beats many micro-effects"]
+  },
+  "charts": {
+    "$comment": "Colorblind-considerate categorical palette (Tableau-10 derived). Assign in order; never exceed 8 series without regrouping. Prefer the dataviz skill when available.",
+    "categorical": ["#4E79A7", "#F28E2B", "#59A14F", "#E15759", "#B07AA1", "#76B7B2", "#EDC948", "#9C755F"],
+    "sequential": ["#DCE9F7", "#A8C8EC", "#6FA3DC", "#3B7CC4", "#1D5FBF", "#123E80"],
+    "diverging": ["#B91C1C", "#E58367", "#F2E4DC", "#E8EDF4", "#7FA8D9", "#1D5FBF"],
+    "controlLimits": { "target": "#1B7F3B", "sigma2": "#B45309", "sigma3": "#B91C1C", "$comment": "SPC chart limit lines (X-bar/R, 3-sigma)." },
+    "gridline": { "light": "#E5EAF0", "dark": "#242D38" },
+    "rules": ["axis/gridlines use muted neutrals, data gets the color", "label series directly when possible instead of a distant legend", "tabular-nums on all axis and tooltip values"]
+  }
+}

@@ -1,0 +1,158 @@
+#!/usr/bin/env node
+'use strict';
+
+/*
+ * self-heal.js — the self-healing / self-improving development loop.
+ *
+ * One umbrella that drives the agent model's PDCA cycle:
+ *   VERIFY  — run every gate (config, agent-model, evals, docker-topology,
+ *             schema-contracts, contract-compat, inventory).
+ *   HEAL    — auto-fix the deterministic drift it can fix without judgment
+ *             (regenerate the asset inventory). No LLM needed.
+ *   REPORT  — write docs/agent-model-health.md: gate status + an improvement
+ *             backlog that routes the *judgment* half to the existing engines
+ *             (run-evals live, /skill-health, /evolve, harness-optimizer agent).
+ *
+ * This is the "how development proceeds" entry point (see
+ * .claude/rules/iotpf-self-improvement.md). Run it at session start and before
+ * opening an MR.
+ *
+ * Modes:
+ *   node scripts/self-heal.js            # heal + write health report (exit 0 unless a non-healable gate fails)
+ *   node scripts/self-heal.js --check    # CI: verify only, no writes, exit 1 on any failure/drift
+ *
+ * Node built-ins only.
+ */
+
+const { execFileSync } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+
+const ROOT = process.env.CLAUDE_PROJECT_DIR || process.cwd();
+const SCRIPTS = path.join(ROOT, 'scripts');
+const CHECK = process.argv.includes('--check') || process.argv.includes('--json');
+const JSON_OUT = process.argv.includes('--json');
+const HEALTH = path.join(ROOT, 'docs', 'agent-model-health.md');
+
+function runNode(script, args = []) {
+  try {
+    const out = execFileSync('node', [path.join(SCRIPTS, script), ...args], {
+      cwd: ROOT,
+      env: { ...process.env, CLAUDE_PROJECT_DIR: ROOT },
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    return { ok: true, out: out.trim() };
+  } catch (e) {
+    const out = `${e.stdout || ''}${e.stderr || ''}`.trim();
+    return { ok: false, out };
+  }
+}
+
+const results = [];
+const healed = [];
+
+// --- VERIFY ----------------------------------------------------------------
+results.push({ gate: 'config-conformance', ...runNode('validate-ecc-config.js') });
+results.push({ gate: 'agent-model-routing', ...runNode('validate-agent-model.js') });
+results.push({ gate: 'eval-specs', ...runNode('run-evals.js') });
+results.push({ gate: 'docker-topology', ...runNode('validate-docker-topology.js') });
+results.push({ gate: 'schema-contracts', ...runNode('validate-schema-contracts.js') });
+results.push({ gate: 'contract-compat', ...runNode('validate-contract-compat.js') });
+results.push({ gate: 'edge-mcp-conformance', ...runNode('validate-edge-mcp-conformance.js') });
+results.push({ gate: 'harness-wiring', ...runNode('validate-harness-wiring.js') });
+results.push({ gate: 'rule-paths', ...runNode('validate-rule-paths.js') });
+
+// --- HEAL: mistake-memory (MISTAKES.md view sync + record schema) ----------
+const mmCheck = runNode('mistakes.js', ['check']);
+if (mmCheck.ok) {
+  results.push({ gate: 'mistake-memory', ok: true, out: mmCheck.out });
+} else if (CHECK) {
+  results.push({ gate: 'mistake-memory', ok: false, out: mmCheck.out });
+} else {
+  // Duplicate ids (union merge of two branches) and view drift are healable
+  // (collapse, regenerate); schema problems are not.
+  runNode('mistakes.js', ['dedupe']);
+  runNode('mistakes.js', ['render-md']);
+  const after = runNode('mistakes.js', ['check']);
+  if (after.ok) healed.push('deduplicated records.jsonl / regenerated MISTAKES.md (was out of sync)');
+  results.push({ gate: 'mistake-memory', ok: after.ok, out: after.out });
+}
+
+// --- HEAL: asset inventory -------------------------------------------------
+const invCheck = runNode('gen-asset-inventory.js', ['--check']);
+if (invCheck.ok) {
+  results.push({ gate: 'asset-inventory', ok: true, out: invCheck.out });
+} else if (CHECK) {
+  // CI mode: do not mutate; report the drift as a failure.
+  results.push({ gate: 'asset-inventory', ok: false, out: invCheck.out });
+} else {
+  // heal: regenerate, then it should pass.
+  const regen = runNode('gen-asset-inventory.js');
+  const after = runNode('gen-asset-inventory.js', ['--check']);
+  healed.push('regenerated docs/asset-inventory.md (was stale)');
+  results.push({ gate: 'asset-inventory', ok: after.ok, out: `${regen.out}\n${after.out}`.trim() });
+}
+
+const failed = results.filter((r) => !r.ok);
+
+// --- REPORT ----------------------------------------------------------------
+const standingBacklog = [
+  'Run agent evals live: `ECC_EVAL_LIVE=1 node scripts/run-evals.js` (claude-cli; anthropic+API key in CI — score agents against rubrics).',
+  'Review skill health: `/skill-health` (success-rate trends, declining skills, pending amendments).',
+  'Tune the harness itself: delegate to the `harness-optimizer` agent for reliability/cost/throughput.',
+];
+
+if (!CHECK) {
+  const lines = [];
+  lines.push('<!-- RUNTIME ARTIFACT — generated by scripts/self-heal.js. Not committed. -->');
+  lines.push('# Agent-Model Health (self-heal snapshot)');
+  lines.push('');
+  lines.push('| Gate | Status |');
+  lines.push('|------|--------|');
+  for (const r of results) lines.push(`| ${r.gate} | ${r.ok ? '✅ pass' : '❌ FAIL'} |`);
+  lines.push('');
+  if (healed.length) {
+    lines.push('## Auto-healed');
+    for (const h of healed) lines.push(`- ${h}`);
+    lines.push('');
+  }
+  lines.push('## Improvement backlog');
+  if (failed.length) {
+    lines.push('### Failing gates (fix before MR)');
+    for (const f of failed) {
+      lines.push(`- **${f.gate}**:`);
+      for (const l of (f.out || '').split('\n').filter(Boolean)) lines.push(`  - ${l}`);
+    }
+    lines.push('');
+  }
+  lines.push('### Standing improvement actions (the judgment / LLM half)');
+  for (const b of standingBacklog) lines.push(`- ${b}`);
+  lines.push('');
+  fs.mkdirSync(path.dirname(HEALTH), { recursive: true });
+  fs.writeFileSync(HEALTH, lines.join('\n') + '\n');
+}
+
+// --- machine-readable mode (for the autonomous /self-improve loop) ---------
+if (JSON_OUT) {
+  console.log(JSON.stringify({
+    ok: failed.length === 0,
+    gates: results.map((r) => ({ gate: r.gate, ok: r.ok })),
+    healed,
+    backlog: failed.map((f) => ({ gate: f.gate, detail: (f.out || '').split('\n').filter(Boolean) })),
+    standing: standingBacklog,
+  }, null, 2));
+  process.exit(failed.length ? 1 : 0);
+}
+
+// --- console summary -------------------------------------------------------
+for (const r of results) console.log(`  [${r.ok ? 'PASS' : 'FAIL'}] ${r.gate}`);
+if (healed.length) for (const h of healed) console.log(`  [HEAL] ${h}`);
+
+if (failed.length) {
+  console.error(`\n[self-heal] ${failed.length} gate(s) failing — not healable automatically:`);
+  for (const f of failed) console.error(`  --- ${f.gate} ---\n${f.out}`);
+  process.exit(1);
+}
+console.log(`\n[self-heal] OK — agent model healthy${CHECK ? '' : '; wrote docs/agent-model-health.md'}.`);
+process.exit(0);

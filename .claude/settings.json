@@ -1,0 +1,451 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"process.env.CLAUDE_PLUGIN_ROOT=process.env.CLAUDE_PROJECT_DIR||process.cwd();require(require('path').join(process.env.CLAUDE_PLUGIN_ROOT,'scripts','hooks','plugin-hook-bootstrap.js'))\" node scripts/hooks/run-with-flags.js pre:config-protection scripts/hooks/config-protection.js standard,strict",
+            "timeout": 5
+          }
+        ],
+        "description": "Block modifications to linter/formatter config files",
+        "id": "pre:config-protection"
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"process.env.CLAUDE_PLUGIN_ROOT=process.env.CLAUDE_PROJECT_DIR||process.cwd();require(require('path').join(process.env.CLAUDE_PLUGIN_ROOT,'scripts','hooks','plugin-hook-bootstrap.js'))\" node scripts/hooks/run-with-flags.js pre:edit:generated-guard scripts/hooks/pre-edit-generated-guard.js standard,strict",
+            "timeout": 5
+          }
+        ],
+        "description": "Block hand-edits to generated wire-contract code (schema-first)",
+        "id": "pre:edit:generated-guard"
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"process.env.CLAUDE_PLUGIN_ROOT=process.env.CLAUDE_PROJECT_DIR||process.cwd();require(require('path').join(process.env.CLAUDE_PLUGIN_ROOT,'scripts','hooks','plugin-hook-bootstrap.js'))\" node scripts/hooks/run-with-flags.js pre:edit:worktree-boundary scripts/hooks/pre-edit-worktree-boundary.js standard,strict",
+            "timeout": 15
+          }
+        ],
+        "description": "Parallel sessions: block edits to files owned by another git worktree; block once when the file is already changed in another worktree (merge-time conflict)",
+        "id": "pre:edit:worktree-boundary"
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"process.env.CLAUDE_PLUGIN_ROOT=process.env.CLAUDE_PROJECT_DIR||process.cwd();require(require('path').join(process.env.CLAUDE_PLUGIN_ROOT,'scripts','hooks','plugin-hook-bootstrap.js'))\" node scripts/hooks/run-with-flags.js pre:edit:ui-i18n-check scripts/hooks/pre-edit-ui-i18n-check.js standard,strict",
+            "timeout": 5
+          }
+        ],
+        "description": "Confirm the i18n requirement with the user before building UI",
+        "id": "pre:edit:ui-i18n-check"
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"process.env.CLAUDE_PLUGIN_ROOT=process.env.CLAUDE_PROJECT_DIR||process.cwd();require(require('path').join(process.env.CLAUDE_PLUGIN_ROOT,'scripts','hooks','plugin-hook-bootstrap.js'))\" node scripts/hooks/run-with-flags.js pre:edit:design-direction-check scripts/hooks/pre-edit-design-direction-check.js standard,strict",
+            "timeout": 5
+          }
+        ],
+        "description": "Settle visual direction (design-quality.md + frontend-design tokens) before building UI",
+        "id": "pre:edit:design-direction-check"
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"process.env.CLAUDE_PLUGIN_ROOT=process.env.CLAUDE_PROJECT_DIR||process.cwd();require(require('path').join(process.env.CLAUDE_PLUGIN_ROOT,'scripts','hooks','plugin-hook-bootstrap.js'))\" node scripts/hooks/run-with-flags.js pre:edit:apps-spec-check scripts/hooks/pre-edit-apps-spec-check.js standard,strict",
+            "timeout": 5
+          }
+        ],
+        "description": "Consult apps/<project>/references/ (index + manifest area status) before editing the product tree",
+        "id": "pre:edit:apps-spec-check"
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"process.env.CLAUDE_PLUGIN_ROOT=process.env.CLAUDE_PROJECT_DIR||process.cwd();require(require('path').join(process.env.CLAUDE_PLUGIN_ROOT,'scripts','hooks','plugin-hook-bootstrap.js'))\" node scripts/hooks/run-with-flags.js pre:edit:tauri-capability-check scripts/hooks/pre-edit-tauri-capability-check.js standard,strict",
+            "timeout": 5
+          }
+        ],
+        "description": "Block once when a Tauri capability/conf edit grants wildcard fs/shell/remote scopes or disables CSP (least privilege)",
+        "id": "pre:edit:tauri-capability-check"
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"process.env.CLAUDE_PLUGIN_ROOT=process.env.CLAUDE_PROJECT_DIR||process.cwd();require(require('path').join(process.env.CLAUDE_PLUGIN_ROOT,'scripts','hooks','plugin-hook-bootstrap.js'))\" node scripts/hooks/run-with-flags.js pre:edit-write:suggest-compact scripts/hooks/suggest-compact.js standard,strict"
+          }
+        ],
+        "description": "Suggest manual compaction at logical intervals",
+        "id": "pre:edit-write:suggest-compact"
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"process.env.CLAUDE_PLUGIN_ROOT=process.env.CLAUDE_PROJECT_DIR||process.cwd();require(require('path').join(process.env.CLAUDE_PLUGIN_ROOT,'scripts','hooks','plugin-hook-bootstrap.js'))\" node scripts/hooks/run-with-flags.js pre:write:doc-file-warning scripts/hooks/doc-file-warning.js standard,strict"
+          }
+        ],
+        "description": "Warn about non-standard documentation files",
+        "id": "pre:write:doc-file-warning"
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"process.env.CLAUDE_PLUGIN_ROOT=process.env.CLAUDE_PROJECT_DIR||process.cwd();require(require('path').join(process.env.CLAUDE_PLUGIN_ROOT,'scripts','hooks','plugin-hook-bootstrap.js'))\" node scripts/hooks/run-with-flags.js pre:bash:git-add-guard scripts/hooks/pre-bash-git-add-guard.js standard,strict"
+          }
+        ],
+        "description": "Block bulk `git add -A|.|--all` that would stage dangerous paths (node_modules, .env, dist/build, ...)",
+        "id": "pre:bash:git-add-guard"
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"process.env.CLAUDE_PLUGIN_ROOT=process.env.CLAUDE_PROJECT_DIR||process.cwd();require(require('path').join(process.env.CLAUDE_PLUGIN_ROOT,'scripts','hooks','plugin-hook-bootstrap.js'))\" node scripts/hooks/pre-bash-dispatcher.js"
+          }
+        ],
+        "description": "Bash preflight dispatcher for quality, push, and GateGuard checks",
+        "id": "pre:bash:dispatcher"
+      },
+      {
+        "matcher": "mcp__exa__.*|mcp__context7__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"process.env.CLAUDE_PLUGIN_ROOT=process.env.CLAUDE_PROJECT_DIR||process.cwd();require(require('path').join(process.env.CLAUDE_PLUGIN_ROOT,'scripts','hooks','plugin-hook-bootstrap.js'))\" node scripts/hooks/run-with-flags.js pre:mcp:egress-guard scripts/hooks/pre-mcp-egress-guard.js minimal,standard,strict",
+            "timeout": 5
+          }
+        ],
+        "description": "Block manufacturing-confidential payloads (credentials, plant IDs, waveforms) bound for external/cloud MCP servers (CLAUDE.md §2)",
+        "id": "pre:mcp:egress-guard"
+      },
+      {
+        "matcher": "mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"process.env.CLAUDE_PLUGIN_ROOT=process.env.CLAUDE_PROJECT_DIR||process.cwd();require(require('path').join(process.env.CLAUDE_PLUGIN_ROOT,'scripts','hooks','plugin-hook-bootstrap.js'))\" node scripts/hooks/run-with-flags.js pre:mcp:health-check scripts/hooks/mcp-health-check.js standard,strict",
+            "timeout": 15
+          }
+        ],
+        "description": "Probe MCP server health before MCP tool calls; block (exit 2) when a server is known-unhealthy so Claude falls back to non-MCP tools",
+        "id": "pre:mcp:health-check"
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"process.env.CLAUDE_PLUGIN_ROOT=process.env.CLAUDE_PROJECT_DIR||process.cwd();require(require('path').join(process.env.CLAUDE_PLUGIN_ROOT,'scripts','hooks','plugin-hook-bootstrap.js'))\" node scripts/hooks/run-with-flags.js post:quality-gate scripts/hooks/quality-gate.js standard,strict",
+            "async": true,
+            "timeout": 30
+          }
+        ],
+        "description": "Run quality gate checks after file edits",
+        "id": "post:quality-gate"
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"process.env.CLAUDE_PLUGIN_ROOT=process.env.CLAUDE_PROJECT_DIR||process.cwd();require(require('path').join(process.env.CLAUDE_PLUGIN_ROOT,'scripts','hooks','plugin-hook-bootstrap.js'))\" node scripts/hooks/run-with-flags.js post:edit:design-quality-check scripts/hooks/design-quality-check.js standard,strict",
+            "timeout": 10
+          }
+        ],
+        "description": "Warn when frontend edits drift toward generic template UI",
+        "id": "post:edit:design-quality-check"
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"process.env.CLAUDE_PLUGIN_ROOT=process.env.CLAUDE_PROJECT_DIR||process.cwd();require(require('path').join(process.env.CLAUDE_PLUGIN_ROOT,'scripts','hooks','plugin-hook-bootstrap.js'))\" node scripts/hooks/run-with-flags.js post:edit:accumulate scripts/hooks/post-edit-accumulator.js standard,strict"
+          }
+        ],
+        "description": "Record edited file paths for batch format+typecheck at Stop",
+        "id": "post:edit:accumulator"
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"process.env.CLAUDE_PLUGIN_ROOT=process.env.CLAUDE_PROJECT_DIR||process.cwd();require(require('path').join(process.env.CLAUDE_PLUGIN_ROOT,'scripts','hooks','plugin-hook-bootstrap.js'))\" node scripts/hooks/run-with-flags.js post:edit:console-warn scripts/hooks/post-edit-console-warn.js standard,strict"
+          }
+        ],
+        "description": "Warn about console.log statements after edits",
+        "id": "post:edit:console-warn"
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"process.env.CLAUDE_PLUGIN_ROOT=process.env.CLAUDE_PROJECT_DIR||process.cwd();require(require('path').join(process.env.CLAUDE_PLUGIN_ROOT,'scripts','hooks','plugin-hook-bootstrap.js'))\" node scripts/hooks/post-bash-dispatcher.js",
+            "async": true,
+            "timeout": 30
+          }
+        ],
+        "description": "Bash postflight dispatcher for logging, PR, and build notifications",
+        "id": "post:bash:dispatcher"
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"process.env.CLAUDE_PLUGIN_ROOT=process.env.CLAUDE_PROJECT_DIR||process.cwd();require(require('path').join(process.env.CLAUDE_PLUGIN_ROOT,'scripts','hooks','plugin-hook-bootstrap.js'))\" node scripts/hooks/run-with-flags.js post:bash:error-memory scripts/hooks/post-bash-error-memory.js standard,strict",
+            "timeout": 10
+          }
+        ],
+        "description": "Mistake-memory read side: search records.jsonl on a failed build/test command, inject top-3 similar past mistakes; track pending failures for stop:mistake-capture",
+        "id": "post:bash:error-memory"
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"process.env.CLAUDE_PLUGIN_ROOT=process.env.CLAUDE_PROJECT_DIR||process.cwd();require(require('path').join(process.env.CLAUDE_PLUGIN_ROOT,'scripts','hooks','plugin-hook-bootstrap.js'))\" node scripts/hooks/run-with-flags.js post:activity-tracker scripts/hooks/session-activity-tracker.js standard,strict",
+            "async": true,
+            "timeout": 10
+          }
+        ],
+        "description": "Record sanitized per-tool activity to ~/.claude/metrics/tool-usage.jsonl",
+        "id": "post:activity-tracker"
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"process.env.CLAUDE_PLUGIN_ROOT=process.env.CLAUDE_PROJECT_DIR||process.cwd();require(require('path').join(process.env.CLAUDE_PLUGIN_ROOT,'scripts','hooks','plugin-hook-bootstrap.js'))\" node scripts/hooks/run-with-flags.js post:governance-capture scripts/hooks/governance-capture.js standard,strict",
+            "async": true,
+            "timeout": 10
+          }
+        ],
+        "description": "Capture governance events (secrets, approvals, policy) — no-op unless ECC_GOVERNANCE_CAPTURE=1",
+        "id": "post:governance-capture"
+      },
+      {
+        "matcher": "Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"process.env.CLAUDE_PLUGIN_ROOT=process.env.CLAUDE_PROJECT_DIR||process.cwd();require(require('path').join(process.env.CLAUDE_PLUGIN_ROOT,'scripts','hooks','plugin-hook-bootstrap.js'))\" node scripts/hooks/run-with-flags.js post:skill-run-tracker scripts/hooks/post-skill-run-tracker.js standard,strict",
+            "async": true,
+            "timeout": 10
+          }
+        ],
+        "description": "Record every Skill invocation to ~/.claude/state/skill-runs.jsonl (OBSERVE input for /skill-health and /evolve)",
+        "id": "post:skill-run-tracker"
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"process.env.CLAUDE_PLUGIN_ROOT=process.env.CLAUDE_PROJECT_DIR||process.cwd();require(require('path').join(process.env.CLAUDE_PLUGIN_ROOT,'scripts','hooks','plugin-hook-bootstrap.js'))\" node scripts/hooks/run-with-flags.js post:edit:format scripts/hooks/post-edit-format.js standard,strict",
+            "async": true,
+            "timeout": 30
+          }
+        ],
+        "description": "Auto-format edited JS/TS files (Biome check --write or Prettier) — quality-gate.js skips JS/TS lint on Biome projects because this hook covers it",
+        "id": "post:edit:format"
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"process.env.CLAUDE_PLUGIN_ROOT=process.env.CLAUDE_PROJECT_DIR||process.cwd();require(require('path').join(process.env.CLAUDE_PLUGIN_ROOT,'scripts','hooks','plugin-hook-bootstrap.js'))\" node scripts/hooks/run-with-flags.js post:bash:error-memory scripts/hooks/post-bash-error-memory.js standard,strict",
+            "timeout": 10
+          }
+        ],
+        "description": "Mistake-memory read side for commands that exit non-zero — Claude Code reports those only as PostToolUseFailure, never as PostToolUse",
+        "id": "post-failure:bash:error-memory"
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"var r=process.env.CLAUDE_PROJECT_DIR||process.cwd();process.env.CLAUDE_PLUGIN_ROOT=r;var p=require('path'),fs=require('fs'),s=p.join(r,'scripts','hooks','run-with-flags.js');if(fs.existsSync(s)){var{spawnSync:x}=require('child_process'),raw=fs.readFileSync(0,'utf8'),res=x(process.execPath,[s,'stop:format-typecheck','scripts/hooks/stop-format-typecheck.js','standard,strict'],{input:raw,encoding:'utf8',env:process.env,cwd:process.cwd(),timeout:300000});process.stdout.write(res.stdout||raw);if(res.stderr)process.stderr.write(res.stderr);process.exit(res.status||0)}else{process.stdout.write(fs.readFileSync(0,'utf8'))}\"",
+            "timeout": 300
+          }
+        ],
+        "description": "Batch format, lint (ESLint/Stylelint/Clippy/Ruff), and typecheck edited files",
+        "id": "stop:format-typecheck"
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"var r=process.env.CLAUDE_PROJECT_DIR||process.cwd();process.env.CLAUDE_PLUGIN_ROOT=r;var p=require('path'),fs=require('fs'),s=p.join(r,'scripts','hooks','run-with-flags.js');if(fs.existsSync(s)){var{spawnSync:x}=require('child_process'),raw=fs.readFileSync(0,'utf8'),res=x(process.execPath,[s,'stop:check-console-log','scripts/hooks/check-console-log.js','standard,strict'],{input:raw,encoding:'utf8',env:process.env,cwd:process.cwd(),timeout:30000});process.stdout.write(res.stdout||raw);if(res.stderr)process.stderr.write(res.stderr);process.exit(res.status||0)}else{process.stdout.write(fs.readFileSync(0,'utf8'))}\""
+          }
+        ],
+        "description": "Check for console.log in modified files",
+        "id": "stop:check-console-log"
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"var r=process.env.CLAUDE_PROJECT_DIR||process.cwd();process.env.CLAUDE_PLUGIN_ROOT=r;var p=require('path'),fs=require('fs'),s=p.join(r,'scripts','hooks','run-with-flags.js');if(fs.existsSync(s)){var{spawnSync:x}=require('child_process'),raw=fs.readFileSync(0,'utf8'),res=x(process.execPath,[s,'stop:test-gate','scripts/hooks/stop-test-gate.js','standard,strict'],{input:raw,encoding:'utf8',env:process.env,cwd:process.cwd(),timeout:285000});process.stdout.write(res.stdout||raw);if(res.stderr)process.stderr.write(res.stderr);process.exit(res.status||0)}else{process.stdout.write(fs.readFileSync(0,'utf8'))}\"",
+            "timeout": 290
+          }
+        ],
+        "description": "Run the test suite after code changes; block until tests pass (capped per session)",
+        "id": "stop:test-gate"
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"var r=process.env.CLAUDE_PROJECT_DIR||process.cwd();process.env.CLAUDE_PLUGIN_ROOT=r;var p=require('path'),fs=require('fs'),s=p.join(r,'scripts','hooks','run-with-flags.js');if(fs.existsSync(s)){var{spawnSync:x}=require('child_process'),raw=fs.readFileSync(0,'utf8'),res=x(process.execPath,[s,'stop:cost-tracker','scripts/hooks/cost-tracker.js','standard,strict'],{input:raw,encoding:'utf8',env:process.env,cwd:process.cwd(),timeout:15000});process.stdout.write(res.stdout||raw);if(res.stderr)process.stderr.write(res.stderr);process.exit(res.status||0)}else{process.stdout.write(fs.readFileSync(0,'utf8'))}\"",
+            "timeout": 20
+          }
+        ],
+        "description": "Append session usage metrics to ~/.claude/metrics/costs.jsonl",
+        "id": "stop:cost-tracker"
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"var r=process.env.CLAUDE_PROJECT_DIR||process.cwd();process.env.CLAUDE_PLUGIN_ROOT=r;var p=require('path'),fs=require('fs'),s=p.join(r,'scripts','hooks','run-with-flags.js');if(fs.existsSync(s)){var{spawnSync:x}=require('child_process'),raw=fs.readFileSync(0,'utf8'),res=x(process.execPath,[s,'stop:mistake-capture','scripts/hooks/stop-mistake-capture.js','standard,strict'],{input:raw,encoding:'utf8',env:process.env,cwd:process.cwd(),timeout:10000});process.stdout.write(res.stdout||raw);if(res.stderr)process.stderr.write(res.stderr);process.exit(res.status||0)}else{process.stdout.write(fs.readFileSync(0,'utf8'))}\"",
+            "timeout": 15
+          }
+        ],
+        "description": "Mistake-memory write side: after a 2+-failure error was resolved this session, block the stop once and ask Claude to record the error→fix pair (node scripts/mistakes.js add)",
+        "id": "stop:mistake-capture"
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"var r=process.env.CLAUDE_PROJECT_DIR||process.cwd();process.env.CLAUDE_PLUGIN_ROOT=r;var p=require('path'),fs=require('fs'),s=p.join(r,'scripts','hooks','run-with-flags.js');if(fs.existsSync(s)){var{spawnSync:x}=require('child_process'),raw=fs.readFileSync(0,'utf8'),res=x(process.execPath,[s,'stop:desktop-notify','scripts/hooks/desktop-notify.js','standard,strict'],{input:raw,encoding:'utf8',env:process.env,cwd:process.cwd(),timeout:15000});process.stdout.write(res.stdout||raw);if(res.stderr)process.stderr.write(res.stderr);process.exit(res.status||0)}else{process.stdout.write(fs.readFileSync(0,'utf8'))}\"",
+            "timeout": 20
+          }
+        ],
+        "description": "Send a native desktop notification (macOS osascript / WSL BurntToast) when Claude finishes responding",
+        "id": "stop:desktop-notify"
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"process.env.CLAUDE_PLUGIN_ROOT=process.env.CLAUDE_PROJECT_DIR||process.cwd();require(require('path').join(process.env.CLAUDE_PLUGIN_ROOT,'scripts','hooks','plugin-hook-bootstrap.js'))\" node scripts/hooks/session-start-bootstrap.js"
+          }
+        ],
+        "description": "Load previous context and detect package manager",
+        "id": "session:start"
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"process.env.CLAUDE_PLUGIN_ROOT=process.env.CLAUDE_PROJECT_DIR||process.cwd();require(require('path').join(process.env.CLAUDE_PLUGIN_ROOT,'scripts','hooks','plugin-hook-bootstrap.js'))\" node scripts/hooks/run-with-flags.js session:start-mistakes scripts/hooks/session-start-mistakes.js standard,strict",
+            "timeout": 10
+          }
+        ],
+        "description": "Inject pinned (chronic/high-weight) mistake records at session start (≪3 records, ~600 tok)",
+        "id": "session:start-mistakes"
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"process.env.CLAUDE_PLUGIN_ROOT=process.env.CLAUDE_PROJECT_DIR||process.cwd();require(require('path').join(process.env.CLAUDE_PLUGIN_ROOT,'scripts','hooks','plugin-hook-bootstrap.js'))\" node scripts/hooks/run-with-flags.js session:end scripts/hooks/session-end.js standard,strict",
+            "timeout": 30
+          }
+        ],
+        "description": "Persist a session summary file (the write side that session-start.js reads for cross-session continuity)",
+        "id": "session:end"
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"process.env.CLAUDE_PLUGIN_ROOT=process.env.CLAUDE_PROJECT_DIR||process.cwd();require(require('path').join(process.env.CLAUDE_PLUGIN_ROOT,'scripts','hooks','plugin-hook-bootstrap.js'))\" node scripts/hooks/run-with-flags.js session:end-marker scripts/hooks/session-end-marker.js standard,strict",
+            "timeout": 10
+          }
+        ],
+        "description": "Release the session's observer lease and stop the observer when the last session ends",
+        "id": "session:end-marker"
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"process.env.CLAUDE_PLUGIN_ROOT=process.env.CLAUDE_PROJECT_DIR||process.cwd();require(require('path').join(process.env.CLAUDE_PLUGIN_ROOT,'scripts','hooks','plugin-hook-bootstrap.js'))\" node scripts/hooks/run-with-flags.js pre:compact scripts/hooks/pre-compact.js standard,strict",
+            "timeout": 10
+          }
+        ],
+        "description": "Log the compaction event and stamp the active session file before context is summarized",
+        "id": "pre:compact"
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"process.env.CLAUDE_PLUGIN_ROOT=process.env.CLAUDE_PROJECT_DIR||process.cwd();require(require('path').join(process.env.CLAUDE_PLUGIN_ROOT,'scripts','hooks','plugin-hook-bootstrap.js'))\" node scripts/hooks/run-with-flags.js user-prompt:mistake-recall scripts/hooks/user-prompt-mistake-recall.js standard,strict",
+            "timeout": 10
+          }
+        ],
+        "description": "Search mistake records with the user prompt and inject the top-2 relevant past failures before work starts (standard+strict; silent below the relevance threshold)",
+        "id": "user-prompt:mistake-recall"
+      }
+    ]
+  }
+}
