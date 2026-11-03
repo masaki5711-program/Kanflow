@@ -13,6 +13,7 @@ const m = vi.hoisted(() => ({
   createThread: vi.fn(),
   insertMessage: vi.fn(),
   insertPlanItem: vi.fn(),
+  createRun: vi.fn(),
 }))
 
 vi.mock("@/lib/auth", () => ({ auth: vi.fn() }))
@@ -39,6 +40,7 @@ vi.mock("@/services/plan/plan.repository", () => ({
   findProjectName: vi.fn(async () => "設備導入 A"),
   insertPlanItem: m.insertPlanItem,
 }))
+vi.mock("@/services/plan-estimate-run/estimate-run.service", () => ({ createRun: m.createRun, REMOVED_OWNER_KEYS_MAX: 500 }))
 vi.mock("@/services/chat-threads/chat-threads.repository", () => ({ createThread: m.createThread, insertMessage: m.insertMessage }))
 
 const repo = await import("@/services/api-tokens/api-tokens.repository")
@@ -248,5 +250,62 @@ describe("propose_plan_items", () => {
     const r = await callTool("propose_plan_items", { projectId: "p1", ...SCHEDULE, sourceRef: "http://example.test/schedule.yml" })
     expect(r.isError).toBe(true)
     expect(m.createThread).not.toHaveBeenCalled()
+  })
+})
+
+describe("propose_plan_from_actuals (plan 12 E5)", () => {
+  const RUN = {
+    runId: "r1",
+    expiresAt: "2026-11-05T00:00:00.000Z",
+    summary: { methodVersion: "e2-v1", gateOn: true, gateReason: null, templateEnd: "2026-11-10", p50End: "2026-11-12", p80End: "2026-11-14", bufferDays: 2, plannedEnd: "2026-11-13", leafCount: 3, rulesApplied: 0, rulesRejected: 0, matchedProjects: "4-9", changes: [{ key: "req", name: "要求", templateDays: 5, days: 7 }], changesTotal: 37 },
+  }
+
+  it("mcp_response_has_no_per_person_load: only the run id, end dates, counts and the web link", async () => {
+    m.createRun.mockResolvedValue(RUN)
+    const r = await callTool("propose_plan_from_actuals", { projectId: "p1", ...SCHEDULE, roleAssignments: { dev: ["u2"] } })
+    expect(r.isError).toBeFalsy()
+    expect(Object.keys(r.payload)).toEqual(["data"])
+    expect(Object.keys(r.payload.data).sort()).toEqual(["expiresAt", "runId", "summary", "webPath"])
+    expect(r.payload.data.webPath).toBe("/projects/p1/plan/estimate?run=r1")
+    expect(Object.keys(r.payload.data.summary).sort()).toEqual(["bufferDays", "changedItemCount", "gateOn", "gateReason", "itemCount", "p50End", "p80End", "plannedEnd", "templateEnd"])
+    // No item names and no person: nothing beyond dates and counts leaves through MCP.
+    // The count is the total, not the length of the card's capped list.
+    expect(r.payload.data.summary.changedItemCount).toBe(37)
+    expect(JSON.stringify(r.payload)).not.toContain("要求")
+    expect(JSON.stringify(r.payload)).not.toContain("u2")
+    expect(m.createRun).toHaveBeenCalledWith("p1", expect.objectContaining({ startDate: "2026-11-02", roleAssignments: { dev: ["u2"] } }), expect.objectContaining({ userId: "u1" }))
+    expect(m.insertPlanItem).not.toHaveBeenCalled()
+  })
+
+  it("mcp_requires_plan_estimate: backlog:write scope AND the person's plan.estimate", async () => {
+    withScopes('["read"]')
+    expect((await callTool("propose_plan_from_actuals", { projectId: "p1", ...SCHEDULE })).payload).toMatchObject({ code: "INSUFFICIENT_SCOPE", requiredScope: "backlog:write" })
+    withScopes('["read","backlog:write"]')
+    m.memberFindFirst.mockResolvedValue({ role: "dev" })
+    const r = await callTool("propose_plan_from_actuals", { projectId: "p1", ...SCHEDULE })
+    expect(r.isError).toBe(true)
+    expect(r.payload.code).toBe("FORBIDDEN")
+    expect(m.createRun).not.toHaveBeenCalled()
+  })
+
+  it("a section manager who only sees the project, and a non-member, are refused", async () => {
+    m.memberFindFirst.mockResolvedValue(null)
+    m.loadUserAuthState.mockResolvedValue({ isActive: true, role: "section_manager", tokenVersion: 0 })
+    m.projectSectionFindFirst.mockResolvedValue({ projectId: "p1" })
+    const asManager = await callTool("propose_plan_from_actuals", { projectId: "p1", ...SCHEDULE })
+    expect(asManager.isError).toBe(true)
+    expect(asManager.payload.code).toBe("FORBIDDEN")
+    m.loadUserAuthState.mockResolvedValue({ isActive: true, role: "member", tokenVersion: 0 })
+    m.projectSectionFindFirst.mockResolvedValue(null)
+    const outsider = await callTool("propose_plan_from_actuals", { projectId: "p1", ...SCHEDULE })
+    expect(outsider.isError).toBe(true)
+    expect(outsider.payload.code).toBe("NOT_FOUND")
+    expect(m.createRun).not.toHaveBeenCalled()
+  })
+
+  it("needs exactly one of templateId and items", async () => {
+    const r = await callTool("propose_plan_from_actuals", { projectId: "p1", startDate: "2026-11-02" })
+    expect(r.isError).toBe(true)
+    expect(m.createRun).not.toHaveBeenCalled()
   })
 })

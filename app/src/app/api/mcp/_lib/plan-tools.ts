@@ -5,6 +5,12 @@ import { lineageSchema, sourceRefSchema } from "@/lib/plan-schedule/schedule-sou
 import type { ApiPrincipal } from "@/services/api-tokens/api-token-auth"
 import { getPlanTree } from "@/services/plan/plan.tree"
 import { proposePlanItems, proposePlanItemsSchema } from "@/services/plan/plan.propose"
+import { can } from "@/lib/authz"
+import { defaultDb } from "@/services/_shared/db"
+import { ForbiddenError } from "@/services/_shared/errors"
+import { createRunSchema } from "@/services/plan-estimate-run/estimate-run.schemas"
+import { createRun } from "@/services/plan-estimate-run/estimate-run.service"
+import { loadVisibleTemplate } from "@/services/plan-templates/plan-templates.service"
 import { DATA_NOTICE, definedOnly, guard, mcpWrite, projectScope, toolOk } from "./tool-kit"
 
 /**
@@ -82,6 +88,66 @@ export function registerPlanTools(server: McpServer, principal: ApiPrincipal): v
           body: definedOnly({ startDate, schedule: definedOnly({ items, skipWeekends }), name, reason, sourceRef, lineage }),
           params: {},
           op: async ({ projectId: pid, body, serviceActor }) => ({ data: await proposePlanItems(pid, proposePlanItemsSchema.parse(body), serviceActor) }),
+          idempotent: { key: idempotencyKey },
+        })
+      }),
+  )
+
+  server.registerTool(
+    "propose_plan_from_actuals",
+    {
+      description: describe(
+        "Make a plan proposal from past actuals (plan 12 E5; scope backlog:write, and the token's owner needs 計画を作る (plan.estimate) in the project: Product Owner / Scrum Master). " +
+          "Give the base schedule (schedule.yml as JSON, the same `items` as propose_plan_items) or a Kanflow plan `templateId`, the `startDate`, and optionally `roleAssignments` ({ role: [userId of a project member] }). " +
+          "Kanflow adjusts the template's durations from finished projects of the same lineage (when that lineage's backtest allows it), applies the confirmed lesson rules and levels the load. " +
+          "The answer is only the run id, a summary of end dates and a web link — never per-person load or owners. The plan does NOT change: the person opens the link (webPath), reviews the evidence and approves it there.",
+      ),
+      inputSchema: {
+        projectId: projectIdArg,
+        startDate: startDateSchema.describe("Start of the first item, YYYY-MM-DD."),
+        templateId: z.string().min(1).max(64).optional().describe("A Kanflow plan template id (instead of items)."),
+        items: baseScheduleSchema.shape.items.optional(),
+        skipWeekends: z.boolean().optional(),
+        roleAssignments: z.record(z.string().regex(/^(?!__)[A-Za-z0-9_-]{1,32}$/), z.array(z.string().min(1).max(191)).max(50)).optional().describe("Who may hold each role: user ids of explicit project members only."),
+        sourceRef: sourceRefSchema.optional(),
+        lineage: lineageSchema.optional(),
+        idempotencyKey: idempotencyKeyArg,
+      },
+      annotations: PROPOSE,
+    },
+    ({ projectId, idempotencyKey, startDate, templateId, items, skipWeekends, roleAssignments, sourceRef, lineage }) =>
+      guard("propose_plan_from_actuals", async () => {
+        const scope = await projectScope(principal, projectId)
+        return mcpWrite(principal, {
+          tool: "propose_plan_from_actuals",
+          scope,
+          action: "backlog.write",
+          body: definedOnly({ startDate, templateId, schedule: items ? definedOnly({ items, skipWeekends }) : undefined, skipWeekends, roleAssignments, sourceRef, lineage }),
+          params: {},
+          op: async ({ projectId: pid, actor, body, serviceActor }) => {
+            // The token scope is backlog:write; making a plan from actuals is the person's plan.estimate on top.
+            if (!can(actor, "plan.estimate")) throw new ForbiddenError("計画を作る権限がありません")
+            const input = createRunSchema.parse(body)
+            if (input.templateId) await loadVisibleTemplate(defaultDb, input.templateId, serviceActor)
+            const source = input.templateId
+              ? { kind: "template" as const, templateId: input.templateId }
+              : { kind: "schedule" as const, schedule: input.schedule!, ...(input.sourceRef ? { sourceRef: input.sourceRef } : {}), ...(input.lineage ? { lineage: input.lineage } : {}) }
+            const run = await createRun(
+              pid,
+              { startDate: input.startDate, skipWeekends: input.skipWeekends ?? input.schedule?.skipWeekends === true, roleAssignments: input.roleAssignments, source },
+              { userId: serviceActor.userId, userName: serviceActor.userName, systemRole: serviceActor.systemRole }
+            )
+            // Only the run id, end dates and counts: no per-person load, no owners, no item names (plan 12 §3.6).
+            const s = run.summary
+            return {
+              data: {
+                runId: run.runId,
+                expiresAt: run.expiresAt,
+                summary: { templateEnd: s.templateEnd, p50End: s.p50End, p80End: s.p80End, plannedEnd: s.plannedEnd, bufferDays: s.bufferDays, gateOn: s.gateOn, gateReason: s.gateReason, itemCount: s.leafCount, changedItemCount: s.changesTotal },
+                webPath: `/projects/${pid}/plan/estimate?run=${run.runId}`,
+              },
+            }
+          },
           idempotent: { key: idempotencyKey },
         })
       }),

@@ -60,6 +60,7 @@ const GITLAB = "gitlab.scm.service.infosys.yamaha.com"
 const READ_TOOLS = ["whoami", "list_projects", "resolve_project", "get_backlog", "get_pbi", "list_sprints", "get_sprint_tasks", "my_tasks", "get_activity", "list_comments", "list_claims", "search_lessons", "get_plan"]
 const WRITE_TOOLS = [
   "propose_plan_items",
+  "propose_plan_from_actuals",
   "report_failure",
   "report_resolution",
   "create_pbi",

@@ -18,7 +18,7 @@ import { planBaseSchedule, PlanScheduleError, type BaseSchedule } from "@/lib/pl
 import { canonicalJson, defaultLineage } from "@/lib/plan-schedule/schedule-source"
 import type { Actor } from "@/services/_shared/actor"
 import { logActivity } from "@/services/_shared/activity"
-import { withTransaction } from "@/services/_shared/db"
+import { withTransaction, type Db } from "@/services/_shared/db"
 import { ConflictError, isUniqueViolation, ValidationError } from "@/services/_shared/errors"
 import { enqueueIn } from "@/services/_shared/translations"
 import * as planRepo from "./plan.repository"
@@ -43,16 +43,36 @@ export interface LoadBaseScheduleInput {
   lineage?: string
 }
 
+/** What an approved estimate run adds (plan 12 E5): the run on the load record, and the owners of its leaves. */
+export interface EstimateRunLoad {
+  estimateRunId: string
+  /** Leaf key → owner (from the run, after the approver removed some; never from the request). */
+  owners: Readonly<Record<string, string | null>>
+}
+
 const alreadyLoaded = () => new ConflictError("This plan proposal was already loaded", {}, "PLAN_ALREADY_LOADED")
 
 export async function loadBaseSchedule(projectId: string, input: LoadBaseScheduleInput, actor: Actor): Promise<LoadBaseScheduleResult> {
-  let planned
+  // Validate before the transaction: a bad schedule never opens one.
+  placeOrFail(input)
+  return withTransaction((tx) => writeBaseSchedule(tx, projectId, input, actor))
+}
+
+function placeOrFail(input: LoadBaseScheduleInput) {
   try {
-    planned = planBaseSchedule(input.schedule, input.startDate)
+    return planBaseSchedule(input.schedule, input.startDate)
   } catch (error) {
     if (error instanceof PlanScheduleError) throw new ValidationError(error.message, {}, error.code)
     throw error
   }
+}
+
+/**
+ * The writes of a load inside the caller's transaction (loadBaseSchedule, or the approval of an estimate run, which
+ * checks the run in the same transaction first).
+ */
+export async function writeBaseSchedule(tx: Db, projectId: string, input: LoadBaseScheduleInput, actor: Actor, run?: EstimateRunLoad): Promise<LoadBaseScheduleResult> {
+  const planned = placeOrFail(input)
   const scheduleHash = createHash("sha256").update(canonicalJson(input.schedule)).digest("hex")
   const sourceRef = input.sourceRef ?? null
   const lineage = input.lineage ?? defaultLineage({ sourceRef, scheduleHash })
@@ -60,7 +80,7 @@ export async function loadBaseSchedule(projectId: string, input: LoadBaseSchedul
   // planBaseSchedule rejected an invalid date already; this only narrows the type and fails loudly if not.
   if (!startDate) throw new ValidationError(`startDate is not a valid date: ${input.startDate}`, {}, "INVALID_DATE")
   const leafKeys = new Set(planned.rows.filter((r) => !planned.rows.some((c) => c.parentKey === r.key)).map((r) => r.key))
-  return withTransaction(async (tx) => {
+  {
     // The same approved proposal loads once (a double approval, a replayed request): 409, nothing written.
     if (input.proposalId) {
       if (await planRepo.findPlanLoadMarker(tx, projectId, input.proposalId)) throw alreadyLoaded()
@@ -77,7 +97,7 @@ export async function loadBaseSchedule(projectId: string, input: LoadBaseSchedul
         content: input.schedule as unknown as Prisma.InputJsonValue,
         startDate,
         skipWeekends: input.schedule.skipWeekends === true,
-        estimateRunId: null,
+        estimateRunId: run?.estimateRunId ?? null,
         loadedById: actor.userId || null,
       })
     } catch (error) {
@@ -106,6 +126,8 @@ export async function loadBaseSchedule(projectId: string, input: LoadBaseSchedul
         sortOrder: r.parentKey === null ? baseSort + r.siblingIndex : r.siblingIndex + 1,
         templateKey: r.key,
         scheduleLoadId: load.id,
+        // Owners come only from an approved run's levelling (a schedule's own fields are never read for this).
+        ...(run && leaf && Object.hasOwn(run.owners, r.key) && run.owners[r.key] ? { ownerId: run.owners[r.key] } : {}),
       })
       ids.set(r.key, item.id)
       await enqueueIn(tx, "plan_item", item.id, item)
@@ -126,7 +148,10 @@ export async function loadBaseSchedule(projectId: string, input: LoadBaseSchedul
       entityId: projectId,
       action: "update",
       actor,
-      diff: { changes: { planBaseSchedule: { from: null, to: input.startDate } }, meta: { count: planned.rows.length, dependencies: dependencyCount, scheduleLoadId: load.id, baselineSet: !baselineFrozen } },
+      diff: {
+        changes: { planBaseSchedule: { from: null, to: input.startDate } },
+        meta: { count: planned.rows.length, dependencies: dependencyCount, scheduleLoadId: load.id, baselineSet: !baselineFrozen, ...(run ? { estimateRunId: run.estimateRunId } : {}) },
+      },
     })
     return {
       createdCount: planned.rows.length,
@@ -136,5 +161,5 @@ export async function loadBaseSchedule(projectId: string, input: LoadBaseSchedul
       plannedEnd: planned.plannedEnd,
       baselineSet: !baselineFrozen,
     }
-  })
+  }
 }

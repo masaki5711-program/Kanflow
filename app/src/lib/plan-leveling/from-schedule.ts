@@ -3,7 +3,8 @@
  * engine counts on. Pure.
  *
  * - Leaves only; a `dependsOn` on a parent covers every leaf under it, and a parent's own `dependsOn` applies to all
- *   of its leaves (the same reading as loading the schedule).
+ *   of its leaves (the same reading as loading the schedule). A leaf with no dependency at all follows every earlier
+ *   leaf (loading places such leaves one after another).
  * - D = durationDays (default 1, milestones 1). ℓ = the item's `load` (default 1); a milestone takes no capacity.
  * - `role` is inherited from the nearest ancestor that has one.
  */
@@ -34,7 +35,13 @@ export function levelItemsFromSchedule(schedule: BaseSchedule, splittable: Reado
   }
   walk(schedule.items, null, [], [])
   return leaves.map((l, order) => {
-    const preds = [...new Set(l.depends.flatMap((k) => leavesUnder.get(k) ?? []))].filter((k) => k !== l.item.key)
+    // A leaf without any dependency follows every earlier leaf, as loading places it (scheduleFrom's sequential
+    // order): the base schedule's stage order is part of the plan, and levelling only delays work for capacity —
+    // it never runs stages in parallel that the schedule puts one after another. Parallel work is said with dependsOn.
+    const preds =
+      l.depends.length === 0
+        ? leaves.slice(0, order).map((x) => x.item.key)
+        : [...new Set(l.depends.flatMap((k) => leavesUnder.get(k) ?? []))].filter((k) => k !== l.item.key)
     return {
       key: l.item.key,
       days: l.item.milestone ? 1 : Math.max(1, l.item.durationDays ?? 1),

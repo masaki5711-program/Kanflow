@@ -55,6 +55,8 @@ export interface LevelInput {
   parallelCap: (userId: string) => number
   /** FTE_u(d) before other projects' load (0..1); an item takes min(ℓ, FTE) of the day. Omitted = an item takes ℓ. */
   fte?: (userId: string, day: number) => number
+  /** Propose splitting a late item into two parallel parts (default true). Off = every item stays whole. */
+  split?: boolean
 }
 
 export interface PlacedPart {
@@ -294,7 +296,7 @@ export function level(input: LevelInput): LevelResult {
 
     const late = best.t > (cpm.ls.get(item.key) as number)
     const mayHalve = item.splittable === true || (item.days >= SPLIT_MIN_DAYS && cands.length >= 2)
-    if (late && mayHalve && cands.length >= 2 && item.load > 0) {
+    if (input.split !== false && late && mayHalve && cands.length >= 2 && item.load > 0) {
       const half = Math.ceil((item.days / 2) * SPLIT_OVERHEAD)
       const a = cands.map((u) => ({ u, t: earliestFit(input, ledger, u, t0, half, item.load, take) })).filter((o): o is { u: string; t: number } => o.t !== null)
       a.sort((x, y) => x.t - y.t || (x.u < y.u ? -1 : 1))

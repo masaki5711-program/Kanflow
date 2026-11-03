@@ -127,6 +127,9 @@ export const API_ERROR_CODES = [
   /** 稼働量: an allocation to a project is only for its explicit members. */
   "CAPACITY_NOT_MEMBER",
   "PLAN_LOAD_TOO_LARGE",
+  "PLAN_ESTIMATE_STALE",
+  "PLAN_ESTIMATE_RUN_NOT_FOUND",
+  "PLAN_LINEAGE_NOT_ALLOWED",
   // Files / folders
   "FILE_REQUIRED",
   "FILE_EMPTY",

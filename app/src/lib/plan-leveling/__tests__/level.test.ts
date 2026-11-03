@@ -111,6 +111,13 @@ describe("level", () => {
     expect(r.placements[0].split).toBeUndefined()
   })
 
+  it("split: false keeps every item whole (E5 writes what it levels)", () => {
+    const capacity = (u: string, d: number) => (u === "u1" && d < 4 ? 0 : u === "u2" && d < 6 ? 0 : 1)
+    const r = level({ items: [item("big", 8)], assign: { dev: ["u1", "u2"] }, capacity, parallelCap: cap(1), split: false })
+    expect(r.placements[0].split).toBeUndefined()
+    expect(r.placements[0]).toMatchObject({ start: 4, end: 11, owner: "u1" })
+  })
+
   it("a short item is split only with a split rule (D < 4 needs `splittable`)", () => {
     const capacity = (u: string, d: number) => (u === "u1" && d < 6 ? 0 : u === "u2" && d < 6 ? 0 : 1)
     const busy = (u: string, d: number) => (u === "u1" ? capacity(u, d) : u === "u2" && d < 1 ? 0 : 1)

@@ -76,9 +76,10 @@ function weightedMean(ps: readonly HiddenPoint[]): number {
 
 /**
  * Key of a hidden-aggregation unit in the GLOBAL held-state store: everything that decides which points the unit
- * aggregates (kind, lineage, project type, attributes, leaf key / name / former keys) and the viewer's visibility
- * class (the visible projects among the unit's observations). The member set is NOT part of the key — the hold rule
- * compares it.
+ * aggregates (kind, lineage, project type, attributes, and for a leaf the identities — stage and template key or
+ * normalised name — of the hidden items it matched; never the leaf's own key / name / former keys, which a requester
+ * controls) and the viewer's visibility class (the visible projects among the unit's observations). The member set is
+ * NOT part of the key — the hold rule compares it.
  *
  * Known residual (for E5's store, review MEDIUM 2): a project LEAVING an even h' (6 used → 5 left → 4 used) changes the
  * length, so it is recomputed; the change then mixes two projects' values (y2 and y6) instead of exposing one.

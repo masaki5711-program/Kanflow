@@ -10,6 +10,7 @@ import { z } from "zod"
 import { dateFromKey } from "@/lib/plan-progress"
 import { firstLinkProblem, type TemplateLink } from "@/lib/plan-templates/links"
 import { scheduleFrom, type ScheduleNode } from "@/lib/plan-templates/schedule"
+import { WorkCalendar } from "@/lib/plan-leveling/from-schedule"
 
 export const BASE_SCHEDULE_MAX_ITEMS = 500
 export const BASE_SCHEDULE_MAX_DEPTH = 5
@@ -46,6 +47,12 @@ export interface BaseScheduleItem {
    * `dependsOn` always uses current keys.
    */
   formerKeys?: string[]
+  /**
+   * Optional (plan 12 E5): the leaf starts no earlier than this many working days after the start (Mon–Fri with
+   * skipWeekends) — how a levelled proposal is written as a constraint, so the server recomputes the dates on
+   * approval instead of trusting them. Leaves only; ignored on a parent.
+   */
+  notBeforeOffsetDays?: number
 }
 
 export interface BaseSchedule {
@@ -66,6 +73,7 @@ const itemSchema: z.ZodType<BaseScheduleItem> = z.lazy(() =>
     role: z.string().regex(new RegExp(`^[A-Za-z0-9_-]{1,${BASE_SCHEDULE_ROLE_MAX}}$`), `role: letters, digits, _ and - (1-${BASE_SCHEDULE_ROLE_MAX} chars)`).optional(),
     load: z.number().min(0).max(1).optional(),
     formerKeys: z.array(keySchema).max(BASE_SCHEDULE_MAX_FORMER_KEYS).optional(),
+    notBeforeOffsetDays: z.number().int().min(0).max(BASE_SCHEDULE_MAX_DURATION).optional(),
   })
 )
 
@@ -193,10 +201,15 @@ export function planBaseSchedule(schedule: BaseSchedule, startDate: string): Pla
     plannedStart: null,
     plannedEnd: null,
   }))
+  const skipWeekends = schedule.skipWeekends === true
+  const calendar = new WorkCalendar(startDate, skipWeekends)
+  const notBefore = new Map<string, string>()
+  for (const { item } of flat) if (item.notBeforeOffsetDays !== undefined && (item.children ?? []).length === 0) notBefore.set(item.key, calendar.keyOf(item.notBeforeOffsetDays))
   const placed = new Map(
     scheduleFrom(nodes, null, startDate, {
-      skipWeekends: schedule.skipWeekends === true,
+      skipWeekends,
       dependencies: links.map((l) => ({ predecessorId: l.from, successorId: l.to })),
+      ...(notBefore.size > 0 ? { notBefore } : {}),
     }).map((p) => [p.id, p])
   )
 

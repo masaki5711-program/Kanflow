@@ -122,7 +122,11 @@ export function estimateLeaf(leaf: EstimateLeaf, observations: readonly Observat
   const V = matched.filter((m) => m.visible)
   const Hm = matched.filter((m) => !m.visible)
   const signature = visibleSignature(V.map((v) => v.obs), ctx)
-  const unit = (kind: "ratio" | "lag" | "load") => hiddenUnitKey(kind, [ctx.lineage, ctx.projectType, ctx.attributes, leaf.key, leaf.name, leaf.formerKeys ?? [], signature])
+  // The unit is WHAT is aggregated — the identities of the hidden items the leaf matched — not how the leaf is named:
+  // a requester controls the leaf's key, name and former keys (a schedule from an agent), and a renamed leaf that
+  // matches the same hidden items must hit the same held state (E5 security review H2), never start a fresh one.
+  const hiddenIdentity = [...new Set(Hm.map((m) => `${m.stage}:${m.obs.templateKey ?? m.obs.name.normalize("NFKC").trim().toLowerCase()}`))]
+  const unit = (kind: "ratio" | "lag" | "load") => hiddenUnitKey(kind, [ctx.lineage, ctx.projectType, ctx.attributes, hiddenIdentity, signature])
   const hid = aggregate(unit("ratio"), hiddenPoints(Hm, (m) => m.x), cfg, ctx, sink)
 
   let kept: MatchedObservation[] = []

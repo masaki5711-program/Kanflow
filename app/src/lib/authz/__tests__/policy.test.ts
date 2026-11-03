@@ -83,6 +83,8 @@ const EXPECTED: Record<ProjectAction, Persona[]> = {
   // plan 12 §4: PO / SM and the section manager see members' load (a dev only their own — in the service).
   "plan.viewMemberLoad": ["admin", "po", "sm", "sectionMgr", "sectionMgrDev"],
   "capacity.manage": PO_SM,
+  // plan 12 §3.6 / §4: making a plan from actuals is the PO / SM's (a dev, a section manager who only sees the project and a non-member are denied).
+  "plan.estimate": PO_SM,
 }
 
 const cases = PROJECT_ACTIONS.flatMap((action) =>
