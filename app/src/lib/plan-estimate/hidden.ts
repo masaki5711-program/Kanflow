@@ -7,8 +7,11 @@
  *     newly finalized hidden project never changes the result — only a pair does;
  *  3-2. each project collapses to one value y_p (the mean of its points), and the aggregate is the mean without the
  *     largest and the smallest y_p (a median could equal one project's value);
- *  LOW: when the same projects are used but exactly one y_p changed (re-finalized, a PBI became confidential), the
- *     previous aggregate is kept until a second project's value changes too.
+ *  LOW: when exactly ONE thing changed since the last published aggregate of the unit — one y_p changed
+ *     (re-finalized, a PBI became confidential) or one used project was replaced by another (it left learning and the
+ *     next oldest moved in) — the previous aggregate is kept until a second change accumulates.
+ *     The previous state must come from a GLOBAL store shared by every project and viewer (see `hiddenUnitKey`):
+ *     a per-project history would let a fresh project read the changed value.
  * h' ≥ 4 is required (trimming needs h' − 2 ≥ 2), so hidden sources take effect from 4 projects per unit.
  */
 import { mean, trimmedMean } from "./stats"
@@ -44,7 +47,8 @@ export function hiddenAggregate(points: readonly HiddenPoint[], config: Pick<Est
     .map(([projectId, ps]) => ({
       projectId,
       orderAt: ps.map((p) => p.orderAt).toSorted()[0],
-      y: mean(ps.map((p) => p.x)),
+      // Weighted by w (similarity × recency): a weak stage-4 match counts less than an exact key match.
+      y: weightedMean(ps),
       w: mean(ps.map((p) => p.w)),
     }))
     .toSorted((a, b) => (a.orderAt < b.orderAt ? -1 : a.orderAt > b.orderAt ? 1 : a.projectId < b.projectId ? -1 : a.projectId > b.projectId ? 1 : 0))
@@ -55,18 +59,28 @@ export function hiddenAggregate(points: readonly HiddenPoint[], config: Pick<Est
   const values = Object.fromEntries(used.map((p) => [p.projectId, p.y]))
   const w = (hPrime - 2) * mean(used.map((p) => p.w))
 
-  if (previous && sameMembers(previous.projectIds, projectIds)) {
-    const changed = projectIds.filter((id) => Math.abs((previous.values[id] ?? Number.NaN) - values[id]) > SAME || Number.isNaN(previous.values[id] ?? Number.NaN)).length
-    if (changed === 1) return { x: previous.x, w, hPrime, projectIds, state: previous, held: true }
+  if (previous && previous.projectIds.length === projectIds.length) {
+    const before = new Set(previous.projectIds)
+    const replaced = projectIds.filter((id) => !before.has(id)).length
+    const changedValues = projectIds.filter((id) => before.has(id) && !(Math.abs(previous.values[id] - values[id]) <= SAME)).length
+    if (replaced + changedValues === 1) return { x: previous.x, w, hPrime, projectIds, state: previous, held: true }
   }
   const x = trimmedMean(used.map((p) => p.y))
   return { x, w, hPrime, projectIds, state: { projectIds, values, x }, held: false }
 }
 
-function sameMembers(a: readonly string[], b: readonly string[]): boolean {
-  if (a.length !== b.length) return false
-  const set = new Set(a)
-  return b.every((id) => set.has(id))
+function weightedMean(ps: readonly HiddenPoint[]): number {
+  const total = ps.reduce((s, p) => s + p.w, 0)
+  return total > 0 ? ps.reduce((s, p) => s + p.x * p.w, 0) / total : mean(ps.map((p) => p.x))
+}
+
+/**
+ * Key of a hidden-aggregation unit in the GLOBAL held-state store: everything that decides which points the unit
+ * aggregates (kind, lineage, project type, attributes, leaf key / name / former keys). The member set is NOT part of
+ * the key — the hold rule compares it.
+ */
+export function hiddenUnitKey(kind: "ratio" | "lag" | "load" | "type" | "parallel", parts: readonly (string | readonly string[])[]): string {
+  return JSON.stringify([kind, ...parts.map((p) => (typeof p === "string" ? p : [...p].toSorted()))])
 }
 
 /** Counts shown to users are bands, never exact (plan 12 §3.2 rule 3). */

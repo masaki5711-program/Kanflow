@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { referenceDateOf } from "../dates"
 import { estimateLeaf, learnParallelCap, typePrior } from "../estimate"
+import { hiddenAggregate } from "../hidden"
 import { mulberry32 } from "../synthetic"
 import type { EstimateContext, EstimateLeaf, Observation, TypePrior } from "../types"
 
@@ -180,6 +181,38 @@ describe("estimateLeaf", () => {
     const e = estimateLeaf(LEAF, [...v, ...h], ctx(["v1", "v2"]), NO_PRIOR)
     expect(e.mrSet).toEqual({ leadTimeP50Hours: 30, repoTouchedP50: 2 })
   })
+  it("stage thresholds are inclusive at 0.6 / 0.75 and exclusive just below", () => {
+    const at = (sim: number, attrs: string[]) => estimateLeaf(LEAF, [obs("v1", 1.2, { templateKey: null, attributes: attrs })], ctx(["v1"], { attributes: ["a:1"], similarity: () => sim }), NO_PRIOR).kept.map((k) => k.stage)
+    expect(at(0.6, ["a:1"])).toEqual([3])
+    expect(at(0.5999, ["a:1"])).toEqual([])
+    expect(at(0.75, [])).toEqual([4])
+    expect(at(0.7499, [])).toEqual([])
+  })
+
+  it("with exactly 2 stage-1 observations stages 3-4 are still used", () => {
+    const stage1 = ["v1", "v2"].map((p) => obs(p, 1.3))
+    const fuzzy = obs("v3", 1.35, { templateKey: "other" })
+    const e = estimateLeaf(LEAF, [...stage1, fuzzy], ctx(["v1", "v2", "v3"]), NO_PRIOR)
+    expect(e.kept.map((k) => k.stage).toSorted()).toEqual([1, 1, 4])
+  })
+
+  it("a project closed exactly on R is not used", () => {
+    const e = estimateLeaf(LEAF, [obs("v1", 2, { closedAt: R, finalizedAt: "2026-10-01" })], ctx(["v1"]), NO_PRIOR)
+    expect(e.kept).toEqual([])
+  })
+
+  it("near the upper bound: an exact r50 just under 3.0 is not rounded and P80 never exceeds 3.0", () => {
+    const many = ids("v", 40)
+    const e = estimateLeaf(LEAF, many.map((p) => obs(p, 2.9)), ctx(many), NO_PRIOR)
+    expect(e.r50).toBeCloseTo(Math.exp((40 / 43) * Math.log(2.9)), 12)
+    expect(e.d50).toBe(Math.ceil(10 * e.r50 - 1e-9))
+    // P80 above the bound clamps to exactly 3.0 while P50 stays below it.
+    const spread = many.map((p, i) => obs(p, 2.5 + (i % 10) * 0.12))
+    const w = estimateLeaf(LEAF, spread, ctx(many), { mu0: Math.log(3), n: 0, hiddenInfluenced: false, hiddenSourceProjectIds: [] })
+    expect(w.r50).toBeLessThan(3)
+    expect(w.r80).toBeLessThanOrEqual(3)
+    expect(w.d80).toBeGreaterThanOrEqual(w.d50)
+  })
 })
 
 describe("hidden sources (plan 12 §3.2 rules 1-6)", () => {
@@ -196,18 +229,40 @@ describe("hidden sources (plan 12 §3.2 rules 1-6)", () => {
   })
 
   it("hidden_contribution_is_trimmed_mean_not_single_source_value", () => {
-    const ratios = [1.1, 1.3, 1.6, 2.4]
-    const hidden = ratios.map((r, i) => obs(`h${i + 1}`, r, { finalizedAt: `2026-06-0${i + 1}` }))
+    // One extreme hidden project: a plain mean of the logs would give exp(0.4 × ln(20)/4) ≈ 1.35 → 1.3 or 1.4;
+    // the trimmed mean drops it (and the smallest) and stays at ratio 1.0.
+    const hidden = [1, 1, 1, 20].map((r, i) => obs(`h${i + 1}`, r, { finalizedAt: `2026-06-0${i + 1}` }))
     const e = estimateLeaf(LEAF, hidden, ctx([]), NO_PRIOR)
-    const xs = ratios.map((r) => Math.log(r))
-    const trimmed = (xs[1] + xs[2]) / 2
-    const alpha = 2 / (2 + 3)
-    expect(e.alpha).toBeCloseTo(alpha, 9)
-    const expected = Math.round(Math.exp(alpha * trimmed) * 10) / 10
-    expect(e.r50).toBe(expected)
+    expect(e.alpha).toBeCloseTo(2 / 5, 9)
+    expect(e.r50).toBe(1)
+    expect(e.d50).toBe(10)
     expect(e.hiddenInfluenced).toBe(true)
     expect(e.kept).toEqual([])
     expect(e.hiddenSourceProjectIds).toEqual(["h1", "h2", "h3", "h4"])
+    const agg = hiddenAggregate(hidden.map((o) => ({ projectId: o.sourceProjectId, orderAt: o.finalizedAt, x: Math.log(o.actualDays / o.plannedDays), w: 1 })), { minHiddenSources: 3 })
+    expect(agg?.x).toBeCloseTo(0, 12)
+  })
+
+  it("hidden sources are counted per leaf, not per project", () => {
+    const onA = ids("h", 4).map((p) => obs(p, 2))
+    const onB = ids("h", 2).map((p) => obs(p, 2, { templateKey: "test", name: "試験" }))
+    const data = [...onA, ...onB]
+    expect(estimateLeaf(LEAF, data, ctx([]), NO_PRIOR).hiddenInfluenced).toBe(true)
+    const b = estimateLeaf({ key: "test", name: "試験", templateDays: 10 }, data, ctx([]), NO_PRIOR)
+    expect(b.hiddenInfluenced).toBe(false)
+    expect(b.d50).toBe(10)
+  })
+
+  it("h' advances in pairs (6 → 7 unchanged) and an OLDER newcomer joins the used set", () => {
+    const hidden = (n: number) => ids("h", n).map((p, i) => obs(p, 1.2 + i * 0.3, { finalizedAt: `2026-05-${String(10 + i).padStart(2, "0")}` }))
+    const six = estimateLeaf(LEAF, hidden(6), ctx([]), NO_PRIOR)
+    const seven = estimateLeaf(LEAF, hidden(7), ctx([]), NO_PRIOR)
+    expect(seven).toEqual(six)
+    // A fifth project finalized before the other four is among the oldest four: the used set changes (by design,
+    // the order is first finalization; the count still only moves in pairs).
+    const older = obs("h0", 2.9, { finalizedAt: "2026-01-01" })
+    const withOlder = estimateLeaf(LEAF, [...hidden(4), older], ctx([]), NO_PRIOR)
+    expect(withOlder.hiddenSourceProjectIds).toEqual(["h0", "h1", "h2", "h3"])
   })
 
   it("one_new_hidden_source_does_not_change_estimate", () => {
@@ -221,28 +276,42 @@ describe("hidden sources (plan 12 §3.2 rules 1-6)", () => {
     expect(six.n).not.toBe(four.n)
   })
 
-  it("a re-finalized hidden source keeps its place (orderAt = first finalization) and one changed value is held", () => {
-    const visible = [obs("v1", 1.2)]
-    const hidden = ids("h", 4).map((p, i) => obs(p, 1.3 + i * 0.4, { finalizedAt: `2026-05-0${i + 1}` }))
+  it("one changed hidden value is held until a second one changes (direct on the aggregate and through the leaf)", () => {
+    const pts = (vals: number[]) => vals.map((x, i) => ({ projectId: `h${i + 1}`, orderAt: `2026-05-0${i + 1}`, x, w: 1 }))
+    const first = hiddenAggregate(pts([0.1, 0.2, 0.3, 0.4]), { minHiddenSources: 3 })
+    expect(first?.held).toBe(false)
+    const one = hiddenAggregate(pts([0.1, 0.9, 0.3, 0.4]), { minHiddenSources: 3 }, first?.state)
+    expect(one?.held).toBe(true)
+    expect(one?.x).toBe(first?.x)
+    expect(one?.state).toBe(first?.state)
+    const two = hiddenAggregate(pts([0.1, 0.9, 0.8, 0.4]), { minHiddenSources: 3 }, one?.state)
+    expect(two?.held).toBe(false)
+    expect(two?.x).toBeCloseTo((0.4 + 0.8) / 2, 12)
+    // A different member set is never held.
+    const other = hiddenAggregate([...pts([0.1, 0.9, 0.3]), { projectId: "h9", orderAt: "2026-05-04", x: 0.4, w: 1 }], { minHiddenSources: 3 }, first?.state)
+    expect(other?.held).toBe(false)
+
+    // Through estimateLeaf with a value change that moves the rounded ratio (1.2 → 1.3 without the hold).
+    const hidden = [1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7].map((r, i) => obs(`h${i + 1}`, r, { finalizedAt: `2026-05-0${i + 1}` }))
     const sink = new Map()
-    const first = estimateLeaf(LEAF, [...visible, ...hidden], ctx(["v1"]), NO_PRIOR, sink)
+    const base = estimateLeaf(LEAF, hidden, ctx([]), NO_PRIOR, sink)
     const previousHidden = new Map(sink)
-    const changedOne = hidden.map((o, i) => (i === 1 ? { ...o, actualDays: o.actualDays * 1.5 } : o))
-    const held = estimateLeaf(LEAF, [...visible, ...changedOne], ctx(["v1"], { previousHidden }), NO_PRIOR)
-    expect(held.r50).toBe(first.r50)
-    const changedTwo = changedOne.map((o, i) => (i === 2 ? { ...o, actualDays: o.actualDays * 1.5 } : o))
-    const moved = estimateLeaf(LEAF, [...visible, ...changedTwo], ctx(["v1"], { previousHidden }), NO_PRIOR)
-    expect(moved.r50).not.toBe(first.r50)
+    const changed = hidden.map((o, i) => (i === 2 ? { ...o, actualDays: 17 } : o))
+    const held = estimateLeaf(LEAF, changed, ctx([], { previousHidden }), NO_PRIOR)
+    const unheld = estimateLeaf(LEAF, changed, ctx([]), NO_PRIOR)
+    expect(base.r50).toBe(1.2)
+    expect(unheld.r50).toBe(1.3)
+    expect(held.r50).toBe(base.r50)
   })
 
   it("days_computed_from_rounded_ratio_when_hidden_influenced", () => {
-    const hidden = ids("h", 4).map((p, i) => obs(p, [1.13, 1.17, 1.19, 1.23][i]))
-    const leaf = { ...LEAF, templateDays: 100 }
-    const e = estimateLeaf(leaf, hidden, ctx([]), NO_PRIOR)
-    expect(Number.isInteger(e.r50 * 10 + 1e-9) || Math.abs(e.r50 * 10 - Math.round(e.r50 * 10)) < 1e-9).toBe(true)
-    expect(e.d50).toBe(Math.ceil(100 * e.r50 - 1e-9))
-    expect(e.d80).toBe(Math.ceil(100 * e.r80 - 1e-9))
-    expect(Math.abs(e.r80 * 10 - Math.round(e.r80 * 10))).toBeLessThan(1e-9)
+    // Exact: exp(0.4 × ln 1.07) ≈ 1.0274 → 103 days; rounded ratio 1.0 → 100 days. P80: exp(0.0271 + 0.25) ≈ 1.319 → 1.3 → 130.
+    const hidden = ids("h", 4).map((p) => obs(p, 1.07))
+    const e = estimateLeaf({ ...LEAF, templateDays: 100 }, hidden, ctx([]), NO_PRIOR)
+    expect(e.r50).toBe(1)
+    expect(e.d50).toBe(100)
+    expect(e.r80).toBe(1.3)
+    expect(e.d80).toBe(130)
   })
 
   it("ratios stay exact when only visible sources are used", () => {

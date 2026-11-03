@@ -1,7 +1,9 @@
 /**
  * Backtest (plan 12 §5): finished projects in `closedAt` order; each is estimated only from projects that closed
  * and were finalized before ITS reference date (the first day of its start month — the backtest's R), then
- * compared with what actually happened. Internal evaluation: every source is visible.
+ * compared with what actually happened. Internal evaluation: every source is visible, so the hidden-source paths are
+ * NOT exercised here (unit tests cover them). Strata can hold a single project: anything shown to people other than
+ * administrators must be banded and updated only per pair of new projects (plan 12 §10, final re-review MEDIUM).
  *
  * Metrics: leaf MAPE weighted by days (Σ|D − A| / ΣA) for the estimate and for the template alone, P80 hit rate
  * (A ≤ D80), mean absolute end-date error (estimate vs template), all also stratified by repository count.
@@ -106,7 +108,8 @@ const totals = (a: Acc): ErrorTotals => ({
 const add = (a: Acc, b: Acc): Acc => ({ leaves: a.leaves + b.leaves, absEst: a.absEst + b.absEst, absTpl: a.absTpl + b.absTpl, actual: a.actual + b.actual, hits: a.hits + b.hits })
 
 export function runBacktest(projects: readonly BacktestProject[], config?: Partial<EstimateConfig>): BacktestReport {
-  const ordered = projects.toSorted((a, b) => (a.closedAt < b.closedAt ? -1 : a.closedAt > b.closedAt ? 1 : a.projectId < b.projectId ? -1 : 1))
+  const cmp = (x: string, y: string) => (x < y ? -1 : x > y ? 1 : 0)
+  const ordered = projects.toSorted((a, b) => cmp(a.closedAt, b.closedAt) || cmp(a.projectId, b.projectId))
   const allObs = ordered.flatMap(observationsOf)
   const results: BacktestProjectResult[] = []
   let overall = emptyAcc()

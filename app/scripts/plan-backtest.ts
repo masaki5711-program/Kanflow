@@ -11,18 +11,18 @@
 import { runBacktest } from "../src/lib/plan-estimate/backtest"
 import { syntheticPortfolio } from "../src/lib/plan-estimate/synthetic"
 
-function argValue(name: string): string | undefined {
-  const i = process.argv.indexOf(name)
-  const v = i >= 0 ? process.argv[i + 1] : undefined
-  return v && !v.startsWith("--") ? v : undefined
+function seedArg(): number | undefined {
+  const i = process.argv.indexOf("--seed")
+  if (i < 0) return undefined
+  const raw = process.argv[i + 1]
+  if (raw === undefined || !/^-?\d+$/.test(raw)) {
+    console.error(`--seed needs an integer (got ${raw ?? "nothing"})`)
+    process.exit(2)
+  }
+  return Number(raw)
 }
 
-const seedArg = argValue("--seed")
-const seed = seedArg === undefined ? undefined : Number(seedArg)
-if (seed !== undefined && !Number.isInteger(seed)) {
-  console.error(`--seed must be an integer (got ${seedArg})`)
-  process.exit(2)
-}
+const seed = seedArg()
 const report = runBacktest(syntheticPortfolio({ seed }))
 const out = process.argv.includes("--summary") ? { methodVersion: report.methodVersion, overall: report.overall, byRepoCount: report.byRepoCount, byLineage: report.byLineage } : report
 console.log(JSON.stringify(out, null, 2))

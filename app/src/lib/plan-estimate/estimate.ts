@@ -4,21 +4,38 @@
  * — when a hidden source took effect — ratios rounded to 0.1 with the days computed from the ROUNDED ratios.
  * Also the learned wait (lag), load (ℓ̂) and the per-person parallel cap (m_u), all with the hidden-source rules.
  */
-import { hiddenAggregate, type HiddenAggregate, type HiddenPoint } from "./hidden"
+import { dayNumber } from "./dates"
+import { hiddenAggregate, hiddenUnitKey, type HiddenAggregate, type HiddenPoint } from "./hidden"
 import { matchLeaf, recency, usableAt, type MatchedObservation } from "./match"
 import { ceilDays, clamp, effectiveN, roundTenth, weightedMedian, weightedQuantile, type Weighted } from "./stats"
 import { ESTIMATE_DEFAULTS, type EstimateConfig, type EstimateContext, type EstimateLeaf, type HiddenState, type LeafEstimate, type Observation, type SourceRef, type TypePrior } from "./types"
 
+/**
+ * Defaults + overrides, validated. The hidden-source floor (`minHiddenSources`) is a privacy rule, not a tuning
+ * knob: it can only be raised, never lowered below the default.
+ */
 export function resolveConfig(partial?: Partial<EstimateConfig>): EstimateConfig {
-  return { ...ESTIMATE_DEFAULTS, ...partial }
+  const cfg: EstimateConfig = { ...ESTIMATE_DEFAULTS }
+  for (const [k, v] of Object.entries(partial ?? {})) {
+    if (v === undefined) continue
+    if (!(k in ESTIMATE_DEFAULTS)) throw new RangeError(`unknown estimate setting: ${k}`)
+    if (typeof v !== "number" || !Number.isFinite(v) || v < 0) throw new RangeError(`estimate setting ${k} must be a finite number >= 0 (got ${String(v)})`)
+    cfg[k as keyof EstimateConfig] = v
+  }
+  if (cfg.halfLifeDays <= 0 || cfg.shrinkK <= 0 || cfg.ratioMin <= 0 || cfg.ratioMin > cfg.ratioMax || cfg.maxDays < 1) throw new RangeError("estimate settings out of range")
+  cfg.minHiddenSources = Math.max(cfg.minHiddenSources, ESTIMATE_DEFAULTS.minHiddenSources)
+  return cfg
 }
 
 /** Collects the hidden aggregates a run used, so E5 can persist them as the next run's `previousHidden`. */
 export type HiddenStateSink = Map<string, HiddenState>
 
 function aggregate(unit: string, points: readonly HiddenPoint[], cfg: EstimateConfig, ctx: EstimateContext, sink?: HiddenStateSink): HiddenAggregate | null {
-  const agg = hiddenAggregate(points, cfg, ctx.previousHidden?.get(unit))
-  if (agg && sink) sink.set(unit, agg.state)
+  const previous = ctx.previousHidden?.get(unit)
+  const agg = hiddenAggregate(points, cfg, previous)
+  // Keep the last published state even when the unit is unused this time, so the hold survives a dip below the floor.
+  const state = agg?.state ?? previous
+  if (state && sink) sink.set(unit, state)
   return agg
 }
 
@@ -43,11 +60,17 @@ export function typePrior(observations: readonly Observation[], ctx: EstimateCon
     if (ctx.visibleProjectIds.has(o.sourceProjectId)) visible.push({ x, w })
     else hidden.push({ projectId: o.sourceProjectId, orderAt: o.finalizedAt, x, w })
   }
-  const hid = aggregate(`type:${ctx.projectType}`, hidden, cfg, ctx, sink)
+  const hid = aggregate(hiddenUnitKey("type", [ctx.projectType]), hidden, cfg, ctx, sink)
   const pool = hid ? [...visible, { x: hid.x, w: hid.w }] : visible
   if (pool.length === 0) return { mu0: 0, n: 0, hiddenInfluenced: false, hiddenSourceProjectIds: [] }
   const n = visible.length + (hid ? hid.hPrime - 2 : 0)
   return { mu0: (n / (n + cfg.typePriorK)) * weightedMedian(pool), n, hiddenInfluenced: hid !== null, hiddenSourceProjectIds: hid?.projectIds ?? [] }
+}
+
+function medianOrHidden(V: readonly MatchedObservation[], hid: HiddenAggregate | null): number {
+  if (V.length > 0) return weightedMedian(V.map((v) => ({ x: v.x, w: v.weight })))
+  if (!hid) throw new Error("no observation to take a median of")
+  return hid.x
 }
 
 const toRef = (m: MatchedObservation): SourceRef => ({
@@ -76,6 +99,7 @@ function shrunkMetric(unit: string, visible: readonly MatchedObservation[], hidd
 /** Estimate one leaf. `prior` is the run's `typePrior` (computed once per run). */
 export function estimateLeaf(leaf: EstimateLeaf, observations: readonly Observation[], ctx: EstimateContext, prior: TypePrior, sink?: HiddenStateSink): LeafEstimate {
   const cfg = resolveConfig(ctx.config)
+  if (!Number.isFinite(leaf.templateDays)) throw new RangeError(`templateDays of ${leaf.key} is not a number`)
   const T = clamp(Math.round(leaf.templateDays), 1, cfg.maxDays)
   const templateLoad = leaf.load ?? 1
   if (leaf.milestone) {
@@ -85,7 +109,8 @@ export function estimateLeaf(leaf: EstimateLeaf, observations: readonly Observat
   const matched = matchLeaf(leaf, usableAt(observations, ctx.referenceDate), ctx, cfg)
   const V = matched.filter((m) => m.visible)
   const Hm = matched.filter((m) => !m.visible)
-  const hid = aggregate(`ratio:${leaf.key}`, hiddenPoints(Hm, (m) => m.x), cfg, ctx, sink)
+  const unit = (kind: "ratio" | "lag" | "load") => hiddenUnitKey(kind, [ctx.lineage, ctx.projectType, ctx.attributes, leaf.key, leaf.name, leaf.formerKeys ?? []])
+  const hid = aggregate(unit("ratio"), hiddenPoints(Hm, (m) => m.x), cfg, ctx, sink)
 
   let kept: MatchedObservation[] = []
   let dropped: MatchedObservation[] = []
@@ -93,7 +118,7 @@ export function estimateLeaf(leaf: EstimateLeaf, observations: readonly Observat
   let n = 0
   let s80: number | null = null
   if (V.length > 0 || hid) {
-    const m = V.length > 0 ? weightedMedian(V.map((v) => ({ x: v.x, w: v.weight }))) : (hid as HiddenAggregate).x
+    const m = medianOrHidden(V, hid)
     const mad = V.length > 0 ? Math.max(weightedMedian(V.map((v) => ({ x: Math.abs(v.x - m), w: v.weight }))), cfg.madFloor) : cfg.madFloor
     const limit = cfg.outlierMads * 1.4826 * mad
     kept = V.filter((v) => Math.abs(v.x - m) <= limit)
@@ -115,16 +140,18 @@ export function estimateLeaf(leaf: EstimateLeaf, observations: readonly Observat
     r50 = clamp(roundTenth(r50), cfg.ratioMin, cfg.ratioMax)
     r80 = clamp(roundTenth(r80), r50, cfg.ratioMax)
   }
-  const d50 = clamp(ceilDays(T * r50), 1, cfg.maxDays)
-  const d80 = clamp(ceilDays(T * r80), d50, cfg.maxDays)
+  // Rounded ratios are whole tenths: compute the days in integers (exact, no epsilon).
+  const days = (r: number) => (hiddenInfluenced ? Math.ceil((T * Math.round(r * 10)) / 10) : ceilDays(T * r))
+  const d50 = clamp(days(r50), 1, cfg.maxDays)
+  const d80 = clamp(days(r80), d50, cfg.maxDays)
 
   const pool = [...kept]
-  const lag = shrunkMetric(`lag:${leaf.key}`, pool, Hm, (m) => m.obs.waitGapDays, 0, cfg, ctx, sink)
+  const lag = shrunkMetric(unit("lag"), pool, Hm, (m) => m.obs.waitGapDays, 0, cfg, ctx, sink)
   const lagDays = lag && lag.value >= 1 ? Math.round(lag.value) : 0
 
   let load = templateLoad
   if (templateLoad > 0) {
-    const learned = shrunkMetric(`load:${leaf.key}`, pool, Hm, (m) => m.obs.loadObserved, templateLoad, cfg, ctx, sink)
+    const learned = shrunkMetric(unit("load"), pool, Hm, (m) => m.obs.loadObserved, templateLoad, cfg, ctx, sink)
     if (learned) load = clamp(learned.hidden ? roundTenth(learned.value) : Math.round(learned.value * 100) / 100, 0, 1)
   }
 
@@ -147,7 +174,8 @@ export function estimateLeaf(leaf: EstimateLeaf, observations: readonly Observat
     n,
     alpha,
     hiddenInfluenced,
-    typePriorOnly: matched.length === 0 && prior.n > 0,
+    // Only what was USED decides the flag: unused (below-floor) hidden observations must not change it.
+    typePriorOnly: V.length === 0 && hid === null && prior.n > 0,
     kept: kept.map(toRef),
     dropped: dropped.map(toRef),
     hiddenSourceProjectIds: [...hiddenIds].toSorted(),
@@ -173,7 +201,8 @@ export interface ParallelPeak {
 export function learnParallelCap(userKey: string, peaks: readonly ParallelPeak[], ctx: EstimateContext, sink?: HiddenStateSink): { cap: number; hiddenInfluenced: boolean } {
   const cfg = resolveConfig(ctx.config)
   const r = ctx.referenceDate
-  const usable = peaks.filter((p) => p.closedAt < r && p.finalizedAt < r && p.peak > 0)
+  const rDay = dayNumber(r)
+  const usable = peaks.filter((p) => Number.isFinite(p.peak) && p.peak > 0 && dayNumber(p.closedAt) < rDay && dayNumber(p.finalizedAt) < rDay)
   const visible: Weighted[] = []
   const hidden: HiddenPoint[] = []
   for (const p of usable) {
@@ -181,7 +210,7 @@ export function learnParallelCap(userKey: string, peaks: readonly ParallelPeak[]
     if (ctx.visibleProjectIds.has(p.projectId)) visible.push({ x: p.peak, w })
     else hidden.push({ projectId: p.projectId, orderAt: p.finalizedAt, x: p.peak, w })
   }
-  const hid = aggregate(`parallel:${userKey}`, hidden, cfg, ctx, sink)
+  const hid = aggregate(hiddenUnitKey("parallel", [userKey]), hidden, cfg, ctx, sink)
   const pool = hid ? [...visible, { x: hid.x, w: hid.w }] : visible
   if (pool.length === 0) return { cap: cfg.defaultParallelCap, hiddenInfluenced: false }
   const n = effectiveN(visible.map((v) => v.w)) + (hid ? hid.hPrime - 2 : 0)

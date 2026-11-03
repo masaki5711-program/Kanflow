@@ -23,7 +23,8 @@ const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 /** Observations usable at R: closed and finalized strictly before it, with positive planned and actual days. */
 export function usableAt(observations: readonly Observation[], referenceDate: string): Observation[] {
   const r = dayNumber(referenceDate)
-  return observations.filter((o) => dayNumber(o.closedAt) < r && dayNumber(o.finalizedAt) < r && o.plannedDays > 0 && o.actualDays > 0)
+  // A non-finite or non-positive row (or one whose log ratio overflows) is skipped, never allowed to poison the run.
+  return observations.filter((o) => Number.isFinite(o.plannedDays) && Number.isFinite(o.actualDays) && o.plannedDays > 0 && o.actualDays > 0 && Number.isFinite(Math.log(o.actualDays / o.plannedDays)) && dayNumber(o.closedAt) < r && dayNumber(o.finalizedAt) < r)
 }
 
 /** 0.5^(age / H): the recency factor of an observation. */

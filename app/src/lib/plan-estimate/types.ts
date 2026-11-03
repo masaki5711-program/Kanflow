@@ -112,7 +112,11 @@ export interface EstimateContext {
   config?: Partial<EstimateConfig>
   /** Name similarity for stages 3–4 (default: pg_trgm-compatible `trigramSimilarity`). */
   similarity?: (a: string, b: string) => number
-  /** Hidden aggregates used by the previous run of the same project, by unit key (`ratio:<key>`, `type:<t>`, …). */
+  /**
+   * The last PUBLISHED hidden aggregate of each unit (key: `hiddenUnitKey`), read from a GLOBAL store shared by every
+   * project and every viewer — never from this project's own previous run (a fresh project would then read a changed
+   * value). E5 persists `PlanEstimate.hiddenStates` back into that store.
+   */
   previousHidden?: ReadonlyMap<string, HiddenState>
 }
 
@@ -126,6 +130,10 @@ export interface SourceRef {
   logRatio: number
 }
 
+/**
+ * INTERNAL result of one leaf: exact n / α, hidden project ids. Never render it directly — the evidence screen and
+ * the card use `displayLeaf` (bands, rounded ratios, no hidden ids).
+ */
 export interface LeafEstimate {
   key: string
   templateDays: number
@@ -140,8 +148,8 @@ export interface LeafEstimate {
   hiddenInfluenced: boolean
   /** No observation of the item itself; only the project-type trend moved it. */
   typePriorOnly: boolean
-  kept: SourceRef[]
-  dropped: SourceRef[]
+  readonly kept: readonly SourceRef[]
+  readonly dropped: readonly SourceRef[]
   /**
    * Internal (stored by id in the run for read-time re-resolution, plan 12 §3.2 rule 5): the hidden projects used.
    * NEVER render these; the evidence screen shows only "other projects n (band)".
