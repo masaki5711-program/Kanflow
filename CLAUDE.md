@@ -29,14 +29,17 @@ agent model (edge, PFE, Tier-2, ZEVA-Engine) do not apply to Kanflow.
 
 1. **Never touch production.** `D:\APP\Kanflow` (:3000, MySQL :3306) serves real
    work: no file, `.env`, service, `node_modules` or branch change there, and no
-   connection to the production MySQL. Work only in git worktrees
-   (`D:\APP\Kanflow-<name>`, branch `<type>/L4-…`), created from an existing
-   worktree: `git worktree add D:/APP/Kanflow-<name> -b <branch> <base>`.
+   connection to the production MySQL. **v2 is one line: branch
+   `feat/L4-NOPBI-kanflow-v2`, folder `D:\APP\Kanflow-v2`.** New work branches
+   from it in its own worktree and merges back into it:
+   `git worktree add D:/APP/Kanflow-<name> -b <type>/L4-NOPBI-<topic> feat/L4-NOPBI-kanflow-v2`.
 2. **The K1 lineage (PostgreSQL) does not enter `main`** before the K2 cutover
    (runbook + human approval): production auto-deploy would run PG code against
    the MySQL URL. Every v2 branch descends from K1.
 3. **Synthetic data only in tests.** Test PG: `ops/test-env/compose.yml`
-   (127.0.0.1:25434, `kanflow_dev` / `scrum_tool`). A branch with its own
+   (127.0.0.1:25434, `kanflow_dev`; the v2 line uses `scrum_tool_v2` +
+   `scrum_tool_v2_shadow`). DB tests run only with `KANFLOW_DB_TESTS=1` and the
+   `app/.env` values exported (see `.github/workflows/ci.yml`). A branch with its own
    migrations uses its own database in that container (e.g. `scrum_tool_k3`).
    Anything using production data (K2 rehearsal) needs the user's approval.
 4. **Push only after the user says so.** Remotes: `origin` (internal GitLab,

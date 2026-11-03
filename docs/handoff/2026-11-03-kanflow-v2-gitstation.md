@@ -91,3 +91,10 @@ Kanflow の作業は、このリポジトリを開いたセッションで進め
 - **GitStation への申し入れ**: `D:\APP\Kanflow-gitstation-source\docs\integration\gitstation-contract-proposal.md`（認証、連携の単位で MR の状態の一覧を取る道、イベントの `state`・`merged_at`、`commit.linked` の `data`、リポジトリの読み取りの形、`kanflow_project_ids`、コミットの一覧（問い 6））。**GitStation の計画 02 に取り込んでもらうまで、本物との通しの試験はできない。**
 
 次: E1（§9 の 8 を決めてから）、E4（§9 の 1・2 を決めてから）、K3 の後半（GitStation の I1 と申し入れの合意の後）。
+
+## 8. v2 を 1 本にまとめた（2026-11-03）
+
+- **v2 の本流**: ブランチ `feat/L4-NOPBI-kanflow-v2`、フォルダ `D:\APP\Kanflow-v2`。K1 の上に、E0 → 引き継ぎ → エージェントモデル（`docs/L4-NOPBI-agent-model-adoption`）→ K2 → K3 → E2 → E3 を `--no-ff` で取り込んだ。衝突は `.github/workflows/ci.yml` の DB の試験の一覧だけ（両方を流すようにした）。
+- **確かめたこと**: マイグレーションを新しい試験用 DB `scrum_tool_v2` に全部適用、`prisma migrate diff` でずれなし、typecheck・変えたファイルの lint はエラーなし、全部の試験 9,444 件が合格（73 件は DB を要するため飛ばされた）、`KANFLOW_DB_TESTS=1` で DB の試験 61 件が合格、エージェントモデルの `self-heal --check` は 11 項目すべて合格。K2 の `migrator.integration.test.ts` は合成の MySQL のコンテナ（`ops/test-env/migrator-compose.yml`）が要るため今回は流していない。
+- **片付け**: 取り込み済みの worktree（`Kanflow-v2`（E0）・`Kanflow-v2-k2`・`Kanflow-plan-estimate`・`Kanflow-plan-lesson-rules`・`Kanflow-gitstation-source`・`Kanflow-agent-model`）を消した。ブランチは残してある。残っているのは本番の `D:\APP\Kanflow`、この引き継ぎの `D:\APP\Kanflow-handoff`（このセッションが終わったら消してよい）、`D:\APP\Kanflow-e2e`（MySQL のデータとログ、未コミットのファイルがあるので触れていない）、worktree ではない古い写し `D:\APP\Kanflow-stale-types-20261001-122807`（消すかは利用者が判断する）。
+- **これからの作業**: `D:\APP\Kanflow-v2` で Claude Code を開く（エージェントモデルが動く）。新しい作業は `feat/L4-NOPBI-kanflow-v2` から worktree で切り、終わったらここへ取り込む。push はまだしない。push の前に、規則に合わない古いブランチの名前を変える。
