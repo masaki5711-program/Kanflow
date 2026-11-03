@@ -10,6 +10,7 @@ import type { GitStationBranch, GitStationEvent, GitStationMergeRequest, GitStat
  * The shapes marked "assumed" in docs/integration/gitstation-contract-proposal.md are pinned here.
  */
 export const STATION = "https://gitstation.example"
+export const STATION_HOST = "gitstation.example"
 export const INTEGRATION = "int_7"
 export const TOKEN = "gst_service_account_token"
 export const PROJECT_ID = "p1"
@@ -44,6 +45,10 @@ export function createFakeGitStation(options: { pageSize?: number } = {}) {
   /** Repository path → Kanflow projects it is bound to in GitStation. */
   const projects = new Map<string, string[]>([[REPO, [PROJECT_ID]]])
   const scripted: Scripted[] = []
+  /** Runs once, right after the head cursor was taken (activity during a state re-read). */
+  let afterHead: (() => void) | null = null
+  /** Paths whose dev-status listing fails (403), every time. */
+  const failingState = new Set<string>()
   const requests: string[] = []
   let seq = 0
 
@@ -117,9 +122,16 @@ export function createFakeGitStation(options: { pageSize?: number } = {}) {
       const last = page.length > 0 ? page[page.length - 1].cursor : (after ?? cursorOf(seq))
       return json(200, { events: page, next_cursor: page.length < rest.length ? last : cursorOf(seq), has_more: page.length < rest.length })
     }
-    if (path === `${integrationBase}/events/cursor`) return json(200, { cursor: cursorOf(seq) })
+    if (path === `${integrationBase}/events/cursor`) {
+      const head = cursorOf(seq)
+      const hook = afterHead
+      afterHead = null
+      hook?.()
+      return json(200, { cursor: head })
+    }
     if (path === `${integrationBase}/dev_status`) {
       const project = url.searchParams.get("project") ?? ""
+      if (failingState.has(project.toLowerCase())) return json(403, { error_code: "FG-AUTHZ-0001" })
       const items = [...mergeRequests.values()].filter((m) => m.project.toLowerCase() === project.toLowerCase())
       return list(items, url.searchParams.get("cursor"), Number(url.searchParams.get("limit") ?? 100), "merge_requests")
     }
@@ -152,6 +164,15 @@ export function createFakeGitStation(options: { pageSize?: number } = {}) {
     setBranches: (project: string, list: GitStationBranch[]) => branches.set(project, list),
     setTags: (project: string, list: GitStationTag[]) => tags.set(project, list),
     head: () => cursorOf(seq),
+    /** `fn` runs once, right after the next head cursor is handed out. */
+    onHeadTaken: (fn: () => void) => {
+      afterHead = fn
+    },
+    /** The dev-status listing of `path` answers 403 (until `restoreState`). */
+    failState: (path: string) => failingState.add(path.toLowerCase()),
+    restoreState: (path: string) => failingState.delete(path.toLowerCase()),
+    /** Raw feed page for the next events request (shape tests). */
+    rawEvents: (body: unknown) => scripted.push({ path: `/integrations/${INTEGRATION}/events`, status: 200, body, times: 1 }),
     /** Simulate GitStation pruning events (retention): the events are gone, the state stays. */
     prune: () => events.splice(0, events.length),
   }

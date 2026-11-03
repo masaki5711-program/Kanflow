@@ -1332,6 +1332,9 @@ model GitStationFeed {
   cursor           String?   @db.Text
   /// Bumped by 過去分を再同期: a read that started under an older generation does not write its cursor.
   generation       Int       @default(0)
+  /// Lease of the read in progress (one reader per feed: the poller and 今すぐ同期 never overlap).
+  leaseOwner       String?   @db.VarChar(36)
+  leaseUntil       DateTime?
   readAt           DateTime?
   lastError        String?   @db.VarChar(500)
   lastErrorAt      DateTime?
@@ -1383,6 +1386,11 @@ model GitRepository {
   /// Bumped by 過去分を再同期: a sync writes its cursors only while the generation it
   /// started with is unchanged, so a sync already running cannot undo a resync.
   syncGeneration    Int?         @default(0)
+  /// GitStation: this repository's merge requests must be re-read from GitStation's state
+  /// (not bound for a while, its state re-read failed, …) — set since then; cleared once re-read.
+  stationRereadAt   DateTime?
+  /// GitStation: consecutive failed state re-reads of this repository (shown in the log).
+  stationRereadFailures Int        @default(0)
   lastError         String?      @db.VarChar(500)
   lastErrorAt       DateTime?
   sortOrder         Int          @default(0)

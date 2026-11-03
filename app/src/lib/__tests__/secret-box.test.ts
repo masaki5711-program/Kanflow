@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { open, seal, secretHint } from "../secret-box"
+import { keyedDigest, open, seal, secretHint } from "../secret-box"
 
 /**
  * AES-256-GCM secret sealing for integration tokens. Every test passes an
@@ -145,5 +145,17 @@ describe("secretHint", () => {
     const hint = secretHint("a".repeat(200) + "Z9k2")
     expect(hint).toBe("Z9k2")
     expect(hint.length).toBe(4)
+  })
+})
+
+describe("keyedDigest", () => {
+  const envA = { INTEGRATION_SECRET_KEY: "server-key-a" } as unknown as NodeJS.ProcessEnv
+  const envB = { INTEGRATION_SECRET_KEY: "server-key-b" } as unknown as NodeJS.ProcessEnv
+
+  it("is stable under one server key and differs under another (a dump alone cannot test token guesses)", () => {
+    expect(keyedDigest("token", envA)).toBe(keyedDigest("token", envA))
+    expect(keyedDigest("token", envA)).not.toBe(keyedDigest("token", envB))
+    expect(keyedDigest("token", envA)).not.toBe(keyedDigest("token2", envA))
+    expect(keyedDigest("token", envA)).toMatch(/^[0-9a-f]{64}$/)
   })
 })

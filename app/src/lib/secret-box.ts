@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto"
+import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes } from "node:crypto"
 
 /**
  * Seals small secrets (integration access tokens) at rest with AES-256-GCM.
@@ -22,6 +22,14 @@ export function seal(plain: string, env?: NodeJS.ProcessEnv): string {
   const cipher = createCipheriv("aes-256-gcm", key(env), iv)
   const data = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()])
   return [VERSION, iv.toString("base64"), cipher.getAuthTag().toString("base64"), data.toString("base64")].join(":")
+}
+
+/**
+ * HMAC-SHA256 (hex) of `text` under the same server key: an identifier derived from a secret
+ * (e.g. which token a GitStation feed belongs to) that a database dump alone cannot test guesses against.
+ */
+export function keyedDigest(text: string, env?: NodeJS.ProcessEnv): string {
+  return createHmac("sha256", key(env)).update(`kanflow-keyed-digest:${text}`, "utf8").digest("hex")
 }
 
 /** The plain secret, or null when it cannot be opened (other key, tampered, malformed). */

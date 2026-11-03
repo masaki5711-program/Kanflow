@@ -1,4 +1,4 @@
-import { createGitStationClient, GitStationError, type GitStationClient, type GitStationClientOptions, type GitStationEvent, type GitStationMergeRequest } from "@/lib/git/gitstation-client"
+import { createGitStationClient, GitStationError, MAX_CURSOR_LENGTH, type GitStationClient, type GitStationClientOptions, type GitStationEvent, type GitStationMergeRequest } from "@/lib/git/gitstation-client"
 import { CURSOR_INVALID_MESSAGE } from "@/lib/git/sync-messages"
 import { logger } from "@/lib/logger"
 import type {
@@ -26,16 +26,19 @@ import type {
  * per-repository `readChanges` does the same for one repository (contract tests, a one-off read).
  *
  * Cursor: "gitstation:v1:<GitStation cursor>", stored on git_station_feed.cursor. The empty
- * position ("gitstation:v1:", first read or 過去分を再同期) reads the feed from its beginning —
- * everything GitStation still keeps (retention: 90 days by default), commits included.
- * A 410 (retention / epoch_mismatch / ahead_of_head / visible_set_changed) is recovered as
- * 02 §11.2 prescribes, logged — never a silent jump: take `/events/cursor` first, re-read every
- * repository's merge requests through the dev-status listing (`state=all`), then read the feed
- * from the position taken first. A 400 FG-INT-0008 keeps the position and asks for 過去分を再同期.
+ * position ("gitstation:v1:", first read or 過去分を再同期) and a 410 (retention / epoch_mismatch /
+ * ahead_of_head / visible_set_changed) restart the feed as 02 §11.2 prescribes, logged — never a
+ * silent jump: take `/events/cursor` first, re-read every repository's merge requests through the
+ * dev-status listing (`state=all`, so merge requests older than the retention come back too), then
+ * read the feed from the position taken first. Commits linked before that position are not in the
+ * state and are not re-read (gap; GitStation has no commit listing in the contract yet).
+ * A 400 FG-INT-0008 keeps the position and asks for 過去分を再同期.
  *
  * Only events that name a work item of the repository's OWN Kanflow project are taken
- * (`work_items[].project_id`), whatever repository path they carry: another project registering
- * the same path never sees them.
+ * (`work_items[].project_id`), whatever repository path they carry. Re-read state, branches and tags
+ * carry no work items, so a repository is read only while GitStation binds it to exactly this one
+ * Kanflow project (`locate`, checked on every poll): another project registering the same path
+ * never sees anything of it.
  */
 const log = logger.child({ module: "git-sync" })
 
@@ -53,7 +56,7 @@ const MAX_TAG_PAGES = 3
 
 const CURSOR_PREFIX = "gitstation:v1:"
 /** GitStation cursors are opaque AEAD strings; this only bounds what is stored. */
-const MAX_STATION_CURSOR = 2048
+const MAX_STATION_CURSOR = MAX_CURSOR_LENGTH
 
 export class InvalidStationCursorError extends Error {
   constructor(reason: string) {
@@ -98,65 +101,108 @@ export const gitStationCursorCodec: DevCursorCodec = {
 // ------------------------------------------------------------------ feed read
 
 export interface FeedRead {
+  /** The position the read started from (held when a read cannot be trusted). */
+  start: DevCursor
   /** Events in feed order, each id once. */
   events: GitStationEvent[]
-  /** Re-read merge requests per repository path (lower case) after a 410 recovery. */
+  /** Re-read merge requests per repository path (lower case): applied before the events. */
   snapshots: Map<string, GitStationMergeRequest[]>
+  /** Paths whose state re-read failed (that repository only; the others go on). */
+  rereadFailures: Map<string, unknown>
   /** Where the next read continues; never past anything not returned. */
   cursor: DevCursor
+  /** Failures of the feed itself (every repository of the read shows them). */
   failures: DevListingFailure[]
-  /** Why the state was re-read in this read (the 410 reason), else null. */
+  /** Why the whole feed was restarted in this read ("restart" for an empty position, or the 410 reason), else null. */
   restarted: string | null
 }
 
 const lower = (path: string) => path.toLowerCase()
+const isMergeRequestEvent = (e: GitStationEvent) => e.type.startsWith("merge_request.")
 
-async function rereadState(client: GitStationClient, paths: readonly string[], context: Record<string, unknown>) {
-  const failures: DevListingFailure[] = []
+/**
+ * Re-reads the merge requests of the given paths through the dev-status listing. A path that fails
+ * (or has more than MAX_STATE_PAGES pages: a cut-short state cannot be trusted) is a failure of
+ * that path only.
+ */
+async function rereadPaths(client: GitStationClient, paths: Iterable<string>, context: Record<string, unknown>) {
   const snapshots = new Map<string, GitStationMergeRequest[]>()
-  let head: string
-  try {
-    // 02 §11.2: the position first, so nothing that happens during the re-read is skipped.
-    head = await client.headCursor()
-  } catch (error) {
-    return { head: null, snapshots, failures: [{ kind: "feed" as const, error }] }
-  }
-  for (const path of new Set(paths.map(lower))) {
+  const failures = new Map<string, unknown>()
+  for (const path of new Set([...paths].map(lower))) {
     try {
       const listing = await client.listMergeRequests(path, MAX_STATE_PAGES)
-      if (listing.truncated) log.warn("gitstation state re-read truncated", { ...context, pages: MAX_STATE_PAGES })
+      if (listing.truncated) {
+        log.warn("gitstation state re-read truncated", { ...context, repositoryPath: path, pages: MAX_STATE_PAGES })
+        failures.set(path, new GitStationError("truncated", `more than ${MAX_STATE_PAGES} pages of merge requests`))
+        continue
+      }
       snapshots.set(path, listing.items)
     } catch (error) {
-      failures.push({ kind: "mr", error })
+      failures.set(path, error)
     }
   }
-  return { head, snapshots, failures }
+  return { snapshots, failures }
 }
 
 /**
- * One read of the feed for the given repository paths, up to MAX_FEED_PAGES (from the beginning
- * when the position is empty); a 410 is recovered by re-reading the state. Never throws for GitStation's answers
- * (they are `failures`); the returned cursor only moves past what was returned.
+ * One read of the feed for the given repository paths, up to MAX_FEED_PAGES. Never throws for
+ * GitStation's answers (they are `failures`); the returned cursor only moves past what was returned.
+ *
+ * - Empty position (first read, 過去分を再同期) and 410 (any reason): the feed restarts as 02 §11.2
+ *   prescribes — the head cursor FIRST, then every path's state through the dev-status listing
+ *   (merge requests older than the retention included), then the feed from that head. Commits
+ *   linked before the head are not in the state (gap, documented).
+ * - `reread`: paths whose state must be re-read without restarting the feed (a repository new to
+ *   the feed, one marked after it was not bound / its re-read failed).
+ * - A path whose re-read fails does not stop the others: it is reported in `rereadFailures`.
+ * - When the head cannot be taken, or a 410 cannot be recovered, the read keeps the position it
+ *   STARTED from (with what it read, re-applied idempotently next time).
  */
-export async function readFeed(client: GitStationClient, cursor: DevCursor, paths: readonly string[], context: Record<string, unknown> = {}): Promise<FeedRead> {
-  let after = decodeStationCursor(cursor)
+export async function readFeed(
+  client: GitStationClient,
+  start: DevCursor,
+  paths: readonly string[],
+  context: Record<string, unknown> = {},
+  reread: readonly string[] = [],
+): Promise<FeedRead> {
+  let after = decodeStationCursor(start)
   let restarted: string | null = null
-  let snapshots = new Map<string, GitStationMergeRequest[]>()
   const failures: DevListingFailure[] = []
+  const events: GitStationEvent[] = []
+  let snapshots = new Map<string, GitStationMergeRequest[]>()
+  let rereadFailures = new Map<string, unknown>()
+  const held = (): FeedRead => ({ start, events, snapshots: new Map(), rereadFailures: new Map(), cursor: start, failures, restarted })
 
+  /** Head first, then the state of every path. False when the head cannot be taken. */
   const restart = async (why: string): Promise<boolean> => {
-    const state = await rereadState(client, paths, context)
-    snapshots = state.snapshots
-    if (state.failures.length > 0 || state.head === null) {
-      failures.push(...state.failures)
+    let head: string
+    try {
+      head = await client.headCursor()
+    } catch (error) {
+      failures.push({ kind: "feed", error })
       return false
     }
-    after = state.head
+    const state = await rereadPaths(client, paths, context)
+    snapshots = state.snapshots
+    rereadFailures = state.failures
+    after = head
     restarted = why
+    // What the events read so far said about merge requests is older than the state: drop it.
+    // Linked commits are not in the state, so they stay.
+    const kept = events.filter((e) => !isMergeRequestEvent(e))
+    events.length = 0
+    events.push(...kept)
     return true
   }
 
-  const events: GitStationEvent[] = []
+  if (after === null) {
+    if (!(await restart("restart"))) return held()
+  } else if (reread.length > 0) {
+    const state = await rereadPaths(client, reread, context)
+    snapshots = state.snapshots
+    rereadFailures = state.failures
+  }
+
   const seen = new Set<string>()
   let malformed = 0
   let more = true
@@ -168,26 +214,21 @@ export async function readFeed(client: GitStationClient, cursor: DevCursor, path
       if (error instanceof GitStationError && error.kind === "gone" && restarted === null) {
         log.warn("gitstation feed restarted", { ...context, reason: error.detail.reason })
         if (await restart(String(error.detail.reason ?? "unknown"))) {
-          // The re-read state replaces what the events read so far said about merge requests
-          // (they are older than it); linked commits are not in the state, so they stay.
-          const kept = events.filter((e) => !String(e.type).startsWith("merge_request."))
-          events.length = 0
-          events.push(...kept)
-          page = -1 // read from the new position with a fresh page budget
+          page = -1 // read from the head with a fresh page budget
           continue
         }
-        // The old position is gone: the next read recovers again (it is kept, so it answers 410 again).
-        return { events: events.filter((e) => !String(e.type).startsWith("merge_request.")), snapshots, cursor: encodeStationCursor(after), failures, restarted }
+        return held()
       }
       failures.push({ kind: "feed", error })
       break
     }
+    malformed += result.malformed
+    if (result.hasMore && result.nextCursor === after) {
+      failures.push({ kind: "feed", error: new GitStationError("invalid_response", "GitStation feed has more events but did not move its cursor") })
+      break
+    }
     for (const e of result.events) {
       // At least once (02 §11.2): the same event may come again; keep it once.
-      if (!e || typeof e !== "object" || typeof e.id !== "string") {
-        malformed++
-        continue
-      }
       if (seen.has(e.id)) continue
       seen.add(e.id)
       events.push(e)
@@ -195,9 +236,9 @@ export async function readFeed(client: GitStationClient, cursor: DevCursor, path
     after = result.nextCursor
     more = result.hasMore
   }
-  if (malformed > 0) log.warn("gitstation events without an id skipped", { ...context, count: malformed })
+  if (malformed > 0) log.warn("gitstation events of an unexpected shape skipped", { ...context, count: malformed })
   if (more && failures.length === 0) log.info("git sync backlog", { ...context, kind: "feed" })
-  return { events, snapshots, cursor: encodeStationCursor(after), failures, restarted }
+  return { start, events, snapshots, rereadFailures, cursor: encodeStationCursor(after), failures, restarted }
 }
 
 // ------------------------------------------------------------------ records
@@ -229,18 +270,20 @@ function kanflowState(state: unknown): string | null {
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v)
 const text = (v: unknown): string | null => (typeof v === "string" ? v : null)
 
-/** True when the event names a work item of this Kanflow project (02 §5.7 work_items). */
-export function namesProject(e: GitStationEvent, projectId: string): boolean {
-  return Array.isArray(e.work_items) && e.work_items.some((w) => isObject(w) && w.provider === "kanflow" && w.project_id === projectId)
+/** Kanflow projects the event's work items name (02 §5.7 work_items). */
+function projectsNamed(e: GitStationEvent): Set<string> {
+  return new Set(e.work_items.filter((w) => w.provider === "kanflow").map((w) => w.project_id))
 }
 
-function eventProject(e: GitStationEvent): string | null {
-  return isObject(e.data) ? text(e.data.project) : null
+/** True when the event names a work item of this Kanflow project. */
+export function namesProject(e: GitStationEvent, projectId: string): boolean {
+  return projectsNamed(e).has(projectId)
 }
 
 type MergeRequestState = DevMergeRequest
 
 function fromSnapshot(mr: GitStationMergeRequest, now: Date): MergeRequestState | null {
+  if (!isObject(mr)) return null
   const state = kanflowState(mr.state)
   if (!state || !Number.isInteger(mr.iid) || typeof mr.title !== "string" || typeof mr.url !== "string") return null
   return {
@@ -255,12 +298,16 @@ function fromSnapshot(mr: GitStationMergeRequest, now: Date): MergeRequestState 
   }
 }
 
-/** Folds one merge_request.* event onto what is known of the merge request; null = cannot tell its state. */
+/**
+ * Folds one merge_request.* event onto what is known of the merge request; null = cannot tell its
+ * state. The state comes from the lifecycle events (opened / reopened / merged / closed) only; any
+ * other event keeps the known state, and its `data.state` is used only when nothing is known yet.
+ */
 function applyMergeRequestEvent(prev: MergeRequestState | undefined, e: GitStationEvent): MergeRequestState | null {
   const d = e.data
   const iid = d.iid
   if (typeof iid !== "number" || !Number.isInteger(iid)) return null
-  const state = LIFECYCLE_STATE[e.type] ?? kanflowState(d.state) ?? prev?.state ?? null
+  const state = LIFECYCLE_STATE[e.type] ?? prev?.state ?? kanflowState(d.state)
   if (!state) return null
   const title = text(d.title) ?? prev?.title
   const url = text(d.url) ?? prev?.url
@@ -294,56 +341,110 @@ function commitFromEvent(e: GitStationEvent): DevCommit | null {
   }
 }
 
+/** A Kanflow repository a feed read is routed to. */
+export interface FeedRepository {
+  id: string
+  repoPath: string
+  projectId: string
+}
+
+export interface RoutedRead {
+  changes: Map<string, DevChanges>
+  /** Events routed to each repository (logged when a repository is skipped). */
+  eventCounts: Map<string, number>
+}
+
+const SAMPLES = 5
+
 /**
- * The slice of one read for one Kanflow repository: re-read merge requests first, then the events
- * in feed order (a later event wins: opened → closed in one poll ends closed, closed → reopened →
- * merged ends merged). Event types Kanflow does not use are skipped (02 §5.8: unknown types too).
+ * Routes one read to its Kanflow repositories: each gets its re-read merge requests first, then the
+ * events in feed order whose `data.project` is its path AND whose work items name its own Kanflow
+ * project (a later event wins: opened → closed in one poll ends closed). Event types Kanflow does
+ * not use are skipped (02 §5.8). Logged once per read, with samples: events Kanflow cannot use,
+ * events naming one of these projects that match none of their repositories, re-read items that do
+ * not parse.
  */
-export function changesFor(read: FeedRead, repository: { repoPath: string; projectId: string }, now: Date): DevChanges {
-  const path = lower(repository.repoPath)
-  const mrs = new Map<string, MergeRequestState>()
-  for (const mr of read.snapshots.get(path) ?? []) {
-    const r = fromSnapshot(mr, now)
-    if (r) mrs.set(r.ref, r)
+export function routeFeed(read: FeedRead, repositories: readonly FeedRepository[], now: Date, context: Record<string, unknown> = {}): RoutedRead {
+  const byPath = new Map<string, FeedRepository[]>()
+  for (const r of repositories) byPath.set(lower(r.repoPath), [...(byPath.get(lower(r.repoPath)) ?? []), r])
+  const projects = new Set(repositories.map((r) => r.projectId))
+  const mrs = new Map<string, Map<string, MergeRequestState>>()
+  const commits = new Map<string, Map<string, DevCommit>>()
+  const eventCounts = new Map<string, number>()
+  let unparsedSnapshot = 0
+  for (const r of repositories) {
+    const own = new Map<string, MergeRequestState>()
+    for (const mr of read.snapshots.get(lower(r.repoPath)) ?? []) {
+      const parsed = fromSnapshot(mr, now)
+      if (parsed) own.set(parsed.ref, parsed)
+      else unparsedSnapshot++
+    }
+    mrs.set(r.id, own)
+    commits.set(r.id, new Map())
+    eventCounts.set(r.id, 0)
   }
-  const commits = new Map<string, DevCommit>()
-  let unusable = 0
+
+  const unusable: { id: string; type: string }[] = []
+  const unrouted: { id: string; path: string | null }[] = []
   for (const e of read.events) {
-    if (!e || typeof e.type !== "string" || typeof e.occurred_at !== "string" || !isObject(e.data)) {
-      unusable++
+    const mergeRequest = isMergeRequestEvent(e)
+    if (!mergeRequest && e.type !== "commit.linked") continue
+    const path = text(e.data.project)
+    const named = projectsNamed(e)
+    const targets = path === null ? [] : (byPath.get(lower(path)) ?? []).filter((r) => named.has(r.projectId))
+    if (targets.length === 0) {
+      if ([...named].some((p) => projects.has(p))) unrouted.push({ id: e.id, path })
       continue
     }
-    const project = eventProject(e)
-    if (project === null || lower(project) !== path || !namesProject(e, repository.projectId)) continue
-    if (e.type.startsWith("merge_request.")) {
-      const ref = typeof e.data.iid === "number" ? String(e.data.iid) : ""
-      const next = applyMergeRequestEvent(mrs.get(ref), e)
-      if (next) mrs.set(next.ref, next)
-      else unusable++
-    } else if (e.type === "commit.linked") {
-      const c = commitFromEvent(e)
-      if (c) commits.set(c.sha, c)
-      else unusable++
+    let usable = true
+    for (const r of targets) {
+      eventCounts.set(r.id, (eventCounts.get(r.id) ?? 0) + 1)
+      if (mergeRequest) {
+        const own = mrs.get(r.id)!
+        const next = applyMergeRequestEvent(own.get(String(e.data.iid)), e)
+        if (next) own.set(next.ref, next)
+        else usable = false
+      } else {
+        const c = commitFromEvent(e)
+        if (c) commits.get(r.id)!.set(c.sha, c)
+        else usable = false
+      }
     }
+    if (!usable) unusable.push({ id: e.id, type: e.type })
   }
-  if (unusable > 0) log.warn("gitstation events not usable", { repositoryPath: path, count: unusable })
-  const mergeRequests = [...mrs.values()]
-  return {
-    mergeRequests,
-    freshMergeRequestRefs: new Set(mergeRequests.map((m) => m.ref)),
-    commits: [...commits.values()],
-    cursor: read.cursor,
-    failures: read.failures,
+  if (unusable.length > 0) log.warn("gitstation events not usable", { ...context, count: unusable.length, samples: unusable.slice(0, SAMPLES) })
+  if (unrouted.length > 0) log.warn("gitstation events match no repository", { ...context, count: unrouted.length, samples: unrouted.slice(0, SAMPLES) })
+  if (unparsedSnapshot > 0) log.warn("gitstation state items not usable", { ...context, count: unparsedSnapshot })
+
+  const changes = new Map<string, DevChanges>()
+  for (const r of repositories) {
+    const ownMrs = [...mrs.get(r.id)!.values()]
+    const rereadFailure = read.rereadFailures.get(lower(r.repoPath))
+    changes.set(r.id, {
+      mergeRequests: ownMrs,
+      freshMergeRequestRefs: new Set(ownMrs.map((m) => m.ref)),
+      commits: [...commits.get(r.id)!.values()],
+      cursor: read.cursor,
+      failures: rereadFailure === undefined ? read.failures : [...read.failures, { kind: "mr", error: rereadFailure }],
+    })
   }
+  return { changes, eventCounts }
+}
+
+/** One repository's slice of a read (the per-repository DevSource). */
+export function changesFor(read: FeedRead, repository: FeedRepository, now: Date): DevChanges {
+  return routeFeed(read, [repository], now, { repositoryId: repository.id }).changes.get(repository.id)!
 }
 
 // ------------------------------------------------------------------ errors
 
-export const NOT_BOUND_MESSAGE = "このリポジトリは GitStation でこのプロジェクトに結び付けられていません。GitStation の管理者に結び付けを依頼してください。"
+export const NOT_BOUND_MESSAGE =
+  "このリポジトリは GitStation でこのプロジェクトだけに結び付けられていません。GitStation の管理者に、このプロジェクトへの結び付けを依頼してください（結び付けが戻ると状態を取り直します）。"
 
 /**
- * The repository is visible to the integration's service account but GitStation binds it to another
- * Kanflow project (or none): reading its branches / tags here would show another project's work.
+ * The repository is visible to the integration's service account but GitStation does not bind it to
+ * exactly this Kanflow project (another one, several, or none): its state, branches and tags carry no
+ * work items, so reading them here could show another project's work.
  */
 export class NotBoundError extends Error {
   constructor() {
@@ -383,7 +484,11 @@ export function gitStationErrorMessage(err: unknown): string {
     case "network":
       return "GitStation に接続できませんでした。次回の同期で再試行します。"
     case "invalid_response":
-      return "GitStation から想定外の応答がありました。管理者に連絡してください。"
+      return "GitStation から想定外の応答がありました。次回の同期で再試行します（続く場合は管理者に連絡してください）。"
+    case "truncated":
+      return "GitStation の状態の取り直しが上限（マージリクエスト 2000 件）を超えました。管理者に連絡してください。"
+    case "host_not_allowed":
+      return "GitStation のホストが許可されていません（GITSTATION_ALLOWED_HOSTS）。管理者に連絡してください。"
     default:
       return `GitStation がエラーを返しました（${err.status ?? "?"}）。次回の同期で再試行します。`
   }
@@ -396,7 +501,8 @@ export function describeGitStationError(error: unknown): DevSourceErrorInfo {
   if (error instanceof GitStationError) {
     if (error.kind === "cursor_invalid") return { kind: "cursor", expected: false, status: error.status, message: CURSOR_INVALID_MESSAGE }
     // A shape Kanflow does not understand is a defect on one side or the other, not an answer.
-    return { kind: error.kind, expected: error.kind !== "invalid_response" && error.kind !== "http", status: error.status, message: gitStationErrorMessage(error) }
+    const defect = error.kind === "invalid_response" || error.kind === "http" || error.kind === "truncated" || error.kind === "host_not_allowed"
+    return { kind: error.kind, expected: !defect, status: error.status, message: gitStationErrorMessage(error) }
   }
   return { kind: "http", expected: false, message: gitStationErrorMessage(error) }
 }
@@ -431,13 +537,14 @@ export function createGitStationSource(connection: DevConnection, factory: GitSt
      */
     async locate() {
       const project = await station().getProject(repoPath)
-      if (!project.kanflow_project_ids.includes(projectId)) throw new NotBoundError()
+      // Exactly this project (02 §2 forbids binding one repository to several Kanflow projects).
+      if (project.kanflow_project_ids.length !== 1 || project.kanflow_project_ids[0] !== projectId) throw new NotBoundError()
       return null
     },
 
     async readChanges(cursor: DevCursor, now: Date): Promise<DevChanges> {
       const read = await readFeed(station(), cursor, [repoPath], context)
-      return changesFor(read, { repoPath, projectId }, now)
+      return changesFor(read, { id: repositoryId, repoPath, projectId }, now)
     },
 
     async listBranches(): Promise<DevBranchListing> {

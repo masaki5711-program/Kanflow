@@ -258,6 +258,16 @@ describe("updateGitSettings", () => {
 })
 
 describe("GitStation settings and connection test (K3)", () => {
+  beforeEach(() => {
+    vi.stubEnv("GITSTATION_ALLOWED_HOSTS", "gitstation.example")
+  })
+
+  it("refuses switching to GitStation while the server allows no GitStation host", async () => {
+    vi.stubEnv("GITSTATION_ALLOWED_HOSTS", "")
+    await expect(svc.updateGitSettings(PROJECT_ID, { provider: "gitstation" }, ACTOR)).rejects.toMatchObject({ status: 400, code: "GITSTATION_HOST_NOT_ALLOWED" })
+    expect(gitIntegrationUpsert).not.toHaveBeenCalled()
+  })
+
   it("stores the GitStation integration id with the provider and logs the change", async () => {
     gitIntegrationFindUnique.mockResolvedValueOnce({ enabled: true, autoCompleteOnMerge: false, provider: "gitlab", stationIntegrationId: null }).mockResolvedValueOnce(null)
     gitRepositoryCount.mockResolvedValueOnce(0)
@@ -272,7 +282,7 @@ describe("GitStation settings and connection test (K3)", () => {
   it("accepts only a safe integration id (opaque, but sent in a URL path)", () => {
     expect(svc.gitSettingsSchema.safeParse({ stationIntegrationId: "int_7" }).success).toBe(true)
     expect(svc.gitSettingsSchema.safeParse({ stationIntegrationId: null }).success).toBe(true)
-    for (const bad of ["../x", "a/b", "x".repeat(65), "", "int 7"]) expect(svc.gitSettingsSchema.safeParse({ stationIntegrationId: bad }).success).toBe(false)
+    for (const bad of ["../x", "a/b", "x".repeat(65), "", "int 7", ".", "..", ".hidden", "-x", ":x"]) expect(svc.gitSettingsSchema.safeParse({ stationIntegrationId: bad }).success).toBe(false)
   })
 
   it("returns the provider and the integration id in the settings (never the token)", async () => {
@@ -283,7 +293,6 @@ describe("GitStation settings and connection test (K3)", () => {
   })
 
   it("tests a GitStation repository through its source (the service account must see it), never through the GitLab client", async () => {
-    vi.stubEnv("GIT_ALLOWED_HOSTS", `${HOST},gitstation.example`)
     try {
       const { createFakeGitStation, INTEGRATION, TOKEN } = await import("./fake-gitstation")
       const { createGitStationClient } = await import("@/lib/git/gitstation-client")
@@ -301,10 +310,27 @@ describe("GitStation settings and connection test (K3)", () => {
     }
   })
 
-  it("a GitStation host outside GIT_ALLOWED_HOSTS is refused before any request (SSRF)", async () => {
+  it("each source has its own host list: a GitStation project refuses a GitLab host, and nothing outside GITSTATION_ALLOWED_HOSTS is asked (SSRF)", async () => {
     gitIntegrationFindUnique.mockResolvedValue({ provider: "gitstation", stationIntegrationId: "int_7", tokenCipher: null })
-    const result = await svc.testConnection(PROJECT_ID, "https://gitstation.example/app/portal", "token-1234")
-    expect(result.ok).toBe(false)
+    const fetchImpl = vi.fn()
+    expect((await svc.testConnection(PROJECT_ID, REPO_URL, "token-1234", fetchImpl as never)).ok).toBe(false)
+    vi.stubEnv("GITSTATION_ALLOWED_HOSTS", "")
+    expect((await svc.testConnection(PROJECT_ID, "https://gitstation.example/app/portal", "token-1234", fetchImpl as never)).ok).toBe(false)
+    expect(fetchImpl).not.toHaveBeenCalled()
+    expect(createGitLabClientMock).not.toHaveBeenCalled()
+  })
+
+  it("a GitLab project refuses a GitStation host (a GitLab token never goes there)", async () => {
+    vi.stubEnv("GIT_ALLOWED_HOSTS", HOST)
+    expect((await svc.testConnection(PROJECT_ID, "https://gitstation.example/app/portal", "token-1234")).ok).toBe(false)
+    expect(createGitLabClientMock).not.toHaveBeenCalled()
+  })
+
+  it("refuses AI knowledge for a GitStation repository (no file API yet)", async () => {
+    gitRepositoryFindFirst.mockResolvedValueOnce({ id: "repo-1", aiKnowledge: false, aiPathFilter: null })
+    gitIntegrationFindUnique.mockResolvedValueOnce({ provider: "gitstation" })
+    await expect(svc.updateRepository(PROJECT_ID, "repo-1", { aiKnowledge: true }, ACTOR)).rejects.toMatchObject({ status: 400, code: "GIT_KNOWLEDGE_UNSUPPORTED" })
+    expect(gitRepositoryUpdate).not.toHaveBeenCalled()
   })
 })
 

@@ -117,6 +117,9 @@ export interface ApiErrorsTranslations {
   apiErrCollaboraUnreachable: string
   apiErrCollaboraFailed: string
   apiErrGitProviderUnsupported: string
+  apiErrGitstationHostNotAllowed: string
+  apiErrGitResyncUnavailable: string
+  apiErrGitKnowledgeUnsupported: string
   apiErrGitSourceLocked: string
   apiErrMrUrlInvalid: string
   apiErrMrRepositoryNotRegistered: string
@@ -241,6 +244,9 @@ export const API_ERROR_MESSAGE_KEYS: Readonly<Record<ApiErrorCode, ApiErrorMessa
   collabora_unreachable: "apiErrCollaboraUnreachable",
   collabora_error: "apiErrCollaboraFailed",
   GIT_PROVIDER_UNSUPPORTED: "apiErrGitProviderUnsupported",
+  GITSTATION_HOST_NOT_ALLOWED: "apiErrGitstationHostNotAllowed",
+  GIT_RESYNC_UNAVAILABLE: "apiErrGitResyncUnavailable",
+  GIT_KNOWLEDGE_UNSUPPORTED: "apiErrGitKnowledgeUnsupported",
   GIT_SOURCE_LOCKED: "apiErrGitSourceLocked",
   MR_URL_INVALID: "apiErrMrUrlInvalid",
   MR_REPOSITORY_NOT_REGISTERED: "apiErrMrRepositoryNotRegistered",
@@ -371,7 +377,10 @@ export const ja: ApiErrorsTranslations = {
   apiErrCollaboraNotConfigured: "オンライン編集が設定されていません。管理者に連絡してください",
   apiErrCollaboraUnreachable: "Collabora Online サーバーに接続できません。ファイルをダウンロードしてローカルのアプリケーションで編集してください。",
   apiErrCollaboraFailed: "Collaboraエディタの起動に失敗しました",
-  apiErrGitProviderUnsupported: "この取り込み元には対応していません（現在は GitLab のみ）",
+  apiErrGitProviderUnsupported: "この取り込み元には対応していません（対応: GitLab・GitStation）",
+  apiErrGitstationHostNotAllowed: "GitStation のホストが許可されていません（管理者に GITSTATION_ALLOWED_HOSTS の設定を依頼してください）",
+  apiErrGitResyncUnavailable: "連携 ID かアクセストークンが未設定のため、再同期できません",
+  apiErrGitKnowledgeUnsupported: "この取り込み元のリポジトリは、まだ AI の参照資料に使えません",
   apiErrGitSourceLocked: "取り込み元はプロジェクトごとに 1 つです。切り替えるには先にリポジトリを外してください",
   apiErrMrUrlInvalid: "マージリクエストの URL ではありません（許可された Git サーバーの …/-/merge_requests/<番号> の形）",
   apiErrMrRepositoryNotRegistered: "このマージリクエストのリポジトリは、このプロジェクトの Git 連携に登録されていません",
@@ -496,7 +505,10 @@ export const en: ApiErrorsTranslations = {
   apiErrCollaboraNotConfigured: "Online editing is not configured. Please contact an administrator",
   apiErrCollaboraUnreachable: "Cannot connect to the Collabora Online server. Download the file and edit it locally.",
   apiErrCollaboraFailed: "Failed to start the Collabora editor",
-  apiErrGitProviderUnsupported: "This source is not supported (currently GitLab only)",
+  apiErrGitProviderUnsupported: "This source is not supported (supported: GitLab, GitStation)",
+  apiErrGitstationHostNotAllowed: "No GitStation host is allowed (ask the administrator to set GITSTATION_ALLOWED_HOSTS)",
+  apiErrGitResyncUnavailable: "Cannot resync: the integration ID or the access token is not set",
+  apiErrGitKnowledgeUnsupported: "Repositories of this source cannot be used as AI reference material yet",
   apiErrGitSourceLocked: "A project reads from one source only. Remove its repositories before switching the source",
   apiErrMrUrlInvalid: "Not a merge request URL (…/-/merge_requests/<number> on an allowed Git server)",
   apiErrMrRepositoryNotRegistered: "The merge request's repository is not registered in this project's Git integration",
@@ -621,7 +633,10 @@ export const id: ApiErrorsTranslations = {
   apiErrCollaboraNotConfigured: "Pengeditan online belum dikonfigurasi. Silakan hubungi administrator",
   apiErrCollaboraUnreachable: "Tidak dapat terhubung ke server Collabora Online. Unduh file dan edit secara lokal.",
   apiErrCollaboraFailed: "Gagal membuka editor Collabora",
-  apiErrGitProviderUnsupported: "Sumber ini tidak didukung (saat ini hanya GitLab)",
+  apiErrGitProviderUnsupported: "Sumber ini tidak didukung (didukung: GitLab, GitStation)",
+  apiErrGitstationHostNotAllowed: "Tidak ada host GitStation yang diizinkan (minta administrator mengatur GITSTATION_ALLOWED_HOSTS)",
+  apiErrGitResyncUnavailable: "Tidak dapat sinkron ulang: ID integrasi atau token akses belum diatur",
+  apiErrGitKnowledgeUnsupported: "Repositori dari sumber ini belum dapat dipakai sebagai bahan referensi AI",
   apiErrGitSourceLocked: "Satu proyek hanya membaca dari satu sumber. Hapus repositorinya terlebih dahulu sebelum mengganti sumber",
   apiErrMrUrlInvalid: "Bukan URL merge request (…/-/merge_requests/<nomor> pada server Git yang diizinkan)",
   apiErrMrRepositoryNotRegistered: "Repositori merge request ini tidak terdaftar di integrasi Git proyek ini",

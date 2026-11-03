@@ -40,6 +40,8 @@ vi.mock("@/lib/prisma", () => ({
       updateMany: (...a: unknown[]) => gitLinkUpdateMany(...a),
     },
     sprintBacklogItem: { findMany: (...a: unknown[]) => sprintBacklogItemFindMany(...a) },
+    // syncProject asks the provider first (GitStation reads each feed once); GitLab here.
+    gitIntegration: { findUnique: async () => null },
     gitRelease: {
       findMany: (...a: unknown[]) => gitReleaseFindMany(...a),
       upsert: (...a: unknown[]) => gitReleaseUpsert(...a),

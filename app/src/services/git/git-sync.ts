@@ -125,8 +125,29 @@ export async function applyRead(
   source: DevSource,
   read: ReadResult,
   now: Date,
-  cursor: { generation: number | null; columns: Record<string, unknown> } | null,
+  cursor: { generation: number | null; columns: Record<string, unknown> },
 ): Promise<SyncResult> {
+  const written = await writeRead(repo, integration, provider, source, read, now)
+  const save = saveProgress(repo.id, cursor.generation, cursor.columns, written.status)
+  if (read.failures.length > 0) await save.catch((err) => log.error("git sync progress not saved", { repositoryId: repo.id, error: err instanceof Error ? err.message : String(err) }))
+  else await save
+  return written.finish()
+}
+
+/** What `writeRead` wrote: the repository status to store, and the follow-ups to run after it is stored. */
+export interface WrittenRead {
+  /** Columns of git_repository (syncedAt / lastError) the caller stores — after its cursor. */
+  status: Record<string, unknown>
+  /** Notifications and auto-complete, once the status (and cursor) are stored; returns the result. */
+  finish(): Promise<SyncResult>
+}
+
+/**
+ * Writes what one read found for one repository — links, pipelines, scope warnings, gone branches,
+ * releases — and returns the status to store plus the follow-ups. The caller stores its cursor and
+ * the status, then calls `finish` (GitLab: per repository; GitStation: after the feed cursor).
+ */
+export async function writeRead(repo: SyncRepositoryRow, integration: SyncIntegration, provider: GitProvider, source: DevSource, read: ReadResult, now: Date): Promise<WrittenRead> {
   const repositoryId = repo.id
   for (const f of read.failures) logFailure(source, repositoryId, f)
 
@@ -156,16 +177,16 @@ export async function applyRead(
   if (changed + gone + releases > 0) publishAfterCommit({ type: "git", projectId: repo.projectId, action: "sync" })
   // Links are written before the cursor moves: a cursor never passes anything unwritten.
   const status = read.failures.length > 0 ? { lastError: failureMessage(read.failures, source).slice(0, 500), lastErrorAt: now } : { syncedAt: now, lastError: null, lastErrorAt: null }
-  const save = cursor
-    ? saveProgress(repositoryId, cursor.generation, cursor.columns, status)
-    : prisma.gitRepository.update({ where: { id: repositoryId }, data: status }).then(() => undefined)
-  if (read.failures.length > 0) await save.catch((err) => log.error("git sync progress not saved", { repositoryId, error: err instanceof Error ? err.message : String(err) }))
-  else await save
-  await notifyFailedPipelines(repo.projectId, newlyFailed)
-  const completedTasks = integration.autoCompleteOnMerge ? await autoComplete(repo.projectId, newlyMerged, gitActor(provider)) : 0
-  const first = read.failures[0]
-  if (first) return { repositoryId, ok: false, links: written, error: source.describeError(first.error).kind }
-  return { repositoryId, ok: true, links: written, completedTasks }
+  return {
+    status,
+    async finish() {
+      await notifyFailedPipelines(repo.projectId, newlyFailed)
+      const completedTasks = integration.autoCompleteOnMerge ? await autoComplete(repo.projectId, newlyMerged, gitActor(provider)) : 0
+      const first = read.failures[0]
+      if (first) return { repositoryId, ok: false, links: written, error: source.describeError(first.error).kind }
+      return { repositoryId, ok: true, links: written, completedTasks }
+    },
+  }
 }
 
 /**
@@ -227,10 +248,10 @@ export async function withBranches(source: DevSource, changes: DevChanges, now: 
   return { mrs: changes.mergeRequests, freshMrRefs: changes.freshMergeRequestRefs, commits: changes.commits, branches, cursor: changes.cursor, failures }
 }
 
-export async function fail(repositoryId: string, kind: string, message: string): Promise<SyncResult> {
+export async function fail(repositoryId: string, kind: string, message: string, now = new Date()): Promise<SyncResult> {
   // The failure itself is the result; a lost status write is logged, not rethrown.
   await prisma.gitRepository
-    .update({ where: { id: repositoryId }, data: { lastError: message.slice(0, 500), lastErrorAt: new Date() } })
+    .update({ where: { id: repositoryId }, data: { lastError: message.slice(0, 500), lastErrorAt: now } })
     .catch((err: unknown) => log.error("git sync status not saved", { repositoryId, error: err instanceof Error ? err.message : String(err) }))
   return { repositoryId, ok: false, links: 0, error: kind }
 }
@@ -461,6 +482,12 @@ async function autoComplete(projectId: string, pbiIds: ReadonlySet<string>, acto
 
 /** Sync every repository of a project (manual "今すぐ同期"), one after another. */
 export async function syncProject(projectId: string, clients: DevClients = {}): Promise<SyncResult[]> {
+  // GitStation: each feed is read once for all its repositories, not once per repository.
+  const integration = await prisma.gitIntegration.findUnique({ where: { projectId }, select: { provider: true } })
+  if (integration?.provider === "gitstation") {
+    const { syncFeedsOfProject } = await import("./gitstation-feed-sync")
+    return syncFeedsOfProject(projectId, clients)
+  }
   const repos = await prisma.gitRepository.findMany({ where: { projectId }, select: { id: true }, orderBy: { sortOrder: "asc" } })
   const results: SyncResult[] = []
   for (const r of repos) results.push(await syncRepository(r.id, clients))

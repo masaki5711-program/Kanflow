@@ -3,9 +3,9 @@ import type { Prisma } from "@/generated/prisma/client"
 import { prisma } from "@/lib/prisma"
 import { open, seal, secretHint } from "@/lib/secret-box"
 import { accessLevelOf, createGitLabClient, GitLabError, REPORTER_ACCESS_LEVEL } from "@/lib/git/gitlab-client"
-import { parseRepoUrl } from "@/lib/git/repo-url"
+import { allowedHosts, parseRepoUrl, stationAllowedHosts } from "@/lib/git/repo-url"
 import { pbiKey, suggestBranchName } from "@/lib/git/pbi-keys"
-import { NotFoundError, ValidationError } from "@/services/_shared/errors"
+import { ConflictError, NotFoundError, ValidationError } from "@/services/_shared/errors"
 import { logActivity, type ActivityChanges } from "@/services/_shared/activity"
 import type { Actor } from "@/services/_shared/actor"
 import { devSourceFor, type DevClients } from "./dev-source"
@@ -13,6 +13,7 @@ import { assertOneSource, DEFAULT_GIT_PROVIDER, parseGitProvider, type GitProvid
 import { RESYNC_DAYS } from "./git-sync-cursors"
 import { FORBIDDEN_MESSAGE, syncErrorMessage } from "./gitlab-source"
 import { restartFeedOfRepository } from "./gitstation-feed-sync"
+import { KNOWLEDGE_UNSUPPORTED_MESSAGE } from "./repo-index"
 import { aiPathFilterField, knowledgePatch, toKnowledgeDto, type RepositoryKnowledgeDto } from "./repo-knowledge.service"
 
 /**
@@ -29,7 +30,8 @@ const tokenField = z.string().trim().min(8).max(MAX_TOKEN_LENGTH)
 const stationIntegrationIdField = z
   .string()
   .trim()
-  .regex(/^[A-Za-z0-9_.:-]{1,64}$/, "連携 ID は英数字と _ . : - の 64 文字までです。")
+  // First character alphanumeric: never "." / ".." (a path segment once encoded into the URL).
+  .regex(/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$/, "連携 ID は英数字で始まり、英数字と _ . : - の 64 文字までです。")
 
 export const gitSettingsSchema = z
   .object({
@@ -146,6 +148,10 @@ export async function getGitSettings(projectId: string): Promise<GitSettingsDto>
 export async function updateGitSettings(projectId: string, input: GitSettingsInput, actor: Actor): Promise<GitSettingsDto> {
   await assertProject(projectId)
   const provider = input.provider === undefined ? undefined : parseGitProvider(input.provider)
+  // A GitStation token may only go to a GitStation host: with none allowed, the switch is refused.
+  if (provider === "gitstation" && stationAllowedHosts().length === 0) {
+    throw new ValidationError("GitStation のホストが許可されていません（サーバーの GITSTATION_ALLOWED_HOSTS）。管理者に設定を依頼してください。", undefined, "GITSTATION_HOST_NOT_ALLOWED")
+  }
   const tokenPatch =
     input.token === undefined ? {} : input.token === null ? { tokenCipher: null, tokenHint: null } : { tokenCipher: seal(input.token), tokenHint: secretHint(input.token) }
   const patch = {
@@ -204,6 +210,11 @@ export interface ConnectionResult {
   error?: string
 }
 
+/** Hosts a provider's repositories may live on (GIT_ALLOWED_HOSTS / GITSTATION_ALLOWED_HOSTS). */
+function hostsFor(provider: GitProvider): string[] {
+  return provider === "gitstation" ? stationAllowedHosts() : allowedHosts()
+}
+
 /** Token to use for a repository URL test: the given one, else the integration token. */
 async function tokenFor(projectId: string, given?: string): Promise<string | null> {
   if (given) return given
@@ -212,12 +223,13 @@ async function tokenFor(projectId: string, given?: string): Promise<string | nul
 }
 
 export async function testConnection(projectId: string, url: string, token?: string, fetchImpl?: typeof fetch, clients: DevClients = {}): Promise<ConnectionResult> {
-  const location = parseRepoUrl(url)
+  const integration = await prisma.gitIntegration.findUnique({ where: { projectId }, select: { provider: true, stationIntegrationId: true } })
+  const provider = parseGitProvider(integration?.provider ?? DEFAULT_GIT_PROVIDER)
+  // Each source has its own host list: a GitStation token never goes to a GitLab host, nor the reverse.
+  const location = parseRepoUrl(url, hostsFor(provider))
   if (!location) return { ok: false, error: "リポジトリの URL を認識できません（許可されたホストの https URL を入れてください）。" }
   const usable = await tokenFor(projectId, token)
   if (!usable) return { ok: false, error: "アクセストークンが設定されていません。" }
-  const integration = await prisma.gitIntegration.findUnique({ where: { projectId }, select: { provider: true, stationIntegrationId: true } })
-  const provider = parseGitProvider(integration?.provider ?? DEFAULT_GIT_PROVIDER)
   if (provider !== "gitlab") return testThroughSource(projectId, provider, location, usable, integration?.stationIntegrationId ?? null, clients)
   try {
     const client = createGitLabClient({ apiBase: location.apiBase, token: usable, fetchImpl })
@@ -266,11 +278,11 @@ function roleName(level: number): string {
 
 export async function addRepository(projectId: string, input: z.infer<typeof addRepositorySchema>, actor: Actor, fetchImpl?: typeof fetch, clients: DevClients = {}): Promise<GitRepositoryDto> {
   await assertProject(projectId)
-  const location = parseRepoUrl(input.url)
+  // Only a provider Kanflow can read (400 otherwise); the connection test below goes through the project's source.
+  const provider = await projectProvider(prisma, projectId)
+  const location = parseRepoUrl(input.url, hostsFor(provider))
   if (!location) throw new ValidationError("リポジトリの URL を認識できません（許可されたホストの https URL を入れてください）。")
   await assertRoomFor(prisma, projectId, location)
-  // Only a provider Kanflow can read (400 otherwise); the connection test below goes through the project's source.
-  await projectProvider(prisma, projectId)
   // Refuse to save a repository the token cannot see: the sync would only fail later.
   const test = await testConnection(projectId, input.url, input.token, fetchImpl, clients)
   if (!test.ok || !test.repository) throw new ValidationError(test.error ?? "接続テストに失敗しました")
@@ -278,7 +290,8 @@ export async function addRepository(projectId: string, input: z.infer<typeof add
   // Checked again under the project lock (the connection test ran outside it): provider, limit, duplicate.
   const row = await prisma.$transaction(async (tx) => {
     await lockProject(tx, projectId)
-    await projectProvider(tx, projectId)
+    // The provider must not have changed since the URL was checked against its hosts.
+    if ((await projectProvider(tx, projectId)) !== provider) throw new ConflictError("取り込み元が変更されました。もう一度追加してください。", undefined, "GIT_SOURCE_LOCKED")
     const count = await assertRoomFor(tx, projectId, location)
     return tx.gitRepository.create({
       data: {
@@ -313,6 +326,11 @@ export async function updateRepository(
 ): Promise<GitRepositoryDto & { reindex: boolean }> {
   const repo = await prisma.gitRepository.findFirst({ where: { id: repositoryId, projectId } })
   if (!repo) throw new NotFoundError("Repository not found")
+  if (input.aiKnowledge === true) {
+    // Only a source that can read files can be AI knowledge (GitStation: not yet).
+    const integration = await prisma.gitIntegration.findUnique({ where: { projectId }, select: { provider: true } })
+    if (!devSourceFor(integration?.provider ?? DEFAULT_GIT_PROVIDER).readsRepositoryFiles) throw new ValidationError(KNOWLEDGE_UNSUPPORTED_MESSAGE, undefined, "GIT_KNOWLEDGE_UNSUPPORTED")
+  }
   const knowledge = knowledgePatch(repo, input)
   const update = prisma.gitRepository.update({
     where: { id: repositoryId },
@@ -358,12 +376,20 @@ export async function resyncRepository(projectId: string, repositoryId: string, 
   const integration = await prisma.gitIntegration.findUnique({ where: { projectId }, select: { provider: true } })
   const provider = parseGitProvider(integration?.provider ?? DEFAULT_GIT_PROVIDER)
   const { cursors } = devSourceFor(provider)
-  // GitStation: the cursor belongs to the integration's feed (shared by its repositories), which restarts.
-  if (provider === "gitstation") await restartFeedOfRepository(repositoryId)
+  // GitStation: the cursor belongs to the integration's feed (shared by its repositories), which
+  // restarts — in one transaction with the repository's generation bump.
+  if (provider === "gitstation") {
+    await prisma.$transaction(async (tx) => {
+      if (!(await restartFeedOfRepository(repositoryId, tx))) {
+        throw new ValidationError("GitStation の連携 ID かアクセストークンが未設定、または読み取れないため、再同期できません。チーム設定を確かめてください。", undefined, "GIT_RESYNC_UNAVAILABLE")
+      }
+      await tx.gitRepository.update({ where: { id: repositoryId }, data: { stationRereadAt: now, syncGeneration: repo.syncGeneration === null ? 1 : { increment: 1 } } })
+    })
+  } else
   await prisma.gitRepository.update({
     where: { id: repositoryId },
     data: {
-      ...(provider === "gitstation" ? {} : cursors.restart(repo, now)),
+      ...cursors.restart(repo, now),
       // A sync running right now started with the old generation and will not write its cursors back.
       syncGeneration: repo.syncGeneration === null ? 1 : { increment: 1 },
     },

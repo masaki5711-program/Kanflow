@@ -134,8 +134,14 @@ export const API_ERROR_CODES = [
   "collabora_unreachable",
   "collabora_error",
   // Git integration
-  /** The settings name a source (provider) Kanflow cannot read (only "gitlab" today). */
+  /** The settings name a source (provider) Kanflow cannot read ("gitlab" / "gitstation"). */
   "GIT_PROVIDER_UNSUPPORTED",
+  /** Provider "gitstation" while the server allows no GitStation host (GITSTATION_ALLOWED_HOSTS). */
+  "GITSTATION_HOST_NOT_ALLOWED",
+  /** 過去分を再同期 of a GitStation repository without an integration id or a readable token. */
+  "GIT_RESYNC_UNAVAILABLE",
+  /** "AI の参照資料" for a repository whose source cannot read files (GitStation, for now). */
+  "GIT_KNOWLEDGE_UNSUPPORTED",
   /** One ingestion source per project: the provider cannot change while repositories exist. */
   "GIT_SOURCE_LOCKED",
   /** dev:write MR link: not a merge request URL (https://<allowed host>/<group>/<repo>/-/merge_requests/<iid>). */

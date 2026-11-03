@@ -45,7 +45,8 @@ export async function runGitSyncTick(sync: typeof syncRepository = syncRepositor
     }
     const station = await syncFeeds()
     for (const result of station) {
-      if (!result.ok && result.error !== "disabled") log.warn("repository sync failed", { repositoryId: result.repositoryId, error: result.error })
+      // "busy": a 今すぐ同期 holds that feed right now (one reader per feed); it is read again next tick.
+      if (!result.ok && result.error !== "disabled" && result.error !== "busy") log.warn("repository sync failed", { repositoryId: result.repositoryId, error: result.error })
     }
     return repos.length + station.length
   } catch (err) {

@@ -1,3 +1,6 @@
+import { logger } from "@/lib/logger"
+import { stationAllowedHosts } from "@/lib/git/repo-url"
+
 /**
  * Minimal GitStation REST client (`/api/v1`, plan 02 §5.1 / §5.2 / §5.7 / §11.2) for the
  * read-only integration feed. Authenticated with the integration's service-account token
@@ -19,6 +22,8 @@ export type GitStationErrorKind =
   | "unavailable" // 503 (e.g. FG-DB-0012 while the audit seal cannot be compared)
   | "network"
   | "invalid_response"
+  | "truncated" // a bounded listing had more than Kanflow reads (the state re-read cannot be trusted)
+  | "host_not_allowed" // apiBase is not an https host in GITSTATION_ALLOWED_HOSTS
   | "http"
 
 export const GONE_REASONS = ["retention", "epoch_mismatch", "ahead_of_head", "visible_set_changed"] as const
@@ -105,6 +110,8 @@ export interface GitStationClientOptions {
   timeoutMs?: number
   /** Waits before a retry of 429 / 503 (tests pass a fake). */
   sleep?: (ms: number) => Promise<void>
+  /** Hosts the token may be sent to (default: GITSTATION_ALLOWED_HOSTS). */
+  allowedHosts?: readonly string[]
 }
 
 const TIMEOUT_MS = 15_000
@@ -116,6 +123,12 @@ const DEFAULT_RETRY_WAIT_SEC = 1
 /** Events per feed request (plan 02 §11.2: default 100, max 500). */
 export const FEED_PAGE_LIMIT = 500
 const LIST_LIMIT = 100
+/** GitStation answers at most 2 MiB (02 §11.2); anything far larger is refused unread. */
+export const MAX_RESPONSE_BYTES = 4 * 1024 * 1024
+/** GitStation cursors are opaque; this only bounds what Kanflow stores and sends back. */
+export const MAX_CURSOR_LENGTH = 2048
+
+const log = logger.child({ module: "gitstation-client" })
 
 const realSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
@@ -139,9 +152,51 @@ async function errorBody(res: Response): Promise<{ error_code?: string; reason?:
 
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v)
 const str = (v: unknown): v is string => typeof v === "string"
+const validCursor = (v: unknown): v is string => str(v) && v.length > 0 && v.length <= MAX_CURSOR_LENGTH
 
-export function createGitStationClient({ apiBase, token, integrationId, fetchImpl = fetch, timeoutMs = TIMEOUT_MS, sleep = realSleep }: GitStationClientOptions) {
+/** The body as text, refused (without reading the rest) beyond MAX_RESPONSE_BYTES. */
+async function boundedText(res: Response): Promise<string> {
+  if (Number(res.headers.get("content-length") ?? 0) > MAX_RESPONSE_BYTES) {
+    await res.body?.cancel().catch(() => undefined)
+    throw new GitStationError("invalid_response", "GitStation response is too large")
+  }
+  const reader = res.body?.getReader()
+  if (!reader) return ""
+  const parts: Uint8Array[] = []
+  let total = 0
+  for (let r = await reader.read(); !r.done; r = await reader.read()) {
+    total += r.value.byteLength
+    if (total > MAX_RESPONSE_BYTES) {
+      await reader.cancel().catch(() => undefined)
+      throw new GitStationError("invalid_response", "GitStation response is too large")
+    }
+    parts.push(r.value)
+  }
+  return Buffer.concat(parts).toString("utf8")
+}
+
+/** apiBase must be https://<host> with the host in the allow list: the token goes nowhere else. */
+function assertAllowedBase(apiBase: string, hosts: readonly string[]): void {
+  let url: URL
+  try {
+    url = new URL(apiBase)
+  } catch {
+    throw new GitStationError("host_not_allowed", "GitStation base URL is not a URL")
+  }
+  const plain = url.protocol === "https:" && !url.username && !url.password && !url.port && (url.pathname === "/" || url.pathname === "") && !url.search && !url.hash
+  if (!plain || !hosts.includes(url.hostname.toLowerCase())) throw new GitStationError("host_not_allowed", "GitStation host is not in GITSTATION_ALLOWED_HOSTS")
+}
+
+/** One feed event of the expected shape (02 §5.7), else null. */
+function parseEvent(v: unknown): GitStationEvent | null {
+  if (!isObject(v) || !str(v.id) || !str(v.type) || !str(v.occurred_at) || !isObject(v.data)) return null
+  const workItems = Array.isArray(v.work_items) ? v.work_items.filter((w): w is GitStationEvent["work_items"][number] => isObject(w) && str(w.provider) && str(w.project_id)) : []
+  return { cursor: str(v.cursor) ? v.cursor : "", id: v.id, type: v.type, occurred_at: v.occurred_at, work_items: workItems, data: v.data }
+}
+
+export function createGitStationClient({ apiBase, token, integrationId, fetchImpl = fetch, timeoutMs = TIMEOUT_MS, sleep = realSleep, allowedHosts = stationAllowedHosts() }: GitStationClientOptions) {
   type Query = Record<string, string | number | undefined>
+  assertAllowedBase(apiBase, allowedHosts)
   const integration = encodeURIComponent(integrationId)
 
   async function sendOnce(path: string, query: Query): Promise<Response> {
@@ -189,8 +244,9 @@ export function createGitStationClient({ apiBase, token, integrationId, fetchImp
     for (let attempt = 0; ; attempt++) {
       try {
         const res = await sendOnce(path, query)
+        const text = await boundedText(res)
         try {
-          return (await res.json()) as unknown
+          return JSON.parse(text) as unknown
         } catch {
           throw new GitStationError("invalid_response", "GitStation sent a body that is not JSON")
         }
@@ -198,16 +254,25 @@ export function createGitStationClient({ apiBase, token, integrationId, fetchImp
         const transient = err instanceof GitStationError && (err.kind === "rate_limited" || err.kind === "unavailable")
         const wait = transient ? (err.detail.retryAfterSec ?? DEFAULT_RETRY_WAIT_SEC) : Number.POSITIVE_INFINITY
         if (!transient || attempt >= MAX_RETRIES || wait > MAX_RETRY_WAIT_SEC) throw err
+        log.warn("gitstation request retried", { status: err.status, waitSec: wait, attempt: attempt + 1 })
         await sleep(wait * 1000)
       }
     }
   }
 
-  function feedPage(body: unknown): GitStationFeedPage {
-    if (!isObject(body) || !Array.isArray(body.events) || !str(body.next_cursor) || typeof body.has_more !== "boolean") {
+  /** A malformed page (or cursor) is invalid_response — never stored, never mistaken for "resync". */
+  function feedPage(body: unknown): GitStationFeedPage & { malformed: number } {
+    if (!isObject(body) || !Array.isArray(body.events) || !validCursor(body.next_cursor) || typeof body.has_more !== "boolean") {
       throw new GitStationError("invalid_response", "GitStation feed page has an unexpected shape")
     }
-    return { events: body.events as GitStationEvent[], nextCursor: body.next_cursor, hasMore: body.has_more }
+    const events: GitStationEvent[] = []
+    let malformed = 0
+    for (const raw of body.events) {
+      const e = parseEvent(raw)
+      if (e) events.push(e)
+      else malformed++
+    }
+    return { events, nextCursor: body.next_cursor, hasMore: body.has_more, malformed }
   }
 
   async function list<T>(path: string, key: string, query: Query, maxPages: number): Promise<Listing<T>> {
@@ -218,7 +283,8 @@ export function createGitStationClient({ apiBase, token, integrationId, fetchImp
       if (!isObject(body) || !Array.isArray(body[key])) throw new GitStationError("invalid_response", `GitStation ${key} listing has an unexpected shape`)
       items.push(...(body[key] as T[]))
       const next = body.next_cursor
-      if (body.has_more !== true || !str(next)) return { items, truncated: false }
+      if (body.has_more !== true) return { items, truncated: false }
+      if (!validCursor(next) || next === cursor) throw new GitStationError("invalid_response", `GitStation ${key} listing has no usable next cursor`)
       cursor = next
     }
     return { items, truncated: true }
@@ -228,14 +294,14 @@ export function createGitStationClient({ apiBase, token, integrationId, fetchImp
 
   return {
     /** Events after `after` (null = from the beginning the integration may see). */
-    async events(after: string | null, limit = FEED_PAGE_LIMIT): Promise<GitStationFeedPage> {
+    async events(after: string | null, limit = FEED_PAGE_LIMIT): Promise<GitStationFeedPage & { malformed: number }> {
       return feedPage(await send(`/integrations/${integration}/events`, { after: after ?? undefined, limit }))
     },
 
     /** The position of the last event the integration may see (plan 02 §11.2: the 410 recovery starts here). */
     async headCursor(): Promise<string> {
       const body = await send(`/integrations/${integration}/events/cursor`, {})
-      if (!isObject(body) || !str(body.cursor)) throw new GitStationError("invalid_response", "GitStation cursor has an unexpected shape")
+      if (!isObject(body) || !validCursor(body.cursor)) throw new GitStationError("invalid_response", "GitStation cursor has an unexpected shape")
       return body.cursor
     },
 
