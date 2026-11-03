@@ -1,97 +1,122 @@
-# CLAUDE.md
+# CLAUDE.md — Kanflow
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code in the **Kanflow** repository. This repository carries
+the shared **agent model** (`.claude/` agents, commands, skills, rules;
+`scripts/` hooks and gates), imported unchanged from the agent-model repository
+(`D:\APP\Agents_skills_Claudecode`, see §7 for how to update it). This file holds
+only what cannot be derived from the code: Kanflow's context and hard rules, and
+the generic agent-model contracts. Do not append session facts or learnings here
+(see §6).
 
-## Project Overview
+---
 
-This is a **Claude Code plugin** - a collection of production-ready agents, skills, hooks, commands, rules, and MCP configurations. The project provides battle-tested workflows for software development using Claude Code.
+## 1. What Kanflow is
 
-## Architecture
+Yamaha-internal agile project management tool (IceBox → Product Backlog →
+Sprint → Release, 全体計画, Collabora documents, local AI on Ollama, ja / en / id),
+run on **one internal server**. Layer: **L4** (Next.js). Relation to IoTPF:
+**none** — no IoTPF data or interface; the DB engine follows the platform spec
+(PostgreSQL 16 + TimescaleDB 2.28.1). The IoTPF-specific rules and agents of the
+agent model (edge, PFE, Tier-2, ZEVA-Engine) do not apply to Kanflow.
 
-All Claude Code components are in `.claude/` following the standard directory structure:
+- **v2** (in development): PostgreSQL, GitStation integration, schedule from
+  actuals. Design source of truth: `D:\APP\git_station\Git\docs\plan\` — 02
+  (integration API), 11 (M3 plan, K1–K4), 12 (schedule from actuals, E0–E6).
+  Index and decisions: `references/README.md`, `references/decisions.md`.
+- **Production** runs v1 on MySQL until the approved K2 cutover.
 
-- **.claude/agents/** - 17 specialized subagents for delegation (planner, code-reviewer, tdd-guide, etc.)
-- **.claude/skills/** - 88+ workflow definitions and domain knowledge (coding standards, patterns, testing)
-- **.claude/commands/** - 43 slash commands invoked by users (/tdd, /plan, /e2e, etc.)
-- **.claude/rules/** - Always-follow guidelines (common + per-language: rust, golang, typescript, python, swift, kotlin, perl, php)
-- **.claude/settings.json** - Hook configurations (PreToolUse, PostToolUse, SessionStart, Stop, etc.)
-- **.claude/contexts/** - Context switching templates (dev, research, review)
-- **.mcp.json** - MCP server configurations for external integrations
-- **scripts/** - Cross-platform Node.js utilities for hooks and setup
+## 2. Hard rules (production safety)
 
-## Core Principles
+1. **Never touch production.** `D:\APP\Kanflow` (:3000, MySQL :3306) serves real
+   work: no file, `.env`, service, `node_modules` or branch change there, and no
+   connection to the production MySQL. Work only in git worktrees
+   (`D:\APP\Kanflow-<name>`, branch `<type>/L4-…`), created from an existing
+   worktree: `git worktree add D:/APP/Kanflow-<name> -b <branch> <base>`.
+2. **The K1 lineage (PostgreSQL) does not enter `main`** before the K2 cutover
+   (runbook + human approval): production auto-deploy would run PG code against
+   the MySQL URL. Every v2 branch descends from K1.
+3. **Synthetic data only in tests.** Test PG: `ops/test-env/compose.yml`
+   (127.0.0.1:25434, `kanflow_dev` / `scrum_tool`). A branch with its own
+   migrations uses its own database in that container (e.g. `scrum_tool_k3`).
+   Anything using production data (K2 rehearsal) needs the user's approval.
+4. **Push only after the user says so.** Remotes: `origin` (internal GitLab,
+   MR flow), `github`. Commit author `Masaki Fujikawa
+   <masaki.fujikawa@music.yamaha.com>`, passed per commit
+   (`git -c user.name=… -c user.email=…`); never edit the shared repo config
+   (it also governs the production checkout).
 
-1. **Agent-First** - Delegate to specialized agents for domain tasks
-2. **Test-Driven** - Write tests before implementation, 80%+ coverage required
-3. **Security-First** - Never compromise on security; validate all inputs
-4. **Immutability** - Always create new objects, never mutate existing ones
-5. **Plan Before Execute** - Plan complex features before writing code
+## 3. Commands (run in `app/`)
 
-## Available Agents
+| Task | Command |
+|------|---------|
+| Install | `npm ci`, then `npx prisma generate` (typecheck needs the client) |
+| Lint / types | `npm run lint` · `npm run typecheck` |
+| Unit + DB tests | `npm test` (DB tests read `app/.env` → test PG) |
+| One area | `npx vitest run src/lib/plan-estimate` |
+| E2E | `npm run test:e2e` (Playwright, test instance only) |
+| Agent-model gates (repo root) | `node scripts/validate-ecc-config.js` · `node scripts/self-heal.js --check` |
 
-| Agent | Purpose | When to Use |
-|-------|---------|-------------|
-| planner | Implementation planning | Complex features, refactoring |
-| architect | System design and scalability | Architectural decisions |
-| tdd-guide | Test-driven development | New features, bug fixes |
-| code-reviewer | Code quality and maintainability | After writing/modifying code |
-| security-reviewer | Vulnerability detection | Before commits, sensitive code |
-| build-error-resolver | Fix build/type errors | When build fails |
-| e2e-runner | End-to-end Playwright testing | Critical user flows |
-| refactor-cleaner | Dead code cleanup | Code maintenance |
-| doc-updater | Documentation and codemaps | Updating docs |
-| go-reviewer | Go code review | Go projects |
-| go-build-resolver | Go build errors | Go build failures |
-| database-reviewer | PostgreSQL/Supabase specialist | Schema design, query optimization |
-| python-reviewer | Python code review | Python projects |
-| kotlin-reviewer | Kotlin code review | Kotlin projects |
-| chief-of-staff | Communication triage and drafts | Multi-channel email, Slack, LINE |
-| loop-operator | Autonomous loop execution | Run loops safely, monitor stalls |
-| harness-optimizer | Harness config tuning | Reliability, cost, throughput |
+`app/.env` is never committed; copy it from another v2 worktree. Pre-existing
+lint errors (`e2e/`, `windows-service` scripts) are not regressions — check the
+files you touched.
 
-## Agent Orchestration
+## 4. Kanflow conventions (in addition to the agent model)
 
-Use agents proactively without user prompt:
-- Complex feature requests → **planner**
-- Code just written/modified → **code-reviewer**
-- Bug fix or new feature → **tdd-guide**
-- Architectural decision → **architect**
-- Security-sensitive code → **security-reviewer**
+- **Branches**: `<type>/L4-PBI-<n>-<topic>` or `<type>/L4-NOPBI-<topic>` (the
+  branch-name guard blocks a push otherwise). Older v2 branches
+  (`feat/L4-db-postgresql`, `feat/L4-plan-estimate-engine`, …) must be renamed
+  before their first push.
+- **i18n**: every user-facing string in ja / en / id (`app/src/i18n/`); stored
+  messages (e.g. `lastError`) are Japanese and translated in the UI.
+- **Authorization**: one decision point, `app/src/lib/authz/policy.ts`; a new
+  action gets allow + deny rows in `policy.test.ts`.
+- **Confidential PBIs (D-5)**: never returned to MCP / LLM; confidentiality is
+  checked at use time, never frozen.
+- **Local LLM**: Ollama only (shared with BankMasalah); the deterministic path
+  must work when the LLM is down.
+- **Done** = lint, typecheck, tests (incl. PG DB tests) green and the reviewers
+  named in plan 11 §5.6 / plan 12 §6 report no CRITICAL / HIGH.
 
-Use parallel execution for independent operations — launch multiple agents simultaneously.
+## 5. Agent & skill routing, conventions, hooks
 
-## Key Commands
+- Routing lives in `.claude/rules/iotpf-agents-skills.md` (always loaded): for
+  Kanflow use the L4 / TypeScript / web / DB rows (typescript-reviewer,
+  database-reviewer, security-reviewer, silent-failure-hunter, a11y-architect,
+  i18n-sync-auditor, e2e-runner).
+- Commits: Conventional Commits — `.claude/rules/iotpf-git-workflow.md` (its
+  workspace-model §1.1 describes the agent-model repository; in Kanflow the
+  agent model is carried in-repo instead).
+- **Hooks must fail open**: any parse error or internal error passes the action
+  through (`exit 0`); only a PreToolUse hook returning `exit 2` blocks. Hooks
+  resolve paths at runtime (`CLAUDE_PROJECT_DIR`); verify a hook change with
+  `echo '{"tool_input":{"command":"git status"}}' | node scripts/hooks/<hook>.js`.
 
-- `/tdd` - Test-driven development workflow
-- `/plan` - Implementation planning
-- `/e2e` - Generate and run E2E tests
-- `/code-review` - Quality review
-- `/build-fix` - Fix build errors
-- `/learn` - Extract patterns from sessions
-- `/skill-create` - Generate skills from git history
+## 6. Memory & knowledge placement
 
-## Security Guidelines
+| Kind | Home |
+|------|------|
+| User / project facts spanning sessions | Auto Memory (per user) |
+| Error signature → proven fix | mistake-memory (`.claude/mistakes/records.jsonl`) |
+| Session continuity | `docs/handoff/` and the session-end summary |
+| Reviewed decisions | `references/decisions.md`, `docs/` (MR-reviewed) |
 
-Before ANY commit:
-- No hardcoded secrets (API keys, passwords, tokens)
-- All user inputs validated
-- SQL injection prevention (parameterized queries)
-- XSS prevention (sanitized HTML)
-- CSRF protection enabled
-- Rate limiting on all endpoints
+When the conversation is compacted, preserve: modified files, the active branch,
+unresolved gate failures and the exact failing test commands.
 
-## Development Workflow
+## 7. Updating the agent model
 
-1. **Plan** — Use planner agent, identify dependencies and risks
-2. **TDD** — Use tdd-guide agent, write tests first, implement, refactor
-3. **Review** — Use code-reviewer agent, address CRITICAL/HIGH issues
-4. **Commit** — Conventional commits format (feat/fix/refactor/docs/test/chore/perf/ci)
+`.claude/` and `scripts/` are copies of the agent-model repository's tracked
+files (source commit in `references/decisions.md`). Never hand-edit them here;
+change the agent model in its own repository, then re-import:
+`git -C D:/APP/Agents_skills_Claudecode archive HEAD .claude scripts | tar -x -C <worktree>`
+and record the new source commit in `references/decisions.md`.
 
-## Development Notes
+## 8. Always-on rules (imported)
 
-- Package manager detection: npm, pnpm, yarn, bun (configurable via `CLAUDE_PACKAGE_MANAGER` env var)
-- Cross-platform: Windows, macOS, Linux support via Node.js scripts
-- Agent format: Markdown with YAML frontmatter (name, description, tools, model)
-- Skill format: Markdown with clear sections for when to use, how it works, examples
-- Hook format: JSON with matcher conditions in `.claude/settings.json`
-- File naming: lowercase with hyphens (e.g., `python-reviewer.md`, `tdd-workflow.md`)
+@.claude/rules/common/baseline.md
+@.claude/rules/iotpf-agents-skills.md
+@.claude/rules/iotpf-git-workflow.md
+@.claude/rules/iotpf-self-improvement.md
+
+Everything else under `.claude/rules/` loads on demand via `paths:` frontmatter
+(typescript, web and DB rules attach when matching files are touched).

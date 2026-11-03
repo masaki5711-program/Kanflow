@@ -28,12 +28,15 @@ Thumbs.db
 .vscode/
 .idea/
 
-# Claude Code
-.claude/
+# Claude Code — the agent model (.claude/, scripts/) is tracked (CLAUDE.md §7);
+# only its runtime state and per-user settings stay local.
+.claude/state/
+.claude/settings.local.json
+.claude/worktrees/
+docs/agent-model-health.md
 
 # Separate projects (root-level only — do NOT match app/src/app/api)
 /api/
-/scripts/
 
 # Excel
 *.xlsx

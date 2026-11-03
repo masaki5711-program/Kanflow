@@ -1,0 +1,18 @@
+{
+  "$comment": "agent-model v3 references manifest for Kanflow. Every Kanflow file falls in the generic area 'apps' (no edge/hub/ai/dashboard directories). External sources of truth (GitStation plans 02/11/12) are listed in README.md, not copied. Undecided scopes inside the area (plan 12 E1 / E4) are recorded in decisions.md.",
+  "iotpf": "none",
+  "areas": {
+    "apps": {
+      "status": "decided",
+      "paths": [
+        "references/README.md",
+        "references/decisions.md",
+        "SPECIFICATION.md",
+        "docs/plan/00-master-plan.md",
+        "docs/plan/team-dev-implementation.md",
+        "docs/operations/git-integration.md",
+        "docs/handoff/"
+      ]
+    }
+  }
+}
