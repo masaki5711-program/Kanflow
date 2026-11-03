@@ -245,6 +245,15 @@ export function copyBaseline(db: Db, projectId: string, ids?: readonly string[])
   return db.$executeRaw`UPDATE "PlanItem" SET "baselineStart" = "plannedStart", "baselineEnd" = "plannedEnd" WHERE "projectId" = ${projectId} AND "deletedAt" IS NULL${scope}`
 }
 
+/** True when a live row of the project already carries a baseline (the project froze one earlier). */
+export async function hasBaseline(db: Db, projectId: string): Promise<boolean> {
+  const row = await db.planItem.findFirst({
+    where: { projectId, ...NOT_DELETED, OR: [{ baselineStart: { not: null } }, { baselineEnd: { not: null } }] },
+    select: { id: true },
+  })
+  return row !== null
+}
+
 export async function clearBaseline(db: Db, projectId: string): Promise<number> {
   const res = await db.planItem.updateMany({
     where: { projectId, ...NOT_DELETED, OR: [{ baselineStart: { not: null } }, { baselineEnd: { not: null } }] },
@@ -290,4 +299,26 @@ export function insertPlanLoadMarker(db: Db, data: { projectId: string; proposal
     data: { projectId: data.projectId, entityType: PLAN_LOAD_MARKER, entityId: data.proposalId, action: "create", actorId: data.actorId, actorName: data.actorName },
     select: { id: true },
   })
+}
+
+/**
+ * The load record of /plan/load (plan 12 E0), written in the load's transaction before its rows (they point at
+ * it). UNIQUE (projectId, proposalId): a concurrent second load of one proposal fails here with P2002.
+ */
+export function insertScheduleLoad(
+  db: Db,
+  data: {
+    projectId: string
+    proposalId: string | null
+    sourceRef: string | null
+    lineage: string
+    scheduleHash: string
+    content: Prisma.InputJsonValue
+    startDate: Date
+    skipWeekends: boolean
+    estimateRunId: string | null
+    loadedById: string | null
+  }
+) {
+  return db.planScheduleLoad.create({ data, select: { id: true } })
 }

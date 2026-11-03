@@ -7,6 +7,7 @@
  */
 import { createHash } from "node:crypto"
 import { baseScheduleSchema, planBaseSchedule, PlanScheduleError, startDateSchema, type BaseSchedule } from "@/lib/plan-schedule/base-schedule"
+import { lineageFromSource, lineageSchema, sourceRefSchema } from "@/lib/plan-schedule/schedule-source"
 import { chatProposalSchema, type PlanLoadProposal } from "@/lib/chat-proposals"
 import type { Actor } from "@/services/_shared/actor"
 import { defaultDb, withTransaction } from "@/services/_shared/db"
@@ -22,6 +23,10 @@ export const proposePlanItemsSchema = z.object({
   /** Shown as the card heading (e.g. the base repository's name). */
   name: z.string().trim().max(200).optional(),
   reason: z.string().trim().max(1000).optional(),
+  /** plan 12 E0: where the schedule came from (gitstation:<repo>@<tag>:<path> | template:<id>@v<n>). */
+  sourceRef: sourceRefSchema.optional(),
+  /** plan 12 E0: template family stable across versions; derived from sourceRef / name when absent. */
+  lineage: lineageSchema.optional(),
 })
 export type ProposePlanItemsInput = z.infer<typeof proposePlanItemsSchema>
 
@@ -31,7 +36,7 @@ const PREVIEW_ROWS = 60
 /** Child names shown under each top-level row of the card ("+N more" for the rest). */
 const PREVIEW_CHILDREN = 5
 
-export function buildPlanLoadProposal(input: { startDate: string; schedule: BaseSchedule; name?: string; reason?: string }): PlanLoadProposal {
+export function buildPlanLoadProposal(input: { startDate: string; schedule: BaseSchedule; name?: string; reason?: string; sourceRef?: string; lineage?: string }): PlanLoadProposal {
   let planned
   try {
     planned = planBaseSchedule(input.schedule, input.startDate)
@@ -51,7 +56,16 @@ export function buildPlanLoadProposal(input: { startDate: string; schedule: Base
     .filter((r) => r.parentKey === null)
     .slice(0, PREVIEW_ROWS)
     .map((r) => ({ name: r.name.slice(0, 500), plannedStart: r.plannedStart, plannedEnd: r.plannedEnd, isMilestone: r.isMilestone, children: childCount.get(r.key) ?? 0, childNames: childNames.get(r.key) ?? [] }))
-  const digest = createHash("sha256").update(JSON.stringify({ s: input.startDate, p: input.schedule })).digest("hex").slice(0, 16)
+  // The lineage is fixed here when the caller knows more than the load will (its own card name); without a
+  // source or a name the load derives it from the content hash. The default heading is never a lineage.
+  const lineage = input.lineage ?? lineageFromSource({ sourceRef: input.sourceRef, name: input.name }) ?? undefined
+  // The digest covers everything the card will load with: two calls that differ only in sourceRef or lineage
+  // (given, or derived from the card name) are different proposals. A call with neither a source, a lineage nor
+  // a name keeps its pre-E0 proposal id; a named call gets a new one (its card now carries a lineage).
+  const digest = createHash("sha256")
+    .update(JSON.stringify({ s: input.startDate, p: input.schedule, ...(input.sourceRef && { r: input.sourceRef }), ...(lineage && { l: lineage }) }))
+    .digest("hex")
+    .slice(0, 16)
   const proposal = {
     kind: "plan_load" as const,
     proposalId: `prop_plan_${digest}`,
@@ -62,6 +76,8 @@ export function buildPlanLoadProposal(input: { startDate: string; schedule: Base
     plannedStart: planned.plannedStart,
     plannedEnd: planned.plannedEnd,
     schedule: input.schedule,
+    ...(input.sourceRef && { sourceRef: input.sourceRef }),
+    ...(lineage && { lineage }),
     preview,
     reason: input.reason ?? "",
   }
@@ -82,6 +98,20 @@ export interface ProposePlanItemsResult {
   plannedEnd: string
   /** Where the owner approves it. */
   chatPath: string
+  /** Things the caller should double-check (present only when there are any). */
+  warnings?: string[]
+}
+
+/**
+ * An explicit lineage that differs from the one its sourceRef implies is allowed (a template that moved to
+ * another repository keeps its family name) but is usually a mistake, so it is reported, not silently stored.
+ */
+export function lineageWarnings(input: { sourceRef?: string; lineage?: string }): string[] {
+  if (!input.sourceRef || !input.lineage) return []
+  const implied = lineageFromSource({ sourceRef: input.sourceRef })
+  return implied && implied !== input.lineage
+    ? [`lineage "${input.lineage}" differs from "${implied}" implied by sourceRef; it is stored as given — pass no lineage to use the implied one`]
+    : []
 }
 
 export async function proposePlanItems(projectId: string, input: ProposePlanItemsInput, actor: Actor): Promise<ProposePlanItemsResult> {
@@ -92,7 +122,9 @@ export async function proposePlanItems(projectId: string, input: ProposePlanItem
   // serializeToolEvents drops events that do not fit: never leave a card-less thread behind.
   if (!events) throw new ValidationError("The schedule is too large to propose in one card", {}, "PLAN_PROPOSAL_TOO_LARGE")
   const title = `全体計画の読み込み: ${proposal.name}`.slice(0, 190)
-  const message = `${projectName}: ${proposal.itemCount} 件の計画（${proposal.plannedStart} 〜 ${proposal.plannedEnd}、依存 ${proposal.dependencyCount} 件）を提案します。内容を確かめて承認してください。承認するまで全体計画は変わりません。`
+  const warnings = lineageWarnings(input)
+  const lineageNote = warnings.length > 0 ? `\n\n注意: 系統（lineage）「${proposal.lineage}」は読み込み元から決まる系統と違います。意図したものか確かめてください。` : ""
+  const message = `${projectName}: ${proposal.itemCount} 件の計画（${proposal.plannedStart} 〜 ${proposal.plannedEnd}、依存 ${proposal.dependencyCount} 件）を提案します。内容を確かめて承認してください。承認するまで全体計画は変わりません。${lineageNote}`
   return withTransaction(async (tx) => {
     const thread = await chat.createThread(tx, { projectId, userId: actor.userId }, title)
     await chat.insertMessage(tx, { threadId: thread.id, role: "assistant", content: message, toolEvents: events })
@@ -104,6 +136,7 @@ export async function proposePlanItems(projectId: string, input: ProposePlanItem
       plannedStart: proposal.plannedStart,
       plannedEnd: proposal.plannedEnd,
       chatPath: `/projects/${projectId}/chat?thread=${thread.id}`,
+      ...(warnings.length > 0 && { warnings }),
     }
   })
 }

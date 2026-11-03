@@ -118,7 +118,7 @@ Lists that are cut at a limit say so with `truncated: true` and `limit`.
 | `report_failure` | `dev:write` | `tool`, `text`, `errorCode?`, `projectId?`, `sessionRef?`, `branch?`, `techs?`, `source?` — the failure is redacted and stored; answers up to 3 confirmed `lessons` (W11) |
 | `report_resolution` | `dev:write` | `sessionRef`, `diffSummary`, `verifiedCommand?`, `cause?`, `scope?`, `evidence?` — becomes a **draft** lesson (W11) |
 | `get_plan` | read | the master plan (全体計画) as a tree: `name`, `status`, `progressPct`, `isMilestone`, `plannedStart` / `plannedEnd` (`YYYY-MM-DD`, `null` = 日程未定), `durationDays`, `owner`, `dependsOn` (ids that must finish first), `children`; `itemCount`, `truncated` (W12) |
-| `propose_plan_items` | `backlog:write`, PO / SM | `projectId`, `startDate`, `items` (tree of `{ key, name, durationDays?, milestone?, dependsOn?: [keys], children? }`), `skipWeekends?`, `name?`, `reason?` — a **proposal**, not a write: see "Plan tools" (W12) |
+| `propose_plan_items` | `backlog:write`, PO / SM | `projectId`, `startDate`, `items` (tree of `{ key, name, durationDays?, milestone?, dependsOn?: [keys], children?, role?, load?, formerKeys? }`), `skipWeekends?`, `name?`, `reason?`, `sourceRef?`, `lineage?` — a **proposal**, not a write: see "Plan tools" (W12) |
 | `search_lessons` | read | `q`, `errorCode`, `tech`, `projectId`, `signature`, `limit` — confirmed / systemized, non-confidential lessons only (W11) |
 
 There are **no delete tools**, and no tool moves a task / PBI to another status
@@ -237,6 +237,19 @@ For equipment-installation and process-improvement projects the agent builds the
   tell the user to open `chatPath`. Approving the card calls `POST /api/projects/:id/plan/load` under the approver's own
   session (`plan.write`: PO / SM), which recomputes the dates and creates the rows, the dependencies and the progress
   roll-up in one transaction. A schedule too large for one card (60 KB of thread data) is `PLAN_PROPOSAL_TOO_LARGE`.
+- **Where it came from (plan 12 E0).** Optional `sourceRef` — `gitstation:<repo>@<tag>:<path>` (e.g.
+  `gitstation:equipment-spec@v1.2.0:schedule.yml`) or `template:<id>@v<n>`, at most 300 characters, no `.` / `..` / empty
+  segment; anything else is refused — and `lineage`, the template family name that stays the same across versions. Without `lineage` it is derived:
+  the source minus its tag / version (`gitstation:<repo>:<path>`, `template:<id>`), else `name:<the card name, normalized>`,
+  else (decided by the load) `schedule:<first 16 hex of the content hash>`. Both travel with the card to the approval.
+  Optional per item: `role` (short id, `[A-Za-z0-9_-]{1,32}`), `load` (0..1, absent = 1), `formerKeys` (the item's keys in
+  earlier template versions, at most 10; never a current key or another item's former key). Old schedules without them
+  load unchanged. The load stamps every created row with its item `key`, records the load (source, lineage, sha256 of
+  the canonical schedule JSON, the schedule, start date) and, when the project has no baseline yet, sets each new row's
+  baseline to its planned dates (a project with a baseline keeps it; the new rows show as added scope).
+  A `lineage` that differs from the one its `sourceRef` implies is stored as given but reported in `warnings` (answer)
+  and on the card. The proposal id covers `sourceRef` and the lineage, so the same schedule under another card name is
+  another proposal.
 - **Scope**: there is no `plan:write` token scope. `backlog:write` is the least-privilege existing scope that PO and SM
   hold (`backlog.write` and `plan.write` are granted to exactly the same roles), so the proposal needs `backlog:write` and
   a PO / SM role; the approval re-checks `plan.write`. A developer's token is refused (`FORBIDDEN`).

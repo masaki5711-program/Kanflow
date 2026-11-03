@@ -11,7 +11,7 @@ pull request で動く。作業ディレクトリは `app/`。Node は本番サ�
 | ジョブ（チェック名） | 内容 |
 |---|---|
 | `typecheck + lint + unit tests` | `npm ci` → `npx prisma generate` → `npx tsc --noEmit` → `npx eslint .` → `npx vitest run`（DB テストは自分でスキップする）→ ワーカーのバンドルを作って `--dry-run` で起動を確認 |
-| `migrations + DB tests (PostgreSQL 16)` | PostgreSQL 16（`timescale/timescaledb:2.28.1-pg16`、UTF-8 + ICU `und`）のサービスコンテナに `npx prisma migrate deploy`、空のシャドウ DB `prisma_shadow` を `createdb` で作って `schema.prisma` と `prisma/migrations` のずれの確認（`prisma migrate diff --exit-code`）、実 DB のテスト 4 本 `KANFLOW_DB_TESTS=1 npx vitest run src/lib/__tests__/postgres.db.test.ts src/services/dev-work/__tests__/dev-work.db.test.ts src/services/acceptance-criteria/__tests__/acceptance-criteria.db.test.ts src/services/feedback/__tests__/feedback.db.test.ts` |
+| `migrations + DB tests (PostgreSQL 16)` | PostgreSQL 16（`timescale/timescaledb:2.28.1-pg16`、UTF-8 + ICU `und`）のサービスコンテナに `npx prisma migrate deploy`、空のシャドウ DB `prisma_shadow` を `createdb` で作って `schema.prisma` と `prisma/migrations` のずれの確認（`prisma migrate diff --exit-code`）、実 DB のテスト 5 本 `KANFLOW_DB_TESTS=1 npx vitest run src/lib/__tests__/postgres.db.test.ts src/services/dev-work/__tests__/dev-work.db.test.ts src/services/acceptance-criteria/__tests__/acceptance-criteria.db.test.ts src/services/feedback/__tests__/feedback.db.test.ts src/services/plan/__tests__/plan.base-schedule.db.test.ts` |
 | `e2e (Playwright, smoke + write flows)` | PostgreSQL 16 に移行を当て、E2E 用のユーザーを 1 人登録し（`psql`）、`npm run build` → `next start -p 3001` → `npx playwright install --with-deps chromium` → `npx playwright test e2e/smoke e2e/flows`。失敗したときはレポート・トレース・サーバーのログを成果物 `playwright-report` に保存 |
 
 - 同じ PR の新しい push は実行中の CI を取り消す。`main` の実行は取り消さない。

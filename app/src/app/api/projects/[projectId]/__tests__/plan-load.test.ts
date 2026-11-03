@@ -59,4 +59,16 @@ describe("POST /plan/load (W12)", () => {
     expect(res.status).toBe(400)
     expect((await res.json()).code).toBe("PLAN_SCHEDULE_INVALID")
   })
+
+  it("passes sourceRef / lineage through (plan 12 E0) and refuses a malformed sourceRef or lineage with 400", async () => {
+    asRole(m, "po")
+    m.loadBaseSchedule.mockResolvedValue({ createdCount: 1, dependencyCount: 0, rootIds: ["n1"], plannedStart: "2026-11-02", plannedEnd: "2026-11-04" })
+    const body = { ...BODY, sourceRef: "template:clx0abc123@v4", lineage: "template:clx0abc123" }
+    expect((await route.POST(jsonReq("POST", body), P)).status).toBe(201)
+    expect(m.loadBaseSchedule).toHaveBeenCalledWith("p1", body, expect.anything())
+    m.loadBaseSchedule.mockClear()
+    expect((await route.POST(jsonReq("POST", { ...BODY, sourceRef: "../../etc/passwd" }), P)).status).toBe(400)
+    expect((await route.POST(jsonReq("POST", { ...BODY, lineage: "line\u0007break" }), P)).status).toBe(400)
+    expect(m.loadBaseSchedule).not.toHaveBeenCalled()
+  })
 })

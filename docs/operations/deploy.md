@@ -441,6 +441,35 @@ mysql -u scrum_app -p scrum_tool -e "SHOW COLUMNS FROM PlanItem; SHOW TABLES LIK
   トークンの発行・失効は `module: "api-tokens"`。管理者は `/admin/api-tokens` で全ユーザーのトークンを確認・失効できます。
 - **E2E**（テスト DB のみ）: `E2E_ALLOW_WRITE=1` + `E2E_USER` / `E2E_PASSWORD` で `npx playwright test e2e/flows/mcp-flow.spec.ts`。
 
+## 5f. 全体計画の読み込みの記録とテンプレートの key（`20261102180000_plan_schedule_load`、計画 12 E0）
+
+ベースのスケジュールの読み込み（`POST /plan/load`）が、あとで実績と項目ごとに照らし合わせられるデータを残すようにするリリースです（PostgreSQL のみ）。
+仕様: [../mcp.md](../mcp.md)「Plan tools」、[../plan/team-dev-implementation.md](../plan/team-dev-implementation.md) §9。
+
+- **マイグレーション**（追加のみ。既存の行は書き換えません。通常の `npx prisma migrate deploy` で数秒）:
+  `PlanItem.templateKey`（VARCHAR(40) NULL）、`PlanItem.scheduleLoadId`（NULL、FK `plan_schedule_load`、記録の削除時 NULL）、
+  新しい表 `plan_schedule_load`（UNIQUE (`projectId`, `proposalId`)、索引 `lineage`）。
+  - **コードとの順序**: 新ビルドは新列に書きます。**マイグレーションを先に適用**してください（未適用だと読み込みの承認が 500 になります）。
+  - **ロック**: Prisma はこのファイルを 1 つのトランザクションで流すので、ロックはコミットまで続きます。`PlanItem` の索引の作成（`CONCURRENTLY` は使えない）は
+    作り終わるまで**全体計画への書き込みを止め**、FK の追加は `SHARE ROW EXCLUSIVE` で `PlanItem` を全件読みます（列はすべて NULL なので軽い）。
+    `PlanItem` は全体計画の行（1 プロジェクト 2,000 行まで）なので数秒の見込みですが、**利用の少ない時間帯**に適用してください。将来 `PlanItem` が大きくなったら、別のマイグレーションで
+    `ADD CONSTRAINT … NOT VALID` → `VALIDATE CONSTRAINT`（書き込みを止めない）と、Prisma の外で `CREATE INDEX CONCURRENTLY` に分けるのが代わりの手です。
+    事前に件数を確認: `psql -c 'SELECT count(*) FROM "PlanItem"'`
+  - 確認（読み取りのみ）: `psql -c "\d plan_schedule_load"`、`psql -c "SELECT column_name FROM information_schema.columns WHERE table_name = 'PlanItem' AND column_name IN ('templateKey', 'scheduleLoadId')"`
+  - ロールバック: ビルドを戻すだけなら列・表は残してかまいません（旧ビルドは参照しない）。
+- **任意の埋め戻し**（自動では動きません。`migrate deploy` の**後**、必要なときに一度。テンプレートから読み込んだ既存の計画の行に key を付ける）:
+
+```powershell
+cd <app ディレクトリ>
+node --import tsx scripts/backfill-plan-template-keys.ts                    # dry-run（既定）: 読み込みごとの件数だけ表示
+node --import tsx scripts/backfill-plan-template-keys.ts --apply            # 書き込み（冪等: key のある行は変えない。再実行で 0 件）
+node --import tsx scripts/backfill-plan-template-keys.ts --project <id>     # 特定プロジェクトだけ
+```
+
+  - 照らし合わせは木の位置＋名前で、確かなときだけ（兄弟に同じ名前がある・改名した・親が合わない行は空のまま = `ambiguous` / `unmatched`）。
+    `[unreadable]` = 保存された内容が読めない読み込み（行は変えない）。`[failed]` = 書き込み失敗（他は継続、終了コード 1）。`version` は上げません。
+  - `--apply` の前にバックアップがあること。
+
 ## 6. ロールバック
 
 ```powershell

@@ -33,6 +33,18 @@ describe("plan_load (W12)", () => {
     ])
     expect(proposalResultHref("p1", PLAN_LOAD, [])).toBe("/projects/p1/plan")
   })
+
+  it("carries the proposal's sourceRef and lineage into the load (plan 12 E0); an older card without them sends neither", () => {
+    const withSource = { ...PLAN_LOAD, sourceRef: "gitstation:equipment-spec@v1.2.0:schedule.yml", lineage: "gitstation:equipment-spec:schedule.yml" } as ChatProposal
+    expect(proposalRequests("p1", withSource)[0].json).toEqual({
+      startDate: "2026-11-02",
+      schedule: PLAN_LOAD.kind === "plan_load" ? PLAN_LOAD.schedule : null,
+      proposalId: "prop_plan_x",
+      sourceRef: "gitstation:equipment-spec@v1.2.0:schedule.yml",
+      lineage: "gitstation:equipment-spec:schedule.yml",
+    })
+    expect(Object.keys(proposalRequests("p1", PLAN_LOAD)[0].json)).toEqual(["startDate", "schedule", "proposalId"])
+  })
 })
 
 describe("requiredAction mirrors the API gates", () => {

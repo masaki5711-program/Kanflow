@@ -102,9 +102,16 @@ model PlanItem {
   durationDays          Int?
   /// The template load that created this row (null for hand-made rows).
   templateApplicationId String?
+  /// Key of the schedule / template item this row was created from (plan 12 E0; null = hand-made or unknown).
+  /// Written by POST /plan/load on every created row; backfilled for template loads by
+  /// scripts/backfill-plan-template-keys.ts. Lets finished projects be matched item by item to their template.
+  templateKey           String?   @db.VarChar(40)
+  /// The base-schedule load (plan_schedule_load) that created this row (plan 12 E0).
+  scheduleLoadId        String?
 
   project             Project                   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   templateApplication PlanTemplateApplication?  @relation(fields: [templateApplicationId], references: [id], onDelete: SetNull)
+  scheduleLoad        PlanScheduleLoad?         @relation(fields: [scheduleLoadId], references: [id], onDelete: SetNull)
   parent              PlanItem?                 @relation("PlanItemTree", fields: [parentId], references: [id], onDelete: Cascade)
   children            PlanItem[]                @relation("PlanItemTree")
   owner               User?                     @relation("PlanItemOwner", fields: [ownerId], references: [id], onDelete: SetNull)
@@ -122,6 +129,41 @@ model PlanItem {
   @@index([projectId, deletedAt])
   @@index([ownerId])
   @@index([templateApplicationId])
+  @@index([scheduleLoadId])
+}
+
+/// One base-schedule load into 全体計画 (POST /plan/load, W12; plan 12 E0): what was loaded, from where, and
+/// with which start date, so a finished project can later be compared item by item with its template
+/// (PlanItem.templateKey + scheduleLoadId). Written in the load's transaction: no record, no rows.
+/// The user is referenced by id (no FK, like plan templates).
+model PlanScheduleLoad {
+  id            String   @id @default(cuid())
+  projectId     String
+  /// The approved chat proposal (null = loaded without one). Unique per project: a proposal loads once.
+  proposalId    String?  @db.VarChar(64)
+  /// Where the schedule came from, as the caller supplied it (validated): gitstation:<repo>@<tag>:<path> |
+  /// template:<id>@v<n> (src/lib/plan-schedule/schedule-source.ts). Null = not given.
+  sourceRef     String?  @db.VarChar(300)
+  /// Template family name stable across versions (given, or derived: schedule-source.ts defaultLineage).
+  lineage       String   @db.VarChar(200)
+  /// sha256 (hex) of the canonical JSON of `content`.
+  scheduleHash  String   @db.Char(64)
+  /// The schedule as loaded (BaseSchedule JSON).
+  content       Json
+  startDate     DateTime @db.Date
+  skipWeekends  Boolean  @default(false)
+  /// Estimate run that produced the schedule (plan 12 E5; no FK until that table exists).
+  estimateRunId String?  @db.VarChar(191)
+  loadedById    String?
+  loadedAt      DateTime @default(now())
+
+  project   Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  planItems PlanItem[]
+
+  /// Also serves lookups by projectId (leading column), so there is no separate (projectId) index.
+  @@unique([projectId, proposalId])
+  @@index([lineage])
+  @@map("plan_schedule_load")
 }
 
 /// Reusable rough plan (大枠の計画) loaded into 全体計画 as undated stages.
@@ -338,6 +380,7 @@ model Project {
 
   /// Plan template loads into this project's 全体計画.
   planTemplateApplications PlanTemplateApplication[]
+  planScheduleLoads        PlanScheduleLoad[]
 
   /// マイルストーン・検収ボード (general projects).
   milestoneBoard    MilestoneBoard?
@@ -1414,32 +1457,32 @@ model RepoChunk {
 /// A merge request, branch or commit that names a PBI (PBI-123 in its title,
 /// branch name or message). One row per (repository, object, PBI).
 model GitLink {
-  id            String             @id @default(cuid())
-  projectId     String
-  repositoryId  String
-  backlogItemId String
+  id                String             @id @default(cuid())
+  projectId         String
+  repositoryId      String
+  backlogItemId     String
   /// "mr" | "branch" | "commit"
-  kind          String             @db.VarChar(16)
+  kind              String             @db.VarChar(16)
   /// MR iid, branch name or commit sha.
-  ref           String             @db.VarChar(255)
-  title         String             @db.VarChar(500)
-  url           String             @db.VarChar(1024)
+  ref               String             @db.VarChar(255)
+  title             String             @db.VarChar(500)
+  url               String             @db.VarChar(1024)
   /// MR: opened | merged | closed | locked; null for branches / commits.
-  state         String?            @db.VarChar(16)
+  state             String?            @db.VarChar(16)
   /// Latest pipeline status (MR head pipeline / branch / commit), when known.
-  pipeline      String?            @db.VarChar(24)
-  author        String?            @db.VarChar(191)
-  sourceBranch  String?            @db.VarChar(255)
+  pipeline          String?            @db.VarChar(24)
+  author            String?            @db.VarChar(191)
+  sourceBranch      String?            @db.VarChar(255)
   /// When it last changed on GitLab (MR updated_at, commit date, branch head date).
-  occurredAt    DateTime
-  mergedAt      DateTime?
+  occurredAt        DateTime
+  mergedAt          DateTime?
   /// Branch links only: when the branch was no longer in GitLab's (complete) branch list.
   /// Kept (shown as 削除済み on the PBI) instead of deleted; cleared if the branch comes back.
-  goneAt        DateTime?
+  goneAt            DateTime?
   /// Declared by a developer (dev:write, POST /api/v1/.../dev/mr-links) rather than found by the
   /// sync; null = found by the sync. The sync keeps refreshing state / title of a declared MR.
-  declaredById  String?
-  declaredAt    DateTime?
+  declaredById      String?
+  declaredAt        DateTime?
   /// MR links only (W4 触る範囲): when the sync last compared the MR's changed files with the
   /// declared scope of the PBI's active work claims; null = never compared (no scope declared).
   scopeCheckedAt    DateTime?
@@ -1447,12 +1490,12 @@ model GitLink {
   outsideScopeCount Int?
   /// The first of those files (JSON array of strings, at most 20) for the PBI panel.
   outsideScopePaths Json?
-  createdAt     DateTime           @default(now())
-  updatedAt     DateTime           @updatedAt
-  project       Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  repository    GitRepository      @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
-  backlogItem   ProductBacklogItem @relation(fields: [backlogItemId], references: [id], onDelete: Cascade)
-  declaredBy    User?              @relation("GitLinkDeclaredBy", fields: [declaredById], references: [id], onDelete: SetNull)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  project           Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  repository        GitRepository      @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  backlogItem       ProductBacklogItem @relation(fields: [backlogItemId], references: [id], onDelete: Cascade)
+  declaredBy        User?              @relation("GitLinkDeclaredBy", fields: [declaredById], references: [id], onDelete: SetNull)
 
   @@unique([repositoryId, kind, ref, backlogItemId])
   @@index([backlogItemId])
