@@ -328,6 +328,7 @@ function PlanPage({ projectId, canEdit }: Props) {
         exportUrl={`${api.base}/export?lang=${language}`}
         lessonRulesUrl={`/projects/${projectId}/plan/lesson-rules`}
         actualsUrl={`/projects/${projectId}/plan/actuals`}
+        capacityUrl={`/projects/${projectId}/plan/capacity`}
         onPrint={() => setPrintOpen(true)}
         onLoadTemplate={() => setTplMode("load")}
         onSaveAsTemplate={() => setTplMode("save")}

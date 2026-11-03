@@ -39,6 +39,8 @@ interface Props {
   lessonRulesUrl?: string
   /** 実績を確定 page of this project (plan 12 E1); omitted = no menu entry. */
   actualsUrl?: string
+  /** 稼働量と負荷 page of this project (plan 12 E4); omitted = no menu entry. */
+  capacityUrl?: string
 }
 
 /** Page header (h1) with zoom switch, today jump, "show everything", add actions and a "more" menu. */
@@ -65,6 +67,7 @@ export function PlanToolbar(props: Props) {
       : []),
     { key: "export", label: t.planExport, onSelect: () => window.location.assign(props.exportUrl) },
     { key: "print", label: t.planPrint, onSelect: props.onPrint },
+    ...(props.capacityUrl ? [{ key: "capacity", label: t.pcpOpenFromPlan, onSelect: () => router.push(props.capacityUrl as string) }] : []),
     ...(props.actualsUrl ? [{ key: "actuals", label: t.pacOpenFromPlan, onSelect: () => router.push(props.actualsUrl as string) }] : []),
     ...(props.lessonRulesUrl ? [{ key: "lesson-rules", label: t.plrOpenFromPlan, onSelect: () => router.push(props.lessonRulesUrl as string) }] : []),
   ]
