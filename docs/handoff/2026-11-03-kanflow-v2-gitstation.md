@@ -98,3 +98,17 @@ Kanflow の作業は、このリポジトリを開いたセッションで進め
 - **確かめたこと**: マイグレーションを新しい試験用 DB `scrum_tool_v2` に全部適用、`prisma migrate diff` でずれなし、typecheck・変えたファイルの lint はエラーなし、全部の試験 9,444 件が合格（73 件は DB を要するため飛ばされた）、`KANFLOW_DB_TESTS=1` で DB の試験 61 件が合格、エージェントモデルの `self-heal --check` は 11 項目すべて合格。K2 の `migrator.integration.test.ts` は合成の MySQL のコンテナ（`ops/test-env/migrator-compose.yml`）が要るため今回は流していない。
 - **片付け**: 取り込み済みの worktree（`Kanflow-v2`（E0）・`Kanflow-v2-k2`・`Kanflow-plan-estimate`・`Kanflow-plan-lesson-rules`・`Kanflow-gitstation-source`・`Kanflow-agent-model`）を消した。ブランチは残してある。残っているのは本番の `D:\APP\Kanflow`、この引き継ぎの `D:\APP\Kanflow-handoff`（このセッションが終わったら消してよい）、`D:\APP\Kanflow-e2e`（MySQL のデータとログ、未コミットのファイルがあるので触れていない）、worktree ではない古い写し `D:\APP\Kanflow-stale-types-20261001-122807`（消すかは利用者が判断する）。
 - **これからの作業**: `D:\APP\Kanflow-v2` で Claude Code を開く（エージェントモデルが動く）。新しい作業は `feat/L4-NOPBI-kanflow-v2` から worktree で切り、終わったらここへ取り込む。push はまだしない。push の前に、規則に合わない古いブランチの名前を変える。
+
+## 9. E3 の後半（反省点の規則の保存・確定・共有と画面）を取り込んだ（2026-11-03）
+
+- **ブランチ** `feat/L4-NOPBI-plan-lesson-rule-store`（v2 の本流から）。コミット `5d0fae7`（表・権限・API）、`5194632`（画面）。本流へ `--no-ff` で取り込んだ（`6c33f3c`）。worktree は消し、ブランチは残した。
+- **作ったもの**: 表 `plan_lesson_rule`（追記のマイグレーション `20261103170000_plan_lesson_rule`、CHECK つき）。下書き（`plan.write`）→ **1 件ずつ・種類と数字を送り返して確定**（`plan.lessonRule.confirm`、PO / SM）→ 廃止。共有の申請は出典のプロジェクトの PO（`plan.lessonRule.requestPromotion`）で、**自分のプロジェクトが読み込んだ系統・自分の種類だけ**。共有の確定・却下・共有の規則の廃止は管理者だけ（`canConfirmLineageRule`、`/api/admin/plan-lesson-rules`）。管理者の確定も数字と申請の範囲を送り返す。すべての書き込みは版で守る（同時の確定は 1 つだけ通る）。
+- **機密**: 凍結しない。使う時・一覧・申請・確定のたびに、引いた PBI と教訓を読み直す（機密・消えた・ゴミ箱・別のプロジェクトへ移った PBI、範囲が外れた教訓は「機密」と扱う）。機密の教訓・確定していない教訓は引けない。振り返りから作った規則と出典に機密がある規則は共有できない。共有のときに引用を消す。**共有しても出典のプロジェクトでは必ず効く**。
+- **使う道**: `effectiveLessonRules({ projectId, lineage, projectType })` が `applyLessonRules` に渡す規則を返す。**呼ぶのは E5**（`lineage` / `projectType` はサーバー側のデータから決めること、`skipped` は管理者以外に返さないこと — セキュリティレビューの注記）。
+- **画面**: 全体計画の「…」メニュー → `/projects/[id]/plan/lesson-rules`、管理メニュー → `/admin/plan-lesson-rules`。文言は ja / en / id（i18n の領域 `plan-lesson-rules`、接頭辞 `plr`）。
+- **確かめたこと**: typecheck・変えたファイルの lint はエラーなし、`npm run build` が通る、全部の試験 9,624 件が合格（DB の試験 `lesson-rules.db.test.ts` 18 件を含む、`scrum_tool_v2` にもマイグレーションを適用・`migrate diff` でずれなし）、Playwright の通し（`e2e/flows/lesson-rules-flow.spec.ts`、合成データ、1440 / 375 px の画面を確認）、`self-heal --check` 合格。`worker-clock` の 2 件は `.env` をシェルに出したときだけ落ちる既存の現象（出さなければ 3 件とも合格）。
+- **独立レビュー**（計画 12 §6 の E3 の評価役 + UI の完了条件）: `typescript-reviewer`・`database-reviewer`・`security-reviewer`・`design-reviewer`・`a11y-architect`・`i18n-sync-auditor`・`data-sovereignty-guard`。出た HIGH（a11y: 操作の後にフォーカスが消える・処理中のボタンにフォーカスが残る、i18n: 上限の誤ったエラーコード）と MEDIUM はすべて直し、a11y は 2 回の再確認で CRITICAL / HIGH なし。
+- **残した LOW**（後で）: 一覧の再読み込みが失敗したときのフォーカスの予約が残る、カードと操作の組が同じ文で 2 回読まれる、保持（§9 の 8）と退職者の扱いの対象に `plan_lesson_rule` の利用者 ID の列を含めるかの決定。
+- **気づいたこと**: `git merge` もコミットを作るので、`-c user.name/-c user.email` を付けないと全体の設定のアドレスになる（今回は取り込み直後に作成者だけ直した）。`next dev` は `app/AGENTS.md`・`app/CLAUDE.md` を作るので、コミットしない。
+
+次: E1（§9 の 8 を決めてから）、E4（§9 の 1・2 を決めてから）、K3 の後半（GitStation の I1 と申し入れの合意の後）、E5（E3・E4 の後）。どれも利用者か GitStation を待つ。
