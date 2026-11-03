@@ -74,3 +74,20 @@ Kanflow の作業は、このリポジトリを開いたセッションで進め
 - テストを先に書く。変更ごとに lint・typecheck・test（PG の DB のテストを含む）を通す。
 - 独立レビュー（`typescript-reviewer`・`database-reviewer`・`security-reviewer` など、計画の表の評価役）で CRITICAL / HIGH が無くなってから、ブランチを完了とする。
 - 利用者とは日本語で話す。
+
+## 7. 進み具合（2026-11-03、引き継いだセッション）
+
+決まったこと: **コミットの作成者は `masaki.fujikawa@music.yamaha.com`**（利用者の回答。§4 の 1 は解決）。push はまだしない（利用者に確かめてから）。利用者の指示は「推奨の形で進める」。全体の `git config` は変えず、コミットのたびに `-c user.name/-c user.email` を付ける（共有の設定は本番のフォルダにも効くため）。
+
+| 作業 | ブランチ（起点） | 作業フォルダ | 状態 |
+|---|---|---|---|
+| E2 見積もりの計算 | `feat/L4-plan-estimate-engine`（E0） | `D:\APP\Kanflow-plan-estimate` | 完了。`02dcf55`・`39b62bb`・`2891966`。試験 58 件。`typescript-reviewer`・`pr-test-analyzer` の CRITICAL / HIGH は解消 |
+| E3 反省点の規則の適用と検証 | `feat/L4-plan-lesson-rules`（E0） | `D:\APP\Kanflow-plan-lesson-rules` | 前半が完了。`5c296de`・`dfb068a`・`44af7f3`。試験 94 件。CRITICAL / HIGH は解消。表・確定の流れ・権限は後半 |
+| K3 GitStationSource（前半） | `feat/L4-git-gitstation-source`（K1） | `D:\APP\Kanflow-gitstation-source` | 完了。`049412c`〜`35194bb`。全体の試験 9,169 件が通る（`worker-clock` の 2 件は `.env` をシェルに出したときだけ落ちる既存の現象）。`typescript-reviewer`・`security-reviewer`・`silent-failure-hunter` の CRITICAL / HIGH は解消 |
+
+- **E2**: バックテスト（合成データ、seed 0〜5）で、MAPE はテンプレートより 8〜15% 小さい。P80 の当たりは 78〜83%。§5 の「既定で見せる」条件（15% 以上の改善）は、合成の 12 件では満たさない seed がある。見えない出典の「1 件の変化を保留する」状態は、**全プロジェクト共通の保存先**（見る人の可視の集合ごと）に置く前提（E5 で作る）。残っている課題: 偶数の h' から 1 件抜けたときは保留しない（`hidden.ts` の注記）。
+- **E3**: 決めたこと: `split` は順に並ぶ部分（`<key>_pN`）、`add_buffer` は後続との間に入れる（`<key>_bufN`）、`scale_duration` は日数を変えず係数の積を返す（E2 の r50 に掛け、全体の上限は E5 で確かめる）、マイルストーンは 20% の数に含める、依存の追加は 30 件まで、終了日はテンプレートの期間 × 3.0 まで。名前は NFKC にして、見えない文字・マークアップ・URL・危険な形式名・先頭の `= + - @` を断る。
+- **K3**: カーソルは**連携ごとに 1 つ**（表 `git_station_feed`、借用（lease）と比較して書き込み）。読んだイベントを、パス**と** `work_items` の Kanflow のプロジェクトでリポジトリに振り分ける。GitStation のリポジトリは、自分のプロジェクト 1 つだけに結ばれている場合に限り読む（`kanflow_project_ids`）。接続先は `GITSTATION_ALLOWED_HOSTS`（既定は空）。最初の読み込み・再同期・410 では、先頭のカーソル → 状態の取り直し → 続きの順にする。永続的な失敗（401 / 403 / 404・結び付けなし・3 回続けて書けない）は、そのリポジトリだけを外して後で取り直す。一時的な失敗のときだけカーソルを止める。DB の試験は `scrum_tool_k3`（同じ試験用のコンテナ）で行う。
+- **GitStation への申し入れ**: `D:\APP\Kanflow-gitstation-source\docs\integration\gitstation-contract-proposal.md`（認証、連携の単位で MR の状態の一覧を取る道、イベントの `state`・`merged_at`、`commit.linked` の `data`、リポジトリの読み取りの形、`kanflow_project_ids`、コミットの一覧（問い 6））。**GitStation の計画 02 に取り込んでもらうまで、本物との通しの試験はできない。**
+
+次: E1（§9 の 8 を決めてから）、E4（§9 の 1・2 を決めてから）、K3 の後半（GitStation の I1 と申し入れの合意の後）。
