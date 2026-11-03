@@ -166,6 +166,58 @@ model PlanScheduleLoad {
   @@map("plan_schedule_load")
 }
 
+/// 反省点の規則 (plan 12 §2.3, E3): one of the six fixed rule kinds (src/lib/plan-lesson-rules/rules.ts) that may
+/// change a base schedule. Only `confirmed` rules change a plan; where a rule applies is decided at use time
+/// (src/lib/plan-lesson-rules/scope.ts), and cited sources are re-checked for confidentiality each time (never
+/// frozen). Users are plain ids (no FK), like the other audit columns. CHECK constraints in the migration.
+model PlanLessonRule {
+  id                     String    @id @default(cuid())
+  /// scale_duration | add_buffer | add_prerequisite | add_dependency | split | cap_parallel
+  kind                   String    @db.VarChar(32)
+  /// The kind's params, validated with its zod schema on every write and every read.
+  params                 Json
+  /// project (only the source project) | shared (lineage / project type; admins only)
+  scope                  String    @default("project") @db.VarChar(16)
+  sourceProjectId        String
+  /// `shared` filters: the rule applies where every non-null filter matches. Both null for `project`.
+  lineage                String?   @db.VarChar(200)
+  projectType            String?   @db.VarChar(40)
+  /// draft → confirmed → retired (a draft may also be retired)
+  state                  String    @default("draft") @db.VarChar(16)
+  /// W11 lesson the rule came from (no FK: a lesson that is gone counts as confidential).
+  sourceLessonId         String?   @db.VarChar(191)
+  /// PBIs of the source project the rule came from (no FK: a PBI that is gone or trashed counts as confidential).
+  sourceBacklogItemIds   String[]  @default([])
+  /// Sprint whose retrospective the rule came from: project-internal text, so the rule stays `project` scope.
+  sourceSprintId         String?   @db.VarChar(191)
+  /// Quoted source text. Shown inside the source project only; removed when the rule is promoted.
+  quote                  String?   @db.Text
+  /// human | llm (E6)
+  createdByKind          String    @default("human") @db.VarChar(8)
+  createdById            String?
+  confirmedById          String?
+  confirmedAt            DateTime?
+  /// Promotion request by the source project's PO (target filters), confirmed or rejected by an admin.
+  promotionLineage       String?   @db.VarChar(200)
+  promotionProjectType   String?   @db.VarChar(40)
+  promotionRequestedById String?
+  promotionRequestedAt   DateTime?
+  promotedById           String?
+  promotedAt             DateTime?
+  retiredById            String?
+  retiredAt              DateTime?
+  /// Optimistic lock: every change bumps it; a write naming an older version is refused (409).
+  version                Int       @default(0)
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  sourceProject Project @relation(fields: [sourceProjectId], references: [id], onDelete: Cascade)
+
+  @@index([sourceProjectId, state])
+  @@index([scope, state])
+  @@map("plan_lesson_rule")
+}
+
 /// Reusable rough plan (大枠の計画) loaded into 全体計画 as undated stages.
 /// builtinKey set = one of the shipped 共通 templates (seeded lazily from
 /// src/lib/plan-templates/builtins.ts; editable, resettable, never deleted).
@@ -381,6 +433,8 @@ model Project {
   /// Plan template loads into this project's 全体計画.
   planTemplateApplications PlanTemplateApplication[]
   planScheduleLoads        PlanScheduleLoad[]
+  /// 反省点の規則 drafted in this project (plan 12 E3).
+  planLessonRules          PlanLessonRule[]
 
   /// マイルストーン・検収ボード (general projects).
   milestoneBoard    MilestoneBoard?

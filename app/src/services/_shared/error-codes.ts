@@ -94,6 +94,18 @@ export const API_ERROR_CODES = [
   "PLAN_PROPOSAL_TOO_LARGE",
   /** The same plan_load proposal was already approved and loaded into this project. */
   "PLAN_ALREADY_LOADED",
+  /** 反省点の規則 (plan 12 E3): the kind / params / quote / cited sources do not validate (message says where). */
+  "PLAN_RULE_INVALID",
+  /** No lesson rule with this id in this project (also a rule of another project, or a shared rule for a non-admin). */
+  "PLAN_RULE_NOT_FOUND",
+  /** The rule was changed since it was shown (version or the confirmed kind / numbers differ): reload and re-check. */
+  "PLAN_RULE_CHANGED",
+  /** The rule is not in a state that allows this (e.g. confirming a retired rule, promoting a draft). */
+  "PLAN_RULE_STATE",
+  /** Promotion refused: the rule came from a retrospective or cites a source that is confidential now. */
+  "PLAN_RULE_PROMOTION_BLOCKED",
+  /** The project already has the maximum number of live (draft / confirmed) lesson rules. */
+  "PLAN_RULE_LIMIT",
   // Files / folders
   "FILE_REQUIRED",
   "FILE_EMPTY",

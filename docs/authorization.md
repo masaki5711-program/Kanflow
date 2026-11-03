@@ -75,6 +75,11 @@ System admins skip the membership lookup; every request (admins included) does o
 | `git.configure` | Y | Y | Y | - | - |
 | `git.sync` | Y | Y | Y | Y | - |
 | `dev.write` | Y | Y | Y | Y | - |
+| `plan.lessonRule.confirm` | Y | Y | Y | - | - |
+| `plan.lessonRule.requestPromotion` | Y | Y | - | - | - |
+
+Rules of the `shared` scope (反省点の規則 widened to a lineage / project type) and promotion requests are confirmed
+by **system admins only** (`canConfirmLineageRule`, plan 12 §4) — not expressible per project.
 
 ## Route → action
 
@@ -110,6 +115,11 @@ Paths are relative to `/api/projects/[projectId]`.
 | `/plan/templates/apply` | | plan.write | | |
 | `/plan/templates/applications` | project.view | | | |
 | `/plan/templates/save` | | plan.write | | |
+| `/plan/lesson-rules` (反省点の規則, plan 12 E3; GET also answers `permissions`) | project.view | plan.write (a `project`-scope draft) | | |
+| `/plan/lesson-rules/[ruleId]` | | | PATCH: plan.write (drafts only) | |
+| `/plan/lesson-rules/[ruleId]/confirm` (one rule; body repeats kind + params) | | plan.lessonRule.confirm | | |
+| `/plan/lesson-rules/[ruleId]/retire` | | plan.lessonRule.confirm | | |
+| `/plan/lesson-rules/[ruleId]/promotion` (share request) | | plan.lessonRule.requestPromotion | | |
 | `/releases` | project.view | | | |
 | `/releases/[id]` | | | release.manage | release.manage |
 | `/releases/import` | | release.manage | | |
@@ -239,6 +249,21 @@ Loading a template into a project, saving a project's plan as a template and 「
 project routes gated by `plan.write` (see the table above); the template itself must also be
 visible to the caller (else 404). Template writes are rate limited per user (60 / min) and
 bodies are size-bounded (413). Editing a template never changes plans already loaded from it.
+
+## 反省点の規則 (lesson rules, plan 12 E3, 2026-11)
+
+- A rule is drafted in its project (`plan.write`) with the `project` scope; only `confirmed` rules change a plan.
+  Confirm is **one rule per request** and the body repeats the kind and numbers shown (`plan.lessonRule.confirm`,
+  PO / SM); a draft changed in between is 409 `PLAN_RULE_CHANGED`. Every write is version-checked.
+- A rule of another project — and a rule already widened to the `shared` scope — is 404 `PLAN_RULE_NOT_FOUND` on the
+  project routes.
+- Sharing: the source project's PO requests it (`plan.lessonRule.requestPromotion`); **only system admins** confirm
+  or reject (`canConfirmLineageRule`), and retire shared rules, through `/api/admin/plan-lesson-rules`,
+  `/api/admin/plan-lesson-rules/[ruleId]/promotion` and `/api/admin/plan-lesson-rules/[ruleId]/retire`. The quote is
+  removed when the rule is shared.
+- Confidentiality is checked **at use time**, never stored: a cited PBI / lesson that is confidential now, gone,
+  trashed or moved makes a shared rule stop outside its source project, and blocks a promotion request or confirm.
+  A rule drafted from a retrospective stays `project` scope (400 `PLAN_RULE_PROMOTION_BLOCKED`).
 
 ## REST API and access tokens (P4, 2026-10; scopes 2026-10-30)
 
