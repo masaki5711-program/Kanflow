@@ -38,4 +38,6 @@ export interface TransactionOptions {
    * the reads after the lock must see what the previous lock holder committed.
    */
   isolationLevel?: "ReadCommitted"
+  /** Body time limit in ms (default 20 s) — only for bulk writes that are bounded but large (e.g. 実績を確定). */
+  timeout?: number
 }

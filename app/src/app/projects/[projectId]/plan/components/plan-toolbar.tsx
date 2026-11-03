@@ -37,6 +37,8 @@ interface Props {
   hasUndated: boolean
   /** 反省点の規則 page of this project (plan 12 E3); omitted = no menu entry. */
   lessonRulesUrl?: string
+  /** 実績を確定 page of this project (plan 12 E1); omitted = no menu entry. */
+  actualsUrl?: string
 }
 
 /** Page header (h1) with zoom switch, today jump, "show everything", add actions and a "more" menu. */
@@ -63,6 +65,7 @@ export function PlanToolbar(props: Props) {
       : []),
     { key: "export", label: t.planExport, onSelect: () => window.location.assign(props.exportUrl) },
     { key: "print", label: t.planPrint, onSelect: props.onPrint },
+    ...(props.actualsUrl ? [{ key: "actuals", label: t.pacOpenFromPlan, onSelect: () => router.push(props.actualsUrl as string) }] : []),
     ...(props.lessonRulesUrl ? [{ key: "lesson-rules", label: t.plrOpenFromPlan, onSelect: () => router.push(props.lessonRulesUrl as string) }] : []),
   ]
 

@@ -25,7 +25,12 @@ function focusElement(el: HTMLElement | null): boolean {
  * NEWER than the request has rendered and no dialog is open (`blocked`) — so it lands on the card as it is now,
  * never on a node about to be replaced and never behind an open dialog. Fallbacks: `fallbackId`, then the page h1.
  */
-export function useFocusAfterReload(data: unknown, blocked: boolean): (ruleId: string | null, fallbackId?: string | null) => void {
+export function useFocusAfterReload(
+  data: unknown,
+  blocked: boolean,
+  /** Element id of an item's heading (lesson-rule cards by default; the actuals screen passes its own). */
+  headingIdOf: (id: string) => string = ruleHeadingId,
+): (ruleId: string | null, fallbackId?: string | null) => void {
   const pending = useRef<Pending | null>(null)
   const lastData = useRef<unknown>(data)
   const mounted = useRef(true)
@@ -48,11 +53,11 @@ export function useFocusAfterReload(data: unknown, blocked: boolean): (ruleId: s
     // After paint, so a closing Modal's own focus restore (on unmount) has already run.
     requestAnimationFrame(() => {
       if (!mounted.current) return
-      if (target.ruleId && focusElement(document.getElementById(ruleHeadingId(target.ruleId)))) return
+      if (target.ruleId && focusElement(document.getElementById(headingIdOf(target.ruleId)))) return
       if (target.fallbackId && focusElement(document.getElementById(target.fallbackId))) return
       focusElement(document.querySelector<HTMLElement>("h1"))
     })
-  }, [data, blocked])
+  }, [data, blocked, headingIdOf])
 
   return useCallback((ruleId: string | null, fallbackId: string | null = null) => {
     pending.current = { ruleId, fallbackId, arrived: false }

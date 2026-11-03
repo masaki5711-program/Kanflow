@@ -166,6 +166,143 @@ model PlanScheduleLoad {
   @@map("plan_schedule_load")
 }
 
+/// 実績のスナップショット (plan 12 §2.2, E1): the frozen actuals of a finished project, written when the PO / SM
+/// presses 実績を確定 (`plan.actualsFinalize`). Rows are never rewritten: finalizing again adds a new snapshot and sets
+/// `supersededAt` on the old one. The two exceptions are `includeInLearning` (a PO / SM switch, audited) and the
+/// admin pseudonymisation of `plan_actuals_item.ownerId` (audited). Confidentiality is NOT stored: the cited PBIs are
+/// kept per leaf and re-checked at every use (src/services/plan-actuals: `learnableItemFacts`).
+model PlanActualsSnapshot {
+  id                String    @id @default(cuid())
+  projectId         String
+  projectType       String    @db.VarChar(40)
+  /// Lineage of the latest base-schedule load (plan_schedule_load), or "manual:<projectId>" without one.
+  lineage           String    @db.VarChar(200)
+  scheduleLoadId    String?   @db.VarChar(191)
+  scheduleHash      String?   @db.Char(64)
+  skipWeekends      Boolean   @default(false)
+  /// The day the work ended (latest actual end of a leaf; the finalize day when none).
+  closedAt          DateTime  @db.Date
+  /// The project's FIRST finalization (kept across re-finalizations: the "oldest first" order of plan 12 §3.2).
+  firstFinalizedAt  DateTime
+  finalizedAt       DateTime  @default(now())
+  finalizedById     String?
+  repoCount         Int       @default(0)
+  /// Items to check that the finalizer acknowledged (the count they were shown).
+  issueCount        Int       @default(0)
+  includeInLearning Boolean   @default(true)
+  /// e1-v1 — bumped when a formula of src/lib/plan-actuals changes.
+  methodVersion     String    @db.VarChar(16)
+  /// Optimistic lock of the includeInLearning switch.
+  version           Int       @default(0)
+  supersededAt      DateTime?
+
+  project Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  items   PlanActualsItem[]
+
+  /// UNIQUE NULLS NOT DISTINCT in the migration: at most ONE current (supersededAt IS NULL) snapshot per project,
+  /// whatever path writes (Prisma does not model NULLS NOT DISTINCT).
+  @@unique([projectId, supersededAt], map: "plan_actuals_snapshot_one_current_key")
+  @@index([lineage, supersededAt])
+  @@index([projectType, supersededAt])
+  @@map("plan_actuals_snapshot")
+}
+
+/// One leaf of a snapshot (plan 12 §2.2 table). PBI-derived numbers are NOT here: they live per PBI in
+/// plan_actuals_item_pbi / _repo and are summed at use time over the PBIs that are not confidential now.
+model PlanActualsItem {
+  id                   String  @id @default(cuid())
+  snapshotId           String
+  /// The plan row (plain id: the plan may be edited or trashed later).
+  planItemId           String  @db.VarChar(191)
+  templateKey          String? @db.VarChar(40)
+  name                 String  @db.VarChar(255)
+  parentKey            String? @db.VarChar(40)
+  isMilestone          Boolean @default(false)
+  /// The schedule item's role (from the loaded content); what the evidence screen shows instead of the owner.
+  role                 String? @db.VarChar(32)
+  templateDays         Int?
+  plannedDays          Int?
+  actualDays           Int?
+  /// Both actual dates, start ≤ end, not over 5 × baseline: usable for learning.
+  complete             Boolean @default(false)
+  startSlipDays        Int?
+  endSlipDays          Int?
+  waitGapDays          Int?
+  onHoldDays           Int?
+  /// The owner's user id (m_u learning only; never shown). Pseudonymised by an admin to "role:<name>".
+  ownerId              String? @db.VarChar(191)
+  ownerConcurrentAvg   Float?
+  ownerConcurrentPeak  Int?
+  /// C-3 merge-order warnings (null until C-3 exists).
+  mergeOrderViolations Int?
+
+  snapshot PlanActualsSnapshot   @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  pbis     PlanActualsItemPbi[]
+  repos    PlanActualsItemRepo[]
+
+  @@index([snapshotId])
+  @@index([templateKey])
+  @@index([ownerId])
+  @@map("plan_actuals_item")
+}
+
+/// Leaf × PBI (plan 12 §2.2): the PBI's numbers at finalize time; joined with the CURRENT confidential flag at use.
+model PlanActualsItemPbi {
+  id                 String  @id @default(cuid())
+  snapshotItemId     String
+  /// Plain id: a PBI that is gone counts as confidential at use time.
+  backlogItemId      String  @db.VarChar(191)
+  effortHours        Float?
+  estimatedHours     Float?
+  reworkCount        Int     @default(0)
+  mrSetLeadTimeHours Float?
+  /// Merged MRs of the PBI's set; null = a bound repository could not be read.
+  mrCount            Int?
+
+  item PlanActualsItem @relation(fields: [snapshotItemId], references: [id], onDelete: Cascade)
+
+  @@unique([snapshotItemId, backlogItemId])
+  @@index([backlogItemId])
+  @@map("plan_actuals_item_pbi")
+}
+
+/// Leaf × PBI × repository (plan 12 §2.4): one row per repository the PBI's MRs touched.
+model PlanActualsItemRepo {
+  id               String  @id @default(cuid())
+  snapshotItemId   String
+  backlogItemId    String  @db.VarChar(191)
+  repositoryId     String  @db.VarChar(191)
+  /// The repository's path ("group/repo"); shown only to readers who can read it (plan 12 §4).
+  repositoryRef    String  @db.VarChar(512)
+  /// Null = the repository could not be read at finalize time (unknown, not zero).
+  mrCount          Int?
+  leadTimeP50Hours Float?
+  additions        Int?
+  deletions        Int?
+  versionCount     Int?
+
+  item PlanActualsItem @relation(fields: [snapshotItemId], references: [id], onDelete: Cascade)
+
+  @@unique([snapshotItemId, backlogItemId, repositoryId])
+  @@index([backlogItemId])
+  @@map("plan_actuals_item_repo")
+}
+
+/// 設備・工程・タグ of a project (plan 12 §2.1, Q5: free strings until a master exists). Used for matching (E2).
+model ProjectAttribute {
+  id        String   @id @default(cuid())
+  projectId String
+  /// equipment | process | tag
+  kind      String   @db.VarChar(16)
+  ref       String   @db.VarChar(200)
+  createdAt DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, kind, ref])
+  @@map("project_attribute")
+}
+
 /// 反省点の規則 (plan 12 §2.3, E3): one of the six fixed rule kinds (src/lib/plan-lesson-rules/rules.ts) that may
 /// change a base schedule. Only `confirmed` rules change a plan; where a rule applies is decided at use time
 /// (src/lib/plan-lesson-rules/scope.ts), and cited sources are re-checked for confidentiality each time (never
@@ -435,6 +572,9 @@ model Project {
   planScheduleLoads        PlanScheduleLoad[]
   /// 反省点の規則 drafted in this project (plan 12 E3).
   planLessonRules          PlanLessonRule[]
+  /// 実績のスナップショット (plan 12 E1) and 設備・工程・タグ.
+  planActualsSnapshots     PlanActualsSnapshot[]
+  attributes               ProjectAttribute[]
 
   /// マイルストーン・検収ボード (general projects).
   milestoneBoard    MilestoneBoard?
@@ -1573,6 +1713,13 @@ model GitLink {
   /// When it last changed on GitLab (MR updated_at, commit date, branch head date).
   occurredAt        DateTime
   mergedAt          DateTime?
+  /// MR links only (plan 12 E1): when the MR was opened (GitLab created_at / GitStation opened_at); null = unknown.
+  openedAt          DateTime?
+  /// MR links only (plan 12 E1, filled once GitStation G1 reports them): number of versions, lines added / removed.
+  /// Null = not reported (never 0 for unknown).
+  versionCount      Int?
+  additions         Int?
+  deletions         Int?
   /// Branch links only: when the branch was no longer in GitLab's (complete) branch list.
   /// Kept (shown as 削除済み on the PBI) instead of deleted; cleared if the branch comes back.
   goneAt            DateTime?

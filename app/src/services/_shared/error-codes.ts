@@ -106,6 +106,16 @@ export const API_ERROR_CODES = [
   "PLAN_RULE_PROMOTION_BLOCKED",
   /** The project already has the maximum number of live (draft / confirmed) lesson rules. */
   "PLAN_RULE_LIMIT",
+  /** 実績を確定 (plan 12 E1): leaves need checking (body: `issues`); send acknowledgeIssues to finalize anyway. */
+  "PLAN_ACTUALS_INCOMPLETE",
+  /** No actuals snapshot with this id in this project. */
+  "PLAN_ACTUALS_NOT_FOUND",
+  /** The snapshot changed since it was shown (version): reload. */
+  "PLAN_ACTUALS_CHANGED",
+  /** Pseudonymisation by user is only for users who are no longer active. */
+  "PLAN_ACTUALS_USER_ACTIVE",
+  /** Pseudonymisation by snapshot is only for superseded (old) snapshots; the current one goes by retired user. */
+  "PLAN_ACTUALS_CURRENT",
   // Files / folders
   "FILE_REQUIRED",
   "FILE_EMPTY",

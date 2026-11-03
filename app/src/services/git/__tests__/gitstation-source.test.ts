@@ -445,6 +445,15 @@ describe("02 §8.2 regression: nothing is lost after a merge request is processe
     expect(second.mergeRequests).toEqual([expect.objectContaining({ ref: "1", state: "closed", mergedAt: null })])
   })
 
+  it("the opened event's time becomes the MR's open time and survives the later merge (plan 12 E1)", async () => {
+    const station = createFakeGitStation()
+    const start = here(station)
+    const opened = station.mergeRequest("merge_request.opened", 1)
+    station.mergeRequest("merge_request.merged", 1)
+    const changes = await sourceOn(station).readChanges(start, NOW)
+    expect(changes.mergeRequests).toEqual([expect.objectContaining({ ref: "1", state: "merged", openedAt: opened.occurred_at })])
+  })
+
   it("close → reopen → merge are read in order and end merged", async () => {
     const station = createFakeGitStation()
     const start = here(station)

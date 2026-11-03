@@ -97,6 +97,12 @@ export const PROJECT_ACTIONS = [
   "plan.lessonRule.confirm",
   /** Ask an admin to widen a confirmed `project` rule of this project to a lineage / project type (昇格の申請). */
   "plan.lessonRule.requestPromotion",
+  /**
+   * 実績を確定 (plan 12 §2.2, E1): freeze the project's actuals as a snapshot, re-finalize, and switch whether the
+   * snapshot is used for learning (`includeInLearning`, with a reason). Pseudonymising the owners of old rows is
+   * `canPseudonymizeActuals` (admins only), never this action.
+   */
+  "plan.actualsFinalize",
 ] as const
 export type ProjectAction = (typeof PROJECT_ACTIONS)[number]
 
@@ -144,6 +150,7 @@ const POLICY: Readonly<Record<ProjectAction, readonly Grantee[]>> = {
   "dev.write": MEMBER,
   "plan.lessonRule.confirm": PO_SM,
   "plan.lessonRule.requestPromotion": PO,
+  "plan.actualsFinalize": PO_SM,
 }
 
 export function isSystemAdmin(actor: Pick<ProjectActor, "systemRole">): boolean {
@@ -179,6 +186,15 @@ export function can(actor: ProjectActor, action: ProjectAction): boolean {
  * with `can()` because such a rule reaches beyond one project.
  */
 export function canConfirmLineageRule(actor: Pick<ProjectActor, "systemRole">): boolean {
+  return isSystemAdmin(actor)
+}
+
+/**
+ * Pseudonymise the owners of actuals rows (plan 12 §4, Q8): replace `plan_actuals_item.ownerId` with the role name for
+ * retired users and rows past retention — the one audited exception to "snapshots are never rewritten". System
+ * admins only.
+ */
+export function canPseudonymizeActuals(actor: Pick<ProjectActor, "systemRole">): boolean {
   return isSystemAdmin(actor)
 }
 

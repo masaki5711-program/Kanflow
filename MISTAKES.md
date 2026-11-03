@@ -5,7 +5,7 @@
 
 # MISTAKES — 過去の失敗と実証済みの修正
 
-記録 2 件。検索: `node scripts/mistakes.js search "<エラー文>"`
+記録 4 件。検索: `node scripts/mistakes.js search "<エラー文>"`
 
 ## 📌 Pinned（再発性・致命度の高いミス — 常時注意）
 
@@ -13,8 +13,20 @@ _なし_
 
 ## 最近の記録
 
+### A timestamp taken before waiting for a lock collides with the previous holder (unique key on time)
+- 署名: `Unique constraint failed on the fields: ("projectId", "supersededAt") in concurrent finalizeActuals`
+- 原因: now = new Date() was computed at function entry, before waiting for the advisory lock, so the waiting call could reuse the same millisecond as an earlier supersede
+- 修正: Take the time AFTER acquiring the lock and make it strictly later than the latest stored time: now = max(Date.now(), max(supersededAt, finalizedAt) + 1 ms) (src/services/plan-actuals/actuals.service.ts)
+- weight 3 / 再発 0 / 2026-11-03 / mk-20261103-ee2035
+
+### Kanflow worktree: the first Edit of a file that differs from main is refused once (worktree-boundary…
+- 署名: `tsc error TS2561 / TS2305 / TS2353 right after parallel Edit calls in a worktree: a key, export or property added in one file is missing in another`
+- 原因: pre:edit:worktree-boundary blocks the first edit of each overlapping file once per session; the parallel edits to the other files succeed, so the code no longer matches (e.g. an i18n key used but not …
+- 修正: After any batch of Edit calls, scan the results for [worktree-boundary] OVERLAP errors and re-run exactly those edits (the overlap is intended for the v2 line) before typechecking
+- weight 2 / 再発 0 / 2026-11-03 / mk-20261103-0df0dc
+
 ### Kanflow logger takes (message, context), not pino-style (context, message)
-- 署名: `error TS2345: Argument of type { ...; err: string; } is not assignable to parameter of type string (log.warn / log.error call)`
+- 署名: `log.warn({ ... }, "message") / log.error({ ... }, "message"): pino-style argument order on the Kanflow logger`
 - 原因: src/lib/logger has the signature log.warn(message: string, context?: object); writing the pino order log.warn({ ... }, "msg") passes an object as the message
 - 修正: Call log.warn("what happened", { ruleId, error: err instanceof Error ? err.message : String(err) }) - message first, context object second (see src/services/git/git-scope-check.ts)
 - weight 2 / 再発 0 / 2026-11-03 / mk-20261103-7bc753
