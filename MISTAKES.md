@@ -5,13 +5,25 @@
 
 # MISTAKES — 過去の失敗と実証済みの修正
 
-記録 4 件。検索: `node scripts/mistakes.js search "<エラー文>"`
+記録 6 件。検索: `node scripts/mistakes.js search "<エラー文>"`
 
 ## 📌 Pinned（再発性・致命度の高いミス — 常時注意）
 
 _なし_
 
 ## 最近の記録
+
+### DB test reading by a shared project type collides with other DB test files running in parallel
+- 署名: `estimate-run.db.test passes alone but fails in the full suite: PLAN_ESTIMATE_STALE reason source_changed`
+- 原因: vitest runs DB test files in parallel on one database; other files create and delete software snapshots, so a source the run used really vanished
+- 修正: Give the test's projects and snapshots a project type (and lineage) of their own, e.g. t-<tag>, so no other file touches the rows the code reads by type
+- weight 3 / 再発 0 / 2026-11-03 / mk-20261103-b66e30
+
+### jsonb reorders object keys: comparing a stored JSON with JSON.stringify fails
+- 署名: `approval refused plan_changed although owners and end date are equal; stored jsonb object key order differs`
+- 原因: PostgreSQL jsonb stores object keys sorted by length then bytes, so JSON.stringify of the read value has a different key order than the in-memory object
+- 修正: Compare canonical forms (canonicalJson from src/lib/plan-schedule/schedule-source.ts) of stored and recomputed JSON, never JSON.stringify
+- weight 3 / 再発 0 / 2026-11-03 / mk-20261103-1f6c6b
 
 ### A timestamp taken before waiting for a lock collides with the previous holder (unique key on time)
 - 署名: `Unique constraint failed on the fields: ("projectId", "supersededAt") in concurrent finalizeActuals`
