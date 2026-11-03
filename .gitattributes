@@ -1,0 +1,24 @@
+# Agent model (CLAUDE.md §7): the gates byte-compare generated LF text with the
+# checked-out files (asset-inventory, mistake-memory). With core.autocrlf on a
+# Windows checkout these files would become CRLF and the gates report a FALSE
+# drift. Pin only the agent-model paths to LF; Kanflow's own files keep the
+# repository's existing line-ending behaviour.
+.claude/**              text eol=lf
+scripts/**              text eol=lf
+MISTAKES.md             text eol=lf
+docs/asset-inventory.md text eol=lf
+CLAUDE.md               text eol=lf
+.gitattributes          text eol=lf
+
+# Mistake-memory records are appended on every branch: union merge keeps both
+# sides (duplicates are collapsed by `node scripts/mistakes.js dedupe`).
+.claude/mistakes/records.jsonl merge=union
+
+# Binary assets that may live under the agent-model paths.
+*.png  binary
+*.jpg  binary
+*.pdf  binary
+*.pptx binary
+*.docx binary
+*.xlsx binary
+*.db   binary
