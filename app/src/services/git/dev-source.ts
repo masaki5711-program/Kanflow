@@ -1,12 +1,13 @@
-import { parseGitProvider, type GitProvider } from "./git-provider"
+import { GIT_PROVIDERS, parseGitProvider, type GitProvider } from "./git-provider"
 import { gitLabSourceKind, type ClientFactory } from "./gitlab-source"
+import { gitStationSourceKind, type GitStationClientFactory } from "./gitstation-source"
 import type { TagDraft } from "./gitlab-release-tags"
 
 /**
  * DevSource: the thin, swappable layer between the sync (git-sync) and the
- * system development data is read from. GitLab today (gitlab-source); a
- * GitStationSource replaces it for projects that moved (M3). A project reads
- * exactly one source (git-provider).
+ * system development data is read from: GitLab (gitlab-source, polled REST) or
+ * GitStation (gitstation-source, the integration event feed, M3 K3). A project
+ * reads exactly one source (git-provider).
  *
  * The sync stores and hands back an OPAQUE cursor: only the source that made a
  * cursor understands it. Where the cursor lives is the source's business too
@@ -48,8 +49,8 @@ export interface DevBranch {
   headCommittedAt: string | null
 }
 
-/** The sync's listings (also the labels of a failure message). */
-export type DevListingKind = "mr" | "commit" | "commit-lookback" | "branch"
+/** The sync's listings (also the labels of a failure message). "feed" = GitStation's event feed (merge requests and commits). */
+export type DevListingKind = "mr" | "commit" | "commit-lookback" | "branch" | "feed"
 
 export interface DevListingFailure {
   kind: DevListingKind
@@ -102,8 +103,12 @@ export interface DevSourceErrorInfo {
 /** One repository of one source, connected with its token. */
 export interface DevSource {
   readonly provider: GitProvider
-  /** The source's id of the repository (resolved once, stored as git_repository.externalId). */
-  locate(): Promise<number>
+  /**
+   * The source's numeric id of the repository (resolved once, stored as git_repository.externalId),
+   * or null for a source that addresses repositories by path (GitStation: opaque ids). Throws when
+   * the repository cannot be seen.
+   */
+  locate(): Promise<number | null>
   readChanges(cursor: DevCursor, now: Date): Promise<DevChanges>
   /** The PBI branches (throws on failure). */
   listBranches(now: Date): Promise<DevBranchListing>
@@ -140,6 +145,10 @@ export interface DevCursorCodec {
 
 export interface DevConnection {
   repositoryId: string
+  /** Kanflow project of the repository (GitStation: only events naming this project's work items are taken). */
+  projectId: string
+  /** provider "gitstation": GitStation's integration id (git_integration.stationIntegrationId). */
+  stationIntegrationId?: string | null
   apiBase: string
   repoPath: string
   externalId: number | null
@@ -149,17 +158,30 @@ export interface DevConnection {
 /** Per-provider client factories (tests inject fakes; production uses the defaults). */
 export interface DevClients {
   gitlab?: ClientFactory
+  gitstation?: GitStationClientFactory
 }
 
 export interface DevSourceKind {
   readonly provider: GitProvider
+  /** Shown as the actor of automatic changes (activity log: "GitLab", "GitStation"). */
+  readonly actorName: string
+  /**
+   * The source can list and download repository files (AI の参照資料, repo-index). GitStation's file
+   * API is not in the integration contract yet (M3), so its repositories are not indexed.
+   */
+  readonly readsRepositoryFiles: boolean
   readonly cursors: DevCursorCodec
   connect(connection: DevConnection, clients?: DevClients): DevSource
 }
 
-const KINDS: Readonly<Record<GitProvider, DevSourceKind>> = { gitlab: gitLabSourceKind }
+const KINDS: Readonly<Record<GitProvider, DevSourceKind>> = { gitlab: gitLabSourceKind, gitstation: gitStationSourceKind }
 
 /** The source kind of a provider; UnsupportedProviderError for anything else. */
 export function devSourceFor(provider: unknown): DevSourceKind {
   return KINDS[parseGitProvider(provider)]
+}
+
+/** Prisma filter: integrations whose source can read repository files (AI の参照資料; links use that source's URL scheme). */
+export function indexableProviderFilter(): { in: GitProvider[] } {
+  return { in: GIT_PROVIDERS.filter((p) => KINDS[p].readsRepositoryFiles) }
 }

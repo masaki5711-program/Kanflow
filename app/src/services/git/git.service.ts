@@ -8,10 +8,11 @@ import { pbiKey, suggestBranchName } from "@/lib/git/pbi-keys"
 import { NotFoundError, ValidationError } from "@/services/_shared/errors"
 import { logActivity, type ActivityChanges } from "@/services/_shared/activity"
 import type { Actor } from "@/services/_shared/actor"
-import { devSourceFor } from "./dev-source"
+import { devSourceFor, type DevClients } from "./dev-source"
 import { assertOneSource, DEFAULT_GIT_PROVIDER, parseGitProvider, type GitProvider } from "./git-provider"
 import { RESYNC_DAYS } from "./git-sync-cursors"
 import { FORBIDDEN_MESSAGE, syncErrorMessage } from "./gitlab-source"
+import { restartFeedOfRepository } from "./gitstation-feed-sync"
 import { aiPathFilterField, knowledgePatch, toKnowledgeDto, type RepositoryKnowledgeDto } from "./repo-knowledge.service"
 
 /**
@@ -24,6 +25,11 @@ export const MAX_REPOSITORIES = 20
 const MAX_TOKEN_LENGTH = 200
 
 const tokenField = z.string().trim().min(8).max(MAX_TOKEN_LENGTH)
+/** GitStation integration ids are opaque (plan 02 §5.1); only a safe alphabet is stored and sent in the URL path (encoded). */
+const stationIntegrationIdField = z
+  .string()
+  .trim()
+  .regex(/^[A-Za-z0-9_.:-]{1,64}$/, "連携 ID は英数字と _ . : - の 64 文字までです。")
 
 export const gitSettingsSchema = z
   .object({
@@ -31,8 +37,10 @@ export const gitSettingsSchema = z
     /** string = replace, null = remove, absent = keep. */
     token: tokenField.nullable().optional(),
     autoCompleteOnMerge: z.boolean().optional(),
-    /** Where the project's development data is read from (one per project; only "gitlab" today — git-provider). */
+    /** Where the project's development data is read from (one per project: "gitlab" or "gitstation" — git-provider). */
     provider: z.string().trim().min(1).max(32).optional(),
+    /** provider "gitstation": GitStation's integration id (opaque). string = set, null = remove, absent = keep. */
+    stationIntegrationId: stationIntegrationIdField.nullable().optional(),
   })
   .strict()
 export type GitSettingsInput = z.infer<typeof gitSettingsSchema>
@@ -72,6 +80,10 @@ export interface GitRepositoryDto extends RepositoryKnowledgeDto {
 
 export interface GitSettingsDto {
   enabled: boolean
+  /** Where the project reads its development data from ("gitlab" | "gitstation"). */
+  provider: string
+  /** GitStation's integration id (provider "gitstation"), else null. */
+  stationIntegrationId: string | null
   hasToken: boolean
   tokenHint: string | null
   autoCompleteOnMerge: boolean
@@ -121,6 +133,8 @@ export async function getGitSettings(projectId: string): Promise<GitSettingsDto>
   ])
   return {
     enabled: integration?.enabled ?? false,
+    provider: integration?.provider ?? DEFAULT_GIT_PROVIDER,
+    stationIntegrationId: integration?.stationIntegrationId ?? null,
     hasToken: !!integration?.tokenCipher,
     tokenHint: integration?.tokenHint ?? null,
     autoCompleteOnMerge: integration?.autoCompleteOnMerge ?? false,
@@ -138,12 +152,13 @@ export async function updateGitSettings(projectId: string, input: GitSettingsInp
     ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
     ...(input.autoCompleteOnMerge !== undefined ? { autoCompleteOnMerge: input.autoCompleteOnMerge } : {}),
     ...(provider !== undefined ? { provider } : {}),
+    ...(input.stationIntegrationId !== undefined ? { stationIntegrationId: input.stationIntegrationId } : {}),
     ...tokenPatch,
   }
   // Read, check and write under the project lock: a repository added meanwhile cannot slip past the one-source rule.
   const before = await prisma.$transaction(async (tx) => {
     await lockProject(tx, projectId)
-    const row = await tx.gitIntegration.findUnique({ where: { projectId }, select: { enabled: true, autoCompleteOnMerge: true, provider: true } })
+    const row = await tx.gitIntegration.findUnique({ where: { projectId }, select: { enabled: true, autoCompleteOnMerge: true, provider: true, stationIntegrationId: true } })
     if (provider !== undefined && row && row.provider !== provider) assertOneSource(row.provider, provider, await tx.gitRepository.count({ where: { projectId } }))
     await tx.gitIntegration.upsert({ where: { projectId }, create: { projectId, ...patch }, update: patch })
     return row
@@ -153,6 +168,8 @@ export async function updateGitSettings(projectId: string, input: GitSettingsInp
   if (input.autoCompleteOnMerge !== undefined && input.autoCompleteOnMerge !== (before?.autoCompleteOnMerge ?? false))
     changes["git.autoCompleteOnMerge"] = { from: before?.autoCompleteOnMerge ?? false, to: input.autoCompleteOnMerge }
   if (provider !== undefined && provider !== (before?.provider ?? DEFAULT_GIT_PROVIDER)) changes["git.provider"] = { from: before?.provider ?? DEFAULT_GIT_PROVIDER, to: provider }
+  if (input.stationIntegrationId !== undefined && input.stationIntegrationId !== (before?.stationIntegrationId ?? null))
+    changes["git.stationIntegrationId"] = { from: before?.stationIntegrationId ?? null, to: input.stationIntegrationId }
   // The token itself never goes to the log; only that it changed.
   if (input.token !== undefined) changes["git.token"] = { from: "•••", to: input.token === null ? null : "•••" }
   if (Object.keys(changes).length > 0) {
@@ -181,8 +198,8 @@ async function projectProvider(db: Pick<Tx, "gitIntegration">, projectId: string
 
 export interface ConnectionResult {
   ok: boolean
-  /** GitLab-side facts on success. */
-  repository?: { path: string; webUrl: string; defaultBranch: string | null; externalId: number }
+  /** Source-side facts on success (GitStation: no numeric id — repositories are addressed by path). */
+  repository?: { path: string; webUrl: string; defaultBranch: string | null; externalId: number | null }
   /** Japanese explanation on failure. */
   error?: string
 }
@@ -194,11 +211,14 @@ async function tokenFor(projectId: string, given?: string): Promise<string | nul
   return integration?.tokenCipher ? open(integration.tokenCipher) : null
 }
 
-export async function testConnection(projectId: string, url: string, token?: string, fetchImpl?: typeof fetch): Promise<ConnectionResult> {
+export async function testConnection(projectId: string, url: string, token?: string, fetchImpl?: typeof fetch, clients: DevClients = {}): Promise<ConnectionResult> {
   const location = parseRepoUrl(url)
-  if (!location) return { ok: false, error: "リポジトリの URL を認識できません（社内 GitLab の https URL を入れてください）。" }
+  if (!location) return { ok: false, error: "リポジトリの URL を認識できません（許可されたホストの https URL を入れてください）。" }
   const usable = await tokenFor(projectId, token)
   if (!usable) return { ok: false, error: "アクセストークンが設定されていません。" }
+  const integration = await prisma.gitIntegration.findUnique({ where: { projectId }, select: { provider: true, stationIntegrationId: true } })
+  const provider = parseGitProvider(integration?.provider ?? DEFAULT_GIT_PROVIDER)
+  if (provider !== "gitlab") return testThroughSource(projectId, provider, location, usable, integration?.stationIntegrationId ?? null, clients)
   try {
     const client = createGitLabClient({ apiBase: location.apiBase, token: usable, fetchImpl })
     const p = await client.getProject(location.repoPath)
@@ -213,6 +233,27 @@ export async function testConnection(projectId: string, url: string, token?: str
   }
 }
 
+/**
+ * Connection test through the project's DevSource (GitStation): `locate` proves the integration's
+ * service account can see the repository. GitStation addresses repositories by path (no numeric id).
+ */
+async function testThroughSource(
+  projectId: string,
+  provider: GitProvider,
+  location: { apiBase: string; repoPath: string; webUrl: string },
+  token: string,
+  stationIntegrationId: string | null,
+  clients: DevClients,
+): Promise<ConnectionResult> {
+  const source = devSourceFor(provider).connect({ repositoryId: "", projectId, apiBase: location.apiBase, repoPath: location.repoPath, externalId: null, token, stationIntegrationId }, clients)
+  try {
+    const externalId = await source.locate()
+    return { ok: true, repository: { path: location.repoPath, webUrl: location.webUrl, defaultBranch: null, externalId } }
+  } catch (err) {
+    return { ok: false, error: source.describeError(err).message }
+  }
+}
+
 /** GitLab role names as GitLab's Japanese UI shows them. */
 function roleName(level: number): string {
   if (level >= 50) return "オーナー"
@@ -223,15 +264,15 @@ function roleName(level: number): string {
   return "なし"
 }
 
-export async function addRepository(projectId: string, input: z.infer<typeof addRepositorySchema>, actor: Actor, fetchImpl?: typeof fetch): Promise<GitRepositoryDto> {
+export async function addRepository(projectId: string, input: z.infer<typeof addRepositorySchema>, actor: Actor, fetchImpl?: typeof fetch, clients: DevClients = {}): Promise<GitRepositoryDto> {
   await assertProject(projectId)
   const location = parseRepoUrl(input.url)
-  if (!location) throw new ValidationError("リポジトリの URL を認識できません（社内 GitLab の https URL を入れてください）。")
+  if (!location) throw new ValidationError("リポジトリの URL を認識できません（許可されたホストの https URL を入れてください）。")
   await assertRoomFor(prisma, projectId, location)
-  // Only a provider Kanflow can read (400 otherwise); the connection test below talks to GitLab — the only one today (M3: via the source).
+  // Only a provider Kanflow can read (400 otherwise); the connection test below goes through the project's source.
   await projectProvider(prisma, projectId)
   // Refuse to save a repository the token cannot see: the sync would only fail later.
-  const test = await testConnection(projectId, input.url, input.token, fetchImpl)
+  const test = await testConnection(projectId, input.url, input.token, fetchImpl, clients)
   if (!test.ok || !test.repository) throw new ValidationError(test.error ?? "接続テストに失敗しました")
   const externalId = test.repository.externalId
   // Checked again under the project lock (the connection test ran outside it): provider, limit, duplicate.
@@ -315,11 +356,14 @@ export async function resyncRepository(projectId: string, repositoryId: string, 
   if (!repo) throw new NotFoundError("Repository not found")
   // The project's source restarts its own (opaque) cursor; no integration row yet = the default source.
   const integration = await prisma.gitIntegration.findUnique({ where: { projectId }, select: { provider: true } })
-  const { cursors } = devSourceFor(integration?.provider ?? DEFAULT_GIT_PROVIDER)
+  const provider = parseGitProvider(integration?.provider ?? DEFAULT_GIT_PROVIDER)
+  const { cursors } = devSourceFor(provider)
+  // GitStation: the cursor belongs to the integration's feed (shared by its repositories), which restarts.
+  if (provider === "gitstation") await restartFeedOfRepository(repositoryId)
   await prisma.gitRepository.update({
     where: { id: repositoryId },
     data: {
-      ...cursors.restart(repo, now),
+      ...(provider === "gitstation" ? {} : cursors.restart(repo, now)),
       // A sync running right now started with the old generation and will not write its cursors back.
       syncGeneration: repo.syncGeneration === null ? 1 : { increment: 1 },
     },

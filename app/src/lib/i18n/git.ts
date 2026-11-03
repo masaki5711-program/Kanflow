@@ -38,6 +38,14 @@ export interface GitTranslations {
   gitSetTokenRemoveMessage: string
   gitSetTokenTooShort: string
   gitSetAutoComplete: string
+  gitSetProvider: string
+  gitSetProviderGitlab: string
+  gitSetProviderGitstation: string
+  gitSetProviderLocked: string
+  gitSetStationIntegration: string
+  gitSetStationIntegrationHelp: string
+  gitSetStationIntegrationSave: string
+  gitSetStationIntegrationMissing: string
   gitSetAutoCompleteHelp: string
   gitSetRepos: string
   gitSetReposEmpty: string
@@ -150,6 +158,14 @@ export const ja: GitTranslations = {
   gitSetTokenRemoveTitle: "アクセストークンを削除しますか？",
   gitSetTokenRemoveMessage: "専用トークンを持たないリポジトリは、新しいトークンを設定するまで同期できなくなります。",
   gitSetTokenTooShort: "トークンは 8 文字以上です",
+  gitSetProvider: "取り込み元",
+  gitSetProviderGitlab: "GitLab",
+  gitSetProviderGitstation: "GitStation",
+  gitSetProviderLocked: "リポジトリが登録されている間は、取り込み元を変更できません（先にリポジトリを外してください）。",
+  gitSetStationIntegration: "GitStation の連携 ID",
+  gitSetStationIntegrationHelp: "GitStation の管理者が連携を登録したときの ID です。アクセストークンには、その連携のサービスアカウントのトークンを入れてください。",
+  gitSetStationIntegrationSave: "連携 ID を保存",
+  gitSetStationIntegrationMissing: "連携 ID が未設定です。設定するまで同期できません。",
   gitSetAutoComplete: "マージで自動完了",
   gitSetAutoCompleteHelp:
     "PBI にひも付いたマージリクエストが「すべて」マージされたら、実行中のスプリントにあるその PBI の進行中タスクを自動で「完了」にします。",
@@ -264,6 +280,14 @@ export const en: GitTranslations = {
   gitSetTokenRemoveTitle: "Remove the access token?",
   gitSetTokenRemoveMessage: "Repositories without their own token cannot sync until a new token is set.",
   gitSetTokenTooShort: "A token has at least 8 characters",
+  gitSetProvider: "Source",
+  gitSetProviderGitlab: "GitLab",
+  gitSetProviderGitstation: "GitStation",
+  gitSetProviderLocked: "The source cannot change while repositories are registered (remove them first).",
+  gitSetStationIntegration: "GitStation integration ID",
+  gitSetStationIntegrationHelp: "The ID GitStation's administrator gave the integration. Use the integration's service-account token as the access token.",
+  gitSetStationIntegrationSave: "Save integration ID",
+  gitSetStationIntegrationMissing: "The integration ID is not set. Nothing is synced until it is.",
   gitSetAutoComplete: "Complete on merge",
   gitSetAutoCompleteHelp:
     "When ALL merge requests linked to a PBI are merged, that PBI's in-progress tasks in the active sprint are marked done automatically.",
@@ -378,6 +402,14 @@ export const id: GitTranslations = {
   gitSetTokenRemoveTitle: "Hapus token akses?",
   gitSetTokenRemoveMessage: "Repositori tanpa token sendiri tidak dapat disinkronkan sampai token baru diatur.",
   gitSetTokenTooShort: "Token minimal 8 karakter",
+  gitSetProvider: "Sumber",
+  gitSetProviderGitlab: "GitLab",
+  gitSetProviderGitstation: "GitStation",
+  gitSetProviderLocked: "Sumber tidak dapat diubah selama masih ada repositori terdaftar (hapus repositori terlebih dahulu).",
+  gitSetStationIntegration: "ID integrasi GitStation",
+  gitSetStationIntegrationHelp: "ID yang diberikan administrator GitStation saat mendaftarkan integrasi. Gunakan token akun layanan integrasi sebagai token akses.",
+  gitSetStationIntegrationSave: "Simpan ID integrasi",
+  gitSetStationIntegrationMissing: "ID integrasi belum diatur. Tidak ada sinkronisasi sampai diatur.",
   gitSetAutoComplete: "Selesai otomatis saat merge",
   gitSetAutoCompleteHelp:
     "Jika SEMUA merge request yang tertaut ke sebuah PBI sudah di-merge, tugas PBI tersebut yang sedang dikerjakan di sprint aktif otomatis ditandai selesai.",

@@ -8,13 +8,14 @@ const { assertOneSource, DEFAULT_GIT_PROVIDER, GIT_PROVIDERS, parseGitProvider, 
 const { devSourceFor } = await import("../dev-source")
 
 describe("parseGitProvider", () => {
-  it("accepts gitlab, the only provider today (and the default)", () => {
-    expect(GIT_PROVIDERS).toEqual(["gitlab"])
+  it("accepts gitlab (the default) and gitstation (M3 K3)", () => {
+    expect(GIT_PROVIDERS).toEqual(["gitlab", "gitstation"])
     expect(DEFAULT_GIT_PROVIDER).toBe("gitlab")
     expect(parseGitProvider("gitlab")).toBe("gitlab")
+    expect(parseGitProvider("gitstation")).toBe("gitstation")
   })
 
-  it.each(["gitstation", "github", "GitLab", "", " gitlab", null, undefined, 1])("rejects %j with a 400 GIT_PROVIDER_UNSUPPORTED (never falls back to GitLab)", (value) => {
+  it.each(["bitbucket", "github", "GitLab", "", " gitlab", null, undefined, 1])("rejects %j with a 400 GIT_PROVIDER_UNSUPPORTED (never falls back to GitLab)", (value) => {
     let caught: unknown
     try {
       parseGitProvider(value)
@@ -41,7 +42,13 @@ describe("devSourceFor (source factory)", () => {
     expect(typeof kind.connect).toBe("function")
   })
 
-  it.each(["gitstation", "github", "", undefined])("rejects unknown provider %j", (provider) => {
+  it("returns the GitStation source kind: named GitStation in the activity log, not indexed as AI knowledge (no file API yet)", () => {
+    const kind = devSourceFor("gitstation")
+    expect(kind).toMatchObject({ provider: "gitstation", actorName: "GitStation", readsRepositoryFiles: false })
+    expect(devSourceFor("gitlab")).toMatchObject({ actorName: "GitLab", readsRepositoryFiles: true })
+  })
+
+  it.each(["bitbucket", "github", "", undefined])("rejects unknown provider %j", (provider) => {
     expect(() => devSourceFor(provider)).toThrow(UnsupportedProviderError)
   })
 })
@@ -75,6 +82,6 @@ describe("readableProvider (gate for background work)", () => {
   })
 
   it("the query filter lists exactly the supported providers", () => {
-    expect(supportedProviderFilter()).toEqual({ in: ["gitlab"] })
+    expect(supportedProviderFilter()).toEqual({ in: ["gitlab", "gitstation"] })
   })
 })

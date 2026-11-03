@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma"
 import { logger } from "@/lib/logger"
-import { supportedProviderFilter } from "./git-provider"
+import { indexableProviderFilter } from "./dev-source"
 import { indexRepository, type IndexResult } from "./repo-index"
 
 /**
@@ -45,8 +45,8 @@ export async function runKnowledgeTick(index: IndexFn = indexRepository, budgetM
   if (lock.current) return 0
   try {
     const repos = await prisma.gitRepository.findMany({
-      // A provider Kanflow cannot read is skipped here (the sync shows and logs it).
-      where: { aiKnowledge: true, project: { deletedAt: null, gitIntegration: { enabled: true, provider: supportedProviderFilter() } } },
+      // A provider Kanflow cannot read, or whose source cannot read files, is skipped here.
+      where: { aiKnowledge: true, project: { deletedAt: null, gitIntegration: { enabled: true, provider: indexableProviderFilter() } } },
       select: { id: true },
       orderBy: { indexedAt: { sort: "asc", nulls: "first" } },
     })

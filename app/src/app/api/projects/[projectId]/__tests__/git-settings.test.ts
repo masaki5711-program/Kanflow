@@ -14,7 +14,7 @@ vi.mock("@/services/git/git.service", async (importOriginal) => {
 const svc = await import("@/services/git/git.service")
 const route = await import("@/app/api/projects/[projectId]/git/route")
 
-const SETTINGS = { enabled: false, hasToken: false, tokenHint: null, autoCompleteOnMerge: false, repositories: [], pollIntervalSec: 180 }
+const SETTINGS = { enabled: false, provider: "gitlab", stationIntegrationId: null, hasToken: false, tokenHint: null, autoCompleteOnMerge: false, repositories: [], pollIntervalSec: 180 }
 
 beforeEach(() => {
   vi.mocked(svc.getGitSettings).mockReset().mockResolvedValue(SETTINGS)

@@ -57,7 +57,7 @@ afterEach(() => vi.unstubAllGlobals())
 
 describe("toGitSettings", () => {
   it("reads a malformed body as off with nothing configured", () => {
-    expect(toGitSettings({ ok: true })).toEqual({ enabled: false, hasToken: false, tokenHint: null, autoCompleteOnMerge: false, repositories: [], pollIntervalSec: 180 })
+    expect(toGitSettings({ ok: true })).toEqual({ enabled: false, provider: "gitlab", stationIntegrationId: null, hasToken: false, tokenHint: null, autoCompleteOnMerge: false, repositories: [], pollIntervalSec: 180 })
   })
 })
 

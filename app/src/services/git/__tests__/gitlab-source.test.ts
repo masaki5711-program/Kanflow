@@ -11,7 +11,7 @@ const { GitLabError } = await import("@/lib/git/gitlab-client")
 
 const NOW = new Date("2026-10-01T00:00:00.000Z")
 const DAY = 86_400_000
-const CONNECTION: DevConnection = { repositoryId: "r1", apiBase: "https://gitlab.example", repoPath: "g/r", externalId: 7, token: "t" }
+const CONNECTION: DevConnection = { repositoryId: "r1", projectId: "p1", apiBase: "https://gitlab.example", repoPath: "g/r", externalId: 7, token: "t" }
 
 /** A GitLab project with one PBI merge request, commit and branch (or one that fails every request). */
 function fakeClient(fail = false) {

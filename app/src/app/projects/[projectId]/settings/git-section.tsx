@@ -1,8 +1,8 @@
 "use client"
 
-import { useEffect, useId, useRef } from "react"
+import { useEffect, useId, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
-import { Button, EmptyState, SkeletonLines, useConfirm, useToast } from "@/components/ui"
+import { Button, EmptyState, Input, SkeletonLines, useConfirm, useToast } from "@/components/ui"
 import { apiFetch, useApiMutation, useApiQuery } from "@/hooks"
 import { useLanguage } from "@/lib/language-context"
 import { forgetGitState } from "@/components/git-dev/git-client-state"
@@ -16,13 +16,18 @@ import { SettingsCard } from "./settings-card"
 /** Anchor of this section (the Git page links here). */
 export const GIT_SECTION_ID = "git"
 
-export type GitSettingsPatch = { enabled?: boolean; token?: string | null; autoCompleteOnMerge?: boolean }
+export type GitSettingsPatch = { enabled?: boolean; token?: string | null; autoCompleteOnMerge?: boolean; provider?: GitProviderName; stationIntegrationId?: string | null }
+
+/** Sources a project can read from (services/git/git-provider). */
+export type GitProviderName = "gitlab" | "gitstation"
 
 /** Response → settings; anything missing reads as "off / not set" so a bad body never shows Git UI. */
 export function toGitSettings(raw: unknown): GitSettingsDto {
   const r = raw && typeof raw === "object" ? (raw as Partial<GitSettingsDto>) : {}
   return {
     enabled: r.enabled === true,
+    provider: r.provider === "gitstation" ? "gitstation" : "gitlab",
+    stationIntegrationId: typeof r.stationIntegrationId === "string" ? r.stationIntegrationId : null,
     hasToken: r.hasToken === true,
     tokenHint: typeof r.tokenHint === "string" ? r.tokenHint : null,
     autoCompleteOnMerge: r.autoCompleteOnMerge === true,
@@ -37,7 +42,7 @@ interface Props {
   canConfigure: boolean
 }
 
-/** Per-project GitLab integration: ON/OFF (default off), token, auto-complete and repositories. */
+/** Per-project Git integration: ON/OFF (default off), source (GitLab / GitStation), token, auto-complete and repositories. */
 export function GitSection({ projectId, canConfigure }: Props) {
   const { t } = useLanguage()
   const query = useApiQuery<GitSettingsDto>(`/api/projects/${projectId}/git`, {
@@ -123,6 +128,10 @@ function GitSettingsBody({ projectId, settings, canConfigure, onSettings, onRepo
     router.refresh()
   }
 
+  async function changeProvider(next: GitProviderName) {
+    if (await save.mutate({ provider: next })) toast.success(t.settingsSaved)
+  }
+
   async function toggleAutoComplete(next: boolean) {
     if (await save.mutate({ autoCompleteOnMerge: next })) toast.success(t.settingsSaved)
   }
@@ -149,6 +158,8 @@ function GitSettingsBody({ projectId, settings, canConfigure, onSettings, onRepo
 
       {settings.enabled && (
         <>
+          <GitProviderField settings={settings} canConfigure={canConfigure && !save.isPending} onProvider={(p) => void changeProvider(p)} onIntegrationId={(id) => save.mutateAsync({ stationIntegrationId: id })} />
+
           <GitTokenField
             hasToken={settings.hasToken}
             tokenHint={settings.tokenHint}
@@ -182,6 +193,72 @@ function GitSettingsBody({ projectId, settings, canConfigure, onSettings, onRepo
           />
           {canConfigure && <GitAddRepository projectId={projectId} hasToken={settings.hasToken} onAdded={onRepositoriesChanged} />}
         </>
+      )}
+    </div>
+  )
+}
+
+interface ProviderProps {
+  settings: GitSettingsDto
+  canConfigure: boolean
+  onProvider: (provider: GitProviderName) => void
+  onIntegrationId: (id: string | null) => Promise<unknown>
+}
+
+/** 取り込み元 (one per project; locked while repositories exist) and, for GitStation, the integration id. */
+function GitProviderField({ settings, canConfigure, onProvider, onIntegrationId }: ProviderProps) {
+  const { t } = useLanguage()
+  const selectId = useId()
+  const helpId = useId()
+  const inputId = useId()
+  const [draft, setDraft] = useState(settings.stationIntegrationId ?? "")
+  const locked = settings.repositories.length > 0
+  const trimmed = draft.trim()
+  return (
+    <div className="space-y-3">
+      <div className="space-y-1">
+        <label htmlFor={selectId} className="block text-body font-medium text-fg">
+          {t.gitSetProvider}
+        </label>
+        <select
+          id={selectId}
+          value={settings.provider}
+          disabled={!canConfigure || locked}
+          onChange={(e) => onProvider(e.target.value === "gitstation" ? "gitstation" : "gitlab")}
+          className="min-h-9 rounded-ui-md border border-border bg-surface px-3 py-1.5 text-body text-fg disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <option value="gitlab">{t.gitSetProviderGitlab}</option>
+          <option value="gitstation">{t.gitSetProviderGitstation}</option>
+        </select>
+        {locked && <p className="text-caption text-fg-muted">{t.gitSetProviderLocked}</p>}
+      </div>
+      {settings.provider === "gitstation" && (
+        <div className="space-y-1">
+          <label htmlFor={inputId} className="block text-body font-medium text-fg">
+            {t.gitSetStationIntegration}
+          </label>
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              id={inputId}
+              value={draft}
+              maxLength={64}
+              spellCheck={false}
+              autoComplete="off"
+              disabled={!canConfigure}
+              aria-describedby={helpId}
+              onChange={(e) => setDraft(e.target.value)}
+              className="min-w-0 flex-1"
+            />
+            {canConfigure && (
+              <Button variant="secondary" disabled={trimmed === (settings.stationIntegrationId ?? "")} onClick={() => void onIntegrationId(trimmed === "" ? null : trimmed)}>
+                {t.gitSetStationIntegrationSave}
+              </Button>
+            )}
+          </div>
+          <p id={helpId} className="text-caption text-fg-muted">
+            {settings.stationIntegrationId ? t.gitSetStationIntegrationHelp : t.gitSetStationIntegrationMissing}
+          </p>
+        </div>
       )}
     </div>
   )

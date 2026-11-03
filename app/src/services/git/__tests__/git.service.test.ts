@@ -257,6 +257,57 @@ describe("updateGitSettings", () => {
   })
 })
 
+describe("GitStation settings and connection test (K3)", () => {
+  it("stores the GitStation integration id with the provider and logs the change", async () => {
+    gitIntegrationFindUnique.mockResolvedValueOnce({ enabled: true, autoCompleteOnMerge: false, provider: "gitlab", stationIntegrationId: null }).mockResolvedValueOnce(null)
+    gitRepositoryCount.mockResolvedValueOnce(0)
+    await svc.updateGitSettings(PROJECT_ID, { provider: "gitstation", stationIntegrationId: "int_7" }, ACTOR)
+    expect(gitIntegrationUpsert).toHaveBeenCalledWith(expect.objectContaining({ update: { provider: "gitstation", stationIntegrationId: "int_7" } }))
+    expect(logActivityMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ diff: { changes: { "git.provider": { from: "gitlab", to: "gitstation" }, "git.stationIntegrationId": { from: null, to: "int_7" } } } }),
+    )
+  })
+
+  it("accepts only a safe integration id (opaque, but sent in a URL path)", () => {
+    expect(svc.gitSettingsSchema.safeParse({ stationIntegrationId: "int_7" }).success).toBe(true)
+    expect(svc.gitSettingsSchema.safeParse({ stationIntegrationId: null }).success).toBe(true)
+    for (const bad of ["../x", "a/b", "x".repeat(65), "", "int 7"]) expect(svc.gitSettingsSchema.safeParse({ stationIntegrationId: bad }).success).toBe(false)
+  })
+
+  it("returns the provider and the integration id in the settings (never the token)", async () => {
+    gitIntegrationFindUnique.mockResolvedValueOnce({ enabled: true, provider: "gitstation", stationIntegrationId: "int_7", tokenCipher: "sealed", tokenHint: "abcd", autoCompleteOnMerge: false })
+    const dto = await svc.getGitSettings(PROJECT_ID)
+    expect(dto).toMatchObject({ provider: "gitstation", stationIntegrationId: "int_7", hasToken: true, tokenHint: "abcd" })
+    expect(JSON.stringify(dto)).not.toContain("sealed")
+  })
+
+  it("tests a GitStation repository through its source (the service account must see it), never through the GitLab client", async () => {
+    vi.stubEnv("GIT_ALLOWED_HOSTS", `${HOST},gitstation.example`)
+    try {
+      const { createFakeGitStation, INTEGRATION, TOKEN } = await import("./fake-gitstation")
+      const { createGitStationClient } = await import("@/lib/git/gitstation-client")
+      const station = createFakeGitStation()
+      const clients = { gitstation: (o: { apiBase: string; token: string; integrationId: string }) => createGitStationClient({ ...o, fetchImpl: station.fetchImpl }) }
+      gitIntegrationFindUnique.mockResolvedValue({ provider: "gitstation", stationIntegrationId: INTEGRATION, tokenCipher: null })
+      const ok = await svc.testConnection(PROJECT_ID, "https://gitstation.example/app/portal", TOKEN, undefined, clients)
+      expect(ok).toEqual({ ok: true, repository: { path: "app/portal", webUrl: "https://gitstation.example/app/portal", defaultBranch: null, externalId: null } })
+      const unbound = await svc.testConnection(PROJECT_ID, "https://gitstation.example/app/unbound", TOKEN, undefined, clients)
+      expect(unbound.ok).toBe(false)
+      expect(unbound.error).toContain("連携")
+      expect(createGitLabClientMock).not.toHaveBeenCalled()
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it("a GitStation host outside GIT_ALLOWED_HOSTS is refused before any request (SSRF)", async () => {
+    gitIntegrationFindUnique.mockResolvedValue({ provider: "gitstation", stationIntegrationId: "int_7", tokenCipher: null })
+    const result = await svc.testConnection(PROJECT_ID, "https://gitstation.example/app/portal", "token-1234")
+    expect(result.ok).toBe(false)
+  })
+})
+
 describe("testConnection", () => {
   it("rejects a URL that is not a recognizable repository URL (no client call)", async () => {
     const result = await svc.testConnection(PROJECT_ID, "https://evil.example/group/repo", "tok")
@@ -343,7 +394,7 @@ describe("addRepository", () => {
   })
 
   it("refuses a repository for a project whose stored provider Kanflow cannot read, before talking to GitLab (400)", async () => {
-    gitIntegrationFindUnique.mockResolvedValue({ provider: "gitstation", tokenCipher: null })
+    gitIntegrationFindUnique.mockResolvedValue({ provider: "bitbucket", tokenCipher: null })
     await expect(svc.addRepository(PROJECT_ID, input, ACTOR)).rejects.toMatchObject({ status: 400, code: "GIT_PROVIDER_UNSUPPORTED" })
     expect(getProjectMock).not.toHaveBeenCalled()
     expect(gitRepositoryCreate).not.toHaveBeenCalled()
@@ -365,7 +416,8 @@ describe("addRepository", () => {
   })
 
   it("a provider switched to one Kanflow cannot read while the connection test ran is refused under the lock", async () => {
-    gitIntegrationFindUnique.mockResolvedValueOnce(null).mockResolvedValueOnce({ provider: "gitstation" })
+    // Before the lock: the provider check and the connection test's source lookup; under the lock: switched.
+    gitIntegrationFindUnique.mockResolvedValueOnce(null).mockResolvedValueOnce(null).mockResolvedValueOnce({ provider: "bitbucket" })
     await expect(svc.addRepository(PROJECT_ID, input, ACTOR)).rejects.toMatchObject({ status: 400, code: "GIT_PROVIDER_UNSUPPORTED" })
     expect(getProjectMock).toHaveBeenCalled()
     expect(gitRepositoryCreate).not.toHaveBeenCalled()

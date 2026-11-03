@@ -5,12 +5,11 @@ import { publishAfterCommit } from "@/lib/realtime/after-commit"
 import { updateTask } from "@/services/sprint-backlog/sprint-backlog.service"
 import { notify } from "@/services/_shared/notifications"
 import type { Actor } from "@/services/_shared/actor"
-import { devSourceFor, type DevBranchListing, type DevChanges, type DevCursor, type DevListingFailure, type DevListingKind, type DevSource } from "./dev-source"
-import { readableProvider, UnsupportedProviderError } from "./git-provider"
+import { devSourceFor, type DevBranchListing, type DevChanges, type DevClients, type DevCursor, type DevListingFailure, type DevListingKind, type DevSource } from "./dev-source"
+import { readableProvider, UnsupportedProviderError, type GitProvider } from "./git-provider"
 import { writeReleases } from "./git-release-sync"
 import { allMergeRequestsMerged, linksFromBranch, linksFromCommit, linksFromMergeRequest, mergeRequestFields, type LinkDraft } from "./git-links"
 import { checkMergeRequestScopes, type ScopeCheckCandidate } from "./git-scope-check"
-import { defaultClientFactory, type ClientFactory } from "./gitlab-source"
 
 /**
  * Polling sync of one repository: merge requests and commits changed since the
@@ -26,10 +25,13 @@ const MAX_PIPELINE_LOOKUPS = 25
 
 export { LOOKBACK_DAYS, syncErrorMessage, type ClientFactory } from "./gitlab-source"
 
-/** Who the activity log shows for automatic task completion. */
-export const GIT_ACTOR: Actor = { userId: "", userName: "GitLab", systemRole: "member" }
+/** Who the activity log shows for automatic task completion (the source's name: "GitLab", "GitStation"). */
+export function gitActor(provider: GitProvider): Actor {
+  return { userId: "", userName: devSourceFor(provider).actorName, systemRole: "member" }
+}
 
-const defaultFactory = defaultClientFactory
+/** GitLab's actor (kept for callers that predate GitStation). */
+export const GIT_ACTOR: Actor = gitActor("gitlab")
 
 export interface SyncResult {
   repositoryId: string
@@ -39,68 +41,131 @@ export interface SyncResult {
   completedTasks?: number
 }
 
-export async function syncRepository(repositoryId: string, factory: ClientFactory = defaultFactory, now = new Date()): Promise<SyncResult> {
-  const repo = await prisma.gitRepository.findUnique({
+function loadRepository(repositoryId: string) {
+  return prisma.gitRepository.findUnique({
     where: { id: repositoryId },
     include: { project: { select: { deletedAt: true, gitIntegration: true } } },
   })
+}
+
+/** A repository row with its project's integration, as the sync loads it. */
+export type SyncRepositoryRow = NonNullable<Awaited<ReturnType<typeof loadRepository>>>
+export type SyncIntegration = NonNullable<SyncRepositoryRow["project"]["gitIntegration"]>
+
+/** The token a repository is read with (its own, else the integration's), or null. */
+export function repositoryToken(repo: { tokenCipher: string | null }, integration: { tokenCipher: string | null }): string | null {
+  const sealed = repo.tokenCipher ?? integration.tokenCipher
+  return sealed ? open(sealed) : null
+}
+
+export const MISSING_TOKEN_MESSAGE = "アクセストークンが未設定か、読み取れません。設定画面で入れ直してください。"
+
+/**
+ * Sync one repository. GitLab: its own listings and cursor. GitStation: the integration's feed is
+ * shared by every repository it covers, so the whole feed is read once and this repository's
+ * result is returned (gitstation-feed-sync).
+ */
+export async function syncRepository(repositoryId: string, clients: DevClients = {}, now = new Date()): Promise<SyncResult> {
+  const repo = await loadRepository(repositoryId)
   const integration = repo?.project.gitIntegration
   if (!repo || repo.project.deletedAt || !integration?.enabled) return { repositoryId, ok: false, links: 0, error: "disabled" }
-  // A provider Kanflow cannot read is never sent to GitLab instead (logged once per repository).
+  // A provider Kanflow cannot read is never sent to another source instead (logged once per repository).
   const provider = readableProvider(repositoryId, integration.provider, "sync")
   if (!provider) return fail(repositoryId, "provider", new UnsupportedProviderError(integration.provider).message)
+  if (provider === "gitstation") {
+    const { syncFeedOfRepository } = await import("./gitstation-feed-sync")
+    return syncFeedOfRepository(repositoryId, clients, now)
+  }
   const kind = devSourceFor(provider)
-  const sealed = repo.tokenCipher ?? integration.tokenCipher
-  const token = sealed ? open(sealed) : null
-  if (!token) return fail(repositoryId, "token", "アクセストークンが未設定か、読み取れません。設定画面で入れ直してください。")
+  const token = repositoryToken(repo, integration)
+  if (!token) return fail(repositoryId, "token", MISSING_TOKEN_MESSAGE)
 
   let source: DevSource | null = null
   try {
-    source = kind.connect({ repositoryId, apiBase: repo.apiBase, repoPath: repo.repoPath, externalId: repo.externalId, token }, { gitlab: factory })
+    source = kind.connect(
+      {
+        repositoryId,
+        projectId: repo.projectId,
+        apiBase: repo.apiBase,
+        repoPath: repo.repoPath,
+        externalId: repo.externalId,
+        token,
+        stationIntegrationId: integration.stationIntegrationId,
+      },
+      clients,
+    )
     const externalId = await source.locate()
     // 過去分を再同期 bumps the generation; cursors read under an older one are not written back.
     const generation = repo.syncGeneration ?? null
     const read = await readAll(source, kind.cursors.fromRow(repo, now), now)
-    for (const f of read.failures) logFailure(source, repositoryId, f)
-
-    const mrDrafts = read.mrs.flatMap((mr) => linksFromMergeRequest(mr, now))
-    const branchDrafts = (read.branches?.items ?? []).flatMap((b) => linksFromBranch(b, now))
-    const drafts = [...mrDrafts, ...read.commits.flatMap((c) => linksFromCommit(c, now)), ...branchDrafts]
-    const pbiIds = await resolvePbis(repo.projectId, drafts)
-    // Pipelines only for merge requests read for the first time (not the overlap re-read), and not
-    // after the merge request listing failed (the lookups would most likely fail the same way).
-    const lookups = mrDrafts.filter((d) => pbiIds.has(d.pbiNumber) && read.freshMrRefs.has(d.ref))
-    if (!read.failures.some((f) => f.kind === "mr")) await attachPipelines(source, repositoryId, lookups)
-
-    const { written, changed: linkChanges, newlyMerged, newlyFailed } = await writeLinks(repo.projectId, repo.id, drafts, pbiIds)
-    // Links a developer declared (dev:write) whose MR does not name the PBI: kept current for
-    // display only — they never trigger auto-complete (only Git-derived links do).
-    const declared = await refreshDeclaredLinks(repo.id, read.mrs, mrDrafts, pbiIds, now)
-    // 触る範囲 (W4): open MRs read in this sync (and links due a recheck after a scope change) vs the
-    // declared scope of the PBI's active claims — a warning on the link (never blocks). Skipped
-    // like the pipelines when the MR listing failed.
-    const scoped = read.failures.some((f) => f.kind === "mr") ? 0 : await checkMergeRequestScopes(source, { id: repo.id, projectId: repo.projectId }, scopeCandidates(mrDrafts, pbiIds, read.freshMrRefs), now)
-    const changed = linkChanges + declared + scoped
-    // `branches` is null when that listing failed: then nothing is marked gone.
-    const gone = read.branches ? await markGoneBranches(repo.id, read.branches, branchDrafts, pbiIds, now) : 0
-    const releases = await syncReleasesSafely(source, repo, now)
-    // Git panels / badges of the project refresh live, only when a link actually changed.
-    if (changed + gone + releases > 0) publishAfterCommit({ type: "git", projectId: repo.projectId, action: "sync" })
-    // Links are written before the cursor moves: a cursor never passes anything unwritten.
-    const status = read.failures.length > 0 ? { lastError: failureMessage(read.failures, source).slice(0, 500), lastErrorAt: now } : { syncedAt: now, lastError: null, lastErrorAt: null }
-    const save = saveProgress(repositoryId, generation, { externalId, ...kind.cursors.toRow(read.cursor) }, status)
-    if (read.failures.length > 0) await save.catch((err) => log.error("git sync progress not saved", { repositoryId, error: err instanceof Error ? err.message : String(err) }))
-    else await save
-    await notifyFailedPipelines(repo.projectId, newlyFailed)
-    const completedTasks = integration.autoCompleteOnMerge ? await autoComplete(repo.projectId, newlyMerged) : 0
-    const first = read.failures[0]
-    if (first) return { repositoryId, ok: false, links: written, error: source.describeError(first.error).kind }
-    return { repositoryId, ok: true, links: written, completedTasks }
+    const columns = { ...(externalId !== null ? { externalId } : {}), ...kind.cursors.toRow(read.cursor) }
+    return await applyRead(repo, integration, provider, source, read, now, { generation, columns })
   } catch (err) {
-    const info = source ? source.describeError(err) : { kind: "http", expected: false, message: "同期中にエラーが発生しました" }
-    if (!info.expected) log.error("git sync failed", { repositoryId, error: err instanceof Error ? err.message : String(err) })
-    return fail(repositoryId, info.kind, info.message)
+    return failWith(repositoryId, source, err)
   }
+}
+
+/** A thrown failure of one repository's sync as its result (logged unless it is an answer of the source). */
+export async function failWith(repositoryId: string, source: Pick<DevSource, "describeError"> | null, err: unknown): Promise<SyncResult> {
+  const info = source ? source.describeError(err) : { kind: "http", expected: false, message: "同期中にエラーが発生しました" }
+  if (!info.expected) log.error("git sync failed", { repositoryId, error: err instanceof Error ? err.message : String(err) })
+  return fail(repositoryId, info.kind, info.message)
+}
+
+/**
+ * Writes what one read found for one repository: links, pipelines, scope warnings, gone
+ * branches, releases, notifications and auto-complete, then the repository's status — and its
+ * cursor columns when the repository owns its cursor (`cursor` non-null). GitStation's feed
+ * cursor is saved by the feed sync after every repository of the read is written.
+ */
+export async function applyRead(
+  repo: SyncRepositoryRow,
+  integration: SyncIntegration,
+  provider: GitProvider,
+  source: DevSource,
+  read: ReadResult,
+  now: Date,
+  cursor: { generation: number | null; columns: Record<string, unknown> } | null,
+): Promise<SyncResult> {
+  const repositoryId = repo.id
+  for (const f of read.failures) logFailure(source, repositoryId, f)
+
+  const mrDrafts = read.mrs.flatMap((mr) => linksFromMergeRequest(mr, now))
+  const branchDrafts = (read.branches?.items ?? []).flatMap((b) => linksFromBranch(b, now))
+  const drafts = [...mrDrafts, ...read.commits.flatMap((c) => linksFromCommit(c, now)), ...branchDrafts]
+  const pbiIds = await resolvePbis(repo.projectId, drafts)
+  const mrFailed = read.failures.some((f) => f.kind === "mr" || f.kind === "feed")
+  // Pipelines only for merge requests read for the first time (not the overlap re-read), and not
+  // after the merge request listing failed (the lookups would most likely fail the same way).
+  const lookups = mrDrafts.filter((d) => pbiIds.has(d.pbiNumber) && read.freshMrRefs.has(d.ref))
+  if (!mrFailed) await attachPipelines(source, repositoryId, lookups)
+
+  const { written, changed: linkChanges, newlyMerged, newlyFailed } = await writeLinks(repo.projectId, repo.id, drafts, pbiIds)
+  // Links a developer declared (dev:write) whose MR does not name the PBI: kept current for
+  // display only — they never trigger auto-complete (only Git-derived links do).
+  const declared = await refreshDeclaredLinks(repo.id, read.mrs, mrDrafts, pbiIds, now)
+  // 触る範囲 (W4): open MRs read in this sync (and links due a recheck after a scope change) vs the
+  // declared scope of the PBI's active claims — a warning on the link (never blocks). Skipped
+  // like the pipelines when the MR listing failed.
+  const scoped = mrFailed ? 0 : await checkMergeRequestScopes(source, { id: repo.id, projectId: repo.projectId }, scopeCandidates(mrDrafts, pbiIds, read.freshMrRefs), now)
+  const changed = linkChanges + declared + scoped
+  // `branches` is null when that listing failed: then nothing is marked gone.
+  const gone = read.branches ? await markGoneBranches(repo.id, read.branches, branchDrafts, pbiIds, now) : 0
+  const releases = await syncReleasesSafely(source, repo, now)
+  // Git panels / badges of the project refresh live, only when a link actually changed.
+  if (changed + gone + releases > 0) publishAfterCommit({ type: "git", projectId: repo.projectId, action: "sync" })
+  // Links are written before the cursor moves: a cursor never passes anything unwritten.
+  const status = read.failures.length > 0 ? { lastError: failureMessage(read.failures, source).slice(0, 500), lastErrorAt: now } : { syncedAt: now, lastError: null, lastErrorAt: null }
+  const save = cursor
+    ? saveProgress(repositoryId, cursor.generation, cursor.columns, status)
+    : prisma.gitRepository.update({ where: { id: repositoryId }, data: status }).then(() => undefined)
+  if (read.failures.length > 0) await save.catch((err) => log.error("git sync progress not saved", { repositoryId, error: err instanceof Error ? err.message : String(err) }))
+  else await save
+  await notifyFailedPipelines(repo.projectId, newlyFailed)
+  const completedTasks = integration.autoCompleteOnMerge ? await autoComplete(repo.projectId, newlyMerged, gitActor(provider)) : 0
+  const first = read.failures[0]
+  if (first) return { repositoryId, ok: false, links: written, error: source.describeError(first.error).kind }
+  return { repositoryId, ok: true, links: written, completedTasks }
 }
 
 /**
@@ -115,7 +180,7 @@ async function saveProgress(repositoryId: string, generation: number | null, cur
   await prisma.gitRepository.update({ where: { id: repositoryId }, data: status })
 }
 
-const LISTING_LABEL: Record<DevListingKind, string> = { mr: "マージリクエスト", commit: "コミット", "commit-lookback": "コミット（読み直し）", branch: "ブランチ" }
+const LISTING_LABEL: Record<DevListingKind, string> = { mr: "マージリクエスト", commit: "コミット", "commit-lookback": "コミット（読み直し）", branch: "ブランチ", feed: "イベントの履歴" }
 
 /** Stored on the repository: every failed listing, grouped by message ("マージリクエスト・コミット: …"). */
 export function failureMessage(failures: readonly DevListingFailure[], source: Pick<DevSource, "describeError">): string {
@@ -134,7 +199,7 @@ function logFailure(source: DevSource, repositoryId: string, failure: DevListing
   else log.error("git sync failed", { repositoryId, kind: failure.kind, error: failure.error instanceof Error ? failure.error.message : String(failure.error) })
 }
 
-interface ReadResult {
+export interface ReadResult {
   mrs: DevChanges["mergeRequests"]
   /** Merge requests past the stored cursor (not only re-read by the overlap page). */
   freshMrRefs: ReadonlySet<string>
@@ -147,7 +212,11 @@ interface ReadResult {
 
 /** The cursor-driven listings, then the branches; a failing one does not stop the others. */
 async function readAll(source: DevSource, cursor: DevCursor, now: Date): Promise<ReadResult> {
-  const changes = await source.readChanges(cursor, now)
+  return withBranches(source, await source.readChanges(cursor, now), now)
+}
+
+/** A read's changes plus the branch listing (a failing listing is a failure, not a throw). */
+export async function withBranches(source: DevSource, changes: DevChanges, now: Date): Promise<ReadResult> {
   const failures: DevListingFailure[] = [...changes.failures]
   let branches: DevBranchListing | null = null
   try {
@@ -158,7 +227,7 @@ async function readAll(source: DevSource, cursor: DevCursor, now: Date): Promise
   return { mrs: changes.mergeRequests, freshMrRefs: changes.freshMergeRequestRefs, commits: changes.commits, branches, cursor: changes.cursor, failures }
 }
 
-async function fail(repositoryId: string, kind: string, message: string): Promise<SyncResult> {
+export async function fail(repositoryId: string, kind: string, message: string): Promise<SyncResult> {
   // The failure itself is the result; a lost status write is logged, not rethrown.
   await prisma.gitRepository
     .update({ where: { id: repositoryId }, data: { lastError: message.slice(0, 500), lastErrorAt: new Date() } })
@@ -368,7 +437,7 @@ async function markGoneBranches(
  * Option "マージで自動完了": when every merge request of a PBI (all repositories)
  * is merged, its in-progress tasks in the active sprint become done.
  */
-async function autoComplete(projectId: string, pbiIds: ReadonlySet<string>): Promise<number> {
+async function autoComplete(projectId: string, pbiIds: ReadonlySet<string>, actor: Actor): Promise<number> {
   let done = 0
   for (const backlogItemId of pbiIds) {
     // Only Git-derived links decide delivery: a declared-only link is display (refreshDeclaredLinks).
@@ -380,7 +449,7 @@ async function autoComplete(projectId: string, pbiIds: ReadonlySet<string>): Pro
     })
     for (const task of tasks) {
       try {
-        await updateTask(projectId, task.sprintId, task.id, { status: "done" }, GIT_ACTOR)
+        await updateTask(projectId, task.sprintId, task.id, { status: "done" }, actor)
         done++
       } catch (err) {
         log.warn("auto-complete skipped a task", { taskId: task.id, error: err instanceof Error ? err.message : String(err) })
@@ -391,9 +460,9 @@ async function autoComplete(projectId: string, pbiIds: ReadonlySet<string>): Pro
 }
 
 /** Sync every repository of a project (manual "今すぐ同期"), one after another. */
-export async function syncProject(projectId: string, factory: ClientFactory = defaultFactory): Promise<SyncResult[]> {
+export async function syncProject(projectId: string, clients: DevClients = {}): Promise<SyncResult[]> {
   const repos = await prisma.gitRepository.findMany({ where: { projectId }, select: { id: true }, orderBy: { sortOrder: "asc" } })
   const results: SyncResult[] = []
-  for (const r of repos) results.push(await syncRepository(r.id, factory))
+  for (const r of repos) results.push(await syncRepository(r.id, clients))
   return results
 }
