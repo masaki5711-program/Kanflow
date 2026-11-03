@@ -4,6 +4,7 @@ import {
   accessVia,
   can,
   canConfirmLineageRule,
+  canManageUserCapacity,
   canPseudonymizeActuals,
   type ProjectAction,
   type ProjectActor,
@@ -79,6 +80,9 @@ const EXPECTED: Record<ProjectAction, Persona[]> = {
   "plan.lessonRule.confirm": PO_SM,
   "plan.lessonRule.requestPromotion": PO,
   "plan.actualsFinalize": PO_SM,
+  // plan 12 §4: PO / SM and the section manager see members' load (a dev only their own — in the service).
+  "plan.viewMemberLoad": ["admin", "po", "sm", "sectionMgr", "sectionMgrDev"],
+  "capacity.manage": PO_SM,
 }
 
 const cases = PROJECT_ACTIONS.flatMap((action) =>
@@ -124,6 +128,20 @@ describe("canConfirmLineageRule()", () => {
   // SM of the source project, not by a section manager.
   it.each(ALL.map((persona) => ({ persona, allowed: persona === "admin" })))("$persona → $allowed", ({ persona, allowed }) => {
     expect(canConfirmLineageRule(ACTORS[persona])).toBe(allowed)
+  })
+})
+
+describe("canManageUserCapacity() (user_capacity_allowed_for_self_section_manager_admin_only, po_cannot_set_user_level_capacity)", () => {
+  const target = "target"
+  it.each([
+    ["the person themselves", { userId: target, systemRole: "member" }, false, true],
+    ["an admin", { userId: "x", systemRole: "admin" }, false, true],
+    ["the section manager of the person's section", { userId: "x", systemRole: "section_manager" }, true, true],
+    ["a section manager of another section", { userId: "x", systemRole: "section_manager" }, false, false],
+    ["a PO / SM (a member) of the person's project", { userId: "x", systemRole: "member" }, false, false],
+    ["a member who shares a section but is no section manager", { userId: "x", systemRole: "member" }, true, false],
+  ] as const)("%s → %s", (_label, actor, shares, allowed) => {
+    expect(canManageUserCapacity(actor, target, shares)).toBe(allowed)
   })
 })
 

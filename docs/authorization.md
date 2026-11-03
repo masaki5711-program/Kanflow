@@ -78,6 +78,8 @@ System admins skip the membership lookup; every request (admins included) does o
 | `plan.lessonRule.confirm` | Y | Y | Y | - | - |
 | `plan.lessonRule.requestPromotion` | Y | Y | - | - | - |
 | `plan.actualsFinalize` | Y | Y | Y | - | - |
+| `plan.viewMemberLoad` | Y | Y | Y | - (own row only) | Y |
+| `capacity.manage` | Y | Y | Y | - | - |
 
 Rules of the `shared` scope (反省点の規則 widened to a lineage / project type) and promotion requests are confirmed
 by **system admins only** (`canConfirmLineageRule`, plan 12 §4) — not expressible per project.
@@ -124,6 +126,10 @@ Paths are relative to `/api/projects/[projectId]`.
 | `/plan/actuals` (実績を確定, plan 12 E1; GET also answers `permissions`) | project.view | plan.actualsFinalize | | |
 | `/plan/actuals/[snapshotId]` (leaves: roles and days, never owners) | project.view | | PATCH: plan.actualsFinalize (`includeInLearning` + reason) | |
 | `/attributes` (設備・工程・タグ) | project.view | | PUT: project.update | |
+| `/capacity` (members' allocation to this project, plan 12 E4) | capacity.manage | capacity.manage (explicit members only) | | |
+| `/capacity/[capacityId]` | | | PATCH: capacity.manage (rows of this project only) | capacity.manage |
+| `/plan/member-load` (utilization / overlap days, no other projects' names) | project.view — others' rows need plan.viewMemberLoad | | | |
+| `/plan/level` (levelling proposal, nothing written) | | plan.write **and** plan.viewMemberLoad; roles only for explicit members (400 PLAN_ROLE_ASSIGNMENT_INVALID) | | |
 | `/releases` | project.view | | | |
 | `/releases/[id]` | | | release.manage | release.manage |
 | `/releases/import` | | release.manage | | |
@@ -268,6 +274,24 @@ bodies are size-bounded (413). Editing a template never changes plans already lo
 - Confidentiality is checked **at use time**, never stored: a cited PBI / lesson that is confidential now, gone,
   trashed or moved makes a shared rule stop outside its source project, and blocks a promotion request or confirm.
   A rule drafted from a retrospective stays `project` scope (400 `PLAN_RULE_PROMOTION_BLOCKED`).
+
+## 稼働量と平準化 (capacity and levelling, plan 12 E4, 2026-11)
+
+- A person's OWN FTE (`/api/users/[id]/capacity`, rows without a project) is set by the person, a section manager of
+  a section the person belongs to, or an admin (`canManageUserCapacity`) — not by a PO / SM, not even of the person's
+  projects. Their allocation to a project is set by that project's PO / SM (`capacity.manage`), explicit members only.
+- The capacity table has no free-text column: reasons for leave are never stored.
+- Every change of a capacity row (own FTE or allocation) is written to `member_capacity_audit` in the same
+  transaction: who, when, and the period / FTE before and after (numbers only). An allocation change also shows in the
+  project's history.
+- Load is shown as utilization and overlapping days across all projects; other projects' item names or ids are never
+  returned. Without `plan.viewMemberLoad` a member sees only their own row.
+- Utilization counts the leaves a person holds (one leaf fills their day, whatever their FTE), so it never reveals the
+  FTE itself. A day with FTE 0 that holds a leaf shows as over capacity (≥ 2), the same as a double booking — a viewer
+  cannot tell leave from overbooking. Levelled dates still avoid a person's days off; that is inherent to levelling and
+  shows only where an item was placed, never why.
+- Levelling assigns roles to explicit project members only: a section manager who merely sees the project cannot be
+  assigned (their busy days in other projects would leak through the dates).
 
 ## 実績のスナップショット (actuals, plan 12 E1, 2026-11)
 

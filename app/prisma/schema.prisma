@@ -46,6 +46,10 @@ model User {
   workClaims        WorkClaim[]
   failureEvents     FailureEvent[]
   confirmedLessons  Lesson[]                 @relation("LessonConfirmedBy")
+  /// 稼働量 (plan 12 E4): own FTE and project allocations.
+  capacities        MemberCapacity[]
+  capacityAudits    MemberCapacityAudit[]    @relation("MemberCapacityAuditSubject")
+  capacityAuditsBy  MemberCapacityAudit[]    @relation("MemberCapacityAuditActor")
   /// Merge request links declared through a dev:write token.
   declaredGitLinks  GitLink[]                @relation("GitLinkDeclaredBy")
 
@@ -286,6 +290,58 @@ model PlanActualsItemRepo {
   @@unique([snapshotItemId, backlogItemId, repositoryId])
   @@index([backlogItemId])
   @@map("plan_actuals_item_repo")
+}
+
+/// 稼働量 (plan 12 §2.1 / §3.5, E4): how much of a person's working day is available. `projectId` null = the
+/// person's own FTE (set by themselves, their section manager or an admin: `canManageUserCapacity`); set = their
+/// allocation to that project (set by the project's PO / SM: `capacity.manage`). Without a row the FTE is 1.0.
+/// Deliberately NO free-text column (plan 12 §4): reasons for leave must not be stored here.
+model MemberCapacity {
+  id          String    @id @default(cuid())
+  userId      String
+  projectId   String?
+  /// First day the value applies (calendar day).
+  from        DateTime  @db.Date
+  /// Last day (inclusive); null = open-ended.
+  to          DateTime? @db.Date
+  /// 0..1 of a working day (7.5 h).
+  fte         Float
+  createdById String?
+  version     Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([userId, from])
+  @@index([projectId, userId])
+  @@map("member_capacity")
+}
+
+/// Who changed a 稼働量 row, when, and the period / FTE before and after (plan 12 E4). Kept when the row is deleted;
+/// numbers only (no free text exists to copy). Written in the same transaction as the change.
+model MemberCapacityAudit {
+  id         String   @id @default(cuid())
+  capacityId String
+  userId     String
+  /// null = the person's own FTE row.
+  projectId  String?
+  actorId    String?
+  /// create | update | delete
+  op         String   @db.VarChar(16)
+  /// { from, to, fte } before the change (null for create).
+  before     Json?
+  /// { from, to, fte } after the change (null for delete).
+  after      Json?
+  createdAt  DateTime @default(now())
+
+  user  User  @relation("MemberCapacityAuditSubject", fields: [userId], references: [id], onDelete: Cascade)
+  actor User? @relation("MemberCapacityAuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([projectId, createdAt])
+  @@map("member_capacity_audit")
 }
 
 /// 設備・工程・タグ of a project (plan 12 §2.1, Q5: free strings until a master exists). Used for matching (E2).
@@ -575,6 +631,8 @@ model Project {
   /// 実績のスナップショット (plan 12 E1) and 設備・工程・タグ.
   planActualsSnapshots     PlanActualsSnapshot[]
   attributes               ProjectAttribute[]
+  /// 稼働量: members' allocations to this project (plan 12 E4).
+  memberCapacities         MemberCapacity[]
 
   /// マイルストーン・検収ボード (general projects).
   milestoneBoard    MilestoneBoard?

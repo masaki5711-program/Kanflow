@@ -67,6 +67,11 @@ export const scheduleFromSchema = z.object({
   startDate: ymd,
   /** Count only Monday–Friday for the durations. */
   skipWeekends: z.boolean().optional(),
+  /** Earliest start per plan item id (plan 12 E4: a levelled plan's starts); never pulls a leaf earlier. */
+  notBefore: z
+    .record(id, ymd)
+    .refine((m) => Object.keys(m).length <= 2000, "notBefore: at most 2000 items")
+    .optional(),
 })
 
 export type CreateTemplateInput = z.infer<typeof createTemplateSchema>

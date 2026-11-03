@@ -103,6 +103,13 @@ export const PROJECT_ACTIONS = [
    * `canPseudonymizeActuals` (admins only), never this action.
    */
   "plan.actualsFinalize",
+  /**
+   * See other members' load (plan 12 §3.5 / §4, Q2): utilization and the days that overlap, never other projects'
+   * item names. Everyone sees their OWN load without this action (checked in the service).
+   */
+  "plan.viewMemberLoad",
+  /** Set members' allocation to THIS project (member_capacity rows with this projectId). Own FTE: canManageUserCapacity. */
+  "capacity.manage",
 ] as const
 export type ProjectAction = (typeof PROJECT_ACTIONS)[number]
 
@@ -151,6 +158,8 @@ const POLICY: Readonly<Record<ProjectAction, readonly Grantee[]>> = {
   "plan.lessonRule.confirm": PO_SM,
   "plan.lessonRule.requestPromotion": PO,
   "plan.actualsFinalize": PO_SM,
+  "plan.viewMemberLoad": ["po", "sm", "section_manager"],
+  "capacity.manage": PO_SM,
 }
 
 export function isSystemAdmin(actor: Pick<ProjectActor, "systemRole">): boolean {
@@ -196,6 +205,18 @@ export function canConfirmLineageRule(actor: Pick<ProjectActor, "systemRole">): 
  */
 export function canPseudonymizeActuals(actor: Pick<ProjectActor, "systemRole">): boolean {
   return isSystemAdmin(actor)
+}
+
+/**
+ * Set a person's OWN FTE (member_capacity rows without a project; plan 12 §4): the person themselves, a section
+ * manager of a section the person belongs to, or an admin. Not a PO / SM — not even of the person's projects (they set
+ * the allocation to their project instead: `capacity.manage`). `sharesSectionAsManager` = the actor is a
+ * section_manager and shares a section with the target (resolved by the caller).
+ */
+export function canManageUserCapacity(actor: Pick<ProjectActor, "userId" | "systemRole">, targetUserId: string, sharesSectionAsManager: boolean): boolean {
+  if (isSystemAdmin(actor)) return true
+  if (actor.userId === targetUserId) return true
+  return actor.systemRole === "section_manager" && sharesSectionAsManager
 }
 
 export type AccessVia = "admin" | "member" | "section_manager"
