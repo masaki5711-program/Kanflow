@@ -177,8 +177,14 @@ deploy-production:
   stage: deploy
   tags:
     - kanflow-prod
+  # Kanflow v2 (repository kanflow_ver2): production still runs v1 on MySQL. Until the
+  # approved K2 cutover this job NEVER runs on a push: it needs a manual start AND the
+  # CI/CD variable KANFLOW_V2_DEPLOY=1. Do not relax this before the cutover runbook
+  # (docs/operations/mysql-to-pg-cutover.md) is executed with approval.
   rules:
-    - if: '$CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE == "push"'
+    - if: '$CI_COMMIT_BRANCH == "main" && $KANFLOW_V2_DEPLOY == "1"'
+      when: manual
+    - when: never
   needs: []
   resource_group: production
   interruptible: false
