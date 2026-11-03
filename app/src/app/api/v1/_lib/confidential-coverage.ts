@@ -85,6 +85,7 @@ export const MCP_TOOL_COVERAGE: Readonly<Record<string, Coverage>> = {
   // master plan
   get_plan: independent("plan items carry a name, dates and progress; they do not carry or link PBI content"),
   propose_plan_items: independent("proposes plan items from the caller's own schedule; returns no PBI content"),
+  propose_plan_from_actuals: independent("answers only a run id, end dates and counts; the actuals behind it pass learnableItemFacts (confidential PBIs are left out at use time)"),
 }
 
 /** Every /api/v1 route: "METHOD path under src/app/api/v1 (folder names, [param] kept)". */

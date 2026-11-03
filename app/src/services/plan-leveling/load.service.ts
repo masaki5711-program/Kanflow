@@ -22,7 +22,7 @@ import { learnParallelCap, level, type LevelResult, type PlacedPart } from "@/li
 import { levelItemsFromSchedule, WorkCalendar } from "@/lib/plan-leveling/from-schedule"
 import { dateKeyOf, dayNumber } from "@/lib/plan-estimate/dates"
 import { dateFromKey } from "@/lib/plan-progress"
-import { baseScheduleSchema } from "@/lib/plan-schedule/base-schedule"
+import { baseScheduleSchema, type BaseSchedule } from "@/lib/plan-schedule/base-schedule"
 import { defaultDb, type Db } from "@/services/_shared/db"
 import { ValidationError } from "@/services/_shared/errors"
 import { capacityRows } from "./capacity.service"
@@ -156,38 +156,68 @@ export interface LevelResponse {
   plannedEnd: string | null
 }
 
-export async function levelProject(projectId: string, req: LevelRequest, db: Db = defaultDb): Promise<LevelResponse> {
-  validDay(req.startDate)
-  const assigned = [...new Set(Object.values(req.roleAssignments).flat())]
+/** Members of the project who may hold a role (explicit ProjectMember rows); refuses anyone else. */
+export async function assertAssignableMembers(projectId: string, roleAssignments: Readonly<Record<string, readonly string[]>>, db: Db = defaultDb): Promise<Map<string, string>> {
+  const assigned = [...new Set(Object.values(roleAssignments).flat())]
   const members = await db.projectMember.findMany({ where: { projectId }, select: { userId: true, user: { select: { name: true } } } })
   const memberIds = new Set(members.map((m) => m.userId))
   // Explicit members only — a section manager who merely sees the project is not one (plan 12 §10 HIGH 2).
   if (assigned.some((u) => !memberIds.has(u))) throw new ValidationError("役割に割り当てられるのはプロジェクトのメンバーだけです", {}, "PLAN_ROLE_ASSIGNMENT_INVALID")
-  const names = new Map(members.map((m) => [m.userId, m.user.name ?? ""]))
+  return new Map(members.map((m) => [m.userId, m.user.name ?? ""]))
+}
 
-  const load = await db.planScheduleLoad.findFirst({ where: { projectId }, orderBy: [{ loadedAt: "desc" }, { id: "desc" }], select: { content: true, skipWeekends: true } })
-  const parsed = load ? baseScheduleSchema.safeParse(load.content) : null
-  if (!parsed?.success) throw new ValidationError("平準化できる計画（読み込んだ基本の計画）がありません", {}, "PLAN_SCHEDULE_INVALID")
-  const skipWeekends = req.skipWeekends ?? load?.skipWeekends ?? false
-  const items = levelItemsFromSchedule(parsed.data)
+export interface LevelScheduleOptions {
+  startDate: string
+  skipWeekends: boolean
+  roleAssignments: Readonly<Record<string, readonly string[]>>
+  /** Propose splitting a late item into two parallel parts (the /plan/level preview). E5 writes what it levels: off. */
+  split?: boolean
+  /** Learned wait before a leaf (working days), from the estimate. */
+  lagDays?: ReadonlyMap<string, number>
+  /**
+   * m_u per person. Default: learned here from the person's past actuals (the preview). E5 passes the estimate
+   * engine's value (hidden-source aware, plan 12 §3.2 item 6).
+   */
+  parallelCap?: ReadonlyMap<string, number>
+}
+
+export interface LevelScheduleResult {
+  response: LevelResponse
+  /** Working-day index of each item's start (notBeforeOffsetDays) and its owner, by key. */
+  startIndex: Map<string, number>
+  owners: Map<string, string | null>
+}
+
+/**
+ * Levels an in-memory base schedule (plan 12 §3.5): capacity = FTE (capped by the allocation to this project) minus
+ * the person's load in OTHER projects; roles go to explicit members only. Nothing is written.
+ */
+export async function levelSchedule(projectId: string, schedule: BaseSchedule, opts: LevelScheduleOptions, db: Db = defaultDb): Promise<LevelScheduleResult> {
+  validDay(opts.startDate)
+  const names = await assertAssignableMembers(projectId, opts.roleAssignments, db)
+  const assigned = [...new Set(Object.values(opts.roleAssignments).flat())]
+  const items = levelItemsFromSchedule(schedule).map((i) => {
+    const lag = opts.lagDays?.get(i.key)
+    return lag && lag > 0 ? { ...i, lagDays: lag } : i
+  })
   const nameOf = new Map<string, string>()
-  const walk = (list: typeof parsed.data.items) => {
+  const walk = (list: BaseSchedule["items"]) => {
     for (const it of list) {
       nameOf.set(it.key, it.name)
       if (it.children) walk(it.children)
     }
   }
-  walk(parsed.data.items)
+  walk(schedule.items)
 
-  const cal = new WorkCalendar(req.startDate, skipWeekends)
+  const cal = new WorkCalendar(opts.startDate, opts.skipWeekends)
   // Other projects' load is read as far as this plan can reach: twice its serial length in calendar days (+ 2 months),
   // capped at three years.
   const serialDays = items.reduce((sum, i) => sum + i.days + (i.lagDays ?? 0), 0)
-  const windowEnd = dateKeyOf(dayNumber(req.startDate) + Math.min(LEVEL_WINDOW_MAX_DAYS, Math.ceil(serialDays * 2 * (7 / 5)) + 60))
+  const windowEnd = dateKeyOf(dayNumber(opts.startDate) + Math.min(LEVEL_WINDOW_MAX_DAYS, Math.ceil(serialDays * 2 * (7 / 5)) + 60))
   const [other, caps, peaks] = await Promise.all([
-    dailyLoad(assigned, req.startDate, windowEnd, { excludeProjectId: projectId }, db),
-    capacityRows(assigned, projectId, db, req.startDate),
-    assigned.length
+    dailyLoad(assigned, opts.startDate, windowEnd, { excludeProjectId: projectId }, db),
+    capacityRows(assigned, projectId, db, opts.startDate),
+    assigned.length && !opts.parallelCap
       ? db.planActualsItem.findMany({
           where: { ownerId: { in: assigned }, ownerConcurrentPeak: { not: null }, snapshot: { supersededAt: null, includeInLearning: true, project: { deletedAt: null } } },
           select: { ownerId: true, ownerConcurrentPeak: true },
@@ -221,19 +251,40 @@ export async function levelProject(projectId: string, req: LevelRequest, db: Db 
     const own = caps.ownFte(u, dateKey)
     return Math.max(0, Math.min(caps.fte(u, dateKey), own - held * own))
   })
-  const peaksOf = new Map<string, number[]>()
-  for (const p of peaks) if (p.ownerId) peaksOf.set(p.ownerId, [...(peaksOf.get(p.ownerId) ?? []), p.ownerConcurrentPeak as number])
-  const mu = new Map(assigned.map((u) => [u, learnParallelCap(peaksOf.get(u) ?? [])]))
-  const result: LevelResult = level({ items, assign: req.roleAssignments, capacity, fte, parallelCap: (u) => mu.get(u) ?? 2 })
+  let mu: ReadonlyMap<string, number>
+  if (opts.parallelCap) mu = opts.parallelCap
+  else {
+    const peaksOf = new Map<string, number[]>()
+    for (const p of peaks) if (p.ownerId) peaksOf.set(p.ownerId, [...(peaksOf.get(p.ownerId) ?? []), p.ownerConcurrentPeak as number])
+    mu = new Map(assigned.map((u) => [u, learnParallelCap(peaksOf.get(u) ?? [])]))
+  }
+  const result: LevelResult = level({ items, assign: opts.roleAssignments, capacity, fte, parallelCap: (u) => mu.get(u) ?? 2, split: opts.split })
 
   const owner = (u: string | null) => (u ? { userId: u, name: names.get(u) ?? "" } : null)
   const part = (p: PlacedPart): LevelPartDto => ({ start: cal.keyOf(p.start), end: cal.keyOf(p.end), owner: owner(p.owner) })
-  const summary = (s: LevelResult["before"]) => Object.entries(s).map(([u, v]) => ({ userId: u, name: names.get(u) ?? "", ...v })).sort((a, b) => (a.userId < b.userId ? -1 : 1))
+  const summary = (sum: LevelResult["before"]) => Object.entries(sum).map(([u, v]) => ({ userId: u, name: names.get(u) ?? "", ...v })).sort((a, b) => (a.userId < b.userId ? -1 : 1))
   return {
-    placements: result.placements.map((p) => ({ key: p.key, name: nameOf.get(p.key) ?? p.key, ...part(p), ...(p.split ? { split: p.split.map(part) } : {}), ...(p.overloaded ? { overloaded: true } : {}) })),
-    before: summary(result.before),
-    after: summary(result.after),
-    moves: result.moves.map((m) => ({ key: m.key, name: nameOf.get(m.key) ?? m.key, reason: m.reason, from: part(m.from), to: part(m.to) })),
-    plannedEnd: result.end >= 0 ? cal.keyOf(result.end) : null,
+    response: {
+      placements: result.placements.map((p) => ({ key: p.key, name: nameOf.get(p.key) ?? p.key, ...part(p), ...(p.split ? { split: p.split.map(part) } : {}), ...(p.overloaded ? { overloaded: true } : {}) })),
+      before: summary(result.before),
+      after: summary(result.after),
+      moves: result.moves.map((m) => ({ key: m.key, name: nameOf.get(m.key) ?? m.key, reason: m.reason, from: part(m.from), to: part(m.to) })),
+      plannedEnd: result.end >= 0 ? cal.keyOf(result.end) : null,
+    },
+    startIndex: new Map(result.placements.map((p) => [p.key, p.start])),
+    owners: new Map(result.placements.map((p) => [p.key, p.owner])),
   }
+}
+
+/** The /plan/level preview: levels the project's latest loaded base schedule. */
+export async function levelProject(projectId: string, req: LevelRequest, db: Db = defaultDb): Promise<LevelResponse> {
+  validDay(req.startDate)
+  // Refuse a non-member before reading the schedule (the same answer whether or not a schedule exists).
+  await assertAssignableMembers(projectId, req.roleAssignments, db)
+  const load = await db.planScheduleLoad.findFirst({ where: { projectId }, orderBy: [{ loadedAt: "desc" }, { id: "desc" }], select: { content: true, skipWeekends: true } })
+  const parsed = load ? baseScheduleSchema.safeParse(load.content) : null
+  if (!parsed?.success) throw new ValidationError("平準化できる計画（読み込んだ基本の計画）がありません", {}, "PLAN_SCHEDULE_INVALID")
+  const skipWeekends = req.skipWeekends ?? load?.skipWeekends ?? false
+  const out = await levelSchedule(projectId, parsed.data, { startDate: req.startDate, skipWeekends, roleAssignments: req.roleAssignments }, db)
+  return out.response
 }

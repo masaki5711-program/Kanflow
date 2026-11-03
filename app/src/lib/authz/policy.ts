@@ -110,6 +110,12 @@ export const PROJECT_ACTIONS = [
   "plan.viewMemberLoad",
   /** Set members' allocation to THIS project (member_capacity rows with this projectId). Own FTE: canManageUserCapacity. */
   "capacity.manage",
+  /**
+   * Make a plan from actuals (plan 12 E5): create an estimate run (template + actuals + confirmed lesson rules +
+   * levelling), read its card and evidence, give feedback, and approve it on /plan/load. The run's per-person parts
+   * (owners, moves, utilization) additionally need plan.viewMemberLoad.
+   */
+  "plan.estimate",
 ] as const
 export type ProjectAction = (typeof PROJECT_ACTIONS)[number]
 
@@ -160,6 +166,7 @@ const POLICY: Readonly<Record<ProjectAction, readonly Grantee[]>> = {
   "plan.actualsFinalize": PO_SM,
   "plan.viewMemberLoad": ["po", "sm", "section_manager"],
   "capacity.manage": PO_SM,
+  "plan.estimate": PO_SM,
 }
 
 export function isSystemAdmin(actor: Pick<ProjectActor, "systemRole">): boolean {

@@ -51,6 +51,7 @@ import * as planSchedule from "./plan-schedule"
 import * as planLessonRules from "./plan-lesson-rules"
 import * as planActuals from "./plan-actuals"
 import * as planCapacity from "./plan-capacity"
+import * as planEstimate from "./plan-estimate"
 import * as milestones from "./milestones"
 import * as workClaims from "./work-claims"
 import * as acceptanceCriteria from "./acceptance-criteria"
@@ -116,6 +117,7 @@ export interface Translations
     planLessonRules.PlanLessonRulesTranslations,
     planActuals.PlanActualsTranslations,
     planCapacity.PlanCapacityTranslations,
+    planEstimate.PlanEstimateTranslations,
     milestones.MilestonesTranslations,
     workClaims.WorkClaimsTranslations,
     acceptanceCriteria.AcceptanceCriteriaTranslations,
@@ -175,6 +177,7 @@ export const domains = {
   "plan-lesson-rules": planLessonRules,
   "plan-actuals": planActuals,
   "plan-capacity": planCapacity,
+  "plan-estimate": planEstimate,
   "milestones": milestones,
   "work-claims": workClaims,
   "acceptance-criteria": acceptanceCriteria,
@@ -234,6 +237,7 @@ const ja: Translations = {
   ...planLessonRules.ja,
   ...planActuals.ja,
   ...planCapacity.ja,
+  ...planEstimate.ja,
   ...milestones.ja,
   ...workClaims.ja,
   ...acceptanceCriteria.ja,
@@ -293,6 +297,7 @@ const en: Translations = {
   ...planLessonRules.en,
   ...planActuals.en,
   ...planCapacity.en,
+  ...planEstimate.en,
   ...milestones.en,
   ...workClaims.en,
   ...acceptanceCriteria.en,
@@ -352,6 +357,7 @@ const id: Translations = {
   ...planLessonRules.id,
   ...planActuals.id,
   ...planCapacity.id,
+  ...planEstimate.id,
   ...milestones.id,
   ...workClaims.id,
   ...acceptanceCriteria.id,

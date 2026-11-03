@@ -50,6 +50,8 @@ model User {
   capacities        MemberCapacity[]
   capacityAudits    MemberCapacityAudit[]    @relation("MemberCapacityAuditSubject")
   capacityAuditsBy  MemberCapacityAudit[]    @relation("MemberCapacityAuditActor")
+  estimateRuns      PlanEstimateRun[]        @relation("PlanEstimateRunCreatedBy")
+  estimateFeedback  PlanEstimateFeedback[]   @relation("PlanEstimateFeedbackBy")
   /// Merge request links declared through a dev:write token.
   declaredGitLinks  GitLink[]                @relation("GitLinkDeclaredBy")
 
@@ -156,13 +158,14 @@ model PlanScheduleLoad {
   content       Json
   startDate     DateTime @db.Date
   skipWeekends  Boolean  @default(false)
-  /// Estimate run that produced the schedule (plan 12 E5; no FK until that table exists).
+  /// Estimate run that produced the schedule (plan 12 E5); kept as history when the run is purged (SET NULL).
   estimateRunId String?  @db.VarChar(191)
   loadedById    String?
   loadedAt      DateTime @default(now())
 
-  project   Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  planItems PlanItem[]
+  project     Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  planItems   PlanItem[]
+  estimateRun PlanEstimateRun? @relation(fields: [estimateRunId], references: [id], onDelete: SetNull)
 
   /// Also serves lookups by projectId (leading column), so there is no separate (projectId) index.
   @@unique([projectId, proposalId])
@@ -633,6 +636,8 @@ model Project {
   attributes               ProjectAttribute[]
   /// 稼働量: members' allocations to this project (plan 12 E4).
   memberCapacities         MemberCapacity[]
+  /// 計画を作る (plan 12 E5): estimate runs of this project.
+  planEstimateRuns         PlanEstimateRun[]
 
   /// マイルストーン・検収ボード (general projects).
   milestoneBoard    MilestoneBoard?
@@ -2208,4 +2213,108 @@ model LessonResolution {
   @@unique([failureEventId])
   @@index([lessonId, createdAt])
   @@map("lesson_resolution")
+}
+
+/// 計画を作る (plan 12 §2.1 / §3.6, E5): one estimate run — the template with the actuals, the confirmed lesson rules and
+/// the levelling applied. Approving it (/plan/load with estimateRunId) recomputes everything on the server; a run whose
+/// inputs changed (inputHash) or that is older than 24 h is refused (409 PLAN_ESTIMATE_STALE). Read only inside its
+/// project with plan.estimate; the per-person part (ownerPlan) also needs plan.viewMemberLoad. engineInput and
+/// schedule never leave the server.
+model PlanEstimateRun {
+  id            String   @id @default(cuid())
+  projectId     String
+  createdById   String?
+  createdAt     DateTime @default(now())
+  /// createdAt + 24 h: approving later is refused.
+  expiresAt     DateTime
+  /// createdAt + 1 year (retention; purged with its feedback).
+  purgeAfter    DateTime
+  /// Reference day R of the matching (plan 12 §3.1).
+  referenceDate DateTime @db.Date
+  startDate     DateTime @db.Date
+  skipWeekends  Boolean  @default(false)
+  lineage       String   @db.VarChar(200)
+  projectType   String   @db.VarChar(40)
+  sourceRef     String?  @db.VarChar(300)
+  templateHash  String   @db.Char(64)
+  /// sha256 of the canonical inputs (rules + versions, snapshot items, template hash, R, capacity, roles, method).
+  inputHash     String   @db.Char(64)
+  methodVersion String   @db.VarChar(16)
+  /// The per-lineage default (plan 12 §5): off = the template days, with the reason.
+  gateOn        Boolean
+  gateReason    String?  @db.VarChar(40)
+  /// E6 (LLM explanation): model, prompt version and the sources the text was written from.
+  llmModel      String?  @db.VarChar(64)
+  promptVersion String?  @db.VarChar(32)
+  llmSourceIds  String[]
+  /// The schedule to load: template + rules, durationDays = D50, notBeforeOffsetDays from levelling. No owners.
+  schedule      Json
+  /// The card (small, independent of the number of items).
+  summary       Json
+  /// Per-leaf evidence by id (sources as snapshot item / project ids); filtered again for every reader.
+  evidence      Json
+  /// Owners per key, moves, before / after utilization (per person: plan.viewMemberLoad).
+  ownerPlan     Json
+  /// What the run was computed from (for the approval recompute): visible project ids of the creator, the hidden-source
+  /// state used, role assignments, snapshot items, rules. Server only.
+  engineInput   Json
+
+  project   Project                @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy User?                  @relation("PlanEstimateRunCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  feedback  PlanEstimateFeedback[]
+  loads     PlanScheduleLoad[]
+
+  @@index([projectId, createdAt(sort: Desc)])
+  @@index([expiresAt])
+  @@index([purgeAfter])
+  @@map("plan_estimate_run")
+}
+
+/// 利用者の反応 to an estimate run (plan 12 §2.1, E5): one kind per leaf key and person (a repeat click updates it).
+model PlanEstimateFeedback {
+  id        String   @id @default(cuid())
+  runId     String
+  key       String   @db.VarChar(40)
+  /// too_high | too_low | rule_not_applicable | other
+  kind      String   @db.VarChar(24)
+  /// Up to 500 characters; shown only inside the run's project.
+  note      String?  @db.VarChar(500)
+  userId    String?
+  createdAt DateTime @default(now())
+
+  run  PlanEstimateRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  user User?           @relation("PlanEstimateFeedbackBy", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([runId, key, userId, kind])
+  @@map("plan_estimate_feedback")
+}
+
+/// Hidden-source state per aggregation unit (plan 12 §3.2 rule 2, E5): what the last published estimate used from
+/// sources a reader may not see, so a change moves two at a time. Global across projects; written under an advisory
+/// lock in the run's transaction. Holds counts only (HiddenState), never a source id.
+model PlanEstimateHiddenState {
+  unitKey   String   @id @db.VarChar(300)
+  state     Json
+  updatedAt DateTime @updatedAt
+
+  @@map("plan_estimate_hidden_state")
+}
+
+/// Backtest results per lineage (plan 12 §5): the per-lineage default switches on only when the method beats the
+/// template here. Written by scripts/plan-backtest.ts --record; no row = off.
+model PlanEstimateEval {
+  id                   String   @id @default(cuid())
+  lineage              String   @db.VarChar(200)
+  evaluatedOn          DateTime @db.Date
+  methodVersion        String   @db.VarChar(16)
+  n                    Int
+  mape                 Float
+  mapeTemplate         Float
+  p80Hit               Float
+  endErrorDays         Float
+  endErrorTemplateDays Float
+  createdAt            DateTime @default(now())
+
+  @@index([lineage, evaluatedOn(sort: Desc)])
+  @@map("plan_estimate_eval")
 }

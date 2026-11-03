@@ -1,7 +1,22 @@
 import { describe, expect, it } from "vitest"
+import { level } from "../level"
 import { levelItemsFromSchedule, WorkCalendar } from "../from-schedule"
+import { planBaseSchedule } from "@/lib/plan-schedule/base-schedule"
 
 describe("levelItemsFromSchedule", () => {
+  it("a leaf without any dependency follows every earlier leaf (as loading places it): levelling never compresses the stage order", () => {
+    const schedule = { items: [{ key: "a", name: "A", durationDays: 3 }, { key: "b", name: "B", durationDays: 2 }, { key: "c", name: "C", durationDays: 4, dependsOn: ["a"] }] }
+    const items = levelItemsFromSchedule(schedule)
+    expect(items.find((i) => i.key === "b")?.predecessors).toEqual(["a"])
+    // c names its dependency: only that one (it may run beside b).
+    expect(items.find((i) => i.key === "c")?.predecessors).toEqual(["a"])
+    // No owners at all (no capacity limit): the levelled end is the end loading gives, not an earlier one.
+    const r = level({ items, assign: {}, capacity: () => 1, parallelCap: () => 2 })
+    const cal = new WorkCalendar("2026-11-02", false)
+    expect(cal.keyOf(r.end)).toBe(planBaseSchedule(schedule, "2026-11-02").plannedEnd)
+  })
+
+
   it("leaves only; dependencies on parents cover their leaves; roles inherit; milestones take no capacity", () => {
     const items = levelItemsFromSchedule({
       items: [

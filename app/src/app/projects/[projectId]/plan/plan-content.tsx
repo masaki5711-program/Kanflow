@@ -329,6 +329,8 @@ function PlanPage({ projectId, canEdit }: Props) {
         lessonRulesUrl={`/projects/${projectId}/plan/lesson-rules`}
         actualsUrl={`/projects/${projectId}/plan/actuals`}
         capacityUrl={`/projects/${projectId}/plan/capacity`}
+        // plan.estimate is held by exactly the roles that hold plan.write (PO / SM); the server checks it again.
+        estimateUrl={canEdit ? `/projects/${projectId}/plan/estimate` : undefined}
         onPrint={() => setPrintOpen(true)}
         onLoadTemplate={() => setTplMode("load")}
         onSaveAsTemplate={() => setTplMode("save")}

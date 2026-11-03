@@ -99,6 +99,9 @@ export interface ApiErrorsTranslations {
   apiErrCapacityChanged: string
   apiErrCapacityNotMember: string
   apiErrPlanLoadTooLarge: string
+  apiErrPlanEstimateStale: string
+  apiErrPlanEstimateRunNotFound: string
+  apiErrPlanLineageNotAllowed: string
   apiErrFileRequired: string
   apiErrFileEmpty: string
   apiErrFileMissing: string
@@ -243,6 +246,9 @@ export const API_ERROR_MESSAGE_KEYS: Readonly<Record<ApiErrorCode, ApiErrorMessa
   CAPACITY_CHANGED: "apiErrCapacityChanged",
   CAPACITY_NOT_MEMBER: "apiErrCapacityNotMember",
   PLAN_LOAD_TOO_LARGE: "apiErrPlanLoadTooLarge",
+  PLAN_ESTIMATE_STALE: "apiErrPlanEstimateStale",
+  PLAN_ESTIMATE_RUN_NOT_FOUND: "apiErrPlanEstimateRunNotFound",
+  PLAN_LINEAGE_NOT_ALLOWED: "apiErrPlanLineageNotAllowed",
   FILE_REQUIRED: "apiErrFileRequired",
   FILE_EMPTY: "apiErrFileEmpty",
   FILE_MISSING: "apiErrFileMissing",
@@ -394,6 +400,9 @@ export const ja: ApiErrorsTranslations = {
   apiErrCapacityChanged: "稼働量が変更されています。読み込み直してからやり直してください",
   apiErrCapacityNotMember: "選んだ人はこのプロジェクトのメンバーではありません。メンバーから選んでください",
   apiErrPlanLoadTooLarge: "負荷を数える項目が多すぎます。期間を短くしてください",
+  apiErrPlanEstimateStale: "この案を作った後に、規則・実績・稼働量などが変わりました。もう一度「計画を作る」から作り直してください",
+  apiErrPlanEstimateRunNotFound: "この計画の案が見つかりません",
+  apiErrPlanLineageNotAllowed: "この系統の名前は使えません（スケジュールの出典か、このプロジェクトが読み込んだ計画の系統を使ってください）",
   apiErrFileRequired: "ファイルがありません",
   apiErrFileEmpty: "ファイルが空です",
   apiErrFileMissing: "ファイルが見つかりません",
@@ -539,6 +548,9 @@ export const en: ApiErrorsTranslations = {
   apiErrCapacityChanged: "The capacity has changed. Reload and try again",
   apiErrCapacityNotMember: "The selected person is not a member of this project. Pick a member",
   apiErrPlanLoadTooLarge: "Too many items to count the load. Choose a shorter period",
+  apiErrPlanEstimateStale: "The rules, actuals or capacity changed after this proposal was made. Make the plan again",
+  apiErrPlanEstimateRunNotFound: "This plan proposal was not found",
+  apiErrPlanLineageNotAllowed: "This lineage cannot be used (use the schedule source's or one this project already loaded)",
   apiErrFileRequired: "No file was provided",
   apiErrFileEmpty: "The file is empty",
   apiErrFileMissing: "The file was not found",
@@ -684,6 +696,9 @@ export const id: ApiErrorsTranslations = {
   apiErrCapacityChanged: "Kapasitas telah berubah. Muat ulang lalu coba lagi",
   apiErrCapacityNotMember: "Orang yang dipilih bukan anggota proyek ini. Pilih salah satu anggota",
   apiErrPlanLoadTooLarge: "Terlalu banyak item untuk menghitung beban. Pilih periode yang lebih pendek",
+  apiErrPlanEstimateStale: "Aturan, data aktual, atau kapasitas berubah setelah usulan ini dibuat. Buat rencananya lagi",
+  apiErrPlanEstimateRunNotFound: "Usulan rencana ini tidak ditemukan",
+  apiErrPlanLineageNotAllowed: "Nama lini ini tidak dapat dipakai (pakai lini dari sumber jadwal atau yang sudah dimuat proyek ini)",
   apiErrFileRequired: "Tidak ada file yang dikirim",
   apiErrFileEmpty: "File kosong",
   apiErrFileMissing: "File tidak ditemukan",

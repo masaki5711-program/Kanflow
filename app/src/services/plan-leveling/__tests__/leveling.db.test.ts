@@ -76,11 +76,14 @@ describe.skipIf(!enabled)("capacity and levelling on a real database (KANFLOW_DB
         startDate: d("2026-11-02"),
         content: {
           items: [
-            { key: "i1", name: "実装1", durationDays: 3, role: "dev" },
-            { key: "i2", name: "実装2", durationDays: 3, role: "dev" },
-            { key: "i3", name: "実装3", durationDays: 3, role: "dev" },
+            // The builds may run in parallel: they depend on the kick-off, not on each other (an item with no
+            // dependency would follow every earlier item, as loading places it).
+            { key: "kick", name: "開始", milestone: true },
+            { key: "i1", name: "実装1", durationDays: 3, role: "dev", dependsOn: ["kick"] },
+            { key: "i2", name: "実装2", durationDays: 3, role: "dev", dependsOn: ["kick"] },
+            { key: "i3", name: "実装3", durationDays: 3, role: "dev", dependsOn: ["kick"] },
             { key: "test", name: "試験", durationDays: 2, role: "dev", dependsOn: ["i1", "i2", "i3"] },
-            { key: "wait", name: "納期待ち", durationDays: 5, load: 0, role: "dev" },
+            { key: "wait", name: "納期待ち", durationDays: 5, load: 0, role: "dev", dependsOn: ["kick"] },
           ],
         },
       },
@@ -209,9 +212,10 @@ describe.skipIf(!enabled)("capacity and levelling on a real database (KANFLOW_DB
     }
     // The half-time person can hold work (at their pace): u3 is given at least one of the build items.
     expect(r.placements.some((p) => p.key.startsWith("i") && p.owner?.userId === ids.u3)).toBe(true)
-    // Three builds for two free people in week 1: one build waits until Thu 11-05 (ends Mon 11-09), then the test
+    // Kick-off Mon 11-02; three builds for two free people from Tue 11-03: one build waits until Fri 11-06 (ends Tue
+    // 11-10), then the test
     // (2 days). The end moves by exactly that.
-    expect(r.plannedEnd).toBe("2026-11-11")
+    expect(r.plannedEnd).toBe("2026-11-12")
     const lastBuild = r.placements.filter((p) => p.key.startsWith("i")).map((p) => p.end).sort().at(-1) ?? ""
     expect((r.placements.find((p) => p.key === "test")?.start ?? "") > lastBuild).toBe(true)
     const json = JSON.stringify(r)

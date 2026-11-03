@@ -40,6 +40,7 @@ Rules:
 | `backlog.ts` | `projects/[id]/backlog` | `backlog*` |
 | `backlog-ops.ts` | Backlog daily operations: PBI modal link, URL filters, drag & drop, bulk actions, undo, done paging | `backlog*` (ops keys) |
 | `plan.ts` | `projects/[id]/plan` (master plan) | `plan*` |
+| `plan-estimate.ts` | `projects/[id]/plan/estimate` (計画を作る, plan 12 E5) | `pes*` |
 | `plan-capacity.ts` | `projects/[id]/plan/capacity` (稼働量と負荷, plan 12 E4) | `pcp*` |
 | `plan-actuals.ts` | `projects/[id]/plan/actuals` (実績を確定, 設備・工程・タグ, plan 12 E1) | `pac*` |
 | `plan-lesson-rules.ts` | `projects/[id]/plan/lesson-rules` and `/admin/plan-lesson-rules` (反省点の規則, plan 12 E3) | `plr*` |

@@ -80,6 +80,7 @@ System admins skip the membership lookup; every request (admins included) does o
 | `plan.actualsFinalize` | Y | Y | Y | - | - |
 | `plan.viewMemberLoad` | Y | Y | Y | - (own row only) | Y |
 | `capacity.manage` | Y | Y | Y | - | - |
+| `plan.estimate` | Y | Y | Y | - | - |
 
 Rules of the `shared` scope (反省点の規則 widened to a lineage / project type) and promotion requests are confirmed
 by **system admins only** (`canConfirmLineageRule`, plan 12 §4) — not expressible per project.
@@ -130,6 +131,9 @@ Paths are relative to `/api/projects/[projectId]`.
 | `/capacity/[capacityId]` | | | PATCH: capacity.manage (rows of this project only) | capacity.manage |
 | `/plan/member-load` (utilization / overlap days, no other projects' names) | project.view — others' rows need plan.viewMemberLoad | | | |
 | `/plan/level` (levelling proposal, nothing written) | | plan.write **and** plan.viewMemberLoad; roles only for explicit members (400 PLAN_ROLE_ASSIGNMENT_INVALID) | | |
+| `/plan/estimate-runs` (計画を作る, plan 12 E5) | | plan.estimate (a private template only if the caller may see it) | | |
+| `/plan/estimate-runs/[runId]` (card), `/evidence`, `/feedback` | plan.estimate — another project's run is 404 PLAN_ESTIMATE_RUN_NOT_FOUND; owners / moves / utilization also need plan.viewMemberLoad | feedback: plan.estimate | | |
+| `/plan/load` with `estimateRunId` | | plan.write **and** plan.estimate; body only { estimateRunId, removedOwnerKeys } | | |
 | `/releases` | project.view | | | |
 | `/releases/[id]` | | | release.manage | release.manage |
 | `/releases/import` | | release.manage | | |
@@ -292,6 +296,30 @@ bodies are size-bounded (413). Editing a template never changes plans already lo
   shows only where an item was placed, never why.
 - Levelling assigns roles to explicit project members only: a section manager who merely sees the project cannot be
   assigned (their busy days in other projects would leak through the dates).
+
+## 計画を作る (plan from actuals, plan 12 E5, 2026-11)
+
+- Making, reading and approving an estimate run is `plan.estimate` (PO / SM). A run is read only inside its own project:
+  another project's run id answers 404 `PLAN_ESTIMATE_RUN_NOT_FOUND`, exactly like a missing one (also on `/plan/load`).
+- The card has no per-person data. Owners, moves and before / after utilization are returned only with
+  `plan.viewMemberLoad`; the MCP tool `propose_plan_from_actuals` (scope `backlog:write` **and** the person's
+  `plan.estimate`) returns only the run id, end dates, counts and a web link.
+- Sources count as visible only when the creator AND every PO / SM of the project can view them; a reader who
+  later cannot view one of an item's sources gets no numbers for that item (evidence) and the card leaves it out of
+  its change list. An approver without plan.viewMemberLoad saw no owners, so loading writes none (unassigned).
+- In schedule mode (MCP / API), an explicit lineage is accepted only when it is the schedule source's own or one this
+  project already loaded (400 PLAN_LINEAGE_NOT_ALLOWED): a free name would read another family's actuals.
+- Evidence is stored by id and filtered again for every reader: the confidentiality check runs at read time (a source
+  that became confidential hides that item's numbers and makes the run stale), project names are shown only for
+  projects the reader can view, other sources fold into "other projects (band)", and with fewer than 4 visible
+  sources the ratio is not shown. Roles are shown, never owners. Repository names stay hidden until GitStation can
+  confirm the reader's access (G1).
+- Approval recomputes the whole run on the server with the creator's stored visibility and hidden-source state. It is
+  refused (409 `PLAN_ESTIMATE_STALE`) when the inputs changed, the run is older than 24 h, the recomputed end date or
+  owners differ, or a source became unusable. The schedule, dates and owners come from the run only: the approver may
+  remove owners, never add or swap them, and a run loads once.
+- Known residual (documented, plan 12 §3.2): a reader who sees fewer sources than the creator still sees the item's
+  days (they are the plan itself); its ratio, sources and count are hidden for them.
 
 ## 実績のスナップショット (actuals, plan 12 E1, 2026-11)
 

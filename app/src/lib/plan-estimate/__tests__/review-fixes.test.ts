@@ -47,7 +47,20 @@ describe("held hidden aggregate (review H1/H2)", () => {
     // A different project (another start date, another run) reading the same global store.
     const other = estimatePlan({ items: [{ key: "impl", name: "実装", durationDays: 10 }] }, changed, ctx([], { previousHidden: store }), "2027-01-04")
     expect(other.leaves[0].r50).toBe(plan.leaves[0].r50)
-    expect([...plan.hiddenStates.keys()]).toContain(hiddenUnitKey("ratio", ["sw", "software", [], "impl", "実装", [], []]))
+    // The unit names what is aggregated (the matched hidden items), not the leaf's own key or name.
+    expect([...plan.hiddenStates.keys()]).toContain(hiddenUnitKey("ratio", ["sw", "software", [], ["1:impl"], []]))
+  })
+
+  it("a renamed leaf (other name, other key, former key pointing at the same items) hits the same held state (E5 security H2)", () => {
+    const hidden = [1.0, 1.1, 1.2, 1.3].map((r, i) => obs(`h${i + 1}`, r, { finalizedAt: `2026-05-0${i + 1}` }))
+    const store = new Map()
+    const plan = estimatePlan({ items: [{ key: "impl", name: "実装", durationDays: 10 }] }, hidden, ctx([]), "2026-11-02")
+    for (const [k, v] of plan.hiddenStates) store.set(k, v)
+    // One hidden project changes; the requester then renames the leaf to dodge the hold.
+    const changed = hidden.map((o, i) => (i === 1 ? { ...o, actualDays: 25 } : o))
+    const renamed = estimatePlan({ items: [{ key: "impl2", name: "実装 ", durationDays: 10, formerKeys: ["impl"] }] }, changed, ctx([], { previousHidden: store }), "2026-11-02")
+    expect(renamed.leaves[0].r50).toBe(plan.leaves[0].r50)
+    expect([...renamed.hiddenStates.keys()].filter((k) => k.startsWith('["ratio"'))).toEqual([...plan.hiddenStates.keys()].filter((k) => k.startsWith('["ratio"')))
   })
 
   it("viewers with different visible sets never share a held state", () => {
