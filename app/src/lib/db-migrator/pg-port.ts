@@ -61,7 +61,7 @@ export async function openPgTarget(endpoint: Endpoint, password: string, opts: {
     },
     introspect: async (): Promise<TargetSchema> => {
       const cols = await query(
-        `${tag("introspect")} SELECT c.relname AS t, a.attname AS c, ty.typname, ty.typtype, format_type(a.atttypid, a.atttypmod) AS fmt, a.attnotnull AS nn,
+        `${tag("introspect")} SELECT c.relname AS t, a.attname AS c, ty.typname, ty.typtype, format_type(a.atttypid, a.atttypmod) AS fmt, a.attnotnull AS nn, (a.atthasdef OR a.attidentity <> '' OR a.attgenerated <> '') AS hd,
            CASE WHEN ty.typname IN ('varchar', 'bpchar') AND a.atttypmod > 4 THEN a.atttypmod - 4 END AS ml
          FROM pg_class c JOIN pg_namespace ns ON ns.oid = c.relnamespace
          JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
@@ -115,6 +115,7 @@ export async function openPgTarget(endpoint: Endpoint, password: string, opts: {
           typtype: String(r.typtype),
           pgType: String(r.fmt),
           nullable: r.nn !== "t",
+          hasDefault: r.hd === "t",
           maxLength: r.ml === null ? null : Number(r.ml),
           isCitext: r.typname === "citext",
         })

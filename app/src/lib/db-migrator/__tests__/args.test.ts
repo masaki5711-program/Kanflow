@@ -79,6 +79,12 @@ describe("parseArgs", () => {
     expect(codeOf(() => parseArgs(["--source", SRC, "--target", TGT, ...REQ, "--batch-size"]))).toBe("USAGE")
   })
 
+  it("--target-superset is off unless given, and TARGET_COLUMNS_DEFAULTED is an acceptable (reviewed) warning", () => {
+    expect(parseArgs(["--source", SRC, "--target", TGT, ...REQ, "--dry-run"]).targetSuperset).toBe(false)
+    expect(parseArgs(["--source", SRC, "--target", TGT, ...REQ, "--dry-run", "--target-superset"]).targetSuperset).toBe(true)
+    expect(parseArgs(["--source", SRC, "--target", TGT, ...REQ, "--accept-warnings", "TARGET_COLUMNS_DEFAULTED", "--dry-run-report", "d.json", "--source-identity", "a", "--target-identity", "b"]).acceptWarnings).toEqual(["TARGET_COLUMNS_DEFAULTED"])
+  })
+
   it("--help short-circuits", () => {
     expect(parseArgs(["--help"]).mode).toBe("help")
   })

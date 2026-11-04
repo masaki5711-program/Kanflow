@@ -27,6 +27,7 @@ export async function runWithConnections(
         mode: args.mode,
         batchSize: args.batchSize,
         allowInvalidJson: args.allowInvalidJson,
+        targetSuperset: args.targetSuperset,
         acceptWarnings: args.acceptWarnings,
         expectSourceIdentity: args.sourceIdentity,
         expectTargetIdentity: args.targetIdentity,

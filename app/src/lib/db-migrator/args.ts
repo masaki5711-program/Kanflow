@@ -32,6 +32,8 @@ export interface CliArgs {
   target: Endpoint
   batchSize: number
   allowInvalidJson: boolean
+  /** the target schema is a newer version of the source's (see SchemaCompatOptions) */
+  targetSuperset: boolean
   reportPath: string | null
   denyFile: string | null
   sourcePasswordFile: string | null
@@ -59,7 +61,7 @@ export const USAGE = `usage: node --import tsx scripts/migrate-mysql-to-pg.ts \
     --source mysql://<user>@<host>:<port>/<db> --target postgresql://<user>@<host>:<port>/<db> \
     --expect-target <host>:<port>/<db> [--dry-run | --verify-only] \
     [--source-identity <id> --target-identity <id>]   (required without --dry-run/--verify-only; printed by the dry run) \
-    [--accept-warnings CODE,... --dry-run-report <dry-run.json>] [--allow-invalid-json --invalid-json-file <file.jsonl>] \
+    [--accept-warnings CODE,... --dry-run-report <dry-run.json>] [--allow-invalid-json --invalid-json-file <file.jsonl>] [--target-superset] \
     [--source-ca <ca.pem>] [--target-ca <ca.pem>]     (required for non-loopback hosts: TLS with verification) \
     [--batch-size 1-10000 (1000)] [--statement-timeout-sec <n> (900)] [--local-offset-hours <n> (7)] \
     [--report <file.json>] [--deny-file <file>] [--source-password-file <file>] [--target-password-file <file>]
@@ -128,6 +130,7 @@ export function parseArgs(argv: readonly string[]): CliArgs {
     dryRunReport: null,
     batchSize: 1000,
     allowInvalidJson: false,
+    targetSuperset: false,
     reportPath: null,
     denyFile: null,
     sourcePasswordFile: null,
@@ -159,6 +162,9 @@ export function parseArgs(argv: readonly string[]): CliArgs {
         break
       case "--allow-invalid-json":
         out.allowInvalidJson = true
+        break
+      case "--target-superset":
+        out.targetSuperset = true
         break
       case "--batch-size":
         out.batchSize = intOption(a, argv[++i], 1, 10000)

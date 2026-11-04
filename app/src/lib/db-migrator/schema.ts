@@ -9,6 +9,8 @@ export interface TargetColumn {
   /** format_type(), used verbatim as the cast in INSERTs, e.g. "timestamp(3) without time zone" */
   pgType: string
   nullable: boolean
+  /** The column has a default (DEFAULT, identity or generated): an INSERT without it gets a value. */
+  hasDefault: boolean
   /** character length bound (varchar(n) / char(n)); null = unbounded */
   maxLength: number | null
   isCitext: boolean

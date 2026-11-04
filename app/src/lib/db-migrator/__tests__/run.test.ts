@@ -10,7 +10,7 @@ import type { SourceSchema, TargetSchema } from "../schema"
  * key, rollback), so a migrate run can verify inside its transaction and commit.
  */
 
-const col = (name: string, typname: string, pgType: string, nullable: boolean) => ({ name, typname, typtype: "b", pgType, nullable, maxLength: null, isCitext: typname === "citext" })
+const col = (name: string, typname: string, pgType: string, nullable: boolean) => ({ name, typname, typtype: "b", pgType, nullable, hasDefault: false, maxLength: null, isCitext: typname === "citext" })
 
 const targetSchema: TargetSchema = {
   tables: [
