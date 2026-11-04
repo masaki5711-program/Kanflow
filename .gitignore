@@ -69,6 +69,7 @@ ops/backup/node_modules-*/
 # node-windows service wrappers (winsw exe/xml + wrapper logs), generated on install
 ops/web/daemon/
 ops/worker/daemon/
+ops/web-v2/daemon/
 # app runtime logs + worker heartbeat file (logs/worker-heartbeat.json)
 app/logs/
 *.sql.gz
