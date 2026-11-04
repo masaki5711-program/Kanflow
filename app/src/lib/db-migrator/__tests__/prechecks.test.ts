@@ -3,7 +3,7 @@ import { CitextDuplicateFinder, checkSchemaCompat, citextUniqueKeys } from "../p
 import type { SourceSchema, TargetColumn, TargetSchema } from "../schema"
 
 function tcol(name: string, typname: string, extra: Partial<TargetColumn> = {}): TargetColumn {
-  return { name, typname, typtype: "b", pgType: typname, nullable: true, maxLength: null, isCitext: typname === "citext", ...extra }
+  return { name, typname, typtype: "b", pgType: typname, nullable: true, hasDefault: false, maxLength: null, isCitext: typname === "citext", ...extra }
 }
 
 describe("CitextDuplicateFinder", () => {
@@ -105,6 +105,49 @@ describe("checkSchemaCompat", () => {
     const src = structuredClone(okSource)
     src.tables.push({ name: "_prisma_migrations", primaryKey: ["id"], columns: [] })
     expect(checkSchemaCompat(src, t).issues.map((i) => i.code)).toEqual(["SCHEMA_TABLE_MISSING_IN_SOURCE"])
+  })
+
+  describe("--target-superset (the target schema is a newer version of the source's)", () => {
+    const newer = (): TargetSchema => {
+      const t = structuredClone(target)
+      // A table only the newer schema has, and three columns only it has on T.
+      t.tables.push({ name: "New", primaryKey: ["id"], columns: [tcol("id", "text", { nullable: false })] })
+      t.tables[0].columns.push(tcol("note", "text"), tcol("confidential", "bool", { nullable: false, hasDefault: true }))
+      return t
+    }
+
+    it("without the option, the newer schema is refused as before", () => {
+      expect(checkSchemaCompat(okSource, newer()).issues.map((i) => i.code).sort()).toEqual(["SCHEMA_COLUMN_MISMATCH", "SCHEMA_TABLE_MISSING_IN_SOURCE"])
+    })
+
+    it("a target-only table stays empty and target-only nullable / defaulted columns are left out of the copy (both reported)", () => {
+      const r = checkSchemaCompat(okSource, newer(), { targetSuperset: true })
+      expect(r.issues.filter((i) => i.severity === "error")).toEqual([])
+      expect(r.issues.map((i) => [i.code, i.severity])).toEqual([
+        ["TARGET_TABLE_LEFT_EMPTY", "info"],
+        ["TARGET_COLUMNS_DEFAULTED", "warning"],
+      ])
+      expect(r.issues.find((i) => i.code === "TARGET_TABLE_LEFT_EMPTY")?.message).toContain("New")
+      expect(r.issues.find((i) => i.code === "TARGET_COLUMNS_DEFAULTED")?.message).toContain("T.note, T.confidential")
+      // Only the shared columns are copied and verified; New is not copied at all.
+      expect(r.tables.map((t) => t.table)).toEqual(["T"])
+      expect(r.mappings.get("T")?.map((m) => m.name)).toEqual(["id", "flag", "at", "meta", "label"])
+    })
+
+    it("a target-only NOT NULL column without a default is still refused (the row could not be written)", () => {
+      const t = newer()
+      t.tables[0].columns.push(tcol("required", "text", { nullable: false, hasDefault: false }))
+      const r = checkSchemaCompat(okSource, t, { targetSuperset: true })
+      expect(r.issues.filter((i) => i.severity === "error").map((i) => [i.code, i.message])).toEqual([["SCHEMA_COLUMN_MISMATCH", "T: columns missing in source [required], missing in target []"]])
+    })
+
+    it("a SOURCE column or table the target lacks is still refused (its data would be lost)", () => {
+      const src = structuredClone(okSource)
+      src.tables[0].columns.push({ name: "legacy", dataType: "varchar", columnType: "varchar(10)", nullable: true, maxLength: 10 })
+      src.tables.push({ name: "Old", primaryKey: ["id"], columns: [{ name: "id", dataType: "varchar", columnType: "varchar(10)", nullable: false, maxLength: 10 }] })
+      const codes = checkSchemaCompat(src, newer(), { targetSuperset: true }).issues.filter((i) => i.severity === "error").map((i) => i.code).sort()
+      expect(codes).toEqual(["SCHEMA_COLUMN_MISMATCH", "SCHEMA_TABLE_MISSING_IN_TARGET"])
+    })
   })
 
   it("reports which columns need a length check (target bound tighter than source)", () => {

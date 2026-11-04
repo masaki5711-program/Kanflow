@@ -43,6 +43,10 @@ export type IssueCode =
   | "SCHEMA_TABLE_MISSING_IN_TARGET"
   | "SCHEMA_TABLE_MISSING_IN_SOURCE"
   | "SCHEMA_COLUMN_MISMATCH"
+  /** --target-superset: a target table the source does not have; it stays empty (info). */
+  | "TARGET_TABLE_LEFT_EMPTY"
+  /** --target-superset: target columns the source does not have; rows get their default or NULL (warning: reviewed). */
+  | "TARGET_COLUMNS_DEFAULTED"
   | "SCHEMA_TYPE_INCOMPATIBLE"
   | "SCHEMA_PRECISION"
   | "NO_TABLES"
@@ -80,6 +84,7 @@ export const ACCEPTABLE_WARNINGS = [
   "LOCAL_OFFSET_SUSPECT",
   "TARGET_LOCALE",
   "SOURCE_CHARSET",
+  "TARGET_COLUMNS_DEFAULTED",
 ] as const
 
 export interface Issue {
@@ -186,7 +191,24 @@ function precisionProblem(sc: SourceColumn, tc: TargetColumn, kind: TargetKind):
   return null
 }
 
-export function checkSchemaCompat(source: SourceSchema, target: TargetSchema): { issues: Issue[]; mappings: Map<string, MappedColumn[]>; tables: TableMapping[] } {
+export interface SchemaCompatOptions {
+  /**
+   * The target schema is a NEWER version of the source's (--target-superset): a target table the source lacks stays
+   * empty, and a target column the source lacks is left to its default or NULL — only when it is nullable or has a
+   * default (otherwise the row could not be written: still SCHEMA_COLUMN_MISMATCH). A SOURCE table or column the
+   * target lacks is always an error (its data would be lost). Everything left out is reported (info) and listed.
+   */
+  targetSuperset?: boolean
+}
+
+export function checkSchemaCompat(
+  source: SourceSchema,
+  target: TargetSchema,
+  options: SchemaCompatOptions = {},
+): { issues: Issue[]; mappings: Map<string, MappedColumn[]>; tables: TableMapping[] } {
+  const superset = options.targetSuperset === true
+  const leftEmpty: string[] = []
+  const defaulted: string[] = []
   const issues: Issue[] = []
   const mappings = new Map<string, MappedColumn[]>()
   const tables: TableMapping[] = []
@@ -200,14 +222,18 @@ export function checkSchemaCompat(source: SourceSchema, target: TargetSchema): {
   for (const tt of target.tables.filter((t) => !EXCLUDED_TABLES.has(t.name))) {
     const st = sourceTableFor(tt, byExact, byLower)
     if (!st) {
-      issues.push(issue("SCHEMA_TABLE_MISSING_IN_SOURCE", `target table ${tt.name} has no source table`, { table: tt.name }))
+      if (superset) leftEmpty.push(tt.name)
+      else issues.push(issue("SCHEMA_TABLE_MISSING_IN_SOURCE", `target table ${tt.name} has no source table`, { table: tt.name }))
       continue
     }
     used.add(st.name)
     if (st.name !== tt.name) caseFolded++
     const srcCols = new Map(st.columns.map((c) => [c.name, c]))
     const tgtNames = new Set(tt.columns.map((c) => c.name))
-    const missing = tt.columns.filter((c) => !srcCols.has(c.name)).map((c) => c.name)
+    const absent = tt.columns.filter((c) => !srcCols.has(c.name))
+    // With --target-superset a target-only column is fine when an INSERT without it still gets a value.
+    const fillable = superset ? absent.filter((c) => c.nullable || c.hasDefault) : []
+    const missing = absent.filter((c) => !fillable.includes(c)).map((c) => c.name)
     const extra = st.columns.filter((c) => !tgtNames.has(c.name)).map((c) => c.name)
     if (missing.length > 0 || extra.length > 0) {
       issues.push(
@@ -219,9 +245,11 @@ export function checkSchemaCompat(source: SourceSchema, target: TargetSchema): {
       issues.push(issue("NO_PRIMARY_KEY", `${tt.name}: primary keys differ or are missing (source [${st.primaryKey}], target [${tt.primaryKey}])`, { table: tt.name }))
       continue
     }
+    for (const c of fillable) defaulted.push(`${tt.name}.${c.name}`)
     const cols: MappedColumn[] = []
     let ok = true
-    for (const tc of tt.columns) {
+    // Only the columns both sides have are copied and verified; a defaulted column is not part of the INSERT.
+    for (const tc of tt.columns.filter((c) => srcCols.has(c.name))) {
       const sc = srcCols.get(tc.name)!
       const kind = targetKindOf(tc.typname, tc.typtype)
       const allowed = COMPATIBLE[sc.dataType] ?? []
@@ -265,6 +293,22 @@ export function checkSchemaCompat(source: SourceSchema, target: TargetSchema): {
     if (!used.has(st.name)) {
       issues.push(issue("SCHEMA_TABLE_MISSING_IN_TARGET", `source table ${st.name} has no target table (its rows would be lost)`, { table: st.name }))
     }
+  }
+  if (leftEmpty.length > 0) {
+    issues.push(
+      issue("TARGET_TABLE_LEFT_EMPTY", `--target-superset: ${leftEmpty.length} target table(s) not in the source are not written to (and must be empty): ${leftEmpty.join(", ")}`, {
+        severity: "info",
+        count: leftEmpty.length,
+      }),
+    )
+  }
+  if (defaulted.length > 0) {
+    issues.push(
+      issue("TARGET_COLUMNS_DEFAULTED", `--target-superset: ${defaulted.length} target column(s) not in the source get their default or NULL (review the defaults): ${defaulted.join(", ")}`, {
+        severity: "warning",
+        count: defaulted.length,
+      }),
+    )
   }
   if (caseFolded > 0) {
     issues.push(

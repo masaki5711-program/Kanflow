@@ -44,6 +44,8 @@ export interface RunOptions {
   mode: "migrate" | "dry-run" | "verify-only"
   batchSize: number
   allowInvalidJson: boolean
+  /** --target-superset: the target schema is newer than the source's (prechecks.ts SchemaCompatOptions) */
+  targetSuperset?: boolean
   /** warning codes the operator reviewed (--accept-warnings) */
   acceptWarnings?: readonly string[]
   /** identities printed by the dry run; a migrate run refuses without / on mismatch */
@@ -175,10 +177,19 @@ function keysetMy(pk: readonly string[], last: readonly unknown[] | null, joiner
   return `${joiner} (${pk.map(myIdent).join(", ")}) > (${pk.map(() => "?").join(", ")})`
 }
 
+/**
+ * Foreign keys between copied tables whose columns (both sides) are all copied. With --target-superset a key on a
+ * target-only column is left out: that column gets its default / NULL, so it references nothing in the copied data.
+ */
+function copiedForeignKeys(schema: TargetSchema, tables: readonly TableMapping[]): TargetSchema["foreignKeys"] {
+  const byName = new Map(tables.map((t) => [t.table, t]))
+  const has = (table: string, col: string) => byName.get(table)?.columns.some((c) => c.name === col) === true
+  return schema.foreignKeys.filter((fk) => byName.has(fk.table) && byName.has(fk.refTable) && fk.columns.every((c) => has(fk.table, c)) && fk.refColumns.every((c) => has(fk.refTable, c)))
+}
+
 function fkEdges(schema: TargetSchema, tables: readonly TableMapping[]): FkEdge[] {
   const byName = new Map(tables.map((t) => [t.table, t]))
-  return schema.foreignKeys
-    .filter((fk) => byName.has(fk.table) && byName.has(fk.refTable))
+  return copiedForeignKeys(schema, tables)
     .map((fk) => ({
       ...fk,
       nullable: fk.columns.every((c) => byName.get(fk.table)!.columns.find((x) => x.name === c)?.nullable === true),
@@ -271,7 +282,7 @@ async function jsonChecks(source: SourcePort, m: TableMapping, allowInvalidJson:
 
 async function orphanChecks(source: SourcePort, schema: TargetSchema, tables: readonly TableMapping[], issues: Issue[]): Promise<void> {
   const byName = new Map(tables.map((t) => [t.table, t]))
-  for (const fk of schema.foreignKeys) {
+  for (const fk of copiedForeignKeys(schema, tables)) {
     const child = byName.get(fk.table)
     const parent = byName.get(fk.refTable)
     if (!child || !parent) continue
@@ -303,7 +314,8 @@ async function citextChecks(source: SourcePort, schema: TargetSchema, tables: re
   const byName = new Map(tables.map((t) => [t.table, t]))
   for (const uk of citextUniqueKeys(schema)) {
     const m = byName.get(uk.table)
-    if (!m) continue
+    // A key on a target-only column (--target-superset) cannot be read from the source: the INSERT enforces it.
+    if (!m || !uk.columns.every((c) => m.columns.some((x) => x.name === c))) continue
     const mask = uk.columns.map((c) => m.columns.find((x) => x.name === c)?.isCitext === true)
     const finder = new CitextDuplicateFinder(mask)
     const sql = `${tag("citext", m.table)} SELECT ${[...m.primaryKey, ...uk.columns].map(myIdent).join(", ")} FROM ${myIdent(m.sourceTable)}`
@@ -541,9 +553,15 @@ async function namedExtras(ports: Ports, m: TableMapping, v: TableVerifier, opts
   }
 }
 
-async function verifySequences(ports: Ports, schema: TargetSchema, comparisons: TableComparison[]): Promise<void> {
+async function verifySequences(ports: Ports, schema: TargetSchema, comparisons: TableComparison[], targetSuperset: boolean): Promise<void> {
   for (const s of schema.sequences) {
     const c = comparisons.find((x) => x.table === s.table)
+    if (!c && targetSuperset) {
+      // A target-only table (--target-superset) is not copied: it must still be empty.
+      const [r] = await ports.target.query(`${tag("verify-seq", s.table)} SELECT COUNT(*)::text AS n FROM ${pgIdent(s.table)}`)
+      if (String(r?.n ?? "0") !== "0") throw new Error(`target-only table ${s.table} holds rows: it was not copied and must be empty`)
+      continue
+    }
     // A sequence on a table that was not verified would be skipped silently: fail loudly instead.
     if (!c) throw new Error(`sequence ${s.sequence} belongs to table ${s.table}, which is not among the verified tables`)
     const [r] = await ports.target.query(
@@ -564,7 +582,7 @@ async function verifyAll(ports: Ports, schema: TargetSchema, tables: readonly Ta
     const c = await verifyTable(ports, m, opts)
     out.push(c)
   }
-  await verifySequences(ports, schema, out)
+  await verifySequences(ports, schema, out, opts.targetSuperset === true)
   for (const c of out) {
     log(
       `[verify] ${c.table}: ${c.match ? "OK" : "MISMATCH"} source ${c.sourceRows} / target ${c.targetRows} rows, sha256 ${c.sourceHash.slice(0, 12)}${c.match ? "" : ` vs ${c.targetHash.slice(0, 12)}`}` +
@@ -646,7 +664,7 @@ export async function runMigrator(opts: RunOptions, ports: Ports, hooks: RunHook
     if (srcInfo.charset !== "utf8mb4") {
       issues.push({ code: "SOURCE_CHARSET", severity: "warning", count: 1, sampleKeys: [], message: `source database default charset is ${srcInfo.charset}, production uses utf8mb4` })
     }
-    const compat = checkSchemaCompat(srcSchema, tgtSchema)
+    const compat = checkSchemaCompat(srcSchema, tgtSchema, { targetSuperset: opts.targetSuperset === true })
     issues.push(...compat.issues)
     const tables = compat.tables
     if (tables.length === 0) {
