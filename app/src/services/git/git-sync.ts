@@ -310,6 +310,17 @@ export function isSameLink(before: Partial<LinkData> | null, data: LinkData): bo
   return (Object.keys(LINK_SELECT) as (keyof LinkData)[]).every((k) => comparable(before[k]) === comparable(data[k]))
 }
 
+/**
+ * Pure: the merge time to store. Once stored for a merged link it is kept — a merged MR never merges
+ * again, and a source that only approximates it on a re-read (GitStation's listing has no merge time)
+ * must not move it. Otherwise the source's value (null when it does not know yet).
+ */
+export function mergedAtToStore(before: { state?: unknown; mergedAt?: unknown } | null, draft: { state: string | null; mergedAt: Date | null }): Date | null {
+  if (draft.state !== "merged") return draft.mergedAt
+  if (before?.state === "merged" && before.mergedAt instanceof Date) return before.mergedAt
+  return draft.mergedAt
+}
+
 async function writeLinks(projectId: string, repositoryId: string, drafts: readonly LinkDraft[], pbiIds: Map<number, string>): Promise<WriteResult> {
   const newlyMerged = new Set<string>()
   const newlyFailed: FailedPipeline[] = []
@@ -330,7 +341,7 @@ async function writeLinks(projectId: string, repositoryId: string, drafts: reado
       author: d.author,
       sourceBranch: d.sourceBranch,
       occurredAt: d.occurredAt,
-      mergedAt: d.mergedAt,
+      mergedAt: mergedAtToStore(before, d),
       // An unknown open time keeps the stored one (a listing without it must not erase it).
       openedAt: d.openedAt ?? (before?.openedAt as Date | null | undefined) ?? null,
       // Seen in this sync: a branch marked gone that came back is live again.
@@ -430,7 +441,7 @@ async function notifyFailedPipelines(projectId: string, failures: readonly Faile
 /** Tags are an add-on to the PBI links: a failure here must not fail the sync. */
 async function syncReleasesSafely(source: DevSource, repo: { id: string; projectId: string; webUrl: string }, now: Date): Promise<number> {
   try {
-    return await writeReleases(repo, await source.listReleaseTags(repo.webUrl, now))
+    return await writeReleases(repo, await source.listReleaseTags(repo.webUrl, now), now)
   } catch (err) {
     log.warn("tag sync skipped", { repositoryId: repo.id, error: err instanceof Error ? err.message : String(err) })
     return 0

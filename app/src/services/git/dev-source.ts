@@ -106,9 +106,9 @@ export interface DevSourceErrorInfo {
 export interface DevSource {
   readonly provider: GitProvider
   /**
-   * The source's numeric id of the repository (resolved once, stored as git_repository.externalId),
-   * or null for a source that addresses repositories by path (GitStation: opaque ids). Throws when
-   * the repository cannot be seen.
+   * The source's numeric id of the repository (stored as git_repository.externalId), or null for a
+   * source without one. GitStation resolves the path on every call and also checks the binding.
+   * Throws when the repository cannot be seen.
    */
   locate(): Promise<number | null>
   readChanges(cursor: DevCursor, now: Date): Promise<DevChanges>
@@ -147,7 +147,7 @@ export interface DevCursorCodec {
 
 export interface DevConnection {
   repositoryId: string
-  /** Kanflow project of the repository (GitStation: only events naming this project's work items are taken). */
+  /** Kanflow project of the repository (GitStation: the repository is read only while it is bound to this project). */
   projectId: string
   /** provider "gitstation": GitStation's integration id (git_integration.stationIntegrationId). */
   stationIntegrationId?: string | null

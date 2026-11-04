@@ -1026,6 +1026,20 @@ describe("syncRepository — full success: links, pipelines, gone branches, auto
     // A gone branch seen again is rewritten (goneAt cleared).
     expect(isSameLink({ ...data, goneAt: new Date(NOW) }, data)).toBe(false)
   })
+
+  it("mergedAtToStore keeps a stored merge time once merged (any source), else takes the source's", () => {
+    const stored = new Date("2026-09-30T00:00:00Z")
+    const later = new Date("2026-10-01T00:00:00Z")
+    // GitLab and GitStation alike: a merged MR never merges again; a re-read's approximation does not move it.
+    expect(gitSync.mergedAtToStore({ state: "merged", mergedAt: stored }, { state: "merged", mergedAt: later })).toBe(stored)
+    expect(gitSync.mergedAtToStore({ state: "merged", mergedAt: stored }, { state: "merged", mergedAt: null })).toBe(stored)
+    // Not stored yet (or not merged before): the source's value, null included.
+    expect(gitSync.mergedAtToStore({ state: "merged", mergedAt: null }, { state: "merged", mergedAt: later })).toBe(later)
+    expect(gitSync.mergedAtToStore({ state: "opened", mergedAt: null }, { state: "merged", mergedAt: later })).toBe(later)
+    expect(gitSync.mergedAtToStore(null, { state: "merged", mergedAt: null })).toBeNull()
+    // Not merged: whatever the source says (null).
+    expect(gitSync.mergedAtToStore({ state: "merged", mergedAt: stored }, { state: "opened", mergedAt: null })).toBeNull()
+  })
 })
 
 describe("syncRepository — error handling", () => {

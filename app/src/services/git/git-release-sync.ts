@@ -8,8 +8,13 @@ import { readGitLabReleaseTags, type TagDraft } from "./gitlab-release-tags"
  */
 export { draftsFromTags, type TagDraft } from "./gitlab-release-tags"
 
-const same = (a: { name: string | null; description: string | null; url: string; releasedAt: Date }, b: TagDraft) =>
+const same = (a: { name: string | null; description: string | null; url: string; releasedAt: Date }, b: TagDraft & { releasedAt: Date }) =>
   a.name === b.name && a.description === b.description && a.url === b.url && a.releasedAt.getTime() === b.releasedAt.getTime()
+
+/** Pure: a tag's date — the source's, else (unknown) the stored one, else when it was first seen. */
+export function releaseDate(draft: Pick<TagDraft, "releasedAt">, stored: { releasedAt: Date } | undefined, now: Date): Date {
+  return draft.releasedAt ?? stored?.releasedAt ?? now
+}
 
 /** Returns how many rows were created / changed / removed. */
 export async function syncReleases(
@@ -22,13 +27,14 @@ export async function syncReleases(
 }
 
 /** Mirrors a tag listing (of any source) into git_release; returns how many rows were created / changed / removed. */
-export async function writeReleases(repo: { id: string; projectId: string }, listing: { drafts: readonly TagDraft[]; complete: boolean }): Promise<number> {
+export async function writeReleases(repo: { id: string; projectId: string }, listing: { drafts: readonly TagDraft[]; complete: boolean }, now = new Date()): Promise<number> {
   const { drafts } = listing
   const existing = await prisma.gitRelease.findMany({ where: { repositoryId: repo.id } })
   const before = new Map(existing.map((r) => [r.tag, r]))
   let changed = 0
-  for (const d of drafts) {
-    const row = before.get(d.tag)
+  for (const draft of drafts) {
+    const row = before.get(draft.tag)
+    const d = { ...draft, releasedAt: releaseDate(draft, row, now) }
     if (row && same(row, d)) continue
     const data = { name: d.name, description: d.description, url: d.url, releasedAt: d.releasedAt }
     await prisma.gitRelease.upsert({

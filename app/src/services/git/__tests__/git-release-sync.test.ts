@@ -7,7 +7,7 @@ vi.mock("@/lib/prisma", () => ({
   prisma: { gitRelease: { findMany: (...a: unknown[]) => findMany(...a), upsert: (...a: unknown[]) => upsert(...a), deleteMany: (...a: unknown[]) => deleteMany(...a) } },
 }))
 
-const { draftsFromTags, syncReleases } = await import("../git-release-sync")
+const { draftsFromTags, syncReleases, writeReleases, releaseDate } = await import("../git-release-sync")
 
 const NOW = new Date("2026-10-22T00:00:00Z")
 const REPO = { id: "r1", projectId: "p1", webUrl: "https://gitlab.example/g/r/" }
@@ -26,6 +26,28 @@ describe("draftsFromTags", () => {
 
   it("falls back to now when the tag has no usable date", () => {
     expect(draftsFromTags([{ name: "x", commit: { committed_date: "nope" } }], [], REPO.webUrl, NOW)[0].releasedAt).toEqual(NOW)
+  })
+})
+
+describe("releaseDate / writeReleases with an unknown date (GitStation tags)", () => {
+  beforeEach(() => {
+    vi.resetAllMocks()
+    upsert.mockResolvedValue({})
+  })
+
+  it("a known date wins (GitLab: a changed release date is written); unknown keeps the stored one, else the first-seen time", () => {
+    const stored = { releasedAt: new Date("2026-09-01T00:00:00Z") }
+    const known = new Date("2026-09-05T00:00:00Z")
+    expect(releaseDate({ releasedAt: known }, stored, NOW)).toBe(known)
+    expect(releaseDate({ releasedAt: null }, stored, NOW)).toBe(stored.releasedAt)
+    expect(releaseDate({ releasedAt: null }, undefined, NOW)).toBe(NOW)
+  })
+
+  it("an unchanged tag without a date is not rewritten on the next sync", async () => {
+    const url = "https://gitstation.example/-/projects/12/tree/v1"
+    findMany.mockResolvedValue([{ id: "g1", tag: "v1", name: null, description: null, url, releasedAt: new Date("2026-09-01T00:00:00Z") }])
+    expect(await writeReleases({ id: "r1", projectId: "p1" }, { drafts: [{ tag: "v1", name: null, description: null, url, releasedAt: null }], complete: true }, NOW)).toBe(0)
+    expect(upsert).not.toHaveBeenCalled()
   })
 })
 

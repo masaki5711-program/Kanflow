@@ -294,13 +294,13 @@ describe("GitStation settings and connection test (K3)", () => {
 
   it("tests a GitStation repository through its source (the service account must see it), never through the GitLab client", async () => {
     try {
-      const { createFakeGitStation, INTEGRATION, TOKEN } = await import("./fake-gitstation")
+      const { createFakeGitStation, INTEGRATION, REPO_ID, TOKEN } = await import("./fake-gitstation")
       const { createGitStationClient } = await import("@/lib/git/gitstation-client")
       const station = createFakeGitStation()
       const clients = { gitstation: (o: { apiBase: string; token: string; integrationId: string }) => createGitStationClient({ ...o, fetchImpl: station.fetchImpl }) }
       gitIntegrationFindUnique.mockResolvedValue({ provider: "gitstation", stationIntegrationId: INTEGRATION, tokenCipher: null })
       const ok = await svc.testConnection(PROJECT_ID, "https://gitstation.example/app/portal", TOKEN, undefined, clients)
-      expect(ok).toEqual({ ok: true, repository: { path: "app/portal", webUrl: "https://gitstation.example/app/portal", defaultBranch: null, externalId: null } })
+      expect(ok).toEqual({ ok: true, repository: { path: "app/portal", webUrl: "https://gitstation.example/app/portal", defaultBranch: null, externalId: REPO_ID } })
       const unbound = await svc.testConnection(PROJECT_ID, "https://gitstation.example/app/unbound", TOKEN, undefined, clients)
       expect(unbound.ok).toBe(false)
       expect(unbound.error).toContain("連携")

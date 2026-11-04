@@ -2,14 +2,17 @@ import { logger } from "@/lib/logger"
 import { stationAllowedHosts } from "@/lib/git/repo-url"
 
 /**
- * Minimal GitStation REST client (`/api/v1`, plan 02 §5.1 / §5.2 / §5.7 / §11.2) for the
+ * Minimal GitStation REST client (`/api/v1`, plan 02 §5.7 / §11.2; GitStation M3 I1c) for the
  * read-only integration feed. Authenticated with the integration's service-account token
  * (`Authorization: Bearer …`). Every call has a timeout, never follows a redirect (the token
  * must not travel to another host), bounded pagination, and maps GitStation's answers to
  * GitStationError kinds the sync can explain.
  *
- * Shapes marked "assumed" in docs/integration/gitstation-contract-proposal.md are not yet in
- * plan 02; the fake GitStation in the tests pins them.
+ * GitStation addresses projects by numeric id only: a repository path is resolved through
+ * `/namespaces/resolve`. Its API returns no web URLs; `webUrl` builds GitStation's permalinks
+ * (`/-/projects/{id}/…`, which survive renames and moves). The shapes are those of GitStation
+ * main at I1c (its docs/api/integration-feed.md and the OpenAPI document); the fake GitStation
+ * in the tests serves the same bodies.
  */
 
 export type GitStationErrorKind =
@@ -41,12 +44,17 @@ export class GitStationError extends Error {
   }
 }
 
-/** One feed event (plan 02 §5.7). `data` is per type; unknown types are skipped by the source. */
+/**
+ * One feed event (GitStation docs/api/integration-feed.md, schema_version 1). `project_id` is
+ * GitStation's numeric project id; `data` is per type and carries ids, ref names and flags only —
+ * never a title (merge requests are read through the API for those). Unknown types are skipped.
+ */
 export interface GitStationEvent {
   cursor: string
   id: string
   type: string
   occurred_at: string
+  project_id: number
   work_items: { provider: string; project_id: string; ref: string }[]
   data: Record<string, unknown>
 }
@@ -57,41 +65,52 @@ export interface GitStationFeedPage {
   hasMore: boolean
 }
 
-/** A merge request as the dev-status listing returns it (assumed integration-scoped listing). */
+/** A merge request as `/projects/{id}/merge-requests[/{iid}]` returns it (MergeRequestBody). */
 export interface GitStationMergeRequest {
-  project: string
+  project_id: number
   iid: number
   title: string
+  /** open | closed | merged */
   state: string
+  draft?: boolean
   source_branch: string
-  url: string
-  author?: { name?: string | null } | null
-  updated_at?: string | null
-  merged_at?: string | null
-  /** When the MR was opened (plan 02 G1; absent until GitStation sends it). */
-  opened_at?: string | null
+  target_branch?: string
+  author?: { username?: string | null; display_name?: string | null } | null
+  created_at: string
+  updated_at: string
+  closed_at?: string | null
+  head_sha?: string | null
 }
 
-export interface GitStationBranch {
+/** One ref of `/projects/{id}/repository/refs` (RefBody). */
+export interface GitStationRef {
   name: string
-  url: string
-  commit?: { title?: string | null; author_name?: string | null; committed_at?: string | null } | null
+  full_name?: string
+  type: string
+  commit?: string | null
 }
 
-export interface GitStationTag {
-  name: string
-  url: string
-  commit?: { committed_at?: string | null } | null
-  release?: { name?: string | null; description?: string | null; released_at?: string | null } | null
+/** One commit of `/projects/{id}/repository/commits` (CommitBody). */
+export interface GitStationCommit {
+  oid: string
+  author_name: string
+  committed_at: string
+  /** The first paragraph of the message on one line. */
+  subject: string
 }
 
-export interface GitStationProject {
-  id: string
-  path: string
-  web_url: string
-  default_branch: string | null
-  /** Kanflow projects the repository is bound to in GitStation (assumed field; 02 §2 binding). */
-  kanflow_project_ids: string[]
+/** `/namespaces/resolve?path=` of a project (moved = the path redirects to `canonical_path`). */
+export interface GitStationProjectRef {
+  projectId: number
+  canonicalPath: string
+  moved: boolean
+}
+
+/** One integration binding of a project (`/projects/{id}/integration-bindings`). */
+export interface GitStationBinding {
+  integrationId: string
+  kind: string
+  externalProjectId: string
 }
 
 export interface Listing<T> {
@@ -124,7 +143,10 @@ const MAX_RETRY_WAIT_SEC = 10
 const DEFAULT_RETRY_WAIT_SEC = 1
 /** Events per feed request (plan 02 §11.2: default 100, max 500). */
 export const FEED_PAGE_LIMIT = 500
+/** Merge requests per listing page (GitStation: limit 1..100). */
 const LIST_LIMIT = 100
+/** Commits per history page (GitStation max_log_page 100; a push lists at most 20 per ref). */
+export const COMMIT_PAGE_LIMIT = 50
 /** GitStation answers at most 2 MiB (02 §11.2); anything far larger is refused unread. */
 export const MAX_RESPONSE_BYTES = 4 * 1024 * 1024
 /** GitStation cursors are opaque; this only bounds what Kanflow stores and sends back. */
@@ -143,9 +165,10 @@ function retryAfterSec(res: Response): number | undefined {
   return Number.isNaN(at) ? undefined : Math.max(0, Math.ceil((at - Date.now()) / 1000))
 }
 
+/** An error answer's body (bounded like any other; unreadable = no detail). */
 async function errorBody(res: Response): Promise<{ error_code?: string; reason?: string }> {
   try {
-    const body = (await res.json()) as unknown
+    const body = JSON.parse(await boundedText(res)) as unknown
     return body && typeof body === "object" ? (body as { error_code?: string; reason?: string }) : {}
   } catch {
     return {}
@@ -189,20 +212,48 @@ function assertAllowedBase(apiBase: string, hosts: readonly string[]): void {
   if (!plain || !hosts.includes(url.hostname.toLowerCase())) throw new GitStationError("host_not_allowed", "GitStation host is not in GITSTATION_ALLOWED_HOSTS")
 }
 
-/** One feed event of the expected shape (02 §5.7), else null. */
+const isId = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v > 0
+
+/** One feed event of the expected shape (integration-feed.md), else null. */
 function parseEvent(v: unknown): GitStationEvent | null {
-  if (!isObject(v) || !str(v.id) || !str(v.type) || !str(v.occurred_at) || !isObject(v.data)) return null
-  const workItems = Array.isArray(v.work_items) ? v.work_items.filter((w): w is GitStationEvent["work_items"][number] => isObject(w) && str(w.provider) && str(w.project_id)) : []
-  return { cursor: str(v.cursor) ? v.cursor : "", id: v.id, type: v.type, occurred_at: v.occurred_at, work_items: workItems, data: v.data }
+  if (!isObject(v) || !str(v.id) || !str(v.type) || !str(v.occurred_at) || !isId(v.project_id) || !isObject(v.data)) return null
+  const workItems = Array.isArray(v.work_items) ? v.work_items.filter((w): w is GitStationEvent["work_items"][number] => isObject(w) && str(w.provider) && str(w.project_id) && str(w.ref)) : []
+  return { cursor: str(v.cursor) ? v.cursor : "", id: v.id, type: v.type, occurred_at: v.occurred_at, project_id: v.project_id, work_items: workItems, data: v.data }
 }
+
+/** A merge request of the expected shape, else null (a listing skips it, a detail read refuses it). */
+function parseMergeRequest(v: unknown): GitStationMergeRequest | null {
+  if (!isObject(v) || !isId(v.project_id) || !isId(v.iid) || !str(v.title) || !str(v.state) || !str(v.source_branch) || !str(v.created_at) || !str(v.updated_at)) return null
+  const author = isObject(v.author) ? { username: str(v.author.username) ? v.author.username : null, display_name: str(v.author.display_name) ? v.author.display_name : null } : null
+  return {
+    project_id: v.project_id,
+    iid: v.iid,
+    title: v.title,
+    state: v.state,
+    draft: v.draft === true,
+    source_branch: v.source_branch,
+    target_branch: str(v.target_branch) ? v.target_branch : undefined,
+    author,
+    created_at: v.created_at,
+    updated_at: v.updated_at,
+    closed_at: str(v.closed_at) ? v.closed_at : null,
+    head_sha: str(v.head_sha) ? v.head_sha : null,
+  }
+}
+
+const OID = /^[0-9a-f]{40}([0-9a-f]{24})?$/
+
+/** A commit id GitStation would accept as `?ref=` (40 or 64 lower-case hex). */
+export const isObjectId = (v: unknown): v is string => str(v) && OID.test(v)
 
 export function createGitStationClient({ apiBase, token, integrationId, fetchImpl = fetch, timeoutMs = TIMEOUT_MS, sleep = realSleep, allowedHosts = stationAllowedHosts() }: GitStationClientOptions) {
   type Query = Record<string, string | number | undefined>
   assertAllowedBase(apiBase, allowedHosts)
   const integration = encodeURIComponent(integrationId)
+  const base = apiBase.replace(/\/+$/, "")
 
   async function sendOnce(path: string, query: Query): Promise<Response> {
-    const url = new URL(`${apiBase}/api/v1${path}`)
+    const url = new URL(`${base}/api/v1${path}`)
     for (const [k, v] of Object.entries(query)) if (v !== undefined) url.searchParams.set(k, String(v))
     let res: Response
     try {
@@ -286,27 +337,15 @@ export function createGitStationClient({ apiBase, token, integrationId, fetchImp
     return { events, nextCursor: body.next_cursor, hasMore: body.has_more, malformed, malformedSamples }
   }
 
-  async function list<T>(path: string, key: string, query: Query, maxPages: number): Promise<Listing<T>> {
-    const items: T[] = []
-    let cursor: string | undefined
-    for (let page = 0; page < maxPages; page++) {
-      const body = await send(path, { ...query, cursor, limit: LIST_LIMIT })
-      if (!isObject(body) || !Array.isArray(body[key])) throw new GitStationError("invalid_response", `GitStation ${key} listing has an unexpected shape`)
-      items.push(...(body[key] as T[]))
-      const next = body.next_cursor
-      if (body.has_more !== true) return { items, truncated: false }
-      if (!validCursor(next) || next === cursor) throw new GitStationError("invalid_response", `GitStation ${key} listing has no usable next cursor`)
-      cursor = next
-    }
-    return { items, truncated: true }
+  const projectBase = (projectId: number) => {
+    if (!isId(projectId)) throw new GitStationError("invalid_response", "not a GitStation project id")
+    return `/projects/${projectId}`
   }
 
-  const projectPath = (path: string) => `/projects/${encodeURIComponent(path)}`
-
   return {
-    /** Events after `after` (null = from the beginning the integration may see). */
-    async events(after: string | null, limit = FEED_PAGE_LIMIT): Promise<GitStationFeedPage & { malformed: number; malformedSamples: { id: string | null; type: string | null }[] }> {
-      return feedPage(await send(`/integrations/${integration}/events`, { after: after ?? undefined, limit }))
+    /** Events after `cursor` (GitStation's `next_cursor` / head cursor, sent back unchanged). */
+    async events(cursor: string, limit = FEED_PAGE_LIMIT): Promise<GitStationFeedPage & { malformed: number; malformedSamples: { id: string | null; type: string | null }[] }> {
+      return feedPage(await send(`/integrations/${integration}/events`, { cursor, limit }))
     },
 
     /** The position of the last event the integration may see (plan 02 §11.2: the 410 recovery starts here). */
@@ -316,24 +355,84 @@ export function createGitStationClient({ apiBase, token, integrationId, fetchImp
       return body.cursor
     },
 
-    /** Every merge request of one repository, any state (assumed integration-scoped dev-status listing). */
-    listMergeRequests(project: string, maxPages: number): Promise<Listing<GitStationMergeRequest>> {
-      return list(`/integrations/${integration}/dev_status`, "merge_requests", { project, state: "all" }, maxPages)
+    /** The project a repository path names (a moved path resolves to the project it moved to); 404 = none visible. */
+    async resolveProject(path: string): Promise<GitStationProjectRef> {
+      const body = await send(`/namespaces/resolve`, { path })
+      if (!isObject(body) || !str(body.kind)) throw new GitStationError("invalid_response", "GitStation path resolution has an unexpected shape")
+      // A group path is no repository.
+      if (body.kind !== "project") throw new GitStationError("not_found", "The path names a group, not a project (404)", 404)
+      if (!isId(body.project_id) || !str(body.canonical_path)) throw new GitStationError("invalid_response", "GitStation path resolution has an unexpected shape")
+      return { projectId: body.project_id, canonicalPath: body.canonical_path, moved: body.moved === true }
     },
 
-    async getProject(path: string): Promise<GitStationProject> {
-      const body = await send(projectPath(path), {})
-      if (!isObject(body) || !str(body.id) || !str(body.path) || !str(body.web_url)) throw new GitStationError("invalid_response", "GitStation project has an unexpected shape")
-      const bound = Array.isArray(body.kanflow_project_ids) ? body.kanflow_project_ids.filter(str) : []
-      return { id: body.id, path: body.path, web_url: body.web_url, default_branch: str(body.default_branch) ? body.default_branch : null, kanflow_project_ids: bound }
+    /** The integrations a project is bound to (0..1 per integration kind). */
+    async bindings(projectId: number): Promise<GitStationBinding[]> {
+      const body = await send(`${projectBase(projectId)}/integration-bindings`, {})
+      if (!isObject(body) || !Array.isArray(body.items)) throw new GitStationError("invalid_response", "GitStation bindings have an unexpected shape")
+      return body.items.flatMap((b) =>
+        isObject(b) && (isId(b.integration_id) || str(b.integration_id)) && str(b.kind) && str(b.external_project_id)
+          ? [{ integrationId: String(b.integration_id), kind: b.kind, externalProjectId: b.external_project_id }]
+          : [],
+      )
     },
 
-    listBranches(path: string, search: string, maxPages: number): Promise<Listing<GitStationBranch>> {
-      return list(`${projectPath(path)}/branches`, "branches", { search }, maxPages)
+    /**
+     * Every merge request of one project, any state, newest first (`before=<iid>` pages). Items of
+     * an unexpected shape are counted in `skipped`, not returned.
+     */
+    async listMergeRequests(projectId: number, maxPages: number): Promise<Listing<GitStationMergeRequest> & { skipped: number }> {
+      const items: GitStationMergeRequest[] = []
+      let skipped = 0
+      let before: number | undefined
+      for (let page = 0; page < maxPages; page++) {
+        const body = await send(`${projectBase(projectId)}/merge-requests`, { state: "all", limit: LIST_LIMIT, before })
+        if (!isObject(body) || !Array.isArray(body.merge_requests)) throw new GitStationError("invalid_response", "GitStation merge request listing has an unexpected shape")
+        for (const raw of body.merge_requests) {
+          const mr = parseMergeRequest(raw)
+          // Another project's item is never taken (its link would point there).
+          if (mr && mr.project_id === projectId) items.push(mr)
+          else skipped++
+        }
+        const next = body.next_before
+        if (next === null || next === undefined) return { items, truncated: false, skipped }
+        if (!isId(next) || (before !== undefined && next >= before)) throw new GitStationError("invalid_response", "GitStation merge request listing has no usable next page")
+        before = next
+      }
+      return { items, truncated: true, skipped }
     },
 
-    listTags(path: string, maxPages: number): Promise<Listing<GitStationTag>> {
-      return list(`${projectPath(path)}/tags`, "tags", {}, maxPages)
+    async getMergeRequest(projectId: number, iid: number): Promise<GitStationMergeRequest> {
+      if (!isId(iid)) throw new GitStationError("invalid_response", "not a merge request iid")
+      const mr = parseMergeRequest(await send(`${projectBase(projectId)}/merge-requests/${iid}`, {}))
+      if (!mr || mr.project_id !== projectId || mr.iid !== iid) throw new GitStationError("invalid_response", "GitStation merge request has an unexpected shape")
+      return mr
+    },
+
+    /** Branches or tags of a project (GitStation lists up to its cap, without paging: `truncated` = cut short). */
+    async refs(projectId: number, type: "branch" | "tag"): Promise<Listing<GitStationRef>> {
+      const body = await send(`${projectBase(projectId)}/repository/refs`, { type })
+      if (!isObject(body) || !Array.isArray(body.refs) || typeof body.truncated !== "boolean") throw new GitStationError("invalid_response", "GitStation refs have an unexpected shape")
+      const items = body.refs.flatMap((r) => (isObject(r) && str(r.name) && str(r.type) ? [{ name: r.name, full_name: str(r.full_name) ? r.full_name : undefined, type: r.type, commit: str(r.commit) ? r.commit : null }] : []))
+      return { items, truncated: body.truncated }
+    },
+
+    /** The newest commits reachable from `oid` (one page). */
+    async commits(projectId: number, oid: string, limit = COMMIT_PAGE_LIMIT): Promise<GitStationCommit[]> {
+      if (!isObjectId(oid)) throw new GitStationError("invalid_response", "not a commit id")
+      const body = await send(`${projectBase(projectId)}/repository/commits`, { ref: oid, limit })
+      if (!isObject(body) || !Array.isArray(body.commits)) throw new GitStationError("invalid_response", "GitStation commits have an unexpected shape")
+      return body.commits.flatMap((c) => (isObject(c) && str(c.oid) && str(c.subject) && str(c.committed_at) ? [{ oid: c.oid.toLowerCase(), subject: c.subject, committed_at: c.committed_at, author_name: str(c.author_name) ? c.author_name : "" }] : []))
+    },
+
+    /** GitStation's permalink of a project page (`/-/projects/{id}/<segments>`: survives renames). */
+    webUrl(projectId: number, ...segments: string[]): string {
+      // Dot segments are dropped: a name can never walk the link to another page.
+      const tail = segments
+        .flatMap((s) => s.split("/"))
+        .filter((s) => s !== "" && s !== "." && s !== "..")
+        .map(encodeURIComponent)
+        .join("/")
+      return `${base}/-/projects/${projectId}${tail ? `/${tail}` : ""}`
     },
   }
 }

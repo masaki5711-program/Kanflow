@@ -9,7 +9,7 @@ import { createFakeGitStation, INTEGRATION, STATION, STATION_HOST, TOKEN, type F
  *   KANFLOW_DB_TESTS=1 npx vitest run src/services/git/__tests__/gitstation-feed-sync.db.test.ts
  *
  * What it pins (plan 11 K3, plan 12 §2.4): one feed read per poll for every repository of every
- * project using the integration; events reach only the project their work items name; one reader
+ * project using the integration; events reach only the repository of their GitStation project, bound to one Kanflow project; one reader
  * per feed (lease); the cursor saved as a compare-and-set and held whenever a repository could not
  * be checked or written; a repository that is not bound is skipped and re-read when it returns;
  * 過去分を再同期 restarts the feed; a closed-unmerged merge request is stored as closed (02 §8.2).
@@ -33,7 +33,15 @@ describe.skipIf(!enabled)("GitStation feed sync on a real database (KANFLOW_DB_T
   const feedRow = () => prisma.gitStationFeed.findFirstOrThrow({ where: { apiBase: STATION, integrationId: INTEGRATION } })
   const sync = async () => (await feedSync.syncGitStationFeeds(clients(), NOW)).filter((r) => ownIds.has(r.repositoryId))
   const eventRequests = () => station.requests.filter((r) => /\/integrations\/[^/]+\/events(\?|$)/.test(r))
-  const stateRequests = () => station.requests.filter((r) => r.includes("/dev_status")).map((r) => new URL(`https://x${r}`).searchParams.get("project"))
+  const PATHS = ["app/portal", "app/api", "tools/cli"]
+  /** Paths whose merge request listing (the state re-read) was asked for. */
+  const stateRequests = () =>
+    station.requests.flatMap((r) => {
+      const m = /^\/api\/v1\/projects\/(\d+)\/merge-requests(\?|$)/.exec(r)
+      return m ? PATHS.filter((p) => station.projectId(p) === Number(m[1])) : []
+    })
+  /** The binding check of `path` (its integration-bindings read). */
+  const bindingPath = (path: string) => `/projects/${station.projectId(path)}/integration-bindings`
 
   beforeAll(async () => {
     process.env.INTEGRATION_SECRET_KEY ||= "synthetic-k3-test-key"
@@ -109,12 +117,13 @@ describe.skipIf(!enabled)("GitStation feed sync on a real database (KANFLOW_DB_T
     station.mergeRequest("merge_request.opened", 1, { project: "app/portal", title: "Login (PBI-1)" }, station.workItem("PBI-1", ids.projectA))
     station.mergeRequest("merge_request.opened", 2, { project: "app/api", title: "API (PBI-1)", source_branch: "feature/PBI-1-api" }, station.workItem("PBI-1", ids.projectA))
     station.mergeRequest("merge_request.opened", 3, { project: "tools/cli", title: "CLI (PBI-1)", source_branch: "feature/PBI-1-cli" }, station.workItem("PBI-1", ids.projectB))
-    // Mis-addressed: a project-B work item on a project-A path reaches neither.
-    station.mergeRequest("merge_request.opened", 9, { project: "app/portal", title: "Leak (PBI-1)", source_branch: "feature/PBI-1-leak" }, station.workItem("PBI-1", ids.projectB))
+    // Routed by GitStation's project (bound to project A only), whatever its work items say: it can never reach project B.
+    station.mergeRequest("merge_request.opened", 9, { project: "app/portal", title: "Other (PBI-1)", source_branch: "feature/PBI-1-other" }, station.workItem("PBI-1", ids.projectB))
     await sync()
     expect(eventRequests()).toHaveLength(1)
     const links = await prisma.gitLink.findMany({ where: { projectId: { in: [ids.projectA, ids.projectB] }, kind: "mr" }, select: { repositoryId: true, ref: true, state: true } })
-    expect(links.map((l) => `${l.repositoryId}#${l.ref}:${l.state}`).sort()).toEqual([`${ids.repoA1}#1:opened`, `${ids.repoA2}#2:opened`, `${ids.repoB}#3:opened`].sort())
+    expect(links.map((l) => `${l.repositoryId}#${l.ref}:${l.state}`).sort()).toEqual([`${ids.repoA1}#1:opened`, `${ids.repoA1}#9:opened`, `${ids.repoA2}#2:opened`, `${ids.repoB}#3:opened`].sort())
+    expect(links.filter((l) => l.repositoryId === ids.repoB).map((l) => l.ref)).toEqual(["3"])
   })
 
   it("stores a merge request closed without merging as closed (02 §8.2) and continues from the saved cursor", async () => {
@@ -124,7 +133,38 @@ describe.skipIf(!enabled)("GitStation feed sync on a real database (KANFLOW_DB_T
     station.mergeRequest("merge_request.closed", 1, { project: "app/portal" }, station.workItem("PBI-1", ids.projectA))
     await sync()
     expect(await prisma.gitLink.findFirstOrThrow({ where: { repositoryId: ids.repoA1, kind: "mr", ref: "1" } })).toMatchObject({ state: "closed", mergedAt: null })
-    expect(new URL(`https://x${eventRequests()[0]}`).searchParams.get("after")).toBe(after!.replace("gitstation:v1:", ""))
+    expect(new URL(`https://x${eventRequests()[0]}`).searchParams.get("cursor")).toBe(after!.replace("gitstation:v1:", ""))
+  })
+
+  it("keeps a stored merge time when the state is re-read (the listing only approximates it)", async () => {
+    await started()
+    station.mergeRequest("merge_request.opened", 1, { project: "app/portal" }, station.workItem("PBI-1", ids.projectA))
+    const merged = station.mergeRequest("merge_request.merged", 1, { project: "app/portal" }, station.workItem("PBI-1", ids.projectA))
+    await sync()
+    const where = { repositoryId: ids.repoA1, kind: "mr", ref: "1" }
+    expect((await prisma.gitLink.findFirstOrThrow({ where })).mergedAt?.toISOString()).toBe(merged.occurred_at)
+    const exact = new Date("2026-09-30T12:00:00.000Z")
+    await prisma.gitLink.updateMany({ where, data: { mergedAt: exact } })
+    await service.resyncRepository(ids.projectA, ids.repoA1, actor, NOW)
+    await sync()
+    expect((await prisma.gitLink.findFirstOrThrow({ where })).mergedAt?.getTime()).toBe(exact.getTime())
+  })
+
+  it("stores pushed commits that name a PBI, linked from the history GitStation keeps", async () => {
+    await started()
+    station.pushed("app/portal", "refs/heads/main", [{ subject: "fix: lock (PBI-1)" }], [])
+    await sync()
+    const link = await prisma.gitLink.findFirstOrThrow({ where: { repositoryId: ids.repoA1, kind: "commit" } })
+    expect(link).toMatchObject({ title: "fix: lock (PBI-1)", url: expect.stringContaining(`/-/projects/${station.projectId("app/portal")}/commit/`) })
+  })
+
+  it("dates a tag when first seen and keeps that date (GitStation tags carry none)", async () => {
+    await started()
+    station.setTags("app/portal", ["v1.0.0"])
+    await sync()
+    await feedSync.syncGitStationFeeds(clients(), new Date(NOW.getTime() + 86_400_000))
+    const tag = await prisma.gitRelease.findFirstOrThrow({ where: { repositoryId: ids.repoA1, tag: "v1.0.0" } })
+    expect(tag.releasedAt.getTime()).toBe(NOW.getTime())
   })
 
   it("今すぐ同期 of one repository reads its whole feed (the shared cursor never passes the other repositories' events)", async () => {
@@ -225,7 +265,7 @@ describe.skipIf(!enabled)("GitStation feed sync on a real database (KANFLOW_DB_T
     await started()
     const before = (await feedRow()).cursor
     station.mergeRequest("merge_request.opened", 3, { project: "tools/cli" }, station.workItem("PBI-1", ids.projectB))
-    station.fail("/projects/tools%2Fcli", 503, {}, { "retry-after": "999" })
+    station.fail(bindingPath("tools/cli"), 503, {}, { "retry-after": "999" })
     const results = await sync()
     expect(results.find((r) => r.repositoryId === ids.repoB)).toMatchObject({ ok: false, error: "unavailable" })
     expect((await feedRow()).cursor).toBe(before)
@@ -238,7 +278,7 @@ describe.skipIf(!enabled)("GitStation feed sync on a real database (KANFLOW_DB_T
   it("counts consecutive holds on the feed (the log escalates at 3) and resets them once the cursor moves", async () => {
     await started()
     for (let i = 0; i < 3; i++) {
-      station.fail("/projects/tools%2Fcli", 503, {}, { "retry-after": "999" })
+      station.fail(bindingPath("tools/cli"), 503, {}, { "retry-after": "999" })
       await sync()
     }
     expect((await feedRow()).consecutiveHolds).toBe(3)
@@ -246,10 +286,26 @@ describe.skipIf(!enabled)("GitStation feed sync on a real database (KANFLOW_DB_T
     expect((await feedRow()).consecutiveHolds).toBe(0)
   })
 
+  it("counts a feed read that failed without moving as a hold too (escalated like the others)", async () => {
+    await started()
+    const before = (await feedRow()).cursor
+    station.mergeRequest("merge_request.opened", 1, { project: "app/portal" }, station.workItem("PBI-1", ids.projectA))
+    for (let i = 0; i < 3; i++) {
+      station.fail(`/projects/${station.projectId("app/portal")}/merge-requests/1`, 503, {}, { "retry-after": "999" })
+      await sync()
+    }
+    const feed = await feedRow()
+    expect(feed.cursor).toBe(before)
+    expect(feed.consecutiveHolds).toBe(3)
+    await sync()
+    expect((await feedRow()).consecutiveHolds).toBe(0)
+    expect(await prisma.gitLink.findFirst({ where: { repositoryId: ids.repoA1, ref: "1" } })).toMatchObject({ state: "opened" })
+  })
+
   it.each([401, 403, 404])("a repository whose binding check answers %i is skipped and marked; the shared cursor moves on", async (status) => {
     await started()
     station.mergeRequest("merge_request.opened", 1, { project: "app/portal" }, station.workItem("PBI-1", ids.projectA))
-    station.fail("/projects/tools%2Fcli", status, {})
+    station.fail(bindingPath("tools/cli"), status, {})
     const results = await sync()
     expect(results.find((r) => r.repositoryId === ids.repoB)).toMatchObject({ ok: false })
     expect(results.filter((r) => r.ok)).toHaveLength(2)
