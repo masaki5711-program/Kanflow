@@ -204,7 +204,7 @@ async function projectProvider(db: Pick<Tx, "gitIntegration">, projectId: string
 
 export interface ConnectionResult {
   ok: boolean
-  /** Source-side facts on success (GitStation: no numeric id — repositories are addressed by path). */
+  /** Source-side facts on success (GitStation: its project id; the path is resolved again on every sync). */
   repository?: { path: string; webUrl: string; defaultBranch: string | null; externalId: number | null }
   /** Japanese explanation on failure. */
   error?: string
@@ -247,7 +247,7 @@ export async function testConnection(projectId: string, url: string, token?: str
 
 /**
  * Connection test through the project's DevSource (GitStation): `locate` proves the integration's
- * service account can see the repository. GitStation addresses repositories by path (no numeric id).
+ * service account can see the repository and that GitStation binds it to this Kanflow project.
  */
 async function testThroughSource(
   projectId: string,

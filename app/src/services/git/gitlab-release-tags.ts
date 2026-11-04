@@ -14,7 +14,8 @@ export interface TagDraft {
   name: string | null
   description: string | null
   url: string
-  releasedAt: Date
+  /** null = the source does not know (GitStation: tags carry no date): the stored date is kept, a new tag gets the sync's time. */
+  releasedAt: Date | null
 }
 
 const asDate = (iso: string | null | undefined): Date | null => {
