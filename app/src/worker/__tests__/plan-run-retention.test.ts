@@ -15,17 +15,28 @@ describe("purgeExpiredEstimateRuns", () => {
     db.fn("planEstimateRun.findMany").mockResolvedValueOnce(ids(PURGE_BATCH)).mockResolvedValueOnce(ids(2, "s"))
     db.fn("planEstimateRun.deleteMany").mockImplementation(async (a: { where: { id: { in: string[] } } }) => ({ count: a.where.id.in.length }))
 
+    db.fn("planEstimateRun.findFirst").mockResolvedValue(null)
     const out = await purgeExpiredEstimateRuns({ db: db.client, now: () => NOW })
 
-    expect(out).toEqual({ estimateRuns: { deleted: PURGE_BATCH + 2 } })
+    expect(out).toEqual({ estimateRuns: { deleted: PURGE_BATCH + 2, more: false } })
     expect(db.fn("planEstimateRun.findMany")).toHaveBeenCalledWith({ where: { purgeAfter: { lt: NOW } }, select: { id: true }, take: PURGE_BATCH })
     expect(db.fn("planEstimateRun.deleteMany")).toHaveBeenLastCalledWith({ where: { id: { in: ["s0", "s1"] } } })
+  })
+
+  it("says so when runs past their deadline are left (the batch cap was reached)", async () => {
+    const db = fakeDb()
+    db.fn("planEstimateRun.findMany").mockResolvedValue(ids(PURGE_BATCH))
+    db.fn("planEstimateRun.deleteMany").mockResolvedValue({ count: PURGE_BATCH })
+    db.fn("planEstimateRun.findFirst").mockResolvedValue({ id: "left" })
+    const out = await purgeExpiredEstimateRuns({ db: db.client, now: () => NOW })
+    expect(out.estimateRuns.more).toBe(true)
+    expect(db.fn("planEstimateRun.findFirst")).toHaveBeenCalledWith({ where: { purgeAfter: { lt: NOW } }, select: { id: true } })
   })
 
   it("deletes nothing when no run is past its deadline", async () => {
     const db = fakeDb({ "planEstimateRun.findMany": [] })
     const out = await purgeExpiredEstimateRuns({ db: db.client, now: () => NOW })
-    expect(out.estimateRuns.deleted).toBe(0)
+    expect(out.estimateRuns).toEqual({ deleted: 0, more: false })
     expect(db.fn("planEstimateRun.deleteMany")).not.toHaveBeenCalled()
   })
 })

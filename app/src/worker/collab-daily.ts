@@ -74,7 +74,8 @@ export async function runCollabDaily(cfg: CollabConfig, log: SchedulerLog, signa
   let planRunRetention: PlanRunRetentionResult | null = null
   try {
     planRunRetention = await purgeExpiredEstimateRuns()
-    log.info("plan estimate run retention done", { ...planRunRetention })
+    if (planRunRetention.estimateRuns.more) log.warn("plan estimate run retention reached its batch cap; the rest goes at the next run", { ...planRunRetention })
+    else log.info("plan estimate run retention done", { ...planRunRetention })
   } catch (err) {
     log.error("plan estimate run retention failed", { error: errorMessage(err) })
   }

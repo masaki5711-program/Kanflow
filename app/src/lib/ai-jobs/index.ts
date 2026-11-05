@@ -45,8 +45,17 @@ export async function waitForLocalGate(
   const deadline = now() + maxWaitMs
   while (!signal.aborted && !isIdle() && now() < deadline) {
     await new Promise<void>((resolve) => {
-      const t = setTimeout(resolve, pollMs)
-      signal.addEventListener("abort", () => { clearTimeout(t); resolve() }, { once: true })
+      // Each poll removes its own listener: a long-lived signal (one that never aborts) would otherwise collect one
+      // listener per second of waiting.
+      const onAbort = () => {
+        clearTimeout(t)
+        resolve()
+      }
+      const t = setTimeout(() => {
+        signal.removeEventListener("abort", onAbort)
+        resolve()
+      }, pollMs)
+      signal.addEventListener("abort", onAbort, { once: true })
     })
   }
 }

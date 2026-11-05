@@ -84,11 +84,17 @@ describe("runCollabDaily", () => {
   })
 
   it("sweeps the estimate runs past their retention and logs the count", async () => {
-    m.planRuns.mockResolvedValue({ estimateRuns: { deleted: 4 } })
+    m.planRuns.mockResolvedValue({ estimateRuns: { deleted: 4, more: false } })
     const out = await runCollabDaily(CFG, log)
     expect(m.planRuns).toHaveBeenCalledTimes(1)
-    expect(out.planRunRetention).toEqual({ estimateRuns: { deleted: 4 } })
-    expect(log.info).toHaveBeenCalledWith("plan estimate run retention done", { estimateRuns: { deleted: 4 } })
+    expect(out.planRunRetention).toEqual({ estimateRuns: { deleted: 4, more: false } })
+    expect(log.info).toHaveBeenCalledWith("plan estimate run retention done", { estimateRuns: { deleted: 4, more: false } })
+  })
+
+  it("warns when the run sweep stopped at its batch cap", async () => {
+    m.planRuns.mockResolvedValue({ estimateRuns: { deleted: 200_000, more: true } })
+    await runCollabDaily(CFG, log)
+    expect(log.warn).toHaveBeenCalledWith("plan estimate run retention reached its batch cap; the rest goes at the next run", { estimateRuns: { deleted: 200_000, more: true } })
   })
 
   it("a failing step is logged and does not stop the other", async () => {

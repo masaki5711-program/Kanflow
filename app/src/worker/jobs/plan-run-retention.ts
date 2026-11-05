@@ -18,15 +18,18 @@ export interface PlanRunRetentionOptions {
 }
 
 export interface PlanRunRetentionResult {
-  estimateRuns: { deleted: number }
+  /** `more`: runs past their deadline are still there (the per-run batch cap was reached; the rest goes tomorrow). */
+  estimateRuns: { deleted: number; more: boolean }
 }
 
 export async function purgeExpiredEstimateRuns(opts: PlanRunRetentionOptions = {}): Promise<PlanRunRetentionResult> {
   const db = opts.db ?? defaultDb
   const now = (opts.now ?? (() => new Date()))()
+  const where = { purgeAfter: { lt: now } }
   const deleted = await deleteInBatches(
-    () => db.planEstimateRun.findMany({ where: { purgeAfter: { lt: now } }, select: { id: true }, take: PURGE_BATCH }),
+    () => db.planEstimateRun.findMany({ where, select: { id: true }, take: PURGE_BATCH }),
     (ids) => db.planEstimateRun.deleteMany({ where: { id: { in: ids } } }),
   )
-  return { estimateRuns: { deleted } }
+  const more = deleted > 0 && (await db.planEstimateRun.findFirst({ where, select: { id: true } })) !== null
+  return { estimateRuns: { deleted, more } }
 }

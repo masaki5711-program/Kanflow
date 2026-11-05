@@ -151,6 +151,12 @@ describe("register — request metrics", () => {
 })
 
 describe("web daily jobs", () => {
+  beforeEach(() => {
+    delete (globalThis as { __kanflowWebDailyJobs?: boolean }).__kanflowWebDailyJobs
+    m.startCollabScheduler.mockReturnValue({})
+    m.startPlanRuleDraftScheduler.mockReturnValue({})
+  })
+
   it("WEB_DAILY_JOBS=on also starts the E6 rule-draft batch, yielding to this process's user AI calls", async () => {
     vi.stubEnv("WEB_DAILY_JOBS", "on")
     await register()
@@ -172,5 +178,36 @@ describe("web daily jobs", () => {
     await register()
     expect(m.startCollabScheduler).not.toHaveBeenCalled()
     expect(m.startPlanRuleDraftScheduler).not.toHaveBeenCalled()
+  })
+
+  it("warns when the batch goes on while web users are still using the AI", async () => {
+    vi.stubEnv("WEB_DAILY_JOBS", "on")
+    await register()
+    const waitForTurn = (m.startPlanRuleDraftScheduler.mock.calls[0] as unknown[])[3] as () => Promise<unknown>
+    m.gate.isIdle.mockReturnValue(false)
+    await waitForTurn()
+    expect(m.log.warn).toHaveBeenCalledWith("rule-draft batch goes on while web users are still using the AI", { waitedMs: expect.any(Number) })
+    m.gate.isIdle.mockReturnValue(true)
+  })
+
+  it("says when a scheduler is off, and a failing one does not stop the other", async () => {
+    vi.stubEnv("WEB_DAILY_JOBS", "on")
+    m.startCollabScheduler.mockImplementation(() => {
+      throw new Error("boom")
+    })
+    m.startPlanRuleDraftScheduler.mockReturnValue(null)
+    await register()
+    expect(m.log.error).toHaveBeenCalledWith("collab daily failed to start", { error: "boom" })
+    expect(m.startPlanRuleDraftScheduler).toHaveBeenCalledTimes(1)
+    expect(m.log.info).toHaveBeenCalledWith("plan rule-draft batch not scheduled in this web process (PLAN_RULE_DRAFT_SCHEDULE off): queued drafts wait")
+    m.startCollabScheduler.mockReset()
+  })
+
+  it("does not start a second pair of schedulers when register() runs again", async () => {
+    vi.stubEnv("WEB_DAILY_JOBS", "on")
+    await register()
+    await register()
+    expect(m.startCollabScheduler).toHaveBeenCalledTimes(1)
+    expect(m.startPlanRuleDraftScheduler).toHaveBeenCalledTimes(1)
   })
 })

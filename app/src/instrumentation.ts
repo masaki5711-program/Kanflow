@@ -122,20 +122,53 @@ async function startWebDailyJobs(log: Log): Promise<void> {
       log.info("daily jobs not started in this web process", { mode })
       return
     }
+    // register() runs once per process; a second call (dev reloads) must not stack a second pair of schedulers.
+    const flags = globalThis as { __kanflowWebDailyJobs?: boolean }
+    if (flags.__kanflowWebDailyJobs) return
+    flags.__kanflowWebDailyJobs = true
     const { loadWorkerConfig } = await import("@/worker/config")
-    const { startCollabScheduler } = await import("@/worker/collab-daily")
     const cfg = loadWorkerConfig(process.env)
-    startCollabScheduler(cfg, log)
-    // E6's night batch of rule drafts: otherwise only the standalone worker runs it, and an install without the worker
-    // would queue drafts that are never written. It yields to this process's user AI calls, as the in-process job
-    // runner does; a batch that overlaps a worker's is harmless (each job is claimed under a lease).
+    await startWebCollab(cfg, log)
+    await startWebRuleDrafts(cfg, log)
+  } catch (err) {
+    log.error("daily jobs failed to start", { error: err instanceof Error ? err.message : String(err) })
+  }
+}
+
+type WorkerCfg = ReturnType<typeof import("@/worker/config").loadWorkerConfig>
+const errText = (err: unknown) => (err instanceof Error ? err.message : String(err))
+
+async function startWebCollab(cfg: WorkerCfg, log: Log): Promise<void> {
+  try {
+    const { startCollabScheduler } = await import("@/worker/collab-daily")
+    if (!startCollabScheduler(cfg, log)) log.info("collab daily not scheduled in this web process (NOTIFY_DUE_SCHEDULE off): no retention sweeps, no due-date notifications")
+  } catch (err) {
+    log.error("collab daily failed to start", { error: errText(err) })
+  }
+}
+
+/**
+ * E6's night batch of rule drafts: otherwise only the standalone worker runs it, and an install without the worker
+ * would queue drafts that are never written. It yields to this process's user AI calls (at most yieldMaxMs per job,
+ * as the in-process job runner does); a batch that overlaps a worker's is harmless (each job is claimed under a lease).
+ */
+async function startWebRuleDrafts(cfg: WorkerCfg, log: Log): Promise<void> {
+  try {
     const { startPlanRuleDraftScheduler } = await import("@/worker/plan-rule-drafts-daily")
     const { loadAiJobRunnerConfig, waitForLocalGate } = await import("@/lib/ai-jobs")
     const { gate } = await import("@/lib/translation/priority-gate")
     const { yieldMaxMs } = loadAiJobRunnerConfig(process.env)
-    const never = new AbortController().signal
-    startPlanRuleDraftScheduler(cfg, log, undefined, (signal) => waitForLocalGate(() => gate.isIdle(3000), signal ?? never, yieldMaxMs))
+    const quietMs = 3000
+    // Lives as long as the process (the scheduler has no shutdown hook in the web); waitForLocalGate removes its
+    // listener after every poll, so a signal that never aborts collects nothing.
+    const processSignal = new AbortController().signal
+    const waitForTurn = async (signal?: AbortSignal) => {
+      const started = Date.now()
+      await waitForLocalGate(() => gate.isIdle(quietMs), signal ?? processSignal, yieldMaxMs)
+      if (!gate.isIdle(quietMs)) log.warn("rule-draft batch goes on while web users are still using the AI", { waitedMs: Date.now() - started })
+    }
+    if (!startPlanRuleDraftScheduler(cfg, log, undefined, waitForTurn)) log.info("plan rule-draft batch not scheduled in this web process (PLAN_RULE_DRAFT_SCHEDULE off): queued drafts wait")
   } catch (err) {
-    log.error("daily jobs failed to start", { error: err instanceof Error ? err.message : String(err) })
+    log.error("plan rule-draft batch failed to start", { error: errText(err) })
   }
 }
