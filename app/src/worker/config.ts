@@ -2,6 +2,7 @@ import fs from "node:fs"
 import path from "node:path"
 import { envPositiveInt, loadAiGateConfig, type AiGateConfig } from "@/lib/ai-gate/config"
 import { DEFAULT_AI_REPORT_RETENTION_DAYS, resolveAiReportRetentionDays } from "@/lib/ai-report-retention"
+import { DEFAULT_PLAN_RULE_DRAFT_SCHEDULE } from "@/lib/plan-llm/config"
 import { parseWorkerMode, type TranslationWorkerMode } from "@/lib/translation/worker-mode"
 import { resolveHeartbeatFile } from "@/lib/ai-gate/worker-heartbeat"
 import { describeBusinessHours, parseBusinessHours, type BusinessHours } from "./business-hours"
@@ -53,6 +54,8 @@ export interface WorkerConfig {
   purgeTrashTimes: DailyTime[]
   /** PURGE_TRASH_AFTER_DAYS: trashed rows older than this are deleted permanently. */
   purgeTrashAfterDays: number
+  /** PLAN_RULE_DRAFT_SCHEDULE: night batch of LLM rule drafts (plan 12 E6; local times); empty = disabled. */
+  planRuleDraftTimes: DailyTime[]
   /** SURVEILLANCE_MAX_INVESTIGATIONS: agent investigations per surveillance run. */
   surveillanceMaxInvestigations: number
   /** Where background AI report jobs run (AI_JOB_RUNNER / AI_TRANSLATION_WORKER). */
@@ -156,6 +159,8 @@ export function loadWorkerConfig(env: NodeJS.ProcessEnv): WorkerConfig {
     notificationRetentionDays: envPositiveInt(env.NOTIFICATION_RETENTION_DAYS, DEFAULT_NOTIFICATION_RETENTION_DAYS),
     purgeTrashTimes: parseSchedule(env.PURGE_TRASH_SCHEDULE, DEFAULT_PURGE_TRASH_SCHEDULE),
     purgeTrashAfterDays: resolvePurgeTrashAfterDays(env.PURGE_TRASH_AFTER_DAYS),
+    // The rule-draft batch runs at night, when the shared Ollama has no interactive work (plan 12 §6 M5).
+    planRuleDraftTimes: parseSchedule(env.PLAN_RULE_DRAFT_SCHEDULE, DEFAULT_PLAN_RULE_DRAFT_SCHEDULE),
     surveillanceMaxInvestigations: resolveMaxInvestigations(env),
     aiJobRunner: resolveAiJobRunner(env),
     runAiJobs: workerRunsAiJobs(env),
@@ -196,6 +201,7 @@ export function describeConfig(cfg: WorkerConfig): Record<string, unknown> {
     notificationRetentionDays: cfg.notificationRetentionDays,
     purgeTrashSchedule: formatDailyTimes(cfg.purgeTrashTimes),
     purgeTrashAfterDays: cfg.purgeTrashAfterDays,
+    planRuleDraftSchedule: formatDailyTimes(cfg.planRuleDraftTimes),
     surveillanceMaxInvestigations: cfg.surveillanceMaxInvestigations,
     aiJobRunner: cfg.aiJobRunner,
     runAiJobs: cfg.runAiJobs,

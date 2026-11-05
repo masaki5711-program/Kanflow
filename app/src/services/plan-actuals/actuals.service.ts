@@ -15,6 +15,7 @@ import { logger } from "@/lib/logger"
 import type { Actor } from "@/services/_shared/actor"
 import { defaultDb, withTransaction, type Db } from "@/services/_shared/db"
 import { ConflictError, NotFoundError, ValidationError } from "@/services/_shared/errors"
+import { enqueueRuleDrafts } from "@/services/plan-llm/rule-drafts.queue"
 import { ACTUALS_METHOD_VERSION, collectActuals, type CollectIssue } from "./actuals.collect"
 
 const log = logger.child({ module: "plan-actuals" })
@@ -136,6 +137,8 @@ export async function snapshotItems(projectId: string, snapshotId: string, db: D
 export interface FinalizeInput {
   /** How many items to check the finalizer saw (and finalizes anyway); must match what is found now. */
   acknowledgedIssueCount?: number
+  /** 確定の時のメモ (plain text, up to 2000 chars): kept with the snapshot, read by the E6 rule drafts. */
+  note?: string | null
 }
 
 /**
@@ -184,6 +187,7 @@ export async function finalizeActuals(projectId: string, input: FinalizeInput, a
           repoCount: c.repoCount,
           issueCount: c.issues.length,
           methodVersion: ACTUALS_METHOD_VERSION,
+          finalizeNote: input.note ?? null,
         },
       })
 
@@ -237,6 +241,9 @@ export async function finalizeActuals(projectId: string, input: FinalizeInput, a
       for (let i = 0; i < repoRows.length; i += INSERT_CHUNK) await tx.planActualsItemRepo.createMany({ data: repoRows.slice(i, i + INSERT_CHUNK) })
 
       const completeCount = c.items.filter((i) => i.actuals.complete).length
+      // E6: ask for LLM rule drafts from the retrospectives, the lessons and the note — by the night batch, at
+      // background priority. Drafts change nothing until a PO / SM confirms them one at a time.
+      await enqueueRuleDrafts(tx, projectId, snapshot.id)
       await auditStrict(tx, projectId, actor, {
         changes: { planActuals: { from: null, to: "finalize" } },
         meta: { snapshotId: snapshot.id, supersedes: previous?.id ?? null, leaves: c.items.length, complete: completeCount, issues: c.issues.length },

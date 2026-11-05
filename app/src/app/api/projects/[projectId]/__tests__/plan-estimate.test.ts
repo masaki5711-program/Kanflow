@@ -11,6 +11,8 @@ const m = vi.hoisted(() => ({
   loadEstimateRun: vi.fn(),
   loadBaseSchedule: vi.fn(),
   loadVisibleTemplate: vi.fn(),
+  explainRun: vi.fn(),
+  planLlmFromEnv: vi.fn(),
 }))
 
 vi.mock("@/lib/auth", () => ({ auth: () => m.authMock() }))
@@ -31,11 +33,14 @@ vi.mock("@/services/plan-estimate-run/estimate-run.service", () => ({
 }))
 vi.mock("@/services/plan/plan.base-schedule", () => ({ loadBaseSchedule: m.loadBaseSchedule }))
 vi.mock("@/services/plan-templates/plan-templates.service", () => ({ loadVisibleTemplate: m.loadVisibleTemplate }))
+vi.mock("@/services/plan-llm/explanation.service", () => ({ explainRun: m.explainRun }))
+vi.mock("@/lib/plan-llm/ollama-llm", () => ({ planLlmFromEnv: m.planLlmFromEnv }))
 
 const runs = await import("../plan/estimate-runs/route")
 const card = await import("../plan/estimate-runs/[runId]/route")
 const evidence = await import("../plan/estimate-runs/[runId]/evidence/route")
 const feedback = await import("../plan/estimate-runs/[runId]/feedback/route")
+const explanation = await import("../plan/estimate-runs/[runId]/explanation/route")
 const load = await import("../plan/load/route")
 
 const P = ctx({ projectId: "p1" })
@@ -52,14 +57,30 @@ describe("計画を作る routes (plan.estimate)", () => {
       expect((await card.GET(getReq(), R)).status).toBeGreaterThanOrEqual(403)
       expect((await evidence.GET(getReq(), R)).status).toBeGreaterThanOrEqual(403)
       expect((await feedback.POST(jsonReq("POST", { key: "a", kind: "too_high" }), R)).status).toBeGreaterThanOrEqual(403)
+      expect((await explanation.POST(jsonReq("POST", {}), R)).status).toBeGreaterThanOrEqual(403)
     }
     expect(m.createRun).not.toHaveBeenCalled()
+    expect(m.explainRun).not.toHaveBeenCalled()
     asRole(m, "po")
+    const llm = { model: "fake" }
+    m.planLlmFromEnv.mockReturnValue(llm)
     m.createRun.mockResolvedValue({ runId: "r1", expiresAt: "x", summary: {} })
     expect((await runs.POST(jsonReq("POST", { startDate: "2026-11-09", templateId: "t1", roleAssignments: { dev: ["u2"] } }), P)).status).toBe(201)
     // A private template is checked for the caller before anything is computed.
     expect(m.loadVisibleTemplate).toHaveBeenCalledWith(expect.anything(), "t1", expect.objectContaining({ userId: "user-1" }))
-    expect(m.createRun).toHaveBeenCalledWith("p1", { startDate: "2026-11-09", skipWeekends: false, roleAssignments: { dev: ["u2"] }, source: { kind: "template", templateId: "t1" } }, expect.objectContaining({ userId: "user-1" }))
+    // E6: the plan LLM (from PLAN_LLM_ASSIST) goes to the candidate review; the request's signal cancels it.
+    expect(m.createRun).toHaveBeenCalledWith("p1", { startDate: "2026-11-09", skipWeekends: false, roleAssignments: { dev: ["u2"] }, source: { kind: "template", templateId: "t1" } }, expect.objectContaining({ userId: "user-1" }), expect.any(Date), expect.objectContaining({ llm }))
+  })
+
+  it("the AI explanation (E6) needs plan.estimate and is written for the reader with their rights", async () => {
+    asRole(m, "sm")
+    const llm = { model: "fake" }
+    m.planLlmFromEnv.mockReturnValue(llm)
+    m.explainRun.mockResolvedValue({ state: "hidden" })
+    const res = await explanation.POST(jsonReq("POST", {}), R)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ explanation: { state: "hidden" } })
+    expect(m.explainRun).toHaveBeenCalledWith("p1", "r1", expect.objectContaining({ userId: "user-1" }), expect.objectContaining({ llm }))
   })
 
   it("a run is made from exactly one of a template and a schedule; unknown fields are refused", async () => {

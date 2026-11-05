@@ -15,6 +15,7 @@ import { SingleFlightJobRunner } from "./jobs/job-runner"
 import { runSurveillance, type SurveillanceResult } from "./jobs/surveillance"
 import { startCollabScheduler } from "./collab-daily"
 import { startPurgeTrashScheduler } from "./trash-daily"
+import { startPlanRuleDraftScheduler } from "./plan-rule-drafts-daily"
 import type { AiJobRunner } from "@/lib/ai-jobs/runner"
 
 /**
@@ -44,6 +45,7 @@ interface Runtime {
   collabScheduler: DailyScheduler | null
   /** Daily purge of rows past the trash retention (trash-daily.ts). */
   trashScheduler: DailyScheduler | null
+  planRuleDraftScheduler: DailyScheduler | null
   /** Background AI report jobs (lib/ai-jobs), when AI_JOB_RUNNER resolves to the worker. */
   aiJobs: AiJobRunner | null
   heartbeat: ReturnType<typeof setInterval> | null
@@ -107,6 +109,7 @@ function shutdownSteps(rt: Runtime): ShutdownStep[] {
     { name: "stop-scheduler", run: () => rt.scheduler?.stop() },
     { name: "stop-collab-scheduler", run: () => rt.collabScheduler?.stop() },
     { name: "stop-trash-scheduler", run: () => rt.trashScheduler?.stop() },
+    { name: "stop-plan-rule-draft-scheduler", run: () => rt.planRuleDraftScheduler?.stop() },
     { name: "await-jobs", run: () => rt.jobs.settled() },
     {
       name: "stop-ai-gate",
@@ -209,6 +212,9 @@ function startServices(rt: Runtime, opts: RunWorkerOptions): void {
   if (opts.surveillanceNow) triggerSurveillance(rt, "cli")
   rt.collabScheduler = startCollabScheduler(rt.cfg, rt.log.child({ component: "collab-daily" }), rt.startup.signal)
   rt.trashScheduler = startPurgeTrashScheduler(rt.cfg, rt.log.child({ component: "purge-trash" }), rt.startup.signal)
+  rt.planRuleDraftScheduler = startPlanRuleDraftScheduler(rt.cfg, rt.log.child({ component: "plan-rule-drafts" }), rt.startup.signal, (s) =>
+    rt.remote ? rt.remote.waitUntilNotBusy(rt.cfg.aiJobs.yieldMaxMs, s) : Promise.resolve(true)
+  )
   if (rt.cfg.runAiJobs) {
     void startAiJobs(rt).catch((err: unknown) =>
       rt.log.error("ai job runner failed to start", { error: err instanceof Error ? err.message : String(err) })
@@ -250,6 +256,7 @@ export async function runWorker(cfg: WorkerConfig, opts: RunWorkerOptions): Prom
     scheduler: null,
     collabScheduler: null,
     trashScheduler: null,
+    planRuleDraftScheduler: null,
     aiJobs: null,
     heartbeat: null,
     limiter: new BusinessHoursLimiter(cfg.businessHours),

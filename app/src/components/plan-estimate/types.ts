@@ -21,6 +21,20 @@ export interface RunSummary {
   /** templateDays null = an item a lesson rule added. */
   changes: { key: string; name: string; templateDays: number | null; days: number }[]
   changesTotal: number
+  /** E6 candidate review (absent on runs made before E6). */
+  assist?: { candidates: CandidateAssistState; rejected: number }
+}
+
+export type CandidateAssistState = "off" | "no_candidates" | "applied" | "timeout" | "unavailable" | "http" | "invalid" | "aborted" | "error"
+
+/** E6: what this reader may see of the run's AI explanation. */
+export type ExplanationView =
+  | { state: "ready"; text: { ja: string; en: string; id: string } }
+  | { state: "hidden" | "pending" | "failed" | "skipped" | "off" }
+
+/** The candidate review was attempted and did not work: the formula alone ("AI の補助なし"). */
+export function candidateAssistFailed(state: CandidateAssistState | undefined): boolean {
+  return state === "timeout" || state === "unavailable" || state === "http" || state === "invalid" || state === "error"
 }
 
 export interface UsageRow {
@@ -38,6 +52,7 @@ export interface RunCard {
   expired: boolean
   stale: boolean
   changesWithheld: number
+  explanation: ExplanationView
   ownerPlan?: { owners: Record<string, string | null>; names: Record<string, string>; before: UsageRow[]; after: UsageRow[] }
 }
 

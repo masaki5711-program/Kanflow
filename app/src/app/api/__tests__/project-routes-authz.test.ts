@@ -247,6 +247,7 @@ const ROUTES: RouteCase[] = [
   { file: "plan/estimate-runs/[runId]/route.ts", load: () => import("@/app/api/projects/[projectId]/plan/estimate-runs/[runId]/route"), params: { runId: "r1" } },
   { file: "plan/estimate-runs/[runId]/evidence/route.ts", load: () => import("@/app/api/projects/[projectId]/plan/estimate-runs/[runId]/evidence/route"), params: { runId: "r1" } },
   { file: "plan/estimate-runs/[runId]/feedback/route.ts", load: () => import("@/app/api/projects/[projectId]/plan/estimate-runs/[runId]/feedback/route"), params: { runId: "r1" } },
+  { file: "plan/estimate-runs/[runId]/explanation/route.ts", load: () => import("@/app/api/projects/[projectId]/plan/estimate-runs/[runId]/explanation/route"), params: { runId: "r1" } },
   { file: "attributes/route.ts", load: () => import("@/app/api/projects/[projectId]/attributes/route"), params: {} },
   { file: "plan/lesson-rules/route.ts", load: () => import("@/app/api/projects/[projectId]/plan/lesson-rules/route"), params: {} },
   { file: "plan/lesson-rules/[ruleId]/route.ts", load: () => import("@/app/api/projects/[projectId]/plan/lesson-rules/[ruleId]/route"), params: { ruleId: "r1" } },

@@ -202,9 +202,12 @@ model PlanActualsSnapshot {
   /// Optimistic lock of the includeInLearning switch.
   version           Int       @default(0)
   supersededAt      DateTime?
+  /// The finalizer's note (確定の時のメモ, up to 2000 chars): project-internal text, a source of LLM rule drafts (E6).
+  finalizeNote      String?   @db.Text
 
-  project Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  items   PlanActualsItem[]
+  project       Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  items         PlanActualsItem[]
+  ruleDraftJobs PlanRuleDraftJob[]
 
   /// UNIQUE NULLS NOT DISTINCT in the migration: at most ONE current (supersededAt IS NULL) snapshot per project,
   /// whatever path writes (Prisma does not model NULLS NOT DISTINCT).
@@ -638,6 +641,8 @@ model Project {
   memberCapacities         MemberCapacity[]
   /// 計画を作る (plan 12 E5): estimate runs of this project.
   planEstimateRuns         PlanEstimateRun[]
+  /// Rule drafts requested at actuals finalization (plan 12 E6, night batch).
+  planRuleDraftJobs        PlanRuleDraftJob[]
 
   /// マイルストーン・検収ボード (general projects).
   milestoneBoard    MilestoneBoard?
@@ -2247,6 +2252,11 @@ model PlanEstimateRun {
   llmModel      String?  @db.VarChar(64)
   promptVersion String?  @db.VarChar(32)
   llmSourceIds  String[]
+  /// The explanation text { ja, en, id } (E6); shown only to a reader who can view every id in llmSourceIds.
+  llmExplanation      Json?
+  /// null = not written yet | ready | failed (the LLM did not answer usably; logged) | skipped (nothing to explain)
+  llmExplanationState String?   @db.VarChar(16)
+  llmExplainedAt      DateTime?
   /// The schedule to load: template + rules, durationDays = D50, notBeforeOffsetDays from levelling. No owners.
   schedule      Json
   /// The card (small, independent of the number of items).
@@ -2268,6 +2278,34 @@ model PlanEstimateRun {
   @@index([expiresAt])
   @@index([purgeAfter])
   @@map("plan_estimate_run")
+}
+
+/// One LLM rule-draft request per finalized snapshot (plan 12 §3.4 E6 part 1). Queued by 実績を確定, processed by the
+/// worker's night batch at background priority; the drafts are plan_lesson_rule rows (draft, project scope, llm) and
+/// change nothing until a PO / SM confirms them one at a time. sourceIds = the sources given to the LLM.
+model PlanRuleDraftJob {
+  id            String    @id @default(cuid())
+  projectId     String
+  snapshotId    String    @unique
+  /// queued | running | done | failed | skipped
+  status        String    @default("queued") @db.VarChar(16)
+  attempts      Int       @default(0)
+  draftsCreated Int       @default(0)
+  draftsDropped Int       @default(0)
+  llmModel      String?   @db.VarChar(64)
+  promptVersion String?   @db.VarChar(32)
+  sourceIds     String[]  @default([])
+  lastError     String?   @db.VarChar(500)
+  createdAt     DateTime  @default(now())
+  startedAt     DateTime?
+  finishedAt    DateTime?
+
+  project  Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  snapshot PlanActualsSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@index([projectId])
+  @@map("plan_rule_draft_job")
 }
 
 /// 利用者の反応 to an estimate run (plan 12 §2.1, E5): one kind per leaf key and person (a repeat click updates it).

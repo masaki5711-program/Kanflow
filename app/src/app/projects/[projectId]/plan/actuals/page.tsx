@@ -4,7 +4,7 @@ import Link from "next/link"
 import { useParams } from "next/navigation"
 import { useEffect, useState } from "react"
 import { ArrowLeft, ClipboardCheck } from "lucide-react"
-import { Badge, Button, EmptyState, PageHeader, SkeletonCard, cn, useConfirm, useToast } from "@/components/ui"
+import { Badge, Button, EmptyState, Field, PageHeader, SkeletonCard, Textarea, cn, useConfirm, useToast } from "@/components/ui"
 import { useProjectDocumentTitle } from "@/components/app-shell/project-title-context"
 import { AttributesEditor } from "@/components/plan-actuals/attributes-editor"
 import { LearningSwitchDialog } from "@/components/plan-actuals/learning-switch-dialog"
@@ -14,6 +14,7 @@ import { useFocusAfterReload } from "@/components/plan-lesson-rules/use-focus-af
 import { apiFetch, useApiQuery } from "@/hooks"
 import { localizeApiError } from "@/hooks/api-client"
 import type { Translations } from "@/lib/i18n"
+import { FINALIZE_NOTE_MAX } from "@/services/plan-actuals/actuals.schemas"
 import { fillTemplate } from "@/lib/fill-template"
 import { formatDateTime, formatLongDate } from "@/lib/format-date"
 import { useLanguage } from "@/lib/language-context"
@@ -62,6 +63,8 @@ export default function ActualsPage() {
   const url = `/api/projects/${projectId}/plan/actuals`
   const { data, isLoading, error, refetch } = useApiQuery<ActualsResponse>(url, { toastOnError: () => t.pacLoadFailed })
   const [busy, setBusy] = useState(false)
+  // 確定のメモ (optional): read with the retrospectives by the E6 rule drafts.
+  const [note, setNote] = useState("")
   const [switchingId, setSwitchingId] = useState<string | null>(null)
   const [open, setOpen] = useState<string | null>(null)
   const preview = data?.preview
@@ -95,7 +98,8 @@ export default function ActualsPage() {
     setBusy(true)
     try {
       // The count the user saw: if new issues appeared meanwhile, the server shows them instead of finalizing.
-      const snap = await apiFetch<SnapshotView>(url, { method: "POST", json: { acknowledgedIssueCount: n } })
+      const snap = await apiFetch<SnapshotView>(url, { method: "POST", json: { acknowledgedIssueCount: n, ...(note.trim() ? { note } : {}) } })
+      setNote("")
       toast.success(t.pacFinalized)
       requestFocus(snap.id, SNAPSHOTS_ID)
     } catch (err) {
@@ -167,6 +171,11 @@ export default function ActualsPage() {
                   </div>
                 )}
               </div>
+              {canFinalize && !nothingToFinalize && (
+                <Field label={t.pacNoteLabel} hint={t.pacNoteHint}>
+                  <Textarea value={note} rows={3} maxLength={FINALIZE_NOTE_MAX} onChange={(e) => setNote(e.target.value)} />
+                </Field>
+              )}
               <div>
                 <h3 className="text-body font-semibold text-fg">{t.pacIssuesTitle}</h3>
                 {preview.issues.length === 0 ? (
