@@ -43,4 +43,15 @@ describe("waitForLocalGate", () => {
     c.abort()
     await expect(p).resolves.toBeUndefined()
   })
+
+  it("leaves no abort listener behind on a signal that never aborts", async () => {
+    const signal = new AbortController().signal
+    const add = vi.spyOn(signal, "addEventListener")
+    const remove = vi.spyOn(signal, "removeEventListener")
+    let n = 0
+    await waitForLocalGate(() => ++n >= 5, signal, 10_000, 1)
+    expect(add).toHaveBeenCalledTimes(4)
+    expect(remove).toHaveBeenCalledTimes(4)
+    expect(remove.mock.calls.map((c) => c[1])).toEqual(add.mock.calls.map((c) => c[1]))
+  })
 })
