@@ -23,13 +23,20 @@ agent model (edge, PFE, Tier-2, ZEVA-Engine) do not apply to Kanflow.
   actuals. Design source of truth: `D:\APP\git_station\Git\docs\plan\` — 02
   (integration API), 11 (M3 plan, K1–K4), 12 (schedule from actuals, E0–E6).
   Index and decisions: `references/README.md`, `references/decisions.md`.
-- **Production** runs v1 on MySQL until the approved K2 cutover.
+- **Production is Ver2 since 2026-11-05** (v1 detached the same day): folder
+  `D:\APP\KanflowV2` (detached tag `v2-prod-20261105`), service `KanflowV2`
+  on :3000, PostgreSQL container `kanflow-v2-pg` (127.0.0.1:25440, DB
+  `scrum_tool`), secrets `C:\KanflowV2Secrets`. v1 (`D:\APP\Kanflow`, service
+  `Kanflow` set to Manual, MySQL) is stopped and kept only for rollback.
 
 ## 2. Hard rules (production safety)
 
-1. **Never touch production.** `D:\APP\Kanflow` (:3000, MySQL :3306) serves real
-   work: no file, `.env`, service, `node_modules` or branch change there, and no
-   connection to the production MySQL. **v2 is one line: branch
+1. **Never touch production.** `D:\APP\KanflowV2` (:3000, PG 127.0.0.1:25440)
+   serves real work: no file, `.env`, service, `node_modules` or checkout change
+   there and no connection to its database, except a deployment the user
+   approved (new tag, build into `.next-new`, swap; dump the DB first when a
+   migration ships). The stopped v1 (`D:\APP\Kanflow`, MySQL :3306) is the
+   rollback: leave it untouched too. **v2 is one line: branch
    `feat/L4-NOPBI-kanflow-v2`, folder `D:\APP\Kanflow-v2`.** New work branches
    from it in its own worktree and merges back into it:
    `git worktree add D:/APP/Kanflow-<name> -b <type>/L4-NOPBI-<topic> feat/L4-NOPBI-kanflow-v2`.
