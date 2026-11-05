@@ -27,6 +27,18 @@ describe("editor-state", () => {
     expect(parseDuration("")).toBeUndefined()
   })
 
+  it("keeps a leaf's role (trimmed), drops a parent's, and refuses an invalid one", () => {
+    const parent = { ...emptyStage("p"), role: "lead", children: [{ ...emptyStage("c"), role: " design " }] }
+    const form = { ...emptyForm(), name: "x", stages: [parent, { ...emptyStage("d"), role: "" }] }
+    expect(contentFromForm(form).stages).toEqual([{ name: "p", children: [{ name: "c", role: "design" }] }, { name: "d" }])
+    expect(validateTemplateForm(form)).toBeNull()
+    expect(validateTemplateForm({ ...form, stages: [{ ...emptyStage("e"), role: "設計" }] })).toBe("stageRole")
+    expect(validateTemplateForm({ ...form, stages: [{ ...emptyStage("e"), role: "__x" }] })).toBe("stageRole")
+    // A parent's role is never saved, so it never blocks saving.
+    expect(validateTemplateForm({ ...form, stages: [{ ...emptyStage("p"), role: "bad role", children: [emptyStage("c")] }] })).toBeNull()
+    expect(formFromTemplate({ name: "x", description: null, visibility: "public", content: { stages: [{ name: "c", role: "design" }] } }).stages[0].role).toBe("design")
+  })
+
   it("drops blank checks / documents and the milestone flag of parents", () => {
     const parent = { ...emptyStage("p"), isMilestone: true, children: [emptyStage("c")] }
     const content = contentFromForm({

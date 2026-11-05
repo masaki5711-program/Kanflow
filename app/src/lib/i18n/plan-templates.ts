@@ -93,6 +93,11 @@ export interface PlanTemplatesTranslations {
   tplAddChild: string
   tplStageName: string
   tplStageNameRequired: string
+  tplStageRoleInvalid: string
+  tplRole: string
+  tplRolePlaceholder: string
+  tplRoleHint: string
+  tplRoleParentHint: string
   tplMoveUp: string
   tplMoveDown: string
   tplIndent: string
@@ -248,6 +253,11 @@ export const ja: PlanTemplatesTranslations = {
   tplAddChild: "子工程を追加",
   tplStageName: "工程名",
   tplStageNameRequired: "工程名を入力してください",
+  tplStageRoleInvalid: "役割は半角の英字・数字・_・- で 32 文字までにしてください（先頭に __ は使えません）",
+  tplRole: "役割",
+  tplRolePlaceholder: "例: design",
+  tplRoleHint: "この工程を担当する役割（半角英数字）。「計画を作る」で役割ごとにメンバーを選ぶと、担当の案が出ます。",
+  tplRoleParentHint: "子のある工程には役割を付けません（子の工程に付けます）。",
   tplMoveUp: "上へ移動",
   tplMoveDown: "下へ移動",
   tplIndent: "一段下げる（前の工程の子にする）",
@@ -403,6 +413,11 @@ export const en: PlanTemplatesTranslations = {
   tplAddChild: "Add sub-stage",
   tplStageName: "Stage name",
   tplStageNameRequired: "Enter a name for every stage",
+  tplStageRoleInvalid: "A role uses letters, digits, _ and - only, up to 32 characters, and may not start with __",
+  tplRole: "Role",
+  tplRolePlaceholder: "e.g. design",
+  tplRoleHint: "Who does this stage (letters and digits). In Make a plan, choose members for each role to get proposed owners.",
+  tplRoleParentHint: "A stage with sub-stages has no role (give it to the sub-stages).",
   tplMoveUp: "Move up",
   tplMoveDown: "Move down",
   tplIndent: "Indent (make it a sub-stage of the previous one)",
@@ -558,6 +573,11 @@ export const id: PlanTemplatesTranslations = {
   tplAddChild: "Tambah sub-tahapan",
   tplStageName: "Nama tahapan",
   tplStageNameRequired: "Isi nama setiap tahapan",
+  tplStageRoleInvalid: "Peran hanya memakai huruf, angka, _ dan -, maksimal 32 karakter, dan tidak boleh diawali __",
+  tplRole: "Peran",
+  tplRolePlaceholder: "mis. design",
+  tplRoleHint: "Siapa yang mengerjakan tahapan ini (huruf dan angka). Di Buat rencana, pilih anggota untuk setiap peran agar penanggung jawab diusulkan.",
+  tplRoleParentHint: "Tahapan yang punya subtahapan tidak diberi peran (berikan ke subtahapannya).",
   tplMoveUp: "Naikkan",
   tplMoveDown: "Turunkan",
   tplIndent: "Menjorok (jadikan sub-tahapan dari tahapan sebelumnya)",

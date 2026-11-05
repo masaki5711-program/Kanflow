@@ -31,7 +31,7 @@ interface Props {
 /**
  * One stage of the template editor: name, milestone, 目安期間 and the
  * structure buttons (move / indent / outdent / add child / remove), plus a
- * collapsible details area (メモ, 完了条件). Wraps to two lines on phones.
+ * collapsible details area (メモ, 完了条件, 役割). Wraps to two lines on phones.
  */
 export function StageRowEditor({ node, depth, can, disabled, onField, onOp, predecessors, onPredecessorToggle }: Props) {
   const { t } = useLanguage()
@@ -101,6 +101,23 @@ export function StageRowEditor({ node, depth, can, disabled, onField, onOp, pred
           <label className="text-caption text-fg-muted">
             {`${t.tplChecklist} (${t.tplChecklistHint})`}
             <Textarea rows={2} value={node.checklistText} disabled={disabled} onChange={(e) => onField({ checklistText: e.target.value })} />
+          </label>
+          <label className={cn("text-caption text-fg-muted sm:col-span-2", isParent && "opacity-50")}>
+            {t.tplRole}
+            <Input
+              value={isParent ? "" : node.role}
+              maxLength={32}
+              spellCheck={false}
+              autoCapitalize="off"
+              placeholder={t.tplRolePlaceholder}
+              aria-describedby={`${detailsId}-role-hint`}
+              disabled={disabled || isParent}
+              onChange={(e) => onField({ role: e.target.value })}
+              className="mt-0.5 sm:max-w-xs"
+            />
+            <span id={`${detailsId}-role-hint`} className="mt-0.5 block text-caption text-fg-subtle">
+              {isParent ? t.tplRoleParentHint : t.tplRoleHint}
+            </span>
           </label>
           {predecessors && onPredecessorToggle && (
             <fieldset className="min-w-0 sm:col-span-2">
