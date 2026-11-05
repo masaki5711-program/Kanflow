@@ -5,13 +5,19 @@
 
 # MISTAKES — 過去の失敗と実証済みの修正
 
-記録 6 件。検索: `node scripts/mistakes.js search "<エラー文>"`
+記録 7 件。検索: `node scripts/mistakes.js search "<エラー文>"`
 
 ## 📌 Pinned（再発性・致命度の高いミス — 常時注意）
 
 _なし_
 
 ## 最近の記録
+
+### git worktree remove --force deletes the target of a node_modules junction
+- 署名: `after git worktree remove --force <wt>, the linked worktree's app/node_modules is empty (next/package.json missing)`
+- 原因: git worktree remove --force deletes untracked content recursively and follows the junction into its target instead of unlinking it
+- 修正: Before removing, delete the junction itself (cmd /c rmdir <wt>\app\node_modules, or Remove-Item on the link only), then git worktree remove. Prefer a real npm ci per worktree. Recover with npm ci + npx prisma generate in the emptied app/.
+- weight 4 / 再発 0 / 2026-11-05 / mk-20261105-68c731
 
 ### DB test reading by a shared project type collides with other DB test files running in parallel
 - 署名: `estimate-run.db.test passes alone but fails in the full suite: PLAN_ESTIMATE_STALE reason source_changed`
