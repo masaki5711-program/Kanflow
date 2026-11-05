@@ -2,31 +2,39 @@
 
 import { useLanguage } from "@/lib/language-context"
 import { APP_GENERATION, appVersion } from "@/lib/app-version"
-import { cn } from "@/components/ui"
+import { Badge, cn } from "@/components/ui"
 
-interface VersionBadgeProps {
+interface VersionProps {
   className?: string
+}
+
+function useVersionLabel(): { version: string; label: string } {
+  const { t } = useLanguage()
+  const version = appVersion()
+  return { version, label: `${t.appVersionLabel} ${version}` }
 }
 
 /**
  * "Ver2" next to the product name, so everyone can tell at a glance which Kanflow they are on. The exact build
- * version (git tag) is the tooltip and the accessible name.
+ * version is the mouse tooltip and is read out to screen readers; it is shown as text by AppVersionText (user menu,
+ * login page), since a tooltip never reaches keyboard or touch users.
  */
-export function VersionBadge({ className }: VersionBadgeProps) {
-  const { t } = useLanguage()
-  const version = appVersion()
-  const label = `${t.appVersionLabel} ${version}`
+export function VersionBadge({ className }: VersionProps) {
+  const { version, label } = useVersionLabel()
   return (
-    <span
-      title={label}
-      aria-label={`${APP_GENERATION} — ${label}`}
-      data-app-version={version}
-      className={cn(
-        "inline-flex shrink-0 items-center rounded-full bg-primary-soft px-2 py-0.5 text-caption font-semibold leading-none tracking-wide text-primary-active ring-1 ring-inset ring-primary/20",
-        className,
-      )}
-    >
+    <Badge tone="primary" title={label} data-app-version={version} className={cn("shrink-0 font-semibold tracking-wide", className)}>
       {APP_GENERATION}
-    </span>
+      <span className="sr-only">, {label}</span>
+    </Badge>
+  )
+}
+
+/** The exact version as visible text ("Ver2 · バージョン v2-prod-20261105"). */
+export function AppVersionText({ className }: VersionProps) {
+  const { version, label } = useVersionLabel()
+  return (
+    <p data-app-version={version} className={cn("text-caption text-fg-subtle", className)}>
+      {APP_GENERATION} · {label}
+    </p>
   )
 }

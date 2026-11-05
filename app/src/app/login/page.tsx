@@ -7,7 +7,7 @@ import { AlertCircle, Globe } from "lucide-react"
 import { type Language, getTranslations, languageLabels } from "@/lib/i18n"
 import { useLanguage } from "@/lib/language-context"
 import { Button, Field, Input, cn } from "@/components/ui"
-import { VersionBadge } from "@/components/app-shell/version-badge"
+import { AppVersionText, VersionBadge } from "@/components/app-shell/version-badge"
 import { useDocumentTitle } from "@/hooks/use-document-title"
 import { apiFetch } from "@/hooks/api-client"
 import { loginLanguageToPersist, rememberLastLanguage } from "@/lib/last-language"
@@ -209,6 +209,7 @@ export default function LoginPage() {
             {t.loginAccountNote}
           </p>
         </div>
+        <AppVersionText className="mt-4 text-center" />
       </div>
     </main>
   )

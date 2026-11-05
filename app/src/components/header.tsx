@@ -74,8 +74,9 @@ export function Header({ projectName, projectI18n, projectId }: HeaderProps = {}
           </span>
           <span className="sr-only sm:hidden">{t.appTitle}</span>
         </Link>
-        {/* Outside the link, so the home link's name stays "Kanflow" and the version is its own element. */}
-        <VersionBadge />
+        {/* Outside the link, so the home link's name stays "Kanflow". Below sm the title is hidden and a lone pill
+            would mean nothing; the user menu always shows the version as text. */}
+        <VersionBadge className="hidden sm:inline-flex" />
         {projectName && projectId && (
           <nav aria-label={t.navBreadcrumb} className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
             <ChevronRight aria-hidden className="h-4 w-4 shrink-0 text-fg-subtle" />

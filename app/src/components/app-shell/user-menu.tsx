@@ -11,6 +11,7 @@ import { cn } from "@/components/ui"
 import { adminLinks } from "./admin-menu"
 import { useAnchoredPopover } from "./anchored-popover"
 import { HEADER_PRIMARY_IN_MENU, HEADER_SECONDARY_IN_MENU } from "./header-breakpoints"
+import { AppVersionText } from "./version-badge"
 
 /** Preferred panel width (px, = w-72). */
 const PANEL_WIDTH = 288
@@ -166,6 +167,7 @@ export function UserMenu({ userName, isAdmin, showPortfolio }: UserMenuProps) {
               <LogOut aria-hidden className="h-4 w-4 shrink-0" />
               {t.logout}
             </button>
+            <AppVersionText className="px-3 pb-0.5 pt-1" />
           </div>
         </div>
       )}
