@@ -70,6 +70,17 @@ function userMenuButton() {
 }
 
 describe("Header responsive layout", () => {
+  it("shows the Ver2 badge in the start group outside the home link from sm, and the version text in the user menu", async () => {
+    const { container } = renderHeader()
+    const start = container.querySelector("[data-header-start]")!
+    const badge = start.querySelector("[data-app-version]") as HTMLElement
+    expect(badge).toHaveTextContent("Ver2")
+    expect(badge.closest("a")).toBeNull()
+    expect(classesOf(badge)).toEqual(expect.arrayContaining(["hidden", "sm:inline-flex"]))
+    await userEvent.click(userMenuButton())
+    expect(within(screen.getByTestId("user-menu-footer")).getByText(/^Ver2 · Version /)).toBeInTheDocument()
+  })
+
   it("keeps ☰, logo and breadcrumb in a shrinkable start group that never overlaps the end group", () => {
     const { container } = renderHeader()
     const start = container.querySelector("[data-header-start]")!

@@ -7,6 +7,7 @@ import { AlertCircle, Globe } from "lucide-react"
 import { type Language, getTranslations, languageLabels } from "@/lib/i18n"
 import { useLanguage } from "@/lib/language-context"
 import { Button, Field, Input, cn } from "@/components/ui"
+import { AppVersionText, VersionBadge } from "@/components/app-shell/version-badge"
 import { useDocumentTitle } from "@/hooks/use-document-title"
 import { apiFetch } from "@/hooks/api-client"
 import { loginLanguageToPersist, rememberLastLanguage } from "@/lib/last-language"
@@ -148,7 +149,10 @@ export default function LoginPage() {
         <div className="mb-8 text-center">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/logo.svg" alt="" width={64} height={64} className="mx-auto mb-4 rounded-ui-lg shadow-ui-md" />
-          <h1 className="text-3xl font-bold tracking-tight text-fg">Kanflow</h1>
+          <div className="flex items-center justify-center gap-2.5">
+            <h1 className="text-3xl font-bold tracking-tight text-fg">Kanflow</h1>
+            <VersionBadge className="text-body" />
+          </div>
           <p className="mt-1.5 text-body text-fg-muted">{t.loginSubtitle}</p>
         </div>
 
@@ -205,6 +209,7 @@ export default function LoginPage() {
             {t.loginAccountNote}
           </p>
         </div>
+        <AppVersionText className="mt-4 text-center" />
       </div>
     </main>
   )
