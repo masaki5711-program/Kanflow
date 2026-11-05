@@ -61,6 +61,27 @@ const names = () => screen.getAllByLabelText(t.tplStageName).map((i) => (i as HT
 const rowOf = (name: string) => screen.getAllByLabelText(t.tplStageName).find((i) => (i as HTMLInputElement).value === name)!.closest("li")!
 
 describe("StageTreeEditor", () => {
+  it("edits a leaf's role in the details; an invalid one is marked at the field and keeps the details open", async () => {
+    renderWithProviders(<Harness initial={[{ ...emptyStage("A"), children: [emptyStage("A1")] }, emptyStage("B")]} />, { language: "en" })
+    await userEvent.click(within(rowOf("B")).getByRole("button", { name: t.tplStageDetails }))
+    const role = within(rowOf("B")).getByRole("textbox", { name: t.tplRole })
+    expect(role).toHaveAccessibleDescription(t.tplRoleHint)
+    await userEvent.type(role, "bad role")
+    expect(role).toHaveAttribute("aria-invalid", "true")
+    expect(role).toHaveAccessibleDescription(`${t.tplStageRoleInvalid} ${t.tplRoleHint}`)
+    // Collapsing does not hide the problem.
+    await userEvent.click(within(rowOf("B")).getByRole("button", { name: t.tplStageDetails }))
+    expect(within(rowOf("B")).getByRole("textbox", { name: t.tplRole })).toBeVisible()
+    await userEvent.clear(role)
+    await userEvent.type(role, "design")
+    expect(role).not.toHaveAttribute("aria-invalid")
+    // A parent stage takes no role.
+    await userEvent.click(within(rowOf("A")).getByRole("button", { name: t.tplStageDetails }))
+    const parentRole = within(rowOf("A")).getAllByRole("textbox", { name: t.tplRole })[0]
+    expect(parentRole).toBeDisabled()
+    expect(parentRole).toHaveAccessibleDescription(t.tplRoleParentHint)
+  })
+
   it("adds, renames, reorders, indents / outdents and removes with buttons; focus follows the stage", async () => {
     renderWithProviders(<Harness initial={[emptyStage("A"), emptyStage("B")]} />, { language: "en" })
     await userEvent.click(screen.getByTestId("tpl-add-stage"))

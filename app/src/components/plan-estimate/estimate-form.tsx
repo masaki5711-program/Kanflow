@@ -1,6 +1,6 @@
 "use client"
 
-import { useId, useMemo, useState } from "react"
+import { useId, useMemo, useRef, useState } from "react"
 import { Button, Field, Input, Select, useToast } from "@/components/ui"
 import { TEMPLATES_API, type PlanTemplateDto, type PlanTemplateSummaryDto } from "@/components/plan-templates/template-groups"
 import { apiFetch, useApiQuery } from "@/hooks"
@@ -38,8 +38,9 @@ export function EstimateForm({ projectId, onCreated }: Props) {
   const roles = useMemo(() => (detail.data && detail.data.id === templateId ? templateRoles(detail.data.content) : []), [detail.data, templateId])
   const memberRows = useApiQuery<unknown>(roles.length > 0 ? `/api/projects/${encodeURIComponent(projectId)}/members` : null)
   const members = useMemo(() => toRoleMembers(memberRows.data), [memberRows.data])
-  const rolesFailed = (detail.error && !detail.data) || (memberRows.error && !memberRows.data)
-  const rolesLoading = !!templateId && !rolesFailed && (detail.isLoading || (roles.length > 0 && memberRows.isLoading && !memberRows.data))
+  const rolesFailed = Boolean((detail.error && !detail.data) || (memberRows.error && !memberRows.data))
+  const rolesLoading = !!templateId && !rolesFailed && (detail.isLoading || !detail.data || (roles.length > 0 && !memberRows.data))
+  const rolesRef = useRef<HTMLDivElement>(null)
 
   async function submit() {
     if (busy) return
@@ -50,6 +51,11 @@ export function EstimateForm({ projectId, onCreated }: Props) {
     const first = (["template", "start"] as const).find((k) => e[k])
     if (first) {
       document.getElementById(ids[first])?.focus()
+      return
+    }
+    // Without the template's roles and the members a run would silently propose no owners: wait for them.
+    if (rolesLoading || rolesFailed) {
+      rolesRef.current?.focus()
       return
     }
     setBusy(true)
@@ -121,22 +127,26 @@ export function EstimateForm({ projectId, onCreated }: Props) {
           <input id={ids.skip} type="checkbox" className="h-4 w-4 accent-primary" checked={skipWeekends} onChange={(ev) => setSkipWeekends(ev.target.checked)} />
           {t.pesFieldSkipWeekends}
         </label>
-        {rolesFailed ? (
-          <RoleAssignmentsError
-            onRetry={() => {
-              if (detail.error) void detail.refetch()
-              if (memberRows.error) void memberRows.refetch()
-            }}
-          />
-        ) : rolesLoading ? (
-          <p role="status" className="text-caption text-fg-muted sm:col-span-2">
-            {t.pesRolesLoading}
-          </p>
-        ) : roles.length > 0 ? (
-          <RoleAssignmentsField roles={roles} members={members} value={assignments} onChange={setAssignments} disabled={busy} />
-        ) : templateId && detail.data ? (
-          <p className="text-caption text-fg-muted sm:col-span-2">{t.pesNoRoles}</p>
-        ) : null}
+        {/* Always mounted: the loading text is announced when it changes, and focus has somewhere to stay after
+            「再試行」 (the button itself goes away) or when 作成 waits for the roles. */}
+        <div ref={rolesRef} tabIndex={-1} className="min-w-0 outline-none focus-visible:outline-none sm:col-span-2">
+          <div role="status" aria-live="polite" className="text-caption text-fg-muted">
+            {rolesLoading ? t.pesRolesLoading : ""}
+          </div>
+          {rolesFailed && (
+            <RoleAssignmentsError
+              onRetry={() => {
+                if (detail.error) void detail.refetch()
+                if (memberRows.error) void memberRows.refetch()
+                rolesRef.current?.focus()
+              }}
+            />
+          )}
+          {!rolesLoading && !rolesFailed && roles.length > 0 && (
+            <RoleAssignmentsField roles={roles} members={members} value={assignments} onChange={setAssignments} busy={busy} />
+          )}
+          {!rolesLoading && !rolesFailed && roles.length === 0 && templateId && detail.data && <p className="text-caption text-fg-muted">{t.pesNoRoles}</p>}
+        </div>
         <div className="sm:col-span-2">
           <Button type="submit" aria-disabled={busy || undefined}>
             {busy ? t.pesCreating : t.pesCreate}

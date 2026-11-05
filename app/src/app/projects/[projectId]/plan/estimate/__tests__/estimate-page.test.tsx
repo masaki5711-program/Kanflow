@@ -60,6 +60,55 @@ describe("計画を作る page (plan 12 E5)", () => {
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/members"))).toBe(false)
   })
 
+  const ROLE_TEMPLATES = { match: "/api/plan-templates", method: "GET", respond: () => jsonResponse([{ id: "t2", name: "役割つき（合成）" }, { id: "t3", name: "別の役割（合成）" }]) }
+  const detailOf = (id: string, role: string) => ({ match: `/api/plan-templates/${id}`, method: "GET", respond: () => jsonResponse({ id, name: id, content: { stages: [{ name: "作業", role }] } }) })
+  const MEMBERS = { match: "/api/projects/p1/members", method: "GET", respond: () => jsonResponse([{ userId: "u1", role: "po", user: { name: "合成 太郎" } }]) }
+
+  it("a choice never travels to another template (its roles are other roles)", async () => {
+    const user = userEvent.setup()
+    const fetchMock = stubFetch([ROLE_TEMPLATES, detailOf("t2", "design"), detailOf("t3", "build"), MEMBERS, { match: "/api/projects/p1/plan/estimate-runs", method: "POST", respond: () => jsonResponse({ runId: "r11", summary: SUMMARY }, 201) }])
+    renderWithProviders(<EstimatePage />)
+    const select = await screen.findByLabelText(new RegExp(t.pesFieldTemplate))
+    await user.selectOptions(select, "t2")
+    await user.click(within(await screen.findByRole("group", { name: new RegExp(t.pesRoleMembers.replace("{role}", "design")) })).getByRole("checkbox", { name: "合成 太郎" }))
+    await user.selectOptions(select, "t3")
+    const build = await screen.findByRole("group", { name: new RegExp(t.pesRoleMembers.replace("{role}", "build")) })
+    expect(within(build).getByRole("checkbox", { name: "合成 太郎" })).not.toBeChecked()
+    await user.type(screen.getByLabelText(new RegExp(t.pesFieldStart)), "2026-11-09")
+    await user.click(screen.getByRole("button", { name: t.pesCreate }))
+    await waitFor(() => expect(nav.replace).toHaveBeenCalled())
+    const post = fetchMock.mock.calls.find(([, init]) => init?.method === "POST")
+    expect(JSON.parse(String(post?.[1]?.body)).roleAssignments).toEqual({})
+  })
+
+  it("a failed load of the members says so, makes no run meanwhile, and retries", async () => {
+    const user = userEvent.setup()
+    let fail = true
+    const fetchMock = stubFetch([
+      ROLE_TEMPLATES,
+      detailOf("t2", "design"),
+      { match: "/api/projects/p1/members", method: "GET", respond: () => (fail ? jsonResponse({ error: "x" }, 500) : jsonResponse([{ userId: "u1", role: "po", user: { name: "合成 太郎" } }])) },
+      { match: "/api/projects/p1/plan/estimate-runs", method: "POST", respond: () => jsonResponse({ runId: "r12", summary: SUMMARY }, 201) },
+    ])
+    renderWithProviders(<EstimatePage />)
+    await user.selectOptions(await screen.findByLabelText(new RegExp(t.pesFieldTemplate)), "t2")
+    expect(await screen.findByText(t.pesRolesFailed)).toBeInTheDocument()
+    await user.type(screen.getByLabelText(new RegExp(t.pesFieldStart)), "2026-11-09")
+    await user.click(screen.getByRole("button", { name: t.pesCreate }))
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false)
+    fail = false
+    await user.click(screen.getByRole("button", { name: t.errorRetry }))
+    expect(await screen.findByRole("group", { name: new RegExp(t.pesRoleMembers.replace("{role}", "design")) })).toBeInTheDocument()
+  })
+
+  it("a project without members says what to do", async () => {
+    const user = userEvent.setup()
+    stubFetch([ROLE_TEMPLATES, detailOf("t2", "design"), { match: "/api/projects/p1/members", method: "GET", respond: () => jsonResponse([]) }])
+    renderWithProviders(<EstimatePage />)
+    await user.selectOptions(await screen.findByLabelText(new RegExp(t.pesFieldTemplate)), "t2")
+    expect(await screen.findByText(t.pesRoleNoMembers)).toBeInTheDocument()
+  })
+
   it("asks for the members of each role of the template and sends them with the run", async () => {
     const user = userEvent.setup()
     const fetchMock = stubFetch([
