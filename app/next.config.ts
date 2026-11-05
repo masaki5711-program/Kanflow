@@ -1,4 +1,20 @@
+import { execFileSync } from "node:child_process";
 import type { NextConfig } from "next";
+
+// The version the header badge shows (src/lib/app-version.ts): APP_VERSION when set, else the checkout's
+// `git describe --tags` (e.g. "v2-prod-20261105", or "v2-prod-20261105-3-g1a2b3c4" after later commits).
+// Read once at build time; a build without git shows "dev".
+function buildVersion(): string {
+  const fromEnv = process.env.APP_VERSION?.trim();
+  if (fromEnv) return fromEnv;
+  try {
+    return execFileSync("git", ["describe", "--tags", "--always"], { stdio: ["ignore", "pipe", "ignore"], timeout: 5000 })
+      .toString()
+      .trim();
+  } catch {
+    return "dev";
+  }
+}
 
 // HSTS only makes sense when the app is actually served over HTTPS. On the
 // plain-HTTP LAN deployment it is ignored at best and harmful at worst.
@@ -24,6 +40,7 @@ const nextConfig: NextConfig = {
   // Next 16 `next dev` would otherwise write app/AGENTS.md and app/CLAUDE.md;
   // the repository's own CLAUDE.md is the only instruction file for agents.
   agentRules: false,
+  env: { NEXT_PUBLIC_APP_VERSION: buildVersion() },
   // Standalone build disabled on this native Windows host.
   // Turbopack production + Prisma WASM compiler leaves `[externals]_node:*`
   // chunks unresolved in standalone mode (see 2026-05-25 incident). We use

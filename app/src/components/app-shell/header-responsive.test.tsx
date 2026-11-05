@@ -70,6 +70,14 @@ function userMenuButton() {
 }
 
 describe("Header responsive layout", () => {
+  it("shows the Ver2 badge in the start group, outside the home link, at every width", () => {
+    const { container } = renderHeader()
+    const start = container.querySelector("[data-header-start]")!
+    const badge = within(start as HTMLElement).getByText("Ver2")
+    expect(badge.closest("a")).toBeNull()
+    expect(classesOf(badge).some((c) => c === "hidden" || /^(sm|md|lg|xl):hidden$/.test(c))).toBe(false)
+  })
+
   it("keeps ☰, logo and breadcrumb in a shrinkable start group that never overlaps the end group", () => {
     const { container } = renderHeader()
     const start = container.querySelector("[data-header-start]")!

@@ -22,6 +22,8 @@ export interface CommonTranslations {
   back: string
   // Header
   appTitle: string
+  /** Prefix of the version badge's tooltip ("バージョン v2-prod-…"). */
+  appVersionLabel: string
   // Point units
   pointUnitManDay: string
   pointUnitManHour: string
@@ -101,6 +103,7 @@ export const ja: CommonTranslations = {
   logout: "ログアウト",
   back: "戻る",
   appTitle: "Kanflow",
+  appVersionLabel: "バージョン",
   pointUnitManDay: "人日",
   pointUnitManHour: "人時",
   pointUnitPoints: "ポイント",
@@ -172,6 +175,7 @@ export const en: CommonTranslations = {
   logout: "Logout",
   back: "Back",
   appTitle: "Kanflow",
+  appVersionLabel: "Version",
   pointUnitManDay: "Man-days",
   pointUnitManHour: "Man-hours",
   pointUnitPoints: "Points",
@@ -243,6 +247,7 @@ export const id: CommonTranslations = {
   logout: "Keluar",
   back: "Kembali",
   appTitle: "Kanflow",
+  appVersionLabel: "Versi",
   pointUnitManDay: "Hari-orang",
   pointUnitManHour: "Jam-orang",
   pointUnitPoints: "Poin",
