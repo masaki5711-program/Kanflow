@@ -38,17 +38,27 @@ export const EXPLAIN_SOURCES_PER_LEAF_MAX = 10
  * character, so characters are counted, with room to spare. Whole entries are left out past it (never cut in half),
  * newest / most relevant first, and the count left out is returned (`omitted`).
  */
-export const PROMPT_DATA_CHARS_MAX = 7_000
+export const PROMPT_DATA_CHARS_MAX = 6_000
+/** Of which the item list of a rule-draft request may take at most this much (names go before keys). */
+export const DRAFT_ITEMS_CHARS_MAX = 2_000
+
+/**
+ * The JSON of the data block as sent: "<", ">", "&" and the line / paragraph separators become \\u escapes (the same
+ * JSON value), so the text can never spell the block's end marker. The budget below measures THIS form.
+ */
+export function safeJson(value: unknown): string {
+  return JSON.stringify(value).replace(/[<>&\u2028\u2029]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`)
+}
 
 /** Adds entries while the running JSON size stays within the budget; returns how many did not fit. */
 class Budget {
   private used: number
   omitted = 0
   constructor(base: unknown, private readonly max = PROMPT_DATA_CHARS_MAX) {
-    this.used = JSON.stringify(base).length
+    this.used = safeJson(base).length
   }
   fits(entry: unknown): boolean {
-    const size = JSON.stringify(entry).length + 1
+    const size = safeJson(entry).length + 1
     if (this.used + size > this.max) {
       this.omitted++
       return false
@@ -158,7 +168,17 @@ export function ruleDraftInput(projectId: string, raw: readonly RawDraftSource[]
   const sources: DraftSource[] = []
   // The item keys go first (small; a draft must name them), then the texts in the order given (newest first).
   const seen = new Set<string>()
-  const keys = items.filter((i) => (seen.has(i.key) ? false : (seen.add(i.key), true))).slice(0, DRAFT_ITEMS_MAX).map((i) => ({ key: i.key, name: clip(i.name, 200) }))
+  const keys: { key: string; name: string }[] = []
+  const itemBudget = new Budget([], DRAFT_ITEMS_CHARS_MAX)
+  for (const i of items) {
+    if (keys.length >= DRAFT_ITEMS_MAX) break
+    if (seen.has(i.key)) continue
+    seen.add(i.key)
+    const entry = { key: i.key, name: clip(i.name, 200) }
+    // A long name gives way to its key alone; a key that does not fit either is left out.
+    if (itemBudget.fits(entry)) keys.push(entry)
+    else if (itemBudget.fits({ key: i.key, name: "" })) keys.push({ key: i.key, name: "" })
+  }
   const budget = new Budget({ task: "rule_drafts", sources: [], items: keys })
   for (const s of raw) {
     if (sources.length >= DRAFT_SOURCES_MAX) break

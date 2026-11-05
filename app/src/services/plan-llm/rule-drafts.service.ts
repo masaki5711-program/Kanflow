@@ -130,8 +130,10 @@ export async function processRuleDraftJob(job: ClaimedJob, llm: PlanLlm, config:
   const built = ruleDraftInput(job.projectId, raw.sources, raw.items)
   if (built.omitted > 0) log.warn("rule-draft sources left out to fit the prompt", { jobId: job.id, projectId: job.projectId, omitted: built.omitted, kept: built.input.sources.length })
   if (built.input.sources.length === 0) {
-    await finishJob(db, job, { status: "skipped", lastError: "no source text" })
-    return { jobId: job.id, outcome: "skipped", created: 0, dropped: 0, reason: "no_sources" }
+    // No text at all, or none that fits the prompt: two different reasons on the row.
+    const reason = built.omitted > 0 ? "prompt_budget" : "no_sources"
+    await finishJob(db, job, { status: "skipped", lastError: reason })
+    return { jobId: job.id, outcome: "skipped", created: 0, dropped: 0, reason }
   }
   const outcome = await runLlmTask(llm, built.input, (text) => parseRuleDrafts(text, built.input), { priority: "background", timeoutMs: config.batchTimeoutMs, signal, label: "plan-rule-drafts" })
   const meta = { llmModel: llm.model, promptVersion: PLAN_LLM_PROMPT_VERSION, sourceIds: built.sourceIds }

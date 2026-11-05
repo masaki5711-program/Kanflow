@@ -42,6 +42,7 @@ function fakeLlm(...answers: (string | Error)[]): PlanLlm & { calls: ChatMessage
 }
 
 const P = "proj-a"
+const safeJsonLen = (v: unknown) => visible.safeJson(v).length
 const draftSources = (): import("../visible").RawDraftSource[] => [
   { id: "sprint:s1:problem", kind: "retro_problem", text: "試験環境の準備が遅れて、試験の開始が 3 日遅れた。", projectId: P, confidential: false },
   { id: "sprint:s1:try", kind: "retro_try", text: "次は試験の前に環境の準備を入れる。", projectId: P, confidential: false },
@@ -196,6 +197,15 @@ describe("prompt", () => {
     expect(drafts.sourceIds).toEqual(drafts.input.sources.map((x) => x.id))
     // Texts are never cut in half.
     expect(drafts.input.sources.every((x) => x.text.length === 2_000)).toBe(true)
+    // The budget measures the escaped form: text full of "<" / "&" (6 characters each once escaped) cannot overflow it.
+    const escaped = visible.ruleDraftInput(P, Array.from({ length: 10 }, (_, i) => ({ id: `n${i}`, kind: "finalize_note" as const, text: "<&".repeat(1_000), projectId: P, confidential: false })), items)
+    expect(safeJsonLen(promptData(buildPrompt(escaped.input)))).toBeLessThanOrEqual(visible.PROMPT_DATA_CHARS_MAX)
+    expect(escaped.omitted).toBeGreaterThan(0)
+    // Many long item names cannot crowd out every text: the items have their own share.
+    const manyItems = Array.from({ length: 200 }, (_, i) => ({ key: `key${i}`, name: "名".repeat(200) }))
+    const crowded = visible.ruleDraftInput(P, draftSources(), manyItems)
+    expect(crowded.input.sources).toHaveLength(3)
+    expect(safeJsonLen(crowded.input.items)).toBeLessThanOrEqual(visible.DRAFT_ITEMS_CHARS_MAX)
 
     const leaves = Array.from({ length: 40 }, (_, i) => ({ key: `k${i}`, name: "名".repeat(200), candidates: Array.from({ length: 10 }, (_, j) => ({ snapshotItemId: `s${i}-${j}`, sourceProjectId: "pv", name: "候".repeat(200), stage: 3 as const, similarity: 0.7 })) }))
     const review = visible.candidateReviewInput(leaves, new Set(["pv"]))
