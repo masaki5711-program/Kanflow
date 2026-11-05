@@ -21,6 +21,9 @@ const nextConfig: NextConfig = {
   // so a build never overwrites the `.next` the production service is serving.
   distDir: process.env.NEXT_DIST_DIR || ".next",
   poweredByHeader: false,
+  // Next 16 `next dev` would otherwise write app/AGENTS.md and app/CLAUDE.md;
+  // the repository's own CLAUDE.md is the only instruction file for agents.
+  agentRules: false,
   // Standalone build disabled on this native Windows host.
   // Turbopack production + Prisma WASM compiler leaves `[externals]_node:*`
   // chunks unresolved in standalone mode (see 2026-05-25 incident). We use
