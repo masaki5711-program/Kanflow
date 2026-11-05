@@ -102,6 +102,7 @@ function cfg(over: Record<string, unknown> = {}) {
     activityRetentionDays: 730,
     notificationRetentionDays: 90,
     purgeTrashTimes: [{ hour: 3, minute: 15 }],
+    planRuleDraftTimes: [],
     purgeTrashAfterDays: 30,
     ...over,
   } as never

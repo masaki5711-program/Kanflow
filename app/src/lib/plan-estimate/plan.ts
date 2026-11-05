@@ -7,7 +7,8 @@
  */
 import { planBaseSchedule, type BaseSchedule, type BaseScheduleItem, type PlannedRow } from "@/lib/plan-schedule/base-schedule"
 import { addDays, dayNumber } from "./dates"
-import { estimateLeaf, typePrior, type HiddenStateSink } from "./estimate"
+import { estimateLeaf, resolveConfig, typePrior, type HiddenStateSink } from "./estimate"
+import { usableAt, visibleStageCandidates, type StageCandidate } from "./match"
 import { ceilDays } from "./stats"
 import { ESTIMATE_METHOD_VERSION, type EstimateContext, type HiddenState, type LeafEstimate, type Observation, type TypePrior } from "./types"
 
@@ -95,6 +96,26 @@ export function criticalChain(rows: readonly PlannedRow[]): string[] {
     current = next
   }
   return chain
+}
+
+/** One leaf with its visible stage-3 / 4 candidates (E6 candidate review). */
+export interface LeafCandidates {
+  key: string
+  name: string
+  candidates: StageCandidate[]
+}
+
+/**
+ * The visible stage-3 / 4 candidates of every non-milestone leaf that has any, in schedule order (plan 12 §3.1: the
+ * LLM may help accept / reject these; hidden-source candidates are never listed and stay with the formula).
+ */
+export function listStageCandidates(schedule: BaseSchedule, observations: readonly Observation[], ctx: EstimateContext): LeafCandidates[] {
+  const cfg = resolveConfig(ctx.config)
+  const usable = usableAt(observations, ctx.referenceDate)
+  return leavesOf(schedule.items)
+    .filter((item) => item.milestone !== true)
+    .map((item) => ({ key: item.key, name: item.name, candidates: visibleStageCandidates({ key: item.key, name: item.name, formerKeys: item.formerKeys, templateDays: item.durationDays ?? 1 }, usable, ctx, cfg) }))
+    .filter((l) => l.candidates.length > 0)
 }
 
 export function estimatePlan(schedule: BaseSchedule, observations: readonly Observation[], ctx: EstimateContext, startDate: string): PlanEstimate {

@@ -118,6 +118,12 @@ export interface EstimateContext {
    * value). E5 persists `PlanEstimate.hiddenStates` back into that store.
    */
   previousHidden?: ReadonlyMap<string, HiddenState>
+  /**
+   * E6 (plan 12 §3.1): stage-3 / 4 candidates the LLM rejected, per leaf key (snapshot item ids). Only a VISIBLE
+   * stage-3 / 4 match can be rejected: an id of a hidden source, or of a stage-1 / 2 match, is ignored. Similarity and
+   * weights stay the formula's.
+   */
+  rejectedCandidates?: ReadonlyMap<string, ReadonlySet<string>>
 }
 
 /** A visible source of one leaf's estimate (hidden sources never get a row; plan 12 §3.2 rule 4). */

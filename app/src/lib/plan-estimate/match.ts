@@ -72,5 +72,30 @@ export function matchLeaf(leaf: EstimateLeaf, usable: readonly Observation[], ct
   const hiddenStage1Projects = new Set(stage1.filter((m) => !m.visible).map((m) => m.obs.sourceProjectId)).size
   const hiddenUsable = hiddenStage1Projects >= cfg.minHiddenSources ? Math.floor(hiddenStage1Projects / 2) * 2 : 0
   const stage1Count = visibleStage1 + (hiddenUsable >= 4 ? hiddenUsable : 0)
-  return stage1Count >= cfg.stage1Enough ? matched.filter((m) => m.stage <= 2) : matched
+  const cut = stage1Count >= cfg.stage1Enough ? matched.filter((m) => m.stage <= 2) : matched
+  const rejected = ctx.rejectedCandidates?.get(leaf.key)
+  if (!rejected || rejected.size === 0) return cut
+  // E6: the LLM may only drop visible stage-3 / 4 candidates; hidden ones are decided by the formula alone.
+  return cut.filter((m) => !(m.visible && m.stage >= 3 && rejected.has(m.obs.snapshotItemId)))
+}
+
+/** A visible stage-3 / 4 candidate of one leaf, as offered to the candidate review (E6). */
+export interface StageCandidate {
+  snapshotItemId: string
+  sourceProjectId: string
+  name: string
+  stage: 3 | 4
+  similarity: number
+}
+
+/**
+ * The visible stage-3 / 4 candidates of a leaf (after the stage-1 cut), before any review. Hidden-source candidates
+ * are never listed: their names are project-internal information of a project the requester cannot view.
+ */
+export function visibleStageCandidates(leaf: EstimateLeaf, usable: readonly Observation[], ctx: EstimateContext, cfg: EstimateConfig): StageCandidate[] {
+  const { rejectedCandidates: _ignored, ...plain } = ctx
+  void _ignored
+  return matchLeaf(leaf, usable, plain, cfg)
+    .filter((m): m is MatchedObservation & { stage: 3 | 4 } => m.visible && (m.stage === 3 || m.stage === 4))
+    .map((m) => ({ snapshotItemId: m.obs.snapshotItemId, sourceProjectId: m.obs.sourceProjectId, name: m.obs.name, stage: m.stage, similarity: m.similarity }))
 }

@@ -13,7 +13,7 @@
 import { createHash } from "node:crypto"
 import { dateFromKey } from "@/lib/plan-progress"
 import { applyLessonRules, type LessonRuleResult } from "@/lib/plan-lesson-rules/apply"
-import { estimatePlan, learnParallelCap, referenceDateOf, ESTIMATE_METHOD_VERSION, type HiddenState, type LeafEstimate, type Observation, type ParallelPeak, type PlanEstimate } from "@/lib/plan-estimate"
+import { estimatePlan, learnParallelCap, listStageCandidates, referenceDateOf, ESTIMATE_METHOD_VERSION, type HiddenState, type LeafCandidates, type LeafEstimate, type Observation, type ParallelPeak, type PlanEstimate } from "@/lib/plan-estimate"
 import { countBand } from "@/lib/plan-estimate"
 import { planBaseSchedule, PlanScheduleError, type BaseSchedule, type BaseScheduleItem } from "@/lib/plan-schedule/base-schedule"
 import { canonicalJson, defaultLineage } from "@/lib/plan-schedule/schedule-source"
@@ -61,7 +61,31 @@ export interface FixedInputs {
   previousHidden: Readonly<Record<string, HiddenState | null>>
   /** R of the run: the approval within its 24 h compares with the same month, even across a month boundary. */
   referenceDate: string
+  /**
+   * E6: the visible stage-3 / 4 candidates the LLM rejected, per leaf key, as decided when the run was made (the
+   * approval replays them; it never asks the LLM again). Absent on runs made before E6 = none.
+   */
+  rejectedCandidates?: Record<string, string[]>
+  candidateAssist?: CandidateAssist
 }
+
+/** What the candidate review (E6) did for a run. Not a success unless "applied" or "no_candidates". */
+export type CandidateAssistState = "off" | "no_candidates" | "applied" | "timeout" | "unavailable" | "invalid" | "aborted" | "error"
+
+export interface CandidateAssist {
+  state: CandidateAssistState
+  /** Candidates rejected (0 unless applied). */
+  rejected: number
+  /** Source project ids whose item names were given to the LLM (recorded on the run: llmSourceIds). */
+  sourceIds: string[]
+  model: string | null
+}
+
+/**
+ * Asks the LLM which visible stage-3 / 4 candidates to keep. Must never throw for an LLM failure (the run then uses the
+ * formula alone); `rejectedCandidates` lists snapshot item ids per leaf key.
+ */
+export type CandidateReviewer = (leaves: readonly LeafCandidates[], visibleProjectIds: ReadonlySet<string>) => Promise<CandidateAssist & { rejectedCandidates: Record<string, string[]> }>
 
 /** Per-leaf evidence as stored (internal: exact n, hidden project ids). Read only through readRun. */
 export interface StoredEvidenceLeaf {
@@ -97,6 +121,8 @@ export interface RunSummary {
   changes: { key: string; name: string; templateDays: number | null; days: number }[]
   /** How many items changed in all (changes lists only the largest). */
   changesTotal: number
+  /** E6 candidate review: what the LLM did (absent on runs made before E6). Not shown per source. */
+  assist?: { candidates: CandidateAssistState; rejected: number }
 }
 
 export interface OwnerPlan {
@@ -200,7 +226,7 @@ async function resolveTemplate(source: RunSource, db: Db): Promise<{ schedule: B
  * E5 security review H1). Everyone who can read the run then sees the sources its days came from; a source only some
  * of them can view is a hidden source for the run (bands, rounded ratios, never a name).
  */
-async function visibleProjectsOf(projectId: string, creator: RunCreator, ids: readonly string[], db: Db): Promise<string[]> {
+export async function visibleProjectsOf(projectId: string, creator: RunCreator, ids: readonly string[], db: Db): Promise<string[]> {
   if (ids.length === 0) return []
   const holders = await db.projectMember.findMany({ where: { projectId, role: { in: ["po", "sm"] } }, select: { user: { select: { id: true, role: true } } } })
   const viewers = new Map<string, string>([[creator.userId, creator.systemRole], ...holders.map((h): [string, string] => [h.user.id, h.user.role])])
@@ -277,6 +303,40 @@ export interface ComputeOptions {
   todayKey: string
   /** Approval recompute: the creator's visible projects and hidden state as stored. */
   fixed?: FixedInputs
+  /** E6: ask the LLM about visible stage-3 / 4 candidates (only when no decision is given by `fixed` / `reuse`). */
+  reviewCandidates?: CandidateReviewer
+  /** E6: a decision already made for this run (the recompute under the hidden-state lock reuses the first one). */
+  reuse?: Pick<FixedInputs, "rejectedCandidates" | "candidateAssist">
+}
+
+const NO_ASSIST: CandidateAssist = { state: "off", rejected: 0, sourceIds: [], model: null }
+
+/** Keep only rejections of candidates that were listed (a reviewer can never touch anything else). */
+function listedRejections(rejected: Readonly<Record<string, readonly string[]>>, listed: readonly LeafCandidates[]): Record<string, string[]> {
+  const out: Record<string, string[]> = {}
+  for (const leaf of listed) {
+    if (!Object.hasOwn(rejected, leaf.key)) continue
+    const ids = new Set(leaf.candidates.map((c) => c.snapshotItemId))
+    const kept = [...new Set(rejected[leaf.key])].filter((id) => ids.has(id)).sort()
+    if (kept.length > 0) out[leaf.key] = kept
+  }
+  return Object.fromEntries(Object.entries(out).sort(([a], [b]) => (a < b ? -1 : 1)))
+}
+
+/**
+ * The candidate decision of this computation: replayed from `fixed` / `reuse` when the run already made one, else asked
+ * once (gate on, a reviewer given, at least one visible stage-3 / 4 candidate), else none.
+ */
+async function decideCandidates(opts: ComputeOptions, gateOn: boolean, list: () => LeafCandidates[], visible: ReadonlySet<string>): Promise<{ rejected: Record<string, string[]>; assist: CandidateAssist }> {
+  const given = opts.fixed ?? opts.reuse
+  if (given?.rejectedCandidates !== undefined) return { rejected: given.rejectedCandidates, assist: given.candidateAssist ?? NO_ASSIST }
+  if (opts.fixed || !gateOn || !opts.reviewCandidates) return { rejected: {}, assist: NO_ASSIST }
+  const listed = list()
+  if (listed.length === 0) return { rejected: {}, assist: { ...NO_ASSIST, state: "no_candidates" } }
+  const r = await opts.reviewCandidates(listed, visible)
+  const rejected = r.state === "applied" ? listedRejections(r.rejectedCandidates, listed) : {}
+  const count = Object.values(rejected).reduce((s, ids) => s + ids.length, 0)
+  return { rejected, assist: { state: r.state, rejected: count, sourceIds: [...new Set(r.sourceIds)].sort(), model: r.model } }
 }
 
 export async function computeRun(input: RunInput, opts: ComputeOptions, db: Db = defaultDb): Promise<ComputedRun> {
@@ -342,9 +402,14 @@ export async function computeRun(input: RunInput, opts: ComputeOptions, db: Db =
     }),
   }
 
-  // 3. Durations: the estimate when the lineage's default is on, the template (with the rules) otherwise.
+  // 3. Durations: the estimate when the lineage's default is on, the template (with the rules) otherwise. Before it, the
+  // E6 candidate review: the LLM may drop visible stage-3 / 4 candidates (names of visible sources only; the formula
+  // keeps deciding hidden ones, similarity and weights).
+  const observations = gate.on ? facts.map(observationOf) : []
+  const candidates = await decideCandidates(opts, gate.on, () => listStageCandidates(ruled, observations, ctxBase), ctxBase.visibleProjectIds)
+  const rejectedMap = new Map(Object.entries(candidates.rejected).map(([k, ids]): [string, ReadonlySet<string>] => [k, new Set(ids)]))
   let estimate: PlanEstimate | null = null
-  if (gate.on) estimate = estimatePlan(ruled, facts.map(observationOf), ctxBase, input.startDate)
+  if (gate.on) estimate = estimatePlan(ruled, observations, { ...ctxBase, rejectedCandidates: rejectedMap }, input.startDate)
   const sink = new Map<string, HiddenState>(estimate?.hiddenStates ?? [])
   const byKey = new Map((estimate?.leaves ?? []).map((l) => [l.key, l]))
   const durationed = estimate ? estimate.schedule : ruled
@@ -417,6 +482,7 @@ export async function computeRun(input: RunInput, opts: ComputeOptions, db: Db =
     matchedProjects: matched > 0 ? countBand(matched) : null,
     changes,
     changesTotal: allChanges.length,
+    assist: { candidates: candidates.assist.state, rejected: candidates.assist.rejected },
   }
   const ownedKeys = [...levelled.owners].filter(([, u]) => u !== null).map(([k]) => k)
   const leafName = new Map(leaves.map((l) => [l.key, l.name]))
@@ -442,9 +508,17 @@ export async function computeRun(input: RunInput, opts: ComputeOptions, db: Db =
       gateOn: gate.on,
       startDate: input.startDate,
       skipWeekends: input.skipWeekends,
+      // Only when the LLM rejected something: runs without a rejection keep the hash they had before E6.
+      ...(Object.keys(candidates.rejected).length > 0 ? { rejectedCandidates: candidates.rejected } : {}),
     })
   )
-  const fixed: FixedInputs = { visibleProjectIds, previousHidden: Object.fromEntries([...readHidden].sort(([a], [b]) => (a < b ? -1 : 1))), referenceDate }
+  const fixed: FixedInputs = {
+    visibleProjectIds,
+    previousHidden: Object.fromEntries([...readHidden].sort(([a], [b]) => (a < b ? -1 : 1))),
+    referenceDate,
+    rejectedCandidates: candidates.rejected,
+    candidateAssist: candidates.assist,
+  }
   return {
     lineage,
     projectType,

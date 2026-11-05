@@ -21,6 +21,10 @@ import { learnableItemFacts } from "@/services/plan-actuals/actuals.learnable"
 import type { Actor } from "@/services/_shared/actor"
 import { writeBaseSchedule, type LoadBaseScheduleResult } from "@/services/plan/plan.base-schedule"
 import type { BaseSchedule } from "@/lib/plan-schedule/base-schedule"
+import { PLAN_LLM_PROMPT_VERSION, planLlmConfig } from "@/lib/plan-llm/config"
+import type { PlanLlm } from "@/lib/plan-llm/run"
+import { candidateReviewer } from "@/services/plan-llm/candidate-review"
+import { explanationView, type ExplanationView } from "@/services/plan-llm/explanation.view"
 import { computeRun, RUN_LIFETIME_MS, RUN_RETENTION_MS, type ComputedRun, type EngineInput, type OwnerPlan, type RunCreator, type RunInput, type RunSummary, type StoredEvidenceLeaf } from "./estimate-run.compute"
 
 const log = logger.child({ module: "plan-estimate-run" })
@@ -58,10 +62,18 @@ async function hiddenChangedSince(read: Readonly<Record<string, unknown>>, db: D
   return keys.some((k) => canonicalJson(now.get(k) ?? null) !== canonicalJson(read[k] ?? null))
 }
 
-export async function createRun(projectId: string, input: RunInput, creator: RunCreator, now: Date = new Date()): Promise<CreatedRun> {
+export interface CreateRunOptions {
+  /** E6: the plan LLM for the candidate review (null / absent = the formula alone). */
+  llm?: PlanLlm | null
+  signal?: AbortSignal
+}
+
+export async function createRun(projectId: string, input: RunInput, creator: RunCreator, now: Date = new Date(), options: CreateRunOptions = {}): Promise<CreatedRun> {
   const todayKey = tokyoDateKey(now)
-  // The heavy part runs without the global lock; most runs read and publish no hidden state at all.
-  const first = await computeRun(input, { projectId, creator, todayKey })
+  const reviewCandidates = options.llm ? candidateReviewer(options.llm, planLlmConfig(process.env), options.signal) : undefined
+  // The heavy part runs without the global lock; most runs read and publish no hidden state at all. The LLM is asked
+  // here (outside the transaction); the recompute under the lock reuses its decision.
+  const first = await computeRun(input, { projectId, creator, todayKey, reviewCandidates })
   const usesHidden = first.hiddenStates.size > 0 || Object.keys(first.engineInput.fixed.previousHidden).length > 0
   return withTransaction(
     async (tx) => {
@@ -71,8 +83,13 @@ export async function createRun(projectId: string, input: RunInput, creator: Run
         // another run published a state this one read, compute again under the lock so the rule holds.
         await tx.$executeRaw`SET LOCAL lock_timeout = '10s'`
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('plan_estimate_hidden'))`
-        if (await hiddenChangedSince(first.engineInput.fixed.previousHidden, tx)) run = await computeRun(input, { projectId, creator, todayKey }, tx)
+        if (await hiddenChangedSince(first.engineInput.fixed.previousHidden, tx)) {
+          const { rejectedCandidates, candidateAssist } = first.engineInput.fixed
+          run = await computeRun(input, { projectId, creator, todayKey, reuse: { rejectedCandidates, candidateAssist } }, tx)
+        }
       }
+      const assist = run.engineInput.fixed.candidateAssist
+      const asked = assist !== undefined && assist.model !== null
       for (const [unitKey, state] of run.hiddenStates) {
         const value = state as unknown as Prisma.InputJsonValue
         await tx.planEstimateHiddenState.upsert({ where: { unitKey }, create: { unitKey, state: value }, update: { state: value } })
@@ -95,7 +112,10 @@ export async function createRun(projectId: string, input: RunInput, creator: Run
           methodVersion: run.summary.methodVersion,
           gateOn: run.gate.on,
           gateReason: run.gate.reason,
-          llmSourceIds: [],
+          // E6: the source projects whose names the LLM was given (a reader must see them all to read the AI text).
+          llmSourceIds: asked ? assist.sourceIds : [],
+          llmModel: asked ? assist.model : null,
+          promptVersion: asked ? PLAN_LLM_PROMPT_VERSION : null,
           schedule: run.schedule as unknown as Prisma.InputJsonValue,
           summary: run.summary as unknown as Prisma.InputJsonValue,
           evidence: run.evidence as unknown as Prisma.InputJsonValue,
@@ -113,7 +133,7 @@ export async function createRun(projectId: string, input: RunInput, creator: Run
 
 // ---------------------------------------------------------------- read -------------------------------------------------
 
-interface StoredRun {
+export interface StoredRun {
   id: string
   projectId: string
   expiresAt: Date
@@ -125,22 +145,24 @@ interface StoredRun {
   ownerPlan: unknown
   engineInput: unknown
   llmSourceIds: string[]
+  llmExplanation: unknown
+  llmExplanationState: string | null
 }
 
 /** The run of THIS project, or 404 (the same answer for a missing run and another project's run). */
 export async function findRun(projectId: string, runId: string, db: Db = defaultDb): Promise<StoredRun> {
   const row = await db.planEstimateRun.findUnique({
     where: { id: runId },
-    select: { id: true, projectId: true, expiresAt: true, createdAt: true, inputHash: true, schedule: true, summary: true, evidence: true, ownerPlan: true, engineInput: true, llmSourceIds: true },
+    select: { id: true, projectId: true, expiresAt: true, createdAt: true, inputHash: true, schedule: true, summary: true, evidence: true, ownerPlan: true, engineInput: true, llmSourceIds: true, llmExplanation: true, llmExplanationState: true },
   })
   if (!row || row.projectId !== projectId) throw notFound()
   return row
 }
 
-const evidenceOf = (run: StoredRun) => run.evidence as { leaves: StoredEvidenceLeaf[]; ruleIds: string[] }
-const engineOf = (run: StoredRun) => run.engineInput as EngineInput
+export const evidenceOf = (run: StoredRun) => run.evidence as { leaves: StoredEvidenceLeaf[]; ruleIds: string[] }
+export const engineOf = (run: StoredRun) => run.engineInput as EngineInput
 
-async function viewableOf(reader: Pick<Reader, "userId" | "systemRole">, ids: readonly string[], db: Db): Promise<Set<string>> {
+export async function viewableOf(reader: Pick<Reader, "userId" | "systemRole">, ids: readonly string[], db: Db): Promise<Set<string>> {
   if (ids.length === 0) return new Set()
   const rows = await db.project.findMany({ where: { id: { in: [...ids] }, ...accessibleProjectWhere(reader) }, select: { id: true, name: true } })
   return new Set(rows.map((r) => r.id))
@@ -165,6 +187,8 @@ export interface RunCard {
   ownerPlan?: OwnerPlan
   /** Changed items left out of summary.changes for THIS reader (a source they cannot view, or one no longer usable). */
   changesWithheld: number
+  /** E6: the AI explanation, only when this reader can view every source it was written from. */
+  explanation: ExplanationView
 }
 
 /** Leaves whose numbers this reader may not see: a source became unusable, or a source the reader cannot view. */
@@ -189,7 +213,13 @@ async function restrictedLeaves(run: StoredRun, leaves: readonly StoredEvidenceL
   return { vanished, viewable, reduced, narrower }
 }
 
-export async function readRunCard(projectId: string, runId: string, reader: Reader, now: Date = new Date(), db: Db = defaultDb): Promise<RunCard> {
+/** The reader's view of the run's AI explanation (E6): every source it was written from must be viewable by them. */
+export async function readExplanation(run: StoredRun, reader: Pick<Reader, "userId" | "systemRole">, stale: boolean, assistOn: boolean, db: Db = defaultDb): Promise<ExplanationView> {
+  const viewable = await viewableOf(reader, run.llmSourceIds, db)
+  return explanationView({ state: run.llmExplanationState, text: run.llmExplanation, sourceIds: run.llmSourceIds }, (id) => viewable.has(id), stale, assistOn)
+}
+
+export async function readRunCard(projectId: string, runId: string, reader: Reader, now: Date = new Date(), db: Db = defaultDb, assistOn: boolean = planLlmConfig(process.env).enabled): Promise<RunCard> {
   const run = await findRun(projectId, runId, db)
   const access = await restrictedLeaves(run, evidenceOf(run).leaves, reader, db)
   const vanished = access.vanished
@@ -204,6 +234,7 @@ export async function readRunCard(projectId: string, runId: string, reader: Read
     expired: run.expiresAt.getTime() <= now.getTime(),
     stale: vanished.size > 0,
     ...(reader.canViewMemberLoad ? { ownerPlan: run.ownerPlan as OwnerPlan } : {}),
+    explanation: await readExplanation(run, reader, vanished.size > 0, assistOn, db),
   }
 }
 

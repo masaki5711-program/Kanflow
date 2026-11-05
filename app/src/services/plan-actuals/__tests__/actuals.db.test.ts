@@ -187,8 +187,14 @@ describe.skipIf(!enabled)("actuals snapshots on a real database (KANFLOW_DB_TEST
 
   it("refinalize_supersedes_without_update: a new snapshot, the old one only marked; the first finalization date stays", async () => {
     const oldItems = await prisma.planActualsItem.findMany({ where: { snapshotId: first.id }, orderBy: { id: "asc" } })
-    const second = await svc.finalizeActuals(ids.project, { acknowledgedIssueCount: await issueCount() }, po)
+    const second = await svc.finalizeActuals(ids.project, { acknowledgedIssueCount: await issueCount(), note: "試験の準備を早めに始める" }, po)
     expect(second.id).not.toBe(first.id)
+    // E6: the note is kept with the snapshot, and each finalization queues one rule-draft request (night batch).
+    expect((await prisma.planActualsSnapshot.findUniqueOrThrow({ where: { id: second.id } })).finalizeNote).toBe("試験の準備を早めに始める")
+    expect(await prisma.planRuleDraftJob.findMany({ where: { projectId: ids.project }, select: { snapshotId: true, status: true }, orderBy: { createdAt: "asc" } })).toEqual([
+      { snapshotId: first.id, status: "queued" },
+      { snapshotId: second.id, status: "queued" },
+    ])
     const old = await prisma.planActualsSnapshot.findUniqueOrThrow({ where: { id: first.id } })
     expect(old.supersededAt).not.toBeNull()
     expect(await prisma.planActualsItem.findMany({ where: { snapshotId: first.id }, orderBy: { id: "asc" } })).toEqual(oldItems)

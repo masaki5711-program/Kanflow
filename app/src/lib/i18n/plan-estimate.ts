@@ -99,6 +99,12 @@ export const ja = {
   pesFeedback_other: "その他",
   pesLoadFailed: "計画の案を読み込めませんでした",
   pesEvidenceFailed: "根拠を読み込めませんでした",
+  pesAiTitle: "AI の説明",
+  pesAiWriting: "AI が説明を書いています…",
+  pesAiHidden: "AI の説明は表示できません",
+  pesAiNone: "AI の補助なし",
+  pesAiNote: "社内の AI が、この案の数字と根拠から書いた説明です。数字は上の表と根拠が正しく、読み込む計画は AI の説明では変わりません。",
+  pesAiCandidates: "AI の補助: 名前が似ているだけの過去の作業 {n} 件を比べる対象から外しました",
 } as const
 
 export type PlanEstimateTranslations = { [K in keyof typeof ja]: string }
@@ -200,6 +206,12 @@ export const en: PlanEstimateTranslations = {
   pesFeedback_other: "Other",
   pesLoadFailed: "Could not load the plan proposal",
   pesEvidenceFailed: "Could not load the evidence",
+  pesAiTitle: "AI explanation",
+  pesAiWriting: "The AI is writing an explanation…",
+  pesAiHidden: "The AI explanation cannot be shown",
+  pesAiNone: "No AI assistance",
+  pesAiNote: "Written by the in-house AI from this proposal's numbers and evidence. The table above and the evidence are what count; the AI text does not change the plan that is loaded.",
+  pesAiCandidates: "AI assistance: {n} past items whose names only looked similar were left out of the comparison",
 }
 
 export const id: PlanEstimateTranslations = {
@@ -299,4 +311,10 @@ export const id: PlanEstimateTranslations = {
   pesFeedback_other: "Lainnya",
   pesLoadFailed: "Usulan rencana tidak dapat dimuat",
   pesEvidenceFailed: "Dasar perhitungan tidak dapat dimuat",
+  pesAiTitle: "Penjelasan AI",
+  pesAiWriting: "AI sedang menulis penjelasan…",
+  pesAiHidden: "Penjelasan AI tidak dapat ditampilkan",
+  pesAiNone: "Tanpa bantuan AI",
+  pesAiNote: "Ditulis oleh AI internal dari angka dan dasar perhitungan usulan ini. Yang berlaku adalah tabel di atas dan dasar perhitungannya; teks AI tidak mengubah rencana yang dimuat.",
+  pesAiCandidates: "Bantuan AI: {n} pekerjaan lama yang hanya mirip namanya tidak dipakai sebagai pembanding",
 }

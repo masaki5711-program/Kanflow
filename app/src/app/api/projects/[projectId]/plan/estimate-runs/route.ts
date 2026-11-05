@@ -1,4 +1,5 @@
 import { requireProject } from "@/lib/authz"
+import { planLlmFromEnv } from "@/lib/plan-llm/ollama-llm"
 import { actorFromSession, jsonResponse, toHttpResponse } from "@/services/_shared"
 import { createRunSchema } from "@/services/plan-estimate-run/estimate-run.schemas"
 import { createRun } from "@/services/plan-estimate-run/estimate-run.service"
@@ -26,7 +27,8 @@ export async function POST(request: Request, { params }: Params) {
       ? { kind: "template" as const, templateId: body.templateId }
       : { kind: "schedule" as const, schedule: body.schedule!, ...(body.sourceRef ? { sourceRef: body.sourceRef } : {}), ...(body.lineage ? { lineage: body.lineage } : {}) }
     const skipWeekends = body.skipWeekends ?? (body.schedule?.skipWeekends === true)
-    const run = await createRun(projectId, { startDate: body.startDate, skipWeekends, roleAssignments: body.roleAssignments, source }, { userId: actor.userId, userName: actor.userName, systemRole: actor.systemRole })
+    // E6: the local LLM may help with the stage-3 / 4 candidates (visible sources only); down or slow = the formula.
+    const run = await createRun(projectId, { startDate: body.startDate, skipWeekends, roleAssignments: body.roleAssignments, source }, { userId: actor.userId, userName: actor.userName, systemRole: actor.systemRole }, new Date(), { llm: planLlmFromEnv(), signal: request.signal })
     return jsonResponse(run, 201)
   } catch (error) {
     return toHttpResponse(error, { fallback: "計画の案を作れませんでした", context: "Plan ESTIMATE" })

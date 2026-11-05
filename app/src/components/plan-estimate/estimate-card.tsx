@@ -7,6 +7,7 @@ import { isApiError, localizeApiError } from "@/hooks/api-client"
 import { fillTemplate } from "@/lib/fill-template"
 import { formatDateTime, formatLongDate } from "@/lib/format-date"
 import { useLanguage } from "@/lib/language-context"
+import { EstimateExplanation } from "./estimate-explanation"
 import { bandText, daysText, gateReasonText, percentText, type RunCard, type UsageRow } from "./types"
 
 interface Props {
@@ -118,6 +119,8 @@ export function EstimateCard({ projectId, card, evidenceOpen, onToggleEvidence, 
         {more > 0 && <p className="text-caption text-fg-muted">{fillTemplate(t.pesChangesMore, { n: more })}</p>}
         {card.changesWithheld > 0 && <p className="text-caption text-fg-muted">{fillTemplate(t.pesChangesWithheld, { n: card.changesWithheld })}</p>}
       </div>
+
+      <EstimateExplanation projectId={projectId} runId={card.runId} explanation={card.explanation} assist={s.assist} />
 
       {plan ? (
         owners.length > 0 && (

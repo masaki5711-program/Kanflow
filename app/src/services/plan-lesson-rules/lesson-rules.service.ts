@@ -247,6 +247,67 @@ export async function createDraft(projectId: string, input: CreateRuleInput, act
   })
 }
 
+/** One LLM draft to store (already validated by src/lib/plan-llm/parse.ts). */
+export interface LlmDraftInput {
+  rule: LessonRule
+  quote: string
+  sourceLessonId: string | null
+  sourceSprintId: string | null
+}
+
+/** The author of LLM drafts in the activity log (no user row). */
+const LLM_ACTOR: Actor = { userId: "", userName: "AI", systemRole: "system" }
+
+/**
+ * Store LLM drafts (E6, plan 12 §3.4): always `draft`, always `project` scope, createdByKind = llm, no author. The
+ * cited lesson / sprint is checked again NOW (a lesson that became confidential since the prompt was built is refused
+ * like any other source). A draft that fails is skipped and counted, never stored half; the live-rule bound of the
+ * project is kept. Returns the ids stored and how many were skipped.
+ */
+export async function createLlmDrafts(projectId: string, drafts: readonly LlmDraftInput[], db?: Db): Promise<{ created: string[]; skipped: number }> {
+  const run = async (tx: Db) => {
+    const created: string[] = []
+    let skipped = 0
+    let live = await tx.planLessonRule.count({ where: { sourceProjectId: projectId, state: { in: ["draft", "confirmed"] } } })
+    for (const d of drafts) {
+      if (live >= LIST_MAX) {
+        skipped++
+        continue
+      }
+      let parsed: LessonRule
+      try {
+        parsed = validateContent(d.rule.kind, d.rule.params)
+        await checkSources(tx, projectId, { kind: parsed.kind, params: parsed.params as Record<string, unknown>, sourceLessonId: d.sourceLessonId, sourceSprintId: d.sourceSprintId })
+      } catch (err) {
+        if (!(err instanceof ValidationError)) throw err
+        log.warn("llm draft refused at write time", { projectId, kind: d.rule.kind, code: err.code })
+        skipped++
+        continue
+      }
+      const row = await tx.planLessonRule.create({
+        data: {
+          kind: parsed.kind,
+          params: parsed.params as Prisma.InputJsonValue,
+          sourceProjectId: projectId,
+          scope: "project",
+          state: "draft",
+          quote: d.quote,
+          sourceLessonId: d.sourceLessonId,
+          sourceSprintId: d.sourceSprintId,
+          createdByKind: "llm",
+          createdById: null,
+        },
+        select: { id: true, kind: true },
+      })
+      await auditRule(tx, projectId, row.id, LLM_ACTOR, "draft", { kind: row.kind, createdByKind: "llm" })
+      created.push(row.id)
+      live++
+    }
+    return { created, skipped }
+  }
+  return db ? run(db) : withTransaction(run)
+}
+
 /** Load a rule of this project for a project route (shared rules belong to the admin routes). */
 async function loadOwn(tx: Db, projectId: string, ruleId: string): Promise<RuleRow> {
   const row = await tx.planLessonRule.findFirst({ where: { id: ruleId, sourceProjectId: projectId, scope: "project" } })
