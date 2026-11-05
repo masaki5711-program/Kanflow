@@ -5,6 +5,7 @@ import { runNotifyDue, type NotifyDueResult } from "./jobs/notify-due"
 import { purgeChatHistory, type ChatRetentionResult } from "./jobs/chat-retention"
 import { runFeedbackRecurrence, type RecurrenceResult } from "@/services/feedback/feedback.recurrence.service"
 import { runImprovementCheckReminders, type ImprovementReminderResult } from "./jobs/improvement-checks"
+import { purgeExpiredEstimateRuns, type PlanRunRetentionResult } from "./jobs/plan-run-retention"
 import {
   DEFAULT_AI_JOB_RETENTION_DAYS,
   DEFAULT_CHAT_DELETED_RETENTION_DAYS,
@@ -19,6 +20,7 @@ import {
  * 3. retention of chat threads (deleted / idle) and finished AI jobs (P3)
  * 4. 定着確認 reminders of the 改善成果ボード (IMPROVEMENT_CHECK_REMINDERS=off skips)
  * 5. prevention-PBI proposals for recurring failures (feedback loop, FEEDBACK_RECURRENCE=off skips)
+ * 6. retention of 計画を作る estimate runs past their one-year purgeAfter (feedback goes with them)
  * Each step fails independently (logged; the others still run).
  */
 
@@ -31,6 +33,7 @@ export interface CollabDailyResult {
   chatRetention: ChatRetentionResult | null
   improvementReminders?: ImprovementReminderResult | null
   feedbackRecurrence?: RecurrenceResult | null
+  planRunRetention?: PlanRunRetentionResult | null
 }
 
 function errorMessage(err: unknown): string {
@@ -68,7 +71,14 @@ export async function runCollabDaily(cfg: CollabConfig, log: SchedulerLog, signa
   }
   const improvementReminders = await runImprovementStep(cfg, log, signal)
   const feedbackRecurrence = await runFeedbackStep(cfg, log, signal)
-  return { retention, notifyDue, chatRetention, improvementReminders, feedbackRecurrence }
+  let planRunRetention: PlanRunRetentionResult | null = null
+  try {
+    planRunRetention = await purgeExpiredEstimateRuns()
+    log.info("plan estimate run retention done", { ...planRunRetention })
+  } catch (err) {
+    log.error("plan estimate run retention failed", { error: errorMessage(err) })
+  }
+  return { retention, notifyDue, chatRetention, improvementReminders, feedbackRecurrence, planRunRetention }
 }
 
 /** Step 4: 定着確認 reminders (skipped when disabled; failures logged, never thrown). */

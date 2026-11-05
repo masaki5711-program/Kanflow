@@ -6,6 +6,7 @@ const m = vi.hoisted(() => ({
   chatPurge: vi.fn(),
   improvement: vi.fn(),
   feedback: vi.fn(),
+  planRuns: vi.fn(),
   instances: [] as Array<{ opts: { name: string; run: () => Promise<unknown> }; start: ReturnType<typeof vi.fn> }>,
 }))
 
@@ -14,6 +15,7 @@ vi.mock("../jobs/notify-due", () => ({ runNotifyDue: m.notifyDue }))
 vi.mock("../jobs/chat-retention", () => ({ purgeChatHistory: m.chatPurge }))
 vi.mock("../jobs/improvement-checks", () => ({ runImprovementCheckReminders: m.improvement }))
 vi.mock("@/services/feedback/feedback.recurrence.service", () => ({ runFeedbackRecurrence: m.feedback }))
+vi.mock("../jobs/plan-run-retention", () => ({ purgeExpiredEstimateRuns: m.planRuns }))
 vi.mock("../scheduler", () => ({
   DailyScheduler: class {
     start = vi.fn()
@@ -38,6 +40,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   m.instances.length = 0
   m.feedback.mockResolvedValue(RECURRENCE)
+  m.planRuns.mockResolvedValue({ estimateRuns: { deleted: 0 } })
 })
 
 describe("worker config (collab)", () => {
@@ -80,14 +83,24 @@ describe("runCollabDaily", () => {
     expect(out.notifyDue?.status).toBe("done")
   })
 
+  it("sweeps the estimate runs past their retention and logs the count", async () => {
+    m.planRuns.mockResolvedValue({ estimateRuns: { deleted: 4 } })
+    const out = await runCollabDaily(CFG, log)
+    expect(m.planRuns).toHaveBeenCalledTimes(1)
+    expect(out.planRunRetention).toEqual({ estimateRuns: { deleted: 4 } })
+    expect(log.info).toHaveBeenCalledWith("plan estimate run retention done", { estimateRuns: { deleted: 4 } })
+  })
+
   it("a failing step is logged and does not stop the other", async () => {
     m.purge.mockRejectedValue(new Error("lock wait"))
     m.notifyDue.mockRejectedValue(new Error("db"))
     const out = await runCollabDaily(CFG, log)
     m.chatPurge.mockRejectedValue(new Error("chat"))
     m.improvement.mockRejectedValue(new Error("kaizen"))
+    m.planRuns.mockRejectedValue(new Error("runs"))
     const out2 = await runCollabDaily(CFG, log)
-    expect(out2).toEqual({ retention: null, notifyDue: null, chatRetention: null, improvementReminders: null, feedbackRecurrence: RECURRENCE })
+    expect(out2).toEqual({ retention: null, notifyDue: null, chatRetention: null, improvementReminders: null, feedbackRecurrence: RECURRENCE, planRunRetention: null })
+    expect(log.error).toHaveBeenCalledWith("plan estimate run retention failed", { error: "runs" })
     expect(log.error).toHaveBeenCalledWith("improvement check reminders failed", { error: "kaizen" })
     expect(log.error).toHaveBeenCalledWith("chat / ai job retention failed", { error: "chat" })
     expect(out.retention).toBeNull()

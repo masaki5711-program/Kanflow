@@ -281,6 +281,13 @@ independently (logged under `component: collab-daily`).
    `CHAT_RETENTION_DAYS` (messages go with them, `ON DELETE CASCADE`; batches of 1000 ids), then
    finished `AiJob` rows older than `AI_JOB_RETENTION_DAYS`. The reports those jobs produced are
    `AiReport` rows and follow `SURVEILLANCE_RETENTION_DAYS` as before.
+4. (定着確認 reminders and 5. recurrence proposals: see their sections.)
+6. **計画を作る run retention** (`jobs/plan-run-retention.ts`, plan 12 §4): deletes the
+   `plan_estimate_run` rows past their own `purgeAfter` (one year after they were made), with
+   their `plan_estimate_feedback` (`ON DELETE CASCADE`), in batches of 1000 ids. Kept on purpose:
+   `plan_estimate_hidden_state` (it holds counts only and is what moves hidden sources two at a
+   time — resetting it would weaken that) and the actuals snapshots (people are removed by the
+   audited admin pseudonymisation `POST /api/admin/plan-actuals/pseudonymize`).
 
 The surveillance run additionally notifies the project's PO / SM
 (`surveillance_critical`, once per report) when a saved report has critical anomalies — unless the
@@ -317,6 +324,10 @@ Long AI generations no longer have to live inside an HTTP request. `src/lib/ai-j
 
 `src/worker/plan-rule-drafts-daily.ts` → `services/plan-llm/rule-drafts.service.ts`, scheduled by
 `PLAN_RULE_DRAFT_SCHEDULE` (default 02:30). Each 実績を確定 queues one row in `plan_rule_draft_job`.
+It runs in the worker, and also inside the web process whenever the web runs the daily jobs
+(`WEB_DAILY_JOBS`, i.e. an install without the worker such as production since 2026-11-05); there
+it waits until no user AI call of the web process is running. Two batches at once are harmless
+(each row is claimed under a lease).
 The batch takes up to 20 queued rows, one at a time: it waits until no web user is waiting for
 Ollama (like the AI jobs), reads the project's retrospectives, its non-confidential project
 lessons and the finalize note **at that moment**, asks the analysis model at background priority,

@@ -106,7 +106,8 @@ async function startGitSync(log: Log): Promise<void> {
 
 /**
  * The worker's daily housekeeping (due-date notifications, retention sweeps,
- * 定着確認 reminders — worker/collab-daily.ts) inside the web process, for
+ * 定着確認 reminders — worker/collab-daily.ts — and the E6 rule-draft night
+ * batch, worker/plan-rule-drafts-daily.ts) inside the web process, for
  * installs without the standalone kanflow-worker service. WEB_DAILY_JOBS:
  * auto (default) = only when the translation loop also runs in-process
  * (AI_TRANSLATION_WORKER=inprocess, i.e. no worker), on, off. Every step is
@@ -123,7 +124,17 @@ async function startWebDailyJobs(log: Log): Promise<void> {
     }
     const { loadWorkerConfig } = await import("@/worker/config")
     const { startCollabScheduler } = await import("@/worker/collab-daily")
-    startCollabScheduler(loadWorkerConfig(process.env), log)
+    const cfg = loadWorkerConfig(process.env)
+    startCollabScheduler(cfg, log)
+    // E6's night batch of rule drafts: otherwise only the standalone worker runs it, and an install without the worker
+    // would queue drafts that are never written. It yields to this process's user AI calls, as the in-process job
+    // runner does; a batch that overlaps a worker's is harmless (each job is claimed under a lease).
+    const { startPlanRuleDraftScheduler } = await import("@/worker/plan-rule-drafts-daily")
+    const { loadAiJobRunnerConfig, waitForLocalGate } = await import("@/lib/ai-jobs")
+    const { gate } = await import("@/lib/translation/priority-gate")
+    const { yieldMaxMs } = loadAiJobRunnerConfig(process.env)
+    const never = new AbortController().signal
+    startPlanRuleDraftScheduler(cfg, log, undefined, (signal) => waitForLocalGate(() => gate.isIdle(3000), signal ?? never, yieldMaxMs))
   } catch (err) {
     log.error("daily jobs failed to start", { error: err instanceof Error ? err.message : String(err) })
   }

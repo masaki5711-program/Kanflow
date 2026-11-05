@@ -14,8 +14,14 @@ const m = vi.hoisted(() => {
     waitForLocalGate: vi.fn(async () => undefined),
     gate: { isIdle: vi.fn(() => true) },
     startMetrics: vi.fn(() => true),
+    startCollabScheduler: vi.fn(),
+    startPlanRuleDraftScheduler: vi.fn(),
+    workerCfg: { planRuleDraftTimes: [{ hour: 2, minute: 30 }] },
   }
 })
+vi.mock("@/worker/config", () => ({ loadWorkerConfig: () => m.workerCfg }))
+vi.mock("@/worker/collab-daily", () => ({ startCollabScheduler: m.startCollabScheduler }))
+vi.mock("@/worker/plan-rule-drafts-daily", () => ({ startPlanRuleDraftScheduler: m.startPlanRuleDraftScheduler }))
 
 vi.mock("@/lib/translation/worker-mode", () => ({ decideInProcessWorker: m.decide }))
 vi.mock("@/lib/logger", () => ({ logger: { child: () => m.log } }))
@@ -141,5 +147,30 @@ describe("register — request metrics", () => {
     })
     await expect(register()).resolves.toBeUndefined()
     expect(m.log.error).toHaveBeenCalledWith("metrics failed to start", { error: "dc" })
+  })
+})
+
+describe("web daily jobs", () => {
+  it("WEB_DAILY_JOBS=on also starts the E6 rule-draft batch, yielding to this process's user AI calls", async () => {
+    vi.stubEnv("WEB_DAILY_JOBS", "on")
+    await register()
+    expect(m.startCollabScheduler).toHaveBeenCalledWith(m.workerCfg, m.log)
+    expect(m.startPlanRuleDraftScheduler).toHaveBeenCalledTimes(1)
+    const [cfg, log, signal, waitForTurn] = m.startPlanRuleDraftScheduler.mock.calls[0] as [unknown, unknown, unknown, (s?: AbortSignal) => Promise<unknown>]
+    expect(cfg).toBe(m.workerCfg)
+    expect(log).toBe(m.log)
+    expect(signal).toBeUndefined()
+    await waitForTurn()
+    expect(m.waitForLocalGate).toHaveBeenCalledWith(expect.any(Function), expect.any(AbortSignal), 777)
+    const isIdle = (m.waitForLocalGate.mock.calls[0] as unknown as [() => boolean])[0]
+    expect(isIdle()).toBe(true)
+    expect(m.gate.isIdle).toHaveBeenCalledWith(3000)
+  })
+
+  it("WEB_DAILY_JOBS=off starts neither", async () => {
+    vi.stubEnv("WEB_DAILY_JOBS", "off")
+    await register()
+    expect(m.startCollabScheduler).not.toHaveBeenCalled()
+    expect(m.startPlanRuleDraftScheduler).not.toHaveBeenCalled()
   })
 })
