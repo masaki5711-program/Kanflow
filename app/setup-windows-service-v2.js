@@ -9,6 +9,7 @@
 // <instance>\ops\web-v2\daemon — separate from v1's "Kanflow" service (kanflow.exe, port 3000), which this script
 // never touches. The wrapper runs node_modules\next\dist\bin\next: stop the service before `npm ci`.
 
+const fs = require("fs")
 const path = require("path")
 const { Service } = require("node-windows")
 
@@ -28,6 +29,8 @@ const svc = new Service({
   grow: 0.5,
   maxRetries: 1000,
 })
+// node-windows creates only the last folder (<root>\daemon); a fresh instance has no ops\web-v2 yet.
+fs.mkdirSync(WRAPPER_ROOT, { recursive: true })
 svc.directory(WRAPPER_ROOT)
 
 svc.on("error", (e) => {
