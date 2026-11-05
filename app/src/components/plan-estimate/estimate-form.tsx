@@ -1,11 +1,13 @@
 "use client"
 
-import { useId, useState } from "react"
+import { useId, useMemo, useRef, useState } from "react"
 import { Button, Field, Input, Select, useToast } from "@/components/ui"
-import { TEMPLATES_API, type PlanTemplateSummaryDto } from "@/components/plan-templates/template-groups"
+import { TEMPLATES_API, type PlanTemplateDto, type PlanTemplateSummaryDto } from "@/components/plan-templates/template-groups"
 import { apiFetch, useApiQuery } from "@/hooks"
 import { localizeApiError } from "@/hooks/api-client"
 import { useLanguage } from "@/lib/language-context"
+import { templateRoles } from "@/lib/plan-estimate-run/from-template"
+import { RoleAssignmentsError, RoleAssignmentsField, assignmentsToSend, toRoleMembers, type RoleAssignments } from "./role-assignments"
 import type { RunSummary } from "./types"
 
 interface Props {
@@ -16,9 +18,9 @@ interface Props {
 type Errors = Partial<Record<"template" | "start", string>>
 
 /**
- * 「計画を作る」 form (plan 12 E5): a template and a start date. Templates have no roles yet, so a run made here
- * revises durations and applies the rules without proposing owners (roles come with a schedule from an agent, MCP
- * propose_plan_from_actuals).
+ * 「計画を作る」 form (plan 12 E5): a template, a start date, and — when the template's stages carry roles — the
+ * project members who can do each role, from whom the levelling proposes owners. Without roles a run revises the
+ * durations and applies the rules without proposing owners.
  */
 export function EstimateForm({ projectId, onCreated }: Props) {
   const { t } = useLanguage()
@@ -31,6 +33,14 @@ export function EstimateForm({ projectId, onCreated }: Props) {
   const [skipWeekends, setSkipWeekends] = useState(true)
   const [errors, setErrors] = useState<Errors>({})
   const [busy, setBusy] = useState(false)
+  const [assignments, setAssignments] = useState<RoleAssignments>({})
+  const detail = useApiQuery<PlanTemplateDto>(templateId ? `${TEMPLATES_API}/${encodeURIComponent(templateId)}` : null)
+  const roles = useMemo(() => (detail.data && detail.data.id === templateId ? templateRoles(detail.data.content) : []), [detail.data, templateId])
+  const memberRows = useApiQuery<unknown>(roles.length > 0 ? `/api/projects/${encodeURIComponent(projectId)}/members` : null)
+  const members = useMemo(() => toRoleMembers(memberRows.data), [memberRows.data])
+  const rolesFailed = Boolean((detail.error && !detail.data) || (memberRows.error && !memberRows.data))
+  const rolesLoading = !!templateId && !rolesFailed && (detail.isLoading || !detail.data || (roles.length > 0 && !memberRows.data))
+  const rolesRef = useRef<HTMLDivElement>(null)
 
   async function submit() {
     if (busy) return
@@ -43,9 +53,18 @@ export function EstimateForm({ projectId, onCreated }: Props) {
       document.getElementById(ids[first])?.focus()
       return
     }
+    // Without the template's roles and the members a run would silently propose no owners: wait for them.
+    if (rolesLoading || rolesFailed) {
+      rolesRef.current?.focus()
+      return
+    }
     setBusy(true)
     try {
-      const run = await apiFetch<{ runId: string; summary: RunSummary }>(`/api/projects/${projectId}/plan/estimate-runs`, { method: "POST", json: { templateId, startDate, skipWeekends } })
+      const roleAssignments = assignmentsToSend(assignments, roles, members)
+      const run = await apiFetch<{ runId: string; summary: RunSummary }>(`/api/projects/${projectId}/plan/estimate-runs`, {
+        method: "POST",
+        json: { templateId, startDate, skipWeekends, roleAssignments },
+      })
       onCreated(run.runId)
     } catch (err) {
       toast.error(localizeApiError(err, t))
@@ -81,6 +100,8 @@ export function EstimateForm({ projectId, onCreated }: Props) {
             value={templateId}
             onChange={(ev) => {
               setTemplateId(ev.target.value)
+              // Another template has other roles: the choices of the previous one never travel with it.
+              setAssignments({})
               if (errors.template) setErrors((x) => ({ ...x, template: undefined }))
             }}
           >
@@ -106,7 +127,26 @@ export function EstimateForm({ projectId, onCreated }: Props) {
           <input id={ids.skip} type="checkbox" className="h-4 w-4 accent-primary" checked={skipWeekends} onChange={(ev) => setSkipWeekends(ev.target.checked)} />
           {t.pesFieldSkipWeekends}
         </label>
-        <p className="text-caption text-fg-muted sm:col-span-2">{t.pesNoRoles}</p>
+        {/* Always mounted: the loading text is announced when it changes, and focus has somewhere to stay after
+            「再試行」 (the button itself goes away) or when 作成 waits for the roles. */}
+        <div ref={rolesRef} tabIndex={-1} className="min-w-0 outline-none focus-visible:outline-none sm:col-span-2">
+          <div role="status" aria-live="polite" className="text-caption text-fg-muted">
+            {rolesLoading ? t.pesRolesLoading : ""}
+          </div>
+          {rolesFailed && (
+            <RoleAssignmentsError
+              onRetry={() => {
+                if (detail.error) void detail.refetch()
+                if (memberRows.error) void memberRows.refetch()
+                rolesRef.current?.focus()
+              }}
+            />
+          )}
+          {!rolesLoading && !rolesFailed && roles.length > 0 && (
+            <RoleAssignmentsField roles={roles} members={members} value={assignments} onChange={setAssignments} busy={busy} />
+          )}
+          {!rolesLoading && !rolesFailed && roles.length === 0 && templateId && detail.data && <p className="text-caption text-fg-muted">{t.pesNoRoles}</p>}
+        </div>
         <div className="sm:col-span-2">
           <Button type="submit" aria-disabled={busy || undefined}>
             {busy ? t.pesCreating : t.pesCreate}

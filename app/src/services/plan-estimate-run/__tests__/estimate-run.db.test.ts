@@ -337,6 +337,29 @@ describe.skipIf(!enabled)("estimate runs on a real database (KANFLOW_DB_TESTS=1)
     expect((stored.ownerPlan as { owners: Record<string, string> }).owners).toEqual({ build: ids.u2 })
   })
 
+  it("a Kanflow template's stage roles take the members chosen on the screen: owners are proposed from them", async () => {
+    const template = await prisma.planTemplate.create({
+      data: {
+        id: `${tag}-tpl`,
+        name: `${tag}-役割つき`,
+        visibility: "public",
+        ownerId: ids.u1,
+        content: JSON.stringify({ stages: [{ name: "設計", children: [{ key: "build", name: "製作", durationDays: 5, role: "dev" }] }, { key: "test", name: "試験", durationDays: 2, role: "qa" }] }),
+      },
+    })
+    try {
+      const run = await svc.createRun(ids.a, { startDate: "2026-11-09", skipWeekends: true, roleAssignments: { dev: [ids.u2] }, source: { kind: "template", templateId: template.id } }, po, NOW)
+      const stored = await prisma.planEstimateRun.findUniqueOrThrow({ where: { id: run.runId } })
+      const owners = (stored.ownerPlan as { owners: Record<string, string | null> }).owners
+      expect(owners.build).toBe(ids.u2)
+      // A role with no members chosen stays unassigned.
+      expect(owners.test ?? null).toBeNull()
+    } finally {
+      await prisma.planEstimateRun.deleteMany({ where: { projectId: ids.a, sourceRef: { startsWith: `template:${template.id}` } } })
+      await prisma.planTemplate.delete({ where: { id: template.id } })
+    }
+  })
+
   it("proposal_contains_only_template_or_rule_items: a confirmed rule's item is added (and named as such), nothing else", async () => {
     const rule = await prisma.planLessonRule.create({ data: { kind: "add_buffer", params: { afterKey: "build", days: 2 }, sourceProjectId: ids.a, state: "confirmed", confirmedById: ids.u1, confirmedAt: new Date() } })
     // E3 adds items only to a template of at least 5 leaves (20 % rule).

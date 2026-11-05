@@ -23,6 +23,8 @@ function errorText(t: Translations, e: FormError | null): string | null {
       return t.tplStagesRequired
     case "stageName":
       return t.tplStageNameRequired
+    case "stageRole":
+      return t.tplStageRoleInvalid
     case "tooMany":
       return t.tplLimitReached
     default:

@@ -24,6 +24,11 @@ const DESCRIPTION_MAX = 2000
 /** Dependencies (先行 → 後続) per template. */
 export const TEMPLATE_MAX_LINKS = 400
 const KEY_PATTERN = /^[A-Za-z0-9_-]{1,40}$/
+/**
+ * A stage's role: letters, digits, _ and -, 1–32 (as a base schedule's role, plan-schedule/base-schedule.ts), not
+ * starting with "__" (reserved by the 計画を作る role assignments, services/plan-estimate-run/estimate-run.schemas.ts).
+ */
+export const TEMPLATE_ROLE_PATTERN = /^(?!__)[A-Za-z0-9_-]{1,32}$/
 
 export interface TemplateNode {
   /** Stable id that `links` refer to; only stages that take part in a dependency carry one. */
@@ -33,6 +38,11 @@ export interface TemplateNode {
   isMilestone?: boolean
   /** 目安期間 (calendar days); 「日程を仮置き」 uses it. */
   durationDays?: number
+  /**
+   * 役割: who does the work (a short identifier such as "design", the same form as a base schedule's role). Only a
+   * leaf's role counts; 「計画を作る」 asks for the members of each role and proposes owners from them.
+   */
+  role?: string
   /** 完了条件 (done criteria), copied into the plan item's notes as bullets. */
   checklist?: string[]
   children?: TemplateNode[]
@@ -65,6 +75,7 @@ export const templateNodeSchema: z.ZodType<TemplateNode> = z.lazy(() =>
     description: text(DESCRIPTION_MAX).optional(),
     isMilestone: z.boolean().optional(),
     durationDays: z.number().int().min(1).max(TEMPLATE_DURATION_MAX).optional(),
+    role: z.string().regex(TEMPLATE_ROLE_PATTERN).optional(),
     checklist: z.array(text(TEMPLATE_NAME_MAX).min(1)).max(CHECKLIST_MAX).optional(),
     children: z.array(templateNodeSchema).max(TEMPLATE_MAX_NODES).optional(),
   }),

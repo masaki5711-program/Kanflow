@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { baseScheduleSchema, planBaseSchedule } from "@/lib/plan-schedule/base-schedule"
-import { scheduleFromTemplate } from "../from-template"
+import { scheduleFromTemplate, templateRoles } from "../from-template"
 
 describe("scheduleFromTemplate (plan 12 E5)", () => {
   it("keeps stage keys, numbers the others in document order, turns links into dependsOn", () => {
@@ -33,5 +33,35 @@ describe("scheduleFromTemplate (plan 12 E5)", () => {
   it("an invalid stage key is replaced, and a link to it is dropped", () => {
     const s = scheduleFromTemplate({ stages: [{ key: "bad key!", name: "A" }, { key: "b", name: "B" }], links: [{ from: "bad key!", to: "b" }] })
     expect(s.items).toEqual([{ key: "s1", name: "A" }, { key: "b", name: "B" }])
+  })
+
+  it("copies a leaf's role (never a parent's, never an invalid one) and the schedule stays valid", () => {
+    const s = scheduleFromTemplate({
+      stages: [
+        { name: "設計", role: "lead", children: [{ name: "基本設計", role: "design" }, { name: "審査", role: "__x" }] },
+        { name: "製作", role: "build", durationDays: 4 },
+      ],
+    })
+    expect(s.items).toEqual([
+      { key: "s1", name: "設計", children: [{ key: "s2", name: "基本設計", role: "design" }, { key: "s3", name: "審査" }] },
+      { key: "s4", name: "製作", durationDays: 4, role: "build" },
+    ])
+    expect(baseScheduleSchema.safeParse(s).success).toBe(true)
+  })
+})
+
+describe("templateRoles", () => {
+  it("lists the leaves' valid roles once each, in document order", () => {
+    expect(
+      templateRoles({
+        stages: [
+          { name: "A", role: "parent", children: [{ name: "a1", role: "design" }, { name: "a2", role: "build" }] },
+          { name: "B", role: "design" },
+          { name: "C", role: "bad role" },
+          { name: "D" },
+        ],
+      }),
+    ).toEqual(["design", "build"])
+    expect(templateRoles({ stages: [{ name: "only" }] })).toEqual([])
   })
 })

@@ -4,7 +4,7 @@
  * number / list fields as the raw input text until saving.
  */
 import { linkBlock, type RefusedLink, type TemplateLink } from "@/lib/plan-templates/links"
-import { countNodes, TEMPLATE_DURATION_MAX, TEMPLATE_MAX_LINKS, TEMPLATE_MAX_NODES, type PlanTemplateContent, type TemplateNode } from "@/lib/plan-templates/schema"
+import { countNodes, TEMPLATE_DURATION_MAX, TEMPLATE_MAX_LINKS, TEMPLATE_MAX_NODES, TEMPLATE_ROLE_PATTERN, type PlanTemplateContent, type TemplateNode } from "@/lib/plan-templates/schema"
 
 export interface EditorNode {
   key: string
@@ -13,6 +13,8 @@ export interface EditorNode {
   isMilestone: boolean
   /** Raw 目安期間 input ("" = none). */
   durationDays: string
+  /** 役割 input ("" = none); saved on leaves only. */
+  role: string
   /** 完了条件, one per line. */
   checklistText: string
   children: EditorNode[]
@@ -50,7 +52,7 @@ export function newKey(): string {
 }
 
 export function emptyStage(name = "", key: string = newKey()): EditorNode {
-  return { key, name, description: "", isMilestone: false, durationDays: "", checklistText: "", children: [] }
+  return { key, name, description: "", isMilestone: false, durationDays: "", role: "", checklistText: "", children: [] }
 }
 
 /** Editor node of a template stage; `keyMap` collects stored dependency key → editor key. */
@@ -63,6 +65,7 @@ function toEditorNode(n: TemplateNode, keyMap: Map<string, string>): EditorNode 
     description: n.description ?? "",
     isMilestone: n.isMilestone ?? false,
     durationDays: n.durationDays !== undefined ? String(n.durationDays) : "",
+    role: n.role ?? "",
     checklistText: (n.checklist ?? []).join("\n"),
     children: (n.children ?? []).map((c) => toEditorNode(c, keyMap)),
   }
@@ -145,12 +148,14 @@ function toTemplateNode(n: EditorNode, storedKeys: ReadonlyMap<string, string>):
   const checklist = n.checklistText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
   const durationDays = parseDuration(n.durationDays)
   const key = storedKeys.get(n.key)
+  const role = n.role.trim()
   return {
     ...(key && { key }),
     name: n.name.trim(),
     ...(n.description.trim() && { description: n.description.trim() }),
     ...(n.isMilestone && children.length === 0 && { isMilestone: true }),
     ...(durationDays !== undefined && { durationDays }),
+    ...(role && children.length === 0 && { role }),
     ...(checklist.length > 0 && { checklist }),
     ...(children.length > 0 && { children }),
   }
@@ -175,10 +180,15 @@ export function contentFromForm(f: TemplateForm): PlanTemplateContent {
   }
 }
 
-export type FormError = "name" | "stagesRequired" | "stageName" | "tooMany"
+export type FormError = "name" | "stagesRequired" | "stageName" | "stageRole" | "tooMany"
 
 function hasBlankName(nodes: readonly EditorNode[]): boolean {
   return nodes.some((n) => !n.name.trim() || hasBlankName(n.children))
+}
+
+/** A leaf whose 役割 is filled in but not a valid role (a parent's role is never saved, so it is not checked). */
+function hasBadRole(nodes: readonly EditorNode[]): boolean {
+  return nodes.some((n) => (n.children.length > 0 ? hasBadRole(n.children) : n.role.trim() !== "" && !TEMPLATE_ROLE_PATTERN.test(n.role.trim())))
 }
 
 /** First problem that blocks saving, or null. */
@@ -186,6 +196,7 @@ export function validateTemplateForm(f: TemplateForm): FormError | null {
   if (!f.name.trim()) return "name"
   if (f.stages.length === 0) return "stagesRequired"
   if (hasBlankName(f.stages)) return "stageName"
+  if (hasBadRole(f.stages)) return "stageRole"
   if (countNodes(contentFromForm(f).stages) > TEMPLATE_MAX_NODES) return "tooMany"
   return null
 }

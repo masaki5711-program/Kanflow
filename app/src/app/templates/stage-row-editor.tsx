@@ -6,6 +6,7 @@ import { IconButton, Input, Textarea, cn } from "@/components/ui"
 import { useLanguage } from "@/lib/language-context"
 import type { Translations } from "@/lib/i18n"
 import type { RefusedLink } from "@/lib/plan-templates/links"
+import { TEMPLATE_ROLE_PATTERN } from "@/lib/plan-templates/schema"
 import type { EditorNode, PredecessorOption } from "./lib/editor-state"
 
 /** Why a link is refused, as user text. */
@@ -31,13 +32,16 @@ interface Props {
 /**
  * One stage of the template editor: name, milestone, 目安期間 and the
  * structure buttons (move / indent / outdent / add child / remove), plus a
- * collapsible details area (メモ, 完了条件). Wraps to two lines on phones.
+ * collapsible details area (メモ, 完了条件, 役割). Wraps to two lines on phones.
  */
 export function StageRowEditor({ node, depth, can, disabled, onField, onOp, predecessors, onPredecessorToggle }: Props) {
   const { t } = useLanguage()
-  const [open, setOpen] = useState(false)
+  const [openState, setOpen] = useState(false)
   const detailsId = useId()
   const isParent = node.children.length > 0
+  // A leaf's role that would be refused on save: shown at the field, with the details open so it can be seen.
+  const roleInvalid = !isParent && node.role.trim() !== "" && !TEMPLATE_ROLE_PATTERN.test(node.role.trim())
+  const open = openState || roleInvalid
   const ops: Array<{ op: StageOp; label: string; icon: React.ReactNode; enabled: boolean }> = [
     { op: "up", label: t.tplMoveUp, icon: <ArrowUp className="h-4 w-4" />, enabled: can.up },
     { op: "down", label: t.tplMoveDown, icon: <ArrowDown className="h-4 w-4" />, enabled: can.down },
@@ -56,7 +60,8 @@ export function StageRowEditor({ node, depth, can, disabled, onField, onOp, pred
           aria-expanded={open}
           aria-controls={detailsId}
           icon={open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-          onClick={() => setOpen((v) => !v)}
+          // While the role is invalid the details stay open (and stay open once it is fixed, not snapping shut).
+          onClick={() => setOpen((v) => (roleInvalid ? true : !v))}
         />
         <Input
           data-stage-input={node.key}
@@ -102,6 +107,32 @@ export function StageRowEditor({ node, depth, can, disabled, onField, onOp, pred
             {`${t.tplChecklist} (${t.tplChecklistHint})`}
             <Textarea rows={2} value={node.checklistText} disabled={disabled} onChange={(e) => onField({ checklistText: e.target.value })} />
           </label>
+          <div className="text-caption text-fg-muted sm:col-span-2">
+            {/* The label is the name only; the hint (and the error) are descriptions, read once. */}
+            <label>
+              {t.tplRole}
+              <Input
+                value={isParent ? "" : node.role}
+                maxLength={32}
+                spellCheck={false}
+                autoCapitalize="off"
+                placeholder={isParent ? undefined : t.tplRolePlaceholder}
+                aria-invalid={roleInvalid || undefined}
+                aria-describedby={roleInvalid ? `${detailsId}-role-error ${detailsId}-role-hint` : `${detailsId}-role-hint`}
+                disabled={disabled || isParent}
+                onChange={(e) => onField({ role: e.target.value })}
+                className={cn("mt-0.5 sm:max-w-xs", isParent && "opacity-50")}
+              />
+            </label>
+            {roleInvalid && (
+              <span id={`${detailsId}-role-error`} className="mt-0.5 block text-caption text-danger">
+                {t.tplStageRoleInvalid}
+              </span>
+            )}
+            <span id={`${detailsId}-role-hint`} className="mt-0.5 block text-caption text-fg-subtle">
+              {isParent ? t.tplRoleParentHint : t.tplRoleHint}
+            </span>
+          </div>
           {predecessors && onPredecessorToggle && (
             <fieldset className="min-w-0 sm:col-span-2">
               <legend className="text-caption text-fg-muted">{t.tplPredecessors}</legend>
