@@ -24,28 +24,19 @@ const OFF: ExplanationView = { state: "off" }
  */
 export function EstimateExplanation({ projectId, runId, explanation = OFF, assist }: Props) {
   const { t, language } = useLanguage()
-  const [view, setView] = useState<ExplanationView>(explanation)
+  // The answer of THIS card's request, kept per run: a later refetch of the card (still "pending" on the server after
+  // a failed attempt) must not put "writing…" back on screen.
+  const [answer, setAnswer] = useState<{ runId: string; view: ExplanationView } | null>(null)
   const asked = useRef<string | null>(null)
-
-  useEffect(() => {
-    setView(explanation)
-  }, [explanation])
+  const view = answer?.runId === runId ? answer.view : explanation
 
   useEffect(() => {
     if (explanation.state !== "pending" || asked.current === runId) return
     asked.current = runId
-    let alive = true
     apiFetch<{ explanation: ExplanationView }>(`/api/projects/${projectId}/plan/estimate-runs/${encodeURIComponent(runId)}/explanation`, { method: "POST" })
-      .then((r) => {
-        if (alive) setView(r.explanation)
-      })
-      .catch(() => {
-        // The card is complete without it: say there is no AI assistance (the server logged the cause).
-        if (alive) setView({ state: "failed" })
-      })
-    return () => {
-      alive = false
-    }
+      .then((r) => setAnswer({ runId, view: r.explanation }))
+      // The card is complete without it: say there is no AI assistance (the server logged the cause).
+      .catch(() => setAnswer({ runId, view: { state: "failed" } }))
   }, [explanation.state, projectId, runId])
 
   const rejected = assist?.candidates === "applied" && assist.rejected > 0 ? assist.rejected : 0

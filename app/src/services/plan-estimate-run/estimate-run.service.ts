@@ -24,7 +24,7 @@ import type { BaseSchedule } from "@/lib/plan-schedule/base-schedule"
 import { PLAN_LLM_PROMPT_VERSION, planLlmConfig } from "@/lib/plan-llm/config"
 import type { PlanLlm } from "@/lib/plan-llm/run"
 import { candidateReviewer } from "@/services/plan-llm/candidate-review"
-import { explanationView, type ExplanationView } from "@/services/plan-llm/explanation.view"
+import { explanationView, storedTextOf, type ExplanationView } from "@/services/plan-llm/explanation.view"
 import { computeRun, RUN_LIFETIME_MS, RUN_RETENTION_MS, type ComputedRun, type EngineInput, type OwnerPlan, type RunCreator, type RunInput, type RunSummary, type StoredEvidenceLeaf } from "./estimate-run.compute"
 
 const log = logger.child({ module: "plan-estimate-run" })
@@ -147,13 +147,14 @@ export interface StoredRun {
   llmSourceIds: string[]
   llmExplanation: unknown
   llmExplanationState: string | null
+  llmExplainedAt: Date | null
 }
 
 /** The run of THIS project, or 404 (the same answer for a missing run and another project's run). */
 export async function findRun(projectId: string, runId: string, db: Db = defaultDb): Promise<StoredRun> {
   const row = await db.planEstimateRun.findUnique({
     where: { id: runId },
-    select: { id: true, projectId: true, expiresAt: true, createdAt: true, inputHash: true, schedule: true, summary: true, evidence: true, ownerPlan: true, engineInput: true, llmSourceIds: true, llmExplanation: true, llmExplanationState: true },
+    select: { id: true, projectId: true, expiresAt: true, createdAt: true, inputHash: true, schedule: true, summary: true, evidence: true, ownerPlan: true, engineInput: true, llmSourceIds: true, llmExplanation: true, llmExplanationState: true, llmExplainedAt: true },
   })
   if (!row || row.projectId !== projectId) throw notFound()
   return row
@@ -192,7 +193,7 @@ export interface RunCard {
 }
 
 /** Leaves whose numbers this reader may not see: a source became unusable, or a source the reader cannot view. */
-async function restrictedLeaves(run: StoredRun, leaves: readonly StoredEvidenceLeaf[], reader: Reader, db: Db) {
+export async function restrictedLeaves(run: StoredRun, leaves: readonly StoredEvidenceLeaf[], reader: Reader, db: Db) {
   const vanished = await vanishedSources(run, db)
   const vanishedProjects = new Set<string>()
   if (vanished.size > 0) {
@@ -213,10 +214,22 @@ async function restrictedLeaves(run: StoredRun, leaves: readonly StoredEvidenceL
   return { vanished, viewable, reduced, narrower }
 }
 
-/** The reader's view of the run's AI explanation (E6): every source it was written from must be viewable by them. */
-export async function readExplanation(run: StoredRun, reader: Pick<Reader, "userId" | "systemRole">, stale: boolean, assistOn: boolean, db: Db = defaultDb): Promise<ExplanationView> {
+/**
+ * The reader's view of the run's AI explanation (E6): every source it was written from must be viewable by them, and
+ * no item it describes may be withheld from them on the card. `withheld` is the card's own set when the caller has it.
+ */
+export async function readExplanation(run: StoredRun, reader: Reader, stale: boolean, assistOn: boolean, db: Db = defaultDb, now: Date = new Date(), withheld?: ReadonlySet<string>): Promise<ExplanationView> {
   const viewable = await viewableOf(reader, run.llmSourceIds, db)
-  return explanationView({ state: run.llmExplanationState, text: run.llmExplanation, sourceIds: run.llmSourceIds }, (id) => viewable.has(id), stale, assistOn)
+  let hold = withheld
+  if (!hold && run.llmExplanationState === "ready") {
+    const keys = new Set(storedTextOf(run.llmExplanation)?.keys ?? [])
+    const access = await restrictedLeaves(run, evidenceOf(run).leaves.filter((l) => keys.has(l.key)), reader, db)
+    hold = new Set([...access.reduced, ...access.narrower])
+  }
+  return explanationView(
+    { state: run.llmExplanationState, text: run.llmExplanation, sourceIds: run.llmSourceIds, attemptedAt: run.llmExplainedAt },
+    { canView: (id) => viewable.has(id), stale, withheld: hold ?? new Set(), expired: run.expiresAt.getTime() <= now.getTime(), assistOn, now }
+  )
 }
 
 export async function readRunCard(projectId: string, runId: string, reader: Reader, now: Date = new Date(), db: Db = defaultDb, assistOn: boolean = planLlmConfig(process.env).enabled): Promise<RunCard> {
@@ -234,7 +247,7 @@ export async function readRunCard(projectId: string, runId: string, reader: Read
     expired: run.expiresAt.getTime() <= now.getTime(),
     stale: vanished.size > 0,
     ...(reader.canViewMemberLoad ? { ownerPlan: run.ownerPlan as OwnerPlan } : {}),
-    explanation: await readExplanation(run, reader, vanished.size > 0, assistOn, db),
+    explanation: await readExplanation(run, reader, vanished.size > 0, assistOn, db, now, new Set([...access.reduced, ...access.narrower])),
   }
 }
 

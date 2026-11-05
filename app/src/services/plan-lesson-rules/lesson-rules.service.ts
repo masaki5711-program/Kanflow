@@ -74,7 +74,8 @@ function toDto(row: RuleRow, sourceConfidential: boolean): LessonRuleDto {
     lineage: row.lineage,
     projectType: row.projectType,
     state: row.state as LessonRuleState,
-    quote: row.quote,
+    // The quote is source text: it is not shown while a cited source is confidential (or gone) now (D-5, use time).
+    quote: sourceConfidential ? null : row.quote,
     sourceLessonId: row.sourceLessonId,
     sourceBacklogItemIds: row.sourceBacklogItemIds ?? [],
     sourceSprintId: row.sourceSprintId,
@@ -255,6 +256,9 @@ export interface LlmDraftInput {
   sourceSprintId: string | null
 }
 
+/** Open LLM drafts per project: unconfirmed drafts never crowd out people's own rules (LIST_MAX is shared). */
+export const LLM_DRAFTS_OPEN_MAX = 50
+
 /** The author of LLM drafts in the activity log (no user row). */
 const LLM_ACTOR: Actor = { userId: "", userName: "AI", systemRole: "system" }
 
@@ -262,15 +266,18 @@ const LLM_ACTOR: Actor = { userId: "", userName: "AI", systemRole: "system" }
  * Store LLM drafts (E6, plan 12 §3.4): always `draft`, always `project` scope, createdByKind = llm, no author. The
  * cited lesson / sprint is checked again NOW (a lesson that became confidential since the prompt was built is refused
  * like any other source). A draft that fails is skipped and counted, never stored half; the live-rule bound of the
- * project is kept. Returns the ids stored and how many were skipped.
+ * project is kept; a draft with the same kind and numbers as a live rule of the project is skipped (re-finalizing reads
+ * the same retrospectives again). Returns the ids stored and how many were skipped.
  */
 export async function createLlmDrafts(projectId: string, drafts: readonly LlmDraftInput[], db?: Db): Promise<{ created: string[]; skipped: number }> {
   const run = async (tx: Db) => {
     const created: string[] = []
     let skipped = 0
-    let live = await tx.planLessonRule.count({ where: { sourceProjectId: projectId, state: { in: ["draft", "confirmed"] } } })
+    const existing = await tx.planLessonRule.findMany({ where: { sourceProjectId: projectId, state: { in: ["draft", "confirmed"] } }, select: { kind: true, params: true, state: true, createdByKind: true }, take: LIST_MAX })
+    let live = existing.length
+    let openLlm = existing.filter((e) => e.state === "draft" && e.createdByKind === "llm").length
     for (const d of drafts) {
-      if (live >= LIST_MAX) {
+      if (live >= LIST_MAX || openLlm >= LLM_DRAFTS_OPEN_MAX || existing.some((e) => sameRuleContent(e, d.rule))) {
         skipped++
         continue
       }
@@ -301,7 +308,9 @@ export async function createLlmDrafts(projectId: string, drafts: readonly LlmDra
       })
       await auditRule(tx, projectId, row.id, LLM_ACTOR, "draft", { kind: row.kind, createdByKind: "llm" })
       created.push(row.id)
+      existing.push({ kind: parsed.kind, params: parsed.params as Prisma.JsonValue, state: "draft", createdByKind: "llm" })
       live++
+      openLlm++
     }
     return { created, skipped }
   }

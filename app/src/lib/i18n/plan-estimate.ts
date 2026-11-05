@@ -103,7 +103,7 @@ export const ja = {
   pesAiWriting: "AI が説明を書いています…",
   pesAiHidden: "AI の説明は表示できません",
   pesAiNone: "AI の補助なし",
-  pesAiNote: "社内の AI が、この案の数字と根拠から書いた説明です。数字は上の表と根拠が正しく、読み込む計画は AI の説明では変わりません。",
+  pesAiNote: "社内の AI が、この案の数字と根拠から書いた説明です。拠り所は上の表と根拠で、AI の説明で読み込む計画は変わりません。",
   pesAiCandidates: "AI の補助: 名前が似ているだけの過去の作業 {n} 件を比べる対象から外しました",
 } as const
 
@@ -211,7 +211,7 @@ export const en: PlanEstimateTranslations = {
   pesAiHidden: "The AI explanation cannot be shown",
   pesAiNone: "No AI assistance",
   pesAiNote: "Written by the in-house AI from this proposal's numbers and evidence. The table above and the evidence are what count; the AI text does not change the plan that is loaded.",
-  pesAiCandidates: "AI assistance: {n} past items whose names only looked similar were left out of the comparison",
+  pesAiCandidates: "AI assistance: past items whose names only looked similar were left out of the comparison ({n})",
 }
 
 export const id: PlanEstimateTranslations = {

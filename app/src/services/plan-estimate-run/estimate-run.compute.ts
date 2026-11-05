@@ -26,7 +26,10 @@ import { learnableItemFacts, learnableItemIds, type LearnableFact } from "@/serv
 import { effectiveLessonRules } from "@/services/plan-lesson-rules/lesson-rules.service"
 import { levelSchedule, type LevelResponse } from "@/services/plan-leveling/load.service"
 import * as templateRepo from "@/services/plan-templates/plan-templates.repository"
+import { logger } from "@/lib/logger"
 import { gateFor, type Gate } from "./gate"
+
+const log = logger.child({ module: "plan-estimate-run" })
 
 /** A run lives 24 h (plan 12 §3.6 item 2). */
 export const RUN_LIFETIME_MS = 24 * 3_600_000
@@ -70,7 +73,7 @@ export interface FixedInputs {
 }
 
 /** What the candidate review (E6) did for a run. Not a success unless "applied" or "no_candidates". */
-export type CandidateAssistState = "off" | "no_candidates" | "applied" | "timeout" | "unavailable" | "invalid" | "aborted" | "error"
+export type CandidateAssistState = "off" | "no_candidates" | "applied" | "timeout" | "unavailable" | "http" | "invalid" | "aborted" | "error"
 
 export interface CandidateAssist {
   state: CandidateAssistState
@@ -333,7 +336,14 @@ async function decideCandidates(opts: ComputeOptions, gateOn: boolean, list: () 
   if (opts.fixed || !gateOn || !opts.reviewCandidates) return { rejected: {}, assist: NO_ASSIST }
   const listed = list()
   if (listed.length === 0) return { rejected: {}, assist: { ...NO_ASSIST, state: "no_candidates" } }
-  const r = await opts.reviewCandidates(listed, visible)
+  let r: Awaited<ReturnType<CandidateReviewer>>
+  try {
+    r = await opts.reviewCandidates(listed, visible)
+  } catch (err) {
+    // A defect in the review must not cost the proposal: the formula alone, recorded as an error.
+    log.error("candidate review failed unexpectedly; the formula decides", { projectId: opts.projectId, error: err instanceof Error ? err.message.slice(0, 200) : String(err).slice(0, 200) })
+    return { rejected: {}, assist: { ...NO_ASSIST, state: "error" } }
+  }
   const rejected = r.state === "applied" ? listedRejections(r.rejectedCandidates, listed) : {}
   const count = Object.values(rejected).reduce((s, ids) => s + ids.length, 0)
   return { rejected, assist: { state: r.state, rejected: count, sourceIds: [...new Set(r.sourceIds)].sort(), model: r.model } }

@@ -110,6 +110,8 @@ first one exits. A standby worker writes no heartbeat file.
 | `NOTIFICATION_RETENTION_DAYS` | `90` | **Read** notifications older than this are deleted. Unread ones are kept. |
 | `PURGE_TRASH_AFTER_DAYS` | `30` | Trashed projects / PBIs / IceBox items older than this are deleted permanently by the purge job. Set it in the web env too: the trash UI shows the purge date from it. |
 | `PURGE_TRASH_SCHEDULE` | `03:15` | Local `HH:MM` time(s) of the daily trash purge. `off` disables it (nothing is purged automatically). |
+| `PLAN_RULE_DRAFT_SCHEDULE` | `02:30` | Local `HH:MM` time(s) of the night batch of LLM rule drafts (plan 12 E6). `off` disables it; the requests queued by 実績を確定 then wait. With `PLAN_LLM_ASSIST=off` the batch sends nothing. |
+| `PLAN_LLM_BATCH_TIMEOUT_MS` | `300000` | Timeout of one rule-draft request to Ollama. |
 | `SURVEILLANCE_MAX_INVESTIGATIONS` | `3` | Agent investigations per surveillance run (was the constant `MAX_INVESTIGATIONS`). Per-project thresholds live in the project settings, not in the env. |
 | `AI_JOB_RUNNER` | `auto` | Where the `AiJob` queue runs. `auto` follows `AI_TRANSLATION_WORKER`: `external` → this worker, `inprocess` → every `next start` (`next dev` only with `AI_TRANSLATION_WORKER_IN_DEV=true`), `off` → nobody. `worker` / `web` / `off` force it. With `off`, `POST /api/projects/:id/ai/jobs` answers 503 and the dashboard streams the progress report synchronously as before; sprint reviews then run fire-and-forget inside the web process. |
 | `AI_JOB_POLL_MS` | `5000` | Queue poll interval of the job runner. |
@@ -310,6 +312,24 @@ Long AI generations no longer have to live inside an HTTP request. `src/lib/ai-j
   starts it and it waits on that process's own priority gate. Deploying the code before the
   migration `20261003000000_p3_ai` makes every poll fail (logged `ai job tick failed`) until the
   table exists — apply the migration first.
+
+### Plan rule-draft batch (plan 12 E6)
+
+`src/worker/plan-rule-drafts-daily.ts` → `services/plan-llm/rule-drafts.service.ts`, scheduled by
+`PLAN_RULE_DRAFT_SCHEDULE` (default 02:30). Each 実績を確定 queues one row in `plan_rule_draft_job`.
+The batch takes up to 20 queued rows, one at a time: it waits until no web user is waiting for
+Ollama (like the AI jobs), reads the project's retrospectives, its non-confidential project
+lessons and the finalize note **at that moment**, asks the analysis model at background priority,
+validates the answer (one retry when invalid) and stores the drafts as `draft` lesson rules
+(`createdByKind = llm`, project scope). Nothing changes a plan until a PO / SM confirms a draft.
+
+- Ollama down or slow: the row goes back to `queued` for the next night (`attempts` + 1), and
+  becomes `failed` after 3 nights (`lastError` says why). An invalid answer twice: `failed`.
+- A row of a snapshot that was re-finalized meanwhile: `skipped` (the new snapshot has its own).
+- A row left `running` for an hour (the worker stopped): back to `queued` at the next run.
+- To see what happened: `select status, attempts, "draftsCreated", "draftsDropped", "lastError"
+  from plan_rule_draft_job order by "createdAt" desc limit 20;` and the worker log
+  (`plan-llm-rule-drafts`; prompts and answers are never logged).
 
 ### Trash purge job
 

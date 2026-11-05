@@ -93,9 +93,7 @@ export interface StageCandidate {
  * are never listed: their names are project-internal information of a project the requester cannot view.
  */
 export function visibleStageCandidates(leaf: EstimateLeaf, usable: readonly Observation[], ctx: EstimateContext, cfg: EstimateConfig): StageCandidate[] {
-  const { rejectedCandidates: _ignored, ...plain } = ctx
-  void _ignored
-  return matchLeaf(leaf, usable, plain, cfg)
+  return matchLeaf(leaf, usable, { ...ctx, rejectedCandidates: undefined }, cfg)
     .filter((m): m is MatchedObservation & { stage: 3 | 4 } => m.visible && (m.stage === 3 || m.stage === 4))
     .map((m) => ({ snapshotItemId: m.obs.snapshotItemId, sourceProjectId: m.obs.sourceProjectId, name: m.obs.name, stage: m.stage, similarity: m.similarity }))
 }

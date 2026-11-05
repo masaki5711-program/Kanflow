@@ -19,7 +19,7 @@ import { PLAN_LLM_PROMPT_VERSION, planLlmConfig, type PlanLlmConfig } from "@/li
 import { parseRuleDrafts, type DropReason } from "@/lib/plan-llm/parse"
 import { runLlmTask, type PlanLlm } from "@/lib/plan-llm/run"
 import { DRAFT_ITEMS_MAX, DRAFT_SOURCES_MAX, ruleDraftInput, type RawDraftSource } from "@/lib/plan-llm/visible"
-import { defaultDb, type Db } from "@/services/_shared/db"
+import { defaultDb, withTransaction, type Db } from "@/services/_shared/db"
 import { projectScope } from "@/services/feedback/feedback.access"
 import { createLlmDrafts } from "@/services/plan-lesson-rules/lesson-rules.service"
 
@@ -36,7 +36,7 @@ const SPRINTS_MAX = 20
 /** Lessons read. */
 const LESSONS_MAX = 20
 
-export type JobOutcome = "done" | "skipped" | "requeued" | "failed"
+export type JobOutcome = "done" | "skipped" | "requeued" | "failed" | "lost"
 
 export interface JobResult {
   jobId: string
@@ -88,48 +88,75 @@ function countReasons(dropped: readonly { reason: DropReason }[]): Record<string
   return out
 }
 
-interface ClaimedJob {
+export interface ClaimedJob {
   id: string
   projectId: string
   snapshotId: string
   attempts: number
+  /** When THIS batch claimed it: every later write is conditional on it (a recovered job is not ours any more). */
+  startedAt: Date
 }
 
-async function finishJob(db: Db, jobId: string, data: Parameters<Db["planRuleDraftJob"]["update"]>[0]["data"]): Promise<void> {
-  await db.planRuleDraftJob.update({ where: { id: jobId }, data: { ...data, finishedAt: new Date() } })
+type JobUpdate = Parameters<Db["planRuleDraftJob"]["updateMany"]>[0]["data"]
+
+/** The request was recovered and re-claimed by another batch meanwhile: nothing this batch did is recorded. */
+export class LostClaimError extends Error {
+  constructor(readonly jobId: string) {
+    super(`rule-draft request ${jobId} was taken over by another batch`)
+    this.name = "LostClaimError"
+  }
 }
 
-/** Process one claimed request. Never throws for an LLM failure; a database failure propagates (the batch logs it). */
+/** Write the request's outcome only while this batch still holds it (status running, same claim time). */
+async function settle(db: Db, job: ClaimedJob, data: JobUpdate): Promise<void> {
+  const res = await db.planRuleDraftJob.updateMany({ where: { id: job.id, status: "running", startedAt: job.startedAt }, data })
+  if (res.count !== 1) throw new LostClaimError(job.id)
+}
+
+const finishJob = (db: Db, job: ClaimedJob, data: JobUpdate) => settle(db, job, { ...data, finishedAt: new Date() })
+
+/**
+ * Process one claimed request. Never throws for an LLM failure; a database failure propagates (the batch logs it), and
+ * LostClaimError when another batch took the request over (its drafts are rolled back with the outcome).
+ */
 export async function processRuleDraftJob(job: ClaimedJob, llm: PlanLlm, config: PlanLlmConfig, db: Db = defaultDb, signal?: AbortSignal): Promise<JobResult> {
   const snapshot = await db.planActualsSnapshot.findFirst({ where: { id: job.snapshotId, projectId: job.projectId }, select: { supersededAt: true } })
   if (!snapshot || snapshot.supersededAt !== null) {
-    await finishJob(db, job.id, { status: "skipped", lastError: snapshot ? "superseded" : "snapshot gone" })
-    return { jobId: job.id, outcome: "skipped", created: 0, dropped: 0, reason: "superseded" }
+    const reason = snapshot ? "superseded" : "snapshot_gone"
+    await finishJob(db, job, { status: "skipped", lastError: reason })
+    return { jobId: job.id, outcome: "skipped", created: 0, dropped: 0, reason }
   }
   const raw = await collectDraftSources(job.projectId, job.snapshotId, db)
   const built = ruleDraftInput(job.projectId, raw.sources, raw.items)
+  if (built.omitted > 0) log.warn("rule-draft sources left out to fit the prompt", { jobId: job.id, projectId: job.projectId, omitted: built.omitted, kept: built.input.sources.length })
   if (built.input.sources.length === 0) {
-    await finishJob(db, job.id, { status: "skipped", lastError: "no source text" })
+    await finishJob(db, job, { status: "skipped", lastError: "no source text" })
     return { jobId: job.id, outcome: "skipped", created: 0, dropped: 0, reason: "no_sources" }
   }
   const outcome = await runLlmTask(llm, built.input, (text) => parseRuleDrafts(text, built.input), { priority: "background", timeoutMs: config.batchTimeoutMs, signal, label: "plan-rule-drafts" })
   const meta = { llmModel: llm.model, promptVersion: PLAN_LLM_PROMPT_VERSION, sourceIds: built.sourceIds }
   if (!outcome.ok) {
-    const retryable = outcome.reason === "timeout" || outcome.reason === "unavailable" || outcome.reason === "aborted"
-    if (retryable && job.attempts < MAX_ATTEMPTS) {
-      // Back to the queue for the next night (the attempt is counted; an aborted shutdown counts too, bounded).
-      await db.planRuleDraftJob.update({ where: { id: job.id }, data: { ...meta, status: "queued", startedAt: null, lastError: `llm ${outcome.reason}` } })
+    // An invalid answer twice is final; anything else (down, slow, an error status, a shutdown) is tried another night.
+    const shutdown = outcome.reason === "aborted" && signal?.aborted === true
+    if (outcome.reason !== "invalid" && (shutdown || job.attempts < MAX_ATTEMPTS)) {
+      // Back to the queue for the next night; an attempt cut short by a shutdown is not counted.
+      await settle(db, job, { ...meta, status: "queued", startedAt: null, lastError: `llm ${outcome.reason}`, ...(shutdown ? { attempts: { decrement: 1 } } : {}) })
       log.warn("rule drafts postponed: the LLM did not answer", { jobId: job.id, projectId: job.projectId, reason: outcome.reason, attempt: job.attempts })
       return { jobId: job.id, outcome: "requeued", created: 0, dropped: 0, reason: outcome.reason }
     }
-    await finishJob(db, job.id, { ...meta, status: "failed", lastError: `llm ${outcome.reason}` })
+    await finishJob(db, job, { ...meta, status: "failed", lastError: `llm ${outcome.reason}` })
     log.error("rule drafts failed; no draft was written", { jobId: job.id, projectId: job.projectId, reason: outcome.reason, attempts: job.attempts })
     return { jobId: job.id, outcome: "failed", created: 0, dropped: 0, reason: outcome.reason }
   }
   const drafts = outcome.value.drafts.map((d) => ({ rule: d.rule, quote: d.quote, ...sourceColumns(d.source.id) }))
-  const stored = await createLlmDrafts(job.projectId, drafts)
-  const dropped = outcome.value.dropped.length + stored.skipped
-  await finishJob(db, job.id, { ...meta, status: "done", draftsCreated: stored.created.length, draftsDropped: dropped, lastError: null })
+  // The drafts and the outcome commit together: a crash in between can neither lose the outcome nor, on a retry, write
+  // the drafts twice; a request another batch took over rolls its drafts back.
+  const { stored, dropped } = await withTransaction(async (tx) => {
+    const stored = await createLlmDrafts(job.projectId, drafts, tx)
+    const dropped = outcome.value.dropped.length + stored.skipped
+    await finishJob(tx, job, { ...meta, status: "done", draftsCreated: stored.created.length, draftsDropped: dropped, lastError: null })
+    return { stored, dropped }
+  })
   if (dropped > 0) log.warn("llm rule drafts dropped", { jobId: job.id, projectId: job.projectId, reasons: countReasons(outcome.value.dropped), refusedAtWrite: stored.skipped })
   log.info("llm rule drafts written", { jobId: job.id, projectId: job.projectId, created: stored.created.length, dropped })
   return { jobId: job.id, outcome: "done", created: stored.created.length, dropped }
@@ -145,7 +172,8 @@ async function claimNext(db: Db, now: Date, seen: ReadonlySet<string>): Promise<
     if (!next) return null
     const res = await db.planRuleDraftJob.updateMany({ where: { id: next.id, status: "queued" }, data: { status: "running", startedAt: now, attempts: { increment: 1 } } })
     if (res.count !== 1) continue
-    return db.planRuleDraftJob.findUniqueOrThrow({ where: { id: next.id }, select: { id: true, projectId: true, snapshotId: true, attempts: true } })
+    const row = await db.planRuleDraftJob.findUniqueOrThrow({ where: { id: next.id }, select: { id: true, projectId: true, snapshotId: true, attempts: true, startedAt: true } })
+    return { ...row, startedAt: row.startedAt ?? now }
   }
   return null
 }
@@ -176,8 +204,11 @@ export async function runRuleDraftBatch(opts: {
     log.info("rule-draft batch skipped: PLAN_LLM_ASSIST is off")
     return { results: [], recovered: 0 }
   }
-  const recovered = (await db.planRuleDraftJob.updateMany({ where: { status: "running", startedAt: { lt: new Date(now().getTime() - STALE_RUNNING_MS) } }, data: { status: "queued", startedAt: null } })).count
-  if (recovered > 0) log.warn("rule-draft requests of a stopped batch requeued", { recovered })
+  const staleBefore = new Date(now().getTime() - STALE_RUNNING_MS)
+  // A request that keeps killing its batch must not come back forever: after the last attempt it fails.
+  const abandoned = (await db.planRuleDraftJob.updateMany({ where: { status: "running", startedAt: { lt: staleBefore }, attempts: { gte: MAX_ATTEMPTS } }, data: { status: "failed", lastError: "batch_stopped", finishedAt: now() } })).count
+  const recovered = (await db.planRuleDraftJob.updateMany({ where: { status: "running", startedAt: { lt: staleBefore } }, data: { status: "queued", startedAt: null } })).count
+  if (recovered + abandoned > 0) log.warn("rule-draft requests of a stopped batch recovered", { requeued: recovered, failed: abandoned })
   const results: JobResult[] = []
   const seen = new Set<string>()
   const max = opts.max ?? BATCH_MAX
@@ -190,17 +221,28 @@ export async function runRuleDraftBatch(opts: {
     try {
       results.push(await processRuleDraftJob(job, opts.llm, config, db, opts.signal))
     } catch (err) {
-      // A database failure: the request goes back to the queue (bounded by attempts) and the batch stops here.
+      if (err instanceof LostClaimError) {
+        // Another batch recovered and re-claimed it (this one ran past STALE_RUNNING_MS): its result stands, not ours.
+        log.warn("rule-draft request taken over by another batch; this result is discarded", { jobId: job.id, projectId: job.projectId })
+        results.push({ jobId: job.id, outcome: "lost", created: 0, dropped: 0 })
+        continue
+      }
+      // A database failure: the request goes back to the queue (bounded by attempts) and the batch stops here. The
+      // detail stays in the log; the row keeps a code (an error text may carry parameter values).
       const message = err instanceof Error ? err.message.slice(0, 300) : String(err).slice(0, 300)
       log.error("rule-draft request failed", { jobId: job.id, projectId: job.projectId, error: message })
       const status = job.attempts < MAX_ATTEMPTS ? "queued" : "failed"
-      await db.planRuleDraftJob.update({ where: { id: job.id }, data: { status, startedAt: null, lastError: message.slice(0, 500), ...(status === "failed" ? { finishedAt: new Date() } : {}) } }).catch((e: unknown) => {
+      await settle(db, job, { status, startedAt: null, lastError: "db_error", ...(status === "failed" ? { finishedAt: new Date() } : {}) }).catch((e: unknown) => {
+        // Not released: the stale recovery puts it back after STALE_RUNNING_MS (attempts stay bounded).
         log.error("could not release a rule-draft request", { jobId: job.id, error: e instanceof Error ? e.message : String(e) })
       })
       results.push({ jobId: job.id, outcome: status === "queued" ? "requeued" : "failed", created: 0, dropped: 0, reason: "error" })
       break
     }
   }
-  log.info("rule-draft batch finished", { processed: results.length, created: results.reduce((s, r) => s + r.created, 0), recovered })
+  const count = (o: JobOutcome) => results.filter((r) => r.outcome === o).length
+  const fields = { processed: results.length, created: results.reduce((s, r) => s + r.created, 0), done: count("done"), skipped: count("skipped"), requeued: count("requeued"), failed: count("failed"), lost: count("lost"), recovered }
+  if (fields.failed > 0 || fields.requeued > 0) log.warn("rule-draft batch finished with failures", fields)
+  else log.info("rule-draft batch finished", fields)
   return { results, recovered }
 }

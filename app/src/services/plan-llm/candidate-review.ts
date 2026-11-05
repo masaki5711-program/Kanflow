@@ -9,11 +9,16 @@ import { planLlmConfig, type PlanLlmConfig } from "@/lib/plan-llm/config"
 import { parseCandidateReview } from "@/lib/plan-llm/parse"
 import { runLlmTask, type PlanLlm } from "@/lib/plan-llm/run"
 import { candidateReviewInput } from "@/lib/plan-llm/visible"
+import { logger } from "@/lib/logger"
 import type { CandidateReviewer } from "@/services/plan-estimate-run/estimate-run.compute"
+
+const log = logger.child({ module: "plan-llm-candidates" })
 
 export function candidateReviewer(llm: PlanLlm, config: PlanLlmConfig = planLlmConfig(process.env), signal?: AbortSignal): CandidateReviewer {
   return async (leaves, visibleProjectIds) => {
     const built = candidateReviewInput(leaves, visibleProjectIds)
+    // Leaves left out to fit the prompt keep the formula's decision (like hidden candidates).
+    if (built.omitted > 0) log.info("candidate review: leaves left out to fit the prompt", { omitted: built.omitted, sent: built.input.leaves.length })
     if (built.candidates.size === 0) return { state: "no_candidates", rejected: 0, sourceIds: [], model: null, rejectedCandidates: {} }
     const outcome = await runLlmTask(llm, built.input, (text) => parseCandidateReview(text, built), {
       priority: "user",

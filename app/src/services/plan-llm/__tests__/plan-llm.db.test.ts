@@ -19,6 +19,7 @@ const NOW = new Date("2026-11-04T03:00:00.000Z")
 
 type ChatMessage = import("@/lib/ollama").ChatMessage
 type PlanLlm = import("@/lib/plan-llm/run").PlanLlm
+const { promptData } = await import("@/lib/plan-llm/prompt")
 
 /** A fake LLM answering by task (read from the system message); every request is recorded. */
 function fakeLlm(answer: (task: "rule_drafts" | "candidate_review" | "explanation", data: Record<string, unknown>, call: number) => string | Error | Promise<string | Error>) {
@@ -29,7 +30,7 @@ function fakeLlm(answer: (task: "rule_drafts" | "candidate_review" | "explanatio
       const system = messages[0]?.content ?? ""
       const task = system.startsWith("You draft lesson rules") ? "rule_drafts" : system.startsWith("You help decide") ? "candidate_review" : "explanation"
       calls.push({ task, messages, priority: call.priority })
-      const data = JSON.parse(messages[1].content.split("\n")[1]) as Record<string, unknown>
+      const data = promptData(messages) ?? {}
       const out = await answer(task, data, calls.length)
       if (out instanceof Error) throw out
       return out
@@ -38,7 +39,7 @@ function fakeLlm(answer: (task: "rule_drafts" | "candidate_review" | "explanatio
   /** The data block of a recorded request, parsed. */
   const data = (task: string) => {
     const c = calls.find((x) => x.task === task)
-    return c ? (JSON.parse(c.messages[1].content.split("\n")[1]) as Record<string, unknown>) : null
+    return c ? promptData(c.messages) : null
   }
   return { llm, calls, data, text: () => JSON.stringify(calls.map((c) => c.messages)) }
 }
@@ -79,7 +80,7 @@ describe.skipIf(!enabled)("plan LLM assistance on a real database (KANFLOW_DB_TE
   let drafts: typeof import("../rule-drafts.service")
   let rules: typeof import("@/services/plan-lesson-rules/lesson-rules.service")
   let errors: typeof import("@/lib/ollama/errors")
-  const config = { enabled: true, interactiveTimeoutMs: 1000, batchTimeoutMs: 1000 }
+  const config = { enabled: true, interactiveTimeoutMs: 10_000, batchTimeoutMs: 10_000 }
 
   beforeAll(async () => {
     prisma = (await import("@/lib/prisma")).prisma
@@ -195,7 +196,7 @@ describe.skipIf(!enabled)("plan LLM assistance on a real database (KANFLOW_DB_TE
   it("llm_input_contains_only_viewer_visible_data; explanation_has_no_quotes_from_other_projects; hidden from a reader who sees fewer sources", async () => {
     const fake = fakeLlm((task, data) => (task === "candidate_review" ? acceptAll(data) : EXPLANATION))
     const run = await runs.createRun(ids.a, input(), po, NOW, { llm: fake.llm })
-    const view = await explain.explainRun(ids.a, run.runId, reader(ids.u1), { llm: fake.llm, config })
+    const view = await explain.explainRun(ids.a, run.runId, reader(ids.u1), { llm: fake.llm, config, now: () => NOW })
     expect(view).toMatchObject({ state: "ready", text: { ja: expect.stringContaining("設計レビュー") } })
     const explained = fake.calls.find((c) => c.task === "explanation")
     expect(explained?.priority).toBe("user")
@@ -219,7 +220,7 @@ describe.skipIf(!enabled)("plan LLM assistance on a real database (KANFLOW_DB_TE
     expect((await runs.readRunCard(ids.a, run.runId, reader(ids.u2), NOW, undefined, true)).explanation).toEqual({ state: "hidden" })
     // Written once: asking again does not call the LLM.
     const before = fake.calls.length
-    expect((await explain.explainRun(ids.a, run.runId, reader(ids.u1), { llm: fake.llm, config })).state).toBe("ready")
+    expect((await explain.explainRun(ids.a, run.runId, reader(ids.u1), { llm: fake.llm, config, now: () => NOW })).state).toBe("ready")
     expect(fake.calls).toHaveLength(before)
   })
 
@@ -231,7 +232,7 @@ describe.skipIf(!enabled)("plan LLM assistance on a real database (KANFLOW_DB_TE
     await prisma.projectMember.create({ data: { projectId: ids.a, userId: ids.u4, role: "sm" } })
     try {
       const fake = fakeLlm(() => EXPLANATION)
-      await explain.explainRun(ids.a, run.runId, reader(ids.u1), { llm: fake.llm, config })
+      await explain.explainRun(ids.a, run.runId, reader(ids.u1), { llm: fake.llm, config, now: () => NOW })
       const sent = fake.text()
       expect(sent).toContain(projectName(ids.v[0]))
       expect(sent).not.toContain(projectName(ids.v[1]))
@@ -239,8 +240,12 @@ describe.skipIf(!enabled)("plan LLM assistance on a real database (KANFLOW_DB_TE
       const given = fake.data("explanation") as { leaves: { key: string; otherProjects: string | null; sources: unknown[] }[] }
       expect(given.leaves.find((l) => l.key === "review")).toMatchObject({ otherProjects: "4-9", sources: [{ projectName: projectName(ids.v[0]), itemName: "設計レビュー会" }] })
       expect((await storedRun(run.runId)).llmSourceIds).toEqual([ids.v[0]])
-      // The new SM sees the text: every source it was written from is one they can view.
-      expect((await runs.readRunCard(ids.a, run.runId, reader(ids.u4), NOW, undefined, true)).explanation.state).toBe("ready")
+      // u1 sees the text. The new SM can view every NAMED source, but their card withholds the item (it also learned
+      // from V2): the text, which states its days, is not shown to them either.
+      expect((await runs.readRunCard(ids.a, run.runId, reader(ids.u1), NOW, undefined, true)).explanation.state).toBe("ready")
+      const u4card = await runs.readRunCard(ids.a, run.runId, reader(ids.u4), NOW, undefined, true)
+      expect(u4card.summary.changes.map((c) => c.key)).not.toContain("review")
+      expect(u4card.explanation).toEqual({ state: "hidden" })
     } finally {
       await prisma.projectMember.deleteMany({ where: { projectId: ids.a, userId: ids.u4 } })
     }
@@ -249,22 +254,52 @@ describe.skipIf(!enabled)("plan LLM assistance on a real database (KANFLOW_DB_TE
   it("an explanation that fails is recorded as failed (the card says there was no AI assistance) and not retried", async () => {
     const run = await runs.createRun(ids.a, input(), po, NOW)
     const fake = fakeLlm(() => "not json")
-    expect(await explain.explainRun(ids.a, run.runId, reader(ids.u1), { llm: fake.llm, config })).toEqual({ state: "failed" })
+    expect(await explain.explainRun(ids.a, run.runId, reader(ids.u1), { llm: fake.llm, config, now: () => NOW })).toEqual({ state: "failed" })
     expect(fake.calls).toHaveLength(2)
     expect((await storedRun(run.runId)).llmExplanationState).toBe("failed")
     expect((await runs.readRunCard(ids.a, run.runId, reader(ids.u1), NOW, undefined, true)).explanation).toEqual({ state: "failed" })
-    await explain.explainRun(ids.a, run.runId, reader(ids.u1), { llm: fake.llm, config })
+    await explain.explainRun(ids.a, run.runId, reader(ids.u1), { llm: fake.llm, config, now: () => NOW })
     expect(fake.calls).toHaveLength(2)
     // With the assistance off nothing is sent and the card says so.
     const off = await runs.createRun(ids.a, input(), po, NOW)
-    expect(await explain.explainRun(ids.a, off.runId, reader(ids.u1), { llm: null, config })).toEqual({ state: "off" })
+    expect(await explain.explainRun(ids.a, off.runId, reader(ids.u1), { llm: null, config, now: () => NOW })).toEqual({ state: "off" })
     expect((await runs.readRunCard(ids.a, off.runId, reader(ids.u1), NOW, undefined, false)).explanation).toEqual({ state: "off" })
     expect((await runs.readRunCard(ids.a, off.runId, reader(ids.u1), NOW, undefined, true)).explanation).toEqual({ state: "pending" })
   })
 
+  it("Ollama down while explaining: nothing stored as failed, one attempt per wait, then it is written", async () => {
+    const run = await runs.createRun(ids.a, input(), po, NOW)
+    let t = NOW
+    const now = () => t
+    const down = fakeLlm(() => new errors.OllamaUnavailableError())
+    expect(await explain.explainRun(ids.a, run.runId, reader(ids.u1), { llm: down.llm, config, now })).toEqual({ state: "failed" })
+    expect((await storedRun(run.runId)).llmExplanationState).toBeNull()
+    // Within the wait: no new attempt, and the card does not ask again.
+    expect(await explain.explainRun(ids.a, run.runId, reader(ids.u1), { llm: down.llm, config, now })).toEqual({ state: "failed" })
+    expect(down.calls).toHaveLength(1)
+    expect((await runs.readRunCard(ids.a, run.runId, reader(ids.u1), t, undefined, true)).explanation).toEqual({ state: "failed" })
+    // After the wait it is tried again and written.
+    t = new Date(t.getTime() + 11 * 60_000)
+    const up = fakeLlm(() => EXPLANATION)
+    expect((await explain.explainRun(ids.a, run.runId, reader(ids.u1), { llm: up.llm, config, now })).state).toBe("ready")
+  })
+
+  it("a run made before E6 (no candidate decision stored) is still approved as made", async () => {
+    const run = await runs.createRun(ids.a, input(), po, NOW)
+    const row = await storedRun(run.runId)
+    const engine = row.engineInput as { fixed: Record<string, unknown> }
+    delete engine.fixed.rejectedCandidates
+    delete engine.fixed.candidateAssist
+    await prisma.planEstimateRun.update({ where: { id: run.runId }, data: { engineInput: engine as object } })
+    const out = await runs.loadEstimateRun(ids.a, run.runId, [], po, VML, NOW)
+    expect(out.createdCount).toBeGreaterThan(0)
+    await prisma.planItemDependency.deleteMany({ where: { projectId: ids.a } }).catch(() => undefined)
+    await prisma.planItem.deleteMany({ where: { projectId: ids.a } })
+  })
+
   it("an explanation of another project's run is refused like a missing run", async () => {
     const run = await runs.createRun(ids.a, input(), po, NOW)
-    await expect(explain.explainRun(ids.o, run.runId, reader(ids.u1), { llm: fakeLlm(() => EXPLANATION).llm, config })).rejects.toMatchObject({ code: "PLAN_ESTIMATE_RUN_NOT_FOUND" })
+    await expect(explain.explainRun(ids.o, run.runId, reader(ids.u1), { llm: fakeLlm(() => EXPLANATION).llm, config, now: () => NOW })).rejects.toMatchObject({ code: "PLAN_ESTIMATE_RUN_NOT_FOUND" })
   })
 
   // ---------------------------------------------------------------- rule drafts (night batch) -------------------------
@@ -330,6 +365,12 @@ describe.skipIf(!enabled)("plan LLM assistance on a real database (KANFLOW_DB_TE
         ["scale_duration", "draft", "project", null, null, lessonOk, "仕様の確認に想定の倍かかった"],
       ])
       expect(await prisma.activityLog.count({ where: { projectId: D(), diff: { contains: rows[0].id } } })).toBe(1)
+      // Re-finalizing reads the same text again: the same drafts are not written twice.
+      await clearJobs()
+      const again = await queue()
+      const res2 = await drafts.runRuleDraftBatch({ llm: fake.llm, config })
+      expect(res2.results).toEqual([{ jobId: again.id, outcome: "done", created: 0, dropped: 5 }])
+      expect(await prisma.planLessonRule.count({ where: { sourceProjectId: D(), createdByKind: "llm" } })).toBe(2)
       await clearJobs()
       await clearDrafts()
     })
@@ -415,6 +456,20 @@ describe.skipIf(!enabled)("plan LLM assistance on a real database (KANFLOW_DB_TE
         await prisma.planActualsSnapshot.update({ where: { id: snapshotId }, data: { supersededAt: null } })
         await clearJobs()
       }
+    })
+
+    it("a request taken over by another batch meanwhile records nothing (its drafts roll back)", async () => {
+      const job = await queue()
+      const fake = fakeLlm(async () => {
+        // Another batch recovered and re-claimed the request while this one waited for the model.
+        await prisma.planRuleDraftJob.update({ where: { id: job.id }, data: { startedAt: new Date(Date.now() + 1_000) } })
+        return JSON.stringify({ rules: [{ kind: "add_buffer", params: { afterKey: "ship", days: 1 }, sourceId: `sprint:${sprint1}:try`, quote: "次は試験の前に環境の準備を入れる" }] })
+      })
+      const res = await drafts.runRuleDraftBatch({ llm: fake.llm, config })
+      expect(res.results).toEqual([{ jobId: job.id, outcome: "lost", created: 0, dropped: 0 }])
+      expect(await prisma.planLessonRule.count({ where: { sourceProjectId: D(), createdByKind: "llm" } })).toBe(0)
+      expect((await prisma.planRuleDraftJob.findUniqueOrThrow({ where: { id: job.id } })).status).toBe("running")
+      await clearJobs()
     })
 
     it("a request of a batch that died is recovered", async () => {

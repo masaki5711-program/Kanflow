@@ -25,7 +25,7 @@ export interface RunSummary {
   assist?: { candidates: CandidateAssistState; rejected: number }
 }
 
-export type CandidateAssistState = "off" | "no_candidates" | "applied" | "timeout" | "unavailable" | "invalid" | "aborted" | "error"
+export type CandidateAssistState = "off" | "no_candidates" | "applied" | "timeout" | "unavailable" | "http" | "invalid" | "aborted" | "error"
 
 /** E6: what this reader may see of the run's AI explanation. */
 export type ExplanationView =
@@ -34,7 +34,7 @@ export type ExplanationView =
 
 /** The candidate review was attempted and did not work: the formula alone ("AI の補助なし"). */
 export function candidateAssistFailed(state: CandidateAssistState | undefined): boolean {
-  return state === "timeout" || state === "unavailable" || state === "invalid" || state === "error"
+  return state === "timeout" || state === "unavailable" || state === "http" || state === "invalid" || state === "error"
 }
 
 export interface UsageRow {

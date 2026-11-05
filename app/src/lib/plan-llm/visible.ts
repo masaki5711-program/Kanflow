@@ -32,6 +32,31 @@ export const REVIEW_CANDIDATES_PER_LEAF_MAX = 10
 export const EXPLAIN_LEAVES_MAX = 20
 /** Named sources per explained leaf. */
 export const EXPLAIN_SOURCES_PER_LEAF_MAX = 10
+/**
+ * Most characters of the JSON data block of one prompt. The shared Ollama context is OLLAMA_NUM_CTX = 12 288 tokens,
+ * of which 2 048 are kept for the answer and ~1 500 for the system message; Japanese is close to one token per
+ * character, so characters are counted, with room to spare. Whole entries are left out past it (never cut in half),
+ * newest / most relevant first, and the count left out is returned (`omitted`).
+ */
+export const PROMPT_DATA_CHARS_MAX = 7_000
+
+/** Adds entries while the running JSON size stays within the budget; returns how many did not fit. */
+class Budget {
+  private used: number
+  omitted = 0
+  constructor(base: unknown, private readonly max = PROMPT_DATA_CHARS_MAX) {
+    this.used = JSON.stringify(base).length
+  }
+  fits(entry: unknown): boolean {
+    const size = JSON.stringify(entry).length + 1
+    if (this.used + size > this.max) {
+      this.omitted++
+      return false
+    }
+    this.used += size
+    return true
+  }
+}
 
 export type DraftSourceKind = "retro_problem" | "retro_try" | "lesson" | "finalize_note"
 
@@ -124,11 +149,17 @@ export interface Built<T extends LlmTask> {
   input: T & { readonly [VISIBLE]: true }
   /** Source ids given to the LLM. */
   sourceIds: string[]
+  /** Entries left out to keep the prompt inside the context window (sources, candidates or leaves). */
+  omitted: number
 }
 
 /** Rule drafts at actuals finalization: this project's non-confidential text only. Empty texts are skipped. */
 export function ruleDraftInput(projectId: string, raw: readonly RawDraftSource[], items: readonly { key: string; name: string }[]): Built<RuleDraftTask> {
   const sources: DraftSource[] = []
+  // The item keys go first (small; a draft must name them), then the texts in the order given (newest first).
+  const seen = new Set<string>()
+  const keys = items.filter((i) => (seen.has(i.key) ? false : (seen.add(i.key), true))).slice(0, DRAFT_ITEMS_MAX).map((i) => ({ key: i.key, name: clip(i.name, 200) }))
+  const budget = new Budget({ task: "rule_drafts", sources: [], items: keys })
   for (const s of raw) {
     if (sources.length >= DRAFT_SOURCES_MAX) break
     if (s.projectId !== projectId || s.confidential) continue
@@ -142,11 +173,10 @@ export function ruleDraftInput(projectId: string, raw: readonly RawDraftSource[]
       DRAFT_SOURCE_TEXT_MAX
     )
     if (!text) continue
-    sources.push({ id: s.id, kind: s.kind, text })
+    const entry = { id: s.id, kind: s.kind, text }
+    if (budget.fits(entry)) sources.push(entry)
   }
-  const seen = new Set<string>()
-  const keys = items.filter((i) => (seen.has(i.key) ? false : (seen.add(i.key), true))).slice(0, DRAFT_ITEMS_MAX)
-  return { input: brand({ task: "rule_drafts", sources, items: keys.map((i) => ({ key: i.key, name: clip(i.name, 200) })) }), sourceIds: sources.map((s) => s.id) }
+  return { input: brand({ task: "rule_drafts", sources, items: keys }), sourceIds: sources.map((s) => s.id), omitted: budget.omitted }
 }
 
 // ---------------------------------------------------------------- candidate review -------------------------------------
@@ -178,20 +208,21 @@ export function candidateReviewInput(raw: readonly RawCandidateLeaf[], visiblePr
   const map = new Map<string, { key: string; snapshotItemId: string }>()
   const sourceIds = new Set<string>()
   const leaves: CandidateReviewTask["leaves"] = []
+  const budget = new Budget({ task: "candidate_review", leaves: [] })
   for (const leaf of raw) {
     if (leaves.length >= REVIEW_LEAVES_MAX) break
-    const candidates: ReviewCandidate[] = []
-    for (const c of leaf.candidates) {
-      if (candidates.length >= REVIEW_CANDIDATES_PER_LEAF_MAX) break
-      if ((c.stage !== 3 && c.stage !== 4) || !visibleProjectIds.has(c.sourceProjectId)) continue
-      const cid = `c${map.size + 1}`
-      map.set(cid, { key: leaf.key, snapshotItemId: c.snapshotItemId })
+    const head = { key: leaf.key, name: clip(leaf.name, 200), candidates: [] }
+    const visible = leaf.candidates.filter((c) => (c.stage === 3 || c.stage === 4) && visibleProjectIds.has(c.sourceProjectId)).slice(0, REVIEW_CANDIDATES_PER_LEAF_MAX)
+    // A leaf goes in whole or not at all (a candidate left out is decided by the formula, like a hidden one).
+    const entry = { ...head, candidates: visible.map((c, i) => ({ cid: `c${map.size + i + 1}`, name: clip(c.name, 200), stage: c.stage as 3 | 4, similarity: Math.round(c.similarity * 100) / 100 })) }
+    if (visible.length === 0 || !budget.fits(entry)) continue
+    for (const [i, c] of visible.entries()) {
+      map.set(entry.candidates[i].cid, { key: leaf.key, snapshotItemId: c.snapshotItemId })
       sourceIds.add(c.sourceProjectId)
-      candidates.push({ cid, name: clip(c.name, 200), stage: c.stage, similarity: Math.round(c.similarity * 100) / 100 })
     }
-    if (candidates.length > 0) leaves.push({ key: leaf.key, name: clip(leaf.name, 200), candidates })
+    leaves.push(entry)
   }
-  return { input: brand({ task: "candidate_review", leaves }), sourceIds: [...sourceIds].sort(), candidates: map }
+  return { input: brand({ task: "candidate_review", leaves }), sourceIds: [...sourceIds].sort(), candidates: map, omitted: budget.omitted }
 }
 
 // ---------------------------------------------------------------- explanation ------------------------------------------
@@ -229,12 +260,13 @@ export function explanationInput(
   raw: readonly RawExplanationLeaf[],
   intersection: ReadonlySet<string>
 ): Built<ExplanationTask> {
-  // Only names that are actually in the input are recorded (a source sliced off below was not given).
+  // Only names that are actually in the input are recorded (a source or leaf left out below was not given).
   const given = new Set<string>()
-  const leaves: ExplanationLeaf[] = raw.slice(0, EXPLAIN_LEAVES_MAX).map((l) => {
+  const ruleEntries = rules.map((r) => ({ kind: r.kind, numbers: ruleNumbers(r.params) }))
+  const budget = new Budget({ task: "explanation", summary, rules: ruleEntries, leaves: [] })
+  const all: ExplanationLeaf[] = raw.slice(0, EXPLAIN_LEAVES_MAX).map((l) => {
     const shown = l.sources.filter((s) => intersection.has(s.sourceProjectId)).slice(0, EXPLAIN_SOURCES_PER_LEAF_MAX)
     const folded = new Set(l.sources.filter((s) => !intersection.has(s.sourceProjectId)).map((s) => s.sourceProjectId)).size + l.hiddenProjectCount
-    for (const s of shown) given.add(s.sourceProjectId)
     return {
       key: l.key,
       name: clip(l.name, 200),
@@ -247,8 +279,15 @@ export function explanationInput(
       addedByRule: l.addedByRule,
     }
   })
+  const leaves: ExplanationLeaf[] = []
+  for (const [i, leaf] of all.entries()) {
+    if (!budget.fits(leaf)) continue
+    leaves.push(leaf)
+    for (const s of raw[i].sources.filter((x) => intersection.has(x.sourceProjectId)).slice(0, EXPLAIN_SOURCES_PER_LEAF_MAX)) given.add(s.sourceProjectId)
+  }
   return {
-    input: brand({ task: "explanation", summary: { ...summary }, rules: rules.map((r) => ({ kind: r.kind, numbers: ruleNumbers(r.params) })), leaves }),
+    input: brand({ task: "explanation", summary: { ...summary }, rules: ruleEntries, leaves }),
     sourceIds: [...given].sort(),
+    omitted: budget.omitted,
   }
 }

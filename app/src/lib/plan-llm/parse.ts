@@ -58,6 +58,12 @@ export function sanitizeRuleName(raw: string): string {
   return [...s].slice(0, RULE_NAME_MAX).join("").trim()
 }
 
+/**
+ * In prose only real links, script schemes, e-mail addresses and bare host/path names are removed ("data: 3 proyek"
+ * is a sentence, not a URI): nothing in the input is a contact or a link, so one in the answer can only be invented.
+ */
+const PROSE_URL_G = /(?:[a-z][a-z0-9+.-]*:\/\/\S*|www\.\S*|\b(?:javascript|vbscript)\s*:\S*|[\w.+-]+@[\w-]+(?:\.[\w-]+)+|\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}\/\S*)/gi
+
 /** Explanation text: control / format characters removed (line breaks kept), URLs removed, length capped. */
 export function sanitizeExplanation(raw: string): string {
   const s = raw
@@ -65,7 +71,7 @@ export function sanitizeExplanation(raw: string): string {
     .replace(/\r\n?/g, "\n")
     .replace(/[\p{Cf}\p{Zl}\p{Zp}]/gu, "")
     .replace(/[\p{Cc}]/gu, (c) => (c === "\n" ? "\n" : ""))
-    .replace(URL_G, "")
+    .replace(PROSE_URL_G, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim()
   return [...s].slice(0, EXPLANATION_MAX).join("").trim()
@@ -178,6 +184,9 @@ export function parseRuleDrafts(text: string, task: RuleDraftTask): ParseResult<
 
 const reviewAnswerSchema = z.object({ accept: z.array(z.string().max(20)).max(1_000) })
 
+/** With this many candidates sent, an answer that keeps none is treated as invalid. */
+export const REJECT_ALL_SUSPECT_MIN = 4
+
 export interface CandidateDecision {
   /** Snapshot item ids rejected per leaf key (only candidates that were sent). */
   rejected: Record<string, string[]>
@@ -192,6 +201,8 @@ export function parseCandidateReview(text: string, built: BuiltReview): ParseRes
   const parsed = reviewAnswerSchema.safeParse(extractJsonObject(text))
   if (!parsed.success) return { ok: false, problem: 'expected {"accept":["c1",…]}' }
   const keep = new Set(parsed.data.accept.filter((cid) => built.candidates.has(cid)))
+  // Rejecting every one of many candidates is more likely a manipulated or careless answer than a judgement: the formula.
+  if (keep.size === 0 && built.candidates.size >= REJECT_ALL_SUSPECT_MIN) return { ok: false, problem: "every candidate was rejected" }
   const rejected: Record<string, string[]> = {}
   let rejectedCount = 0
   for (const [cid, c] of built.candidates) {
