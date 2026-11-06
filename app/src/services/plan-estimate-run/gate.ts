@@ -92,8 +92,8 @@ export async function lineageInputHashes(lineages: readonly string[], db: Db = d
 }
 
 /** The active approval of the lineage (null = none). */
-export async function activeApproval(lineage: string, db: Db = defaultDb): Promise<{ id: string; methodVersion: string } | null> {
-  return db.planEstimateGateApproval.findFirst({ where: { lineage, endedAt: null }, select: { id: true, methodVersion: true } })
+export async function activeApproval(lineage: string, db: Db = defaultDb): Promise<{ id: string; methodVersion: string; approvedAt: Date } | null> {
+  return db.planEstimateGateApproval.findFirst({ where: { lineage, endedAt: null }, select: { id: true, methodVersion: true, approvedAt: true } })
 }
 
 export async function gateFor(lineage: string, db: Db = defaultDb): Promise<Gate> {

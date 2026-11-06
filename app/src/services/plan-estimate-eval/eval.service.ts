@@ -29,7 +29,7 @@ import { ValidationError } from "@/services/_shared/errors"
 import { notify } from "@/services/_shared/notifications"
 import { learnableItemFacts, learnableItemIds, type LearnableFact } from "@/services/plan-actuals/actuals.learnable"
 import { observationOf } from "@/services/plan-estimate-run/estimate-run.compute"
-import { activeApproval, decideGate, lineageInputHash, type EvalRecord, type Gate } from "@/services/plan-estimate-run/gate"
+import { activeApproval, decideGate, latestEval, lineageInputHash, lineageInputHashes, type EvalRecord, type Gate } from "@/services/plan-estimate-run/gate"
 
 const log = logger.child({ module: "plan-estimate-eval" })
 
@@ -223,7 +223,6 @@ export interface Recorded {
  * of a record that no longer passes ends (reason "failed"), one of an older method ends (reason "method").
  */
 export async function recordLineageBacktest(lineage: string, opts: { now?: Date; db?: Db; cache?: TypePoolCache } = {}): Promise<Recorded> {
-  const now = opts.now ?? new Date()
   const result = await backtestLineage(lineage, opts.db ?? defaultDb, opts.cache)
   const record = recordOf(result)
   const gate = decideGate(record)
@@ -238,6 +237,8 @@ export async function recordLineageBacktest(lineage: string, opts: { now?: Date;
   }
   const run = async (tx: Db): Promise<Recorded> => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`plan_estimate_eval:${lineage}`}))`
+    // The time is taken AFTER the lock (the computation can take a while, and an approval may have been made meanwhile).
+    const now = opts.now ?? new Date()
     if ((await lineageInputHash(lineage, tx)) !== result.inputHash) {
       log.info("backtest result discarded: the snapshots changed while computing", { lineage })
       return { lineage, written: false, record, gate, approvalEnded: false, scored: result.scored, skipped }
@@ -249,7 +250,9 @@ export async function recordLineageBacktest(lineage: string, opts: { now?: Date;
     let approvalEnded = false
     if (approval && (approval.methodVersion !== ESTIMATE_METHOD_VERSION || !gate.on)) {
       const endReason = approval.methodVersion !== ESTIMATE_METHOD_VERSION ? "method" : "failed"
-      await tx.planEstimateGateApproval.update({ where: { id: approval.id }, data: { endedAt: now, endReason } })
+      // Never before the approval (the table's CHECK): an approval made just now ends a millisecond after it.
+      const endedAt = new Date(Math.max(now.getTime(), approval.approvedAt.getTime() + 1))
+      await tx.planEstimateGateApproval.update({ where: { id: approval.id }, data: { endedAt, endReason } })
       approvalEnded = endReason === "failed"
       log.warn("estimate from actuals turned off for a lineage", { lineage, endReason, reason: gate.reason })
     }
@@ -355,6 +358,29 @@ export async function currentLineages(db: Db = defaultDb): Promise<string[]> {
   const rows = await db.planActualsSnapshot.findMany({ where: { supersededAt: null, includeInLearning: true }, select: { lineage: true }, distinct: ["lineage"], orderBy: { lineage: "asc" }, take: LINEAGES_MAX + 1 })
   if (rows.length > LINEAGES_MAX) throw new ValidationError(`系統が ${LINEAGES_MAX} を超えています`, { max: LINEAGES_MAX }, "PLAN_ESTIMATE_EVAL_TOO_MANY")
   return rows.map((r) => r.lineage)
+}
+
+/**
+ * The daily catch-up (collab daily): every lineage with current actuals whose latest record is missing or not of its
+ * current snapshots — a queued run lost on restart, one that failed, a project hard-deleted with its snapshots, or
+ * actuals finalized before this feature existed. Each lineage on its own; no notifications.
+ */
+export async function recordOutdatedLineages(opts: { now?: Date } = {}): Promise<RecomputeResult> {
+  const lineages = await currentLineages()
+  const hashes = await lineageInputHashes(lineages)
+  const latest = await Promise.all(lineages.map((l) => latestEval(l)))
+  const out: RecomputeResult = { recorded: [], failed: [] }
+  const cache: TypePoolCache = new Map()
+  for (const [i, lineage] of lineages.entries()) {
+    if (latest[i]?.inputHash === hashes.get(lineage)) continue
+    try {
+      out.recorded.push(await recordLineageBacktest(lineage, { ...opts, cache }))
+    } catch (err) {
+      out.failed.push(lineage)
+      log.error("daily backtest catch-up of a lineage failed; the others go on", { lineage, error: errText(err) })
+    }
+  }
+  return out
 }
 
 export interface RecomputeResult {

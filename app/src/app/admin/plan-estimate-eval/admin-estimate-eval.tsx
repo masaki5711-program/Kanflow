@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { AlertTriangle, Check, RefreshCw } from "lucide-react"
 import { Badge, Button, EmptyState, PageHeader, SkeletonCard, cn, useConfirm, useToast, type BadgeTone } from "@/components/ui"
 import { gateReasonText, type GateReason } from "@/components/plan-estimate/types"
@@ -106,8 +106,12 @@ export function AdminEstimateEval() {
   const percent = new Intl.NumberFormat(language, { style: "percent", maximumFractionDigits: 0 })
   const days = (x: number) => fillTemplate(t.peeAdminDays, { value: new Intl.NumberFormat(language, { maximumFractionDigits: 1 }).format(x) })
 
+  // A ref as well as the state: two clicks in the same tick both see the state before it re-renders.
+  const inFlight = useRef(false)
+
   async function act(key: string, action: () => Promise<EvalOverview & { failed?: string[] }>, done: string) {
-    if (busy) return
+    if (busy || inFlight.current) return
+    inFlight.current = true
     setBusy(key)
     try {
       const next = await action()
@@ -119,11 +123,13 @@ export function AdminEstimateEval() {
       void refetch()
     } finally {
       if (key !== "*") setFocusLineage(key)
+      inFlight.current = false
       setBusy(null)
     }
   }
 
-  const recompute = () => act("*", () => apiFetch<EvalOverview & { failed: string[] }>(URL, { method: "POST" }), t.peeAdminRecomputed)
+  // aria-disabled does not stop a click: without a list there is nothing to recompute yet.
+  const recompute = () => (data ? act("*", () => apiFetch<EvalOverview & { failed: string[] }>(URL, { method: "POST" }), t.peeAdminRecomputed) : Promise.resolve())
   const label = (l: LineageEval) => l.name ?? t.peeAdminUnnamed
 
   async function approve(l: LineageEval) {
@@ -162,7 +168,8 @@ export function AdminEstimateEval() {
         }
       />
       <span className="sr-only" role="status">
-        {recomputing ? t.peeAdminRecomputing : ""}
+        {/* Always mounted (announced when filled): the pressed row button is disabled while it works. */}
+        {recomputing ? t.peeAdminRecomputing : busy !== null ? t.peeAdminSaving : ""}
       </span>
 
       {data && (
@@ -247,7 +254,12 @@ export function AdminEstimateEval() {
                         {fillTemplate(t.peeAdminEvaluatedOn, { date: formatLongDate(r.evaluatedOn, language) })}
                         {r.skipped ? <span className="block">{t.peeAdminSkippedHint}</span> : null}
                       </p>
-                      {l.outdated && <p className="rounded-ui-sm border-l-2 border-l-warning bg-warning-soft px-3 py-2 text-body text-warning-strong">{t.peeAdminOutdated}</p>}
+                      {l.outdated && (
+                        <p className="flex items-start gap-2 rounded-ui-sm border-l-2 border-l-warning bg-warning-soft px-3 py-2 text-body text-warning-strong">
+                          <AlertTriangle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
+                          {t.peeAdminOutdated}
+                        </p>
+                      )}
                       {!l.passes && l.reason && l.reason !== "no_backtest" && (
                         <p className="rounded-ui-sm border-l-2 border-l-warning bg-surface-sunken px-3 py-2 text-body text-fg">{fillTemplate(t.peeAdminReason, { reason: gateReasonText(t, l.reason) })}</p>
                       )}
