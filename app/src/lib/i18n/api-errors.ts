@@ -102,6 +102,10 @@ export interface ApiErrorsTranslations {
   apiErrPlanEstimateStale: string
   apiErrPlanEstimateRunNotFound: string
   apiErrPlanLineageNotAllowed: string
+  apiErrPlanEstimateEvalNotFound: string
+  apiErrPlanEstimateEvalChanged: string
+  apiErrPlanEstimateEvalNotPassing: string
+  apiErrPlanEstimateEvalTooMany: string
   apiErrFileRequired: string
   apiErrFileEmpty: string
   apiErrFileMissing: string
@@ -249,6 +253,10 @@ export const API_ERROR_MESSAGE_KEYS: Readonly<Record<ApiErrorCode, ApiErrorMessa
   PLAN_ESTIMATE_STALE: "apiErrPlanEstimateStale",
   PLAN_ESTIMATE_RUN_NOT_FOUND: "apiErrPlanEstimateRunNotFound",
   PLAN_LINEAGE_NOT_ALLOWED: "apiErrPlanLineageNotAllowed",
+  PLAN_ESTIMATE_EVAL_NOT_FOUND: "apiErrPlanEstimateEvalNotFound",
+  PLAN_ESTIMATE_EVAL_CHANGED: "apiErrPlanEstimateEvalChanged",
+  PLAN_ESTIMATE_EVAL_NOT_PASSING: "apiErrPlanEstimateEvalNotPassing",
+  PLAN_ESTIMATE_EVAL_TOO_MANY: "apiErrPlanEstimateEvalTooMany",
   FILE_REQUIRED: "apiErrFileRequired",
   FILE_EMPTY: "apiErrFileEmpty",
   FILE_MISSING: "apiErrFileMissing",
@@ -403,6 +411,10 @@ export const ja: ApiErrorsTranslations = {
   apiErrPlanEstimateStale: "この案を作った後に、規則・実績・稼働量などが変わりました。もう一度「計画を作る」から作り直してください",
   apiErrPlanEstimateRunNotFound: "この計画の案が見つかりません",
   apiErrPlanLineageNotAllowed: "この系統の名前は使えません（スケジュールの出典か、このプロジェクトが読み込んだ計画の系統を使ってください）",
+  apiErrPlanEstimateEvalNotFound: "この系統の検証の記録がありません",
+  apiErrPlanEstimateEvalChanged: "検証の記録が新しくなっています。表示を更新して、もう一度確かめてください",
+  apiErrPlanEstimateEvalNotPassing: "この系統の検証は条件を満たしていないため、有効にできません",
+  apiErrPlanEstimateEvalTooMany: "系統が多すぎて一度に計算できません",
   apiErrFileRequired: "ファイルがありません",
   apiErrFileEmpty: "ファイルが空です",
   apiErrFileMissing: "ファイルが見つかりません",
@@ -551,6 +563,10 @@ export const en: ApiErrorsTranslations = {
   apiErrPlanEstimateStale: "The rules, actuals or capacity changed after this proposal was made. Make the plan again",
   apiErrPlanEstimateRunNotFound: "This plan proposal was not found",
   apiErrPlanLineageNotAllowed: "This lineage cannot be used (use the schedule source's or one this project already loaded)",
+  apiErrPlanEstimateEvalNotFound: "There is no check of this lineage yet",
+  apiErrPlanEstimateEvalChanged: "The check has been updated. Reload and look at it again",
+  apiErrPlanEstimateEvalNotPassing: "This lineage's check does not meet the conditions, so it cannot be turned on",
+  apiErrPlanEstimateEvalTooMany: "There are too many lineages to compute at once",
   apiErrFileRequired: "No file was provided",
   apiErrFileEmpty: "The file is empty",
   apiErrFileMissing: "The file was not found",
@@ -699,6 +715,10 @@ export const id: ApiErrorsTranslations = {
   apiErrPlanEstimateStale: "Aturan, data aktual, atau kapasitas berubah setelah usulan ini dibuat. Buat rencananya lagi",
   apiErrPlanEstimateRunNotFound: "Usulan rencana ini tidak ditemukan",
   apiErrPlanLineageNotAllowed: "Nama lini ini tidak dapat dipakai (pakai lini dari sumber jadwal atau yang sudah dimuat proyek ini)",
+  apiErrPlanEstimateEvalNotFound: "Belum ada pengujian untuk lini ini",
+  apiErrPlanEstimateEvalChanged: "Hasil pengujian sudah diperbarui. Muat ulang dan periksa lagi",
+  apiErrPlanEstimateEvalNotPassing: "Pengujian lini ini tidak memenuhi syarat, sehingga tidak dapat diaktifkan",
+  apiErrPlanEstimateEvalTooMany: "Terlalu banyak lini untuk dihitung sekaligus",
   apiErrFileRequired: "Tidak ada file yang dikirim",
   apiErrFileEmpty: "File kosong",
   apiErrFileMissing: "File tidak ditemukan",

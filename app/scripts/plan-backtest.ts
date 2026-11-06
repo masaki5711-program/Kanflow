@@ -6,7 +6,8 @@
  *   node --import tsx scripts/plan-backtest.ts --seed 42       another synthetic portfolio
  *   node --import tsx scripts/plan-backtest.ts --summary       overall and per-stratum metrics only
  *
- * Real snapshots (E1) are not read yet; recording into plan_estimate_eval comes with E1.
+ * The backtest on REAL snapshots, recorded into plan_estimate_eval, is services/plan-estimate-eval (after every actuals
+ * finalize, and the administrators' "計算し直す" on /admin/plan-estimate-eval); this script stays synthetic.
  */
 import { runBacktest } from "../src/lib/plan-estimate/backtest"
 import { syntheticPortfolio } from "../src/lib/plan-estimate/synthetic"

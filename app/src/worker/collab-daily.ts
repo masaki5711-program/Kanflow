@@ -21,6 +21,8 @@ import {
  * 4. 定着確認 reminders of the 改善成果ボード (IMPROVEMENT_CHECK_REMINDERS=off skips)
  * 5. prevention-PBI proposals for recurring failures (feedback loop, FEEDBACK_RECURRENCE=off skips)
  * 6. retention of 計画を作る estimate runs past their one-year purgeAfter (feedback goes with them)
+ * 7. backtest catch-up: lineages whose record is missing or not of their current actuals (plan 12 §5; a queued run lost
+ *    on restart, a failed one, a hard-deleted project) — until then their gate stays closed
  * Each step fails independently (logged; the others still run).
  */
 
@@ -34,6 +36,8 @@ export interface CollabDailyResult {
   improvementReminders?: ImprovementReminderResult | null
   feedbackRecurrence?: RecurrenceResult | null
   planRunRetention?: PlanRunRetentionResult | null
+  /** Step 7: lineages recomputed / failed (null when the step failed as a whole). */
+  backtestCatchUp?: { recorded: number; failed: number } | null
 }
 
 function errorMessage(err: unknown): string {
@@ -79,7 +83,18 @@ export async function runCollabDaily(cfg: CollabConfig, log: SchedulerLog, signa
   } catch (err) {
     log.error("plan estimate run retention failed", { error: errorMessage(err) })
   }
-  return { retention, notifyDue, chatRetention, improvementReminders, feedbackRecurrence, planRunRetention }
+  let backtestCatchUp: CollabDailyResult["backtestCatchUp"] = null
+  try {
+    // Loaded lazily: the estimate engine is not needed by the other steps.
+    const { recordOutdatedLineages } = await import("@/services/plan-estimate-eval/eval.service")
+    const r = await recordOutdatedLineages()
+    backtestCatchUp = { recorded: r.recorded.length, failed: r.failed.length }
+    if (r.failed.length > 0) log.warn("backtest catch-up finished with failures", { ...backtestCatchUp, lineages: r.failed.slice(0, 20) })
+    else log.info("backtest catch-up done", backtestCatchUp)
+  } catch (err) {
+    log.error("backtest catch-up failed", { error: errorMessage(err) })
+  }
+  return { retention, notifyDue, chatRetention, improvementReminders, feedbackRecurrence, planRunRetention, backtestCatchUp }
 }
 
 /** Step 4: 定着確認 reminders (skipped when disabled; failures logged, never thrown). */

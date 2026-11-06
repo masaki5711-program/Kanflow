@@ -215,6 +215,15 @@ export function canPseudonymizeActuals(actor: Pick<ProjectActor, "systemRole">):
 }
 
 /**
+ * See the backtest of the estimate on real actuals (exact numbers, unbanded), recompute it, and approve or withdraw
+ * "実績で調整" for a lineage (plan 12 §5 / §8 item 6). System admins only: the numbers span every project of the
+ * lineage, and an approval changes the plans of every project that uses it.
+ */
+export function canManageEstimateGate(actor: Pick<ProjectActor, "systemRole">): boolean {
+  return isSystemAdmin(actor)
+}
+
+/**
  * Set a person's OWN FTE (member_capacity rows without a project; plan 12 §4): the person themselves, a section
  * manager of a section the person belongs to, or an admin. Not a PO / SM — not even of the person's projects (they set
  * the allocation to their project instead: `capacity.manage`). `sharesSectionAsManager` = the actor is a

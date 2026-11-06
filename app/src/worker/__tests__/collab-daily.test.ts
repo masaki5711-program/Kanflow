@@ -7,6 +7,7 @@ const m = vi.hoisted(() => ({
   improvement: vi.fn(),
   feedback: vi.fn(),
   planRuns: vi.fn(),
+  catchUp: vi.fn(),
   instances: [] as Array<{ opts: { name: string; run: () => Promise<unknown> }; start: ReturnType<typeof vi.fn> }>,
 }))
 
@@ -16,6 +17,7 @@ vi.mock("../jobs/chat-retention", () => ({ purgeChatHistory: m.chatPurge }))
 vi.mock("../jobs/improvement-checks", () => ({ runImprovementCheckReminders: m.improvement }))
 vi.mock("@/services/feedback/feedback.recurrence.service", () => ({ runFeedbackRecurrence: m.feedback }))
 vi.mock("../jobs/plan-run-retention", () => ({ purgeExpiredEstimateRuns: m.planRuns }))
+vi.mock("@/services/plan-estimate-eval/eval.service", () => ({ recordOutdatedLineages: m.catchUp }))
 vi.mock("../scheduler", () => ({
   DailyScheduler: class {
     start = vi.fn()
@@ -41,6 +43,7 @@ beforeEach(() => {
   m.instances.length = 0
   m.feedback.mockResolvedValue(RECURRENCE)
   m.planRuns.mockResolvedValue({ estimateRuns: { deleted: 0 } })
+  m.catchUp.mockResolvedValue({ recorded: [], failed: [] })
 })
 
 describe("worker config (collab)", () => {
@@ -91,6 +94,18 @@ describe("runCollabDaily", () => {
     expect(log.info).toHaveBeenCalledWith("plan estimate run retention done", { estimateRuns: { deleted: 4, more: false } })
   })
 
+  it("catches up the backtests of outdated lineages and says how many failed", async () => {
+    m.catchUp.mockResolvedValue({ recorded: [{}, {}], failed: [] })
+    expect((await runCollabDaily(CFG, log)).backtestCatchUp).toEqual({ recorded: 2, failed: 0 })
+    expect(log.info).toHaveBeenCalledWith("backtest catch-up done", { recorded: 2, failed: 0 })
+    m.catchUp.mockResolvedValue({ recorded: [{}], failed: ["template:x"] })
+    await runCollabDaily(CFG, log)
+    expect(log.warn).toHaveBeenCalledWith("backtest catch-up finished with failures", { recorded: 1, failed: 1, lineages: ["template:x"] })
+    m.catchUp.mockRejectedValue(new Error("db"))
+    expect((await runCollabDaily(CFG, log)).backtestCatchUp).toBeNull()
+    expect(log.error).toHaveBeenCalledWith("backtest catch-up failed", { error: "db" })
+  })
+
   it("warns when the run sweep stopped at its batch cap", async () => {
     m.planRuns.mockResolvedValue({ estimateRuns: { deleted: 200_000, more: true } })
     await runCollabDaily(CFG, log)
@@ -105,7 +120,10 @@ describe("runCollabDaily", () => {
     m.improvement.mockRejectedValue(new Error("kaizen"))
     m.planRuns.mockRejectedValue(new Error("runs"))
     const out2 = await runCollabDaily(CFG, log)
-    expect(out2).toEqual({ retention: null, notifyDue: null, chatRetention: null, improvementReminders: null, feedbackRecurrence: RECURRENCE, planRunRetention: null })
+    m.catchUp.mockRejectedValue(new Error("eval"))
+    const out3 = await runCollabDaily(CFG, log)
+    expect(out3).toEqual({ retention: null, notifyDue: null, chatRetention: null, improvementReminders: null, feedbackRecurrence: RECURRENCE, planRunRetention: null, backtestCatchUp: null })
+    expect(out2.backtestCatchUp).toEqual(expect.objectContaining({ recorded: expect.any(Number) }))
     expect(log.error).toHaveBeenCalledWith("plan estimate run retention failed", { error: "runs" })
     expect(log.error).toHaveBeenCalledWith("improvement check reminders failed", { error: "kaizen" })
     expect(log.error).toHaveBeenCalledWith("chat / ai job retention failed", { error: "chat" })

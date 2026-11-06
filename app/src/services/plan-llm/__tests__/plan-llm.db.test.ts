@@ -119,7 +119,11 @@ describe.skipIf(!enabled)("plan LLM assistance on a real database (KANFLOW_DB_TE
       await prisma.planActualsItem.create({ data: { snapshotId: snap.id, planItemId: `${p}-pi`, templateKey: `rev${i}`, name, templateDays: 10, plannedDays: 10, actualDays: actual, complete: true } })
     }
     await prisma.planScheduleLoad.create({ data: { projectId: ids.a, proposalId: `${tag}-prior`, lineage, scheduleHash: "c".repeat(64), content: schedule, startDate: d("2026-01-05") } })
-    await prisma.planEstimateEval.create({ data: { lineage, evaluatedOn: d("2026-10-01"), methodVersion: "e2-v1", n: 7, mape: 0.1, mapeTemplate: 0.4, p80Hit: 0.8, endErrorDays: 1, endErrorTemplateDays: 5 } })
+    // Computed from the current snapshots (else the gate treats it as outdated).
+    const inputHash = await (await import("@/services/plan-estimate-run/gate")).lineageInputHash(lineage)
+    await prisma.planEstimateEval.create({ data: { lineage, evaluatedOn: d("2026-10-01"), methodVersion: "e2-v1", n: 7, mape: 0.1, mapeTemplate: 0.4, p80Hit: 0.8, endErrorDays: 1, endErrorTemplateDays: 5, inputHash } })
+    // …and an administrator approved the lineage (plan 12 §8 item 6).
+    await prisma.planEstimateGateApproval.create({ data: { lineage, methodVersion: "e2-v1" } })
     // Rules: A's own confirmed rule with a quote, and a shared rule of project O (no quote; its name is O's text).
     await prisma.planLessonRule.create({
       data: { kind: "add_buffer", params: { afterKey: "review", days: 2 }, sourceProjectId: ids.a, state: "confirmed", quote: "自分の引用 OWNQUOTE", confirmedById: ids.u1, confirmedAt: d("2026-10-01") },
@@ -134,6 +138,7 @@ describe.skipIf(!enabled)("plan LLM assistance on a real database (KANFLOW_DB_TE
     const projects = [ids.a, ids.o, ids.dproj, ...ids.v, ...ids.h]
     await prisma.planEstimateHiddenState.deleteMany({ where: { unitKey: { contains: tag } } })
     await prisma.planEstimateEval.deleteMany({ where: { lineage } })
+    await prisma.planEstimateGateApproval.deleteMany({ where: { lineage } })
     await prisma.planEstimateRun.deleteMany({ where: { projectId: { in: projects } } })
     await prisma.planItemDependency.deleteMany({ where: { projectId: { in: projects } } }).catch(() => undefined)
     await prisma.planItem.deleteMany({ where: { projectId: { in: projects }, parentId: { not: null } } })

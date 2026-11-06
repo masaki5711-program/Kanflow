@@ -70,6 +70,7 @@ function entityHref(projectId: string, entityType: string | null, entityId: stri
     case "sprint":
       return `${base}/sprints?sprint=${id}`
     case "plan_item":
+    case "plan_estimate_lineage":
       return `${base}/plan`
     case "team_message":
       return `${base}/talk?message=${id}`
@@ -201,6 +202,10 @@ export function describeNotification(n: NotificationItem, t: Translations, langu
       break
     case "work_claim_ended":
       text = fillTemplate(str(p, "reason") === "moderator" ? t.notifWorkClaimEndedByModerator : t.notifWorkClaimSuperseded, { actor, label })
+      break
+    case "plan_estimate_worse":
+      // Never the internal lineage id: a name the recipient may see, or a neutral label.
+      text = fillTemplate(t.notifPlanEstimateWorse, { lineage: str(p, "lineageName") ?? t.notifPlanEstimateLineageUnnamed })
       break
     case "mentioned":
       text = fillTemplate(t.notifMentioned, { actor, label })
