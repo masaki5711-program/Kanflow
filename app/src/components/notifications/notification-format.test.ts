@@ -212,4 +212,14 @@ describe("background AI report notifications", () => {
     const mod = item("work_claim_ended", { entityLabel: "API", actorName: "PO", reason: "moderator" }, { entityType: "pbi", entityId: "b1" })
     expect(describeNotification(mod, ja, "ja").text).toBe("PO が「API」のあなたの作業の宣言を解除しました")
   })
+
+  it("plan_estimate_worse → the template's name (else the lineage), no numbers, opens the project's plan", () => {
+    const named = item("plan_estimate_worse", { lineage: "template:t1", lineageName: "製品開発", reason: "not_better_than_template" }, { entityType: "plan_estimate_lineage", entityId: "template:t1" })
+    const d = describeNotification(named, ja, "ja")
+    expect(d.text).toContain("「製品開発」")
+    expect(d.text).not.toMatch(/\d/)
+    expect(d.href).toBe("/projects/p1/plan")
+    const raw = item("plan_estimate_worse", { lineage: "name:手作り", lineageName: null }, { entityType: "plan_estimate_lineage", entityId: "name:手作り" })
+    expect(describeNotification(raw, ja, "ja").text).toContain("「name:手作り」")
+  })
 })

@@ -29,6 +29,11 @@ export interface BacktestProject {
   /** Optional per-leaf facts. */
   waitGapDays?: Readonly<Record<string, number>>
   loadObserved?: Readonly<Record<string, number>>
+  /**
+   * The project's observations as the estimate engine reads them in production (real actuals: through the use-time
+   * confidentiality check). When given they replace the ones derived from `schedule` + `actualDays`.
+   */
+  observations?: readonly Observation[]
 }
 
 export interface ErrorTotals {
@@ -67,6 +72,7 @@ function withDays(items: readonly BaseScheduleItem[], days: Readonly<Record<stri
 
 /** The observations a finished project contributes (complete, non-milestone leaves). */
 export function observationsOf(p: BacktestProject): Observation[] {
+  if (p.observations) return [...p.observations]
   return leavesOf(p.schedule.items).flatMap((leaf) => {
     const actual = p.actualDays[leaf.key]
     if (leaf.milestone || actual === undefined) return []
@@ -107,10 +113,18 @@ const totals = (a: Acc): ErrorTotals => ({
 })
 const add = (a: Acc, b: Acc): Acc => ({ leaves: a.leaves + b.leaves, absEst: a.absEst + b.absEst, absTpl: a.absTpl + b.absTpl, actual: a.actual + b.actual, hits: a.hits + b.hits })
 
-export function runBacktest(projects: readonly BacktestProject[], config?: Partial<EstimateConfig>): BacktestReport {
+/**
+ * `pool`: further observations the engine may learn from but that are not scored (production estimates read the
+ * lineage AND the project type, so a lineage's backtest learns from other lineages of the same type too). An
+ * observation of a scored project is never taken twice.
+ */
+export function runBacktest(projects: readonly BacktestProject[], config?: Partial<EstimateConfig>, pool: readonly Observation[] = []): BacktestReport {
   const cmp = (x: string, y: string) => (x < y ? -1 : x > y ? 1 : 0)
   const ordered = projects.toSorted((a, b) => cmp(a.closedAt, b.closedAt) || cmp(a.projectId, b.projectId))
-  const allObs = ordered.flatMap(observationsOf)
+  const scored = ordered.flatMap(observationsOf)
+  const seen = new Set(scored.map((o) => o.snapshotItemId))
+  const allObs = [...scored, ...pool.filter((o) => !seen.has(o.snapshotItemId))]
+  const poolProjects = new Set(allObs.map((o) => o.sourceProjectId))
   const results: BacktestProjectResult[] = []
   let overall = emptyAcc()
   const byRepo = new Map<string, Acc>()
@@ -126,7 +140,7 @@ export function runBacktest(projects: readonly BacktestProject[], config?: Parti
       projectType: p.projectType,
       attributes: p.attributes,
       referenceDate,
-      visibleProjectIds: new Set(projects.map((q) => q.projectId)),
+      visibleProjectIds: poolProjects,
       config,
     }, p.startDate)
     const acc = emptyAcc()

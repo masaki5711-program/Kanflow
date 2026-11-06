@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import type { Session } from "next-auth"
 import { requireAuth } from "@/lib/api-helpers"
-import { canConfirmLineageRule, canPseudonymizeActuals, type ProjectActor } from "./policy"
+import { canConfirmLineageRule, canManageEstimateGate, canPseudonymizeActuals, type ProjectActor } from "./policy"
 
 type SystemDecision = (actor: Pick<ProjectActor, "systemRole">) => boolean
 
@@ -23,4 +23,9 @@ export function requireLineageRuleConfirmer(): Promise<{ session: Session } | { 
 /** Pseudonymising actuals owners (plan 12 §4 / Q8): `canPseudonymizeActuals`. */
 export function requireActualsPseudonymizer(): Promise<{ session: Session } | { error: NextResponse }> {
   return requireSystemDecision(canPseudonymizeActuals)
+}
+
+/** The backtest of real actuals and the per-lineage approval (plan 12 §5 / §8 item 6): `canManageEstimateGate`. */
+export function requireEstimateGateManager(): Promise<{ session: Session } | { error: NextResponse }> {
+  return requireSystemDecision(canManageEstimateGate)
 }

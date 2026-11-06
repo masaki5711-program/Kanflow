@@ -2356,3 +2356,17 @@ model PlanEstimateEval {
   @@index([lineage, evaluatedOn(sort: Desc)])
   @@map("plan_estimate_eval")
 }
+
+/// An administrator's approval to propose durations from actuals for one lineage (plan 12 §8 item 6: real data turns
+/// the default on only after a person has looked at the backtest). Bound to the method version: a new method needs a
+/// new approval. Without a row the run keeps the template's durations even when the backtest passes.
+model PlanEstimateGateApproval {
+  lineage       String   @id @db.VarChar(200)
+  methodVersion String   @db.VarChar(16)
+  /// The backtest row the administrator saw when approving (kept as history; the gate reads the latest row).
+  evalId        String?  @db.VarChar(191)
+  approvedById  String?  @db.VarChar(191)
+  approvedAt    DateTime @default(now())
+
+  @@map("plan_estimate_gate_approval")
+}

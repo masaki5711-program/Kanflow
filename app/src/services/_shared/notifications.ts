@@ -46,6 +46,11 @@ export const NOTIFICATION_TYPES = [
    * Payload: entityLabel, actorName, reason.
    */
   "work_claim_ended",
+  /**
+   * The backtest of the estimate (plan 12 §5) got worse after actuals of the user's project were finalized: to the
+   * project's POs / SMs. No numbers (they are administrators' only). Payload: lineage, lineageName, reason.
+   */
+  "plan_estimate_worse",
 ] as const
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number]
 

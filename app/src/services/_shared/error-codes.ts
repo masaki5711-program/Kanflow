@@ -130,6 +130,11 @@ export const API_ERROR_CODES = [
   "PLAN_ESTIMATE_STALE",
   "PLAN_ESTIMATE_RUN_NOT_FOUND",
   "PLAN_LINEAGE_NOT_ALLOWED",
+  /** Backtest of real actuals (admin): none for the lineage / a newer one since it was shown / it does not pass. */
+  "PLAN_ESTIMATE_EVAL_NOT_FOUND",
+  "PLAN_ESTIMATE_EVAL_CHANGED",
+  "PLAN_ESTIMATE_EVAL_NOT_PASSING",
+  "PLAN_ESTIMATE_EVAL_TOO_MANY",
   // Files / folders
   "FILE_REQUIRED",
   "FILE_EMPTY",

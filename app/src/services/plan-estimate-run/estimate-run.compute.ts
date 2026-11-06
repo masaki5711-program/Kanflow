@@ -197,7 +197,7 @@ function rolesOf(items: readonly BaseScheduleItem[], inherited: string | null = 
 }
 
 /** The observation part of a fact: the owner fields stay behind. */
-function observationOf(f: LearnableFact): Observation {
+export function observationOf(f: LearnableFact): Observation {
   return {
     snapshotItemId: f.snapshotItemId,
     sourceProjectId: f.sourceProjectId,

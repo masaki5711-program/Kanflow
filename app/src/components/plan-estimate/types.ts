@@ -2,7 +2,7 @@
 import { fillTemplate } from "@/lib/fill-template"
 import type { Language, Translations } from "@/lib/i18n"
 
-export type GateReason = "no_backtest" | "not_enough_actuals" | "not_better_than_template" | "p80_out_of_range" | "end_error_worse"
+export type GateReason = "no_backtest" | "not_enough_actuals" | "not_better_than_template" | "p80_out_of_range" | "end_error_worse" | "not_approved"
 export type Band = "~3" | "4-9" | "10+"
 export type FeedbackKind = "too_high" | "too_low" | "rule_not_applicable" | "other"
 
@@ -92,6 +92,7 @@ export function gateReasonText(t: Translations, reason: GateReason): string {
     not_better_than_template: t.pesGateReason_not_better_than_template,
     p80_out_of_range: t.pesGateReason_p80_out_of_range,
     end_error_worse: t.pesGateReason_end_error_worse,
+    not_approved: t.pesGateReason_not_approved,
   }
   return map[reason]
 }

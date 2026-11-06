@@ -6,6 +6,7 @@ import {
   canConfirmLineageRule,
   canManageUserCapacity,
   canPseudonymizeActuals,
+  canManageEstimateGate,
   type ProjectAction,
   type ProjectActor,
 } from "@/lib/authz/policy"
@@ -151,5 +152,12 @@ describe("canPseudonymizeActuals()", () => {
   // plan 12 §4 / Q8: pseudonymising actuals owners is admins only (pseudonymize_denied_for_non_admin).
   it.each(ALL.map((persona) => ({ persona, allowed: persona === "admin" })))("$persona → $allowed", ({ persona, allowed }) => {
     expect(canPseudonymizeActuals(ACTORS[persona])).toBe(allowed)
+  })
+})
+
+describe("canManageEstimateGate()", () => {
+  // plan 12 §5 / §8 item 6: the backtest of real actuals and the per-lineage approval are admins only.
+  it.each(ALL.map((persona) => ({ persona, allowed: persona === "admin" })))("$persona → $allowed", ({ persona, allowed }) => {
+    expect(canManageEstimateGate(ACTORS[persona])).toBe(allowed)
   })
 })

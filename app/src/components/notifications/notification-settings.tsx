@@ -31,6 +31,7 @@ const TYPE_LABEL: Record<string, keyof Translations> = {
   improvement_check_due: "notifTypeImprovementCheckDue",
   git_pipeline_failed: "notifTypeGitPipelineFailed",
   work_claim_ended: "notifTypeWorkClaimEnded",
+  plan_estimate_worse: "notifTypePlanEstimateWorse",
 }
 
 /**

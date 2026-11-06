@@ -70,6 +70,8 @@ describe.skipIf(!enabled)("estimate runs on a real database (KANFLOW_DB_TESTS=1)
     for (const p of [ids.a, ids.b]) await prisma.planScheduleLoad.create({ data: { projectId: p, proposalId: `${tag}-prior-${p}`, lineage, scheduleHash: "c".repeat(64), content: schedule, startDate: d("2026-01-05") } })
     // The lineage's backtest passes: the estimate is on.
     await prisma.planEstimateEval.create({ data: { lineage, evaluatedOn: d("2026-10-01"), methodVersion: "e2-v1", n: 7, mape: 0.1, mapeTemplate: 0.4, p80Hit: 0.8, endErrorDays: 1, endErrorTemplateDays: 5 } })
+    // …and an administrator approved the lineage (plan 12 §8 item 6).
+    await prisma.planEstimateGateApproval.create({ data: { lineage, methodVersion: "e2-v1" } })
   })
 
   afterAll(async () => {
@@ -77,6 +79,7 @@ describe.skipIf(!enabled)("estimate runs on a real database (KANFLOW_DB_TESTS=1)
     const projects = [ids.a, ids.b, ...ids.sources]
     await prisma.planEstimateHiddenState.deleteMany({ where: { unitKey: { contains: tag } } })
     await prisma.planEstimateEval.deleteMany({ where: { lineage } })
+    await prisma.planEstimateGateApproval.deleteMany({ where: { lineage } })
     await prisma.planEstimateRun.deleteMany({ where: { projectId: { in: projects } } })
     await prisma.planItemDependency.deleteMany({ where: { projectId: { in: projects } } }).catch(() => undefined)
     await prisma.planItem.deleteMany({ where: { projectId: { in: projects }, parentId: { not: null } } })
