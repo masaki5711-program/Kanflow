@@ -24,7 +24,7 @@ agent model (edge, PFE, Tier-2, ZEVA-Engine) do not apply to Kanflow.
   (integration API), 11 (M3 plan, K1–K4), 12 (schedule from actuals, E0–E6).
   Index and decisions: `references/README.md`, `references/decisions.md`.
 - **Production is Ver2 since 2026-11-05** (v1 detached the same day): folder
-  `D:\APP\KanflowV2` (detached tag `v2-prod-20261105`), service `KanflowV2`
+  `D:\APP\KanflowV2` (detached at the latest `v2-prod-*` tag; `git -C D:/APP/KanflowV2 describe --tags`), service `KanflowV2`
   on :3000, PostgreSQL container `kanflow-v2-pg` (127.0.0.1:25440, DB
   `scrum_tool`), secrets `C:\KanflowV2Secrets`. v1 (`D:\APP\Kanflow`, service
   `Kanflow` set to Manual, MySQL) is stopped and kept only for rollback.
