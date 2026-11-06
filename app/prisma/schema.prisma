@@ -50,6 +50,8 @@ model User {
   capacities        MemberCapacity[]
   capacityAudits    MemberCapacityAudit[]    @relation("MemberCapacityAuditSubject")
   capacityAuditsBy  MemberCapacityAudit[]    @relation("MemberCapacityAuditActor")
+  estimateGateApprovals PlanEstimateGateApproval[] @relation("PlanEstimateGateApprovedBy")
+  estimateGateEnds      PlanEstimateGateApproval[] @relation("PlanEstimateGateEndedBy")
   estimateRuns      PlanEstimateRun[]        @relation("PlanEstimateRunCreatedBy")
   estimateFeedback  PlanEstimateFeedback[]   @relation("PlanEstimateFeedbackBy")
   /// Merge request links declared through a dev:write token.
@@ -2351,7 +2353,15 @@ model PlanEstimateEval {
   p80Hit               Float
   endErrorDays         Float
   endErrorTemplateDays Float
+  /// Finished projects of the lineage that could not be scored (no loaded schedule, unreadable schedule, no leaf
+  /// with an actual and template days). Null on rows written before it was recorded.
+  skipped              Int?
+  /// sha256 of the lineage's learnable snapshots (id + version) the row was computed from: the gate treats a row whose
+  /// hash differs from the current one as outdated. Null on rows written before it was recorded (= outdated).
+  inputHash            String?  @db.Char(64)
   createdAt            DateTime @default(now())
+
+  approvals PlanEstimateGateApproval[]
 
   @@index([lineage, evaluatedOn(sort: Desc)])
   @@map("plan_estimate_eval")
@@ -2359,14 +2369,27 @@ model PlanEstimateEval {
 
 /// An administrator's approval to propose durations from actuals for one lineage (plan 12 §8 item 6: real data turns
 /// the default on only after a person has looked at the backtest). Bound to the method version: a new method needs a
-/// new approval. Without a row the run keeps the template's durations even when the backtest passes.
+/// new approval. Without an active row the run keeps the template's durations even when the backtest passes.
+/// Rows are never deleted (history): withdrawing or a failing backtest ends the row (endedAt); a new approval is a new
+/// row. UNIQUE NULLS NOT DISTINCT (lineage, endedAt) in the migration: at most one active approval per lineage.
 model PlanEstimateGateApproval {
-  lineage       String   @id @db.VarChar(200)
-  methodVersion String   @db.VarChar(16)
-  /// The backtest row the administrator saw when approving (kept as history; the gate reads the latest row).
-  evalId        String?  @db.VarChar(191)
-  approvedById  String?  @db.VarChar(191)
-  approvedAt    DateTime @default(now())
+  id            String    @id @default(cuid())
+  lineage       String    @db.VarChar(200)
+  methodVersion String    @db.VarChar(16)
+  /// The backtest row the administrator saw when approving.
+  evalId        String?   @db.VarChar(191)
+  approvedById  String?
+  approvedAt    DateTime  @default(now())
+  endedAt       DateTime?
+  endedById     String?
+  /// withdrawn (an administrator) | failed (the latest backtest no longer passes) | method (a new method version)
+  endReason     String?   @db.VarChar(16)
 
+  eval       PlanEstimateEval? @relation(fields: [evalId], references: [id], onDelete: SetNull)
+  approvedBy User?             @relation("PlanEstimateGateApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  endedBy    User?             @relation("PlanEstimateGateEndedBy", fields: [endedById], references: [id], onDelete: SetNull)
+
+  @@unique([lineage, endedAt], map: "plan_estimate_gate_approval_one_active_key")
+  @@index([lineage, approvedAt(sort: Desc)])
   @@map("plan_estimate_gate_approval")
 }

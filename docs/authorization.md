@@ -336,7 +336,8 @@ bodies are size-bounded (413). Editing a template never changes plans already lo
 - The backtest of the estimate on real actuals and the per-lineage approval of "実績で調整"
   (`/admin/plan-estimate-eval`, `GET|POST /api/admin/plan-estimate-eval`, `POST /api/admin/plan-estimate-eval/approval`) are
   **system admins only** (`canManageEstimateGate`): the numbers are exact (unbanded) and span every project of the lineage.
-  A PO / SM is only notified that the result got worse (`plan_estimate_worse`, no numbers).
+  A PO / SM is only notified when their change turned an approved lineage off (`plan_estimate_worse`): no numbers, no
+  reason, and a template's name only when the template is public.
 
 ## REST API and access tokens (P4, 2026-10; scopes 2026-10-30)
 

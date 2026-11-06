@@ -21,7 +21,7 @@ const post = (body: unknown) => new Request("http://x/api/admin/plan-estimate-ev
 beforeEach(() => {
   vi.clearAllMocks()
   m.list.mockResolvedValue(OVERVIEW)
-  m.recordAll.mockResolvedValue([])
+  m.recordAll.mockResolvedValue({ recorded: [], failed: [] })
 })
 
 describe("admin estimate eval routes (canManageEstimateGate)", () => {
@@ -43,10 +43,12 @@ describe("admin estimate eval routes (canManageEstimateGate)", () => {
   it("GET lists; POST recomputes every lineage, then lists", async () => {
     m.auth.mockResolvedValue({ user: { id: "a", role: "admin" } })
     expect(await (await route.GET()).json()).toEqual(OVERVIEW)
+    m.recordAll.mockResolvedValue({ recorded: [], failed: ["template:bad"] })
     const res = await route.POST()
     expect(res.status).toBe(200)
     expect(m.recordAll).toHaveBeenCalledTimes(1)
-    expect(await res.json()).toEqual(OVERVIEW)
+    // Lineages that failed are named; the others were still computed.
+    expect(await res.json()).toEqual({ ...OVERVIEW, failed: ["template:bad"] })
   })
 
   it("approves the record the admin saw, as the admin; withdraws", async () => {

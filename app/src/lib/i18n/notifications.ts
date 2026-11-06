@@ -30,6 +30,7 @@ export interface NotificationsTranslations {
   notifWorkClaimSuperseded: string
   notifWorkClaimEndedByModerator: string
   notifPlanEstimateWorse: string
+  notifPlanEstimateLineageUnnamed: string
   notifMentioned: string
   notifComment: string
   notifUnknown: string
@@ -92,7 +93,8 @@ export const ja: NotificationsTranslations = {
   notifGitPipelineFailed: "「{label}」のマージリクエスト !{mr} のパイプラインが失敗しました",
   notifWorkClaimSuperseded: "「{label}」のあなたの作業の宣言は期限切れのため、{actor} の宣言に置き換わりました",
   notifWorkClaimEndedByModerator: "{actor} が「{label}」のあなたの作業の宣言を解除しました",
-  notifPlanEstimateWorse: "「{lineage}」の見積もりの、過去の計画での検証の成績が下がりました（数字は管理者が確認できます）",
+  notifPlanEstimateLineageUnnamed: "この計画の系統",
+  notifPlanEstimateWorse: "「{lineage}」の計画で、実績での見直しが止まりました。過去の計画での検証が条件を満たさなくなったためで、テンプレートの期間に戻ります",
   notifMentioned: "{actor} さんが「{label}」のコメントであなたをメンションしました",
   notifComment: "{actor} さんが「{label}」にコメントしました",
   notifUnknown: "新しいお知らせがあります",
@@ -121,7 +123,7 @@ export const ja: NotificationsTranslations = {
   notifTypeImprovementCheckDue: "改善成果の定着確認の期限が来たとき（改善オーナー）",
   notifTypeGitPipelineFailed: "担当 PBI のマージリクエストでパイプラインが失敗したとき",
   notifTypeWorkClaimEnded: "自分の作業の宣言（AI セッション）が、期限切れで置き換わったときや PO / SM に解除されたとき",
-  notifTypePlanEstimateWorse: "実績を確定した後、見積もりの検証の成績が下がったとき（PO / SM）",
+  notifTypePlanEstimateWorse: "実績を確定した後、計画の実績での見直しが止まったとき（PO / SM）",
   notifTabsLabel: "通知の絞り込み",
   notifTabAll: "すべて",
   notifTabPersonal: "メンション・自分宛",
@@ -155,7 +157,8 @@ export const en: NotificationsTranslations = {
   notifGitPipelineFailed: "The pipeline of merge request !{mr} for \"{label}\" failed",
   notifWorkClaimSuperseded: "Your stale work claim on \"{label}\" was superseded by {actor}'s claim",
   notifWorkClaimEndedByModerator: "{actor} released your work claim on \"{label}\"",
-  notifPlanEstimateWorse: "The check of the estimate against past plans got worse for \"{lineage}\" (administrators can see the numbers)",
+  notifPlanEstimateLineageUnnamed: "this plan's lineage",
+  notifPlanEstimateWorse: "Revising from actuals stopped for \"{lineage}\": the check against past plans no longer meets the conditions, so the template's durations are used",
   notifMentioned: "{actor} mentioned you in a comment on “{label}”",
   notifComment: "{actor} commented on “{label}”",
   notifUnknown: "You have a new notification",
@@ -184,7 +187,7 @@ export const en: NotificationsTranslations = {
   notifTypeImprovementCheckDue: "When a sustainment check of an improvement is due (improvement owner)",
   notifTypeGitPipelineFailed: "When a pipeline fails on a merge request of a PBI you work on",
   notifTypeWorkClaimEnded: "When your work claim (AI session) is superseded after going stale or released by a PO / SM",
-  notifTypePlanEstimateWorse: "When the check of the estimate gets worse after actuals are finalized (PO / SM)",
+  notifTypePlanEstimateWorse: "When revising plans from actuals stops after actuals are finalized (PO / SM)",
   notifTabsLabel: "Filter notifications",
   notifTabAll: "All",
   notifTabPersonal: "Mentions & for me",
@@ -218,7 +221,8 @@ export const id: NotificationsTranslations = {
   notifGitPipelineFailed: "Pipeline merge request !{mr} untuk \"{label}\" gagal",
   notifWorkClaimSuperseded: "Klaim pekerjaan Anda yang kedaluwarsa pada \"{label}\" digantikan oleh klaim {actor}",
   notifWorkClaimEndedByModerator: "{actor} melepas klaim pekerjaan Anda pada \"{label}\"",
-  notifPlanEstimateWorse: "Hasil uji estimasi terhadap rencana sebelumnya memburuk untuk \"{lineage}\" (administrator dapat melihat angkanya)",
+  notifPlanEstimateLineageUnnamed: "lini rencana ini",
+  notifPlanEstimateWorse: "Peninjauan dari realisasi untuk \"{lineage}\" dihentikan: pengujian terhadap rencana sebelumnya tidak lagi memenuhi syarat, sehingga durasi templat dipakai",
   notifMentioned: "{actor} menyebut Anda dalam komentar di “{label}”",
   notifComment: "{actor} mengomentari “{label}”",
   notifUnknown: "Ada notifikasi baru",
@@ -247,7 +251,7 @@ export const id: NotificationsTranslations = {
   notifTypeImprovementCheckDue: "Saat pengecekan keberlanjutan perbaikan jatuh tempo (pemilik perbaikan)",
   notifTypeGitPipelineFailed: "Saat pipeline gagal pada merge request PBI yang Anda kerjakan",
   notifTypeWorkClaimEnded: "Saat klaim pekerjaan Anda (sesi AI) digantikan setelah kedaluwarsa atau dilepas oleh PO / SM",
-  notifTypePlanEstimateWorse: "Saat hasil uji estimasi memburuk setelah aktual difinalisasi (PO / SM)",
+  notifTypePlanEstimateWorse: "Saat peninjauan rencana dari realisasi berhenti setelah realisasi difinalisasi (PO / SM)",
   notifTabsLabel: "Saring notifikasi",
   notifTabAll: "Semua",
   notifTabPersonal: "Sebutan & untuk saya",

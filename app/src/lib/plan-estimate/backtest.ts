@@ -131,6 +131,7 @@ export function runBacktest(projects: readonly BacktestProject[], config?: Parti
   const byLineage = new Map<string, Acc>()
   let endEst = 0
   let endTpl = 0
+  let scoredProjects = 0
 
   for (const p of ordered) {
     const referenceDate = referenceDateOf(p.startDate)
@@ -158,8 +159,12 @@ export function runBacktest(projects: readonly BacktestProject[], config?: Parti
     const actualEnd = planBaseSchedule({ ...p.schedule, items: withDays(p.schedule.items, p.actualDays) }, p.startDate).plannedEnd
     const errEst = Math.abs(dayNumber(estimate.p50End) - dayNumber(actualEnd))
     const errTpl = Math.abs(dayNumber(estimate.templateEnd) - dayNumber(actualEnd))
-    endEst += errEst
-    endTpl += errTpl
+    // Averaged over the scored projects only, so the end-date error and the leaf errors describe the same n.
+    if (acc.leaves > 0) {
+      endEst += errEst
+      endTpl += errTpl
+      scoredProjects++
+    }
     overall = add(overall, acc)
     byRepo.set(String(p.repoCount), add(byRepo.get(String(p.repoCount)) ?? emptyAcc(), acc))
     byLineage.set(p.lineage, add(byLineage.get(p.lineage) ?? emptyAcc(), acc))
@@ -180,8 +185,8 @@ export function runBacktest(projects: readonly BacktestProject[], config?: Parti
     overall: {
       ...o,
       mapeRatio: o.mapeTemplate > 0 ? o.mapeEstimate / o.mapeTemplate : 1,
-      endErrorEstimateDays: ordered.length > 0 ? endEst / ordered.length : 0,
-      endErrorTemplateDays: ordered.length > 0 ? endTpl / ordered.length : 0,
+      endErrorEstimateDays: scoredProjects > 0 ? endEst / scoredProjects : 0,
+      endErrorTemplateDays: scoredProjects > 0 ? endTpl / scoredProjects : 0,
     },
     byRepoCount: Object.fromEntries([...byRepo].map(([k, a]) => [k, totals(a)])),
     byLineage: Object.fromEntries([...byLineage].map(([k, a]) => [k, totals(a)])),

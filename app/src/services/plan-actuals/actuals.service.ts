@@ -151,27 +151,30 @@ export interface FinalizeInput {
  * be half-seen. Finalizing is done when the work is over (edits then are rare), and re-finalizing replaces the record.
  * Pseudonymisation does not take this lock either: a finalize that commits during a pseudonymisation of a retired
  * user keeps that owner — run it again afterwards (it is idempotent).
+ *
+ * After the commit, the backtest of the lineage (and of the replaced snapshot's lineage, when a re-finalize moved the
+ * project to another one) is queued (plan 12 §5 "継続"); the response does not wait for it.
  */
-/**
- * After the transaction (plan 12 §5 "継続"): re-run the lineage's backtest and tell the PO / SM when it got worse.
- * Best effort and loaded lazily (it reads the estimate engine); never fails the change that already committed.
- */
-async function afterLearningChange(projectId: string, lineage: string, actor: Actor): Promise<void> {
-  try {
-    const { afterActualsChange } = await import("@/services/plan-estimate-eval/eval.service")
-    await afterActualsChange(projectId, lineage, actor.userId)
-  } catch (err) {
-    log.error("backtest after an actuals change could not start", { projectId, lineage, error: err instanceof Error ? err.message.slice(0, 300) : String(err).slice(0, 300) })
-  }
-}
-
 export async function finalizeActuals(projectId: string, input: FinalizeInput, actor: Actor): Promise<SnapshotDto> {
-  const { dto, lineage } = await finalizeInTransaction(projectId, input, actor)
-  await afterLearningChange(projectId, lineage, actor)
+  const { dto, lineages } = await finalizeInTransaction(projectId, input, actor)
+  for (const lineage of lineages) await queueBacktest(projectId, lineage, actor)
   return dto
 }
 
-function finalizeInTransaction(projectId: string, input: FinalizeInput, actor: Actor): Promise<{ dto: SnapshotDto; lineage: string }> {
+/**
+ * Queue the lineage's backtest (services/plan-estimate-eval, loaded lazily: it reads the estimate engine). Never fails
+ * the change that already committed: until the backtest is recorded the gate treats the lineage as outdated.
+ */
+async function queueBacktest(projectId: string, lineage: string, actor: Actor): Promise<void> {
+  try {
+    const { enqueueAfterActualsChange } = await import("@/services/plan-estimate-eval/eval.service")
+    enqueueAfterActualsChange(projectId, lineage, actor.userId)
+  } catch (err) {
+    log.error("backtest after an actuals change could not be queued; the lineage stays outdated until an admin recomputes", { projectId, lineage, error: err instanceof Error ? (err.stack ?? err.message).slice(0, 1000) : String(err).slice(0, 300) })
+  }
+}
+
+function finalizeInTransaction(projectId: string, input: FinalizeInput, actor: Actor): Promise<{ dto: SnapshotDto; lineages: string[] }> {
   return withTransaction(
     async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`plan_actuals:${projectId}`}))`
@@ -188,7 +191,7 @@ function finalizeInTransaction(projectId: string, input: FinalizeInput, actor: A
         throw new ValidationError("実績に確かめてほしい項目があります", { issues: c.issues }, "PLAN_ACTUALS_INCOMPLETE")
       }
 
-      const previous = await tx.planActualsSnapshot.findFirst({ where: { projectId, supersededAt: null }, select: { id: true, firstFinalizedAt: true } })
+      const previous = await tx.planActualsSnapshot.findFirst({ where: { projectId, supersededAt: null }, select: { id: true, firstFinalizedAt: true, lineage: true } })
       if (previous) await tx.planActualsSnapshot.update({ where: { id: previous.id }, data: { supersededAt: now } })
 
       const snapshot = await tx.planActualsSnapshot.create({
@@ -267,7 +270,7 @@ function finalizeInTransaction(projectId: string, input: FinalizeInput, actor: A
         changes: { planActuals: { from: null, to: "finalize" } },
         meta: { snapshotId: snapshot.id, supersedes: previous?.id ?? null, leaves: c.items.length, complete: completeCount, issues: c.issues.length },
       })
-      return { dto: toSnapshotDto(snapshot, c.items.length, completeCount), lineage: c.lineage }
+      return { dto: toSnapshotDto(snapshot, c.items.length, completeCount), lineages: [...new Set([c.lineage, ...(previous ? [previous.lineage] : [])])] }
     },
     { timeout: FINALIZE_TIMEOUT_MS },
   )
@@ -282,7 +285,7 @@ export interface LearningSwitchInput {
 /** PO / SM switch the CURRENT snapshot in or out of learning (with a reason, audited). Version-guarded. */
 export async function setIncludeInLearning(projectId: string, snapshotId: string, input: LearningSwitchInput, actor: Actor): Promise<SnapshotDto> {
   const dto = await switchInTransaction(projectId, snapshotId, input, actor)
-  await afterLearningChange(projectId, dto.lineage, actor)
+  await queueBacktest(projectId, dto.lineage, actor)
   return dto
 }
 

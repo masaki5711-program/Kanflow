@@ -13,17 +13,25 @@
 2. **管理者が有効にした**: 管理 → 「見積もりの検証」（`/admin/plan-estimate-eval`）で、条件を満たした系統の「有効にする」を押す
    （計画 12 §8 の 6: 本物のデータで既定を有効にするのは、人が成績を見てから）。有効にしたのは見積もりの方式の版ごとで、方式が変わると
    もう一度有効にする必要がある。
+3. **その記録が今の実績から計算されている**: 記録の後に実績の確定・学習の切り替えがあると、再計算が終わるまで「再計算待ち」になり、
+   テンプレートの期間を使う（計算が遅れても失敗しても、古い「有効」のまま案を作らない）。
 
-どちらかが欠けると、案はテンプレートの期間のままで、カードに理由が出る（反省点の規則と負荷の平準化は効く）。
+どれかが欠けると、案はテンプレートの期間のままで、カードに理由が出る（反省点の規則と負荷の平準化は効く）。
+
+**有効のあと**: 後の検証が条件を満たさなくなると、その時点で**自動で無効になる**（もう一度条件を満たしても、管理者がもう一度見て
+有効にするまで戻らない）。有効・無効の履歴は消さずに残る（`plan_estimate_gate_approval`: 誰が有効にしたか、無効にしたか、なぜ終わったか）。
 
 ### 検証はいつ計算されるか
 
-- **実績を確定したとき** と **学習に含める / 含めないを切り替えたとき**、その系統について自動で（`services/plan-estimate-eval/eval.service.ts`
-  `afterActualsChange`）。確定の処理そのものは先に終わっていて、検証の失敗で確定が失敗することはない（ログに
-  `backtest after an actuals change failed` が出て、前の記録のまま）。
-- **管理者が「計算し直す」を押したとき**、確定した実績のあるすべての系統について（500 系統まで。超えると断る）。
-- 成績が下がったら（条件を満たしていたのが満たさなくなった、または誤差の比が 0.1 以上悪くなった）、確定したプロジェクトの PO / SM に
-  通知が届く（`plan_estimate_worse`。**数字は入れない** — 数字は管理者だけが見る）。
+- **実績を確定したとき** と **学習に含める / 含めないを切り替えたとき**、その系統について自動で（再確定で系統が変わったときは前の系統も）。
+  確定の応答は待たず、Web の中で順番に（1 度に 1 系統、同じ系統の続けての変更はまとめて 1 回）計算する
+  （`services/plan-estimate-eval/eval.service.ts` `enqueueAfterActualsChange`）。失敗はログ
+  `backtest after an actuals change failed; …` に出て、その系統は「再計算待ち」のまま（＝テンプレートの期間）。「計算し直す」でやり直せる。
+- **管理者が「計算し直す」を押したとき**、確定した実績のあるすべての系統について（500 系統まで。超えると断る）。1 系統の失敗で
+  止まらず、失敗した数を画面に出す。
+- 系統ごとの書き込みは順番に行い（同時に計算しても、古いデータの結果が新しい記録として残らない）、計算の途中で実績が変わった結果は捨てる。
+- **有効だった系統が自動で無効になったら**、その変更をしたプロジェクトの PO / SM に通知が届く（`plan_estimate_worse`）。
+  **数字も理由も入れない**（数字は管理者だけが見る。理由は案のカードに出る）。テンプレートの名前は公開のテンプレートのときだけ入る。
 
 ### 検証に入るプロジェクト
 
@@ -53,6 +61,9 @@
 | 症状 | 見るところ |
 |---|---|
 | 「実績での見直しがまだ使えません（管理者がまだ有効にしていません）」 | 管理画面で条件を満たしていれば「有効にする」 |
+| 「…（実績が確定された後の検証の計算がまだ終わっていません）」 | 数秒〜数十秒で終わる。続くときはログの `backtest after an actuals change failed` を見て、管理画面の「計算し直す」 |
+| 有効にしたのに無効に戻った | 管理画面のその系統に「自動で無効になりました」。後の検証が条件を満たさなくなった。成績を見て、もう一度有効にするか決める |
+| 「対象外 n 件」が多い | ログの `backtest left projects or leaves out` に理由（`no_loaded_schedule` / `schedule_unreadable` / `schedule_invalid` / `no_scored_leaf`）とプロジェクトが出る |
 | 系統の件数が思ったより少ない | 手で作った全体計画、学習に含めないにした実績、作り直されたスナップショットは入らない |
 | 特定の葉だけ大きく伸びた | 根拠でその葉の段と件数。出典の実績に入力の誤り（日付の打ち間違い）がないか。外れ値（3 MAD）は除かれるが、件数が少ないと効かない |
 | 承認で「作り直してください」（`PLAN_ESTIMATE_STALE`） | 案を作った後に、実績の確定・規則の確定・稼働量・テンプレートのどれかが変わった。案を作り直す |
@@ -66,7 +77,10 @@
 | `plan-estimate-run` | `estimate run loaded` | 案を全体計画に入れた |
 | `plan-estimate-run` | `estimate run refused on approval` | 承認の時に古くなっていた（`reason`） |
 | `plan-estimate-eval` | `backtest recorded` | 系統の検証を記録した（`lineage`・`n`・`skipped`・`passes`・`reason`） |
-| `plan-estimate-eval` | `backtest after an actuals change failed; …` | 確定の後の検証に失敗（確定は成功している）。「計算し直す」でやり直せる |
+| `plan-estimate-eval` | `backtest left projects or leaves out` | 検証に入らなかったプロジェクト・葉と理由（warn） |
+| `plan-estimate-eval` | `backtest result discarded: …` | 計算の途中で実績が変わったので捨てた（次の計算が記録する） |
+| `plan-estimate-eval` | `backtest after an actuals change failed; …` | 確定の後の検証に失敗（確定は成功している）。系統は「再計算待ち」。「計算し直す」でやり直せる |
+| `plan-estimate-eval` | `estimate from actuals turned off for a lineage` | 有効だった系統が自動で無効になった（`endReason`: `failed` / `method`） |
 | `plan-estimate-eval` | `estimate from actuals approved / withdrawn for a lineage` | 管理者が有効 / 無効にした（`lineage`・`actorId`） |
 | `plan-llm` | `plan llm call failed; deterministic path` | LLM の時間切れ・停止。決定的な部分に戻った |
 
@@ -78,6 +92,6 @@
 | 表 | 中身 | 保持 |
 |---|---|---|
 | `plan_estimate_run` | 案（入力のハッシュ・根拠・カード） | 作ってから 1 年（毎日の処理で消す） |
-| `plan_estimate_eval` | 系統ごとの検証の記録（計算のたびに 1 行。ゲートは最新の行を読む） | 消さない（小さい） |
-| `plan_estimate_gate_approval` | 系統ごとの管理者の有効化（方式の版つき） | 無効にすると消える |
+| `plan_estimate_eval` | 系統ごとの検証の記録（計算のたびに 1 行。ゲートは最新の行を読む。`inputHash` で今の実績からの計算かを見る） | 消さない（1 行 100 バイトほど） |
+| `plan_estimate_gate_approval` | 系統ごとの管理者の有効化と、その終わり（無効にした・自動で無効・方式の変更） | 消さない（履歴） |
 | `plan_estimate_hidden_state` | 見えない出典の保持状態 | **消さない**（数字から見えない出典が漏れるのを防ぐ。`references/decisions.md`） |

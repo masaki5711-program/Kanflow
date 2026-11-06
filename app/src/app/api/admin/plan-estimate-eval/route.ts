@@ -15,14 +15,17 @@ export async function GET() {
   }
 }
 
-/** Recompute the backtest of every lineage with current actuals (admins). → EvalOverview */
+/**
+ * Recompute the backtest of every lineage with current actuals (admins). Each lineage on its own: one that fails is
+ * named in `failed` and the others are still computed. → EvalOverview & { failed: string[] }
+ */
 export async function POST() {
   const gate = await requireEstimateGateManager()
   if ("error" in gate) return gate.error
 
   try {
-    await recordAllLineages()
-    return jsonResponse(await listLineageEvals())
+    const { failed } = await recordAllLineages()
+    return jsonResponse({ ...(await listLineageEvals()), failed })
   } catch (error) {
     return toHttpResponse(error, { fallback: "見積もりの検証の計算に失敗しました", context: "Admin estimate eval RECOMPUTE" })
   }

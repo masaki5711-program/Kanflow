@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
  *
  * Scenario: seven finished projects of one lineage, one a month in 2025, each loaded from the same schedule (build 10
  * days, then test 3 days); build always took 15, test 3. An eighth finished project has no loaded schedule. Project
- * P1 has a PO who is told when the backtest gets worse.
+ * P1 has a PO who is told when estimates from actuals are turned off by its change. The tests run in order.
  */
 const enabled = process.env.KANFLOW_DB_TESTS === "1"
 const d = (s: string) => new Date(`${s}T00:00:00.000Z`)
@@ -29,11 +29,14 @@ describe.skipIf(!enabled)("backtest on real actuals (KANFLOW_DB_TESTS=1)", () =>
       { key: "test", name: "試験", durationDays: 3, dependsOn: ["build"] },
     ],
   }
+  const passingRow = { methodVersion: "e2-v1", n: 7, mape: 0.1, mapeTemplate: 0.4, p80Hit: 0.8, endErrorDays: 1, endErrorTemplateDays: 5 }
 
   let prisma: typeof import("@/lib/prisma").prisma
   let evalSvc: typeof import("../eval.service")
   let adminSvc: typeof import("../admin.service")
   let gate: typeof import("@/services/plan-estimate-run/gate")
+  const view = async () => (await adminSvc.listLineageEvals()).lineages.find((l) => l.lineage === lineage)
+  const rows = () => prisma.planEstimateEval.count({ where: { lineage } })
 
   beforeAll(async () => {
     prisma = (await import("@/lib/prisma")).prisma
@@ -45,10 +48,8 @@ describe.skipIf(!enabled)("backtest on real actuals (KANFLOW_DB_TESTS=1)", () =>
     await prisma.projectMember.create({ data: { projectId: projects[0], userId: po, role: "po" } })
     for (const [i, p] of projects.entries()) {
       const month = String(i + 1).padStart(2, "0")
-      const withLoad = i < 7
-      const load = withLoad
-        ? await prisma.planScheduleLoad.create({ data: { projectId: p, proposalId: `${tag}-load-${i}`, lineage, scheduleHash: "d".repeat(64), content: schedule, startDate: d(`2025-${month}-01`) } })
-        : null
+      const load =
+        i < 7 ? await prisma.planScheduleLoad.create({ data: { projectId: p, proposalId: `${tag}-load-${i}`, lineage, scheduleHash: "d".repeat(64), content: schedule, startDate: d(`2025-${month}-01`) } }) : null
       const snap = await prisma.planActualsSnapshot.create({
         data: { projectId: p, projectType: ptype, lineage, scheduleLoadId: load?.id ?? null, closedAt: d(`2025-${month}-20`), firstFinalizedAt: d(`2025-${month}-21`), finalizedAt: d(`2025-${month}-21`), methodVersion: "e1-v1" },
       })
@@ -59,9 +60,10 @@ describe.skipIf(!enabled)("backtest on real actuals (KANFLOW_DB_TESTS=1)", () =>
 
   afterAll(async () => {
     if (!prisma) return
+    await evalSvc?.settleQueuedBacktests()
     await prisma.notification.deleteMany({ where: { recipientId: { in: [po, admin] } } })
-    await prisma.planEstimateEval.deleteMany({ where: { lineage } })
     await prisma.planEstimateGateApproval.deleteMany({ where: { lineage } })
+    await prisma.planEstimateEval.deleteMany({ where: { lineage } })
     await prisma.planActualsSnapshot.deleteMany({ where: { projectId: { in: projects } } })
     await prisma.planScheduleLoad.deleteMany({ where: { projectId: { in: projects } } })
     await prisma.projectMember.deleteMany({ where: { projectId: { in: projects } } })
@@ -69,10 +71,10 @@ describe.skipIf(!enabled)("backtest on real actuals (KANFLOW_DB_TESTS=1)", () =>
     await prisma.user.deleteMany({ where: { id: { in: [po, admin] } } })
   })
 
-  it("scores every finished project with a loaded schedule, oldest first, and skips the one without", async () => {
+  it("scores every finished project with a loaded schedule, oldest first; the one without is a counted skip", async () => {
     const b = await evalSvc.backtestLineage(lineage)
     expect(b.scored).toBe(7)
-    expect(b.skipped).toBe(1)
+    expect(b.skips).toEqual([{ projectId: projects[7], reason: "no_loaded_schedule" }])
     expect(b.report.projects.map((p) => p.projectId)).toEqual(projects.slice(0, 7))
     // The first project has nothing before it: its estimate is the template.
     expect(b.report.projects[0].priorObservations).toBe(0)
@@ -83,53 +85,90 @@ describe.skipIf(!enabled)("backtest on real actuals (KANFLOW_DB_TESTS=1)", () =>
     expect(last.mapeEstimate).toBeLessThan(last.mapeTemplate)
   })
 
-  it("records one row per run with the current method; the gate reads it", async () => {
+  it("records one row of the current snapshots (n, skipped, inputHash)", async () => {
     const r = await evalSvc.recordLineageBacktest(lineage, { now: NOW })
+    expect(r.written).toBe(true)
     const row = await gate.latestEval(lineage)
-    expect(row).toMatchObject({ n: 7, mape: r.record.mape, mapeTemplate: r.record.mapeTemplate, p80Hit: r.record.p80Hit })
+    expect(row).toMatchObject({ n: 7, skipped: 1, mape: r.record.mape, inputHash: await gate.lineageInputHash(lineage) })
     expect(row?.evaluatedOn.toISOString().slice(0, 10)).toBe("2026-11-06")
-    // Not approved: whatever the numbers say, durations from actuals stay off.
+    // Not approved: durations from actuals stay off whatever the numbers say.
     expect((await gate.gateFor(lineage)).on).toBe(false)
   })
 
-  it("tells the PO / SM when it got worse — without numbers — and nobody when it did not", async () => {
-    // A previous record that was much better (passing, error ratio 0).
-    await prisma.planEstimateEval.create({ data: { lineage, evaluatedOn: d("2026-11-06"), methodVersion: "e2-v1", n: 7, mape: 0, mapeTemplate: 0.4, p80Hit: 0.8, endErrorDays: 0, endErrorTemplateDays: 5 } })
-    const worse = await evalSvc.afterActualsChange(projects[0], lineage, null, { now: NOW })
-    expect(worse?.worse).toBe(true)
-    const notes = await prisma.notification.findMany({ where: { recipientId: po, type: "plan_estimate_worse" } })
-    expect(notes).toHaveLength(1)
-    expect(notes[0].projectId).toBe(projects[0])
-    const payload = JSON.parse(notes[0].payload ?? "{}") as Record<string, unknown>
-    expect(Object.keys(payload).sort()).toEqual(["lineage", "lineageName", "reason"])
-    // Same result again: not worse than itself, no second notification.
-    const again = await evalSvc.afterActualsChange(projects[0], lineage, null, { now: NOW })
-    expect(again?.worse).toBe(false)
-    expect(await prisma.notification.count({ where: { recipientId: po, type: "plan_estimate_worse" } })).toBe(1)
+  it("a learning switch after the record makes it outdated until recomputed", async () => {
+    await prisma.planActualsSnapshot.updateMany({ where: { projectId: projects[6], supersededAt: null }, data: { version: { increment: 1 } } })
+    expect((await view())?.outdated).toBe(true)
+    await evalSvc.recordLineageBacktest(lineage, { now: NOW })
+    expect((await view())?.outdated).toBe(false)
   })
 
-  it("an administrator approves only the passing record they saw; the gate turns on, withdrawing turns it off", async () => {
-    // A newer, failing record first: cannot be approved.
-    const failing = await prisma.planEstimateEval.create({ data: { lineage, evaluatedOn: d("2030-01-01"), methodVersion: "e2-v1", n: 2, mape: 0.1, mapeTemplate: 0.4, p80Hit: 0.8, endErrorDays: 1, endErrorTemplateDays: 5 } })
+  it("an admin approves only the passing, current record they saw; history is kept on withdraw and on a new method", async () => {
+    const hash = await gate.lineageInputHash(lineage)
+    const failing = await prisma.planEstimateEval.create({ data: { ...passingRow, lineage, evaluatedOn: d("2030-01-01"), n: 2, inputHash: hash } })
     await expect(adminSvc.approveLineage(lineage, failing.id, admin)).rejects.toMatchObject({ code: "PLAN_ESTIMATE_EVAL_NOT_PASSING" })
-    const passing = await prisma.planEstimateEval.create({ data: { lineage, evaluatedOn: d("2030-01-02"), methodVersion: "e2-v1", n: 7, mape: 0.1, mapeTemplate: 0.4, p80Hit: 0.8, endErrorDays: 1, endErrorTemplateDays: 5 } })
+    const passing = await prisma.planEstimateEval.create({ data: { ...passingRow, lineage, evaluatedOn: d("2030-01-02"), inputHash: hash } })
     // The record shown is no longer the latest.
     await expect(adminSvc.approveLineage(lineage, failing.id, admin)).rejects.toMatchObject({ code: "PLAN_ESTIMATE_EVAL_CHANGED" })
     expect(await gate.gateFor(lineage)).toEqual({ on: false, reason: "not_approved" })
 
     await adminSvc.approveLineage(lineage, passing.id, admin)
     expect(await gate.gateFor(lineage)).toEqual({ on: true, reason: null })
-    const view = (await adminSvc.listLineageEvals()).lineages.find((l) => l.lineage === lineage)
-    expect(view).toMatchObject({ passes: true, on: true, latest: { id: passing.id, n: 7 }, approval: { approvedByName: admin } })
+    expect(await view()).toMatchObject({ passes: true, on: true, outdated: false, latest: { id: passing.id, n: 7 }, approval: { approvedByName: admin } })
+    // Approving again is a no-op.
+    await adminSvc.approveLineage(lineage, passing.id, admin)
+    expect(await prisma.planEstimateGateApproval.count({ where: { lineage } })).toBe(1)
 
-    // An approval of another method version does not count.
-    await prisma.planEstimateGateApproval.update({ where: { lineage }, data: { methodVersion: "e2-v0" } })
+    // An approval of another method version does not count; approving again replaces it (kept as history).
+    await prisma.planEstimateGateApproval.updateMany({ where: { lineage, endedAt: null }, data: { methodVersion: "e2-v0" } })
     expect((await gate.gateFor(lineage)).reason).toBe("not_approved")
     await adminSvc.approveLineage(lineage, passing.id, admin)
+    expect(await gate.gateFor(lineage)).toEqual({ on: true, reason: null })
 
     await adminSvc.withdrawLineage(lineage, admin)
     expect(await gate.gateFor(lineage)).toEqual({ on: false, reason: "not_approved" })
-    // Idempotent.
-    await adminSvc.withdrawLineage(lineage, admin)
+    expect((await view())?.lastEnded?.reason).toBe("withdrawn")
+    await adminSvc.withdrawLineage(lineage, admin) // idempotent
+    const history = await prisma.planEstimateGateApproval.findMany({ where: { lineage }, orderBy: { approvedAt: "asc" }, select: { endReason: true, endedById: true } })
+    expect(history).toEqual([
+      { endReason: "method", endedById: admin },
+      { endReason: "withdrawn", endedById: admin },
+    ])
+
+    // A snapshot change makes the approved record outdated: it cannot be approved, and the gate fails closed.
+    await adminSvc.approveLineage(lineage, passing.id, admin)
+    await prisma.planActualsSnapshot.updateMany({ where: { projectId: projects[6], supersededAt: null }, data: { version: { increment: 1 } } })
+    expect(await gate.gateFor(lineage)).toEqual({ on: false, reason: "backtest_outdated" })
+    await prisma.planEstimateGateApproval.updateMany({ where: { lineage, endedAt: null }, data: { endedAt: new Date(), endReason: "withdrawn" } })
+    await expect(adminSvc.approveLineage(lineage, passing.id, admin)).rejects.toMatchObject({ code: "PLAN_ESTIMATE_EVAL_CHANGED" })
+  })
+
+  it("a backtest that stops passing ends the approval and tells the changed project's PO / SM — no numbers, no reason", async () => {
+    const passing = await prisma.planEstimateEval.create({ data: { ...passingRow, lineage, evaluatedOn: d("2030-02-01"), inputHash: await gate.lineageInputHash(lineage) } })
+    await adminSvc.approveLineage(lineage, passing.id, admin)
+    // Three projects leave learning: four remain, below the five the gate needs.
+    await prisma.planActualsSnapshot.updateMany({ where: { projectId: { in: projects.slice(0, 3) }, supersededAt: null }, data: { includeInLearning: false } })
+    const r = await evalSvc.afterActualsChange(lineage, new Map([[projects[0], null]]), { now: new Date("2031-01-01T03:00:00.000Z") })
+    expect(r).toMatchObject({ written: true, approvalEnded: true, gate: { on: false, reason: "not_enough_actuals" } })
+    expect((await view())?.lastEnded?.reason).toBe("failed")
+    const notes = await prisma.notification.findMany({ where: { recipientId: po, type: "plan_estimate_worse" } })
+    expect(notes).toHaveLength(1)
+    expect(notes[0].projectId).toBe(projects[0])
+    expect(JSON.parse(notes[0].payload ?? "{}")).toEqual({ lineageName: null })
+    // Nothing more to end: no second notification.
+    const again = await evalSvc.afterActualsChange(lineage, new Map([[projects[0], null]]), { now: new Date("2031-01-01T04:00:00.000Z") })
+    expect(again?.approvalEnded).toBe(false)
+    expect(await prisma.notification.count({ where: { recipientId: po, type: "plan_estimate_worse" } })).toBe(1)
+  })
+
+  it("queued changes of one lineage are coalesced into one run, after the response", async () => {
+    await prisma.planActualsSnapshot.updateMany({ where: { projectId: { in: projects.slice(0, 3) } }, data: { includeInLearning: true } })
+    const before = await rows()
+    evalSvc.enqueueAfterActualsChange(projects[0], lineage, null)
+    evalSvc.enqueueAfterActualsChange(projects[1], lineage, null)
+    await evalSvc.settleQueuedBacktests()
+    expect(await rows()).toBe(before + 1)
+    // The newest row is of the current snapshots (the rows seeded above are dated later, so `view` shows those).
+    const newest = await prisma.planEstimateEval.findFirst({ where: { lineage }, orderBy: { createdAt: "desc" }, select: { inputHash: true } })
+    expect(newest?.inputHash).toBe(await gate.lineageInputHash(lineage))
   })
 })

@@ -119,7 +119,9 @@ describe.skipIf(!enabled)("plan LLM assistance on a real database (KANFLOW_DB_TE
       await prisma.planActualsItem.create({ data: { snapshotId: snap.id, planItemId: `${p}-pi`, templateKey: `rev${i}`, name, templateDays: 10, plannedDays: 10, actualDays: actual, complete: true } })
     }
     await prisma.planScheduleLoad.create({ data: { projectId: ids.a, proposalId: `${tag}-prior`, lineage, scheduleHash: "c".repeat(64), content: schedule, startDate: d("2026-01-05") } })
-    await prisma.planEstimateEval.create({ data: { lineage, evaluatedOn: d("2026-10-01"), methodVersion: "e2-v1", n: 7, mape: 0.1, mapeTemplate: 0.4, p80Hit: 0.8, endErrorDays: 1, endErrorTemplateDays: 5 } })
+    // Computed from the current snapshots (else the gate treats it as outdated).
+    const inputHash = await (await import("@/services/plan-estimate-run/gate")).lineageInputHash(lineage)
+    await prisma.planEstimateEval.create({ data: { lineage, evaluatedOn: d("2026-10-01"), methodVersion: "e2-v1", n: 7, mape: 0.1, mapeTemplate: 0.4, p80Hit: 0.8, endErrorDays: 1, endErrorTemplateDays: 5, inputHash } })
     // …and an administrator approved the lineage (plan 12 §8 item 6).
     await prisma.planEstimateGateApproval.create({ data: { lineage, methodVersion: "e2-v1" } })
     // Rules: A's own confirmed rule with a quote, and a shared rule of project O (no quote; its name is O's text).

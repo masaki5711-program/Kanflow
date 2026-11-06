@@ -204,7 +204,8 @@ export function describeNotification(n: NotificationItem, t: Translations, langu
       text = fillTemplate(str(p, "reason") === "moderator" ? t.notifWorkClaimEndedByModerator : t.notifWorkClaimSuperseded, { actor, label })
       break
     case "plan_estimate_worse":
-      text = fillTemplate(t.notifPlanEstimateWorse, { lineage: str(p, "lineageName") ?? str(p, "lineage") ?? t.notifUntitled })
+      // Never the internal lineage id: a name the recipient may see, or a neutral label.
+      text = fillTemplate(t.notifPlanEstimateWorse, { lineage: str(p, "lineageName") ?? t.notifPlanEstimateLineageUnnamed })
       break
     case "mentioned":
       text = fillTemplate(t.notifMentioned, { actor, label })

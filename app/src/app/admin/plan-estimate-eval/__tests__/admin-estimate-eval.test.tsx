@@ -21,8 +21,8 @@ vi.mock("@/components/ui", async (orig) => ({
 const { AdminEstimateEval } = await import("../admin-estimate-eval")
 const t = getTranslations("ja")
 
-const rec = { id: "e1", evaluatedOn: "2026-11-06", n: 7, mape: 0.1, mapeTemplate: 0.4, p80Hit: 0.8, endErrorDays: 1, endErrorTemplateDays: 5 }
-const line = (over: Partial<LineageEval>): LineageEval => ({ lineage: "template:t1", name: "製品開発", latest: rec, passes: true, reason: null, approval: null, on: false, ...over })
+const rec = { id: "e1", evaluatedOn: "2026-11-06", n: 7, skipped: 1, mape: 0.1, mapeTemplate: 0.4, p80Hit: 0.8, endErrorDays: 1, endErrorTemplateDays: 5 }
+const line = (over: Partial<LineageEval>): LineageEval => ({ lineage: "template:t1", name: "製品開発", latest: rec, outdated: false, passes: true, reason: null, approval: null, lastEnded: null, on: false, ...over })
 const overview = (lineages: LineageEval[]): EvalOverview => ({ methodVersion: "e2-v1", conditions: { minProjects: 5, mapeRatio: 0.85, p80Range: [0.7, 0.9] }, lineages })
 const loaded = (data: EvalOverview) => m.query.mockReturnValue({ data, isLoading: false, error: null, refetch: m.refetch, mutate: m.mutate })
 
@@ -30,14 +30,17 @@ beforeEach(() => vi.clearAllMocks())
 
 describe("/admin/plan-estimate-eval", () => {
   it("shows each lineage's numbers with the condition in words, and the state", () => {
-    loaded(overview([line({}), line({ lineage: "name:手作り", name: null, latest: { ...rec, id: "e2", n: 2 }, passes: false, reason: "not_enough_actuals" })]))
+    loaded(overview([line({}), line({ lineage: "schedule:abc def", name: null, latest: { ...rec, id: "e2", n: 2 }, passes: false, reason: "not_enough_actuals" })]))
     render(<AdminEstimateEval />)
     const ready = screen.getByRole("article", { name: "製品開発" })
     expect(within(ready).getByText(t.peeAdminStateReady)).toBeInTheDocument()
     expect(within(ready).getByText("10%")).toBeInTheDocument()
     expect(within(ready).getAllByText(t.peeAdminMet)).toHaveLength(4)
+    expect(within(ready).getByText("対象外 1 件")).toBeInTheDocument()
     expect(within(ready).getByRole("button", { name: t.peeAdminApprove })).toBeInTheDocument()
-    const off = screen.getByRole("article", { name: "name:手作り" })
+    // A lineage with a space and no name: a neutral heading (the id is a secondary line), still a named article.
+    const off = screen.getByRole("article", { name: t.peeAdminUnnamed })
+    expect(within(off).getByText(/schedule:abc def/)).toBeInTheDocument()
     expect(within(off).getByText(t.peeAdminStateOff)).toBeInTheDocument()
     expect(within(off).getAllByText(t.peeAdminNotMet).length).toBeGreaterThan(0)
     expect(within(off).getByText(/理由:/)).toBeInTheDocument()
@@ -45,6 +48,35 @@ describe("/admin/plan-estimate-eval", () => {
     expect(within(off).queryByRole("button", { name: t.peeAdminApprove })).toBeNull()
     // The thresholds come from the API, not the page.
     expect(screen.getByText(/5 件以上/)).toBeInTheDocument()
+  })
+
+  it("an outdated record cannot be approved and says why; an ended approval says how it ended", () => {
+    loaded(overview([line({ outdated: true, lastEnded: { endedAt: "2026-11-06T03:00:00Z", reason: "failed" } })]))
+    render(<AdminEstimateEval />)
+    expect(screen.getByText(t.peeAdminStateOutdated)).toBeInTheDocument()
+    expect(screen.getByText(t.peeAdminOutdated)).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: t.peeAdminApprove })).toBeNull()
+    expect(screen.getByText(/自動で無効になりました/)).toBeInTheDocument()
+  })
+
+  it("moves the focus to the card's heading after approving (its button was replaced)", async () => {
+    loaded(overview([line({})]))
+    m.confirm.mockResolvedValue(true)
+    m.fetch.mockResolvedValue(overview([line({ on: true, approval: { approvedAt: "2026-11-06T03:00:00Z", approvedByName: "Admin" } })]))
+    const { rerender } = render(<AdminEstimateEval />)
+    await userEvent.click(screen.getByRole("button", { name: t.peeAdminApprove }))
+    loaded(overview([line({ on: true, approval: { approvedAt: "2026-11-06T03:00:00Z", approvedByName: "Admin" } })]))
+    rerender(<AdminEstimateEval />)
+    expect(screen.getByRole("heading", { level: 2, name: "製品開発" })).toHaveFocus()
+  })
+
+  it("a recompute where some lineages failed says how many", async () => {
+    loaded(overview([line({})]))
+    m.fetch.mockResolvedValue({ ...overview([line({})]), failed: ["a", "b"] })
+    render(<AdminEstimateEval />)
+    await userEvent.click(screen.getByRole("button", { name: t.peeAdminRecompute }))
+    expect(m.error).toHaveBeenCalledWith("2 系統の計算に失敗しました。ほかの系統は計算しました")
+    expect(m.success).not.toHaveBeenCalled()
   })
 
   it("approves after confirming, sending the record id that was shown", async () => {
