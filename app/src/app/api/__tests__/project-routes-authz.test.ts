@@ -201,6 +201,7 @@ const ROUTES: RouteCase[] = [
   { file: "git/knowledge/route.ts", load: () => import("@/app/api/projects/[projectId]/git/knowledge/route"), params: {} },
   { file: "git/links/route.ts", load: () => import("@/app/api/projects/[projectId]/git/links/route"), params: {} },
   { file: "git/mr-approvals/route.ts", load: () => import("@/app/api/projects/[projectId]/git/mr-approvals/route"), params: {} },
+  { file: "git/mr-approvals/awaiting/route.ts", load: () => import("@/app/api/projects/[projectId]/git/mr-approvals/awaiting/route"), params: {} },
   { file: "git/mr-approvals/start/route.ts", load: () => import("@/app/api/projects/[projectId]/git/mr-approvals/start/route"), params: {} },
   { file: "git/mr-approvals/[attemptId]/complete/route.ts", load: () => import("@/app/api/projects/[projectId]/git/mr-approvals/[attemptId]/complete/route"), params: { attemptId: "a-1" } },
   { file: "git/new-mrs/route.ts", load: () => import("@/app/api/projects/[projectId]/git/new-mrs/route"), params: {} },

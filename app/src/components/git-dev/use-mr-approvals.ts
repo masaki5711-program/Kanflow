@@ -18,8 +18,22 @@ export interface MrApprovalsView {
   refetch: () => void
 }
 
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null
+export const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null
 const trial = (v: unknown) => (isRecord(v) && typeof v.allowed === "boolean" ? { allowed: v.allowed, reason: typeof v.reason === "string" ? v.reason : null } : { allowed: false, reason: null })
+
+/** Pure: one item of a `/git/mr-approvals` body → item (anything unexpected → null). */
+export function toMrApprovalItem(i: unknown): MrApprovalItem | null {
+  if (!isRecord(i) || typeof i.linkId !== "string" || typeof i.iid !== "number") return null
+  return {
+    linkId: i.linkId,
+    iid: i.iid,
+    headSha: typeof i.headSha === "string" ? i.headSha : null,
+    approvals: typeof i.approvals === "number" ? i.approvals : null,
+    approvedByMe: i.approvedByMe === true,
+    canApprove: trial(i.canApprove),
+    canUnapprove: trial(i.canUnapprove),
+  }
+}
 
 /** Pure: `/git/mr-approvals` body → result (anything unexpected → not supported). */
 export function toMrApprovals(raw: unknown): MrApprovalsResult {
@@ -27,21 +41,10 @@ export function toMrApprovals(raw: unknown): MrApprovalsResult {
     const reason = isRecord(raw) && raw.reason === "no_employee_number" ? "no_employee_number" : "off"
     return { supported: false, reason }
   }
-  const items = Array.isArray(raw.items)
-    ? raw.items.flatMap((i): MrApprovalItem[] =>
-        isRecord(i) && typeof i.linkId === "string" && typeof i.iid === "number"
-          ? [{
-              linkId: i.linkId,
-              iid: i.iid,
-              headSha: typeof i.headSha === "string" ? i.headSha : null,
-              approvals: typeof i.approvals === "number" ? i.approvals : null,
-              approvedByMe: i.approvedByMe === true,
-              canApprove: trial(i.canApprove),
-              canUnapprove: trial(i.canUnapprove),
-            }]
-          : [],
-      )
-    : []
+  const items = Array.isArray(raw.items) ? raw.items.flatMap((i): MrApprovalItem[] => {
+        const item = toMrApprovalItem(i)
+        return item ? [item] : []
+      }) : []
   const failed = Array.isArray(raw.failed) ? raw.failed.filter((f): f is string => typeof f === "string") : []
   return { supported: true, items, failed }
 }

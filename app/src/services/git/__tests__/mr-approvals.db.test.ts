@@ -17,7 +17,7 @@ const enabled = process.env.KANFLOW_DB_TESTS === "1"
 
 describe.skipIf(!enabled)("MR approvals through GitStation act-as on a real database (KANFLOW_DB_TESTS=1)", () => {
   const tag = `k4test-${Date.now().toString(36)}`
-  const ids = { project: `${tag}-p`, repo: `${tag}-r`, pbi: `${tag}-b`, alice: `${tag}-alice`, bob: `${tag}-bob`, carol: `${tag}-carol`, link1: `${tag}-l1`, link2: `${tag}-l2` }
+  const ids = { project: `${tag}-p`, repo: `${tag}-r`, pbi: `${tag}-b`, pbi2: `${tag}-b2`, alice: `${tag}-alice`, bob: `${tag}-bob`, carol: `${tag}-carol`, link1: `${tag}-l1`, link2: `${tag}-l2` }
   /** Employee numbers (synthetic): Alice reviews, Bob authored MR !1, Carol has no number. */
   const ALICE = `A${tag.replace(/[^a-z0-9]/gi, "").slice(-8)}`
   const BOB = `B${tag.replace(/[^a-z0-9]/gi, "").slice(-8)}`
@@ -53,6 +53,7 @@ describe.skipIf(!enabled)("MR approvals through GitStation act-as on a real data
     await prisma.project.create({ data: { id: ids.project, name: ids.project } })
     await prisma.gitIntegration.create({ data: { projectId: ids.project, enabled: true, provider: "gitstation", stationIntegrationId: ACT_INTEGRATION, tokenCipher: seal(ACT_TOKEN) } })
     await prisma.productBacklogItem.create({ data: { id: ids.pbi, projectId: ids.project, displayId: 4, initiative: "synthetic" } })
+    await prisma.productBacklogItem.create({ data: { id: ids.pbi2, projectId: ids.project, displayId: 5, initiative: "synthetic" } })
     await prisma.gitRepository.create({ data: { id: ids.repo, projectId: ids.project, name: ACT_REPO, webUrl: `${ACT_STATION}/${ACT_REPO}`, apiBase: ACT_STATION, repoPath: ACT_REPO } })
     const link = (id: string, iid: number) => ({ id, projectId: ids.project, repositoryId: ids.repo, backlogItemId: ids.pbi, kind: "mr", ref: String(iid), title: `MR ${iid} (PBI-4)`, url: `${ACT_STATION}/-/projects/12/pull/${iid}`, state: "opened", occurredAt: new Date("2026-11-08T00:00:00Z") })
     await prisma.gitLink.createMany({ data: [link(ids.link1, 1), link(ids.link2, 2)] })
@@ -64,7 +65,7 @@ describe.skipIf(!enabled)("MR approvals through GitStation act-as on a real data
     await prisma.gitLink.deleteMany({ where: { projectId: ids.project } })
     await prisma.gitRepository.deleteMany({ where: { projectId: ids.project } })
     await prisma.gitIntegration.deleteMany({ where: { projectId: ids.project } })
-    await prisma.productBacklogItem.deleteMany({ where: { id: ids.pbi } })
+    await prisma.productBacklogItem.deleteMany({ where: { id: { in: [ids.pbi, ids.pbi2] } } })
     await prisma.project.deleteMany({ where: { id: ids.project } })
     await prisma.user.deleteMany({ where: { id: { in: [ids.alice, ids.bob, ids.carol] } } })
   })
@@ -76,6 +77,7 @@ describe.skipIf(!enabled)("MR approvals through GitStation act-as on a real data
     station.person(BOB, 42)
     station.mergeRequest(1, BOB)
     station.mergeRequest(2, ALICE)
+    service.forgetAwaitingMrApprovals()
     await prisma.gitMrApprovalAttempt.deleteMany({ where: { projectId: ids.project } })
   })
 
@@ -228,5 +230,93 @@ describe.skipIf(!enabled)("MR approvals through GitStation act-as on a real data
     expect(await service.completeMrApproval(ids.project, ids.alice, w.attemptId, deps())).toEqual({ outcome: "withdrawn", counted: false })
     expect(writes().map((q) => q.path)).toEqual(["/projects/12/merge-requests/1/approve", "/projects/12/merge-requests/1/unapprove"])
     expect(station.approvers(1)).toEqual([])
+  })
+  describe("承認を待っている MR (dashboard)", () => {
+    const statusReads = () => station.requests.filter((q) => q.path.endsWith("/status")).length
+    const awaiting = async (userId: string, d = deps()) => {
+      const r = await service.getAwaitingMrApprovals(ids.project, userId, d)
+      if (!r.supported) throw new Error(`expected supported, got ${r.reason}`)
+      return r
+    }
+
+    it("lists only what the user can approve now: not their own MR, not one they approved, with the PBI", async () => {
+      const r = await awaiting(ids.alice)
+      // MR !2 is Alice's own (self_approval): not listed.
+      expect(r.items).toEqual([expect.objectContaining({ linkId: ids.link1, iid: 1, pbiId: ids.pbi, pbiKey: "PBI-4", pbiDisplayId: 4, title: "MR 1 (PBI-4)", approvedByMe: false, canApprove: { allowed: true, reason: null }, approvals: null })])
+      expect(r.failed).toEqual([])
+      // Bob authored !1 and may approve Alice's !2.
+      expect((await awaiting(ids.bob)).items.map((i) => i.iid)).toEqual([2])
+    })
+
+    it("excludes a merge request GitStation refuses for the role", async () => {
+      station.person(ALICE, 41, false)
+      expect((await awaiting(ids.alice)).items).toEqual([])
+    })
+
+    it("serves the same answer for 60 s without reading GitStation, then reads again", async () => {
+      expect((await awaiting(ids.alice)).items).toHaveLength(1)
+      const reads = statusReads()
+      station.person(ALICE, 41, false)
+      t = new Date(t.getTime() + service.AWAITING_CACHE_TTL_MS - 1)
+      expect((await awaiting(ids.alice)).items).toHaveLength(1)
+      expect(statusReads()).toBe(reads)
+      t = new Date(t.getTime() + 2)
+      expect((await awaiting(ids.alice)).items).toEqual([])
+      expect(statusReads()).toBeGreaterThan(reads)
+    })
+
+    it("drops the user's cached answer when they approve through Kanflow (the approved MR leaves the list)", async () => {
+      expect((await awaiting(ids.alice)).items.map((i) => i.iid)).toEqual([1])
+      expect((await awaiting(ids.bob)).items.map((i) => i.iid)).toEqual([2])
+      const bobReads = statusReads()
+      const started = await service.startMrApproval(ids.project, ids.alice, { linkId: ids.link1, intent: "approve" }, deps())
+      station.press(started.confirmUrl, ALICE)
+      await service.completeMrApproval(ids.project, ids.alice, started.attemptId, deps())
+      // Same instant (inside the 60 s): Alice's answer is read again, Bob's is still the cached one.
+      expect((await awaiting(ids.alice)).items).toEqual([])
+      const afterAlice = statusReads()
+      expect(afterAlice).toBeGreaterThan(bobReads)
+      expect((await awaiting(ids.bob)).items.map((i) => i.iid)).toEqual([2])
+      expect(statusReads()).toBe(afterAlice)
+    })
+
+    it("is not supported without an employee number (no GitStation read)", async () => {
+      expect(await service.getAwaitingMrApprovals(ids.project, ids.carol, deps())).toEqual({ supported: false, reason: "no_employee_number" })
+      expect(statusReads()).toBe(0)
+    })
+
+    it("reads at most 20 merge requests (newest first), 4 at a time, locating the repository once", async () => {
+      const extra = Array.from({ length: 22 }, (_, i) => 101 + i)
+      for (const iid of extra) station.mergeRequest(iid, BOB)
+      await prisma.gitLink.createMany({
+        data: extra.map((iid) => ({ id: `${tag}-x${iid}`, projectId: ids.project, repositoryId: ids.repo, backlogItemId: ids.pbi2, kind: "mr", ref: String(iid), title: `MR ${iid} (PBI-5)`, url: `${ACT_STATION}/-/projects/12/pull/${iid}`, state: "opened", occurredAt: new Date(Date.UTC(2026, 10, 9, 0, iid)) })),
+      })
+      try {
+        let inFlight = 0
+        let peak = 0
+        const real = station.fetchImpl
+        const counting: typeof fetch = async (input, init) => {
+          const isStatus = String(input).endsWith("/status")
+          if (isStatus) peak = Math.max(peak, ++inFlight)
+          try {
+            await new Promise((r) => setTimeout(r, 1))
+            return await real(input, init)
+          } finally {
+            if (isStatus) inFlight--
+          }
+        }
+        const countingDeps = { ...deps(), clientFactory: (o: { apiBase: string; token: string; integrationId: string }) => createGitStationClient({ ...o, fetchImpl: counting, sleep: async () => undefined }) }
+        const r = await awaiting(ids.alice, countingDeps)
+        expect(statusReads()).toBe(service.MAX_AWAITING_READ)
+        expect(peak).toBeLessThanOrEqual(service.STATUS_READS_AT_ONCE)
+        expect(peak).toBeGreaterThan(1)
+        expect(station.requests.filter((q) => q.path === "/namespaces/resolve")).toHaveLength(1)
+        // The 20 newest (iid 122 down to 103), PBI-4's older MRs not read.
+        expect(r.items.map((i) => i.iid)).toEqual(extra.slice(2).reverse())
+        expect(r.items[0]).toMatchObject({ pbiId: ids.pbi2, pbiKey: "PBI-5" })
+      } finally {
+        await prisma.gitLink.deleteMany({ where: { id: { in: extra.map((iid) => `${tag}-x${iid}`) } } })
+      }
+    })
   })
 })

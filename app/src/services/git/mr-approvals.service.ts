@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto"
+import type { Prisma } from "@/generated/prisma/client"
 import { prisma } from "@/lib/prisma"
 import { logger } from "@/lib/logger"
 import { open, seal } from "@/lib/secret-box"
@@ -37,6 +38,14 @@ const PURGE_AFTER_MS = 24 * 60 * 60_000
 export const MAX_MRS_READ = 10
 /** Attempts one user may have open at once (each is a GitStation confirmation). */
 const MAX_OPEN_ATTEMPTS = 20
+/** Open merge requests of the project whose state is read for the dashboard (newest first). */
+export const MAX_AWAITING_READ = 20
+/** Status reads in flight at once (one dashboard load must not burst GitStation). */
+export const STATUS_READS_AT_ONCE = 4
+/** The dashboard is opened often: one user's answer for one project is reused this long. */
+export const AWAITING_CACHE_TTL_MS = 60_000
+/** Cached answers kept at most (the oldest goes first). */
+const AWAITING_CACHE_MAX = 500
 
 export interface MrApprovalDeps {
   clientFactory?: GitStationClientFactory
@@ -141,6 +150,90 @@ function toServiceError(e: unknown, context: Record<string, unknown>): Error {
 
 const CLOSED: ActAsTrial = { allowed: false, reason: null }
 
+type StationIntegration = NonNullable<Awaited<ReturnType<typeof stationIntegration>>["integration"]>
+type LinkWithRepository = Prisma.GitLinkGetPayload<{ include: { repository: true } }>
+
+/** `fn` over `items`, at most `limit` at a time; the results in the order of `items`. */
+async function mapLimit<T, R>(items: readonly T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array<R>(items.length)
+  let next = 0
+  const worker = async (): Promise<void> => {
+    while (next < items.length) {
+      const i = next++
+      out[i] = await fn(items[i])
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+  return out
+}
+
+/**
+ * The approval state of `links` as the person (`employeeNumber`): each repository is located once, then every
+ * merge request's status is read as the person, at most STATUS_READS_AT_ONCE at a time. A merge request whose
+ * state cannot be read is listed in `failed` and logged once here (never fatal). `counts` optionally reads the
+ * live approval counts of one repository (extra information: a failure only drops the count).
+ */
+async function readApprovalStates(
+  projectId: string,
+  integration: StationIntegration,
+  links: readonly LinkWithRepository[],
+  employeeNumber: string,
+  factory: GitStationClientFactory,
+  counts?: (station: Station) => Promise<Map<string, number | null>>,
+): Promise<{ items: Map<string, MrApprovalItem>; failed: string[] }> {
+  const items = new Map<string, MrApprovalItem>()
+  const failed: string[] = []
+  const byRepo = new Map<string, LinkWithRepository[]>()
+  for (const l of links) byRepo.set(l.repositoryId, [...(byRepo.get(l.repositoryId) ?? []), l])
+  const reads: { link: LinkWithRepository; station: Station; stationProjectId: number; approvals: Map<string, number | null> }[] = []
+  for (const group of byRepo.values()) {
+    let station: Station
+    let stationProjectId: number
+    try {
+      station = stationFor(projectId, integration, group[0].repository, factory)
+      stationProjectId = await station.stationProjectId()
+    } catch (e) {
+      log.warn("gitstation approval state unreadable", { projectId, repositoryId: group[0].repositoryId, error: e instanceof Error ? e.message : String(e) })
+      failed.push(...group.map((l) => l.id))
+      continue
+    }
+    let approvals = new Map<string, number | null>()
+    if (counts) {
+      try {
+        approvals = await counts(station)
+      } catch (e) {
+        // The count is extra information: without it the buttons still work.
+        log.warn("gitstation approval count unreadable", { projectId, repositoryId: group[0].repositoryId, error: e instanceof Error ? e.message : String(e) })
+      }
+    }
+    for (const link of group) reads.push({ link, station, stationProjectId, approvals })
+  }
+  await mapLimit(reads, STATUS_READS_AT_ONCE, async ({ link, station, stationProjectId, approvals }) => {
+    const iid = Number(link.ref)
+    if (!Number.isSafeInteger(iid) || iid <= 0) return
+    try {
+      const status = await station.client.mergeRequestStatusAs(stationProjectId, iid, employeeNumber)
+      if (!status.open) return
+      const actAs = status.actAs
+      items.set(link.id, {
+        linkId: link.id,
+        iid,
+        headSha: status.headSha,
+        approvals: approvals.get(`${stationProjectId}!${iid}`) ?? null,
+        approvedByMe: status.approvedByMe,
+        // No head yet: nothing can be approved. No act-as answer: nothing is offered (fail closed).
+        canApprove: status.headSha && actAs ? actAs.canApprove : CLOSED,
+        canUnapprove: status.headSha && actAs ? actAs.canUnapprove : CLOSED,
+      })
+    } catch (e) {
+      const reason = e instanceof GitStationError && e.detail.errorCode === "FG-INT-0006" ? "identity" : "unreadable"
+      log.warn("gitstation approval state unreadable", { projectId, linkId: link.id, reason, kind: e instanceof GitStationError ? e.kind : undefined, errorCode: e instanceof GitStationError ? e.detail.errorCode : undefined })
+      failed.push(link.id)
+    }
+  })
+  return { items, failed }
+}
+
 /**
  * Per open GitStation merge request of the PBI: what the signed-in user could do through GitStation (with a
  * confirmation) and the live approval count. A merge request whose state cannot be read is listed in `failed`
@@ -160,57 +253,81 @@ export async function getMrApprovals(projectId: string, pbiId: string, userId: s
     take: MAX_MRS_READ,
   })
   const factory = deps.clientFactory ?? defaultGitStationClientFactory
-  const items: MrApprovalItem[] = []
-  const failed: string[] = []
-  const byRepo = new Map<string, typeof links>()
-  for (const l of links) byRepo.set(l.repositoryId, [...(byRepo.get(l.repositoryId) ?? []), l])
-  for (const group of byRepo.values()) {
-    let station: Station
-    let approvals = new Map<string, number | null>()
-    let stationProjectId: number
-    try {
-      station = stationFor(projectId, integration, group[0].repository, factory)
-      stationProjectId = await station.stationProjectId()
-    } catch (e) {
-      log.warn("gitstation approval state unreadable", { projectId, repositoryId: group[0].repositoryId, error: e instanceof Error ? e.message : String(e) })
-      failed.push(...group.map((l) => l.id))
-      continue
-    }
-    try {
-      approvals = await station.client.workItemApprovals(pbiKey(pbi.displayId), projectId)
-    } catch (e) {
-      // The count is extra information: without it the buttons still work.
-      log.warn("gitstation approval count unreadable", { projectId, repositoryId: group[0].repositoryId, error: e instanceof Error ? e.message : String(e) })
-    }
-    // At most MAX_MRS_READ reads, in parallel (one panel load).
-    await Promise.all(group.map(async (link) => {
-      const iid = Number(link.ref)
-      if (!Number.isSafeInteger(iid) || iid <= 0) return
-      try {
-        const status = await station.client.mergeRequestStatusAs(stationProjectId, iid, employeeNumber)
-        if (!status.open) return
-        const actAs = status.actAs
-        items.push({
-          linkId: link.id,
-          iid,
-          headSha: status.headSha,
-          approvals: approvals.get(`${stationProjectId}!${iid}`) ?? null,
-          approvedByMe: status.approvedByMe,
-          // No head yet: nothing can be approved. No act-as answer: nothing is offered (fail closed).
-          canApprove: status.headSha && actAs ? actAs.canApprove : CLOSED,
-          canUnapprove: status.headSha && actAs ? actAs.canUnapprove : CLOSED,
-        })
-      } catch (e) {
-        const reason = e instanceof GitStationError && e.detail.errorCode === "FG-INT-0006" ? "identity" : "unreadable"
-        log.warn("gitstation approval state unreadable", { projectId, linkId: link.id, reason, kind: e instanceof GitStationError ? e.kind : undefined, errorCode: e instanceof GitStationError ? e.detail.errorCode : undefined })
-        failed.push(link.id)
-      }
-    }))
-  }
+  const { items, failed } = await readApprovalStates(projectId, integration, links, employeeNumber, factory, (station) => station.client.workItemApprovals(pbiKey(pbi.displayId), projectId))
   // Same order as the panel lists them (newest first), whatever order the reads finished in.
-  const order = new Map(links.map((l, i) => [l.id, i]))
-  items.sort((a, b) => (order.get(a.linkId) ?? 0) - (order.get(b.linkId) ?? 0))
-  return { supported: true, items, failed }
+  return { supported: true, items: links.flatMap((l) => items.get(l.id) ?? []), failed }
+}
+
+/** One merge request the user could approve now, with the PBI it belongs to (the dashboard's 承認を待っている MR). */
+export interface AwaitingMrApprovalItem extends MrApprovalItem {
+  pbiId: string
+  pbiKey: string
+  /** The PBI's number (its link: /projects/<id>/backlog?pbi=<displayId>). */
+  pbiDisplayId: number
+  /** The merge request's title. */
+  title: string
+  url: string
+}
+
+export type AwaitingMrApprovalsResult =
+  | { supported: false; reason: "off" | "provider" | "no_employee_number" }
+  | { supported: true; items: AwaitingMrApprovalItem[]; failed: string[] }
+
+
+const awaitingCache = new Map<string, { expiresAt: number; value: AwaitingMrApprovalsResult }>()
+const cacheKey = (userId: string, projectId: string) => `${userId}\u0000${projectId}`
+
+/** Drop one user's cached answer (after their approve / withdraw), or every answer (tests). */
+export function forgetAwaitingMrApprovals(userId?: string, projectId?: string): void {
+  if (userId === undefined || projectId === undefined) awaitingCache.clear()
+  else awaitingCache.delete(cacheKey(userId, projectId))
+}
+
+/**
+ * 承認を待っている MR: the project's open GitStation merge requests the signed-in user could approve now
+ * (GitStation allows it for this person and they have not approved yet). At most MAX_AWAITING_READ merge requests
+ * are read (newest first), each as the person, STATUS_READS_AT_ONCE at a time; the answer is kept for
+ * AWAITING_CACHE_TTL_MS per (user, project) and dropped when this user approves / withdraws through Kanflow.
+ * The approval count is not read here (one dev-status read per PBI): `approvals` is null.
+ */
+export async function getAwaitingMrApprovals(projectId: string, userId: string, deps: MrApprovalDeps = {}): Promise<AwaitingMrApprovalsResult> {
+  const now = (deps.now ?? (() => new Date()))().getTime()
+  const key = cacheKey(userId, projectId)
+  const cached = awaitingCache.get(key)
+  if (cached && cached.expiresAt > now) return cached.value
+  if (cached) awaitingCache.delete(key)
+
+  const value = await readAwaiting(projectId, userId, deps)
+  if (awaitingCache.size >= AWAITING_CACHE_MAX) {
+    for (const [k, v] of awaitingCache) if (v.expiresAt <= now) awaitingCache.delete(k)
+    // Still full: the oldest entry (Map keeps insertion order) goes.
+    if (awaitingCache.size >= AWAITING_CACHE_MAX) {
+      const oldest = awaitingCache.keys().next()
+      if (!oldest.done) awaitingCache.delete(oldest.value)
+    }
+  }
+  awaitingCache.set(key, { expiresAt: now + AWAITING_CACHE_TTL_MS, value })
+  return value
+}
+
+async function readAwaiting(projectId: string, userId: string, deps: MrApprovalDeps): Promise<AwaitingMrApprovalsResult> {
+  const { integration, reason } = await stationIntegration(projectId)
+  if (!integration) return { supported: false, reason }
+  const employeeNumber = await employeeNumberOf(userId)
+  if (!isEmployeeNumber(employeeNumber)) return { supported: false, reason: "no_employee_number" }
+  const links = await prisma.gitLink.findMany({
+    where: { projectId, kind: "mr", state: { in: ["opened", "locked"] }, backlogItem: { deletedAt: null } },
+    include: { repository: true, backlogItem: { select: { id: true, displayId: true } } },
+    orderBy: [{ occurredAt: "desc" }, { id: "asc" }],
+    take: MAX_AWAITING_READ,
+  })
+  const { items, failed } = await readApprovalStates(projectId, integration, links, employeeNumber, deps.clientFactory ?? defaultGitStationClientFactory)
+  const awaiting = links.flatMap((l): AwaitingMrApprovalItem[] => {
+    const item = items.get(l.id)
+    if (!item || item.approvedByMe || !item.canApprove.allowed) return []
+    return [{ ...item, pbiId: l.backlogItem.id, pbiKey: pbiKey(l.backlogItem.displayId), pbiDisplayId: l.backlogItem.displayId, title: l.title, url: l.url }]
+  })
+  return { supported: true, items: awaiting, failed }
 }
 
 /** The link of an approval inside the project, with its repository and the GitStation integration. */
@@ -376,5 +493,8 @@ export async function completeMrApproval(projectId: string, userId: string, atte
     await prisma.gitMrApprovalAttempt.updateMany({ where: { id: attempt.id, finishedAt: null }, data: { finishedAt: now, outcome: "failed", claimingAt: null } })
     if (e instanceof StatusError || e instanceof ForbiddenError) throw e
     throw toServiceError(e, context)
+  } finally {
+    // The claim was used (sent or not): the dashboard's 承認を待っている MR is read again for this user.
+    forgetAwaitingMrApprovals(userId, projectId)
   }
 }
