@@ -145,6 +145,17 @@ export interface ApiErrorsTranslations {
   apiErrGitResyncUnavailable: string
   apiErrGitKnowledgeUnsupported: string
   apiErrGitSourceLocked: string
+  apiErrGitApprovalUnavailable: string
+  apiErrGitApprovalNoEmployeeNumber: string
+  apiErrGitApprovalNotAllowed: string
+  apiErrGitApprovalSelf: string
+  apiErrGitApprovalStale: string
+  apiErrGitApprovalNotConfirmed: string
+  apiErrGitApprovalRetry: string
+  apiErrGitApprovalIdentity: string
+  apiErrGitApprovalConfig: string
+  apiErrGitApprovalDifferentUser: string
+  apiErrGitApprovalBusy: string
   apiErrMrUrlInvalid: string
   apiErrMrRepositoryNotRegistered: string
   apiErrClaimReleased: string
@@ -296,6 +307,17 @@ export const API_ERROR_MESSAGE_KEYS: Readonly<Record<ApiErrorCode, ApiErrorMessa
   GIT_RESYNC_UNAVAILABLE: "apiErrGitResyncUnavailable",
   GIT_KNOWLEDGE_UNSUPPORTED: "apiErrGitKnowledgeUnsupported",
   GIT_SOURCE_LOCKED: "apiErrGitSourceLocked",
+  GIT_APPROVAL_UNAVAILABLE: "apiErrGitApprovalUnavailable",
+  GIT_APPROVAL_NO_EMPLOYEE_NUMBER: "apiErrGitApprovalNoEmployeeNumber",
+  GIT_APPROVAL_NOT_ALLOWED: "apiErrGitApprovalNotAllowed",
+  GIT_APPROVAL_SELF: "apiErrGitApprovalSelf",
+  GIT_APPROVAL_STALE: "apiErrGitApprovalStale",
+  GIT_APPROVAL_NOT_CONFIRMED: "apiErrGitApprovalNotConfirmed",
+  GIT_APPROVAL_RETRY: "apiErrGitApprovalRetry",
+  GIT_APPROVAL_IDENTITY: "apiErrGitApprovalIdentity",
+  GIT_APPROVAL_CONFIG: "apiErrGitApprovalConfig",
+  GIT_APPROVAL_DIFFERENT_USER: "apiErrGitApprovalDifferentUser",
+  GIT_APPROVAL_BUSY: "apiErrGitApprovalBusy",
   MR_URL_INVALID: "apiErrMrUrlInvalid",
   MR_REPOSITORY_NOT_REGISTERED: "apiErrMrRepositoryNotRegistered",
   CLAIM_RELEASED: "apiErrClaimReleased",
@@ -454,6 +476,17 @@ export const ja: ApiErrorsTranslations = {
   apiErrGitResyncUnavailable: "連携 ID かアクセストークンが未設定のため、再同期できません",
   apiErrGitKnowledgeUnsupported: "この取り込み元のリポジトリは、まだ AI の参照資料に使えません",
   apiErrGitSourceLocked: "取り込み元はプロジェクトごとに 1 つです。切り替えるには先にリポジトリを外してください",
+  apiErrGitApprovalUnavailable: "この MR はここから承認できません（GitStation の開いている MR だけが対象です）",
+  apiErrGitApprovalNoEmployeeNumber: "社員番号が登録されていないため、GitStation で本人として操作できません。管理者に社員番号の登録を依頼してください",
+  apiErrGitApprovalNotAllowed: "GitStation でこの MR を承認する権限がありません",
+  apiErrGitApprovalSelf: "自分が作った MR は承認できません",
+  apiErrGitApprovalStale: "MR が更新されました。新しい内容を見て、もう一度確認してください",
+  apiErrGitApprovalNotConfirmed: "GitStation でまだ確認されていません。開いた GitStation の画面でボタンを押してから、もう一度「確認しました」を押してください",
+  apiErrGitApprovalRetry: "この確認は使えなくなりました（期限切れ・使用済みなど）。もう一度やり直してください",
+  apiErrGitApprovalIdentity: "GitStation がこの利用者の代わりに操作できません（GitStation に一度サインインしているか確かめてください）",
+  apiErrGitApprovalConfig: "Git 連携の設定の問題で承認できません。管理者に連絡してください",
+  apiErrGitApprovalDifferentUser: "GitStation で確認した人が、Kanflow にサインインしている人と違います。自分の GitStation のアカウントで確認し直してください",
+  apiErrGitApprovalBusy: "処理中です。少し待ってください",
   apiErrMrUrlInvalid: "マージリクエストの URL ではありません（許可された Git サーバーの …/-/merge_requests/<番号> の形）",
   apiErrMrRepositoryNotRegistered: "このマージリクエストのリポジトリは、このプロジェクトの Git 連携に登録されていません",
   apiErrClaimReleased: "この作業の宣言はすでに解除されています。もう一度宣言してください",
@@ -606,6 +639,17 @@ export const en: ApiErrorsTranslations = {
   apiErrGitResyncUnavailable: "Cannot resync: the integration ID or the access token is not set",
   apiErrGitKnowledgeUnsupported: "Repositories of this source cannot be used as AI reference material yet",
   apiErrGitSourceLocked: "A project reads from one source only. Remove its repositories before switching the source",
+  apiErrGitApprovalUnavailable: "This merge request cannot be approved from here (only open GitStation merge requests can)",
+  apiErrGitApprovalNoEmployeeNumber: "Your employee number is not registered, so GitStation cannot act as you. Ask an administrator to register it",
+  apiErrGitApprovalNotAllowed: "You are not allowed to approve this merge request in GitStation",
+  apiErrGitApprovalSelf: "You cannot approve your own merge request",
+  apiErrGitApprovalStale: "The merge request was updated. Review the new changes and confirm again",
+  apiErrGitApprovalNotConfirmed: "Not confirmed in GitStation yet. Press the button on the GitStation page you opened, then press \"I confirmed\" again",
+  apiErrGitApprovalRetry: "This confirmation can no longer be used (expired or already used). Please start again",
+  apiErrGitApprovalIdentity: "GitStation cannot act for this user (check that you have signed in to GitStation at least once)",
+  apiErrGitApprovalConfig: "Approval is not possible because of the Git integration settings. Contact an administrator",
+  apiErrGitApprovalDifferentUser: "The person who confirmed in GitStation is not the person signed in to Kanflow. Confirm again with your own GitStation account",
+  apiErrGitApprovalBusy: "Already in progress. Please wait a moment",
   apiErrMrUrlInvalid: "Not a merge request URL (…/-/merge_requests/<number> on an allowed Git server)",
   apiErrMrRepositoryNotRegistered: "The merge request's repository is not registered in this project's Git integration",
   apiErrClaimReleased: "This work claim was already released. Claim the work again",
@@ -758,6 +802,17 @@ export const id: ApiErrorsTranslations = {
   apiErrGitResyncUnavailable: "Tidak dapat sinkron ulang: ID integrasi atau token akses belum diatur",
   apiErrGitKnowledgeUnsupported: "Repositori dari sumber ini belum dapat dipakai sebagai bahan referensi AI",
   apiErrGitSourceLocked: "Satu proyek hanya membaca dari satu sumber. Hapus repositorinya terlebih dahulu sebelum mengganti sumber",
+  apiErrGitApprovalUnavailable: "Merge request ini tidak dapat disetujui dari sini (hanya merge request GitStation yang terbuka)",
+  apiErrGitApprovalNoEmployeeNumber: "Nomor karyawan Anda belum terdaftar, sehingga GitStation tidak dapat bertindak atas nama Anda. Minta administrator untuk mendaftarkannya",
+  apiErrGitApprovalNotAllowed: "Anda tidak diizinkan menyetujui merge request ini di GitStation",
+  apiErrGitApprovalSelf: "Anda tidak dapat menyetujui merge request milik sendiri",
+  apiErrGitApprovalStale: "Merge request telah diperbarui. Tinjau perubahan baru lalu konfirmasi lagi",
+  apiErrGitApprovalNotConfirmed: "Belum dikonfirmasi di GitStation. Tekan tombol di halaman GitStation yang Anda buka, lalu tekan \"Sudah saya konfirmasi\" lagi",
+  apiErrGitApprovalRetry: "Konfirmasi ini tidak dapat digunakan lagi (kedaluwarsa atau sudah dipakai). Silakan mulai lagi",
+  apiErrGitApprovalIdentity: "GitStation tidak dapat bertindak untuk pengguna ini (pastikan Anda pernah masuk ke GitStation)",
+  apiErrGitApprovalConfig: "Persetujuan tidak dapat dilakukan karena pengaturan integrasi Git. Hubungi administrator",
+  apiErrGitApprovalDifferentUser: "Orang yang mengonfirmasi di GitStation bukan orang yang masuk ke Kanflow. Konfirmasi lagi dengan akun GitStation Anda sendiri",
+  apiErrGitApprovalBusy: "Sedang diproses. Mohon tunggu sebentar",
   apiErrMrUrlInvalid: "Bukan URL merge request (…/-/merge_requests/<nomor> pada server Git yang diizinkan)",
   apiErrMrRepositoryNotRegistered: "Repositori merge request ini tidak terdaftar di integrasi Git proyek ini",
   apiErrClaimReleased: "Klaim pekerjaan ini sudah dilepas. Klaim pekerjaan lagi",

@@ -74,6 +74,7 @@ System admins skip the membership lookup; every request (admins included) does o
 | `surveillance.configure` | Y | Y | - | - | - |
 | `git.configure` | Y | Y | Y | - | - |
 | `git.sync` | Y | Y | Y | Y | - |
+| `git.approve` | Y | Y | Y | Y | - |
 | `dev.write` | Y | Y | Y | Y | - |
 | `plan.lessonRule.confirm` | Y | Y | Y | - | - |
 | `plan.lessonRule.requestPromotion` | Y | Y | - | - | - |
@@ -198,6 +199,9 @@ Paths are relative to `/api/projects/[projectId]`.
 | `/git/repositories/[repoId]/index` | | git.sync (今すぐ取り込む; repository looked up within the project, 404 otherwise; 429 within 30 s) | | |
 | `/git/knowledge` | ai.use — names / file counts of the project's AI reference repositories only | | | |
 | `/git/sync` | | git.sync | | |
+| `/git/mr-approvals` (`?pbiId=`: per open GitStation MR of the PBI, what the caller could do through GitStation's act-as and the approval count; `{ supported: false }` otherwise) | git.approve | | | |
+| `/git/mr-approvals/start` (opens one approve / withdraw: GitStation's confirmation URL; the link is looked up within the project) | | git.approve | | |
+| `/git/mr-approvals/[attemptId]/complete` (確認しました: claims the confirmation and approves; only the user who started it) | | git.approve | | |
 | `/git/links`, `/git/summary`, `/git/overview` | project.view | | | |
 | `/dev/claims` (担当中 for the board / PBI panel: `?sprintId=` or `?pbi=`, no session ids; `canModerate` = sprint.manage; also each claim's 触る範囲, the overlap warnings with other active claims of the project and, for `?pbi=`, the open MRs with changes outside the declared scope — W4) | project.view | | | |
 | `/dev/claims/[claimId]/release` | | sprint.manage (moderator release from the PBI panel; logged, holder notified) | | |
