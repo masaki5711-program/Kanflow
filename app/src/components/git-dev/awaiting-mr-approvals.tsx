@@ -1,5 +1,6 @@
 "use client"
 
+import { useRef, useState } from "react"
 import Link from "next/link"
 import { GitPullRequest } from "lucide-react"
 import { useApiQuery } from "@/hooks"
@@ -29,37 +30,53 @@ export function toAwaitingMrApprovals(raw: unknown): AwaitingMrApprovalsResult {
 /**
  * 承認を待っている MR (dashboard, 自分のタスク): the project's open GitStation merge requests the signed-in user could
  * approve now, each with its PBI and the same 承認する flow as the PBI panel. Nothing at all when `enabled` is false
- * (the project does not read GitStation, or no `git.approve`), when the request is refused or when the list is empty;
- * one note when the user has no employee number.
+ * (the project does not read GitStation, or no `git.approve`), when the request is refused or when there is nothing
+ * to show; one note when the user has no employee number, and one when some states could not be read.
+ *
+ * After an approval the row leaves the list on the re-read: focus moves to the section's heading first and the
+ * outcome is announced in a live region outside the rows, and the section stays while it has that outcome.
  */
 export function AwaitingMrApprovals({ projectId, enabled }: { projectId: string; enabled: boolean }) {
   const { t } = useLanguage()
+  const headingRef = useRef<HTMLHeadingElement>(null)
+  const [outcome, setOutcome] = useState<string | null>(null)
   const { data, refetch } = useApiQuery<AwaitingMrApprovalsResult>(enabled ? `${gitApiBase(projectId)}/mr-approvals/awaiting` : null, { parse: toAwaitingMrApprovals, toastOnError: false })
+
+  function completed(result: "approved" | "withdrawn" | "unchanged"): boolean {
+    setOutcome(result === "approved" ? t.gitDevApproved : result === "withdrawn" ? t.gitDevUnapproved : t.gitDevApproveUnchanged)
+    headingRef.current?.focus()
+    return true
+  }
+
   if (!enabled || !data) return null
   if (!data.supported) {
     if (data.reason !== "no_employee_number") return null
     return <p className="mt-3 rounded-ui-sm bg-surface-muted px-2 py-1.5 text-caption text-fg-muted">{t.gitDevApproveNoEmployee}</p>
   }
-  if (data.items.length === 0) return null
+  if (data.items.length === 0 && data.failed.length === 0 && outcome === null) return null
   return (
     <section aria-labelledby="dashboard-awaiting-mr-heading" className="mt-3 border-t border-border pt-3">
-      <h3 id="dashboard-awaiting-mr-heading" className="flex items-center gap-2 text-caption font-semibold text-fg">
+      <h3 ref={headingRef} tabIndex={-1} id="dashboard-awaiting-mr-heading" className="flex items-center gap-2 rounded-sm text-caption font-semibold text-fg outline-none focus-visible:ring-2 focus-visible:ring-primary">
         <GitPullRequest aria-hidden="true" className="h-4 w-4 text-fg-muted" />
         {t.gitDevAwaitingTitle}
         <span className="text-caption font-normal text-fg-muted">({data.items.length})</span>
       </h3>
-      <ul className="mt-1 divide-y divide-border">
-        {data.items.map((item) => (
-          <li key={item.linkId} className="py-2" data-awaiting-mr={item.iid}>
-            <Link href={`/projects/${projectId}/backlog?pbi=${item.pbiDisplayId}`} className="line-clamp-2 min-w-0 break-words rounded-sm text-body text-fg hover:text-primary">
-              <span className="mr-1.5 font-mono text-caption text-fg-muted">{item.pbiKey}</span>
-              <span className="mr-1.5 font-mono text-caption text-fg-muted">!{item.iid}</span>
-              {item.title}
-            </Link>
-            <MrApprovalControls projectId={projectId} item={item} onChanged={refetch} />
-          </li>
-        ))}
-      </ul>
+      {data.items.length > 0 && (
+        <ul className="mt-1 divide-y divide-border">
+          {data.items.map((item) => (
+            <li key={item.linkId} className="py-2" data-awaiting-mr={item.iid}>
+              <Link href={`/projects/${projectId}/backlog?pbi=${item.pbiDisplayId}`} className="line-clamp-2 min-w-0 break-words rounded-sm text-body text-fg hover:text-primary">
+                <span className="mr-1.5 font-mono text-caption text-fg-muted">{item.pbiKey}</span>
+                <span className="mr-1.5 font-mono text-caption text-fg-muted">!{item.iid}</span>
+                {item.title}
+              </Link>
+              <MrApprovalControls projectId={projectId} item={item} onChanged={refetch} onCompleted={completed} />
+            </li>
+          ))}
+        </ul>
+      )}
+      {data.failed.length > 0 && <p className="mt-1 text-caption text-fg-muted">{t.gitDevApproveStateFailed}</p>}
+      <p role="status" className="mt-1 text-caption text-fg-muted">{outcome}</p>
     </section>
   )
 }

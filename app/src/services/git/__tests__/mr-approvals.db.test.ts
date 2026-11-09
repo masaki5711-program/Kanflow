@@ -280,6 +280,59 @@ describe.skipIf(!enabled)("MR approvals through GitStation act-as on a real data
       expect(statusReads()).toBe(afterAlice)
     })
 
+    it("a forget during an in-flight read does not leave the old list cached", async () => {
+      // The read's answers are computed by GitStation now, but delivered only after the approval completed.
+      let release: () => void = () => undefined
+      const gate = new Promise<void>((r) => (release = r))
+      let seen: () => void = () => undefined
+      const firstStatus = new Promise<void>((r) => (seen = r))
+      const real = station.fetchImpl
+      const late: typeof fetch = async (input, init) => {
+        const res = await real(input, init)
+        if (String(input).endsWith("/status")) {
+          seen()
+          await gate
+        }
+        return res
+      }
+      const lateDeps = { ...deps(), clientFactory: (o: { apiBase: string; token: string; integrationId: string }) => createGitStationClient({ ...o, fetchImpl: late, sleep: async () => undefined }) }
+      const inFlight = awaiting(ids.alice, lateDeps)
+      await firstStatus
+      const started = await service.startMrApproval(ids.project, ids.alice, { linkId: ids.link1, intent: "approve" }, deps())
+      station.press(started.confirmUrl, ALICE)
+      await service.completeMrApproval(ids.project, ids.alice, started.attemptId, deps())
+      release()
+      // The late read answers its own caller with what it read...
+      expect((await inFlight).items.map((i) => i.iid)).toEqual([1])
+      // ...but is not kept: the next request reads GitStation again and sees the approval.
+      const reads = statusReads()
+      expect((await awaiting(ids.alice)).items).toEqual([])
+      expect(statusReads()).toBeGreaterThan(reads)
+    })
+
+    it("concurrent requests of one user share one read", async () => {
+      const [a, b] = await Promise.all([awaiting(ids.alice), awaiting(ids.alice)])
+      expect(a).toBe(b)
+      // Alice's two MRs, read once.
+      expect(statusReads()).toBe(2)
+    })
+
+    it("does not cache an answer with failures (the next load reads again)", async () => {
+      station.person(ALICE, 41)
+      // MR !3 is linked in Kanflow but unknown to GitStation: its status read fails.
+      await prisma.gitLink.create({ data: { id: `${tag}-l3`, projectId: ids.project, repositoryId: ids.repo, backlogItemId: ids.pbi, kind: "mr", ref: "3", title: "MR 3 (PBI-4)", url: `${ACT_STATION}/-/projects/12/pull/3`, state: "opened", occurredAt: new Date("2026-11-07T00:00:00Z") } })
+      try {
+        const first = await awaiting(ids.alice)
+        expect(first.failed).toEqual([`${tag}-l3`])
+        expect(first.items.map((i) => i.iid)).toEqual([1])
+        const reads = statusReads()
+        await awaiting(ids.alice)
+        expect(statusReads()).toBeGreaterThan(reads)
+      } finally {
+        await prisma.gitLink.deleteMany({ where: { id: `${tag}-l3` } })
+      }
+    })
+
     it("is not supported without an employee number (no GitStation read)", async () => {
       expect(await service.getAwaitingMrApprovals(ids.project, ids.carol, deps())).toEqual({ supported: false, reason: "no_employee_number" })
       expect(statusReads()).toBe(0)

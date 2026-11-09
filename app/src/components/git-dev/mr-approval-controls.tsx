@@ -19,6 +19,11 @@ interface Props {
   projectId: string
   item: MrApprovalItem
   onChanged: () => void
+  /**
+   * The approval was sent (outcome approved / withdrawn / unchanged). Return true when the caller moves focus itself
+   * (e.g. the row is about to leave a list); otherwise focus goes back to this row's button.
+   */
+  onCompleted?: (outcome: "approved" | "withdrawn" | "unchanged") => boolean
 }
 
 /** GitStation's refusal reason as one line (never its raw name). */
@@ -34,7 +39,7 @@ function reasonText(reason: string | null, t: ReturnType<typeof useLanguage>["t"
  * confirmation page (a new window — GitStation refuses frames) and 確認しました, which sends the approval once the
  * person pressed there. A refusal shows its reason instead of a button.
  */
-export function MrApprovalControls({ projectId, item, onChanged }: Props) {
+export function MrApprovalControls({ projectId, item, onChanged, onCompleted }: Props) {
   const { t } = useLanguage()
   const toast = useToast()
   const groupId = useId()
@@ -69,11 +74,11 @@ export function MrApprovalControls({ projectId, item, onChanged }: Props) {
     }
   }
 
-  function close() {
+  function close(refocus = true) {
     setStarted(null)
     setNote(null)
     // Back to where the person was (the row itself when its button is gone).
-    requestAnimationFrame(() => (actionRef.current ?? rowRef.current)?.focus())
+    if (refocus) requestAnimationFrame(() => (actionRef.current ?? rowRef.current)?.focus())
   }
 
   async function complete() {
@@ -83,8 +88,10 @@ export function MrApprovalControls({ projectId, item, onChanged }: Props) {
     setNote(null)
     try {
       const res = await apiFetch<{ outcome: string }>(`${gitApiBase(projectId)}/mr-approvals/${encodeURIComponent(started.attemptId)}/complete`, { method: "POST" })
-      toast.success(res.outcome === "approved" ? t.gitDevApproved : res.outcome === "withdrawn" ? t.gitDevUnapproved : t.gitDevApproveUnchanged)
-      close()
+      const outcome = res.outcome === "approved" || res.outcome === "withdrawn" ? res.outcome : "unchanged"
+      toast.success(outcome === "approved" ? t.gitDevApproved : outcome === "withdrawn" ? t.gitDevUnapproved : t.gitDevApproveUnchanged)
+      const focusHandled = onCompleted?.(outcome) === true
+      close(!focusHandled)
       onChanged()
     } catch (e) {
       // Not pressed in GitStation yet: keep the confirmation open and say what to do.
@@ -133,7 +140,7 @@ export function MrApprovalControls({ projectId, item, onChanged }: Props) {
               <VisuallyHidden>{t.gitDevConfirmNewWindow}</VisuallyHidden>
             </a>
             <Button size="sm" variant="primary" loading={busy} onClick={() => void complete()}>{t.gitDevConfirmDone}</Button>
-            <Button size="sm" variant="ghost" disabled={busy} onClick={close}>{t.gitDevConfirmCancel}</Button>
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => close()}>{t.gitDevConfirmCancel}</Button>
           </div>
           <p role="status" className="text-caption text-fg">{note}</p>
         </div>

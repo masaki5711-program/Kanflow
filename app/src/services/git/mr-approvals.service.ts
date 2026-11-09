@@ -185,8 +185,9 @@ async function readApprovalStates(
   const failed: string[] = []
   const byRepo = new Map<string, LinkWithRepository[]>()
   for (const l of links) byRepo.set(l.repositoryId, [...(byRepo.get(l.repositoryId) ?? []), l])
-  const reads: { link: LinkWithRepository; station: Station; stationProjectId: number; approvals: Map<string, number | null> }[] = []
-  for (const group of byRepo.values()) {
+  type Read = { link: LinkWithRepository; station: Station; stationProjectId: number; approvals: Map<string, number | null> }
+  // Each repository is located once (and its count read), STATUS_READS_AT_ONCE repositories at a time.
+  const located = await mapLimit([...byRepo.values()], STATUS_READS_AT_ONCE, async (group): Promise<Read[]> => {
     let station: Station
     let stationProjectId: number
     try {
@@ -195,7 +196,7 @@ async function readApprovalStates(
     } catch (e) {
       log.warn("gitstation approval state unreadable", { projectId, repositoryId: group[0].repositoryId, error: e instanceof Error ? e.message : String(e) })
       failed.push(...group.map((l) => l.id))
-      continue
+      return []
     }
     let approvals = new Map<string, number | null>()
     if (counts) {
@@ -206,8 +207,9 @@ async function readApprovalStates(
         log.warn("gitstation approval count unreadable", { projectId, repositoryId: group[0].repositoryId, error: e instanceof Error ? e.message : String(e) })
       }
     }
-    for (const link of group) reads.push({ link, station, stationProjectId, approvals })
-  }
+    return group.map((link) => ({ link, station, stationProjectId, approvals }))
+  })
+  const reads = located.flat()
   await mapLimit(reads, STATUS_READS_AT_ONCE, async ({ link, station, stationProjectId, approvals }) => {
     const iid = Number(link.ref)
     if (!Number.isSafeInteger(iid) || iid <= 0) return
@@ -275,29 +277,27 @@ export type AwaitingMrApprovalsResult =
 
 
 const awaitingCache = new Map<string, { expiresAt: number; value: AwaitingMrApprovalsResult }>()
+/**
+ * The read in flight per key: concurrent requests share it, and only the read still registered here when it ends
+ * may store its answer — a forget (approve / withdraw) unregisters it, so a read that started before the approval
+ * never re-caches the old list.
+ */
+const awaitingInFlight = new Map<string, Promise<AwaitingMrApprovalsResult>>()
 const cacheKey = (userId: string, projectId: string) => `${userId}\u0000${projectId}`
 
-/** Drop one user's cached answer (after their approve / withdraw), or every answer (tests). */
+/** Drop one user's cached answer and read in flight (after their approve / withdraw), or every one (tests). */
 export function forgetAwaitingMrApprovals(userId?: string, projectId?: string): void {
-  if (userId === undefined || projectId === undefined) awaitingCache.clear()
-  else awaitingCache.delete(cacheKey(userId, projectId))
+  if (userId === undefined || projectId === undefined) {
+    awaitingCache.clear()
+    awaitingInFlight.clear()
+    return
+  }
+  const key = cacheKey(userId, projectId)
+  awaitingCache.delete(key)
+  awaitingInFlight.delete(key)
 }
 
-/**
- * 承認を待っている MR: the project's open GitStation merge requests the signed-in user could approve now
- * (GitStation allows it for this person and they have not approved yet). At most MAX_AWAITING_READ merge requests
- * are read (newest first), each as the person, STATUS_READS_AT_ONCE at a time; the answer is kept for
- * AWAITING_CACHE_TTL_MS per (user, project) and dropped when this user approves / withdraws through Kanflow.
- * The approval count is not read here (one dev-status read per PBI): `approvals` is null.
- */
-export async function getAwaitingMrApprovals(projectId: string, userId: string, deps: MrApprovalDeps = {}): Promise<AwaitingMrApprovalsResult> {
-  const now = (deps.now ?? (() => new Date()))().getTime()
-  const key = cacheKey(userId, projectId)
-  const cached = awaitingCache.get(key)
-  if (cached && cached.expiresAt > now) return cached.value
-  if (cached) awaitingCache.delete(key)
-
-  const value = await readAwaiting(projectId, userId, deps)
+function storeAwaiting(key: string, value: AwaitingMrApprovalsResult, now: number): void {
   if (awaitingCache.size >= AWAITING_CACHE_MAX) {
     for (const [k, v] of awaitingCache) if (v.expiresAt <= now) awaitingCache.delete(k)
     // Still full: the oldest entry (Map keeps insertion order) goes.
@@ -307,7 +307,36 @@ export async function getAwaitingMrApprovals(projectId: string, userId: string, 
     }
   }
   awaitingCache.set(key, { expiresAt: now + AWAITING_CACHE_TTL_MS, value })
-  return value
+}
+
+/**
+ * 承認を待っている MR: the project's open GitStation merge requests the signed-in user could approve now
+ * (GitStation allows it for this person and they have not approved yet). At most MAX_AWAITING_READ merge requests
+ * are read (newest first), each as the person, STATUS_READS_AT_ONCE at a time; concurrent requests of one user
+ * share one read. A complete answer is kept for AWAITING_CACHE_TTL_MS per (user, project) and dropped when this
+ * user approves / withdraws through Kanflow; an answer with failures is never kept (the next load reads again).
+ * The cache is per process. The approval count is not read here (one dev-status read per PBI): `approvals` is null.
+ */
+export async function getAwaitingMrApprovals(projectId: string, userId: string, deps: MrApprovalDeps = {}): Promise<AwaitingMrApprovalsResult> {
+  const clock = deps.now ?? (() => new Date())
+  const key = cacheKey(userId, projectId)
+  const cached = awaitingCache.get(key)
+  if (cached && cached.expiresAt > clock().getTime()) return cached.value
+  if (cached) awaitingCache.delete(key)
+  const running = awaitingInFlight.get(key)
+  if (running) return running
+
+  const read: Promise<AwaitingMrApprovalsResult> = readAwaiting(projectId, userId, deps).then(
+    (value) => {
+      // Still the registered read (no forget meanwhile) and nothing failed: keep it.
+      if (awaitingInFlight.get(key) === read && !(value.supported && value.failed.length > 0)) storeAwaiting(key, value, clock().getTime())
+      return value
+    },
+  ).finally(() => {
+    if (awaitingInFlight.get(key) === read) awaitingInFlight.delete(key)
+  })
+  awaitingInFlight.set(key, read)
+  return read
 }
 
 async function readAwaiting(projectId: string, userId: string, deps: MrApprovalDeps): Promise<AwaitingMrApprovalsResult> {

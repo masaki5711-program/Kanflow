@@ -57,10 +57,42 @@ describe("承認を待っている MR on the dashboard", () => {
     expect(within(group).getByRole("link", { name: `${en.gitDevConfirmOpen} ${en.gitDevConfirmNewWindow}` })).toHaveAttribute("href", CONFIRM)
     awaitingBody = { supported: true, items: [], failed: [] }
     await user.click(within(group).getByRole("button", { name: en.gitDevConfirmDone }))
-    await screen.findByText(en.gitDevApproved)
-    // Re-read after the approval: the approved MR leaves the list (and the section with it).
-    await waitFor(() => expect(screen.queryByRole("region", { name: new RegExp(en.gitDevAwaitingTitle) })).not.toBeInTheDocument())
-    expect(awaitingReads()).toHaveLength(2)
+    // Re-read after the approval: the approved MR leaves the list, the section stays with the outcome announced
+    // (a live region outside the rows) and focus on its heading — never dropped to the page.
+    await waitFor(() => expect(awaitingReads()).toHaveLength(2))
+    await waitFor(() => expect(within(section).queryByRole("listitem")).not.toBeInTheDocument())
+    const heading = within(section).getByRole("heading", { level: 3 })
+    expect(heading).toHaveFocus()
+    expect(within(section).getByRole("status")).toHaveTextContent(en.gitDevApproved)
+    expect(screen.getByRole("region", { name: new RegExp(en.gitDevAwaitingTitle) })).toBe(section)
+  })
+
+  it("keeps focus on the heading when other rows remain after an approval", async () => {
+    awaitingBody = { supported: true, items: [item(), item({ linkId: "l-9", iid: 9, title: "Signup" })], failed: [] }
+    const user = userEvent.setup()
+    render()
+    const section = await screen.findByRole("region", { name: `${en.gitDevAwaitingTitle} (2)` })
+    await user.click(within(section).getByRole("button", { name: en.gitDevApproveLabel.replace("{iid}", "8") }))
+    const group = await within(section).findByRole("group")
+    awaitingBody = { supported: true, items: [item({ linkId: "l-9", iid: 9, title: "Signup" })], failed: [] }
+    await user.click(within(group).getByRole("button", { name: en.gitDevConfirmDone }))
+    await screen.findByRole("region", { name: `${en.gitDevAwaitingTitle} (1)` })
+    // After the row is gone (and a frame later), focus is still on the heading.
+    await new Promise((r) => requestAnimationFrame(() => r(undefined)))
+    expect(within(section).getByRole("heading", { level: 3 })).toHaveFocus()
+    expect(within(section).getByRole("status")).toHaveTextContent(en.gitDevApproved)
+  })
+
+  it("says when some approval states could not be read, with or without rows", async () => {
+    awaitingBody = { supported: true, items: [], failed: ["l-9"] }
+    const a = render()
+    expect(await screen.findByText(en.gitDevApproveStateFailed)).toBeInTheDocument()
+    a.unmount()
+    awaitingBody = { supported: true, items: [item()], failed: ["l-9"] }
+    render()
+    const section = await screen.findByRole("region", { name: `${en.gitDevAwaitingTitle} (1)` })
+    expect(within(section).getByText(en.gitDevApproveStateFailed)).toBeInTheDocument()
+    expect(within(section).getByRole("button", { name: en.gitDevApproveLabel.replace("{iid}", "8") })).toBeInTheDocument()
   })
 
   it("shows nothing when the list is empty, when not supported or refused, and asks nothing when not enabled", async () => {
