@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 import { createGitStationClient, GitStationError } from "@/lib/git/gitstation-client"
 
-/** The act-as calls of the GitStation client (plan 11 K4): headers, single sends, shape checks. Synthetic data only. */
+/** The act-as calls (plan 11 K4: headers, single sends, shape checks) and the dev-status listing (I1d) of the GitStation client. Synthetic data only. */
 const BASE = "https://gitstation.example"
 const SHA = "a".repeat(40)
 
@@ -68,5 +68,27 @@ describe("GitStation client: act-as", () => {
   it("keeps GitStation's error code on a refusal (the screen explains it)", async () => {
     const { c } = client(() => json(403, { error_code: "FG-REVIEW-0013", user_message: "x", request_id: "r" }))
     await expect(c.approveAs(12, 3, "approve", { userId: 41, assertion: claimBody.assertion, sha: SHA })).rejects.toMatchObject({ status: 403, detail: { errorCode: "FG-REVIEW-0013" } })
+  })
+})
+
+describe("GitStation client: dev-status listing (I1d)", () => {
+  const mr = { project: { id: 12, path: "app/portal" }, iid: 3, title: "T (PBI-1)", draft: false, state: "merged", source_branch: "feature/PBI-1", target_branch: "main", head_sha: SHA, created_at: "2026-11-01T00:00:00Z", updated_at: "2026-11-03T00:00:00Z", merged_at: "2026-11-02T00:00:00Z", closed_at: null, approvals: { given: 1 }, checks: [], checks_state: "none", link: { source: "auto", linked_at: "2026-11-01T00:00:00Z" } }
+  const page = (over: Record<string, unknown> = {}) => ({ schema_version: 1, as_of_seq: 9, feed_cursor: "fc", work_items: [{ provider: "kanflow", project_id: "p1", ref: "PBI-1", merge_requests: [mr], merge_requests_truncated: false }, { provider: "kanflow", project_id: "p1", ref: "PBI-2", merge_requests: [mr, { iid: "bad" }], merge_requests_truncated: true }], next_cursor: null, has_more: false, ...over })
+
+  it("parses a page: each merge request once (in the MR API's shape, author unknown), merge time, skipped and truncated items", async () => {
+    const { c, calls } = client(() => json(200, page()))
+    const p = await c.devStatusPage(null)
+    expect(p).toMatchObject({ feedCursor: "fc", skipped: 1, truncatedItems: 1, nextCursor: null })
+    expect(p.mergeRequests).toEqual([expect.objectContaining({ project_id: 12, iid: 3, state: "merged", merged_at: "2026-11-02T00:00:00Z", author: null, head_sha: SHA })])
+    expect(calls[0].url.pathname).toBe("/api/v1/integrations/7/dev-status")
+    expect(Object.fromEntries(calls[0].url.searchParams)).toEqual({ limit: "100", state: "all" })
+  })
+
+  it("sends the next page's cursor back unchanged and refuses a page that says has_more without one", async () => {
+    const { c, calls } = client(() => json(200, page({ next_cursor: "opaque/next", has_more: true })))
+    expect((await c.devStatusPage("prev")).nextCursor).toBe("opaque/next")
+    expect(calls[0].url.searchParams.get("cursor")).toBe("prev")
+    const bad = client(() => json(200, page({ next_cursor: null, has_more: true })))
+    await expect(bad.c.devStatusPage(null)).rejects.toMatchObject({ kind: "invalid_response" })
   })
 })

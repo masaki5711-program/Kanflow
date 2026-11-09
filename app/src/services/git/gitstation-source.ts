@@ -5,6 +5,7 @@ import {
   MAX_CURSOR_LENGTH,
   type GitStationClient,
   type GitStationClientOptions,
+  type GitStationDevStatusPage,
   type GitStationEvent,
   type GitStationMergeRequest,
 } from "@/lib/git/gitstation-client"
@@ -44,10 +45,10 @@ import type {
  *
  * Cursor: "gitstation:v1:<GitStation cursor>", stored on git_station_feed.cursor. The empty
  * position ("gitstation:v1:", first read or 過去分を再同期) and a 410 (retention / epoch_mismatch /
- * ahead_of_head / visible_set_changed) restart the feed as 02 §11.2 prescribes, logged — never a
- * silent jump: take `/events/cursor` first, re-read every repository's merge requests through
- * `/projects/{id}/merge-requests?state=all` (GitStation has no dev-status listing yet, I1d), then
- * read the feed from the position taken first. Commits pushed before that position are not re-read
+ * ahead_of_head / visible_set_changed) restart the feed as 02 §11.2 and GitStation's dev-status.md prescribe,
+ * logged — never a silent jump: take `/events/cursor` first, re-read the merge requests linked to work items
+ * through the integration's development status (`/integrations/{id}/dev-status`, I1d: one listing for every
+ * repository, with merge times), then read the feed from the position taken first. Commits pushed before that position are not re-read
  * (gap, documented). A 400 FG-INT-0008 keeps the position and asks for 過去分を再同期.
  *
  * Events are routed by GitStation's numeric project id. A repository is read only while GitStation
@@ -64,6 +65,8 @@ export const defaultGitStationClientFactory: GitStationClientFactory = (o) => cr
 export const MAX_FEED_PAGES = 10
 /** Merge request listing pages (100 each) per repository when the state is re-read. */
 export const MAX_STATE_PAGES = 20
+/** Pages of the integration's development status one state re-read reads (100 work items each). */
+export const MAX_DEV_STATUS_PAGES = 50
 /** Merge requests of one project read one by one in a read; beyond, the project's listing is read. */
 export const MAX_DETAILS_PER_PROJECT = 20
 /**
@@ -161,7 +164,7 @@ const isTransient = (err: unknown) => err instanceof GitStationError && (err.kin
 /** A server error or an answer Kanflow cannot read: held a few times (it may be a hiccup), then not (it may be for good). */
 const isDefect = (err: unknown) => err instanceof GitStationError && (err.kind === "invalid_response" || (err.kind === "http" && (err.status ?? 0) >= 500))
 
-const truncatedState = () => new GitStationError("truncated", `more than ${MAX_STATE_PAGES} pages of merge requests`)
+const truncatedState = () => new GitStationError("truncated", "more merge requests than one read takes")
 
 /** Thrown for a failure that holds the whole read at its start (re-read idempotently next poll). */
 class HoldRead extends Error {
@@ -183,28 +186,86 @@ function projectFailure(err: unknown, holdsSoFar: number): unknown {
 }
 
 /**
- * Re-reads the merge requests of the given projects. A project that fails for good (or has more than
- * MAX_STATE_PAGES pages: a cut-short state cannot be trusted) is a failure of that project only; a
- * transient failure holds the read.
+ * Re-reads the merge requests of the given projects from the integration's development status (GitStation I1d,
+ * docs/api/dev-status.md): every merge request linked to a work item of the bound Kanflow projects, any state, with
+ * its merge time — one paged listing for the whole integration instead of one listing per project. A project with
+ * no linked merge request gets an empty snapshot (an unlinked merge request names no PBI: Kanflow would not link it
+ * either; both sides match PBI keys with the same rule, GitStation docs/api/pbi-ref-vectors.json). A listing that
+ * fails for good (or is longer than MAX_DEV_STATUS_PAGES: a cut-short state cannot be trusted) is a failure of every
+ * project asked for; a transient failure holds the read.
  */
 async function rereadProjects(client: GitStationClient, projects: Iterable<number>, context: Record<string, unknown>, holdsSoFar: number) {
+  const wanted = new Set(projects)
   const snapshots = new Map<number, GitStationMergeRequest[]>()
   const failures = new Map<number, unknown>()
-  for (const projectId of new Set(projects)) {
+  if (wanted.size === 0) return { snapshots, failures }
+  let truncatedProjects: Set<number>
+  try {
+    const read = await readDevStatus(client, context)
+    truncatedProjects = read.truncatedProjects
+    for (const projectId of wanted) snapshots.set(projectId, [])
+    for (const mr of read.mergeRequests) snapshots.get(mr.project_id)?.push(mr)
+  } catch (error) {
+    const failure = projectFailure(error, holdsSoFar)
+    for (const projectId of wanted) failures.set(projectId, failure)
+    return { snapshots, failures }
+  }
+  // A PBI with more than 100 linked merge requests: its projects are read through their own listing instead (bounded).
+  for (const projectId of truncatedProjects) {
+    if (!wanted.has(projectId)) continue
     try {
       const listing = await client.listMergeRequests(projectId, MAX_STATE_PAGES)
-      if (listing.skipped > 0) log.warn("gitstation state items not usable", { ...context, stationProjectId: projectId, count: listing.skipped })
-      if (listing.truncated) {
-        log.warn("gitstation state re-read truncated", { ...context, stationProjectId: projectId, pages: MAX_STATE_PAGES })
-        failures.set(projectId, truncatedState())
-        continue
-      }
+      if (listing.truncated) throw truncatedState()
       snapshots.set(projectId, listing.items)
     } catch (error) {
+      snapshots.delete(projectId)
       failures.set(projectId, projectFailure(error, holdsSoFar))
     }
   }
+  // Not a failure (a project may have no linked merge request), but worth seeing: a project the service account
+  // no longer sees, or an allow-list without merge_request.*, also lists nothing — its stored links are kept as they are.
+  const empty = [...snapshots].filter(([, mrs]) => mrs.length === 0).map(([id]) => id)
+  if (empty.length > 0) log.info("gitstation state re-read found no linked merge requests", { ...context, stationProjectIds: empty })
   return { snapshots, failures }
+}
+
+/**
+ * Every page of the integration's development status. A 410 while paging (the visible set changed, retention, …)
+ * starts the listing again from its first page, once (docs/api/dev-status.md: "2 の途中で 410 になったら最初から").
+ */
+async function readDevStatus(client: GitStationClient, context: Record<string, unknown>): Promise<{ mergeRequests: GitStationMergeRequest[]; truncatedProjects: Set<number> }> {
+  for (let attempt = 0; ; attempt++) {
+    const all = new Map<string, GitStationMergeRequest>()
+    let skipped = 0
+    let truncatedItems = 0
+    const truncatedProjects = new Set<number>()
+    try {
+      let cursor: string | null = null
+      for (let page = 0; ; page++) {
+        if (page >= MAX_DEV_STATUS_PAGES) {
+          log.warn("gitstation state re-read truncated", { ...context, pages: MAX_DEV_STATUS_PAGES })
+          throw truncatedState()
+        }
+        const result: GitStationDevStatusPage = await client.devStatusPage(cursor)
+        for (const mr of result.mergeRequests) all.set(detailKey(mr.project_id, mr.iid), mr)
+        skipped += result.skipped
+        truncatedItems += result.truncatedItems
+        for (const id of result.truncatedProjects) truncatedProjects.add(id)
+        if (result.nextCursor === null) break
+        cursor = result.nextCursor
+      }
+    } catch (error) {
+      if (attempt === 0 && error instanceof GitStationError && error.kind === "gone") {
+        log.warn("gitstation state re-read restarted", { ...context, reason: error.detail.reason })
+        continue
+      }
+      throw error
+    }
+    if (skipped > 0) log.warn("gitstation state items not usable", { ...context, count: skipped })
+    // More than 100 linked merge requests on one PBI: those projects are listed on their own (rereadProjects).
+    if (truncatedItems > 0) log.warn("gitstation work items with more merge requests than listed", { ...context, count: truncatedItems, stationProjectIds: [...truncatedProjects] })
+    return { mergeRequests: [...all.values()], truncatedProjects }
+  }
 }
 
 /** Follow-up reads the events of `projects` need (one per named merge request, one per pushed ref with commits). */
@@ -470,9 +531,10 @@ function projectsNamed(e: GitStationEvent): Set<string> {
 }
 
 /**
- * A merge request as Kanflow records it. `mergedAt`: the merged event's time when this read saw it;
- * a re-read listing has none (GitStation sends no merge time), so its `updated_at` stands in. Once a
- * merge time is stored it is kept (git-sync writeLinks).
+ * A merge request as Kanflow records it. `mergedAt`: the merged event's time when this read saw it, or the
+ * development status's `merged_at` on a re-read (`updated_at` stands in only when neither is known). Once a merge
+ * time is stored it is kept (git-sync writeLinks). The development status names no author: null = unknown (the
+ * stored author is kept).
  */
 function toRecord(mr: GitStationMergeRequest, links: StationLinks, mergedAt: string | null): DevMergeRequest | null {
   const state = kanflowState(mr.state)
@@ -521,7 +583,7 @@ export function routeFeed(read: FeedRead, repositories: readonly FeedRepository[
   for (const r of repositories) {
     const own = new Map<string, DevMergeRequest>()
     for (const mr of (r.stationProjectId === null ? undefined : read.snapshots.get(r.stationProjectId)) ?? []) {
-      const parsed = toRecord(mr, read.links, mr.updated_at)
+      const parsed = toRecord(mr, read.links, mr.merged_at ?? mr.updated_at)
       if (parsed) own.set(parsed.ref, parsed)
       else unparsedSnapshot++
     }

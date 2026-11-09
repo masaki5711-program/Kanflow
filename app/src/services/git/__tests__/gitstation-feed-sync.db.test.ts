@@ -34,7 +34,9 @@ describe.skipIf(!enabled)("GitStation feed sync on a real database (KANFLOW_DB_T
   const sync = async () => (await feedSync.syncGitStationFeeds(clients(), NOW)).filter((r) => ownIds.has(r.repositoryId))
   const eventRequests = () => station.requests.filter((r) => /\/integrations\/[^/]+\/events(\?|$)/.test(r))
   const PATHS = ["app/portal", "app/api", "tools/cli"]
-  /** Paths whose merge request listing (the state re-read) was asked for. */
+  /** State re-reads: the integration's development status (I1d), one listing for every repository. */
+  const devStatusRequests = () => station.requests.filter((r) => /\/integrations\/[^/]+\/dev-status(\?|$)/.test(r))
+  /** Paths whose merge request listing was asked for (the event path of a project with many named MRs). */
   const stateRequests = () =>
     station.requests.flatMap((r) => {
       const m = /^\/api\/v1\/projects\/(\d+)\/merge-requests(\?|$)/.exec(r)
@@ -103,7 +105,9 @@ describe.skipIf(!enabled)("GitStation feed sync on a real database (KANFLOW_DB_T
     const results = await sync()
     expect(results.map((r) => r.ok)).toEqual([true, true, true])
     expect(eventRequests()).toHaveLength(1)
-    expect(stateRequests().sort()).toEqual(["app/api", "app/portal", "tools/cli"])
+    // One development status listing for the three repositories of the two projects (no per-project listing).
+    expect(devStatusRequests()).toHaveLength(1)
+    expect(stateRequests()).toEqual([])
     expect(await prisma.gitLink.findFirst({ where: { repositoryId: ids.repoA1, ref: "1" } })).toMatchObject({ state: "merged" })
     const feed = await feedRow()
     expect(feed.cursor).toBe(`gitstation:v1:${station.head()}`)
@@ -136,7 +140,7 @@ describe.skipIf(!enabled)("GitStation feed sync on a real database (KANFLOW_DB_T
     expect(new URL(`https://x${eventRequests()[0]}`).searchParams.get("cursor")).toBe(after!.replace("gitstation:v1:", ""))
   })
 
-  it("keeps a stored merge time when the state is re-read (the listing only approximates it)", async () => {
+  it("keeps a stored merge time when the state is re-read (a stored merge time is never moved)", async () => {
     await started()
     station.mergeRequest("merge_request.opened", 1, { project: "app/portal" }, station.workItem("PBI-1", ids.projectA))
     const merged = station.mergeRequest("merge_request.merged", 1, { project: "app/portal" }, station.workItem("PBI-1", ids.projectA))
@@ -148,6 +152,24 @@ describe.skipIf(!enabled)("GitStation feed sync on a real database (KANFLOW_DB_T
     await service.resyncRepository(ids.projectA, ids.repoA1, actor, NOW)
     await sync()
     expect((await prisma.gitLink.findFirstOrThrow({ where })).mergedAt?.getTime()).toBe(exact.getTime())
+  })
+
+  it("a re-read from the development status keeps the stored author (it names none) and stores GitStation's merge time", async () => {
+    await started()
+    station.mergeRequest("merge_request.opened", 2, { project: "app/portal", title: "Signup (PBI-1)" }, station.workItem("PBI-1", ids.projectA))
+    await sync()
+    const where = { repositoryId: ids.repoA1, kind: "mr", ref: "2" }
+    expect(await prisma.gitLink.findFirstOrThrow({ where })).toMatchObject({ author: "Dev One", state: "opened", mergedAt: null })
+    // Merged and edited while Kanflow did not read; then the events are gone and the feed restarts.
+    station.mergeRequest("merge_request.merged", 2, { project: "app/portal" }, station.workItem("PBI-1", ids.projectA))
+    station.mergeRequest("merge_request.updated", 2, { project: "app/portal", title: "Signup, edited (PBI-1)" }, station.workItem("PBI-1", ids.projectA))
+    station.prune()
+    await service.resyncRepository(ids.projectA, ids.repoA1, actor, NOW)
+    await sync()
+    const link = await prisma.gitLink.findFirstOrThrow({ where })
+    expect(link).toMatchObject({ author: "Dev One", state: "merged", title: "Signup, edited (PBI-1)" })
+    // The merge time, not the later edit's time (what the per-project listing used to approximate it with).
+    expect(link.mergedAt!.getTime()).toBeLessThan(link.occurredAt.getTime())
   })
 
   it("stores pushed commits that name a PBI, linked from the history GitStation keeps", async () => {
@@ -378,7 +400,7 @@ describe.skipIf(!enabled)("GitStation feed sync on a real database (KANFLOW_DB_T
     station.bind("tools/cli", [ids.projectB])
     station.requests.length = 0
     await sync()
-    expect(stateRequests()).toEqual(["tools/cli"])
+    expect(devStatusRequests()).toHaveLength(1)
     expect(await prisma.gitLink.findFirst({ where: { repositoryId: ids.repoB, ref: "3" } })).toMatchObject({ state: "opened" })
     expect((await prisma.gitRepository.findUniqueOrThrow({ where: { id: ids.repoB } })).stationRereadAt).toBeNull()
   })
@@ -388,7 +410,7 @@ describe.skipIf(!enabled)("GitStation feed sync on a real database (KANFLOW_DB_T
     await prisma.gitRepository.update({ where: { id: ids.repoA2 }, data: { syncedAt: null } })
     station.failState("app/api")
     await sync()
-    expect(stateRequests()).toEqual(["app/api"])
+    expect(devStatusRequests()).toHaveLength(1)
     const failed = await prisma.gitRepository.findUniqueOrThrow({ where: { id: ids.repoA2 } })
     expect(failed.stationRereadFailures).toBe(1)
     expect(failed.stationRereadAt).not.toBeNull()
@@ -397,7 +419,7 @@ describe.skipIf(!enabled)("GitStation feed sync on a real database (KANFLOW_DB_T
     station.restoreState("app/api")
     station.requests.length = 0
     await sync()
-    expect(stateRequests()).toEqual([])
+    expect(devStatusRequests()).toHaveLength(0)
     await prisma.gitRepository.update({ where: { id: ids.repoA2 }, data: { stationRereadNextAt: new Date(NOW.getTime() - 1) } })
     await sync()
     const done = await prisma.gitRepository.findUniqueOrThrow({ where: { id: ids.repoA2 } })

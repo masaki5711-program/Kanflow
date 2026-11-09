@@ -81,6 +81,23 @@ export interface GitStationMergeRequest {
   updated_at: string
   closed_at?: string | null
   head_sha?: string | null
+  /** When the merge was applied (dev-status only; the MR API sends none). */
+  merged_at?: string | null
+}
+
+/** One page of `GET /integrations/{id}/dev-status` (I1d, docs/api/dev-status.md, schema_version 1). */
+export interface GitStationDevStatusPage {
+  /** The feed position of the FIRST page (the same on every page): reading the feed from it misses nothing. */
+  feedCursor: string
+  /** Merge requests of the page's work items, as the MR API shapes them (author unknown: null). Each once. */
+  mergeRequests: GitStationMergeRequest[]
+  /** Items of an unexpected shape (not returned). */
+  skipped: number
+  /** A work item listed more than 100 merge requests (the rest is not in the page). */
+  truncatedItems: number
+  /** GitStation projects of the merge requests such a work item did list (their own listing can be read instead). */
+  truncatedProjects: number[]
+  nextCursor: string | null
 }
 
 /** One ref of `/projects/{id}/repository/refs` (RefBody). */
@@ -201,6 +218,8 @@ const MAX_RETRY_WAIT_SEC = 10
 const DEFAULT_RETRY_WAIT_SEC = 1
 /** Events per feed request (plan 02 §11.2: default 100, max 500). */
 export const FEED_PAGE_LIMIT = 500
+/** Work items per dev-status page (GitStation: limit 1..100). */
+export const DEV_STATUS_PAGE_LIMIT = 100
 /** Merge requests per listing page (GitStation: limit 1..100). */
 const LIST_LIMIT = 100
 /** Commits per history page (GitStation max_log_page 100; a push lists at most 20 per ref). */
@@ -337,6 +356,15 @@ function parseClaim(v: unknown): GitStationActAsClaim | null {
     kanflowProjectId: str(v.kanflow_project_id) ? v.kanflow_project_id.slice(0, 128) : null,
     expiresAt: v.expires_at,
   }
+}
+
+/** A dev-status merge request (`merge_requests[]`) in the MR API's shape, else null. */
+function parseDevStatusMergeRequest(v: unknown): GitStationMergeRequest | null {
+  if (!isObject(v) || !isObject(v.project)) return null
+  const mr = parseMergeRequest({ ...v, project_id: v.project.id, author: null })
+  if (!mr) return null
+  // A merge time that is not a date is unknown (updated_at stands in), never stored as garbage.
+  return { ...mr, merged_at: str(v.merged_at) && !Number.isNaN(Date.parse(v.merged_at)) ? v.merged_at : null }
 }
 
 const OID = /^[0-9a-f]{40}([0-9a-f]{24})?$/
@@ -538,6 +566,38 @@ export function createGitStationClient({ apiBase, token, integrationId, fetchImp
       const body = await send(`${projectBase(projectId)}/repository/commits`, { ref: oid, limit })
       if (!isObject(body) || !Array.isArray(body.commits)) throw new GitStationError("invalid_response", "GitStation commits have an unexpected shape")
       return body.commits.flatMap((c) => (isObject(c) && str(c.oid) && str(c.subject) && str(c.committed_at) ? [{ oid: c.oid.toLowerCase(), subject: c.subject, committed_at: c.committed_at, author_name: str(c.author_name) ? c.author_name : "" }] : []))
+    },
+
+    /**
+     * One page of the integration's development status (I1d): every work item of the bound Kanflow projects
+     * with its linked merge requests, any state. `cursor` = the previous page's `next_cursor` (none = first page).
+     */
+    async devStatusPage(cursor: string | null, limit = DEV_STATUS_PAGE_LIMIT): Promise<GitStationDevStatusPage> {
+      const body = await send(`/integrations/${integration}/dev-status`, { cursor: cursor ?? undefined, limit, state: "all" })
+      if (!isObject(body) || !Array.isArray(body.work_items) || !validCursor(body.feed_cursor) || typeof body.has_more !== "boolean") {
+        throw new GitStationError("invalid_response", "GitStation dev-status has an unexpected shape")
+      }
+      const next = body.next_cursor
+      if (body.has_more ? !validCursor(next) : next !== null && next !== undefined) throw new GitStationError("invalid_response", "GitStation dev-status has no usable next page")
+      const seen = new Map<string, GitStationMergeRequest>()
+      let skipped = 0
+      let truncatedItems = 0
+      const truncatedProjects = new Set<number>()
+      for (const w of body.work_items) {
+        if (!isObject(w) || !Array.isArray(w.merge_requests)) {
+          skipped++
+          continue
+        }
+        const truncated = w.merge_requests_truncated === true
+        if (truncated) truncatedItems++
+        for (const raw of w.merge_requests) {
+          const mr = parseDevStatusMergeRequest(raw)
+          if (mr) seen.set(`${mr.project_id}!${mr.iid}`, mr)
+          else skipped++
+          if (mr && truncated) truncatedProjects.add(mr.project_id)
+        }
+      }
+      return { feedCursor: body.feed_cursor, mergeRequests: [...seen.values()], skipped, truncatedItems, truncatedProjects: [...truncatedProjects], nextCursor: body.has_more ? (next as string) : null }
     },
 
     /**

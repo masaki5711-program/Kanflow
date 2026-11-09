@@ -11,7 +11,7 @@ vi.mock("@/lib/logger", () => ({ logger: noopLog }))
 process.env.GITSTATION_ALLOWED_HOSTS = STATION_HOST
 
 const { createGitStationClient, GONE_REASONS, GitStationError, MAX_RESPONSE_BYTES } = await import("@/lib/git/gitstation-client")
-const { gitStationSourceKind, createGitStationSource, decodeStationCursor, encodeStationCursor, readFeed, routeFeed, MAX_STATE_PAGES, MAX_DETAILS_PER_PROJECT, MAX_FOLLOW_UPS_PER_READ, MAX_DEFECT_HOLDS } = await import("../gitstation-source")
+const { gitStationSourceKind, createGitStationSource, decodeStationCursor, encodeStationCursor, readFeed, routeFeed, MAX_DEV_STATUS_PAGES, MAX_DETAILS_PER_PROJECT, MAX_FOLLOW_UPS_PER_READ, MAX_DEFECT_HOLDS } = await import("../gitstation-source")
 const { CURSOR_INVALID_MESSAGE } = await import("@/lib/git/sync-messages")
 
 /** GitStation's golden example (docs/api/integration-feed.example.json at GitStation main, I1c; synthetic). */
@@ -267,17 +267,50 @@ describe("GitStation restart", () => {
     station.prune() // GitStation no longer keeps those events; the state does
     station.onHeadTaken(() => station.mergeRequest("merge_request.opened", 2))
     const changes = await sourceOn(station).readChanges(fresh(), NOW)
-    expect(feedCalls(station)).toEqual(["/events/cursor", `/projects/${REPO_ID}/merge-requests`, "/events", `/projects/${REPO_ID}/merge-requests/2`])
+    // The state comes from the integration's development status (I1d): one listing for every repository.
+    expect(feedCalls(station)).toEqual(["/events/cursor", "/dev-status", "/events", `/projects/${REPO_ID}/merge-requests/2`])
     expect(Object.fromEntries(changes.mergeRequests.map((m) => [m.ref, m.state]))).toEqual({ "1": "merged", "2": "opened" })
     expect(decodeStationCursor(changes.cursor)).toBe(station.head())
   })
 
-  it("a re-read merged merge request is dated by its last update (GitStation sends no merge time)", async () => {
+  it("a re-read merged merge request is dated by GitStation's merge time (dev-status merged_at), its author unknown (kept)", async () => {
     const station = createFakeGitStation()
     station.mergeRequest("merge_request.opened", 1)
-    station.mergeRequest("merge_request.merged", 1)
+    const merged = station.mergeRequest("merge_request.merged", 1)
+    station.mergeRequest("merge_request.updated", 1, { title: "Login form, later edit (PBI-1)" })
+    station.prune()
     const changes = await sourceOn(station).readChanges(fresh(), NOW)
-    expect(changes.mergeRequests).toEqual([expect.objectContaining({ ref: "1", state: "merged", mergedAt: changes.mergeRequests[0].updatedAt })])
+    expect(changes.mergeRequests).toEqual([expect.objectContaining({ ref: "1", state: "merged", author: null })])
+    // The merge time is the merged event's, not the later update's.
+    expect(Date.parse(changes.mergeRequests[0].mergedAt!)).toBeLessThan(Date.parse(changes.mergeRequests[0].updatedAt))
+    expect(Date.parse(changes.mergeRequests[0].mergedAt!)).toBeGreaterThan(Date.parse(merged.occurred_at) - 120_000)
+  })
+
+  it("pages the development status (next_cursor) and takes each merge request once, whatever the number of its work items", async () => {
+    const station = createFakeGitStation({ devStatusPageSize: 2 })
+    for (let n = 1; n <= 5; n++) station.mergeRequest("merge_request.opened", n, { title: `MR ${n} (PBI-${n})` }, station.workItem(`PBI-${n}`))
+    // MR 1 is linked to a second work item as well.
+    station.mergeRequest("merge_request.updated", 1, { title: "MR 1 (PBI-1, PBI-9)" }, [...station.workItem("PBI-1"), ...station.workItem("PBI-9")])
+    station.prune()
+    const read = await readFeed(clientOn(station), fresh(), [REPO_ID])
+    expect(feedCalls(station).filter((c) => c === "/dev-status")).toHaveLength(3)
+    expect(read.snapshots.get(REPO_ID)!.map((m) => m.iid).sort()).toEqual([1, 2, 3, 4, 5])
+    expect(station.requests.filter((r) => r.includes("/dev-status")).every((r) => r.includes("state=all"))).toBe(true)
+  })
+
+  it("a 410 while paging the development status starts the listing again from its first page (once)", async () => {
+    const station = createFakeGitStation({ devStatusPageSize: 1 })
+    station.mergeRequest("merge_request.opened", 1, {}, station.workItem("PBI-1"))
+    station.mergeRequest("merge_request.opened", 2, { title: "B (PBI-2)" }, station.workItem("PBI-2"))
+    let calls = 0
+    const fetchImpl: typeof fetch = async (input, init) => {
+      if (new URL(String(input)).pathname.endsWith("/dev-status") && ++calls === 2) return json(410, { error_code: "FG-INT-0007", reason: "visible_set_changed" })
+      return station.fetchImpl(input, init)
+    }
+    const read = await readFeed(clientOn(station, fetchImpl), fresh(), [REPO_ID])
+    expect(read.rereadFailures.size).toBe(0)
+    expect(read.snapshots.get(REPO_ID)!.map((m) => m.iid).sort()).toEqual([1, 2])
+    expect(logs.warn).toHaveBeenCalledWith("gitstation state re-read restarted", expect.objectContaining({ reason: "visible_set_changed" }))
   })
 
   it("an empty position whose head cannot be taken stays empty (nothing read, nothing skipped)", async () => {
@@ -298,7 +331,7 @@ describe("GitStation restart", () => {
     const changes = await sourceOn(station).readChanges(stale, NOW)
     expect(changes.failures).toEqual([])
     expect(Object.fromEntries(changes.mergeRequests.map((m) => [m.ref, m.state]))).toEqual({ "1": "closed", "2": "opened" })
-    expect(feedCalls(station)).toEqual(["/events", "/events/cursor", `/projects/${REPO_ID}/merge-requests`, "/events"])
+    expect(feedCalls(station)).toEqual(["/events", "/events/cursor", "/dev-status", "/events"])
     expect(decodeStationCursor(changes.cursor)).toBe(station.head())
     expect(logs.warn).toHaveBeenCalledWith("gitstation feed restarted", expect.objectContaining({ reason }))
   })
@@ -321,7 +354,7 @@ describe("GitStation restart", () => {
     expect(read.failures.map((f) => f.kind)).toEqual(["feed"])
   })
 
-  it("one repository's failing state re-read does not block the 410 recovery of the others (isolated, reported on it)", async () => {
+  it("a development status refused for good is a failure of every repository re-read; the 410 recovery still moves on (they are re-read later)", async () => {
     const station = createFakeGitStation()
     const api = station.bind("app/api")
     station.mergeRequest("merge_request.opened", 1)
@@ -331,19 +364,44 @@ describe("GitStation restart", () => {
     station.fail(`/integrations/${INTEGRATION}/events`, 410, { error_code: "FG-INT-0007", reason: "retention" })
     const read = await readFeed(clientOn(station), stale, [REPO_ID, api])
     expect(decodeStationCursor(read.cursor)).toBe(station.head())
-    expect([...read.snapshots.keys()]).toEqual([REPO_ID])
-    expect([...read.rereadFailures.keys()]).toEqual([api])
+    expect([...read.snapshots.keys()]).toEqual([])
+    expect([...read.rereadFailures.keys()].sort()).toEqual([REPO_ID, api].sort())
     const routed = routeFeed(read, [repo("r1", REPO_ID), repo("r2", api)])
-    expect(routed.changes.get("r1")!.failures).toEqual([])
+    expect(routed.changes.get("r1")!.failures.map((f) => f.kind)).toEqual(["mr"])
     expect(routed.changes.get("r2")!.failures.map((f) => f.kind)).toEqual(["mr"])
   })
 
-  it("a state listing longer than the bound is a failure of that repository (a cut-short state cannot be trusted)", async () => {
+  it("a PBI with more merge requests than the development status lists: that project is read through its own listing", async () => {
     const station = createFakeGitStation()
-    const client = { ...clientOn(station), listMergeRequests: async () => ({ items: [], truncated: true, skipped: 0 }) }
+    const api = station.bind("app/api")
+    for (let iid = 1; iid <= 3; iid++) station.mergeRequest("merge_request.opened", iid)
+    station.mergeRequest("merge_request.opened", 4, { project: "app/api" })
+    const real = clientOn(station)
+    const client = { ...real, devStatusPage: async (cursor: string | null) => ({ ...(await real.devStatusPage(cursor)), truncatedItems: 1, truncatedProjects: [REPO_ID] }) }
+    const read = await readFeed(client, fresh(), [REPO_ID, api])
+    expect(feedCalls(station).filter((c) => c.endsWith("/merge-requests"))).toEqual([`/projects/${REPO_ID}/merge-requests`])
+    expect(read.snapshots.get(REPO_ID)!.map((m) => m.iid).sort()).toEqual([1, 2, 3])
+    expect(read.snapshots.get(api)!.map((m) => m.iid)).toEqual([4])
+    expect(read.rereadFailures.size).toBe(0)
+  })
+
+  it("a project with no linked merge request gets an empty state (nothing of it is lost: an unlinked MR names no PBI)", async () => {
+    const station = createFakeGitStation()
+    const api = station.bind("app/api")
+    station.mergeRequest("merge_request.opened", 1)
+    const read = await readFeed(clientOn(station), fresh(), [REPO_ID, api])
+    expect(read.snapshots.get(api)).toEqual([])
+    expect(read.snapshots.get(REPO_ID)!.map((m) => m.iid)).toEqual([1])
+  })
+
+  it("a development status longer than the bound is a failure of the repositories (a cut-short state cannot be trusted)", async () => {
+    const station = createFakeGitStation()
+    let pages = 0
+    const client = { ...clientOn(station), devStatusPage: async () => (pages++, { feedCursor: "c", mergeRequests: [], skipped: 0, truncatedItems: 0, truncatedProjects: [], nextCursor: `p${pages}` }) }
     const read = await readFeed(client, fresh(), [REPO_ID])
+    expect(pages).toBe(MAX_DEV_STATUS_PAGES)
     expect((read.rereadFailures.get(REPO_ID) as InstanceType<typeof GitStationError>).kind).toBe("truncated")
-    expect(logs.warn).toHaveBeenCalledWith("gitstation state re-read truncated", expect.objectContaining({ pages: MAX_STATE_PAGES }))
+    expect(logs.warn).toHaveBeenCalledWith("gitstation state re-read truncated", expect.objectContaining({ pages: MAX_DEV_STATUS_PAGES }))
   })
 
   it("re-reads only the marked repositories without restarting the feed", async () => {
@@ -352,7 +410,7 @@ describe("GitStation restart", () => {
     station.mergeRequest("merge_request.opened", 1, { project: "app/api" })
     const start = here(station)
     const read = await readFeed(clientOn(station), start, [REPO_ID, api], {}, [api])
-    expect(feedCalls(station)).toEqual([`/projects/${api}/merge-requests`, "/events"])
+    expect(feedCalls(station)).toEqual(["/dev-status", "/events"])
     expect([...read.snapshots.keys()]).toEqual([api])
     expect(read.restarted).toBeNull()
   })
@@ -445,7 +503,7 @@ describe("GitStation feed", () => {
   it("a transient failure of the state re-read on a restart holds the read (the position stays empty), never a day-long back-off", async () => {
     const station = createFakeGitStation()
     station.mergeRequest("merge_request.opened", 1)
-    station.fail(`/projects/${REPO_ID}/merge-requests`, 503, {}, { "retry-after": "999" })
+    station.fail(`/integrations/${INTEGRATION}/dev-status`, 503, {}, { "retry-after": "999" })
     const changes = await sourceOn(station).readChanges(fresh(), NOW)
     expect(changes.cursor).toBe(fresh())
     expect(changes.mergeRequests).toEqual([])

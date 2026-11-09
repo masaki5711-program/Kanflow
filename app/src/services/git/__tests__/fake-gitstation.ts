@@ -55,15 +55,20 @@ const ALLOWED_QUERY: Record<string, string[]> = {
   mrs: ["state", "limit", "before"],
   refs: ["type"],
   commits: ["ref", "path", "limit", "cursor"],
+  devStatus: ["cursor", "limit", "state"],
 }
 
-export function createFakeGitStation(options: { pageSize?: number } = {}) {
+export function createFakeGitStation(options: { pageSize?: number; devStatusPageSize?: number } = {}) {
   const pageSize = options.pageSize ?? 500
+  const devStatusPageSize = options.devStatusPageSize ?? 100
   const events: GitStationEvent[] = []
   const projects = new Map<string, Project>()
   const groups = new Set<string>(["app"])
   const moved = new Map<string, string>()
   const mergeRequests = new Map<string, GitStationMergeRequest>()
+  /** Per merge request ("<project id>!<iid>"): the work items it is linked to (dev-status), and its merge time. */
+  const linkedTo = new Map<string, GitStationEvent["work_items"]>()
+  const mergedAt = new Map<string, string>()
   const branches = new Map<number, { name: string; commit: string }[]>()
   const tags = new Map<number, { name: string; commit: string }[]>()
   /** Per project: commits newest first (a linear history). */
@@ -137,6 +142,8 @@ export function createFakeGitStation(options: { pageSize?: number } = {}) {
       head_sha: oid(iid),
     }
     mergeRequests.set(key, mr)
+    if (workItems.length > 0) linkedTo.set(key, workItems)
+    if (state === "merged" && type === "merge_request.merged") mergedAt.set(key, at)
     const ids = { merge_request_id: 100 + iid, iid }
     const data: Record<string, unknown> =
       type === "merge_request.opened"
@@ -221,6 +228,65 @@ export function createFakeGitStation(options: { pageSize?: number } = {}) {
       afterHead = null
       hook?.()
       return json(200, { schema_version: 1, cursor: head })
+    }
+    if (path === `${integrationBase}/dev-status`) {
+      const bad = badQuery(url, ALLOWED_QUERY.devStatus)
+      if (bad) return bad
+      if (url.searchParams.get("state") !== "all") return paramInvalid("state")
+      // The listing reads every visible project: one that may not be read fails the whole listing.
+      if ([...failingState].some((id) => visible(byId(id)))) return json(403, { error_code: "FG-AUTHZ-0001" })
+      const cursor = url.searchParams.get("cursor")
+      const m = cursor === null ? ["", "0"] : /^ds\.(\d+)$/.exec(cursor)
+      if (!m) return json(400, { error_code: "FG-INT-0008", user_message: "cursor", request_id: "r" })
+      const from = Number(m[1])
+      const limit = Math.min(Number(url.searchParams.get("limit") ?? 50), devStatusPageSize)
+      // Work items (Kanflow project + ref) with their linked merge requests of visible projects, newest first.
+      const items = new Map<string, { project_id: string; ref: string; mrs: GitStationMergeRequest[] }>()
+      for (const [key, mr] of mergeRequests) {
+        if (!visible(byId(mr.project_id))) continue
+        for (const w of linkedTo.get(key) ?? []) {
+          const k = `${w.project_id}|${w.ref}`
+          const item = items.get(k) ?? { project_id: w.project_id, ref: w.ref, mrs: [] }
+          item.mrs.push(mr)
+          items.set(k, item)
+        }
+      }
+      const all = [...items.values()].sort((a, b) => `${a.project_id}|${a.ref}`.localeCompare(`${b.project_id}|${b.ref}`))
+      const page = all.slice(from, from + limit)
+      const more = from + limit < all.length
+      return json(200, {
+        schema_version: 1,
+        as_of_seq: seq,
+        feed_cursor: cursorOf(seq),
+        work_items: page.map((w) => ({
+          provider: "kanflow",
+          project_id: w.project_id,
+          ref: w.ref,
+          merge_requests: w.mrs
+            .sort((a, b) => b.iid - a.iid)
+            .map((mr) => ({
+              project: { id: mr.project_id, path: byId(mr.project_id)?.path ?? null },
+              iid: mr.iid,
+              title: mr.title,
+              draft: mr.draft ?? false,
+              state: mr.state,
+              source_branch: mr.source_branch,
+              target_branch: mr.target_branch ?? "main",
+              head_sha: mr.head_sha ?? null,
+              created_at: mr.created_at,
+              updated_at: mr.updated_at,
+              merged_at: mergedAt.get(`${mr.project_id}!${mr.iid}`) ?? null,
+              closed_at: mr.closed_at ?? null,
+              approvals: { given: 0 },
+              checks: [],
+              checks_state: "none",
+              link: { source: "auto", linked_at: mr.created_at },
+            })),
+          merge_requests_truncated: false,
+        })),
+        next_cursor: more ? `ds.${from + limit}` : null,
+        has_more: more,
+      })
     }
     if (path.startsWith(`/integrations/`)) return json(404, { error_code: "FG-INT-0001" })
     if (path === "/namespaces/resolve") {
@@ -308,7 +374,7 @@ export function createFakeGitStation(options: { pageSize?: number } = {}) {
     onHeadTaken: (fn: () => void) => {
       afterHead = fn
     },
-    /** The merge request listing of `path` answers 403 (until `restoreState`). */
+    /** The merge request listing of `path` answers 403, and so does the integration's dev-status listing while `path` is visible (until `restoreState`). */
     failState: (path: string) => failingState.add(project(path).id),
     restoreState: (path: string) => failingState.delete(project(path).id),
     /** Raw feed page for the next events request (shape tests). */
