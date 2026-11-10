@@ -207,6 +207,18 @@ export const API_ERROR_CODES = [
   "GIT_APPROVAL_DIFFERENT_USER",
   /** K4: the same confirmation is being completed right now (double press). */
   "GIT_APPROVAL_BUSY",
+  /** X3 bind / unbind a repository from the settings: the project does not read GitStation, or Kanflow cannot tell which GitStation (host, integration id, token). */
+  "GIT_BINDING_UNAVAILABLE",
+  /** X3: GitStation refuses the person (not Maintainer of the repository, FG-AUTH-0003 / FG-REPO-0005). */
+  "GIT_BINDING_NOT_ALLOWED",
+  /** X3: GitStation's binding rules refuse it (FG-INT-0016: a code repository is bound to another project, shared and code bindings mixed, …). */
+  "GIT_BINDING_CONFLICT",
+  /** X3: the repository is already bound to this project with this setting (nothing to confirm). */
+  "GIT_BINDING_ALREADY",
+  /** X3: a code repository cannot become a shared spec repository in place (unbind, then bind again). */
+  "GIT_BINDING_RESOLUTION_FIXED",
+  /** X3: the integration is set up wrongly for binding (token scope, integration id): an administrator fixes it. */
+  "GIT_BINDING_CONFIG",
   /** dev:write MR link: not a merge request URL (https://<allowed host>/<group>/<repo>/-/merge_requests/<iid>). */
   "MR_URL_INVALID",
   /** dev:write MR link: the MR's repository is not registered in this project's (enabled) Git integration. */

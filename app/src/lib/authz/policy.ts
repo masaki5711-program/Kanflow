@@ -90,6 +90,13 @@ export const PROJECT_ACTIONS = [
    */
   "git.approve",
   /**
+   * Bind / unbind GitStation repositories to this project from the settings (plan 11 §5.7 X3): search the person's
+   * repositories, open GitStation's confirmation and relay it. GitStation decides again as the person who confirmed
+   * (Maintainer of the repository and the binding rules), so this is only "may ask from this project" — the
+   * project's PO / SM, like git.configure.
+   */
+  "git.bindRepository",
+  /**
    * Developer writes of an AI session (token scope dev:write only, docs/api-v1.md
    * "Development"): declare / release work on a PBI or task (作業の宣言), post a
    * progress comment, link a merge request of a registered repository to a PBI.
@@ -167,6 +174,7 @@ const POLICY: Readonly<Record<ProjectAction, readonly Grantee[]>> = {
   "git.configure": PO_SM,
   "git.sync": MEMBER,
   "git.approve": MEMBER,
+  "git.bindRepository": PO_SM,
   "dev.write": MEMBER,
   "plan.lessonRule.confirm": PO_SM,
   "plan.lessonRule.requestPromotion": PO,

@@ -1,12 +1,10 @@
-import { randomBytes } from "node:crypto"
 import type { Prisma } from "@/generated/prisma/client"
 import { prisma } from "@/lib/prisma"
 import { logger } from "@/lib/logger"
-import { open, seal } from "@/lib/secret-box"
-import { GitStationError, isEmployeeNumber, isObjectId, type ActAsTrial, type ApprovalIntent, type GitStationActAsClaim, type GitStationClient } from "@/lib/git/gitstation-client"
+import { GitStationError, isEmployeeNumber, isObjectId, type ActAsTrial, type ApprovalIntent, type GitStationClient } from "@/lib/git/gitstation-client"
 import { pbiKey } from "@/lib/git/pbi-keys"
-import { ConflictError, ForbiddenError, NotFoundError, StatusError, ValidationError } from "@/services/_shared"
-import type { ApiErrorCode } from "@/services/_shared/error-codes"
+import { ForbiddenError, NotFoundError, StatusError, ValidationError } from "@/services/_shared"
+import { assertClaimedBySamePerson, claimAttempt, discardClaim, employeeNumberOf, finishAttempt, lockAttempt, MR_INTENTS, openAttempt, statusError as err } from "./act-as-attempts"
 import { repositoryToken } from "./git-sync"
 import { createGitStationSource, defaultGitStationClientFactory, NotBoundError, type GitStationClientFactory } from "./gitstation-source"
 
@@ -28,16 +26,10 @@ import { createGitStationSource, defaultGitStationClientFactory, NotBoundError, 
 
 const log = logger.child({ module: "git-mr-approvals" })
 
-/** GitStation's confirmation page expires after 10 minutes. */
-export const ATTEMPT_TTL_MS = 10 * 60_000
-/** A claim in flight blocks a second press for this long (then the row can be claimed again). */
-export const CLAIM_LOCK_MS = 30_000
-/** Expired rows are removed a day later (on the next start of the same user). */
-const PURGE_AFTER_MS = 24 * 60 * 60_000
+/** The attempt's lifetime and claim lock (shared with X3's binding attempts, act-as-attempts). */
+export { ATTEMPT_TTL_MS, CLAIM_LOCK_MS } from "./act-as-attempts"
 /** Open merge requests of one PBI whose state is read (each is one status read). */
 export const MAX_MRS_READ = 10
-/** Attempts one user may have open at once (each is a GitStation confirmation). */
-const MAX_OPEN_ATTEMPTS = 20
 /** Open merge requests of the project whose state is read for the dashboard (newest first). */
 export const MAX_AWAITING_READ = 20
 /** Status reads in flight at once (one dashboard load must not burst GitStation). */
@@ -79,8 +71,6 @@ export interface CompletedApproval {
   counted: boolean
 }
 
-const err = (status: number, code: ApiErrorCode, message: string, extra?: Record<string, unknown>) => new StatusError(status, message, extra, code)
-
 interface Station {
   client: GitStationClient
   apiBase: string
@@ -110,11 +100,6 @@ function stationFor(
   const source = createGitStationSource({ repositoryId: repo.id, projectId, stationIntegrationId: integrationId, apiBase: repo.apiBase, repoPath: repo.repoPath, externalId: repo.externalId, token }, () => client)
   let located: Promise<number> | null = null
   return { client, apiBase: repo.apiBase.replace(/\/+$/, ""), integrationId, stationProjectId: () => (located ??= source.locate()) }
-}
-
-async function employeeNumberOf(userId: string): Promise<string | null> {
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { employeeNumber: true } })
-  return user?.employeeNumber ?? null
 }
 
 /**
@@ -377,7 +362,6 @@ async function loadLink(projectId: string, linkId: string) {
 export async function startMrApproval(projectId: string, userId: string, input: { linkId: string; intent: ApprovalIntent }, deps: MrApprovalDeps = {}): Promise<StartedApproval> {
   if (input.intent !== "approve" && input.intent !== "unapprove") throw new ValidationError("intent must be approve or unapprove")
   const now = (deps.now ?? (() => new Date()))()
-  const random = deps.random ?? randomBytes
   const { integration, link, iid } = await loadLink(projectId, input.linkId)
   const employeeNumber = await employeeNumberOf(userId)
   if (!isEmployeeNumber(employeeNumber)) throw err(409, "GIT_APPROVAL_NO_EMPLOYEE_NUMBER", "社員番号が登録されていません")
@@ -400,25 +384,11 @@ export async function startMrApproval(projectId: string, userId: string, input: 
     throw toServiceError(e, context)
   }
 
-  await prisma.gitMrApprovalAttempt.deleteMany({ where: { userId, expiresAt: { lt: new Date(now.getTime() - PURGE_AFTER_MS) } } })
-  const open = await prisma.gitMrApprovalAttempt.count({ where: { userId, finishedAt: null, expiresAt: { gt: now } } })
-  if (open >= MAX_OPEN_ATTEMPTS) throw err(429, "RATE_LIMITED", "確認を開きすぎています。少し待ってからやり直してください")
-  // 256 bits, base64url (43 characters): inside GitStation's [A-Za-z0-9_-]{22,128}.
-  const state = random(32).toString("base64url")
-  const expiresAt = new Date(now.getTime() + ATTEMPT_TTL_MS)
-  const attempt = await prisma.gitMrApprovalAttempt.create({
-    data: { projectId, userId, gitLinkId: link.id, intent: input.intent, headSha, stateCipher: seal(state), expiresAt },
-    select: { id: true },
-  })
+  const { id: attemptId, state, expiresAt } = await openAttempt(projectId, userId, { intent: input.intent, gitLinkId: link.id, headSha }, now, deps.random)
   const query = new URLSearchParams({ intent: input.intent, sha: headSha, integration: station.integrationId, state })
   const confirmUrl = `${station.apiBase}/-/confirm/projects/${stationProjectId}/merge-requests/${iid}?${query.toString()}`
-  log.info("gitstation approval started", { ...context, attemptId: attempt.id })
-  return { attemptId: attempt.id, confirmUrl, expiresAt: expiresAt.toISOString() }
-}
-
-async function finish(attemptId: string, outcome: "approved" | "withdrawn" | "unchanged" | "discarded" | "failed", now: Date): Promise<void> {
-  // Only an open row: a finished one keeps how it ended.
-  await prisma.gitMrApprovalAttempt.updateMany({ where: { id: attemptId, finishedAt: null }, data: { finishedAt: now, outcome, claimingAt: null } })
+  log.info("gitstation approval started", { ...context, attemptId })
+  return { attemptId, confirmUrl, expiresAt: expiresAt.toISOString() }
 }
 
 /**
@@ -428,67 +398,29 @@ async function finish(attemptId: string, outcome: "approved" | "withdrawn" | "un
  */
 export async function completeMrApproval(projectId: string, userId: string, attemptId: string, deps: MrApprovalDeps = {}): Promise<CompletedApproval> {
   const now = (deps.now ?? (() => new Date()))()
-  const attempt = await prisma.gitMrApprovalAttempt.findFirst({ where: { id: attemptId, projectId } })
-  // Another user's attempt is "not found": its existence is not shown.
-  if (!attempt || attempt.userId !== userId) throw new NotFoundError("Approval not found")
-  if (attempt.finishedAt) throw err(409, "GIT_APPROVAL_RETRY", "この確認は使用済みです")
-  if (attempt.expiresAt <= now) {
-    await finish(attempt.id, "failed", now)
-    throw err(409, "GIT_APPROVAL_RETRY", "確認の期限が切れました")
+  const attempt = await lockAttempt(projectId, userId, attemptId, MR_INTENTS, now)
+  const gitLinkId = attempt.gitLinkId
+  const headSha = attempt.headSha
+  const context = { projectId, attemptId: attempt.id, linkId: gitLinkId, intent: attempt.intent }
+  // The CHECK makes an MR intent carry both; a row without them is not this feature's.
+  if (!gitLinkId || !headSha) {
+    await finishAttempt(attempt.id, "failed", now)
+    throw new NotFoundError("Approval not found")
   }
-  // Take the claim lock (compare-and-set): two presses never both claim.
-  const locked = await prisma.gitMrApprovalAttempt.updateMany({
-    where: { id: attempt.id, finishedAt: null, OR: [{ claimingAt: null }, { claimingAt: { lt: new Date(now.getTime() - CLAIM_LOCK_MS) } }] },
-    data: { claimingAt: now },
-  })
-  if (locked.count !== 1) throw new ConflictError("処理中です", {}, "GIT_APPROVAL_BUSY")
-
-  const context = { projectId, attemptId: attempt.id, linkId: attempt.gitLinkId, intent: attempt.intent }
-  // Releases only this request's own lock (a later press that took over a stale lock keeps its own).
-  const release = () => prisma.gitMrApprovalAttempt.updateMany({ where: { id: attempt.id, finishedAt: null, claimingAt: now }, data: { claimingAt: null } })
-  let claim: GitStationActAsClaim
-  let station: Station
-  let iid: number
-  let stationProjectId: number
-  let employeeNumber: string | null
-  try {
-    const loaded = await loadLink(projectId, attempt.gitLinkId)
-    iid = loaded.iid
-    station = stationFor(projectId, loaded.integration, loaded.link.repository, deps.clientFactory ?? defaultGitStationClientFactory)
-    // Everything that can fail is read BEFORE the claim: a claim hands its one-time secret out only once.
-    employeeNumber = await employeeNumberOf(userId)
-    stationProjectId = await station.stationProjectId()
-    const state = open(attempt.stateCipher)
-    if (!state) {
-      await finish(attempt.id, "failed", now)
-      throw err(409, "GIT_APPROVAL_RETRY", "確認をやり直してください")
-    }
-    claim = await station.client.claimActAs(state)
-  } catch (e) {
-    // Not pressed yet: the person may press "確認しました" again once they did.
-    if (e instanceof GitStationError && e.detail.errorCode === "FG-AUTH-0020" && e.status === 403) {
-      // GitStation gives no reason in the body: claim_unknown (not pressed) is the expected one; an expired or
-      // repeated claim makes the attempt useless, which the person sees as "確認をやり直してください" after 10 min.
-      await release()
-      throw err(409, "GIT_APPROVAL_NOT_CONFIRMED", "GitStation でまだ確認されていません")
-    }
-    // Refused before GitStation looked at the state (rate limit), or the repository check failed: usable again.
-    if (e instanceof GitStationError && e.kind === "rate_limited") {
-      await release()
-      throw toServiceError(e, context)
-    }
-    // Anything else (a lost answer included — the claim may have been spent): this attempt is over; the person
-    // starts again rather than being told "not confirmed" until the attempt expires.
-    await finish(attempt.id, "failed", now).catch((finishError: unknown) =>
-      log.error("gitstation approval attempt not closed", { ...context, error: finishError instanceof Error ? finishError.message : String(finishError) }),
-    )
-    if (e instanceof GitStationError && (e.kind === "network" || e.kind === "unavailable")) {
-      toServiceError(e, context)
-      throw err(409, "GIT_APPROVAL_RETRY", "GitStation の応答を受け取れませんでした。もう一度確認してください")
-    }
-    if (e instanceof StatusError || e instanceof NotFoundError) throw e
-    throw toServiceError(e, context)
-  }
+  const { claim, value } = await claimAttempt(
+    attempt,
+    now,
+    context,
+    async () => {
+      const loaded = await loadLink(projectId, gitLinkId)
+      const station = stationFor(projectId, loaded.integration, loaded.link.repository, deps.clientFactory ?? defaultGitStationClientFactory)
+      const employeeNumber = await employeeNumberOf(userId)
+      const stationProjectId = await station.stationProjectId()
+      return { client: station.client, value: { station, iid: loaded.iid, employeeNumber, stationProjectId } }
+    },
+    toServiceError,
+  )
+  const { station, iid, employeeNumber, stationProjectId } = value
 
   // From here the claim's secret is in hand: whatever happens, the attempt is finished (the secret is never stored).
   try {
@@ -498,28 +430,19 @@ export async function completeMrApproval(projectId: string, userId: string, atte
         : claim.kanflowProjectId !== null || !claim.targetRef?.startsWith("refs/heads/") ? "intent"
         : claim.projectId !== stationProjectId ? "project"
           : claim.iid !== iid ? "merge_request"
-            : claim.headSha !== attempt.headSha || !isObjectId(claim.headSha) ? "head"
+            : claim.headSha !== headSha || !isObjectId(claim.headSha) ? "head"
               : null
     if (mismatch) {
-      await finish(attempt.id, "discarded", now)
-      log.warn("gitstation approval claim discarded", { ...context, mismatch })
+      await discardClaim(attempt, mismatch, now, context)
       throw err(409, mismatch === "head" ? "GIT_APPROVAL_STALE" : "GIT_APPROVAL_RETRY", "確認の内容が違います")
     }
-    // ADR-0025 Risks: the person who pressed in GitStation must be the Kanflow user who started (a shared PC with
-    // someone else's GitStation session). The claim names them by employee number (scope user_employee_number);
-    // without it the person cannot be checked and nothing is sent.
-    if (!claim.sub.employeeNumber || !employeeNumber || claim.sub.employeeNumber !== employeeNumber) {
-      await finish(attempt.id, "discarded", now)
-      log.warn("gitstation approval claim discarded", { ...context, mismatch: claim.sub.employeeNumber ? "sub" : "sub_unnamed", stationUserId: claim.sub.userId })
-      if (!claim.sub.employeeNumber) throw err(409, "GIT_APPROVAL_CONFIG", "GitStation が確認した人の社員番号を返しませんでした")
-      throw err(409, "GIT_APPROVAL_DIFFERENT_USER", "GitStation で確認した人が違います")
-    }
+    await assertClaimedBySamePerson(attempt, claim, employeeNumber, now, context)
     const answer = await station.client.approveAs(stationProjectId, iid, attempt.intent as ApprovalIntent, { userId: claim.sub.userId, assertion: claim.assertion, sha: claim.headSha as string })
-    await finish(attempt.id, answer.outcome, now)
+    await finishAttempt(attempt.id, answer.outcome, now)
     log.info("gitstation approval sent", { ...context, outcome: answer.outcome, counted: answer.counted })
     return answer
   } catch (e) {
-    await prisma.gitMrApprovalAttempt.updateMany({ where: { id: attempt.id, finishedAt: null }, data: { finishedAt: now, outcome: "failed", claimingAt: null } })
+    await finishAttempt(attempt.id, "failed", now)
     if (e instanceof StatusError || e instanceof ForbiddenError) throw e
     throw toServiceError(e, context)
   } finally {

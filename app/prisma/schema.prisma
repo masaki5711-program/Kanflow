@@ -2397,19 +2397,30 @@ model PlanEstimateGateApproval {
   @@map("plan_estimate_gate_approval")
 }
 
-/// One approve / withdraw of a GitStation merge request asked from Kanflow (plan 11 K4, F-36; GitStation ADR-0025):
-/// the `state` Kanflow put into GitStation's confirmation URL, bound to the Kanflow user who asked, the MR and the
-/// head they saw. Claimed once ("確認しました"); `claimingAt` serialises a double press, `finishedAt` ends the row.
-/// Rows are removed a day after they expire (no history is needed: GitStation's audit log holds the approval).
+/// One act-as action asked from Kanflow through GitStation's confirmation (GitStation ADR-0025): approve / withdraw a
+/// merge request (plan 11 K4, F-36) or bind / unbind a repository to this Kanflow project (plan 11 §5.7 X3). The
+/// `state` Kanflow put into GitStation's confirmation URL, bound to the Kanflow user who asked and to what they asked
+/// for. Claimed once ("確認しました"); `claimingAt` serialises a double press, `finishedAt` ends the row.
+/// Rows are removed a day after they expire (no history is needed: GitStation's audit log holds the action).
+/// CHECK git_mr_approval_attempt_subject_chk: an MR intent has gitLinkId + headSha only; binding_set has
+/// stationProjectId + resolvesWorkItems (+ bindingId when an existing binding is changed); binding_remove has
+/// stationProjectId + bindingId. The Kanflow project a binding names is `projectId`.
 model GitMrApprovalAttempt {
   id          String    @id @default(cuid())
   projectId   String
   userId      String
-  gitLinkId   String
-  /// "approve" | "unapprove"
+  /// approve / unapprove: the merge request link.
+  gitLinkId   String?
+  /// "approve" | "unapprove" | "binding_set" | "binding_remove"
   intent      String    @db.VarChar(16)
-  /// The head the person was shown (40 / 64 hex): a claim for another head is discarded.
-  headSha     String    @db.VarChar(64)
+  /// approve / unapprove: the head the person was shown (40 / 64 hex): a claim for another head is discarded.
+  headSha     String?   @db.VarChar(64)
+  /// binding intents: GitStation's id of the repository (its project) bound / unbound.
+  stationProjectId BigInt?
+  /// binding_remove, or binding_set changing an existing binding: GitStation's binding id.
+  bindingId   BigInt?
+  /// binding_set: the setting the person confirms (true = code repository, false = shared spec repository).
+  resolvesWorkItems Boolean?
   /// The state, AES-256-GCM sealed by lib/secret-box (it is sent once more, to the claim).
   stateCipher String    @db.Text
   /// GitStation's confirmation page expires after 10 minutes; Kanflow keeps the row as long.
@@ -2417,12 +2428,12 @@ model GitMrApprovalAttempt {
   /// A claim is being sent (a second press within 30 s is refused).
   claimingAt  DateTime?
   finishedAt  DateTime?
-  /// approved | withdrawn | unchanged | discarded | failed
+  /// approved | withdrawn | unchanged | bound | updated | removed | discarded | failed
   outcome     String?   @db.VarChar(16)
   createdAt   DateTime  @default(now())
   project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  gitLink     GitLink   @relation(fields: [gitLinkId], references: [id], onDelete: Cascade)
+  gitLink     GitLink?  @relation(fields: [gitLinkId], references: [id], onDelete: Cascade)
 
   @@index([userId, createdAt])
   @@index([expiresAt])

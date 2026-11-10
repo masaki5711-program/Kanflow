@@ -156,6 +156,12 @@ export interface ApiErrorsTranslations {
   apiErrGitApprovalConfig: string
   apiErrGitApprovalDifferentUser: string
   apiErrGitApprovalBusy: string
+  apiErrGitBindingUnavailable: string
+  apiErrGitBindingNotAllowed: string
+  apiErrGitBindingConflict: string
+  apiErrGitBindingAlready: string
+  apiErrGitBindingResolutionFixed: string
+  apiErrGitBindingConfig: string
   apiErrMrUrlInvalid: string
   apiErrMrRepositoryNotRegistered: string
   apiErrClaimReleased: string
@@ -318,6 +324,12 @@ export const API_ERROR_MESSAGE_KEYS: Readonly<Record<ApiErrorCode, ApiErrorMessa
   GIT_APPROVAL_CONFIG: "apiErrGitApprovalConfig",
   GIT_APPROVAL_DIFFERENT_USER: "apiErrGitApprovalDifferentUser",
   GIT_APPROVAL_BUSY: "apiErrGitApprovalBusy",
+  GIT_BINDING_UNAVAILABLE: "apiErrGitBindingUnavailable",
+  GIT_BINDING_NOT_ALLOWED: "apiErrGitBindingNotAllowed",
+  GIT_BINDING_CONFLICT: "apiErrGitBindingConflict",
+  GIT_BINDING_ALREADY: "apiErrGitBindingAlready",
+  GIT_BINDING_RESOLUTION_FIXED: "apiErrGitBindingResolutionFixed",
+  GIT_BINDING_CONFIG: "apiErrGitBindingConfig",
   MR_URL_INVALID: "apiErrMrUrlInvalid",
   MR_REPOSITORY_NOT_REGISTERED: "apiErrMrRepositoryNotRegistered",
   CLAIM_RELEASED: "apiErrClaimReleased",
@@ -487,6 +499,12 @@ export const ja: ApiErrorsTranslations = {
   apiErrGitApprovalConfig: "Git 連携の設定の問題で承認できません。管理者に連絡してください",
   apiErrGitApprovalDifferentUser: "GitStation で確認した人が、Kanflow にサインインしている人と違います。自分の GitStation のアカウントで確認し直してください",
   apiErrGitApprovalBusy: "処理中です。少し待ってください",
+  apiErrGitBindingUnavailable: "このプロジェクトでは GitStation のリポジトリを結びつけられません（取り込み元が GitStation で、連携 ID とトークンが設定されている必要があります）",
+  apiErrGitBindingNotAllowed: "GitStation でこのリポジトリを結びつける権限がありません（リポジトリの Maintainer 以上が必要です）",
+  apiErrGitBindingConflict: "GitStation の結びつけの規則で断られました。コードのリポジトリは 1 つのプロジェクトにだけ、共有の仕様のリポジトリはコードの結びつけと同居できません",
+  apiErrGitBindingAlready: "このリポジトリはすでにこの設定でこのプロジェクトに結びついています",
+  apiErrGitBindingResolutionFixed: "コードのリポジトリを共有の仕様のリポジトリに変えることはできません。いったん解除してから、共有の仕様として結び直してください",
+  apiErrGitBindingConfig: "Git 連携の設定の問題で結びつけを変更できません。管理者に連絡してください",
   apiErrMrUrlInvalid: "マージリクエストの URL ではありません（許可された Git サーバーの …/-/merge_requests/<番号> の形）",
   apiErrMrRepositoryNotRegistered: "このマージリクエストのリポジトリは、このプロジェクトの Git 連携に登録されていません",
   apiErrClaimReleased: "この作業の宣言はすでに解除されています。もう一度宣言してください",
@@ -650,6 +668,12 @@ export const en: ApiErrorsTranslations = {
   apiErrGitApprovalConfig: "Approval is not possible because of the Git integration settings. Contact an administrator",
   apiErrGitApprovalDifferentUser: "The person who confirmed in GitStation is not the person signed in to Kanflow. Confirm again with your own GitStation account",
   apiErrGitApprovalBusy: "Already in progress. Please wait a moment",
+  apiErrGitBindingUnavailable: "Repositories cannot be bound here (the source must be GitStation, with the integration ID and token set)",
+  apiErrGitBindingNotAllowed: "You are not allowed to bind this repository in GitStation (Maintainer or above of the repository is needed)",
+  apiErrGitBindingConflict: "GitStation's binding rules refused this. A code repository belongs to one project only, and a shared spec repository cannot be mixed with a code binding",
+  apiErrGitBindingAlready: "This repository is already bound to this project with this setting",
+  apiErrGitBindingResolutionFixed: "A code repository cannot be changed into a shared spec repository. Unbind it first, then bind it again as shared specs",
+  apiErrGitBindingConfig: "The binding cannot be changed because of the Git integration settings. Contact an administrator",
   apiErrMrUrlInvalid: "Not a merge request URL (…/-/merge_requests/<number> on an allowed Git server)",
   apiErrMrRepositoryNotRegistered: "The merge request's repository is not registered in this project's Git integration",
   apiErrClaimReleased: "This work claim was already released. Claim the work again",
@@ -813,6 +837,12 @@ export const id: ApiErrorsTranslations = {
   apiErrGitApprovalConfig: "Persetujuan tidak dapat dilakukan karena pengaturan integrasi Git. Hubungi administrator",
   apiErrGitApprovalDifferentUser: "Orang yang mengonfirmasi di GitStation bukan orang yang masuk ke Kanflow. Konfirmasi lagi dengan akun GitStation Anda sendiri",
   apiErrGitApprovalBusy: "Sedang diproses. Mohon tunggu sebentar",
+  apiErrGitBindingUnavailable: "Repositori tidak dapat dihubungkan di sini (sumber harus GitStation, dengan ID integrasi dan token yang sudah diatur)",
+  apiErrGitBindingNotAllowed: "Anda tidak diizinkan menghubungkan repositori ini di GitStation (diperlukan peran Maintainer atau lebih tinggi pada repositori)",
+  apiErrGitBindingConflict: "Ditolak oleh aturan pengikatan GitStation. Repositori kode hanya untuk satu proyek, dan repositori spesifikasi bersama tidak dapat dicampur dengan pengikatan kode",
+  apiErrGitBindingAlready: "Repositori ini sudah terhubung ke proyek ini dengan pengaturan ini",
+  apiErrGitBindingResolutionFixed: "Repositori kode tidak dapat diubah menjadi repositori spesifikasi bersama. Lepaskan dulu, lalu hubungkan lagi sebagai spesifikasi bersama",
+  apiErrGitBindingConfig: "Pengikatan tidak dapat diubah karena pengaturan integrasi Git. Hubungi administrator",
   apiErrMrUrlInvalid: "Bukan URL merge request (…/-/merge_requests/<nomor> pada server Git yang diizinkan)",
   apiErrMrRepositoryNotRegistered: "Repositori merge request ini tidak terdaftar di integrasi Git proyek ini",
   apiErrClaimReleased: "Klaim pekerjaan ini sudah dilepas. Klaim pekerjaan lagi",

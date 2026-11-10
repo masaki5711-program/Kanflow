@@ -144,8 +144,10 @@ interface RequestExtra {
   actAs?: string
   /** `Forge-Assertion` (`fga_…`): only with `actAs`. */
   assertion?: string
-  /** A JSON body makes the request a POST. */
+  /** A JSON body makes the request a POST (unless `method` says otherwise). */
   body?: unknown
+  /** A write other than POST (X3: PATCH / DELETE of a binding). */
+  method?: "PATCH" | "DELETE"
 }
 
 export type ApprovalIntent = "approve" | "unapprove"
@@ -182,8 +184,42 @@ export interface GitStationActAsClaim {
   targetRef: string | null
   /** The Kanflow project of a binding intent; null for a merge request intent. */
   kanflowProjectId: string | null
+  /** The setting confirmed for `binding_set` (true = code repository); null otherwise. */
+  resolvesWorkItems: boolean | null
   expiresAt: string
 }
+
+/** X3: the act-as intents that bind / unbind a repository (ADR-0025 Amendment X3). */
+export type BindingIntent = "binding_set" | "binding_remove"
+
+/** `GET /repositories?q=` (BindableRepository): a repository the person may bind (Maintainer and above). */
+export interface GitStationBindableRepository {
+  id: number
+  /** `group/name`. */
+  path: string
+  displayName: string
+}
+
+/** One binding of a repository to a Kanflow project (RepositoryBindingBody). */
+export interface GitStationRepositoryBinding {
+  bindingId: number
+  repositoryId: number
+  /** null only when GitStation cannot read the path. */
+  repositoryPath: string | null
+  kanflowProjectId: string
+  resolvesWorkItems: boolean
+}
+
+export const BINDING_WRITE_OUTCOMES = ["bound", "updated", "unchanged"] as const
+export type BindingWriteOutcome = (typeof BINDING_WRITE_OUTCOMES)[number]
+
+/** Kanflow project ids GitStation accepts in a binding (`A-Z a-z 0-9 . _ : -`, 1..=100): never escaped. */
+const KANFLOW_PROJECT_ID = /^[A-Za-z0-9._:-]{1,100}$/
+export const isBindableKanflowProjectId = (v: unknown): v is string => typeof v === "string" && KANFLOW_PROJECT_ID.test(v)
+/** Search text GitStation accepts (1..=100 characters). */
+export const MAX_REPOSITORY_QUERY = 100
+/** Repositories one search returns at most (GitStation: 1..=50). */
+export const REPOSITORY_SEARCH_LIMIT = 20
 
 export interface GitStationApprovalAnswer {
   outcome: ApprovalOutcome
@@ -354,7 +390,20 @@ function parseClaim(v: unknown): GitStationActAsClaim | null {
     headSha,
     targetRef: str(v.target_ref) ? v.target_ref.slice(0, 512) : null,
     kanflowProjectId: str(v.kanflow_project_id) ? v.kanflow_project_id.slice(0, 128) : null,
+    resolvesWorkItems: typeof v.resolves_work_items === "boolean" ? v.resolves_work_items : null,
     expiresAt: v.expires_at,
+  }
+}
+
+/** One RepositoryBindingBody, else null. */
+function parseRepositoryBinding(v: unknown): GitStationRepositoryBinding | null {
+  if (!isObject(v) || !isId(v.binding_id) || !isId(v.repository_id) || !str(v.kanflow_project_id) || !isObject(v.settings) || typeof v.settings.resolves_work_items !== "boolean") return null
+  return {
+    bindingId: v.binding_id,
+    repositoryId: v.repository_id,
+    repositoryPath: str(v.repository_path) ? v.repository_path.slice(0, 512) : null,
+    kanflowProjectId: v.kanflow_project_id.slice(0, 128),
+    resolvesWorkItems: v.settings.resolves_work_items,
   }
 }
 
@@ -389,7 +438,7 @@ export function createGitStationClient({ apiBase, token, integrationId, fetchImp
     let res: Response
     try {
       res = await fetchImpl(url, {
-        method: extra.body !== undefined ? "POST" : "GET",
+        method: extra.method ?? (extra.body !== undefined ? "POST" : "GET"),
         headers,
         body: extra.body !== undefined ? JSON.stringify(extra.body) : undefined,
         signal: AbortSignal.timeout(timeoutMs),
@@ -440,6 +489,12 @@ export function createGitStationClient({ apiBase, token, integrationId, fetchImp
    */
   async function sendWrite(path: string, body: unknown, extra: Omit<RequestExtra, "body"> = {}): Promise<unknown> {
     return parsed(await sendOnce(path, {}, { ...extra, body }))
+  }
+
+  /** A DELETE: sent once, never retried; GitStation answers 204 (any body is dropped unread). */
+  async function sendDelete(path: string, extra: Omit<RequestExtra, "body" | "method"> = {}): Promise<void> {
+    const res = await sendOnce(path, {}, { ...extra, method: "DELETE" })
+    await res.body?.cancel().catch(() => undefined)
   }
 
   /** 429 / 503 are retried (honouring Retry-After up to MAX_RETRY_WAIT_SEC); anything else throws at once. */
@@ -654,6 +709,63 @@ export function createGitStationClient({ apiBase, token, integrationId, fetchImp
         }
       }
       return out
+    },
+
+    /**
+     * X3: the repositories the person (`Forge-Act-As: employee:<n>`, no assertion) may bind — Maintainer and above —
+     * whose path or name contains `q`. Read ONCE (no retry: GitStation allows 30 searches a minute per service
+     * account, a 429 is shown to the person). Only id, path and name: GitStation says nothing about the others.
+     */
+    async searchRepositoriesAs(q: string, employeeNumber: string, limit = REPOSITORY_SEARCH_LIMIT): Promise<GitStationBindableRepository[]> {
+      if (!isEmployeeNumber(employeeNumber)) throw new GitStationError("act_as_target_invalid", "The employee number cannot be named to GitStation")
+      const text = q.trim()
+      if (text.length === 0 || text.length > MAX_REPOSITORY_QUERY) throw new GitStationError("invalid_response", "not a repository search")
+      const body = await parsed(await sendOnce(`/repositories`, { q: text, limit: Math.min(Math.max(1, limit), 50) }, { actAs: `employee:${employeeNumber}` }))
+      if (!isObject(body) || !Array.isArray(body.items)) throw new GitStationError("invalid_response", "GitStation repository search has an unexpected shape")
+      return body.items.flatMap((r) => (isObject(r) && isId(r.id) && str(r.path) && str(r.display_name) ? [{ id: r.id, path: r.path.slice(0, 512), displayName: r.display_name.slice(0, 255) }] : []))
+    },
+
+    /** X3: the repositories bound to one Kanflow project of this integration (the service account itself, no act-as). */
+    async repositoryBindings(kanflowProjectId: string): Promise<GitStationRepositoryBinding[]> {
+      if (!isBindableKanflowProjectId(kanflowProjectId)) throw new GitStationError("invalid_response", "not a bindable Kanflow project id")
+      const body = await send(`/integrations/${integration}/bindings`, { kanflow_project_id: kanflowProjectId })
+      if (!isObject(body) || !Array.isArray(body.items)) throw new GitStationError("invalid_response", "GitStation bindings have an unexpected shape")
+      return body.items.flatMap((b) => {
+        const parsedBinding = parseRepositoryBinding(b)
+        // Only this project's: anything else is not ours to show.
+        return parsedBinding && parsedBinding.kanflowProjectId === kanflowProjectId ? [parsedBinding] : []
+      })
+    },
+
+    /**
+     * X3: bind (POST) the repository to the Kanflow project, or change an existing binding's setting (PATCH, when
+     * `bindingId` is given), as the person who confirmed (`Forge-Act-As: user:<id>` + the `binding_set` assertion).
+     * Sent once.
+     */
+    async setBindingAs(
+      input: { kanflowProjectId: string; repositoryId: number; resolvesWorkItems: boolean; bindingId: number | null },
+      as: { userId: number; assertion: string },
+    ): Promise<{ outcome: BindingWriteOutcome; binding: GitStationRepositoryBinding }> {
+      if (!isBindableKanflowProjectId(input.kanflowProjectId) || !isId(input.repositoryId) || !isId(as.userId) || (input.bindingId !== null && !isId(input.bindingId))) {
+        throw new GitStationError("invalid_response", "not a binding request")
+      }
+      const settings = { resolves_work_items: input.resolvesWorkItems }
+      const extra = { actAs: `user:${as.userId}`, assertion: as.assertion }
+      const body =
+        input.bindingId === null
+          ? await sendWrite(`/integrations/${integration}/bindings`, { kanflow_project_id: input.kanflowProjectId, repository_id: input.repositoryId, settings }, extra)
+          : await sendWrite(`/integrations/${integration}/bindings/${input.bindingId}`, { settings }, { ...extra, method: "PATCH" })
+      const binding = isObject(body) ? parseRepositoryBinding(body.binding) : null
+      if (!isObject(body) || !str(body.outcome) || !BINDING_WRITE_OUTCOMES.includes(body.outcome as BindingWriteOutcome) || !binding) {
+        throw new GitStationError("invalid_response", "GitStation binding answer has an unexpected shape")
+      }
+      return { outcome: body.outcome as BindingWriteOutcome, binding }
+    },
+
+    /** X3: remove a binding as the person who confirmed (`binding_remove` assertion). Sent once; 204. */
+    async removeBindingAs(bindingId: number, as: { userId: number; assertion: string }): Promise<void> {
+      if (!isId(bindingId) || !isId(as.userId)) throw new GitStationError("invalid_response", "not a binding removal")
+      await sendDelete(`/integrations/${integration}/bindings/${bindingId}`, { actAs: `user:${as.userId}`, assertion: as.assertion })
     },
 
     /** GitStation's permalink of a project page (`/-/projects/{id}/<segments>`: survives renames). */
