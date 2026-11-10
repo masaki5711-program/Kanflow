@@ -82,6 +82,8 @@ const EXPECTED: Record<ProjectAction, Persona[]> = {
   "plan.lessonRule.confirm": PO_SM,
   "plan.lessonRule.requestPromotion": PO,
   "plan.actualsFinalize": PO_SM,
+  // AI review proposals of actuals: the PO / SM decide (a dev, a section manager who only views, an outsider are denied).
+  "plan.actualsReview": PO_SM,
   // plan 12 §4: PO / SM and the section manager see members' load (a dev only their own — in the service).
   "plan.viewMemberLoad": ["admin", "po", "sm", "sectionMgr", "sectionMgrDev"],
   "capacity.manage": PO_SM,

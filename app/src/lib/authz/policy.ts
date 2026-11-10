@@ -104,6 +104,12 @@ export const PROJECT_ACTIONS = [
    */
   "plan.actualsFinalize",
   /**
+   * The AI review of finalized actuals (handoff 2026-11-05 "次の案" 1): read the proposals (exclude a leaf from learning
+   * / treat its overrun as waiting, with the quoted reason) and accept or reject them one at a time. The AI changes
+   * nothing by itself; only an accept by this action changes how learning uses a leaf.
+   */
+  "plan.actualsReview",
+  /**
    * See other members' load (plan 12 §3.5 / §4, Q2): utilization and the days that overlap, never other projects'
    * item names. Everyone sees their OWN load without this action (checked in the service).
    */
@@ -164,6 +170,7 @@ const POLICY: Readonly<Record<ProjectAction, readonly Grantee[]>> = {
   "plan.lessonRule.confirm": PO_SM,
   "plan.lessonRule.requestPromotion": PO,
   "plan.actualsFinalize": PO_SM,
+  "plan.actualsReview": PO_SM,
   "plan.viewMemberLoad": ["po", "sm", "section_manager"],
   "capacity.manage": PO_SM,
   "plan.estimate": PO_SM,

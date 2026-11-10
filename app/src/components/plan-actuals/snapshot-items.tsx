@@ -61,9 +61,19 @@ export function SnapshotItems({ projectId, snapshotId, dateLabel }: Props) {
               <td className="px-3 py-2 text-right">{days(it.waitGapDays)}</td>
               <td className="px-3 py-2 text-right">{days(it.onHoldDays)}</td>
               <td className="px-3 py-2">
-                <Badge tone={it.complete ? "success" : "neutral"} dot>
-                  {it.complete ? t.pacYes : t.pacNo}
-                </Badge>
+                {it.complete && it.learningUse === "excluded" ? (
+                  <Badge tone="warning" dot>
+                    {t.pacReviewKindExclude}
+                  </Badge>
+                ) : it.complete && it.learningUse === "waiting" ? (
+                  <Badge tone="info" dot>
+                    {t.pacReviewKindWaiting}
+                  </Badge>
+                ) : (
+                  <Badge tone={it.complete ? "success" : "neutral"} dot>
+                    {it.complete ? t.pacYes : t.pacNo}
+                  </Badge>
+                )}
               </td>
             </tr>
           ))}

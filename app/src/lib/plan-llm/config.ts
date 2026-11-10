@@ -12,6 +12,8 @@
 
 /** Bumped whenever a system prompt or an output schema below changes; stored with every run and draft job. */
 export const PLAN_LLM_PROMPT_VERSION = "e6-v1"
+/** The same for the AI review of finalized actuals (its own prompt; stored with every review job and proposal). */
+export const ACTUALS_REVIEW_PROMPT_VERSION = "e6r-v1"
 
 export const DEFAULT_PLAN_LLM_TIMEOUT_MS = 60_000
 export const DEFAULT_PLAN_LLM_BATCH_TIMEOUT_MS = 300_000

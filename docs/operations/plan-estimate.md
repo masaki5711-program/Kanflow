@@ -68,6 +68,22 @@
 - 時間の向き: プロジェクトごとに、その開始月の 1 日より前に**終わって、かつ確定された**ものだけから学ぶ。昔のプロジェクトを今まとめて
   確定すると、確定の日付が新しいので互いから学べず、成績はテンプレートと同じになる。これは未来の情報を使わないための仕様。
 
+### AI による実績の精査（学習から外す・待ちとして扱う）
+
+- 実績を確定すると、スナップショットごとに 1 件の依頼（`plan_actuals_review_job`）が積まれ、夜間のまとめ処理（規則の下書きと同じ
+  `PLAN_RULE_DRAFT_SCHEDULE`、下書きの後、`background` の優先度）でローカルの LLM が読む。読むのはそのスナップショットの学習に
+  使える葉（名前・予定 / 実績の日数・遅れ・待ち・保留、全体計画の行の説明とメモ）と確定のメモだけ。**今機密の PBI を含む葉は名前も
+  送らない**。担当者は送らない。プロンプトのデータは 6,000 字まで（ずれの大きい葉から、葉は途中で切らない）。
+- AI は葉ごとに 1 件まで「学習から外す」か「待ちとして扱う」（実績が予定より長い葉だけ）を、葉の文か確定のメモからの**引用**と確からしさ
+  （低・中・高）つきで提案する。1 回の依頼で 10 件まで、未決定の提案は 1 プロジェクト 30 件まで。不正な答えは 1 回だけ（答えを送り返さずに）
+  やり直し、2 回とも不正なら失敗。Ollama が止まっていれば次の夜に回し、3 晩で失敗。`PLAN_LLM_ASSIST=off` なら何も送らない。
+- **提案だけでは何も変わらない**。PO / SM（`plan.actualsReview`）が実績の画面で採用すると、葉の `learningUse` が変わる
+  （`excluded`: 学ばない、`waiting`: 予定の日数を作業として、超えた分を葉の前の待ちとして学ぶ）。記録した数字は変えない。採用を取り消す
+  （採用しない）と記録どおりに戻る。決定は監査に残り、提案に決めた人と日時が残る。学習の扱いが変わるとスナップショットの版が上がり、
+  系統の検証は「再計算待ち」になって、確定の後と同じく検証が積まれる。
+- 葉の PBI が後で機密になると、提案の引用は画面に出さない（提案と採否は残る）。作り直した（再確定した）実績の未決定の提案は
+  `superseded` になり、新しいスナップショットにはその夜に新しい依頼が来る。
+
 ## 2. 見積もりが変なときの調べ方
 
 1. **案の ID（`runId`）を確かめる**: 画面の案のカード、またはログの `estimate run created`（`projectId`・`runId`・`inputHash`・
@@ -117,6 +133,9 @@
 | `collab-daily` | `parameter search queued` / `parameter search could not be queued` | 毎朝の処理が古かった系統の探索を積んだ（待たない。結果は `parameter search recorded`） |
 | `plan-estimate-run` | `approved estimator settings are outside the search grid; …` | 壊れた承認の行を使わずに終えた（error。`paramApprovalId`） |
 | `plan-llm` | `plan llm call failed; deterministic path` | LLM の時間切れ・停止。決定的な部分に戻った |
+| `plan-llm-actuals-review` | `actuals-review proposals written` / `… dropped` | 実績の精査の提案を書いた（`created`・`dropped`、落とした理由の数） |
+| `plan-llm-actuals-review` | `actuals review postponed: …` / `actuals review failed; …` | LLM が答えなかった（次の夜に回す / 失敗。学習はこれまでどおり） |
+| `plan-llm-actuals-review` | `actuals-review batch finished` | 夜間の精査のまとめ（`processed`・`done`・`failed` など） |
 
 計画 12 §6 の「メトリクス」（実行の時間、LLM の時間切れの数、`PLAN_ESTIMATE_STALE` の回数、確定の時に読めなかったリポジトリの数）は、
 今は上のログから数える。管理 → 「メトリクス」の画面にはまだ出していない。
@@ -130,4 +149,6 @@
 | `plan_estimate_gate_approval` | 系統ごとの管理者の有効化と、その終わり（無効にした・自動で無効・方式の変更） | 消さない（履歴） |
 | `plan_estimate_param_proposal` | 系統ごとのパラメータの探索の結果（提案または既定のままと理由、既定と提案の成績は系統の集計だけ、承認 / 却下 / 置き換え） | 消さない（履歴） |
 | `plan_estimate_param_approval` | 系統ごとの承認した値と、その終わり（既定に戻した・自動で戻った・方式の変更・新しい承認） | 消さない（履歴） |
+| `plan_actuals_review_job` | 実績の精査の依頼（スナップショットごとに 1 件、状態・試行回数・送った出典の ID） | スナップショットと一緒に消える |
+| `plan_actuals_review_proposal` | 実績の精査の提案（葉ごとに 1 件まで、種類・引用・確からしさ・採否・決めた人と日時） | スナップショットと一緒に消える |
 | `plan_estimate_hidden_state` | 見えない出典の保持状態 | **消さない**（数字から見えない出典が漏れるのを防ぐ。`references/decisions.md`） |

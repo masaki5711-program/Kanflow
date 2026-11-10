@@ -12,6 +12,8 @@ const m = vi.hoisted(() => ({
   pseudonymizeActuals: vi.fn(),
   listAttributes: vi.fn(),
   replaceAttributes: vi.fn(),
+  listReviewProposals: vi.fn(),
+  decideReviewProposal: vi.fn(),
 }))
 
 vi.mock("@/lib/auth", () => ({ auth: () => m.authMock() }))
@@ -31,10 +33,13 @@ vi.mock("@/services/plan-actuals/actuals.service", () => ({
   pseudonymizeActuals: m.pseudonymizeActuals,
 }))
 vi.mock("@/services/plan-actuals/attributes.service", () => ({ listAttributes: m.listAttributes, replaceAttributes: m.replaceAttributes }))
+vi.mock("@/services/plan-actuals/actuals-review.service", () => ({ listReviewProposals: m.listReviewProposals, decideReviewProposal: m.decideReviewProposal }))
 
 const actuals = await import("../plan/actuals/route")
 const snapshot = await import("../plan/actuals/[snapshotId]/route")
 const attributes = await import("../attributes/route")
+const review = await import("../plan/actuals/review/route")
+const reviewOne = await import("../plan/actuals/review/[proposalId]/route")
 const pseudonymize = await import("../../../admin/plan-actuals/pseudonymize/route")
 const { ValidationError } = await import("@/services/_shared/errors")
 
@@ -50,9 +55,9 @@ describe("actuals routes (plan 12 E1)", () => {
     asRole(m, "dev")
     const res = await actuals.GET(getReq(), P)
     expect(res.status).toBe(200)
-    expect((await res.json()).permissions).toEqual({ finalize: false })
+    expect((await res.json()).permissions).toEqual({ finalize: false, review: false })
     asRole(m, "sm")
-    expect((await (await actuals.GET(getReq(), P)).json()).permissions).toEqual({ finalize: true })
+    expect((await (await actuals.GET(getReq(), P)).json()).permissions).toEqual({ finalize: true, review: true })
     asRole(m, "outsider")
     expect((await actuals.GET(getReq(), P)).status).toBe(404)
   })
@@ -106,6 +111,30 @@ describe("actuals routes (plan 12 E1)", () => {
     m.replaceAttributes.mockResolvedValue([{ kind: "equipment", ref: "press-3" }])
     expect((await attributes.PUT(jsonReq("PUT", { attributes: [{ kind: "equipment", ref: "press-3" }] }), P)).status).toBe(200)
     expect((await attributes.PUT(jsonReq("PUT", { attributes: [{ kind: "colour", ref: "x" }] }), P)).status).toBe(400)
+  })
+})
+
+describe("AI review proposals of actuals (plan.actualsReview)", () => {
+  beforeEach(() => Object.values(m).forEach((f) => f.mockReset()))
+  const R = ctx({ projectId: "p1", proposalId: "x1" })
+
+  it.each(["dev", "outsider"] as const)("a %s cannot read or decide proposals (nothing reaches the service)", async (role) => {
+    asRole(m, role)
+    expect([403, 404]).toContain((await review.GET(getReq(), P)).status)
+    expect([403, 404]).toContain((await reviewOne.PATCH(jsonReq("PATCH", { decision: "accept", version: 0 }), R)).status)
+    expect(m.listReviewProposals).not.toHaveBeenCalled()
+    expect(m.decideReviewProposal).not.toHaveBeenCalled()
+  })
+
+  it.each(["po", "sm"] as const)("a %s reads and decides; the body is validated", async (role) => {
+    asRole(m, role)
+    m.listReviewProposals.mockResolvedValue({ snapshotId: "s1", job: "done", proposals: [] })
+    expect((await review.GET(getReq(), P)).status).toBe(200)
+    m.decideReviewProposal.mockResolvedValue({ id: "x1", state: "accepted" })
+    expect((await reviewOne.PATCH(jsonReq("PATCH", { decision: "accept", version: 0 }), R)).status).toBe(200)
+    expect(m.decideReviewProposal).toHaveBeenLastCalledWith("p1", "x1", { decision: "accept", version: 0 }, expect.objectContaining({ userId: "user-1" }))
+    expect((await reviewOne.PATCH(jsonReq("PATCH", { decision: "maybe", version: 0 }), R)).status).toBe(400)
+    expect((await reviewOne.PATCH(jsonReq("PATCH", { decision: "reject" }), R)).status).toBe(400)
   })
 })
 

@@ -195,6 +195,11 @@ describe.skipIf(!enabled)("actuals snapshots on a real database (KANFLOW_DB_TEST
       { snapshotId: first.id, status: "queued" },
       { snapshotId: second.id, status: "queued" },
     ])
+    // …and one AI review request (proposals to exclude / treat as waiting, decided by a PO / SM).
+    expect(await prisma.planActualsReviewJob.findMany({ where: { projectId: ids.project }, select: { snapshotId: true, status: true }, orderBy: { createdAt: "asc" } })).toEqual([
+      { snapshotId: first.id, status: "queued" },
+      { snapshotId: second.id, status: "queued" },
+    ])
     const old = await prisma.planActualsSnapshot.findUniqueOrThrow({ where: { id: first.id } })
     expect(old.supersededAt).not.toBeNull()
     expect(await prisma.planActualsItem.findMany({ where: { snapshotId: first.id }, orderBy: { id: "asc" } })).toEqual(oldItems)

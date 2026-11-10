@@ -15,8 +15,8 @@
  */
 import { z } from "zod"
 import { lessonRuleSchema, RULE_KIND_ORDER, RULE_NAME_MAX, type LessonRule } from "@/lib/plan-lesson-rules/rules"
-import { DRAFTS_PER_REQUEST_MAX } from "./prompt"
-import type { BuiltReview, DraftSource, RuleDraftTask } from "./visible"
+import { DRAFTS_PER_REQUEST_MAX, REVIEW_PROPOSALS_PER_REQUEST_MAX, REVIEW_QUOTE_MAX } from "./prompt"
+import type { BuiltActualsReview, BuiltReview, DraftSource, RuleDraftTask } from "./visible"
 
 /** Longest quote kept (the rule table's bound). */
 export const QUOTE_MAX = 1_000
@@ -230,4 +230,94 @@ export function parseExplanation(text: string): ParseResult<ExplanationText> {
   const out = { ja: sanitizeExplanation(parsed.data.ja), en: sanitizeExplanation(parsed.data.en), id: sanitizeExplanation(parsed.data.id) }
   if (!out.ja || !out.en || !out.id) return { ok: false, problem: "every language needs a text" }
   return { ok: true, value: out }
+}
+
+// ---------------------------------------------------------------- actuals review ---------------------------------------
+
+export const REVIEW_KINDS = ["exclude_from_learning", "treat_as_waiting"] as const
+export type ReviewKind = (typeof REVIEW_KINDS)[number]
+export const REVIEW_CONFIDENCES = ["low", "medium", "high"] as const
+export type ReviewConfidence = (typeof REVIEW_CONFIDENCES)[number]
+
+const reviewProposalAnswerSchema = z.object({
+  proposals: z
+    .array(
+      z.object({
+        iid: z.string().max(20),
+        kind: z.string().max(40),
+        quote: z.string().max(REVIEW_QUOTE_MAX * 4),
+        confidence: z.string().max(20),
+      })
+    )
+    .max(200),
+})
+
+export type ReviewDropReason = "unknown_item" | "unknown_kind" | "unknown_confidence" | "quote_too_short" | "quote_not_in_source" | "not_applicable" | "duplicate" | "over_limit"
+
+export interface ValidReviewProposal {
+  snapshotItemId: string
+  kind: ReviewKind
+  quote: string
+  confidence: ReviewConfidence
+}
+
+export interface ReviewParse {
+  proposals: ValidReviewProposal[]
+  dropped: { index: number; reason: ReviewDropReason }[]
+}
+
+/**
+ * Validate an actuals-review answer against what was sent. Invalid as a whole → { ok: false } (retry once, never with
+ * the answer). Each proposal is checked on its own: an item that was sent, a known kind and confidence, a quote of 4 to
+ * 300 characters that is an exact part of THAT item's name or notes or of the note, treat_as_waiting only for a leaf
+ * whose actual days exceed its planned days, one proposal per item, at most 10.
+ */
+export function parseActualsReview(text: string, built: BuiltActualsReview): ParseResult<ReviewParse> {
+  const parsed = reviewProposalAnswerSchema.safeParse(extractJsonObject(text))
+  if (!parsed.success) return { ok: false, problem: 'expected {"proposals":[{iid, kind, quote, confidence}]}' }
+  const note = built.input.note
+  const proposals: ValidReviewProposal[] = []
+  const dropped: ReviewParse["dropped"] = []
+  const seen = new Set<string>()
+  for (const [index, p] of parsed.data.proposals.entries()) {
+    const drop = (reason: ReviewDropReason) => dropped.push({ index, reason })
+    const item = built.items.get(p.iid)
+    if (!item) {
+      drop("unknown_item")
+      continue
+    }
+    if (!(REVIEW_KINDS as readonly string[]).includes(p.kind)) {
+      drop("unknown_kind")
+      continue
+    }
+    if (!(REVIEW_CONFIDENCES as readonly string[]).includes(p.confidence)) {
+      drop("unknown_confidence")
+      continue
+    }
+    const quote = p.quote.trim()
+    if ([...quote].length < QUOTE_MIN || [...quote].length > REVIEW_QUOTE_MAX) {
+      drop("quote_too_short")
+      continue
+    }
+    // Exact: a contiguous part of what was sent for this item, or of the note (no normalisation).
+    if (!item.name.includes(quote) && !item.notes.includes(quote) && !(note !== "" && note.includes(quote))) {
+      drop("quote_not_in_source")
+      continue
+    }
+    if (p.kind === "treat_as_waiting" && !(item.actualDays !== null && item.plannedDays !== null && item.actualDays > item.plannedDays)) {
+      drop("not_applicable")
+      continue
+    }
+    if (seen.has(item.snapshotItemId)) {
+      drop("duplicate")
+      continue
+    }
+    if (proposals.length >= REVIEW_PROPOSALS_PER_REQUEST_MAX) {
+      drop("over_limit")
+      continue
+    }
+    seen.add(item.snapshotItemId)
+    proposals.push({ snapshotItemId: item.snapshotItemId, kind: p.kind as ReviewKind, quote, confidence: p.confidence as ReviewConfidence })
+  }
+  return { ok: true, value: { proposals, dropped } }
 }

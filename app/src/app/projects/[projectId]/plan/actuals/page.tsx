@@ -8,6 +8,7 @@ import { Badge, Button, EmptyState, Field, PageHeader, SkeletonCard, Textarea, c
 import { useProjectDocumentTitle } from "@/components/app-shell/project-title-context"
 import { AttributesEditor } from "@/components/plan-actuals/attributes-editor"
 import { LearningSwitchDialog } from "@/components/plan-actuals/learning-switch-dialog"
+import { ReviewProposals } from "@/components/plan-actuals/review-proposals"
 import { SnapshotItems } from "@/components/plan-actuals/snapshot-items"
 import type { ActualsResponse, PreviewIssue, SnapshotView } from "@/components/plan-actuals/types"
 import { useFocusAfterReload } from "@/components/plan-lesson-rules/use-focus-after-reload"
@@ -70,6 +71,7 @@ export default function ActualsPage() {
   const preview = data?.preview
   const snapshots = data?.snapshots ?? []
   const canFinalize = data?.permissions.finalize ?? false
+  const canReview = data?.permissions.review ?? false
   const current = snapshots.find((s) => s.current)
   // Resolved from the latest list on every render, so a retry after a 409 uses the current version.
   const switching = switchingId ? (snapshots.find((s) => s.id === switchingId && s.current) ?? null) : null
@@ -253,6 +255,9 @@ export default function ActualsPage() {
                 </ul>
               )}
             </section>
+
+            {/* Remounted when the current snapshot changes (a re-finalize has its own proposals). */}
+            {canReview && <ReviewProposals key={current?.id ?? "none"} projectId={projectId} />}
 
             <AttributesEditor projectId={projectId} />
           </>

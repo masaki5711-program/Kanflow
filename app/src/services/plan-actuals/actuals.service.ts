@@ -15,6 +15,7 @@ import { logger } from "@/lib/logger"
 import type { Actor } from "@/services/_shared/actor"
 import { defaultDb, withTransaction, type Db } from "@/services/_shared/db"
 import { ConflictError, NotFoundError, ValidationError } from "@/services/_shared/errors"
+import { enqueueActualsReview } from "@/services/plan-llm/actuals-review.queue"
 import { enqueueRuleDrafts } from "@/services/plan-llm/rule-drafts.queue"
 import { ACTUALS_METHOD_VERSION, collectActuals, type CollectIssue } from "./actuals.collect"
 
@@ -28,7 +29,7 @@ const INSERT_CHUNK = 1_000
 const FINALIZE_TIMEOUT_MS = 60_000
 
 /** An audit row that must exist when the action commits (rolled back with it otherwise). */
-async function auditStrict(tx: Db, projectId: string, actor: Actor, diff: Record<string, unknown>): Promise<void> {
+export async function auditStrict(tx: Db, projectId: string, actor: Actor, diff: Record<string, unknown>): Promise<void> {
   await tx.activityLog.create({
     data: { projectId, entityType: "project", entityId: projectId, action: "update", actorId: actor.userId, actorName: actor.userName, diff: JSON.stringify(diff) },
   })
@@ -65,6 +66,8 @@ export interface SnapshotItemDto {
   endSlipDays: number | null
   waitGapDays: number | null
   onHoldDays: number | null
+  /** null = learned as recorded | excluded | waiting (set by accepting an AI review proposal). */
+  learningUse: string | null
 }
 
 export interface SnapshotDto {
@@ -130,7 +133,7 @@ export async function snapshotItems(projectId: string, snapshotId: string, db: D
   return db.planActualsItem.findMany({
     where: { snapshotId },
     orderBy: { id: "asc" },
-    select: { id: true, name: true, templateKey: true, role: true, isMilestone: true, templateDays: true, plannedDays: true, actualDays: true, complete: true, startSlipDays: true, endSlipDays: true, waitGapDays: true, onHoldDays: true },
+    select: { id: true, name: true, templateKey: true, role: true, isMilestone: true, templateDays: true, plannedDays: true, actualDays: true, complete: true, startSlipDays: true, endSlipDays: true, waitGapDays: true, onHoldDays: true, learningUse: true },
   })
 }
 
@@ -165,7 +168,7 @@ export async function finalizeActuals(projectId: string, input: FinalizeInput, a
  * Queue the lineage's backtest (services/plan-estimate-eval, loaded lazily: it reads the estimate engine). Never fails
  * the change that already committed: until the backtest is recorded the gate treats the lineage as outdated.
  */
-async function queueBacktest(projectId: string, lineage: string, actor: Actor): Promise<void> {
+export async function queueBacktest(projectId: string, lineage: string, actor: Actor): Promise<void> {
   try {
     const { enqueueAfterActualsChange } = await import("@/services/plan-estimate-eval/eval.service")
     enqueueAfterActualsChange(projectId, lineage, actor.userId)
@@ -266,6 +269,8 @@ function finalizeInTransaction(projectId: string, input: FinalizeInput, actor: A
       // E6: ask for LLM rule drafts from the retrospectives, the lessons and the note — by the night batch, at
       // background priority. Drafts change nothing until a PO / SM confirms them one at a time.
       await enqueueRuleDrafts(tx, projectId, snapshot.id)
+      // The AI review of the leaves (exclude from learning / treat as waiting): proposals only, a PO / SM decides each.
+      await enqueueActualsReview(tx, projectId, snapshot.id, previous?.id ?? null)
       await auditStrict(tx, projectId, actor, {
         changes: { planActuals: { from: null, to: "finalize" } },
         meta: { snapshotId: snapshot.id, supersedes: previous?.id ?? null, leaves: c.items.length, complete: completeCount, issues: c.issues.length },

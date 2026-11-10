@@ -508,13 +508,16 @@ export async function computeRun(input: RunInput, opts: ComputeOptions, db: Db =
     moves: levelled.response.moves,
   }
 
+  // A leaf a PO / SM treats as waiting is learned with other numbers: it enters the hash marked (only then, so the hash
+  // of runs without such a leaf is unchanged). An excluded leaf is simply not used.
   const usedSnapshotItemIds = [...new Set([...facts, ...owners].map((f) => f.snapshotItemId))].sort()
+  const hashedSnapshotItemIds = [...new Set([...facts, ...owners].map((f) => (f.learningUse === "waiting" ? `${f.snapshotItemId}:waiting` : f.snapshotItemId)))].sort()
   const ruleIds = effective.rules.map((r) => r.id).sort()
   const inputHash = sha256(
     canonicalJson({
       method: ESTIMATE_METHOD_VERSION,
       rules: [...effective.rules].sort((a, b) => (a.id < b.id ? -1 : 1)),
-      snapshotItemIds: usedSnapshotItemIds,
+      snapshotItemIds: hashedSnapshotItemIds,
       templateHash,
       referenceDate,
       capacity: await capacityDigest(opts.projectId, assigned, db),
