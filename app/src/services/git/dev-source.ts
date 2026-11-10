@@ -31,6 +31,13 @@ export interface DevMergeRequest {
   mergedAt: string | null
   /** When the MR was opened, if the source knows (null / absent = unknown: the stored value is kept). */
   openedAt?: string | null
+  /** The branch the MR merges into, if the source says (null / absent = unknown: the stored value is kept). */
+  targetBranch?: string | null
+  /**
+   * Display name of who merged it, if the source says (null / absent = unknown: the stored value is kept).
+   * A name for people to read (マージの履歴) — never an identity to decide anything by.
+   */
+  mergedBy?: string | null
 }
 
 export interface DevCommit {

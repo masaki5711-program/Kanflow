@@ -59,7 +59,32 @@ describe("linksFromMergeRequest", () => {
       occurredAt: new Date("2026-09-30T12:00:00.000Z"),
       mergedAt: null,
       openedAt: null,
+      targetBranch: null,
+      mergedBy: null,
     })
+  })
+
+  it("N11: keeps the target branch and, for a merged MR, who merged it (merge_user, else the older merged_by)", () => {
+    const merged = { state: "merged", merged_at: "2026-09-29T00:00:00.000Z", target_branch: "main" }
+    expect(linksFromMergeRequest(mr({ ...merged, merge_user: { name: "Bob", username: "bob" } }), NOW)[0]).toMatchObject({ targetBranch: "main", mergedBy: "Bob" })
+    expect(linksFromMergeRequest(mr({ ...merged, merge_user: { username: "bob" } }), NOW)[0].mergedBy).toBe("bob")
+    expect(linksFromMergeRequest(mr({ ...merged, merge_user: null, merged_by: { name: "Carol" } }), NOW)[0].mergedBy).toBe("Carol")
+    // Unknown stays unknown (the writers then keep the stored value).
+    expect(linksFromMergeRequest(mr({ ...merged, merge_user: null }), NOW)[0].mergedBy).toBeNull()
+    expect(linksFromMergeRequest(mr({ ...merged, merge_user: { name: "   " } }), NOW)[0].mergedBy).toBeNull()
+    expect(linksFromMergeRequest(mr({ state: "merged", target_branch: "" }), NOW)[0].targetBranch).toBeNull()
+  })
+
+  it("N11: an MR that is not merged has no merger, whatever the source sends; values that are not text are unknown", () => {
+    expect(linksFromMergeRequest(mr({ state: "opened", target_branch: "main", merge_user: { name: "Bob" } }), NOW)[0]).toMatchObject({ targetBranch: "main", mergedBy: null })
+    const odd = { state: "merged", target_branch: 7, merge_user: { name: 42, username: ["x"] } } as unknown as Partial<GitLabMergeRequest>
+    expect(linksFromMergeRequest(mr(odd), NOW)[0]).toMatchObject({ targetBranch: null, mergedBy: null })
+  })
+
+  it("N11: truncates an oversized target branch / merger name to the column size", () => {
+    const [draft] = linksFromMergeRequest(mr({ state: "merged", target_branch: "t".repeat(400), merge_user: { name: "n".repeat(300) } }), NOW)
+    expect(draft.targetBranch!.length).toBe(255)
+    expect(draft.mergedBy!.length).toBe(191)
   })
 
   it("falls back to the username when the author has no display name", () => {
@@ -128,6 +153,8 @@ describe("linksFromBranch", () => {
       occurredAt: new Date("2026-09-28T00:00:00.000Z"),
       mergedAt: null,
       openedAt: null,
+      targetBranch: null,
+      mergedBy: null,
     })
   })
 
@@ -181,6 +208,8 @@ describe("linksFromCommit", () => {
       occurredAt: new Date("2026-09-27T00:00:00.000Z"),
       mergedAt: null,
       openedAt: null,
+      targetBranch: null,
+      mergedBy: null,
     })
   })
 

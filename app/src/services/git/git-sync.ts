@@ -299,7 +299,21 @@ interface FailedPipeline {
 }
 
 /** Stored columns a sync writes (compared to skip rewriting an unchanged link). */
-const LINK_SELECT = { title: true, url: true, state: true, pipeline: true, author: true, sourceBranch: true, occurredAt: true, mergedAt: true, openedAt: true, goneAt: true, declaredAt: true } as const
+const LINK_SELECT = {
+  title: true,
+  url: true,
+  state: true,
+  pipeline: true,
+  author: true,
+  sourceBranch: true,
+  occurredAt: true,
+  mergedAt: true,
+  openedAt: true,
+  targetBranch: true,
+  mergedBy: true,
+  goneAt: true,
+  declaredAt: true,
+} as const
 type LinkData = Record<keyof typeof LINK_SELECT, unknown>
 
 const comparable = (v: unknown) => (v instanceof Date ? v.getTime() : (v ?? null))
@@ -346,6 +360,10 @@ async function writeLinks(projectId: string, repositoryId: string, drafts: reado
       mergedAt: mergedAtToStore(before, d),
       // An unknown open time keeps the stored one (a listing without it must not erase it).
       openedAt: d.openedAt ?? (before?.openedAt as Date | null | undefined) ?? null,
+      // N11: an unknown target branch / merger keeps the stored one. GitStation names the merger only in the
+      // merged event, so every later re-read of the MR arrives without it.
+      targetBranch: d.targetBranch ?? (before?.targetBranch as string | null | undefined) ?? null,
+      mergedBy: d.mergedBy ?? (before?.mergedBy as string | null | undefined) ?? null,
       // Seen in this sync: a branch marked gone that came back is live again.
       goneAt: null,
       // Git itself names the PBI now: a link a developer declared becomes a Git-derived one
@@ -402,7 +420,15 @@ async function refreshDeclaredLinks(
     const mr = byRef.get(row.ref)
     if (!mr || row.kind !== "mr" || !row.declaredAt || drafted.has(`${row.ref}|${row.backlogItemId}`)) continue
     const fields = mergeRequestFields(mr, now)
-    const data = { ...fields, openedAt: fields.openedAt ?? row.openedAt, pipeline: row.pipeline, goneAt: null, declaredAt: row.declaredAt }
+    const data = {
+      ...fields,
+      openedAt: fields.openedAt ?? row.openedAt,
+      targetBranch: fields.targetBranch ?? row.targetBranch,
+      mergedBy: fields.mergedBy ?? row.mergedBy,
+      pipeline: row.pipeline,
+      goneAt: null,
+      declaredAt: row.declaredAt,
+    }
     if (isSameLink(row, data)) continue
     await prisma.gitLink.updateMany({ where: { id: row.id }, data })
     changed++

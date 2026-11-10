@@ -21,6 +21,10 @@ export interface LinkDraft {
   mergedAt: Date | null
   /** MR only: when it was opened; null = unknown (writers keep the stored value then). */
   openedAt: Date | null
+  /** MR only: the branch it merges into; null = unknown (writers keep the stored value then). */
+  targetBranch: string | null
+  /** MR only: display name of who merged it; null = unknown (writers keep the stored value then). */
+  mergedBy: string | null
 }
 
 const cut = (s: string | null | undefined, max: number) => (s ?? "").slice(0, max)
@@ -47,6 +51,9 @@ export function mergeRequestFields(mr: DevMergeRequest, now: Date): Omit<LinkDra
     occurredAt: date(mr.updatedAt, now),
     mergedAt: mr.mergedAt ? date(mr.mergedAt, now) : null,
     openedAt: openedDate(mr.openedAt),
+    targetBranch: cut(mr.targetBranch, 255) || null,
+    // Only a merged MR has a merger (a source that names one for an open MR is not believed).
+    mergedBy: mr.state === "merged" ? cut(mr.mergedBy, 191).trim() || null : null,
   }
 }
 
@@ -81,6 +88,8 @@ export function linksFromBranch(branch: DevBranch, now: Date): LinkDraft[] {
     occurredAt: date(branch.headCommittedAt, now),
     mergedAt: null,
     openedAt: null,
+    targetBranch: null,
+    mergedBy: null,
   }))
 }
 
@@ -99,6 +108,8 @@ export function linksFromCommit(commit: DevCommit, now: Date): LinkDraft[] {
     occurredAt: date(commit.committedAt, now),
     mergedAt: null,
     openedAt: null,
+    targetBranch: null,
+    mergedBy: null,
   }))
 }
 

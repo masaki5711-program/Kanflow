@@ -10,6 +10,7 @@ import { suggestBranchName } from "@/lib/git/pbi-keys"
 import { useProjectDocumentTitle } from "@/components/app-shell/project-title-context"
 import { GitActivityList } from "./git-activity-list"
 import { toGitOverview, type GitOverviewDto } from "./git-labels"
+import { GitMergeHistory } from "./git-merge-history"
 import { GitRepoStatus } from "./git-repo-status"
 import { useCanConfigureGit } from "./use-can-configure-git"
 import { useLiveRefetch } from "@/components/realtime/use-live-refetch"
@@ -71,6 +72,7 @@ export default function GitPage() {
           />
           <GitHowTo />
           <GitActivityList projectId={projectId} items={data.recent} />
+          <GitMergeHistory projectId={projectId} repositories={data.repositories} />
         </div>
       )}
     </div>

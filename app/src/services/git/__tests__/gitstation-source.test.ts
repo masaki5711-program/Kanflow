@@ -12,7 +12,7 @@ vi.mock("@/lib/logger", () => ({ logger: noopLog }))
 process.env.GITSTATION_ALLOWED_HOSTS = STATION_HOST
 
 const { createGitStationClient, GONE_REASONS, GitStationError, MAX_RESPONSE_BYTES } = await import("@/lib/git/gitstation-client")
-const { gitStationSourceKind, createGitStationSource, decodeStationCursor, encodeStationCursor, readFeed, routeFeed, MAX_DEV_STATUS_PAGES, MAX_DETAILS_PER_PROJECT, MAX_FOLLOW_UPS_PER_READ, MAX_DEFECT_HOLDS } = await import("../gitstation-source")
+const { actorName, gitStationSourceKind, createGitStationSource,decodeStationCursor, encodeStationCursor, readFeed, routeFeed, MAX_DEV_STATUS_PAGES, MAX_DETAILS_PER_PROJECT, MAX_FOLLOW_UPS_PER_READ, MAX_DEFECT_HOLDS } = await import("../gitstation-source")
 const { CURSOR_INVALID_MESSAGE } = await import("@/lib/git/sync-messages")
 
 /** GitStation's golden example (docs/api/integration-feed.example.json at GitStation main, I1c; synthetic). */
@@ -915,5 +915,68 @@ describe("02 §8.2 regression: nothing is lost after a merge request is processe
     const changes = await sourceOn(station).readChanges(stale, NOW)
     expect(changes.failures).toEqual([])
     expect(changes.mergeRequests).toEqual([expect.objectContaining({ ref: "1", state: "closed" })])
+  })
+})
+
+// ------------------------------------------------------------------ N11: マージの履歴 (target branch, who merged)
+
+describe("N11: merge history fields", () => {
+  it("the merged event names who merged it; the merge request names the target branch", async () => {
+    const station = createFakeGitStation()
+    const start = here(station)
+    station.mergeRequest("merge_request.opened", 1)
+    const source = sourceOn(station)
+    const opened = await source.readChanges(start, NOW)
+    // An open merge request has a target but no merger (the opener is not the merger).
+    expect(opened.mergeRequests).toEqual([expect.objectContaining({ ref: "1", state: "opened", targetBranch: "main", mergedBy: null })])
+    station.mergeRequest("merge_request.merged", 1)
+    const changes = await source.readChanges(opened.cursor, NOW)
+    expect(changes.mergeRequests).toEqual([expect.objectContaining({ ref: "1", state: "merged", targetBranch: "main", mergedBy: "Dev One" })])
+  })
+
+  it("a re-read from the development status does not know the merger (null: the stored name is kept)", async () => {
+    const station = createFakeGitStation()
+    station.mergeRequest("merge_request.opened", 1)
+    station.mergeRequest("merge_request.merged", 1)
+    station.prune()
+    const changes = await sourceOn(station).readChanges(fresh(), NOW)
+    expect(changes.mergeRequests).toEqual([expect.objectContaining({ ref: "1", state: "merged", targetBranch: "main", mergedBy: null })])
+  })
+
+  it.each([
+    ["GitStation itself (system)", { kind: "system", user: null, via: null }],
+    ["no actor", null],
+    ["an actor without a name", { kind: "user", user: { id: 5, username: "  ", display_name: "" }, via: null }],
+  ])("a merge by %s has no merger name", async (_label, actor) => {
+    const station = createFakeGitStation()
+    const start = here(station)
+    station.mergeRequest("merge_request.opened", 1)
+    const merged = station.mergeRequest("merge_request.merged", 1)
+    ;(merged as { actor: unknown }).actor = actor
+    const changes = await sourceOn(station).readChanges(start, NOW)
+    expect(changes.mergeRequests).toEqual([expect.objectContaining({ ref: "1", state: "merged", mergedBy: null })])
+  })
+
+  it("actorName: display name, else username; never GitStation itself", () => {
+    const user = (display_name: string | null, username: string | null) => ({ actor: { kind: "user", user: { username, display_name } } })
+    expect(actorName(user("Dev One", "dev1"))).toBe("Dev One")
+    expect(actorName(user(null, "dev1"))).toBe("dev1")
+    expect(actorName(user("  ", " dev1 "))).toBe("dev1")
+    expect(actorName(user(null, null))).toBeNull()
+    // An approved action a service account carried out is still the person's.
+    expect(actorName({ actor: { kind: "user_via_service_account", user: { username: "dev1", display_name: "Dev One" } } })).toBe("Dev One")
+    expect(actorName({ actor: { kind: "system", user: { username: "ghost", display_name: "Ghost" } } })).toBeNull()
+    expect(actorName({ actor: { kind: "service_account", user: null } })).toBeNull()
+    expect(actorName({ actor: null })).toBeNull()
+  })
+
+  it("the client keeps only the actor's names (no id, e-mail or employee number reaches Kanflow)", async () => {
+    const actor = { kind: "user", user: { id: 5, username: "alice", display_name: "Alice Example", email: "alice@example.test", employee_number: "E0001" }, via: null }
+    const event = { ...GOLDEN.page.events[0], actor }
+    const events = [event, { ...event, id: "evt_x2", actor: "someone" }, { ...event, id: "evt_x3", actor: { user: { username: "a" } } }]
+    const client = createGitStationClient({ apiBase: STATION, token: TOKEN, integrationId: INTEGRATION, fetchImpl: async () => json(200, { ...GOLDEN.page, events }), sleep })
+    const page = await client.events("AgAD")
+    expect(page.malformed).toBe(0)
+    expect(page.events.map((e) => e.actor)).toEqual([{ kind: "user", user: { username: "alice", display_name: "Alice Example" } }, null, null])
   })
 })

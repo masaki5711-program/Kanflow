@@ -23,6 +23,8 @@ const { pipelineLabel, mrStateLabel, toGitOverview } = await import("./git-label
 const t = getTranslations("ja")
 const OVERVIEW_URL = "/api/projects/p1/git/overview"
 const SYNC_URL = "/api/projects/p1/git/sync"
+const MERGES_URL = "/api/projects/p1/git/merge-history"
+const MERGES_NONE = { enabled: true, items: [], nextCursor: null }
 
 const REPO = {
   id: "r1",
@@ -55,6 +57,7 @@ const ON = { enabled: true, repositories: [REPO], recent: [MR, BRANCH], pollInte
 
 type Handler = () => Response
 let overview: Record<string, unknown> = ON
+let merges: Record<string, unknown> = MERGES_NONE
 let members: unknown[] = [{ role: "po", user: { id: "u1" } }]
 let syncHandler: Handler = () => jsonResponse({ results: [{ repositoryId: "r1", ok: true, links: 4 }] })
 const fetchMock = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
@@ -62,6 +65,7 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {})
   if (key === `GET ${OVERVIEW_URL}`) return jsonResponse(overview)
   if (key === "GET /api/projects/p1/members") return jsonResponse(members)
   if (key === `POST ${SYNC_URL}`) return syncHandler()
+  if (key.startsWith(`GET ${MERGES_URL}?`)) return jsonResponse(merges)
   return jsonResponse({})
 })
 const calls = (method: string, url: string) =>
@@ -69,6 +73,7 @@ const calls = (method: string, url: string) =>
 
 beforeEach(() => {
   overview = ON
+  merges = MERGES_NONE
   members = [{ role: "po", user: { id: "u1" } }]
   syncHandler = () => jsonResponse({ results: [{ repositoryId: "r1", ok: true, links: 4 }] })
   mocks.session = { data: { user: { id: "u1", role: "user" } } }
@@ -125,6 +130,44 @@ describe("GitPage", () => {
     expect(within(items[0]).getByRole("link", { name: new RegExp(fillTemplate(t.gitPageOpenPbi, { key: "PBI-12" })) })).toHaveAttribute("href", "/projects/p1/backlog?pbi=12")
     // A branch has no MR state badge.
     expect(within(items[1]).queryByText(t.gitMrMerged)).toBeNull()
+  })
+
+  it("shows the merge history below the recent activity", async () => {
+    merges = {
+      enabled: true,
+      items: [
+        {
+          id: "r1:42",
+          ref: "42",
+          title: MR.title,
+          url: MR.url,
+          mergedAt: new Date(Date.now() - 30 * 60_000).toISOString(),
+          openedAt: null,
+          author: "Sato",
+          mergedBy: "Suzuki",
+          sourceBranch: MR.sourceBranch,
+          targetBranch: "main",
+          repository: { id: "r1", name: REPO.name },
+          pbis: [MR.pbi],
+        },
+      ],
+      nextCursor: null,
+    }
+    renderWithProviders(<GitPage />)
+    const history = await screen.findByRole("region", { name: t.gitMergesTitle })
+    const row = (await within(history).findAllByRole("row"))[1]
+    expect(within(row).getByText("Suzuki")).toBeInTheDocument()
+    expect(within(row).getByText("main")).toBeInTheDocument()
+    // Asked for the newest page of this project; one repository → no repository filter.
+    expect(fetchMock.mock.calls.some(([u]) => String(u) === `${MERGES_URL}?limit=20`)).toBe(true)
+    expect(within(history).queryByRole("combobox", { name: t.gitMergesRepo })).toBeNull()
+  })
+
+  it("draws no merge history while the integration is off", async () => {
+    overview = { enabled: false, repositories: [], recent: [], pollIntervalSec: 180 }
+    renderWithProviders(<GitPage />)
+    await screen.findByText(t.gitPageOffTitle)
+    expect(screen.queryByRole("region", { name: t.gitMergesTitle })).toBeNull()
   })
 
   it("syncs now and reloads the overview", async () => {

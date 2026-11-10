@@ -50,6 +50,12 @@ export interface GitLabMergeRequest {
   /** When the MR was opened (GitLab `created_at`; plan 12 E1 MR-set lead time). */
   created_at?: string | null
   author?: { name?: string; username?: string } | null
+  /** The branch the MR merges into. */
+  target_branch?: string | null
+  /** Who merged it (GitLab 14.0+; null until merged). */
+  merge_user?: { name?: string; username?: string } | null
+  /** Older GitLab's name of `merge_user` (deprecated there, still sent). */
+  merged_by?: { name?: string; username?: string } | null
 }
 
 export interface GitLabBranch {

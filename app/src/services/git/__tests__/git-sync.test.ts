@@ -816,6 +816,40 @@ describe("syncRepository — full success: links, pipelines, gone branches, auto
     expect(noopLog.warn).toHaveBeenCalledWith("git pipeline lookup failed", { repositoryId: "r1", iid: 1, error: "pipeline lookup failed" })
   })
 
+  it("N11: writes the target branch and who merged it when the source says", async () => {
+    gitRepositoryFindUnique.mockResolvedValue(repoRow({ externalId: 7 }))
+    productBacklogItemFindMany.mockResolvedValue([{ id: "b-42", displayId: 42 }])
+    const mr = { ...buildMr(1, 42, "merged"), target_branch: "main", merge_user: { name: "Bob", username: "bob" } }
+    await syncRepository("r1", () => emptyClient({ listMergeRequestPage: vi.fn().mockResolvedValue(mrPage([mr])) }), NOW)
+    const written = gitLinkUpsert.mock.calls[0][0]
+    expect(written.create).toMatchObject({ targetBranch: "main", mergedBy: "Bob" })
+    expect(written.update).toMatchObject({ targetBranch: "main", mergedBy: "Bob" })
+  })
+
+  it("N11: a source that does not say keeps the stored target branch and merger (unknown never erases)", async () => {
+    gitRepositoryFindUnique.mockResolvedValue(repoRow({ externalId: 7 }))
+    productBacklogItemFindMany.mockResolvedValue([{ id: "b-42", displayId: 42 }])
+    gitLinkFindUnique.mockResolvedValue({ state: "merged", pipeline: null, targetBranch: "release/1", mergedBy: "Bob" })
+    await syncRepository("r1", () => emptyClient({ listMergeRequestPage: vi.fn().mockResolvedValue(mrPage([buildMr(1, 42, "merged")])) }), NOW)
+    expect(gitLinkUpsert.mock.calls[0][0].update).toMatchObject({ targetBranch: "release/1", mergedBy: "Bob" })
+  })
+
+  it("N11: a value the source now names replaces the stored one; nothing stored and nothing said stays null", async () => {
+    gitRepositoryFindUnique.mockResolvedValue(repoRow({ externalId: 7 }))
+    productBacklogItemFindMany.mockResolvedValue([
+      { id: "b-42", displayId: 42 },
+      { id: "b-43", displayId: 43 },
+    ])
+    gitLinkFindUnique.mockImplementation(async (args: { where: Record<string, { ref?: string }> }) =>
+      JSON.stringify(args.where).includes('"ref":"1"') ? { state: "merged", pipeline: null, targetBranch: "develop", mergedBy: "Bob" } : null,
+    )
+    const retargeted = { ...buildMr(1, 42, "merged"), target_branch: "main", merge_user: { name: "Carol" } }
+    await syncRepository("r1", () => emptyClient({ listMergeRequestPage: vi.fn().mockResolvedValue(mrPage([retargeted, buildMr(2, 43, "merged")])) }), NOW)
+    const byRef = Object.fromEntries(gitLinkUpsert.mock.calls.map((c) => [c[0].create.ref, c[0].create]))
+    expect(byRef["1"]).toMatchObject({ targetBranch: "main", mergedBy: "Carol" })
+    expect(byRef["2"]).toMatchObject({ targetBranch: null, mergedBy: null })
+  })
+
   it("detects a merge request newly turning 'merged' and triggers auto-complete when enabled", async () => {
     gitRepositoryFindUnique.mockResolvedValue(
       repoRow({ externalId: 7, project: { deletedAt: null, gitIntegration: { enabled: true, provider: "gitlab", tokenCipher: "sealed-integration-token", autoCompleteOnMerge: true } } }),
@@ -1015,8 +1049,26 @@ describe("syncRepository — full success: links, pipelines, gone branches, auto
   })
 
   it("isSameLink compares every written column (dates by time, null ≡ undefined)", () => {
-    const data = { title: "t", url: "u", state: null, pipeline: "success", author: "a", sourceBranch: null, occurredAt: new Date(NOW), mergedAt: null, openedAt: null, goneAt: null, declaredAt: null }
+    const data = {
+      title: "t",
+      url: "u",
+      state: null,
+      pipeline: "success",
+      author: "a",
+      sourceBranch: null,
+      occurredAt: new Date(NOW),
+      mergedAt: null,
+      openedAt: null,
+      targetBranch: null,
+      mergedBy: null,
+      goneAt: null,
+      declaredAt: null,
+    }
     expect(isSameLink(null, data)).toBe(false)
+    // N11: a newly learned target branch / merger rewrites the link; a row stored before the columns existed equals null.
+    expect(isSameLink(data, { ...data, targetBranch: "main" })).toBe(false)
+    expect(isSameLink(data, { ...data, mergedBy: "Dev One" })).toBe(false)
+    expect(isSameLink({ ...data, targetBranch: undefined, mergedBy: undefined }, data)).toBe(true)
     // A newly learned open time rewrites the link (plan 12 E1).
     expect(isSameLink(data, { ...data, openedAt: new Date(NOW) })).toBe(false)
     expect(isSameLink({ ...data, occurredAt: new Date(NOW.getTime()) }, data)).toBe(true)
@@ -1161,6 +1213,19 @@ describe("syncRepository — merge requests declared by a developer (dev:write)"
       data: expect.objectContaining({ title: "Refactor login", state: "merged", pipeline: "success", url: "https://gitlab/mr/5", goneAt: null }),
     })
     expect(gitLinkUpsert).not.toHaveBeenCalled()
+  })
+
+  it("N11: the refresh of a declared link learns the target branch / merger and keeps what it already had", async () => {
+    gitRepositoryFindUnique.mockResolvedValue(repoRow({ externalId: 7 }))
+    const merged = { ...mrAt(5, 0, "2026-09-30T10:00:00Z", "merged", "Refactor login"), merged_at: "2026-09-30T10:00:00Z" }
+
+    gitLinkFindMany.mockImplementation(async (args: { where: { declaredAt?: unknown } }) => (args.where.declaredAt ? [declaredRow({ targetBranch: null, mergedBy: null })] : []))
+    await syncRepository("r1", () => emptyClient({ listMergeRequestPage: vi.fn().mockResolvedValue(mrPage([{ ...merged, target_branch: "main", merge_user: { name: "Bob" } }])) }), NOW)
+    expect(gitLinkUpdateMany).toHaveBeenLastCalledWith({ where: { id: "l-decl" }, data: expect.objectContaining({ targetBranch: "main", mergedBy: "Bob" }) })
+
+    gitLinkFindMany.mockImplementation(async (args: { where: { declaredAt?: unknown } }) => (args.where.declaredAt ? [declaredRow({ targetBranch: "main", mergedBy: "Bob" })] : []))
+    await syncRepository("r1", () => emptyClient({ listMergeRequestPage: vi.fn().mockResolvedValue(mrPage([merged])) }), NOW)
+    expect(gitLinkUpdateMany).toHaveBeenLastCalledWith({ where: { id: "l-decl" }, data: expect.objectContaining({ targetBranch: "main", mergedBy: "Bob" }) })
   })
 
   it("leaves an unchanged declared link alone and never queries without merge requests", async () => {
