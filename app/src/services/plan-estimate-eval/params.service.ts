@@ -15,7 +15,7 @@ import { tokyoDateKey } from "@/lib/plan-progress"
 import { logger } from "@/lib/logger"
 import { defaultDb, withTransaction, type Db } from "@/services/_shared/db"
 import { ConflictError, NotFoundError } from "@/services/_shared/errors"
-import { activeParamApproval, currentParams, decideGate, lineageInputHash } from "@/services/plan-estimate-run/gate"
+import { activeParamApproval, currentParams, decideGate, endInvalidParamApproval, lineageInputHash } from "@/services/plan-estimate-run/gate"
 import { backtestInput, backtestsBusy, currentLineages, enqueueLineageRecompute, settleQueuedBacktests } from "./eval.service"
 import { searchParams, type CandidateMetrics, type KeepReason, type SearchOptions } from "./param-search"
 
@@ -177,37 +177,60 @@ async function backtestsIdle(): Promise<void> {
   }
 }
 
+/** Start draining unless a drain is running (a job pushed while one runs is picked up by it, or by the restart below). */
+function startDrain(): void {
+  if (draining || queue.length === 0) return
+  draining = drain()
+}
+
 /**
  * The search queue: LOWEST priority. A search starts only when no backtest is waiting or running, and between
  * candidates it pauses (nothing recorded, the lineage stays first in the queue) as soon as a backtest is waiting or the
  * lineage's actuals changed; it starts again from the beginning once the backtests are done. A finalize's backtest —
  * what the gate waits for — therefore never waits behind a search.
+ *
+ * Never rejects: a failure of one job (the wait for the backtests included) settles that job with the error; a defect
+ * of the queue itself settles every queued job with it (logged), so no caller waits forever. `draining` is cleared
+ * synchronously when the loop ends (no await between the last check of the queue and the clear), then the queue is
+ * looked at again: a job pushed meanwhile starts a new drain.
  */
 async function drain(): Promise<void> {
-  while (queue.length > 0) {
-    await backtestsIdle()
-    const job = queue[0]
-    let outcome: SearchRecorded | null | Error
-    try {
-      outcome = await searchLineageParams(job.lineage, {
-        ...job.opts,
-        pauseWhen: async (hash) => backtestsBusy() || (await lineageInputHash(job.lineage)) !== hash,
-      })
-    } catch (err) {
-      outcome = err instanceof Error ? err : new Error(String(err))
-    }
-    if (outcome === null) {
-      job.pauses++
-      if (job.pauses <= SEARCH_MAX_PAUSES) {
-        log.info("parameter search paused for a backtest or a change of the actuals; it starts again after it", { lineage: job.lineage, pauses: job.pauses })
-        continue
+  try {
+    while (queue.length > 0) {
+      const job = queue[0]
+      let outcome: SearchRecorded | null | Error
+      try {
+        await backtestsIdle()
+        outcome = await searchLineageParams(job.lineage, {
+          ...job.opts,
+          pauseWhen: async (hash) => backtestsBusy() || (await lineageInputHash(job.lineage)) !== hash,
+        })
+      } catch (err) {
+        outcome = err instanceof Error ? err : new Error(String(err))
       }
-      outcome = new Error(`paused ${job.pauses} times`)
+      if (outcome === null) {
+        job.pauses++
+        if (job.pauses <= SEARCH_MAX_PAUSES) {
+          log.info("parameter search paused for a backtest or a change of the actuals; it starts again after it", { lineage: job.lineage, pauses: job.pauses })
+          continue
+        }
+        outcome = new Error(`paused ${job.pauses} times`)
+      }
+      queue.shift()
+      searching.delete(job.lineage)
+      job.settle(outcome)
     }
-    queue.shift()
-    searching.delete(job.lineage)
-    job.settle(outcome)
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err))
+    log.error("parameter search queue failed; every queued search is settled with the error", { queued: queue.length, lineages: queue.map((j) => j.lineage), error: errText(error) })
+    for (const job of queue.splice(0)) {
+      searching.delete(job.lineage)
+      job.settle(error)
+    }
+  } finally {
+    draining = null
   }
+  startDrain()
 }
 
 /**
@@ -236,13 +259,13 @@ export function enqueueParamSearch(lineages: readonly string[], opts: { now?: Da
         })
       }),
   )
-  if (todo.length > 0 && !draining) draining = drain().finally(() => (draining = null))
+  startDrain()
   return Promise.all(jobs).then(() => out)
 }
 
-/** Resolves when the search queue is empty (tests and shutdown). */
-export function settleParamSearches(): Promise<void> {
-  return draining ?? Promise.resolve()
+/** Resolves when the search queue is empty (tests and shutdown), including a drain restarted for a late job. */
+export async function settleParamSearches(): Promise<void> {
+  while (draining) await draining
 }
 
 /** An administrator's "パラメータを探す": every lineage with current actuals, queued (the response does not wait). */
@@ -336,6 +359,8 @@ export async function approveParams(lineage: string, proposalId: string, actorId
       throw new ConflictError("この提案の検証は条件を満たしていません", { lineage }, "PLAN_ESTIMATE_PARAMS_NOT_PASSING")
     }
     const now = new Date()
+    // A broken approval (outside the grid) is ended first, so the new one can become the active one.
+    await endInvalidParamApproval(lineage, tx, now)
     const active = await activeParamApproval(lineage, tx)
     if (active) await tx.planEstimateParamApproval.update({ where: { id: active.id }, data: { endedAt: new Date(Math.max(now.getTime(), active.approvedAt.getTime() + 1)), endedById: actorId, endReason: "replaced" } })
     const approval = await tx.planEstimateParamApproval.create({ data: { lineage, methodVersion: ESTIMATE_METHOD_VERSION, proposalId, params: { ...row.params }, approvedById: actorId, approvedAt: now } })

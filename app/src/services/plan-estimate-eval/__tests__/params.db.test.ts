@@ -229,18 +229,25 @@ describe.skipIf(!enabled)("estimator settings proposals (KANFLOW_DB_TESTS=1)", (
     await evalSvc.settleQueuedBacktests()
   })
 
-  it("approved settings outside the grid are never used: ended as failed, the defaults apply, the lineage still works", async () => {
-    await prisma.planEstimateParamApproval.create({ data: { lineage, methodVersion: "e2-v1", params: { outlierMads: 3, halfLifeDays: 365, shrinkK: 99, spreadPrior: 0.25 } } })
+  it("approved settings outside the grid are never used: reads fail closed without writing; the backtest ends them as failed under the lock", async () => {
+    const bad = await prisma.planEstimateParamApproval.create({ data: { lineage, methodVersion: "e2-v1", params: { outlierMads: 3, halfLifeDays: 365, shrinkK: 99, spreadPrior: 0.25 } } })
+    // A read (a GET, a run) uses the defaults and changes nothing.
     expect((await gate.gateWithParams(lineage)).params).toBeNull()
-    expect(await prisma.planEstimateParamApproval.findFirst({ where: { lineage, endedAt: null } })).toBeNull()
-    expect((await prisma.planEstimateParamApproval.findFirst({ where: { lineage }, orderBy: { approvedAt: "desc" }, select: { endReason: true } }))?.endReason).toBe("failed")
+    expect(await svc.paramsFor(lineage)).toBeNull()
+    expect((await prisma.planEstimateParamApproval.findFirst({ where: { lineage, endedAt: null } }))?.id).toBe(bad.id)
+    // The backtest path ends it, under the lineage's lock (the ended row is the history).
     expect((await evalSvc.recordLineageBacktest(lineage, { now: NOW })).written).toBe(true)
+    expect(await prisma.planEstimateParamApproval.findFirst({ where: { lineage, endedAt: null } })).toBeNull()
+    expect(await prisma.planEstimateParamApproval.findUniqueOrThrow({ where: { id: bad.id }, select: { endReason: true, endedById: true } })).toEqual({ endReason: "failed", endedById: null })
     expect((await compute()).inputHash).toBe(hashes.defaultsOn)
   })
 
   it("settings of an older method end at the next backtest (method)", async () => {
     await svc.searchLineageParams(lineage, { now: NOW })
+    // A broken approval still active (never used) does not block an administrator's approval: it ends first, as failed.
+    const bad = await prisma.planEstimateParamApproval.create({ data: { lineage, methodVersion: "e2-v1", params: { outlierMads: 9, halfLifeDays: 365, shrinkK: 3, spreadPrior: 0.25 } } })
     await svc.approveParams(lineage, (await latestProposal())?.id as string, admin)
+    expect((await prisma.planEstimateParamApproval.findUniqueOrThrow({ where: { id: bad.id } })).endReason).toBe("failed")
     await prisma.planEstimateParamApproval.updateMany({ where: { lineage, endedAt: null }, data: { methodVersion: "e2-v0" } })
     expect((await gate.gateWithParams(lineage)).params).toBeNull()
     const r = await evalSvc.recordLineageBacktest(lineage, { now: NOW })
@@ -261,7 +268,7 @@ describe.skipIf(!enabled)("estimator settings proposals (KANFLOW_DB_TESTS=1)", (
     expect((await gate.latestEval(lineage))?.paramApprovalId).toBeNull()
     expect((await view())?.params.lastEnded?.reason).toBe("failed")
     const history = await prisma.planEstimateParamApproval.findMany({ where: { lineage }, orderBy: { approvedAt: "asc" }, select: { endReason: true } })
-    expect(history.map((h) => h.endReason)).toEqual(["withdrawn", "withdrawn", "failed", "method", "failed"])
+    expect(history.map((h) => h.endReason)).toEqual(["withdrawn", "withdrawn", "failed", "failed", "method", "failed"])
   })
 
   it("with too few finished projects the search proposes nothing and says why", async () => {

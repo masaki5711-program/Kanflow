@@ -29,7 +29,7 @@ import { ValidationError } from "@/services/_shared/errors"
 import { notify } from "@/services/_shared/notifications"
 import { learnableItemFacts, learnableItemIds, type LearnableFact } from "@/services/plan-actuals/actuals.learnable"
 import { observationOf } from "@/services/plan-estimate-run/estimate-run.compute"
-import { activeApproval, activeParamApproval, currentParams, decideGate, latestEval, lineageInputHash, lineageInputHashes, type EvalRecord, type Gate } from "@/services/plan-estimate-run/gate"
+import { activeApproval, activeParamApproval, currentParams, decideGate, endInvalidParamApproval, latestEval, paramApprovalEndTime, lineageInputHash, lineageInputHashes, type EvalRecord, type Gate } from "@/services/plan-estimate-run/gate"
 
 const log = logger.child({ module: "plan-estimate-eval" })
 
@@ -283,6 +283,8 @@ export async function recordLineageBacktest(lineage: string, opts: { now?: Date;
       log.info("backtest result discarded: the snapshots changed while computing", { lineage })
       return nothing
     }
+    // A stored approval outside the grid (never used: `active` is null for it) ends here, under the lock.
+    await endInvalidParamApproval(lineage, tx, now)
     if ((await activeParamApproval(lineage, tx))?.id !== active?.id) {
       log.info("backtest result discarded: the estimator settings changed while computing", { lineage })
       return nothing
@@ -290,7 +292,7 @@ export async function recordLineageBacktest(lineage: string, opts: { now?: Date;
     let paramsEnded: Recorded["paramsEnded"] = null
     if (active && (!params || fallback)) {
       paramsEnded = params ? "failed" : "method"
-      const endedAt = new Date(Math.max(now.getTime(), active.approvedAt.getTime() + 1))
+      const endedAt = await paramApprovalEndTime(lineage, active.approvedAt, now, tx)
       await tx.planEstimateParamApproval.update({ where: { id: active.id }, data: { endedAt, endReason: paramsEnded } })
       log.warn("approved estimator settings ended for a lineage; it uses the defaults", { lineage, endReason: paramsEnded, paramApprovalId: active.id })
     }
@@ -394,9 +396,15 @@ async function counted<T>(job: () => Promise<T>): Promise<T> {
 }
 
 /**
- * A backtest is waiting or running in this process. The parameter search (params.service) runs only when this is
+ * A backtest is waiting or running in THIS process. The parameter search (params.service) runs only when this is
  * false and pauses between candidates as soon as it turns true: a finalize's backtest — what the gate waits for —
  * never queues behind a search.
+ *
+ * In-process only, on purpose: the backtests after a change of the actuals and the searches both run in the web
+ * process (finalize, the learning switch, the admin's requests); the daily catch-up runs where the daily jobs run (the
+ * web without a worker, as in production, or the worker). A search in one process does not see a backtest of the
+ * other; that costs no correctness — the search is written only when the lineage's snapshots and settings are still
+ * the ones it searched with (checked under the lineage's lock), and a backtest never waits for a search.
  */
 export function backtestsBusy(): boolean {
   return pending.size > 0 || running > 0
