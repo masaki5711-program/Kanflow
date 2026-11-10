@@ -34,12 +34,14 @@ Authorization: Bearer kfl_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 - **Scopes** (chosen at creation, `read` is always included): `read`,
   `backlog:write`, `backlog:reorder`, `sprint:write`, `task:write`,
   `comment:write`, `icebox:write`, `daily:write`, `dev:write` (developer
-  writes of AI sessions, see "Development"). A write needs the scope
+  writes of AI sessions, see "Development"), `plan:write` (single rows of
+  the master plan; used by the MCP plan tools only, no `/api/v1` route —
+  docs/mcp.md "Plan tools"). A write needs the scope
   **and** the owner's project role (docs/authorization.md): a dev's token
   never creates PBIs or sprints. Missing scope → `403 INSUFFICIENT_SCOPE`
   with `requiredScope`. The form offers presets: read only / developer
   (`read`, `task:write`, `comment:write`, `icebox:write`, `daily:write`, `dev:write`) /
-  PO・SM (all).
+  PO・SM (all, `plan:write` included).
 - **Project restriction** (optional): limit a token to some projects; every
   other project answers 404 and is left out of `/projects`.
 - Revoke a token on `/me` (own tokens) or `/admin/api-tokens` (admins, any
@@ -117,7 +119,7 @@ Reads (`GET`). `:projectId` / `:sprintId` are the ids returned by the list endpo
 | `/api/v1/projects/:projectId/backlog` | PBIs (not trashed), oldest first: `id, displayId, status, initiative, epic, userStory, acceptanceCriteria, workloadScore, assignedPo, sortOrder, productGoalId, planItemId, completedAt, createdAt, updatedAt`. Paginated | `status=ready\|not_ready\|completed`, `limit`, `cursor` |
 | `/api/v1/projects/:projectId/sprints` | Sprints, newest first: `id, name, status, startDate, endDate, sprintGoal, capacity, actualScore, createdAt, updatedAt` | |
 | `/api/v1/projects/:projectId/sprints/:sprintId/tasks` | Tasks of the sprint (tasks of trashed PBIs hidden): `id, taskName, status, estimatedHours, actualHours, completedAt, pbi {id, displayId}, assignees [{id, name}], createdAt, updatedAt` | |
-| `/api/v1/projects/:projectId/plan` | Master-plan items (not trashed), flat — build the tree from `parentId`: `id, parentId, name, status, progressPct, plannedStart, plannedEnd, actualStart, actualEnd, isMilestone, sortOrder, createdAt, updatedAt` (`plannedStart` / `plannedEnd` are `null` for undated items, e.g. stages just loaded from a plan template) | |
+| `/api/v1/projects/:projectId/plan` | Master-plan items (not trashed), flat — build the tree from `parentId`: `id, parentId, name, status, progressPct, plannedStart, plannedEnd, actualStart, actualEnd, isMilestone, sortOrder, createdAt, updatedAt` (`plannedStart` / `plannedEnd` are `null` for undated items, e.g. stages just loaded from a plan template; `actualStart` / `actualEnd` are always `null` for an item whose progress follows its linked PBIs — see "Confidential PBIs") | |
 | `/api/v1/projects/:projectId/releases` | Release items: `id, planVersion, releaseVersion, releaseDate, status, initiative, epic, userStory, pbi {id, displayId} \| null` (null when the source PBI is trashed), `createdAt, updatedAt` | |
 | `/api/v1/projects/:projectId/activity` | Change history, newest first (same entries as the dashboard feed): `id, projectId, entityType, entityId, action, actor {id,name} \| null, changes, label, meta, createdAt`. Paginated | `entityType` (project, pbi, sprint, sprint_task, icebox, ...), `limit`, `cursor` |
 
@@ -147,10 +149,39 @@ server; the signed-in web UI still shows them to members, with a badge.
 - **Activity feed, fail closed**: a feed row is kept only if the PBI it is about (recorded in `meta.pbItemId` for task
   and release rows when the row was written) still exists and is not confidential. A task or release row whose parent
   is unknown (an older row with no record whose entity was deleted) and a row about a purged PBI are never returned.
+  A plan item's "linked PBIs changed" entry (`meta.linkedPbis`: how many were added / removed and the new total,
+  confidential ones counted) is not returned either; the link changes of the PBIs a token may see are in those PBIs'
+  own rows. Rows about other entities (sprints, plan items, the project) are returned as they are.
 - **Residual signal (plan items)**: master-plan items (`GET /plan`, `get_plan`) carry a stored `progressPct` / `status`
-  that is rolled up from the PBIs linked to them, confidential ones included. No PBI text or link is returned, but a
-  confidential PBI moving to done can change a leaf's percentage. Do not link confidential PBIs to plan items that
-  you also expose to Claude if even that signal matters.
+  that is rolled up from the PBIs linked to them, confidential ones included. No PBI title, text, id or person is
+  returned, but the numbers are a signal, and not only a faint one:
+  - **Reading** shows that a hidden PBI is linked when an item's percentage does not fit the PBIs the token can see on
+    it (`planItemId` in the backlog answers), and shows it moving (a confidential PBI going to done changes a leaf's
+    percentage).
+  - **A token that can also change PBIs** (`backlog:write`: `planItemId`, `status`, `workloadScore` of a visible PBI,
+    by `PATCH .../backlog/:itemId` or `update_pbi`) can link, unlink and re-weight visible PBIs on the same item and
+    work out from the percentage the hidden PBIs' aggregate — about how many points they carry and how much of that is
+    done. This is open today; closing it means computing a token's view of such an item from the visible PBIs only
+    (its numbers would then differ from the screen's).
+  - **The rows above it carry the same signal**: a parent's `progressPct` / `status` are rolled up from its children,
+    so the numbers of every ancestor of such an item move with the hidden PBIs as well. A token with `plan:write` can
+    rearrange rows (make a parent, move a row) so that one ancestor shows one item's numbers alone; that is no more
+    than the item itself already shows.
+
+  So: **do not link a confidential PBI to a plan item of a project you expose to Claude if its existence or progress
+  must stay unknown.** What is closed around that signal:
+  - an item in the "follow the linked PBIs" mode also takes its **actual dates** from those PBIs, and these are **not
+    answered** for such an item (`null` in `GET /plan`, `get_plan` and the answers of the MCP plan write tools — for
+    every such item, so the answer does not tell which items have a confidential PBI);
+  - no token can switch an item into that mode (the mode is not a field of `create_plan_item` / `update_plan_item`);
+  - no token can write the `status` or the actual dates of such an item (`PLAN_FOLLOWS_PBIS`, decided by the mode
+    alone — the written status would stay only when no PBI is linked, which would tell);
+  - no token can turn an existing item into a milestone (Kanflow refuses that when any PBI is linked, which would tell
+    too; `isMilestone` is a field of `create_plan_item` only).
+
+  Not closed: when a person switches such an item **back to "kept by hand"** in Kanflow, the status and the actual
+  dates it had taken from its PBIs stay on the item as they were, and from then on they are answered like those of any
+  hand-kept item. Clear the actual dates in the same edit if they must not be read.
 - **A token cannot set or clear the flag**: `confidential` is not accepted by `PATCH .../backlog/:itemId` (it is
   ignored) or by `update_pbi`.
 - Lessons of the feedback loop have their own `confidential` flag (W11) and are filtered the same way.

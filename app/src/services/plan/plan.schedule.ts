@@ -115,6 +115,7 @@ async function logDependency(tx: Db, projectId: string, dep: PlanDependencyDto, 
 /** POST /plan/dependencies. */
 export async function createDependency(projectId: string, dep: Edge, actor: Actor): Promise<PlanDependencyDto> {
   return withTransaction(async (tx) => {
+    await repo.lockDependencies(tx, projectId)
     const [tree, edges] = await Promise.all([repo.findPlanTree(tx, projectId), repo.findDependencies(tx, projectId)])
     assertValidDependency(tree, edges, dep)
     const row = await repo.insertDependency(tx, { projectId, ...dep })
@@ -123,12 +124,59 @@ export async function createDependency(projectId: string, dep: Edge, actor: Acto
   })
 }
 
-/** DELETE /plan/dependencies/:id (404 when it is not a dependency of the project). */
+/**
+ * DELETE /plan/dependencies/:id (404 when it is not a dependency of the project). Takes the writers' lock as well:
+ * a delete racing a replacement (setPredecessors) of the same dependency then finds it gone (404) instead of failing
+ * the other writer's whole transaction on a row that is no longer there.
+ */
 export async function deleteDependency(projectId: string, id: string, actor: Actor): Promise<void> {
   await withTransaction(async (tx) => {
+    await repo.lockDependencies(tx, projectId)
     const row = await repo.findDependency(tx, projectId, id)
     if (!row) throw new NotFoundError()
     await repo.deleteDependency(tx, id)
     await logDependency(tx, projectId, row, "removed", actor)
+  })
+}
+
+export interface PredecessorsResult {
+  successorId: string
+  /** The item's predecessors after the call (live items only, as get_plan shows them). */
+  dependsOn: string[]
+  added: number
+  removed: number
+  /** The predecessors this call took away (the same ids the activity history records), so the caller can put one back. */
+  removedIds: string[]
+}
+
+/**
+ * Make the live predecessors of `successorId` exactly `predecessorIds` (MCP set_plan_dependencies): the missing ones
+ * are added under the rules of a new dependency, the others removed. Every addition is checked before anything is
+ * written. A dependency whose predecessor is in the trash is not shown by get_plan and is left as it is.
+ */
+export async function setPredecessors(projectId: string, successorId: string, predecessorIds: readonly string[], actor: Actor): Promise<PredecessorsResult> {
+  const wanted = [...new Set(predecessorIds)]
+  return withTransaction(async (tx) => {
+    await repo.lockDependencies(tx, projectId)
+    const [tree, edges] = await Promise.all([repo.findPlanTree(tx, projectId), repo.findDependencies(tx, projectId)])
+    const live = new Set(tree.map((n) => n.id))
+    if (!live.has(successorId)) throw planItemNotFound()
+    const current = edges.filter((e) => e.successorId === successorId && live.has(e.predecessorId))
+    const remove = current.filter((e) => !wanted.includes(e.predecessorId))
+    const add = wanted.filter((id) => !current.some((e) => e.predecessorId === id))
+    let after: Edge[] = edges.filter((e) => !remove.some((r) => r.id === e.id))
+    for (const predecessorId of add) {
+      assertValidDependency(tree, after, { predecessorId, successorId })
+      after = [...after, { predecessorId, successorId }]
+    }
+    for (const row of remove) {
+      await repo.deleteDependency(tx, row.id)
+      await logDependency(tx, projectId, row, "removed", actor)
+    }
+    for (const predecessorId of add) {
+      const row = await repo.insertDependency(tx, { projectId, predecessorId, successorId })
+      await logDependency(tx, projectId, row, "added", actor)
+    }
+    return { successorId, dependsOn: wanted, added: add.length, removed: remove.length, removedIds: remove.map((e) => e.predecessorId) }
   })
 }

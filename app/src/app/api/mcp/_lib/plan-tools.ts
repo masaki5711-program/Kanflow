@@ -19,9 +19,11 @@ import { DATA_NOTICE, definedOnly, guard, mcpWrite, projectScope, toolOk } from 
  *
  * propose_plan_items never writes to the plan. It puts ONE approval card (the AI-chat `plan_load`
  * proposal) into a chat thread of the token's owner; approving it calls POST /plan/load under that person's
- * own rights. Scope: there is no `plan:write` token scope, and `backlog:write` is the existing scope whose
- * project action (`backlog.write`) is held by exactly the roles that hold `plan.write` (PO and SM) — the
- * approval itself re-checks `plan.write`.
+ * own rights. Scope: the proposals keep `backlog:write` (they predate `plan:write`, and a scope is never
+ * renamed), whose project action (`backlog.write`) is held by exactly the roles that hold `plan.write`
+ * (PO and SM) — the approval itself re-checks `plan.write`.
+ *
+ * Single-row edits that change the plan at once (scope `plan:write`) live in ./plan-write-tools.ts.
  */
 
 const projectIdArg = z.string().min(1).max(191).describe("The Kanflow project id (list_projects / resolve_project).")
@@ -41,8 +43,8 @@ export function registerPlanTools(server: McpServer, principal: ApiPrincipal): v
     "get_plan",
     {
       description: describe(
-        "The project's master plan (全体計画) as a tree (scope read): each item has name, status, progressPct, isMilestone, plannedStart / plannedEnd (YYYY-MM-DD, null = 日程未定), durationDays, owner, dependsOn (ids of items that must finish first) and children. " +
-          "Read it before propose_plan_items so you do not propose what the plan already has.",
+        "The project's master plan (全体計画) as a tree (scope read): each item has name, status, progressPct, isMilestone, plannedStart / plannedEnd and actualStart / actualEnd (YYYY-MM-DD, null = 日程未定 / not yet; the actual dates of a row whose progress follows its linked backlog items are never answered), durationDays, owner, version (send it back with update_plan_item), dependsOn (ids of items that must finish first) and children. " +
+          "Read it before propose_plan_items / create_plan_item so you do not add what the plan already has.",
       ),
       inputSchema: { projectId: projectIdArg },
       annotations: READ,

@@ -119,11 +119,25 @@ describe("plan, releases, activity", () => {
     vi.mocked(repo.findPlanItems).mockResolvedValue([
       {
         id: "i1", parentId: null, name: "Phase", status: "in_progress", progressPct: 40, plannedStart: T, plannedEnd: T,
-        actualStart: null, actualEnd: null, isMilestone: false, sortOrder: 0, createdAt: T, updatedAt: T,
+        actualStart: T, actualEnd: null, progressMode: "manual", isMilestone: false, sortOrder: 0, createdAt: T, updatedAt: T,
       },
     ])
     const out = await v1.listPlan("p1")
-    expect(out.data[0]).toMatchObject({ id: "i1", progressPct: 40, status: "in_progress", actualStart: null, plannedStart: T.toISOString() })
+    expect(out.data[0]).toMatchObject({ id: "i1", progressPct: 40, status: "in_progress", actualStart: T.toISOString(), actualEnd: null, plannedStart: T.toISOString() })
+    expect(out.data[0]).not.toHaveProperty("progressMode")
+  })
+
+  it("answers no actual dates for a row whose progress follows its linked PBIs (they may come from a confidential PBI)", async () => {
+    const row = { id: "i1", parentId: null, name: "Phase", status: "done", progressPct: 100, plannedStart: T, plannedEnd: T, actualStart: T, actualEnd: T, isMilestone: false, sortOrder: 0, createdAt: T, updatedAt: T }
+    vi.mocked(repo.findPlanItems).mockResolvedValue([
+      { ...row, progressMode: "linked" },
+      { ...row, id: "i2", progressMode: "something-new" },
+    ])
+    const out = await v1.listPlan("p1")
+    for (const item of out.data) {
+      expect(item).toMatchObject({ status: "done", progressPct: 100, actualStart: null, actualEnd: null, plannedStart: T.toISOString() })
+      expect(item).not.toHaveProperty("progressMode")
+    }
   })
 
   it("hides the link to a trashed source PBI in releases", async () => {

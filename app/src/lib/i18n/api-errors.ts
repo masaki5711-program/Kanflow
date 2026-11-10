@@ -62,6 +62,7 @@ export interface ApiErrorsTranslations {
   apiErrPlanParentDatesDerived: string
   apiErrPlanLinkRequiresLeaf: string
   apiErrPlanLinkMilestone: string
+  apiErrPlanFollowsPbis: string
   apiErrPlanLinkInvalidPbi: string
   apiErrPlanDependencyCycle: string
   apiErrPlanDependencyInvalid: string
@@ -235,6 +236,7 @@ export const API_ERROR_MESSAGE_KEYS: Readonly<Record<ApiErrorCode, ApiErrorMessa
   PLAN_PARENT_DATES_DERIVED: "apiErrPlanParentDatesDerived",
   PLAN_LINK_REQUIRES_LEAF: "apiErrPlanLinkRequiresLeaf",
   PLAN_LINK_MILESTONE: "apiErrPlanLinkMilestone",
+  PLAN_FOLLOWS_PBIS: "apiErrPlanFollowsPbis",
   PLAN_LINK_INVALID_PBI: "apiErrPlanLinkInvalidPbi",
   PLAN_DEPENDENCY_CYCLE: "apiErrPlanDependencyCycle",
   PLAN_DEPENDENCY_INVALID: "apiErrPlanDependencyInvalid",
@@ -415,6 +417,7 @@ export const ja: ApiErrorsTranslations = {
   apiErrPlanParentDatesDerived: "子項目を持つ項目の期間は子項目から自動計算されます。子項目の日付を変更してください",
   apiErrPlanLinkRequiresLeaf: "PBI は子項目を持たない項目にのみ紐付けられます",
   apiErrPlanLinkMilestone: "マイルストーンには PBI を紐付けられません",
+  apiErrPlanFollowsPbis: "進捗を紐づく PBI に合わせる項目の状態と実績日は、ここからは変更できません",
   apiErrPlanLinkInvalidPbi: "紐付けできない PBI が含まれています（削除済みまたは別プロジェクト）",
   apiErrPlanDependencyCycle: "依存関係が循環します",
   apiErrPlanDependencyInvalid: "この 2 項目の間には依存関係を設定できません（同一項目または親子関係）",
@@ -589,6 +592,7 @@ export const en: ApiErrorsTranslations = {
   apiErrPlanParentDatesDerived: "The dates of an item with children are calculated from its children. Change the child items instead",
   apiErrPlanLinkRequiresLeaf: "PBIs can only be linked to items without children",
   apiErrPlanLinkMilestone: "PBIs cannot be linked to a milestone",
+  apiErrPlanFollowsPbis: "The status and actual dates of an item that follows its linked PBIs cannot be changed from here",
   apiErrPlanLinkInvalidPbi: "Some PBIs cannot be linked (deleted or in another project)",
   apiErrPlanDependencyCycle: "This dependency would create a cycle",
   apiErrPlanDependencyInvalid: "A dependency cannot be set between these items (same item or parent/child)",
@@ -763,6 +767,7 @@ export const id: ApiErrorsTranslations = {
   apiErrPlanParentDatesDerived: "Tanggal item yang memiliki sub-item dihitung dari sub-itemnya. Ubah tanggal sub-item",
   apiErrPlanLinkRequiresLeaf: "PBI hanya dapat ditautkan ke item tanpa sub-item",
   apiErrPlanLinkMilestone: "PBI tidak dapat ditautkan ke milestone",
+  apiErrPlanFollowsPbis: "Status dan tanggal aktual item yang mengikuti PBI tertaut tidak dapat diubah dari sini",
   apiErrPlanLinkInvalidPbi: "Beberapa PBI tidak dapat ditautkan (dihapus atau di proyek lain)",
   apiErrPlanDependencyCycle: "Dependensi ini akan membuat siklus",
   apiErrPlanDependencyInvalid: "Dependensi tidak dapat diatur antara item ini (item yang sama atau induk/anak)",

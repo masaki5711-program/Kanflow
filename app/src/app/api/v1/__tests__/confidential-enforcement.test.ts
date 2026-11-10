@@ -192,7 +192,7 @@ mechanism("read:releases", () => {
 mechanism("read:activity", () => {
   it("token surfaces: rows about the confidential PBI, its task and its release copy are left out", async () => {
     const out = await v1.listActivity("p1", { limit: 50 })
-    expect(out.data.map((a) => a.id).sort()).toEqual(["a1", "a12", "a3", "a5", "a7", "a9"])
+    expect(out.data.map((a) => a.id).sort()).toEqual(["a1", "a12", "a14", "a3", "a5", "a7", "a9"])
     expect(leaksSecret(out)).toBe(false)
   })
 
@@ -209,6 +209,13 @@ mechanism("read:activity", () => {
     expect(ids).not.toContain("a11")
   })
 
+  it("the plan row's count of linked PBIs (confidential ones included) is not returned; its other changes are", async () => {
+    const out = await v1.listActivity("p1", { limit: 50 })
+    expect(out.data.map((a) => a.id)).toContain("a14")
+    expect(out.data.map((a) => a.id)).not.toContain("a15")
+    expect(JSON.stringify(out)).not.toContain("linkedPbis")
+  })
+
   it("pages stay full: hidden rows are skipped before the page limit", async () => {
     const page = await v1.listActivity("p1", { limit: 2 })
     expect(page.data).toHaveLength(2)
@@ -218,7 +225,7 @@ mechanism("read:activity", () => {
 
   it("the web UI keeps every row", async () => {
     const out = await activityService.listProjectActivity("p1", { limit: 50 })
-    expect(out.items).toHaveLength(13)
+    expect(out.items).toHaveLength(15)
   })
 })
 

@@ -264,6 +264,15 @@ export async function clearBaseline(db: Db, projectId: string): Promise<number> 
 
 // === dependencies ===
 
+/**
+ * One writer of a project's dependencies at a time (held to the end of the transaction). Take it BEFORE reading the
+ * edges: two writers that each read the old edges could otherwise both pass the cycle check and close a cycle together,
+ * or both delete the same edge (the second delete fails on the missing row).
+ */
+export async function lockDependencies(db: Db, projectId: string): Promise<void> {
+  await db.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`plan_dependencies:${projectId}`}))`
+}
+
 export function findDependencies(db: Db, projectId: string) {
   return db.planItemDependency.findMany({
     where: { projectId },

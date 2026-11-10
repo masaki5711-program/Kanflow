@@ -28,6 +28,7 @@ const SCOPE_LABEL: Record<ApiTokenScope, keyof ApiTokensTranslations> = {
   "icebox:write": "apiTokenScopeIceboxWrite",
   "daily:write": "apiTokenScopeDailyWrite",
   "dev:write": "apiTokenScopeDevWrite",
+  "plan:write": "apiTokenScopePlanWrite",
 }
 
 const PRESETS: { key: keyof typeof API_TOKEN_SCOPE_PRESETS; label: keyof ApiTokensTranslations }[] = [

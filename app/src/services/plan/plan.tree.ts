@@ -1,8 +1,14 @@
 /**
  * get_plan (MCP, W12): the master plan (全体計画) as a tree with dates, status and dependencies.
- * Read only. A node's `dependsOn` lists the ids of the items that must finish first (finish to start).
+ * Read only. A node's `dependsOn` lists the ids of the items that must finish first (finish to start);
+ * `version` is the lock token update_plan_item sends back.
+ *
+ * Confidential PBIs (D-5): a row whose progress follows its linked PBIs (`progressMode: "linked"`) gets its actual
+ * dates from those PBIs, confidential ones included. The tree therefore answers no actual dates for a linked row
+ * (answersActualDates). `progressPct` / `status` of such a row stay the documented residual signal
+ * (docs/api-v1.md "Residual signal (plan items)").
  */
-import { toDateKeyOrNull } from "@/lib/plan-progress"
+import { answersActualDates, toDateKeyOrNull } from "@/lib/plan-progress"
 import { defaultDb } from "@/services/_shared/db"
 import { LIST_LIMITS } from "@/services/_shared/limits"
 import * as repo from "./plan.repository"
@@ -16,8 +22,13 @@ export interface PlanTreeNode {
   /** "YYYY-MM-DD"; null = 日程未定. */
   plannedStart: string | null
   plannedEnd: string | null
+  /** "YYYY-MM-DD"; null = not yet, and always null for a row whose progress follows its linked PBIs. */
+  actualStart: string | null
+  actualEnd: string | null
   durationDays: number | null
   owner: { id: string; name: string | null } | null
+  /** Optimistic-lock token of the row (bumped by every user write). */
+  version: number
   dependsOn: string[]
   children: PlanTreeNode[]
 }
@@ -38,7 +49,11 @@ interface Row {
   isMilestone: boolean
   plannedStart: Date | null
   plannedEnd: Date | null
+  actualStart?: Date | null
+  actualEnd?: Date | null
+  progressMode: string
   durationDays: number | null
+  version: number
   owner?: { id: string; name: string | null } | null
 }
 
@@ -58,8 +73,11 @@ export function buildPlanTree(rows: readonly Row[], dependencies: ReadonlyArray<
         isMilestone: r.isMilestone,
         plannedStart: toDateKeyOrNull(r.plannedStart),
         plannedEnd: toDateKeyOrNull(r.plannedEnd),
+        actualStart: answersActualDates(r.progressMode) ? toDateKeyOrNull(r.actualStart) : null,
+        actualEnd: answersActualDates(r.progressMode) ? toDateKeyOrNull(r.actualEnd) : null,
         durationDays: r.durationDays,
         owner: r.owner ? { id: r.owner.id, name: r.owner.name } : null,
+        version: r.version,
         dependsOn: deps.get(r.id) ?? [],
         children: [],
       },

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 /**
  * MCP plan tools (W12): get_plan (read) and propose_plan_items (backlog:write; PO / SM). The proposal tool never
  * writes to the plan: it only opens one approval card in a chat thread of the token owner.
+ * The tools that do change single rows (scope plan:write) are tested in mcp-plan-write-tools.test.ts.
  */
 
 const m = vi.hoisted(() => ({
@@ -106,27 +107,51 @@ beforeEach(() => {
 })
 
 describe("tool list", () => {
-  it("offers get_plan and propose_plan_items with the data notice; no tool writes plan items directly", async () => {
+  it("offers get_plan and propose_plan_items with the data notice; the proposal says it does not change the plan", async () => {
     const all = (await rpc("tools/list", {})).result.tools as Array<{ name: string; description: string }>
     const tools = all.filter((t) => ["get_plan", "propose_plan_items"].includes(t.name))
     expect(tools).toHaveLength(2)
     for (const t of tools) expect(t.description).toContain(DATA_NOTICE)
     expect(tools.find((t) => t.name === "propose_plan_items")?.description).toMatch(/does NOT change the plan/)
-    expect(all.some((t) => /^(create|update|delete)_plan/.test(t.name))).toBe(false)
+  })
+
+  // The tools that write plan rows are a closed list, each behind plan:write (mcp-plan-write-tools.test.ts);
+  // a new one must be added here on purpose. Nothing deletes a plan row over MCP.
+  it("only create_plan_item, update_plan_item and set_plan_dependencies change the plan directly, and none deletes", async () => {
+    const all = (await rpc("tools/list", {})).result.tools as Array<{ name: string; description: string }>
+    const direct = all.filter((t) => /plan/.test(t.name) && !/^(get_plan|propose_plan_)/.test(t.name))
+    expect(direct.map((t) => t.name).sort()).toEqual(["create_plan_item", "set_plan_dependencies", "update_plan_item"])
+    for (const t of direct) expect(t.description).toMatch(/scope plan:write/)
+    expect(all.some((t) => /(delete|remove|trash)/.test(t.name))).toBe(false)
   })
 })
 
 describe("get_plan", () => {
   it("returns the plan as a tree with dates and dependencies", async () => {
-    const row = (id: string, parentId: string | null, name: string, extra = {}) => ({ id, parentId, name, status: "not_started", progressPct: 0, isMilestone: false, plannedStart: day("2026-11-02"), plannedEnd: day("2026-11-06"), durationDays: 5, owner: null, ...extra })
-    vi.mocked(planRepo.findPlanItems).mockResolvedValue([row("a", null, "仕様"), row("b", "a", "要求"), row("c", null, "検収", { isMilestone: true, plannedStart: null, plannedEnd: null })] as never)
+    const row = (id: string, parentId: string | null, name: string, extra = {}) => ({ id, parentId, name, status: "not_started", progressPct: 0, isMilestone: false, plannedStart: day("2026-11-02"), plannedEnd: day("2026-11-06"), actualStart: null, actualEnd: null, progressMode: "manual", durationDays: 5, owner: null, version: 0, ...extra })
+    vi.mocked(planRepo.findPlanItems).mockResolvedValue([row("a", null, "仕様", { actualStart: day("2026-11-03"), version: 4 }), row("b", "a", "要求"), row("c", null, "検収", { isMilestone: true, plannedStart: null, plannedEnd: null })] as never)
     vi.mocked(planRepo.findDependencies).mockResolvedValue([{ id: "d1", predecessorId: "a", successorId: "c" }] as never)
     const r = await callTool("get_plan", { projectId: "p1" })
     expect(r.isError).toBeUndefined()
     expect(r.payload.itemCount).toBe(3)
     expect(r.payload.data).toHaveLength(2)
     expect(r.payload.data[0]).toMatchObject({ id: "a", plannedStart: "2026-11-02", dependsOn: [], children: [{ id: "b", name: "要求" }] })
+    // The lock token and the actual dates travel with every node (update_plan_item sends the version back).
+    expect(r.payload.data[0]).toMatchObject({ version: 4, actualStart: "2026-11-03", actualEnd: null, children: [{ version: 0, actualStart: null }] })
     expect(r.payload.data[1]).toMatchObject({ id: "c", isMilestone: true, plannedStart: null, dependsOn: ["a"] })
+    expect(JSON.stringify(r.payload)).not.toContain("progressMode")
+  })
+  it("answers no actual dates for a row whose progress follows its linked PBIs: they may come from a confidential PBI", async () => {
+    const row = (id: string, progressMode: string) => ({ id, parentId: null, name: id, status: "done", progressPct: 100, isMilestone: false, plannedStart: day("2026-11-02"), plannedEnd: day("2026-11-06"), actualStart: day("2026-11-03"), actualEnd: day("2026-11-09"), progressMode, durationDays: 5, owner: null, version: 1 })
+    vi.mocked(planRepo.findPlanItems).mockResolvedValue([row("hand", "manual"), row("linked", "linked"), row("unknown", "something-new")] as never)
+    vi.mocked(planRepo.findDependencies).mockResolvedValue([])
+    const r = await callTool("get_plan", { projectId: "p1" })
+    expect(r.payload.data[0]).toMatchObject({ id: "hand", actualStart: "2026-11-03", actualEnd: "2026-11-09" })
+    // Planned dates, status and percentage stay (the documented residual signal); the actual dates do not leave.
+    expect(r.payload.data[1]).toMatchObject({ id: "linked", status: "done", progressPct: 100, plannedEnd: "2026-11-06", actualStart: null, actualEnd: null })
+    expect(r.payload.data[2]).toMatchObject({ id: "unknown", actualStart: null, actualEnd: null })
+    // The finish date appears once in the whole answer: for the hand-kept row.
+    expect(JSON.stringify(r.payload).split("2026-11-09")).toHaveLength(2)
   })
   it("a non-member gets NOT_FOUND", async () => {
     m.memberFindFirst.mockResolvedValue(null)

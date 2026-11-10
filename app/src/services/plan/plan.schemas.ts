@@ -74,6 +74,14 @@ export const createDependencySchema = z.object({
   successorId: id,
 })
 
+/** Upper bound of predecessors one item may be given (MCP set_plan_dependencies). */
+export const PLAN_PREDECESSORS_MAX = 50
+
+/** MCP set_plan_dependencies: the whole list of items that must finish before the item starts ([] = none). */
+export const setPredecessorsSchema = z.object({
+  dependsOn: z.array(id).max(PLAN_PREDECESSORS_MAX),
+})
+
 /** POST /plan/:id/shift-following: move the rows after an item by its actual-vs-plan slip. */
 export const shiftFollowingSchema = z.object({
   scope: z.enum(["dependents", "later"]),
