@@ -80,8 +80,11 @@ files you touched.
   messages (e.g. `lastError`) are Japanese and translated in the UI.
 - **Authorization**: one decision point, `app/src/lib/authz/policy.ts`; a new
   action gets allow + deny rows in `policy.test.ts`.
-- **Confidential PBIs (D-5)**: never returned to MCP / LLM; confidentiality is
-  checked at use time, never frozen.
+- **Confidential PBIs (D-5)**: never returned through MCP or to GitStation, and
+  never sent by the background LLM jobs (rule drafts, actuals review); the
+  interactive chat on the local Ollama may read them (decided 2026-11-10,
+  `references/decisions.md`). Confidentiality is checked at use time, never
+  frozen.
 - **Local LLM**: Ollama only (shared with BankMasalah); the deterministic path
   must work when the LLM is down.
 - **Done** = lint, typecheck, tests (incl. PG DB tests) green and the reviewers
