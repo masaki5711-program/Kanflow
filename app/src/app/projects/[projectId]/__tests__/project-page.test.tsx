@@ -11,6 +11,7 @@ const m = vi.hoisted(() => ({
     userSection: { findFirst: vi.fn() },
     sprintBacklogItem: { findMany: vi.fn() },
     planItem: { findMany: vi.fn() },
+    gitIntegration: { findUnique: vi.fn() },
   },
 }))
 
@@ -65,6 +66,8 @@ describe("ProjectDashboard (server)", () => {
     vi.clearAllMocks()
     m.prisma.sprintBacklogItem.findMany.mockResolvedValue([])
     m.prisma.planItem.findMany.mockResolvedValue([])
+    // No Git integration by default (most projects).
+    m.prisma.gitIntegration.findUnique.mockResolvedValue(null)
     m.getI18nFor.mockImplementation(async (_type: string, ids: string[]) => new Map(ids.map((id) => [id, { name: { en: `en-${id}` } }])))
   })
 
@@ -95,6 +98,27 @@ describe("ProjectDashboard (server)", () => {
     expect(props.canEditGoals).toBe(false)
     expect(props.canUseAi).toBe(true)
     expect(props.isProjectMember).toBe(true)
+  })
+
+  it.each([
+    ["no Git integration", null, "developer", false],
+    ["Git off", { enabled: false, provider: "gitstation" }, "developer", false],
+    ["another provider", { enabled: true, provider: "gitlab" }, "developer", false],
+    ["GitStation on, a member (git.approve)", { enabled: true, provider: "gitstation" }, "developer", true],
+    ["GitStation on, a section manager who only views", { enabled: true, provider: "gitstation" }, null, false],
+  ] as const)("the awaiting-approval list: %s", async (_label, integration, role, shown) => {
+    m.auth.mockResolvedValue({ user: { id: "u1", role: role === null ? "section_manager" : "member" } })
+    m.prisma.projectMember.findFirst.mockResolvedValue(role === null ? null : { role })
+    if (role === null) {
+      // A section manager who only views the project (no git.approve).
+      m.prisma.project.findUnique.mockResolvedValueOnce({ sections: [{ sectionId: "sec1" }] }).mockResolvedValueOnce(fullProject)
+      m.prisma.userSection.findFirst.mockResolvedValue({ sectionId: "sec1" })
+    } else m.prisma.project.findUnique.mockResolvedValue(fullProject)
+    m.prisma.gitIntegration.findUnique.mockResolvedValue(integration)
+    // The page renders either way; the list is only shown where GitStation is on and the viewer may approve.
+    const props = await renderPage()
+    expect(props.projectId).toBe("p1")
+    expect(props.showMrApprovals).toBe(shown)
   })
 
   it("lets PO / SM edit goals (goal.write)", async () => {

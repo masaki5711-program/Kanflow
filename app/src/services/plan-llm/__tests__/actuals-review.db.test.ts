@@ -143,7 +143,7 @@ describe.skipIf(!enabled)("AI review of actuals on a real database (KANFLOW_DB_T
 
   it("accept flips the switch, records who / when, audits, outdates the backtest; reject puts it back", async () => {
     const hash0 = await gate.lineageInputHash(lineage)
-    await prisma.planEstimateEval.create({ data: { lineage, evaluatedOn: d("2026-10-20"), methodVersion: "e2-v1", n: 5, mape: 0.1, mapeTemplate: 0.4, p80Hit: 0.8, endErrorDays: 1, endErrorTemplateDays: 5, inputHash: hash0 } })
+    const recorded = await prisma.planEstimateEval.create({ data: { lineage, evaluatedOn: d("2026-10-20"), methodVersion: "e2-v1", n: 5, mape: 0.1, mapeTemplate: 0.4, p80Hit: 0.8, endErrorDays: 1, endErrorTemplateDays: 5, inputHash: hash0 } })
     const list = await review.listReviewProposals(ids.p)
     const waitP = list.proposals.find((p) => p.kind === "treat_as_waiting")!
     const exclP = list.proposals.find((p) => p.kind === "exclude_from_learning")!
@@ -157,7 +157,11 @@ describe.skipIf(!enabled)("AI review of actuals on a real database (KANFLOW_DB_T
     // The lineage's input hash moved: the recorded backtest no longer counts as current.
     const hash1 = await gate.lineageInputHash(lineage)
     expect(hash1).not.toBe(hash0)
-    expect((await gate.latestEval(lineage))?.inputHash).not.toBe(hash1)
+    // The recorded backtest is of the old hash (outdated for the gate)…
+    expect(recorded.inputHash).toBe(hash0)
+    // …and the accept queued the lineage's backtest, which records the new hash (it runs in the background).
+    await evals.settleQueuedBacktests()
+    expect((await gate.latestEval(lineage))?.inputHash).toBe(hash1)
     // A stale version is refused.
     await expect(review.decideReviewProposal(ids.p, exclP.id, { decision: "reject", version: exclP.version }, po)).rejects.toMatchObject({ code: "PLAN_ACTUALS_CHANGED" })
 
