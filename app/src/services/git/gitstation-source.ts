@@ -9,7 +9,23 @@ import {
   type GitStationEvent,
   type GitStationMergeRequest,
 } from "@/lib/git/gitstation-client"
-import { CURSOR_INVALID_MESSAGE, STATION_HOST_NOT_ALLOWED_MESSAGE, STATION_NOT_BOUND_MESSAGE, STATION_TRUNCATED_MESSAGE } from "@/lib/git/sync-messages"
+import {
+  CURSOR_INVALID_MESSAGE,
+  STATION_AUTH_MESSAGE,
+  STATION_FORBIDDEN_MESSAGE,
+  STATION_GONE_MESSAGE,
+  STATION_HOST_NOT_ALLOWED_MESSAGE,
+  STATION_INVALID_RESPONSE_MESSAGE,
+  STATION_MISSING_INTEGRATION_MESSAGE,
+  STATION_NETWORK_MESSAGE,
+  STATION_NOT_BOUND_MESSAGE,
+  STATION_NOT_FOUND_MESSAGE,
+  STATION_RATE_LIMITED_MESSAGE,
+  STATION_TRUNCATED_MESSAGE,
+  STATION_UNAVAILABLE_MESSAGE,
+  stationHttpMessage,
+  SYNC_FAILED_MESSAGE,
+} from "@/lib/git/sync-messages"
 import { logger } from "@/lib/logger"
 import type {
   DevBranchListing,
@@ -658,7 +674,7 @@ export class NotBoundError extends Error {
   }
 }
 
-export const MISSING_INTEGRATION_MESSAGE = "GitStation の連携 ID が設定されていません。チーム設定の Git 連携で入れてください。"
+export const MISSING_INTEGRATION_MESSAGE = STATION_MISSING_INTEGRATION_MESSAGE
 
 export class MissingIntegrationError extends Error {
   constructor() {
@@ -667,35 +683,40 @@ export class MissingIntegrationError extends Error {
   }
 }
 
+/**
+ * The text stored in lastError (Japanese). Every text comes from lib/git/sync-messages, which is what
+ * lets the UI show it in the viewer's language: a text written here in place would reach an English or
+ * Indonesian reader as stored.
+ */
 export function gitStationErrorMessage(err: unknown): string {
   if (err instanceof MissingIntegrationError) return MISSING_INTEGRATION_MESSAGE
   if (err instanceof NotBoundError) return NOT_BOUND_MESSAGE
-  if (!(err instanceof GitStationError)) return "同期中にエラーが発生しました"
+  if (!(err instanceof GitStationError)) return SYNC_FAILED_MESSAGE
   switch (err.kind) {
     case "auth":
-      return "GitStation がトークンを拒否しました（無効または期限切れ）。連携のサービスアカウントの新しいトークンを設定してください。"
+      return STATION_AUTH_MESSAGE
     case "forbidden":
-      return "連携のサービスアカウントに、このリポジトリを読む権限がありません。GitStation で連携にリポジトリを結び付けてください。"
+      return STATION_FORBIDDEN_MESSAGE
     case "not_found":
-      return "リポジトリか連携が GitStation に見つからないか、この連携からは見えません。URL と連携 ID を確認してください。"
+      return STATION_NOT_FOUND_MESSAGE
     case "cursor_invalid":
       return CURSOR_INVALID_MESSAGE
     case "gone":
-      return "GitStation のイベントの履歴の位置が無効になりました。状態を取り直します（次回の同期）。"
+      return STATION_GONE_MESSAGE
     case "rate_limited":
-      return "GitStation の利用制限に達しました。次回の同期で再試行します。"
+      return STATION_RATE_LIMITED_MESSAGE
     case "unavailable":
-      return "GitStation が一時的に利用できません。次回の同期で再試行します。"
+      return STATION_UNAVAILABLE_MESSAGE
     case "network":
-      return "GitStation に接続できませんでした。次回の同期で再試行します。"
+      return STATION_NETWORK_MESSAGE
     case "invalid_response":
-      return "GitStation から想定外の応答がありました。次回の同期で再試行します（続く場合は管理者に連絡してください）。"
+      return STATION_INVALID_RESPONSE_MESSAGE
     case "truncated":
       return STATION_TRUNCATED_MESSAGE
     case "host_not_allowed":
       return STATION_HOST_NOT_ALLOWED_MESSAGE
     default:
-      return `GitStation がエラーを返しました（${err.status ?? "?"}）。次回の同期で再試行します。`
+      return stationHttpMessage(err.status)
   }
 }
 

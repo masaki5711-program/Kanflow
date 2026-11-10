@@ -10,6 +10,9 @@ const gitRepositoryCreate = vi.fn()
 const gitRepositoryUpdate = vi.fn()
 const gitRepositoryDelete = vi.fn()
 const gitLinkFindMany = vi.fn()
+const gitAcceptanceReportFindFirst = vi.fn()
+const gitAcceptanceReportDeleteMany = vi.fn()
+const gitAcceptanceReportUpdateMany = vi.fn()
 const productBacklogItemFindFirst = vi.fn()
 const logActivityMock = vi.fn()
 const repoChunkDeleteMany = vi.fn((...a: unknown[]) => ({ op: "deleteChunks", args: a }))
@@ -41,6 +44,11 @@ vi.mock("@/lib/prisma", () => {
       delete: (...a: unknown[]) => gitRepositoryDelete(...a),
     },
     gitLink: { findMany: (...a: unknown[]) => gitLinkFindMany(...a) },
+    gitAcceptanceReport: {
+      findFirst: (...a: unknown[]) => gitAcceptanceReportFindFirst(...a),
+      deleteMany: (...a: unknown[]) => gitAcceptanceReportDeleteMany(...a),
+      updateMany: (...a: unknown[]) => gitAcceptanceReportUpdateMany(...a),
+    },
     repoChunk: { deleteMany: (...a: unknown[]) => repoChunkDeleteMany(...a) },
     $transaction: async (arg: unknown) => {
       if (typeof arg !== "function") return transactionMock(arg as unknown[])
@@ -90,6 +98,9 @@ beforeEach(() => {
   gitRepositoryCreate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ id: "repo-new", syncedAt: null, lastError: null, lastErrorAt: null, ...data }))
   gitRepositoryUpdate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ id: "repo-1", name: "API", webUrl: REPO_URL, repoPath: "group/repo", syncedAt: null, lastError: null, lastErrorAt: null, tokenCipher: null, tokenHint: null, ...data }))
   gitLinkFindMany.mockResolvedValue([])
+  gitAcceptanceReportFindFirst.mockResolvedValue(null)
+  gitAcceptanceReportDeleteMany.mockResolvedValue({ count: 0 })
+  gitAcceptanceReportUpdateMany.mockResolvedValue({ count: 0 })
   productBacklogItemFindFirst.mockResolvedValue(null)
   getProjectMock.mockResolvedValue({ id: 555, web_url: REPO_URL, path_with_namespace: "group/repo", default_branch: "main" })
   canReadRepositoryMock.mockResolvedValue(true)
@@ -163,7 +174,7 @@ describe("updateGitSettings", () => {
       .mockResolvedValueOnce({ enabled: false, autoCompleteOnMerge: false }) // read for diffing
       .mockResolvedValueOnce(null) // getGitSettings() re-read at the end
     await svc.updateGitSettings(PROJECT_ID, { enabled: true }, ACTOR)
-    expect(gitIntegrationUpsert).toHaveBeenCalledWith({ where: { projectId: PROJECT_ID }, create: { projectId: PROJECT_ID, enabled: true }, update: { enabled: true } })
+    expect(gitIntegrationUpsert).toHaveBeenCalledWith(expect.objectContaining({ where: { projectId: PROJECT_ID }, create: { projectId: PROJECT_ID, enabled: true }, update: { enabled: true } }))
     expect(logActivityMock).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ projectId: PROJECT_ID, entityType: "project", entityId: PROJECT_ID, action: "update", actor: ACTOR, diff: { changes: { "git.enabled": { from: false, to: true } } } }),
@@ -206,7 +217,7 @@ describe("updateGitSettings", () => {
   it("stores provider gitlab (the only one accepted today) without logging a non-change", async () => {
     gitIntegrationFindUnique.mockResolvedValueOnce({ enabled: true, autoCompleteOnMerge: false, provider: "gitlab" }).mockResolvedValueOnce(null)
     await svc.updateGitSettings(PROJECT_ID, { provider: "gitlab" }, ACTOR)
-    expect(gitIntegrationUpsert).toHaveBeenCalledWith({ where: { projectId: PROJECT_ID }, create: { projectId: PROJECT_ID, provider: "gitlab" }, update: { provider: "gitlab" } })
+    expect(gitIntegrationUpsert).toHaveBeenCalledWith(expect.objectContaining({ where: { projectId: PROJECT_ID }, create: { projectId: PROJECT_ID, provider: "gitlab" }, update: { provider: "gitlab" } }))
     expect(logActivityMock).not.toHaveBeenCalled()
   })
 
@@ -254,6 +265,160 @@ describe("updateGitSettings", () => {
     gitIntegrationFindUnique.mockResolvedValueOnce({ enabled: true, autoCompleteOnMerge: false }).mockResolvedValueOnce(null)
     await svc.updateGitSettings(PROJECT_ID, { enabled: true }, ACTOR)
     expect(gitIntegrationUpsert.mock.calls[0][0].update).not.toHaveProperty("tokenCipher")
+  })
+})
+
+describe("acceptance check setting (A1)", () => {
+  const STATION_ROW = { enabled: true, provider: "gitstation", stationIntegrationId: "7", tokenCipher: "sealed", tokenHint: "abcd", autoCompleteOnMerge: false, stationAcceptanceCheck: true }
+
+  it("is off with no error by default, and the report rows are not read", async () => {
+    const dto = await svc.getGitSettings(PROJECT_ID)
+    expect(dto).toMatchObject({ stationAcceptanceCheck: false, acceptanceCheckError: null })
+    expect(gitAcceptanceReportFindFirst).not.toHaveBeenCalled()
+  })
+
+  it("returns the latest failed report (stored message + time) while the check is in effect", async () => {
+    gitIntegrationFindUnique.mockResolvedValue(STATION_ROW)
+    const at = new Date("2026-11-10T01:02:03.000Z")
+    gitAcceptanceReportFindFirst.mockResolvedValue({ lastError: "報告できません", lastErrorAt: at })
+    const dto = await svc.getGitSettings(PROJECT_ID)
+    expect(dto).toMatchObject({ stationAcceptanceCheck: true, acceptanceCheckError: { message: "報告できません", at: at.toISOString() } })
+    expect(gitAcceptanceReportFindFirst).toHaveBeenCalledWith({
+      where: { repository: { projectId: PROJECT_ID }, lastError: { not: null } },
+      orderBy: { lastErrorAt: "desc" },
+      select: { lastError: true, lastErrorAt: true },
+    })
+  })
+
+  it("an error without a time is returned with at: null; no failed row means no error", async () => {
+    gitIntegrationFindUnique.mockResolvedValue(STATION_ROW)
+    gitAcceptanceReportFindFirst.mockResolvedValueOnce({ lastError: "x", lastErrorAt: null })
+    expect((await svc.getGitSettings(PROJECT_ID)).acceptanceCheckError).toEqual({ message: "x", at: null })
+    gitAcceptanceReportFindFirst.mockResolvedValueOnce(null)
+    expect((await svc.getGitSettings(PROJECT_ID)).acceptanceCheckError).toBeNull()
+  })
+
+  it("shows no error while the check is not in effect (switch off, GitLab, or the integration off)", async () => {
+    gitAcceptanceReportFindFirst.mockResolvedValue({ lastError: "x", lastErrorAt: null })
+    for (const row of [{ ...STATION_ROW, stationAcceptanceCheck: false }, { ...STATION_ROW, provider: "gitlab" }, { ...STATION_ROW, enabled: false }]) {
+      gitIntegrationFindUnique.mockResolvedValue(row)
+      expect((await svc.getGitSettings(PROJECT_ID)).acceptanceCheckError).toBeNull()
+    }
+    expect(gitAcceptanceReportFindFirst).not.toHaveBeenCalled()
+  })
+
+  const ON = { enabled: true, autoCompleteOnMerge: false, stationAcceptanceCheck: true, provider: "gitstation", stationIntegrationId: "7" }
+  /** The stored row before the change; the upsert answers it with the patch applied, as the database does. */
+  function stored(before: Record<string, unknown>) {
+    gitIntegrationFindUnique.mockResolvedValueOnce(before).mockResolvedValueOnce(null)
+    gitIntegrationUpsert.mockImplementation(async ({ update }: { update: Record<string, unknown> }) => {
+      txLog.push("upsert")
+      return { ...before, ...update }
+    })
+    gitAcceptanceReportDeleteMany.mockImplementation(async () => {
+      txLog.push("forget")
+      return { count: 2 }
+    })
+  }
+
+  it("switching on stores the switch and logs it; nothing is deleted", async () => {
+    stored({ ...ON, stationAcceptanceCheck: false })
+    await svc.updateGitSettings(PROJECT_ID, { stationAcceptanceCheck: true }, ACTOR)
+    expect(gitIntegrationUpsert).toHaveBeenCalledWith({
+      where: { projectId: PROJECT_ID },
+      create: { projectId: PROJECT_ID, stationAcceptanceCheck: true },
+      update: { stationAcceptanceCheck: true },
+      select: { enabled: true, provider: true, stationAcceptanceCheck: true },
+    })
+    expect(gitAcceptanceReportDeleteMany).not.toHaveBeenCalled()
+    expect(logActivityMock).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ diff: { changes: { "git.stationAcceptanceCheck": { from: false, to: true } } } }))
+  })
+
+  it("switching off forgets what was reported for the project, inside the settings transaction", async () => {
+    stored(ON)
+    await svc.updateGitSettings(PROJECT_ID, { stationAcceptanceCheck: false }, ACTOR)
+    expect(gitAcceptanceReportDeleteMany).toHaveBeenCalledWith({ where: { repository: { projectId: PROJECT_ID } } })
+    expect(txLog).toEqual(["begin", "lock", "upsert", "forget", "end"])
+    expect(logActivityMock).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ diff: { changes: { "git.stationAcceptanceCheck": { from: true, to: false } } } }))
+  })
+
+  it("switching the integration off, or to another source, forgets the reports too (the check is no longer in effect)", async () => {
+    stored(ON)
+    await svc.updateGitSettings(PROJECT_ID, { enabled: false }, ACTOR)
+    expect(gitAcceptanceReportDeleteMany).toHaveBeenCalledTimes(1)
+    expect(txLog).toEqual(["begin", "lock", "upsert", "forget", "end"])
+
+    stored(ON)
+    await svc.updateGitSettings(PROJECT_ID, { provider: "gitlab" }, ACTOR)
+    expect(gitAcceptanceReportDeleteMany).toHaveBeenCalledTimes(2)
+    expect(gitAcceptanceReportDeleteMany).toHaveBeenLastCalledWith({ where: { repository: { projectId: PROJECT_ID } } })
+  })
+
+  it("the switch stored while the check is not in effect deletes nothing when it goes off", async () => {
+    for (const before of [{ ...ON, enabled: false }, { ...ON, provider: "gitlab" }]) {
+      stored(before)
+      await svc.updateGitSettings(PROJECT_ID, { stationAcceptanceCheck: false }, ACTOR)
+    }
+    expect(gitAcceptanceReportDeleteMany).not.toHaveBeenCalled()
+  })
+
+  it("switching off what is already off (or never configured) deletes nothing and logs nothing", async () => {
+    stored({ ...ON, stationAcceptanceCheck: false })
+    await svc.updateGitSettings(PROJECT_ID, { stationAcceptanceCheck: false }, ACTOR)
+    gitIntegrationUpsert.mockResolvedValue({ enabled: false, provider: "gitlab", stationAcceptanceCheck: false })
+    await svc.updateGitSettings(PROJECT_ID, { stationAcceptanceCheck: false }, ACTOR)
+    expect(gitAcceptanceReportDeleteMany).not.toHaveBeenCalled()
+    expect(logActivityMock).not.toHaveBeenCalled()
+  })
+
+  it("another setting leaves the reports alone", async () => {
+    stored(ON)
+    await svc.updateGitSettings(PROJECT_ID, { autoCompleteOnMerge: true }, ACTOR)
+    expect(gitAcceptanceReportDeleteMany).not.toHaveBeenCalled()
+    expect(gitAcceptanceReportUpdateMany).not.toHaveBeenCalled()
+    expect(gitIntegrationUpsert.mock.calls[0][0].update).not.toHaveProperty("stationAcceptanceCheck")
+  })
+
+  /** What a fresh attempt clears: the stored failure and the wait it put on its repository; what was reported stays. */
+  const FRESH = {
+    where: { repository: { projectId: PROJECT_ID }, lastError: { not: null } },
+    data: { lastError: null, lastErrorAt: null, retryAt: null, failures: 0, repositoryWide: false },
+  }
+
+  it("a new token gives the stored failures a fresh attempt, inside the settings transaction", async () => {
+    stored(ON)
+    gitAcceptanceReportUpdateMany.mockImplementation(async () => {
+      txLog.push("fresh")
+      return { count: 1 }
+    })
+    await svc.updateGitSettings(PROJECT_ID, { token: "a-new-token-value-1234" }, ACTOR)
+    expect(gitAcceptanceReportUpdateMany).toHaveBeenCalledWith(FRESH)
+    expect(gitAcceptanceReportDeleteMany).not.toHaveBeenCalled()
+    expect(txLog).toEqual(["begin", "lock", "upsert", "fresh", "end"])
+  })
+
+  it("another integration ID does too; the same ID sent again does not", async () => {
+    stored(ON)
+    await svc.updateGitSettings(PROJECT_ID, { stationIntegrationId: "8" }, ACTOR)
+    expect(gitAcceptanceReportUpdateMany).toHaveBeenCalledTimes(1)
+    expect(gitAcceptanceReportUpdateMany).toHaveBeenCalledWith(FRESH)
+
+    stored(ON)
+    await svc.updateGitSettings(PROJECT_ID, { stationIntegrationId: "7" }, ACTOR)
+    expect(gitAcceptanceReportUpdateMany).toHaveBeenCalledTimes(1)
+  })
+
+  it("switching off together with a new token only forgets (nothing is left to retry)", async () => {
+    stored(ON)
+    await svc.updateGitSettings(PROJECT_ID, { stationAcceptanceCheck: false, token: "a-new-token-value-1234" }, ACTOR)
+    expect(gitAcceptanceReportDeleteMany).toHaveBeenCalledTimes(1)
+    expect(gitAcceptanceReportUpdateMany).not.toHaveBeenCalled()
+  })
+
+  it("the settings schema takes the switch as a boolean only", () => {
+    expect(svc.gitSettingsSchema.parse({ stationAcceptanceCheck: true })).toEqual({ stationAcceptanceCheck: true })
+    expect(svc.gitSettingsSchema.parse({ stationAcceptanceCheck: false })).toEqual({ stationAcceptanceCheck: false })
+    for (const bad of ["yes", 1, null]) expect(svc.gitSettingsSchema.safeParse({ stationAcceptanceCheck: bad }).success).toBe(false)
   })
 })
 
@@ -500,6 +665,18 @@ describe("updateRepository", () => {
     await svc.updateRepository(PROJECT_ID, "r1", { name: "New name" })
     const data = gitRepositoryUpdate.mock.calls[0][0].data
     expect(data).toEqual({ name: "New name" })
+    expect(gitAcceptanceReportUpdateMany).not.toHaveBeenCalled()
+  })
+
+  it("a changed token gives the acceptance check a fresh attempt for this repository (replaced or removed)", async () => {
+    gitRepositoryFindFirst.mockResolvedValue({ id: "r1" })
+    await svc.updateRepository(PROJECT_ID, "r1", { token: "new-token-value" })
+    await svc.updateRepository(PROJECT_ID, "r1", { token: null })
+    expect(gitAcceptanceReportUpdateMany).toHaveBeenCalledTimes(2)
+    expect(gitAcceptanceReportUpdateMany).toHaveBeenLastCalledWith({
+      where: { repositoryId: "r1", lastError: { not: null } },
+      data: { lastError: null, lastErrorAt: null, retryAt: null, failures: 0, repositoryWide: false },
+    })
   })
 
   it("replaces the token (sealed) and clears any previous error", async () => {

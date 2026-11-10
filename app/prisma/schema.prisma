@@ -1634,6 +1634,10 @@ model GitIntegration {
   tokenHint           String?  @db.VarChar(8)
   /// When every merge request of a PBI is merged, its in-progress tasks of the active sprint become done.
   autoCompleteOnMerge Boolean  @default(false)
+  /// provider "gitstation": Kanflow reports the check `kanflow/acceptance` on the head commit of every open merge
+  /// request linked to PBIs (services/git/acceptance-check.service). A report only: whether the check is required
+  /// for a merge is GitStation's setting. Off by default.
+  stationAcceptanceCheck Boolean @default(false)
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
   project             Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
@@ -1745,9 +1749,48 @@ model GitRepository {
   links             GitLink[]
   releases          GitRelease[]
   chunks            RepoChunk[]
+  acceptanceReports GitAcceptanceReport[]
 
   @@index([projectId])
   @@map("git_repository")
+}
+
+/// What Kanflow last reported to GitStation as the check `kanflow/acceptance` of one merge request
+/// (services/git/acceptance-check.service). One row per (repository, merge request): the same result on the same
+/// head commit is not sent again, and a failed read / report waits until `retryAt`. The row holds no PBI text —
+/// only the commit id, the conclusion and a digest of what was sent.
+model GitAcceptanceReport {
+  id            String        @id @default(cuid())
+  repositoryId  String
+  /// Merge request iid (git_link.ref of the "mr" links).
+  mrRef         String        @db.VarChar(255)
+  /// The links' latest occurredAt when the head commit was last read: a later one means the merge request changed.
+  mrSeenAt      DateTime?
+  /// When the head commit was last read from GitStation (read again after a while even without a change signal).
+  headCheckedAt DateTime?
+  /// Head commit the last report was written on (lowercase hex, 40 or 64 characters); null = nothing reported yet.
+  headSha       String?       @db.VarChar(64)
+  /// Conclusion last reported: "success" | "action_required".
+  conclusion    String?       @db.VarChar(24)
+  /// SHA-256 (hex) of the conclusion and the summary last reported.
+  digest        String?       @db.VarChar(64)
+  reportedAt    DateTime?
+  /// The last failed read / report (Japanese, translated in the settings screen); cleared by the next success.
+  lastError     String?       @db.VarChar(500)
+  lastErrorAt   DateTime?
+  /// Not tried again before this time (a refusal that does not go away by itself waits longer).
+  retryAt       DateTime?
+  /// Consecutive failed reads / reports (0 after a success): the wait before the next try grows with it.
+  failures      Int           @default(0)
+  /// The last failure holds for the whole repository (report refused, repository not readable): until `retryAt`
+  /// none of the repository's merge requests is tried.
+  repositoryWide Boolean      @default(false)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  repository    GitRepository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+
+  @@unique([repositoryId, mrRef])
+  @@map("git_acceptance_report")
 }
 
 /// One searchable passage of a knowledge repository file (services/git/repo-index):

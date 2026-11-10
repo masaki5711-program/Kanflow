@@ -8,6 +8,7 @@ import { useLanguage } from "@/lib/language-context"
 import { forgetGitState } from "@/components/git-dev/git-client-state"
 import { useLiveRefetch } from "@/components/realtime/use-live-refetch"
 import type { GitSettingsDto } from "../git/git-labels"
+import { GitAcceptanceCheck } from "./git-acceptance-check"
 import { GitAddRepository } from "./git-add-repository"
 import { GitRepoBindings } from "./git-repo-bindings"
 import { GitRepositoryList } from "./git-repository-list"
@@ -17,7 +18,22 @@ import { SettingsCard } from "./settings-card"
 /** Anchor of this section (the Git page links here). */
 export const GIT_SECTION_ID = "git"
 
-export type GitSettingsPatch = { enabled?: boolean; token?: string | null; autoCompleteOnMerge?: boolean; provider?: GitProviderName; stationIntegrationId?: string | null }
+export type GitSettingsPatch = {
+  enabled?: boolean
+  token?: string | null
+  autoCompleteOnMerge?: boolean
+  stationAcceptanceCheck?: boolean
+  provider?: GitProviderName
+  stationIntegrationId?: string | null
+}
+
+/** Response → the last failed check report; a body without a message reads as "no error". */
+function toAcceptanceError(raw: unknown): GitSettingsDto["acceptanceCheckError"] {
+  if (!raw || typeof raw !== "object") return null
+  const { message, at } = raw as { message?: unknown; at?: unknown }
+  if (typeof message !== "string" || message === "") return null
+  return { message, at: typeof at === "string" ? at : null }
+}
 
 /** Sources a project can read from (services/git/git-provider). */
 export type GitProviderName = "gitlab" | "gitstation"
@@ -32,6 +48,8 @@ export function toGitSettings(raw: unknown): GitSettingsDto {
     hasToken: r.hasToken === true,
     tokenHint: typeof r.tokenHint === "string" ? r.tokenHint : null,
     autoCompleteOnMerge: r.autoCompleteOnMerge === true,
+    stationAcceptanceCheck: r.stationAcceptanceCheck === true,
+    acceptanceCheckError: toAcceptanceError(r.acceptanceCheckError),
     repositories: Array.isArray(r.repositories) ? r.repositories : [],
     pollIntervalSec: typeof r.pollIntervalSec === "number" ? r.pollIntervalSec : 180,
   }
@@ -137,6 +155,10 @@ function GitSettingsBody({ projectId, settings, canConfigure, onSettings, onRepo
     if (await save.mutate({ autoCompleteOnMerge: next })) toast.success(t.settingsSaved)
   }
 
+  async function toggleAcceptanceCheck(next: boolean) {
+    if (await save.mutate({ stationAcceptanceCheck: next })) toast.success(t.settingsSaved)
+  }
+
   const switchClass = "h-5 w-5 shrink-0 cursor-pointer accent-primary disabled:cursor-not-allowed"
 
   return (
@@ -185,6 +207,15 @@ function GitSettingsBody({ projectId, settings, canConfigure, onSettings, onRepo
               {t.gitSetAutoCompleteHelp}
             </p>
           </div>
+
+          {settings.provider === "gitstation" && (
+            <GitAcceptanceCheck
+              checked={settings.stationAcceptanceCheck}
+              error={settings.acceptanceCheckError}
+              disabled={!canConfigure || save.isPending}
+              onChange={(next) => void toggleAcceptanceCheck(next)}
+            />
+          )}
 
           <GitRepositoryList
             projectId={projectId}

@@ -8,6 +8,7 @@ import { pbiKey, suggestBranchName } from "@/lib/git/pbi-keys"
 import { ConflictError, NotFoundError, ValidationError } from "@/services/_shared/errors"
 import { logActivity, type ActivityChanges } from "@/services/_shared/activity"
 import type { Actor } from "@/services/_shared/actor"
+import { ACCEPTANCE_NO_FAILURE, acceptanceCheckInEffect } from "./acceptance-check-rules"
 import { devSourceFor, type DevClients } from "./dev-source"
 import { assertOneSource, DEFAULT_GIT_PROVIDER, parseGitProvider, type GitProvider } from "./git-provider"
 import { RESYNC_DAYS } from "./git-sync-cursors"
@@ -39,6 +40,8 @@ export const gitSettingsSchema = z
     /** string = replace, null = remove, absent = keep. */
     token: tokenField.nullable().optional(),
     autoCompleteOnMerge: z.boolean().optional(),
+    /** provider "gitstation": report the check `kanflow/acceptance` on open merge requests (acceptance-check.service). */
+    stationAcceptanceCheck: z.boolean().optional(),
     /** Where the project's development data is read from (one per project: "gitlab" or "gitstation" — git-provider). */
     provider: z.string().trim().min(1).max(32).optional(),
     /** provider "gitstation": GitStation's integration id (opaque). string = set, null = remove, absent = keep. */
@@ -89,6 +92,10 @@ export interface GitSettingsDto {
   hasToken: boolean
   tokenHint: string | null
   autoCompleteOnMerge: boolean
+  /** The check `kanflow/acceptance` is reported to GitStation (in effect only while the provider is "gitstation"). */
+  stationAcceptanceCheck: boolean
+  /** The latest report that failed and has not succeeded since (stored Japanese text, translated in the UI); null = none, or the check is not in effect. */
+  acceptanceCheckError: { message: string; at: string | null } | null
   repositories: GitRepositoryDto[]
   /** Seconds between automatic syncs (lib/git/poller). */
   pollIntervalSec: number
@@ -133,6 +140,13 @@ export async function getGitSettings(projectId: string): Promise<GitSettingsDto>
     prisma.gitIntegration.findUnique({ where: { projectId } }),
     prisma.gitRepository.findMany({ where: { projectId }, orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] }),
   ])
+  const acceptanceError = acceptanceCheckInEffect(integration)
+    ? await prisma.gitAcceptanceReport.findFirst({
+        where: { repository: { projectId }, lastError: { not: null } },
+        orderBy: { lastErrorAt: "desc" },
+        select: { lastError: true, lastErrorAt: true },
+      })
+    : null
   return {
     enabled: integration?.enabled ?? false,
     provider: integration?.provider ?? DEFAULT_GIT_PROVIDER,
@@ -140,6 +154,8 @@ export async function getGitSettings(projectId: string): Promise<GitSettingsDto>
     hasToken: !!integration?.tokenCipher,
     tokenHint: integration?.tokenHint ?? null,
     autoCompleteOnMerge: integration?.autoCompleteOnMerge ?? false,
+    stationAcceptanceCheck: integration?.stationAcceptanceCheck ?? false,
+    acceptanceCheckError: acceptanceError?.lastError ? { message: acceptanceError.lastError, at: acceptanceError.lastErrorAt?.toISOString() ?? null } : null,
     repositories: repos.map(toRepoDto),
     pollIntervalSec: pollIntervalSec(),
   }
@@ -157,6 +173,7 @@ export async function updateGitSettings(projectId: string, input: GitSettingsInp
   const patch = {
     ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
     ...(input.autoCompleteOnMerge !== undefined ? { autoCompleteOnMerge: input.autoCompleteOnMerge } : {}),
+    ...(input.stationAcceptanceCheck !== undefined ? { stationAcceptanceCheck: input.stationAcceptanceCheck } : {}),
     ...(provider !== undefined ? { provider } : {}),
     ...(input.stationIntegrationId !== undefined ? { stationIntegrationId: input.stationIntegrationId } : {}),
     ...tokenPatch,
@@ -164,15 +181,34 @@ export async function updateGitSettings(projectId: string, input: GitSettingsInp
   // Read, check and write under the project lock: a repository added meanwhile cannot slip past the one-source rule.
   const before = await prisma.$transaction(async (tx) => {
     await lockProject(tx, projectId)
-    const row = await tx.gitIntegration.findUnique({ where: { projectId }, select: { enabled: true, autoCompleteOnMerge: true, provider: true, stationIntegrationId: true } })
+    const row = await tx.gitIntegration.findUnique({
+      where: { projectId },
+      select: { enabled: true, autoCompleteOnMerge: true, stationAcceptanceCheck: true, provider: true, stationIntegrationId: true },
+    })
     if (provider !== undefined && row && row.provider !== provider) assertOneSource(row.provider, provider, await tx.gitRepository.count({ where: { projectId } }))
-    await tx.gitIntegration.upsert({ where: { projectId }, create: { projectId, ...patch }, update: patch })
+    const after = await tx.gitIntegration.upsert({
+      where: { projectId },
+      create: { projectId, ...patch },
+      update: patch,
+      select: { enabled: true, provider: true, stationAcceptanceCheck: true },
+    })
+    // The check stops being in effect (switched off, the integration disabled, another source): what was reported is
+    // forgotten, so the next time it is in effect every open merge request is reported afresh. The check runs already
+    // in GitStation stay there — Kanflow cannot take a report back. The reporter writes its rows under a lock on this
+    // git_integration row (acceptance-check.service save), so a tick still running cannot bring a row back.
+    if (acceptanceCheckInEffect(row) && !acceptanceCheckInEffect(after)) await tx.gitAcceptanceReport.deleteMany({ where: { repository: { projectId } } })
+    // A new token or integration ID deserves a fresh attempt: the failures stored with the old one — and the wait they
+    // put on their repositories — go, so the next tick reports again instead of after the wait.
+    else if (input.token !== undefined || (input.stationIntegrationId !== undefined && input.stationIntegrationId !== (row?.stationIntegrationId ?? null)))
+      await tx.gitAcceptanceReport.updateMany({ where: { repository: { projectId }, lastError: { not: null } }, data: ACCEPTANCE_NO_FAILURE })
     return row
   })
   const changes: ActivityChanges = {}
   if (input.enabled !== undefined && input.enabled !== (before?.enabled ?? false)) changes["git.enabled"] = { from: before?.enabled ?? false, to: input.enabled }
   if (input.autoCompleteOnMerge !== undefined && input.autoCompleteOnMerge !== (before?.autoCompleteOnMerge ?? false))
     changes["git.autoCompleteOnMerge"] = { from: before?.autoCompleteOnMerge ?? false, to: input.autoCompleteOnMerge }
+  if (input.stationAcceptanceCheck !== undefined && input.stationAcceptanceCheck !== (before?.stationAcceptanceCheck ?? false))
+    changes["git.stationAcceptanceCheck"] = { from: before?.stationAcceptanceCheck ?? false, to: input.stationAcceptanceCheck }
   if (provider !== undefined && provider !== (before?.provider ?? DEFAULT_GIT_PROVIDER)) changes["git.provider"] = { from: before?.provider ?? DEFAULT_GIT_PROVIDER, to: provider }
   if (input.stationIntegrationId !== undefined && input.stationIntegrationId !== (before?.stationIntegrationId ?? null))
     changes["git.stationIntegrationId"] = { from: before?.stationIntegrationId ?? null, to: input.stationIntegrationId }
@@ -344,6 +380,8 @@ export async function updateRepository(
   })
   // Switched off: the passages go in the same transaction, so the AI can no longer read them.
   const row = knowledge.purge ? (await prisma.$transaction([prisma.repoChunk.deleteMany({ where: { repositoryId } }), update]))[1] : await update
+  // The acceptance check too: what it stored as failed for this repository (and the wait) goes with the old token.
+  if (input.token !== undefined) await prisma.gitAcceptanceReport.updateMany({ where: { repositoryId, lastError: { not: null } }, data: ACCEPTANCE_NO_FAILURE })
   if (Object.keys(knowledge.changes).length > 0 && actor) {
     await logActivity(prisma, { projectId, entityType: "project", entityId: projectId, action: "update", actor, diff: { changes: knowledge.changes } })
   }

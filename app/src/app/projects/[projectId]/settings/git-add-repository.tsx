@@ -6,6 +6,7 @@ import { Button, Field, Input } from "@/components/ui"
 import { apiFetch, useApiMutation, useUnsavedChangesGuard } from "@/hooks"
 import { useLanguage } from "@/lib/language-context"
 import { fillTemplate } from "@/lib/fill-template"
+import { syncMessageText } from "@/lib/git/sync-messages"
 import { serverErrorText } from "../git/git-labels"
 import { MIN_TOKEN_LENGTH } from "./git-token-field"
 
@@ -160,7 +161,7 @@ function TestResult({ result }: { result: ConnectionTestResult }) {
   return (
     <p className="flex items-start gap-1.5 text-caption font-medium text-danger">
       <XCircle aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-      <span className="break-words">{fillTemplate(t.gitSetAddTestFailed, { error: result.error ?? "" })}</span>
+      <span className="break-words">{fillTemplate(t.gitSetAddTestFailed, { error: syncMessageText(result.error ?? "", t) })}</span>
     </p>
   )
 }

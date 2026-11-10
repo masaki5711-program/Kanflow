@@ -3,6 +3,7 @@ import { logger } from "@/lib/logger"
 import { pollIntervalSec } from "@/services/git/git.service"
 import { syncRepository, type SyncResult } from "@/services/git/git-sync"
 import { syncGitStationFeeds } from "@/services/git/gitstation-feed-sync"
+import { reportAcceptanceChecks } from "@/services/git/acceptance-check.service"
 import { runKnowledgeTick } from "@/services/git/repo-index-runner"
 
 /**
@@ -10,7 +11,10 @@ import { runKnowledgeTick } from "@/services/git/repo-index-runner"
  * LAN, so webhooks are impossible; GitStation is read through its event feed, one read per feed). Every GIT_SYNC_INTERVAL_SEC (default 180 s)
  * each repository of an enabled project is synced, one after another; a tick
  * never overlaps the previous one. Projects with the integration off cost
- * one indexed query per tick. After the sync, repositories used as AI
+ * one indexed query per tick. After the GitStation feeds are read, the check
+ * `kanflow/acceptance` is reported for the projects that turned it on
+ * (services/git/acceptance-check.service; a failure there never fails the tick).
+ * After the sync, repositories used as AI
  * knowledge ("AI の参照資料") are re-indexed when their branch moved
  * (services/git/repo-index-runner, time-boxed, resumed next tick).
  *
@@ -28,7 +32,11 @@ let timer: ReturnType<typeof setInterval> | null = null
 let running = false
 
 /** One pass over every enabled repository. Exported for tests and the CLI. */
-export async function runGitSyncTick(sync: typeof syncRepository = syncRepository, syncFeeds: () => Promise<SyncResult[]> = () => syncGitStationFeeds()): Promise<number> {
+export async function runGitSyncTick(
+  sync: typeof syncRepository = syncRepository,
+  syncFeeds: () => Promise<SyncResult[]> = () => syncGitStationFeeds(),
+  reportAcceptance: () => Promise<unknown> = () => reportAcceptanceChecks(),
+): Promise<number> {
   if (running) return 0
   running = true
   try {
@@ -47,6 +55,13 @@ export async function runGitSyncTick(sync: typeof syncRepository = syncRepositor
     for (const result of station) {
       // "busy": a 今すぐ同期 holds that feed right now (one reader per feed); it is read again next tick.
       if (!result.ok && result.error !== "disabled" && result.error !== "busy") log.warn("repository sync failed", { repositoryId: result.repositoryId, error: result.error })
+    }
+    // After the feeds: the links are as fresh as they get. Its failure is not the sync's.
+    try {
+      await reportAcceptance()
+    } catch (err) {
+      // The error itself: the logger keeps its stack (the reporter is new; a failure here is a bug or the database).
+      log.error("acceptance check tick failed", { error: err })
     }
     return repos.length + station.length
   } catch (err) {
