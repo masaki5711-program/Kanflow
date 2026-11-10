@@ -7,7 +7,7 @@ import { blobUrl, listKnowledgeRepos, pickRepos, readRepoFile, searchRepoDocs, t
  * search passages, then read a file (or one section of it). Offered only when
  * the project has a knowledge repository (hasRepoKnowledge); the handlers
  * re-check the project scope on every call. Output is compact text with the
- * GitLab URLs the model must cite.
+ * file URLs (GitLab or GitStation) the model must cite.
  */
 
 /** Characters of one read_repository_file result (the chat shares a 12k-token num_ctx). */
@@ -44,7 +44,7 @@ export const REPO_KNOWLEDGE_TOOL_DEFS: ToolDefinition[] = [
     function: {
       name: "search_repository_docs",
       description:
-        "Search the project's specification / design documents and code stored in its GitLab repositories (the AI reference material). Returns the best passages with file path, section heading, GitLab URL and a snippet. Use for any question about specifications, design, terminology or how the system works. Pass a few keywords (e.g. \"OEE OLE calculation\"). The documents may be in English, Japanese or Indonesian: if a search finds little, retry with English terms.",
+        "Search the project's specification / design documents and code stored in its Git repositories (the AI reference material). Returns the best passages with file path, section heading, the URL of the file and a snippet. Use for any question about specifications, design, terminology or how the system works. Pass a few keywords (e.g. \"OEE OLE calculation\"). The documents may be in English, Japanese or Indonesian: if a search finds little, retry with English terms.",
       parameters: {
         type: "object",
         properties: {

@@ -363,7 +363,7 @@ export async function updateRepository(
   const repo = await prisma.gitRepository.findFirst({ where: { id: repositoryId, projectId } })
   if (!repo) throw new NotFoundError("Repository not found")
   if (input.aiKnowledge === true) {
-    // Only a source that can read files can be AI knowledge (GitStation: not yet).
+    // Only a source that can read files can be AI knowledge (GitLab and GitStation both can).
     const integration = await prisma.gitIntegration.findUnique({ where: { projectId }, select: { provider: true } })
     if (!devSourceFor(integration?.provider ?? DEFAULT_GIT_PROVIDER).readsRepositoryFiles) throw new ValidationError(KNOWLEDGE_UNSUPPORTED_MESSAGE, undefined, "GIT_KNOWLEDGE_UNSUPPORTED")
   }

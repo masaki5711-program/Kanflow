@@ -837,7 +837,8 @@ export function createGitStationSource(connection: DevConnection, factory: GitSt
 export const gitStationSourceKind: DevSourceKind = {
   provider: "gitstation",
   actorName: "GitStation",
-  readsRepositoryFiles: false,
+  // AI の参照資料 through the browse API (gitstation-files.ts); confidential documents are refused there.
+  readsRepositoryFiles: true,
   cursors: gitStationCursorCodec,
   connect: (connection: DevConnection, clients?: DevClients) => createGitStationSource(connection, clients?.gitstation),
 }

@@ -103,12 +103,11 @@ describe("indexRepository — guards", () => {
     expect((await run(fakeClient())).status).toBe("disabled")
   })
 
-  it("does not index a GitStation repository (its file API is not in the contract yet) and never asks GitLab", async () => {
-    db.repo = repoRow({ project: { deletedAt: null, gitIntegration: { enabled: true, provider: "gitstation", tokenCipher: "sealed" } } })
-    const { KNOWLEDGE_UNSUPPORTED_MESSAGE } = await import("../repo-index")
+  it("never sends a GitStation repository's token to GitLab (it is read through GitStation: repo-index-station.test.ts)", async () => {
+    db.repo = repoRow({ project: { deletedAt: null, gitIntegration: { enabled: true, provider: "gitstation", tokenCipher: "sealed", stationIntegrationId: null } } })
     const factory = vi.fn(() => fakeClient())
     const result = await indexRepository("r1", { factory: factory as never })
-    expect(result).toMatchObject({ status: "failed", error: KNOWLEDGE_UNSUPPORTED_MESSAGE })
+    expect(result.status).toBe("failed")
     expect(factory).not.toHaveBeenCalled()
   })
 

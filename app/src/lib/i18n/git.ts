@@ -29,6 +29,10 @@ export interface GitTranslations {
   gitSyncStationHttp: string
   gitSyncAcceptanceRefused: string
   gitSyncAcceptanceCommitMissing: string
+  gitSyncKnowledgeListingSlow: string
+  gitSyncKnowledgeListingIncomplete: string
+  gitSyncIndexFailed: string
+  gitSyncIndexNoToken: string
   gitOwnToken: string
   gitOpenInGitLab: string
   gitSetTitle: string
@@ -204,6 +208,10 @@ export const ja: GitTranslations = {
   gitSyncAcceptanceRefused:
     "GitStation がチェックの報告を拒否しました。GitStation の管理者に、連携のサービスアカウントへこのリポジトリの kanflow チェックを報告する許可（check-grants）と、Developer 以上の権限を依頼してください。",
   gitSyncAcceptanceCommitMissing: "チェックの報告先のコミットが GitStation に見つかりませんでした。次回の同期でやり直します。",
+  gitSyncKnowledgeListingSlow: "リポジトリのファイル一覧を時間内に読み切れませんでした。「今すぐ取り込む」を実行するか、対象フォルダーを絞ってください。",
+  gitSyncKnowledgeListingIncomplete: "一部のフォルダーのファイル一覧を読み切れなかったため、そのフォルダーのファイルは取り込めていません。対象フォルダーを絞ってください。",
+  gitSyncIndexFailed: "取り込み中にエラーが発生しました。次回の同期で再試行します。",
+  gitSyncIndexNoToken: "アクセストークンが未設定か、読み取れません。設定画面で入れ直してください。",
   gitOwnToken: "専用トークン",
   gitOpenInGitLab: "GitLab で開く（新しいタブ）",
   gitSetTitle: "Git 連携（GitLab）",
@@ -384,6 +392,10 @@ export const en: GitTranslations = {
   gitSyncAcceptanceRefused:
     "GitStation refused the check report. Ask GitStation's administrator to allow the integration's service account to report kanflow checks for this repository (check-grants) and to give it Developer access or higher.",
   gitSyncAcceptanceCommitMissing: "The commit to report on was not found in GitStation. It is tried again at the next sync.",
+  gitSyncKnowledgeListingSlow: "The repository's file list could not be read in time. Run \"Import now\", or narrow the folders.",
+  gitSyncKnowledgeListingIncomplete: "Some folders could not be listed completely, so their files were not imported. Narrow the folders.",
+  gitSyncIndexFailed: "An error occurred during the import. The next sync tries again.",
+  gitSyncIndexNoToken: "The access token is not set or cannot be read. Enter it again in the settings.",
   gitOwnToken: "Own token",
   gitOpenInGitLab: "Open in GitLab (new tab)",
   gitSetTitle: "Git integration (GitLab)",
@@ -564,6 +576,10 @@ export const id: GitTranslations = {
   gitSyncAcceptanceRefused:
     "GitStation menolak laporan pemeriksaan. Minta administrator GitStation mengizinkan akun layanan integrasi melaporkan pemeriksaan kanflow untuk repositori ini (check-grants) dan memberinya akses Developer atau lebih tinggi.",
   gitSyncAcceptanceCommitMissing: "Commit tujuan laporan tidak ditemukan di GitStation. Akan dicoba lagi pada sinkronisasi berikutnya.",
+  gitSyncKnowledgeListingSlow: "Daftar file repositori tidak selesai dibaca tepat waktu. Jalankan \"Impor sekarang\", atau persempit foldernya.",
+  gitSyncKnowledgeListingIncomplete: "Daftar file beberapa folder tidak dapat dibaca seluruhnya, sehingga file di folder tersebut tidak diimpor. Persempit foldernya.",
+  gitSyncIndexFailed: "Terjadi kesalahan saat impor. Akan dicoba lagi pada sinkronisasi berikutnya.",
+  gitSyncIndexNoToken: "Token akses belum diatur atau tidak dapat dibaca. Masukkan lagi di pengaturan.",
   gitOwnToken: "Token sendiri",
   gitOpenInGitLab: "Buka di GitLab (tab baru)",
   gitSetTitle: "Integrasi Git (GitLab)",

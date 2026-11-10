@@ -491,11 +491,11 @@ describe("GitStation settings and connection test (K3)", () => {
     expect(createGitLabClientMock).not.toHaveBeenCalled()
   })
 
-  it("refuses AI knowledge for a GitStation repository (no file API yet)", async () => {
+  it("switches a GitStation repository on as AI knowledge (N12: read through GitStation's browse API)", async () => {
     gitRepositoryFindFirst.mockResolvedValueOnce({ id: "repo-1", aiKnowledge: false, aiPathFilter: null })
     gitIntegrationFindUnique.mockResolvedValueOnce({ provider: "gitstation" })
-    await expect(svc.updateRepository(PROJECT_ID, "repo-1", { aiKnowledge: true }, ACTOR)).rejects.toMatchObject({ status: 400, code: "GIT_KNOWLEDGE_UNSUPPORTED" })
-    expect(gitRepositoryUpdate).not.toHaveBeenCalled()
+    await svc.updateRepository(PROJECT_ID, "repo-1", { aiKnowledge: true }, ACTOR)
+    expect(gitRepositoryUpdate.mock.calls[0][0].data).toMatchObject({ aiKnowledge: true })
   })
 })
 

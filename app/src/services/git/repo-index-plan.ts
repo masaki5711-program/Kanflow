@@ -16,8 +16,8 @@ export const MAX_INDEX_FILES = 3000
 
 const byPath = (a: FileChange, b: FileChange) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)
 
-/** One change per path (the last one wins), sorted by path. */
-function dedupe(changes: readonly FileChange[]): FileChange[] {
+/** One change per path (the last one wins), sorted by path — the order a pass resumes in. */
+export function dedupe(changes: readonly FileChange[]): FileChange[] {
   const map = new Map<string, FileChange>()
   for (const c of changes) map.set(c.path, c)
   return [...map.values()].sort(byPath)
@@ -66,7 +66,7 @@ export function remainingAfter(changes: readonly FileChange[], cursor: string | 
   return cursor === null ? [...changes] : changes.filter((c) => c.path > cursor)
 }
 
-/** Git's blob id of some content (sha1 of "blob <size>\0<bytes>"), equal to GitLab's tree entry id. */
+/** Git's blob id of some content (sha1 of "blob <size>\0<bytes>"), equal to a SHA-1 repository's tree entry id. */
 export function gitBlobSha(data: Buffer): string {
   return createHash("sha1").update(`blob ${data.byteLength}\0`).update(data).digest("hex")
 }

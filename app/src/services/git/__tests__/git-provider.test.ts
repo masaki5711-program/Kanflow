@@ -42,9 +42,9 @@ describe("devSourceFor (source factory)", () => {
     expect(typeof kind.connect).toBe("function")
   })
 
-  it("returns the GitStation source kind: named GitStation in the activity log, not indexed as AI knowledge (no file API yet)", () => {
+  it("returns the GitStation source kind: named GitStation in the activity log, its files readable as AI knowledge (N12)", () => {
     const kind = devSourceFor("gitstation")
-    expect(kind).toMatchObject({ provider: "gitstation", actorName: "GitStation", readsRepositoryFiles: false })
+    expect(kind).toMatchObject({ provider: "gitstation", actorName: "GitStation", readsRepositoryFiles: true })
     expect(devSourceFor("gitlab")).toMatchObject({ actorName: "GitLab", readsRepositoryFiles: true })
   })
 

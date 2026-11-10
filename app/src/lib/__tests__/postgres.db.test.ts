@@ -189,7 +189,9 @@ describe.skipIf(!enabled)("PostgreSQL specifics on a real database (KANFLOW_DB_T
           { projectId: ids.project, repositoryId: ids.repo, path: "docs/ole.md", chunkNo: 0, heading: "OLE", content: "OLE は 計算方法 が異なる", blobSha: "b" },
         ],
       })
-      const repos = [{ id: ids.repo, name: "docs", webUrl: "https://git.example.test/g/docs", ref: "HEAD", indexedFiles: 2, indexedAt: null }]
+      const repos = [
+        { id: ids.repo, name: "docs", webUrl: "https://git.example.test/g/docs", provider: "gitlab" as const, apiBase: "https://git.example.test/api/v4", externalId: null, ref: "HEAD", indexedFiles: 2, indexedAt: null },
+      ]
       const hits = await repoSearch.searchRepoDocs(ids.project, repos, "oee calculation")
       expect(hits[0]?.path).toBe("docs/oee.md")
       const jp = await repoSearch.searchRepoDocs(ids.project, repos, "OEEとOLEの計算方法の違いは？")

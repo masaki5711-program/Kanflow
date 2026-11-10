@@ -88,6 +88,19 @@ export function normalizePathFilter(raw: string | null | undefined): string | nu
   return prefixes && prefixes.length > 0 ? prefixes.join(", ") : null
 }
 
+/**
+ * Whether a directory listing walk enters `dirPath` ("" = the root, else "a/b" without a trailing slash):
+ * never an excluded folder, and with a filter only a folder inside a prefix or on the way to one. Files
+ * of a directory not entered could never be indexed by `decideFile`.
+ */
+export function wantsDirectory(dirPath: string, prefixes: readonly string[] = []): boolean {
+  if (dirPath === "") return true
+  if (dirPath.split("/").some((dir) => EXCLUDED_DIRS.has(dir.toLowerCase()))) return false
+  if (prefixes.length === 0) return true
+  const asPrefix = `${dirPath}/`
+  return prefixes.some((p) => asPrefix.startsWith(p) || p.startsWith(asPrefix))
+}
+
 /** Whether (and how) a repository file is indexed. */
 export function decideFile(filePath: string, prefixes: readonly string[] = []): IndexDecision {
   if (!filePath || filePath.length > MAX_PATH_LENGTH) return { index: false, reason: "path" }
