@@ -116,6 +116,8 @@ export const API_ERROR_CODES = [
   "PLAN_ACTUALS_USER_ACTIVE",
   /** Pseudonymisation by snapshot is only for superseded (old) snapshots; the current one goes by retired user. */
   "PLAN_ACTUALS_CURRENT",
+  /** An AI review proposal on a leaf that cites a PBI confidential now cannot be accepted (only rejected). */
+  "PLAN_ACTUALS_REVIEW_HIDDEN",
   /** Levelling (plan 12 E4): a role is assigned to someone who is not an explicit member of the project. */
   "PLAN_ROLE_ASSIGNMENT_INVALID",
   /** 稼働量: the period overlaps another row of the same person (and project). */
@@ -135,6 +137,11 @@ export const API_ERROR_CODES = [
   "PLAN_ESTIMATE_EVAL_CHANGED",
   "PLAN_ESTIMATE_EVAL_NOT_PASSING",
   "PLAN_ESTIMATE_EVAL_TOO_MANY",
+  /** Estimator settings (admin): no proposal / a newer search since it was shown / already decided / it does not pass. */
+  "PLAN_ESTIMATE_PARAMS_NOT_FOUND",
+  "PLAN_ESTIMATE_PARAMS_CHANGED",
+  "PLAN_ESTIMATE_PARAMS_DECIDED",
+  "PLAN_ESTIMATE_PARAMS_NOT_PASSING",
   // Files / folders
   "FILE_REQUIRED",
   "FILE_EMPTY",

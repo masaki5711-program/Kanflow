@@ -10,6 +10,8 @@
  *   never leaves the server; the formula alone decides it);
  * - explanation: names of the sources every estimator can see; everything else folds into "other projects n (band)"
  *   with rounded numbers. Never a quote of a rule.
+ * - actuals review: THIS project's finalized leaves (name, days, plan-item notes) and its finalize note; a leaf citing
+ *   a PBI that is confidential NOW (checked by the caller at use time) is never sent, not even its name. No owner.
  *
  * Each constructor also returns the source ids it let through, so the caller records them (the run's llmSourceIds,
  * the draft job's sourceIds). Pure.
@@ -131,7 +133,27 @@ export interface ExplanationTask {
   leaves: ExplanationLeaf[]
 }
 
-export type LlmTask = RuleDraftTask | CandidateReviewTask | ExplanationTask
+/** One finalized leaf as the actuals review reads it (an opaque iid per request; the server maps it back). */
+export interface ReviewItem {
+  iid: string
+  name: string
+  plannedDays: number | null
+  actualDays: number | null
+  endSlipDays: number | null
+  waitGapDays: number | null
+  onHoldDays: number | null
+  /** The plan row's description and notes (project-internal text), "" when none. */
+  notes: string
+}
+
+export interface ActualsReviewTask {
+  task: "actuals_review"
+  /** The finalize note (確定の時のメモ), "" when none. */
+  note: string
+  items: ReviewItem[]
+}
+
+export type LlmTask = RuleDraftTask | CandidateReviewTask | ExplanationTask | ActualsReviewTask
 export type VisibleLlmInput = LlmTask & { readonly [VISIBLE]: true }
 
 function brand<T extends LlmTask>(task: T): T & { readonly [VISIBLE]: true } {
@@ -163,6 +185,18 @@ export interface Built<T extends LlmTask> {
   omitted: number
 }
 
+/** Line breaks and tabs stay; other controls and invisible format characters go (a quote is checked against this). */
+function plainSourceText(raw: string, max: number): string {
+  return clip(
+    raw
+      .replace(/\r\n?/g, "\n")
+      .replace(/[\p{Cf}\p{Zl}\p{Zp}]/gu, "")
+      .replace(/\p{Cc}/gu, (c) => (c === "\n" || c === "\t" ? c : ""))
+      .trim(),
+    max
+  )
+}
+
 /** Rule drafts at actuals finalization: this project's non-confidential text only. Empty texts are skipped. */
 export function ruleDraftInput(projectId: string, raw: readonly RawDraftSource[], items: readonly { key: string; name: string }[]): Built<RuleDraftTask> {
   const sources: DraftSource[] = []
@@ -183,15 +217,7 @@ export function ruleDraftInput(projectId: string, raw: readonly RawDraftSource[]
   for (const s of raw) {
     if (sources.length >= DRAFT_SOURCES_MAX) break
     if (s.projectId !== projectId || s.confidential) continue
-    // Line breaks and tabs stay; other controls and invisible format characters go (a quote is checked against this).
-    const text = clip(
-      s.text
-        .replace(/\r\n?/g, "\n")
-        .replace(/[\p{Cf}\p{Zl}\p{Zp}]/gu, "")
-        .replace(/\p{Cc}/gu, (c) => (c === "\n" || c === "\t" ? c : ""))
-        .trim(),
-      DRAFT_SOURCE_TEXT_MAX
-    )
+    const text = plainSourceText(s.text, DRAFT_SOURCE_TEXT_MAX)
     if (!text) continue
     const entry = { id: s.id, kind: s.kind, text }
     if (budget.fits(entry)) sources.push(entry)
@@ -310,4 +336,73 @@ export function explanationInput(
     sourceIds: [...given].sort(),
     omitted: budget.omitted,
   }
+}
+
+// ---------------------------------------------------------------- actuals review ---------------------------------------
+
+/** Leaves offered to one actuals review (the caller orders them: the largest deviation first). */
+export const REVIEW_ITEMS_MAX = 60
+/** Characters of a leaf's notes sent. */
+export const REVIEW_NOTES_MAX = 500
+/** Characters of the finalize note sent (the column's own bound). */
+export const REVIEW_NOTE_MAX = 2_000
+
+export interface RawReviewItem {
+  snapshotItemId: string
+  /** The project of the snapshot the leaf belongs to. */
+  projectId: string
+  name: string
+  plannedDays: number | null
+  actualDays: number | null
+  endSlipDays: number | null
+  waitGapDays: number | null
+  onHoldDays: number | null
+  notes: string | null
+  /** The leaf cites a PBI that is confidential, trashed or gone NOW (looked up at use time). */
+  confidentialNow: boolean
+}
+
+export interface SentReviewItem {
+  snapshotItemId: string
+  /** The leaf's text as sent (name and notes): a quote must be part of it or of the note. */
+  name: string
+  notes: string
+  plannedDays: number | null
+  actualDays: number | null
+}
+
+export interface BuiltActualsReview extends Built<ActualsReviewTask> {
+  /** iid → the leaf it stands for (only leaves that were sent). */
+  items: ReadonlyMap<string, SentReviewItem>
+}
+
+/**
+ * The actuals review of one finalized snapshot: the note first (when it fits), then whole leaves in the order given
+ * until the budget is used (a leaf is never cut in half; `omitted` counts the leaves and the note left out). Leaves of
+ * another project and leaves citing a PBI that is confidential now are never sent. sourceIds: "note:<snapshotId>" and
+ * "item:<snapshotItemId>" of what was sent.
+ */
+export function actualsReviewInput(projectId: string, note: { snapshotId: string; text: string | null } | null, raw: readonly RawReviewItem[]): BuiltActualsReview {
+  const budget = new Budget({ task: "actuals_review", note: "", items: [] })
+  const sourceIds: string[] = []
+  let noteText = note?.text ? plainSourceText(note.text, REVIEW_NOTE_MAX) : ""
+  if (noteText && note) {
+    // The note travels as a string value of the base object: measure it as the growth of that value.
+    if (budget.fits(noteText)) sourceIds.push(`note:${note.snapshotId}`)
+    else noteText = ""
+  }
+  const items: ReviewItem[] = []
+  const map = new Map<string, SentReviewItem>()
+  for (const r of raw) {
+    if (items.length >= REVIEW_ITEMS_MAX) break
+    if (r.projectId !== projectId || r.confidentialNow) continue
+    const name = plainSourceText(r.name, 200)
+    const notes = r.notes ? plainSourceText(r.notes, REVIEW_NOTES_MAX) : ""
+    const entry: ReviewItem = { iid: `i${map.size + 1}`, name, plannedDays: r.plannedDays, actualDays: r.actualDays, endSlipDays: r.endSlipDays, waitGapDays: r.waitGapDays, onHoldDays: r.onHoldDays, notes }
+    if (!budget.fits(entry)) continue
+    items.push(entry)
+    map.set(entry.iid, { snapshotItemId: r.snapshotItemId, name, notes, plannedDays: r.plannedDays, actualDays: r.actualDays })
+    sourceIds.push(`item:${r.snapshotItemId}`)
+  }
+  return { input: brand({ task: "actuals_review", note: noteText, items }), sourceIds, omitted: budget.omitted, items: map }
 }

@@ -117,6 +117,12 @@ export const PROJECT_ACTIONS = [
    */
   "plan.actualsFinalize",
   /**
+   * The AI review of finalized actuals (handoff 2026-11-05 "次の案" 1): read the proposals (exclude a leaf from learning
+   * / treat its overrun as waiting, with the quoted reason) and accept or reject them one at a time. The AI changes
+   * nothing by itself; only an accept by this action changes how learning uses a leaf.
+   */
+  "plan.actualsReview",
+  /**
    * See other members' load (plan 12 §3.5 / §4, Q2): utilization and the days that overlap, never other projects'
    * item names. Everyone sees their OWN load without this action (checked in the service).
    */
@@ -179,6 +185,7 @@ const POLICY: Readonly<Record<ProjectAction, readonly Grantee[]>> = {
   "plan.lessonRule.confirm": PO_SM,
   "plan.lessonRule.requestPromotion": PO,
   "plan.actualsFinalize": PO_SM,
+  "plan.actualsReview": PO_SM,
   "plan.viewMemberLoad": ["po", "sm", "section_manager"],
   "capacity.manage": PO_SM,
   "plan.estimate": PO_SM,
@@ -235,6 +242,15 @@ export function canPseudonymizeActuals(actor: Pick<ProjectActor, "systemRole">):
  * lineage, and an approval changes the plans of every project that uses it.
  */
 export function canManageEstimateGate(actor: Pick<ProjectActor, "systemRole">): boolean {
+  return isSystemAdmin(actor)
+}
+
+/**
+ * Search the estimator's settings by backtest and approve, reject or end a lineage's settings (the deterministic
+ * parameter search; handoff 2026-11-05 "次の案" (2)). System admins only: approved settings change the estimates of
+ * every project of the lineage, and the proposal's numbers span all of its projects (plan 12 §10).
+ */
+export function canApproveEstimateParams(actor: Pick<ProjectActor, "systemRole">): boolean {
   return isSystemAdmin(actor)
 }
 

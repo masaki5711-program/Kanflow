@@ -62,7 +62,12 @@ export interface CollectedItem {
   leaf: LeafInput
   actuals: LeafActuals
   pbis: CollectedPbi[]
+  /** The plan row's description and notes as they are now (frozen with the leaf; read by the AI review), or null. */
+  notes: string | null
 }
+
+/** Characters of a leaf's description + notes frozen with it (the column's CHECK). */
+export const LEAF_NOTES_MAX = 1_000
 
 export interface CollectedActuals {
   projectType: string
@@ -130,6 +135,8 @@ export async function collectActuals(db: Db, projectId: string): Promise<Collect
         id: true,
         parentId: true,
         name: true,
+        description: true,
+        notes: true,
         templateKey: true,
         isMilestone: true,
         durationDays: true,
@@ -262,7 +269,8 @@ export async function collectActuals(db: Db, projectId: string): Promise<Collect
       const changes = (pbiActivityById.get(p.id) ?? []).map((a) => statusChangeOf(a.diff)).filter((c): c is { from: string | null; to: string | null } => c !== null && c !== "unreadable")
       return { backlogItemId: p.id, ...hours, reworkCount: pbiReopenCount(changes), mr: pbiMrFacts(linksByPbi.get(p.id) ?? [], repoInputs) }
     })
-    return { leaf, actuals, pbis: leafPbis }
+    const text = [l.description, l.notes].filter((x): x is string => Boolean(x?.trim())).join("\n")
+    return { leaf, actuals, pbis: leafPbis, notes: text ? [...text].slice(0, LEAF_NOTES_MAX).join("") : null }
   })
 
   const endKeys = items.map((i) => i.leaf.actualEnd).filter((e): e is string => e !== null)

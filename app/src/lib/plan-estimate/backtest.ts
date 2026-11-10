@@ -51,6 +51,11 @@ export interface BacktestProjectResult extends ErrorTotals {
   priorObservations: number
   endErrorEstimateDays: number
   endErrorTemplateDays: number
+  /** The sums behind the rates (Σ actual days, Σ|D50 − A|, Σ|T − A|, leaves with A ≤ D80), so subsets can be re-aggregated. */
+  actualDaysTotal: number
+  absErrorEstimate: number
+  absErrorTemplate: number
+  p80Hits: number
 }
 
 export interface BacktestReport {
@@ -175,6 +180,10 @@ export function runBacktest(projects: readonly BacktestProject[], config?: Parti
       priorObservations: others.filter((o) => o.closedAt < referenceDate && o.finalizedAt < referenceDate).length,
       endErrorEstimateDays: errEst,
       endErrorTemplateDays: errTpl,
+      actualDaysTotal: acc.actual,
+      absErrorEstimate: acc.absEst,
+      absErrorTemplate: acc.absTpl,
+      p80Hits: acc.hits,
       ...totals(acc),
     })
   }

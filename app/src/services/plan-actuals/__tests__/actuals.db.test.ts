@@ -39,11 +39,13 @@ describe.skipIf(!enabled)("actuals snapshots on a real database (KANFLOW_DB_TEST
   let prisma: typeof import("@/lib/prisma").prisma
   let svc: typeof import("../actuals.service")
   let learn: typeof import("../actuals.learnable")
+  let review: typeof import("../actuals-review.service")
 
   beforeAll(async () => {
     prisma = (await import("@/lib/prisma")).prisma
     svc = await import("../actuals.service")
     learn = await import("../actuals.learnable")
+    review = await import("../actuals-review.service")
     for (const u of [ids.po, ids.dev, ids.admin]) await prisma.user.create({ data: { id: u, name: u, email: `${u}@example.test`, password: "synthetic" } })
     await prisma.user.create({ data: { id: ids.retired, name: ids.retired, email: `${ids.retired}@example.test`, password: "synthetic", isActive: false } })
     await prisma.project.create({ data: { id: ids.project, name: `${tag}-1`, projectType: "software" } })
@@ -195,6 +197,11 @@ describe.skipIf(!enabled)("actuals snapshots on a real database (KANFLOW_DB_TEST
       { snapshotId: first.id, status: "queued" },
       { snapshotId: second.id, status: "queued" },
     ])
+    // …and one AI review request (proposals to exclude / treat as waiting, decided by a PO / SM).
+    expect(await prisma.planActualsReviewJob.findMany({ where: { projectId: ids.project }, select: { snapshotId: true, status: true }, orderBy: { createdAt: "asc" } })).toEqual([
+      { snapshotId: first.id, status: "queued" },
+      { snapshotId: second.id, status: "queued" },
+    ])
     const old = await prisma.planActualsSnapshot.findUniqueOrThrow({ where: { id: first.id } })
     expect(old.supersededAt).not.toBeNull()
     expect(await prisma.planActualsItem.findMany({ where: { snapshotId: first.id }, orderBy: { id: "asc" } })).toEqual(oldItems)
@@ -210,6 +217,55 @@ describe.skipIf(!enabled)("actuals snapshots on a real database (KANFLOW_DB_TEST
     await Promise.all([1, 2].map(() => svc.finalizeActuals(ids.project, { acknowledgedIssueCount: n }, po)))
     expect(await prisma.planActualsSnapshot.count({ where: { projectId: ids.project, supersededAt: null } })).toBe(1)
     first = (await svc.listSnapshots(ids.project))[0]
+  })
+
+  it("the plan row's notes are frozen with the leaf; AI review decisions carry over a re-finalize (audited), pending ones do not", async () => {
+    await prisma.planItem.update({ where: { id: ids.impl }, data: { description: "実装の説明", notes: "部品の入荷待ちで止まった" } })
+    const n = await issueCount()
+    const a = await svc.finalizeActuals(ids.project, { acknowledgedIssueCount: n }, po)
+    const leaves = await prisma.planActualsItem.findMany({ where: { snapshotId: a.id }, select: { id: true, templateKey: true, notes: true } })
+    const implLeaf = leaves.find((l) => l.templateKey === "impl")!
+    const specLeaf = leaves.find((l) => l.templateKey === "spec")!
+    expect(implLeaf.notes).toBe("実装の説明\n部品の入荷待ちで止まった")
+    // The live plan row changes later: the frozen text stays.
+    await prisma.planItem.update({ where: { id: ids.impl }, data: { notes: "LIVE EDIT AFTER FINALIZE" } })
+    expect((await prisma.planActualsItem.findUniqueOrThrow({ where: { id: implLeaf.id } })).notes).toBe("実装の説明\n部品の入荷待ちで止まった")
+    const mk = (snapshotItemId: string, kind: string) => prisma.planActualsReviewProposal.create({ data: { projectId: ids.project, snapshotId: a.id, snapshotItemId, kind, quote: "部品の入荷待ち", confidence: "high" } })
+    const pImpl = await mk(implLeaf.id, "treat_as_waiting")
+    const pSpec = await mk(specLeaf.id, "exclude_from_learning")
+    await review.decideReviewProposal(ids.project, pImpl.id, { decision: "accept", version: 0 }, po)
+    await review.decideReviewProposal(ids.project, pSpec.id, { decision: "reject", version: 0 }, po)
+
+    const b = await svc.finalizeActuals(ids.project, { acknowledgedIssueCount: n }, po)
+    const next = await prisma.planActualsItem.findMany({ where: { snapshotId: b.id }, select: { id: true, templateKey: true, learningUse: true, reviewProposals: { select: { state: true, kind: true, decidedById: true, decidedAt: true } } } })
+    const impl2 = next.find((l) => l.templateKey === "impl")!
+    const spec2 = next.find((l) => l.templateKey === "spec")!
+    expect(impl2.learningUse).toBe("waiting")
+    expect(impl2.reviewProposals).toEqual([expect.objectContaining({ state: "accepted", kind: "treat_as_waiting", decidedById: ids.po })])
+    // A rejected proposal comes along as rejected: the leaf is not proposed again, and it is learned as recorded.
+    expect(spec2.learningUse).toBeNull()
+    expect(spec2.reviewProposals).toEqual([expect.objectContaining({ state: "rejected" })])
+    const audit = await prisma.activityLog.findFirst({ where: { projectId: ids.project, diff: { contains: "planActualsReviewCarried" } }, orderBy: { createdAt: "desc" } })
+    expect(JSON.parse(audit?.diff ?? "{}")).toMatchObject({ meta: { snapshotId: b.id, accepted: 1, rejected: 1 } })
+    first = (await svc.listSnapshots(ids.project))[0]
+  })
+
+  it("a decision racing a re-finalize is either carried over or refused — never lost", async () => {
+    const n = await issueCount()
+    const cur = (await svc.listSnapshots(ids.project))[0]
+    const leaf = await prisma.planActualsItem.findFirstOrThrow({ where: { snapshotId: cur.id, templateKey: "impl" }, select: { id: true } })
+    // impl already carries an accepted proposal: take it back (reject) while a re-finalize runs.
+    const prop = await prisma.planActualsReviewProposal.findUniqueOrThrow({ where: { snapshotItemId: leaf.id } })
+    const [decided, refinal] = await Promise.allSettled([review.decideReviewProposal(ids.project, prop.id, { decision: "reject", version: prop.version }, po), svc.finalizeActuals(ids.project, { acknowledgedIssueCount: n }, po)])
+    expect(refinal.status).toBe("fulfilled")
+    const now = (await svc.listSnapshots(ids.project))[0]
+    const carried = await prisma.planActualsItem.findFirstOrThrow({ where: { snapshotId: now.id, templateKey: "impl" }, select: { learningUse: true } })
+    if (decided.status === "fulfilled") expect(carried.learningUse).toBeNull()
+    else {
+      expect(decided.reason).toMatchObject({ code: "PLAN_ACTUALS_CHANGED" })
+      expect(carried.learningUse).toBe("waiting")
+    }
+    first = now
   })
 
   it("the learning switch is version-guarded, audited with its reason, and removes the snapshot from learning", async () => {

@@ -27,7 +27,7 @@ import { effectiveLessonRules } from "@/services/plan-lesson-rules/lesson-rules.
 import { levelSchedule, type LevelResponse } from "@/services/plan-leveling/load.service"
 import * as templateRepo from "@/services/plan-templates/plan-templates.repository"
 import { logger } from "@/lib/logger"
-import { gateFor, type Gate } from "./gate"
+import { gateWithParams, type Gate } from "./gate"
 
 const log = logger.child({ module: "plan-estimate-run" })
 
@@ -143,6 +143,11 @@ export interface EngineInput {
   fixed: FixedInputs
   usedSnapshotItemIds: string[]
   ruleIds: string[]
+  /**
+   * Leaves a PO / SM changed through an accepted AI review proposal: waiting = used with the overrun as waiting;
+   * excluded = leaves of the run's lineage / project type left out of learning. Absent on runs without any (server only).
+   */
+  learningUse?: { waiting: string[]; excluded: string[] }
 }
 
 export interface ComputedRun {
@@ -389,16 +394,25 @@ export async function computeRun(input: RunInput, opts: ComputeOptions, db: Db =
   const ruled = rules.schedule
 
   // 2. Actuals (E1) for the lineage and the project type, through the use-time check.
-  const gate = await gateFor(lineage, db)
+  // The lineage's approved estimator settings (an administrator approved a proposal of the parameter search) apply only
+  // when durations from actuals are on; otherwise the defaults.
+  const { gate, params: approvedParams } = await gateWithParams(lineage, db)
+  const settings = gate.on && approvedParams ? { ...approvedParams.params } : null
   const factIds = gate.on ? [...new Set([...(await learnableItemIds({ lineage }, db)), ...(await learnableItemIds({ projectType }, db))])] : []
   const facts = gate.on ? await learnableItemFacts(factIds, db) : []
   const owners = await ownerFacts(assigned, db)
+  // What the PO / SM changed by accepting AI review proposals, recorded with the run (diagnosis: "why is this leaf not
+  // in the evidence?"). Ids only; never shown.
+  const excludedLeaves = gate.on
+    ? await db.planActualsItem.findMany({ where: { learningUse: "excluded", complete: true, snapshot: { supersededAt: null, includeInLearning: true, OR: [{ lineage }, { projectType }] } }, select: { id: true }, orderBy: { id: "asc" }, take: 1_000 })
+    : []
   const sourceProjectIds = [...new Set([...facts, ...owners].map((f) => f.sourceProjectId))]
   const visibleProjectIds = opts.fixed ? [...opts.fixed.visibleProjectIds] : await visibleProjectsOf(opts.projectId, opts.creator, sourceProjectIds, db)
   const globalHidden = opts.fixed ? null : await hiddenStatesFor(lineage, projectType, assigned, db)
   const readHidden = new Map<string, HiddenState | null>()
   const attributes = (await db.projectAttribute.findMany({ where: { projectId: opts.projectId }, select: { kind: true, ref: true } })).map((a) => `${a.kind}:${a.ref}`).sort()
   const ctxBase = {
+    ...(settings ? { config: settings } : {}),
     lineage,
     projectType,
     attributes,
@@ -504,13 +518,17 @@ export async function computeRun(input: RunInput, opts: ComputeOptions, db: Db =
     moves: levelled.response.moves,
   }
 
+  // A leaf a PO / SM treats as waiting is learned with other numbers: it enters the hash marked (only then, so the hash
+  // of runs without such a leaf is unchanged). An excluded leaf is simply not used.
   const usedSnapshotItemIds = [...new Set([...facts, ...owners].map((f) => f.snapshotItemId))].sort()
+  const waitingIds = [...new Set([...facts, ...owners].filter((f) => f.learningUse === "waiting").map((f) => f.snapshotItemId))].sort()
+  const hashedSnapshotItemIds = [...new Set([...facts, ...owners].map((f) => (f.learningUse === "waiting" ? `${f.snapshotItemId}:waiting` : f.snapshotItemId)))].sort()
   const ruleIds = effective.rules.map((r) => r.id).sort()
   const inputHash = sha256(
     canonicalJson({
       method: ESTIMATE_METHOD_VERSION,
       rules: [...effective.rules].sort((a, b) => (a.id < b.id ? -1 : 1)),
-      snapshotItemIds: usedSnapshotItemIds,
+      snapshotItemIds: hashedSnapshotItemIds,
       templateHash,
       referenceDate,
       capacity: await capacityDigest(opts.projectId, assigned, db),
@@ -520,6 +538,8 @@ export async function computeRun(input: RunInput, opts: ComputeOptions, db: Db =
       skipWeekends: input.skipWeekends,
       // Only when the LLM rejected something: runs without a rejection keep the hash they had before E6.
       ...(Object.keys(candidates.rejected).length > 0 ? { rejectedCandidates: candidates.rejected } : {}),
+      // Only with approved settings: runs on the defaults keep the hash they had before the parameter search.
+      ...(settings ? { settings } : {}),
     })
   )
   const fixed: FixedInputs = {
@@ -541,7 +561,14 @@ export async function computeRun(input: RunInput, opts: ComputeOptions, db: Db =
     summary,
     evidence: { leaves: evidence, ruleIds },
     ownerPlan,
-    engineInput: { input: { ...input, roleAssignments }, creator: opts.creator, fixed, usedSnapshotItemIds, ruleIds },
+    engineInput: {
+      input: { ...input, roleAssignments },
+      creator: opts.creator,
+      fixed,
+      usedSnapshotItemIds,
+      ruleIds,
+      ...(waitingIds.length + excludedLeaves.length > 0 ? { learningUse: { waiting: waitingIds, excluded: excludedLeaves.map((l) => l.id) } } : {}),
+    },
     hiddenStates: sink,
   }
 }

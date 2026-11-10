@@ -80,6 +80,7 @@ System admins skip the membership lookup; every request (admins included) does o
 | `plan.lessonRule.confirm` | Y | Y | Y | - | - |
 | `plan.lessonRule.requestPromotion` | Y | Y | - | - | - |
 | `plan.actualsFinalize` | Y | Y | Y | - | - |
+| `plan.actualsReview` | Y | Y | Y | - | - |
 | `plan.viewMemberLoad` | Y | Y | Y | - (own row only) | Y |
 | `capacity.manage` | Y | Y | Y | - | - |
 | `plan.estimate` | Y | Y | Y | - | - |
@@ -128,6 +129,8 @@ Paths are relative to `/api/projects/[projectId]`.
 | `/plan/lesson-rules/[ruleId]/promotion` (share request) | | plan.lessonRule.requestPromotion | | |
 | `/plan/actuals` (実績を確定, plan 12 E1; GET also answers `permissions`) | project.view | plan.actualsFinalize | | |
 | `/plan/actuals/[snapshotId]` (leaves: roles and days, never owners) | project.view | | PATCH: plan.actualsFinalize (`includeInLearning` + reason) | |
+| `/plan/actuals/review` (AI review proposals of the current snapshot, with the quoted reason) | plan.actualsReview | | | |
+| `/plan/actuals/review/[proposalId]` (accept / reject one proposal, version-guarded, audited) | | | PATCH: plan.actualsReview | |
 | `/attributes` (設備・工程・タグ) | project.view | | PUT: project.update | |
 | `/capacity` (members' allocation to this project, plan 12 E4) | capacity.manage | capacity.manage (explicit members only) | | |
 | `/capacity/[capacityId]` | | | PATCH: capacity.manage (rows of this project only) | capacity.manage |
@@ -335,6 +338,10 @@ bodies are size-bounded (413). Editing a template never changes plans already lo
 - 実績を確定 (`plan.actualsFinalize`, PO / SM) freezes the project's actuals. Re-finalizing adds a snapshot and marks the
   previous one superseded; rows are never rewritten. The learning switch (`includeInLearning`) is the same action,
   needs a reason, and is audited.
+- The AI review of the actuals (`plan.actualsReview`, PO / SM) only proposes, per leaf, to exclude it from learning or
+  to treat its overrun as waiting. Accepting sets the leaf's `learningUse` (audited, who / when on the proposal);
+  rejecting keeps — or puts back — the leaf as recorded. The quote of a proposal is not shown while the leaf cites a
+  PBI that is confidential now, and such a leaf is never sent to the LLM.
 - Screens and the API return roles and days, never the owner of a leaf or the owner's concurrency (those exist for
   m_u learning only).
 - Confidentiality is checked at use time: every reader of the per-PBI numbers goes through `learnableItemFacts`

@@ -91,6 +91,7 @@ export interface ApiErrorsTranslations {
   apiErrPlanActualsIncomplete: string
   apiErrPlanActualsNotFound: string
   apiErrPlanActualsChanged: string
+  apiErrPlanActualsReviewHidden: string
   apiErrPlanActualsUserActive: string
   apiErrPlanActualsCurrent: string
   apiErrPlanRoleAssignmentInvalid: string
@@ -106,6 +107,10 @@ export interface ApiErrorsTranslations {
   apiErrPlanEstimateEvalChanged: string
   apiErrPlanEstimateEvalNotPassing: string
   apiErrPlanEstimateEvalTooMany: string
+  apiErrPlanEstimateParamsNotFound: string
+  apiErrPlanEstimateParamsChanged: string
+  apiErrPlanEstimateParamsDecided: string
+  apiErrPlanEstimateParamsNotPassing: string
   apiErrFileRequired: string
   apiErrFileEmpty: string
   apiErrFileMissing: string
@@ -259,6 +264,7 @@ export const API_ERROR_MESSAGE_KEYS: Readonly<Record<ApiErrorCode, ApiErrorMessa
   PLAN_ACTUALS_INCOMPLETE: "apiErrPlanActualsIncomplete",
   PLAN_ACTUALS_NOT_FOUND: "apiErrPlanActualsNotFound",
   PLAN_ACTUALS_CHANGED: "apiErrPlanActualsChanged",
+  PLAN_ACTUALS_REVIEW_HIDDEN: "apiErrPlanActualsReviewHidden",
   PLAN_ACTUALS_USER_ACTIVE: "apiErrPlanActualsUserActive",
   PLAN_ACTUALS_CURRENT: "apiErrPlanActualsCurrent",
   PLAN_ROLE_ASSIGNMENT_INVALID: "apiErrPlanRoleAssignmentInvalid",
@@ -274,6 +280,10 @@ export const API_ERROR_MESSAGE_KEYS: Readonly<Record<ApiErrorCode, ApiErrorMessa
   PLAN_ESTIMATE_EVAL_CHANGED: "apiErrPlanEstimateEvalChanged",
   PLAN_ESTIMATE_EVAL_NOT_PASSING: "apiErrPlanEstimateEvalNotPassing",
   PLAN_ESTIMATE_EVAL_TOO_MANY: "apiErrPlanEstimateEvalTooMany",
+  PLAN_ESTIMATE_PARAMS_NOT_FOUND: "apiErrPlanEstimateParamsNotFound",
+  PLAN_ESTIMATE_PARAMS_CHANGED: "apiErrPlanEstimateParamsChanged",
+  PLAN_ESTIMATE_PARAMS_DECIDED: "apiErrPlanEstimateParamsDecided",
+  PLAN_ESTIMATE_PARAMS_NOT_PASSING: "apiErrPlanEstimateParamsNotPassing",
   FILE_REQUIRED: "apiErrFileRequired",
   FILE_EMPTY: "apiErrFileEmpty",
   FILE_MISSING: "apiErrFileMissing",
@@ -434,6 +444,7 @@ export const ja: ApiErrorsTranslations = {
   apiErrPlanActualsIncomplete: "実績に確かめてほしい項目があります。一覧を確かめてから確定してください",
   apiErrPlanActualsNotFound: "実績のスナップショットが見つかりません",
   apiErrPlanActualsChanged: "実績のスナップショットが変更されています。読み込み直してからやり直してください",
+  apiErrPlanActualsReviewHidden: "機密の PBI を含む項目の提案は採用できません（採用しないことはできます）",
   apiErrPlanActualsUserActive: "在籍中の利用者の実績は仮名化できません",
   apiErrPlanActualsCurrent: "最新の記録は記録ごとには仮名化できません。退職者ごとに行ってください",
   apiErrPlanRoleAssignmentInvalid: "役割に割り当てられるのは、このプロジェクトのメンバーだけです",
@@ -449,6 +460,10 @@ export const ja: ApiErrorsTranslations = {
   apiErrPlanEstimateEvalChanged: "検証の記録が新しくなっています。表示を更新して、もう一度確かめてください",
   apiErrPlanEstimateEvalNotPassing: "この系統の検証は条件を満たしていないため、有効にできません",
   apiErrPlanEstimateEvalTooMany: "系統が多すぎて一度に計算できません",
+  apiErrPlanEstimateParamsNotFound: "この系統のパラメータの提案がありません",
+  apiErrPlanEstimateParamsChanged: "パラメータの提案が新しくなっています。表示を更新して、もう一度確かめてください",
+  apiErrPlanEstimateParamsDecided: "この提案はもう承認または却下されています",
+  apiErrPlanEstimateParamsNotPassing: "この提案の検証は条件を満たしていないため、承認できません",
   apiErrFileRequired: "ファイルがありません",
   apiErrFileEmpty: "ファイルが空です",
   apiErrFileMissing: "ファイルが見つかりません",
@@ -603,6 +618,7 @@ export const en: ApiErrorsTranslations = {
   apiErrPlanActualsIncomplete: "Some items of the actuals need checking. Review the list, then finalize",
   apiErrPlanActualsNotFound: "Actuals snapshot not found",
   apiErrPlanActualsChanged: "The actuals snapshot has changed. Reload and try again",
+  apiErrPlanActualsReviewHidden: "A proposal on an item with a confidential PBI cannot be accepted (you can still decline it)",
   apiErrPlanActualsUserActive: "The actuals of an active user cannot be pseudonymised",
   apiErrPlanActualsCurrent: "The latest record cannot be pseudonymised as a whole. Pseudonymise by retired user instead",
   apiErrPlanRoleAssignmentInvalid: "Only members of this project can be assigned to a role",
@@ -618,6 +634,10 @@ export const en: ApiErrorsTranslations = {
   apiErrPlanEstimateEvalChanged: "The check has been updated. Reload and look at it again",
   apiErrPlanEstimateEvalNotPassing: "This lineage's check does not meet the conditions, so it cannot be turned on",
   apiErrPlanEstimateEvalTooMany: "There are too many lineages to compute at once",
+  apiErrPlanEstimateParamsNotFound: "There is no settings proposal for this lineage",
+  apiErrPlanEstimateParamsChanged: "The settings proposal has been updated. Reload and look at it again",
+  apiErrPlanEstimateParamsDecided: "This proposal has already been approved or rejected",
+  apiErrPlanEstimateParamsNotPassing: "This proposal's check does not meet the conditions, so it cannot be approved",
   apiErrFileRequired: "No file was provided",
   apiErrFileEmpty: "The file is empty",
   apiErrFileMissing: "The file was not found",
@@ -772,6 +792,7 @@ export const id: ApiErrorsTranslations = {
   apiErrPlanActualsIncomplete: "Beberapa item realisasi perlu diperiksa. Tinjau daftarnya, lalu finalkan",
   apiErrPlanActualsNotFound: "Snapshot realisasi tidak ditemukan",
   apiErrPlanActualsChanged: "Snapshot realisasi telah berubah. Muat ulang lalu coba lagi",
+  apiErrPlanActualsReviewHidden: "Usulan pada item dengan PBI rahasia tidak dapat diterima (masih dapat ditolak)",
   apiErrPlanActualsUserActive: "Realisasi pengguna yang masih aktif tidak dapat disamarkan",
   apiErrPlanActualsCurrent: "Catatan terbaru tidak dapat disamarkan sekaligus. Samarkan per pengguna yang sudah keluar",
   apiErrPlanRoleAssignmentInvalid: "Hanya anggota proyek ini yang dapat ditugaskan ke suatu peran",
@@ -787,6 +808,10 @@ export const id: ApiErrorsTranslations = {
   apiErrPlanEstimateEvalChanged: "Hasil pengujian sudah diperbarui. Muat ulang dan periksa lagi",
   apiErrPlanEstimateEvalNotPassing: "Pengujian lini ini tidak memenuhi syarat, sehingga tidak dapat diaktifkan",
   apiErrPlanEstimateEvalTooMany: "Terlalu banyak lini untuk dihitung sekaligus",
+  apiErrPlanEstimateParamsNotFound: "Belum ada usulan parameter untuk lini ini",
+  apiErrPlanEstimateParamsChanged: "Usulan parameter sudah diperbarui. Muat ulang dan periksa lagi",
+  apiErrPlanEstimateParamsDecided: "Usulan ini sudah disetujui atau ditolak",
+  apiErrPlanEstimateParamsNotPassing: "Pengujian usulan ini tidak memenuhi syarat, sehingga tidak dapat disetujui",
   apiErrFileRequired: "Tidak ada file yang dikirim",
   apiErrFileEmpty: "File kosong",
   apiErrFileMissing: "File tidak ditemukan",

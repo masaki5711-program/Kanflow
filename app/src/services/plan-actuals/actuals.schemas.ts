@@ -38,3 +38,6 @@ export const attributesSchema = z
   .object({ attributes: z.array(z.object({ kind: z.enum(ATTRIBUTE_KINDS), ref: plainText(200) }).strict()).max(ATTRIBUTES_MAX) })
   .strict()
 export type AttributesInput = z.infer<typeof attributesSchema>
+
+/** Accept or reject one AI review proposal (the proposal's version guards against a decision made meanwhile). */
+export const reviewDecisionSchema = z.object({ decision: z.enum(["accept", "reject"]), version: z.number().int().min(0) }).strict()

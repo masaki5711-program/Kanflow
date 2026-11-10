@@ -8,6 +8,7 @@ const m = vi.hoisted(() => ({
   feedback: vi.fn(),
   planRuns: vi.fn(),
   catchUp: vi.fn(),
+  paramSearch: vi.fn(),
   instances: [] as Array<{ opts: { name: string; run: () => Promise<unknown> }; start: ReturnType<typeof vi.fn> }>,
 }))
 
@@ -18,6 +19,7 @@ vi.mock("../jobs/improvement-checks", () => ({ runImprovementCheckReminders: m.i
 vi.mock("@/services/feedback/feedback.recurrence.service", () => ({ runFeedbackRecurrence: m.feedback }))
 vi.mock("../jobs/plan-run-retention", () => ({ purgeExpiredEstimateRuns: m.planRuns }))
 vi.mock("@/services/plan-estimate-eval/eval.service", () => ({ recordOutdatedLineages: m.catchUp }))
+vi.mock("@/services/plan-estimate-eval/params.service", () => ({ enqueueParamSearch: m.paramSearch }))
 vi.mock("../scheduler", () => ({
   DailyScheduler: class {
     start = vi.fn()
@@ -94,6 +96,24 @@ describe("runCollabDaily", () => {
     expect(log.info).toHaveBeenCalledWith("plan estimate run retention done", { estimateRuns: { deleted: 4, more: false } })
   })
 
+  it("queues the parameter search of the lineages whose backtest the catch-up recorded, without waiting for it", async () => {
+    m.catchUp.mockResolvedValue({ recorded: [{ lineage: "template:a", written: true }, { lineage: "template:b", written: false }], failed: [] })
+    // A search that never finishes: the daily job must still return.
+    m.paramSearch.mockReturnValue(new Promise(() => undefined))
+    expect((await runCollabDaily(CFG, log)).paramSearch).toEqual({ queued: 1 })
+    expect(m.paramSearch).toHaveBeenCalledWith(["template:a"])
+    m.paramSearch.mockImplementation(() => {
+      throw new Error("db")
+    })
+    expect((await runCollabDaily(CFG, log)).paramSearch).toBeNull()
+    expect(log.error).toHaveBeenCalledWith("parameter search could not be queued", { error: "db" })
+    // Nothing outdated: no search.
+    m.paramSearch.mockClear()
+    m.catchUp.mockResolvedValue({ recorded: [], failed: [] })
+    expect((await runCollabDaily(CFG, log)).paramSearch).toBeNull()
+    expect(m.paramSearch).not.toHaveBeenCalled()
+  })
+
   it("catches up the backtests of outdated lineages and says how many failed", async () => {
     m.catchUp.mockResolvedValue({ recorded: [{}, {}], failed: [] })
     expect((await runCollabDaily(CFG, log)).backtestCatchUp).toEqual({ recorded: 2, failed: 0 })
@@ -122,7 +142,7 @@ describe("runCollabDaily", () => {
     const out2 = await runCollabDaily(CFG, log)
     m.catchUp.mockRejectedValue(new Error("eval"))
     const out3 = await runCollabDaily(CFG, log)
-    expect(out3).toEqual({ retention: null, notifyDue: null, chatRetention: null, improvementReminders: null, feedbackRecurrence: RECURRENCE, planRunRetention: null, backtestCatchUp: null })
+    expect(out3).toEqual({ retention: null, notifyDue: null, chatRetention: null, improvementReminders: null, feedbackRecurrence: RECURRENCE, planRunRetention: null, backtestCatchUp: null, paramSearch: null })
     expect(out2.backtestCatchUp).toEqual(expect.objectContaining({ recorded: expect.any(Number) }))
     expect(log.error).toHaveBeenCalledWith("plan estimate run retention failed", { error: "runs" })
     expect(log.error).toHaveBeenCalledWith("improvement check reminders failed", { error: "kaizen" })

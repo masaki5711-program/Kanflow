@@ -52,6 +52,10 @@ model User {
   capacityAuditsBy  MemberCapacityAudit[]    @relation("MemberCapacityAuditActor")
   estimateGateApprovals PlanEstimateGateApproval[] @relation("PlanEstimateGateApprovedBy")
   estimateGateEnds      PlanEstimateGateApproval[] @relation("PlanEstimateGateEndedBy")
+  estimateParamDecisions PlanEstimateParamProposal[] @relation("PlanEstimateParamDecidedBy")
+  actualsReviewDecisions PlanActualsReviewProposal[] @relation("PlanActualsReviewDecidedBy")
+  estimateParamApprovals PlanEstimateParamApproval[] @relation("PlanEstimateParamApprovedBy")
+  estimateParamEnds      PlanEstimateParamApproval[] @relation("PlanEstimateParamEndedBy")
   estimateRuns      PlanEstimateRun[]        @relation("PlanEstimateRunCreatedBy")
   estimateFeedback  PlanEstimateFeedback[]   @relation("PlanEstimateFeedbackBy")
   /// Merge request links declared through a dev:write token.
@@ -211,6 +215,8 @@ model PlanActualsSnapshot {
   project       Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
   items         PlanActualsItem[]
   ruleDraftJobs PlanRuleDraftJob[]
+  reviewJobs    PlanActualsReviewJob[]
+  reviewProposals PlanActualsReviewProposal[]
 
   /// UNIQUE NULLS NOT DISTINCT in the migration: at most ONE current (supersededAt IS NULL) snapshot per project,
   /// whatever path writes (Prisma does not model NULLS NOT DISTINCT).
@@ -248,10 +254,18 @@ model PlanActualsItem {
   ownerConcurrentPeak  Int?
   /// C-3 merge-order warnings (null until C-3 exists).
   mergeOrderViolations Int?
+  /// How learning uses this leaf, set only when a PO / SM accepts an AI review proposal (plan_actuals_review_proposal;
+  /// audited, like includeInLearning): null = as recorded | excluded (not learned from) | waiting (the overrun over the
+  /// planned days is learned as waiting before the leaf, not as work). The recorded numbers never change.
+  learningUse          String? @db.VarChar(16)
+  /// The plan row's description and notes AS FINALIZED (up to 1000 chars): what the AI review reads and quotes, so a
+  /// later edit of the live plan cannot steer it. Null on leaves finalized before it was recorded.
+  notes                String? @db.Text
 
-  snapshot PlanActualsSnapshot   @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
-  pbis     PlanActualsItemPbi[]
-  repos    PlanActualsItemRepo[]
+  snapshot        PlanActualsSnapshot         @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  pbis            PlanActualsItemPbi[]
+  repos           PlanActualsItemRepo[]
+  reviewProposals PlanActualsReviewProposal[]
 
   @@index([snapshotId])
   @@index([templateKey])
@@ -647,6 +661,8 @@ model Project {
   planEstimateRuns         PlanEstimateRun[]
   /// Rule drafts requested at actuals finalization (plan 12 E6, night batch).
   planRuleDraftJobs        PlanRuleDraftJob[]
+  planActualsReviewJobs    PlanActualsReviewJob[]
+  planActualsReviewProposals PlanActualsReviewProposal[]
 
   /// マイルストーン・検収ボード (general projects).
   milestoneBoard    MilestoneBoard?
@@ -2313,6 +2329,75 @@ model PlanRuleDraftJob {
   @@map("plan_rule_draft_job")
 }
 
+/// One AI review request per finalized snapshot (plan 12 E6, handoff 2026-11-05 "次の案" 1): the local LLM reads the
+/// snapshot's own leaves (names, days, plan-item notes; never a leaf citing a PBI that is confidential now) and the
+/// finalize note, and PROPOSES per leaf to exclude it from learning or to treat its overrun as waiting. Queued by
+/// 実績を確定, processed by the night batch at background priority; the proposals change nothing until a PO / SM
+/// accepts one. sourceIds = what was given to the LLM ("item:<id>", "note:<snapshotId>").
+model PlanActualsReviewJob {
+  id               String    @id @default(cuid())
+  projectId        String
+  snapshotId       String    @unique
+  /// queued | running | done | failed | skipped
+  status           String    @default("queued") @db.VarChar(16)
+  attempts         Int       @default(0)
+  proposalsCreated Int       @default(0)
+  proposalsDropped Int       @default(0)
+  /// Valid proposals not written because the project already held the most pending ones (shown on the screen).
+  proposalsCapped  Int       @default(0)
+  llmModel         String?   @db.VarChar(64)
+  promptVersion    String?   @db.VarChar(32)
+  sourceIds        String[]  @default([])
+  lastError        String?   @db.VarChar(500)
+  createdAt        DateTime  @default(now())
+  startedAt        DateTime?
+  finishedAt       DateTime?
+
+  project   Project                     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  snapshot  PlanActualsSnapshot         @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  proposals PlanActualsReviewProposal[]
+
+  @@index([status, createdAt])
+  @@index([projectId])
+  @@map("plan_actuals_review_job")
+}
+
+/// An AI proposal for one snapshot leaf (at most one per leaf): exclude_from_learning | treat_as_waiting, with the
+/// reason as an exact quote of the leaf's text or the finalize note, and the model's confidence (low | medium | high).
+/// state: pending → accepted | rejected by a PO / SM (plan.actualsReview, audited; deciding again is allowed while the
+/// snapshot is current). Accepting sets plan_actuals_item.learningUse; rejecting leaves (or puts back) the leaf as
+/// recorded. superseded = the snapshot was re-finalized before a decision; expired = still pending after 90 days.
+model PlanActualsReviewProposal {
+  id             String    @id @default(cuid())
+  projectId      String
+  snapshotId     String
+  snapshotItemId String    @unique
+  jobId          String?
+  kind           String    @db.VarChar(24)
+  quote          String    @db.VarChar(1000)
+  /// Where the quote is from: item (the leaf's own name / notes) | note (the finalize note).
+  quoteSource    String    @default("item") @db.VarChar(8)
+  confidence     String    @db.VarChar(8)
+  state          String    @default("pending") @db.VarChar(16)
+  /// Optimistic lock of the decision.
+  version        Int       @default(0)
+  llmModel       String?   @db.VarChar(64)
+  promptVersion  String?   @db.VarChar(32)
+  createdAt      DateTime  @default(now())
+  decidedAt      DateTime?
+  decidedById    String?
+
+  project   Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  snapshot  PlanActualsSnapshot   @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  item      PlanActualsItem       @relation(fields: [snapshotItemId], references: [id], onDelete: Cascade)
+  job       PlanActualsReviewJob? @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  decidedBy User?                 @relation("PlanActualsReviewDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
+
+  @@index([projectId, state])
+  @@index([snapshotId])
+  @@map("plan_actuals_review_proposal")
+}
+
 /// 利用者の反応 to an estimate run (plan 12 §2.1, E5): one kind per leaf key and person (a repeat click updates it).
 model PlanEstimateFeedback {
   id        String   @id @default(cuid())
@@ -2362,9 +2447,13 @@ model PlanEstimateEval {
   /// sha256 of the lineage's learnable snapshots (id + version) the row was computed from: the gate treats a row whose
   /// hash differs from the current one as outdated. Null on rows written before it was recorded (= outdated).
   inputHash            String?  @db.Char(64)
+  /// The approved estimator settings the row was computed with (null = the defaults). The gate treats a row whose
+  /// settings are not the lineage's active ones as outdated.
+  paramApprovalId      String?  @db.VarChar(191)
   createdAt            DateTime @default(now())
 
-  approvals PlanEstimateGateApproval[]
+  approvals     PlanEstimateGateApproval[]
+  paramApproval PlanEstimateParamApproval? @relation(fields: [paramApprovalId], references: [id], onDelete: SetNull)
 
   @@index([lineage, evaluatedOn(sort: Desc)])
   @@map("plan_estimate_eval")
@@ -2440,4 +2529,67 @@ model GitMrApprovalAttempt {
   @@index([expiresAt])
   @@index([gitLinkId])
   @@map("git_mr_approval_attempt")
+}
+
+/// One run of the deterministic parameter search of a lineage (services/plan-estimate-eval/param-search.ts): the
+/// outcome (a proposal, or "keep the defaults" with why), the settings, and the backtest metrics of the defaults and of
+/// the proposal (lineage aggregates only — no project ids; administrators only). An administrator approves or rejects a
+/// proposal; a newer search supersedes a pending one. Rows are never deleted (history).
+model PlanEstimateParamProposal {
+  id            String    @id @default(cuid())
+  lineage       String    @db.VarChar(200)
+  methodVersion String    @db.VarChar(16)
+  /// lineageInputHash the search was computed from: a proposal of other snapshots cannot be approved.
+  inputHash     String    @db.Char(64)
+  /// propose | keep_default
+  outcome       String    @db.VarChar(16)
+  /// Why the defaults are kept (null for a proposal): not_enough_actuals | no_improvement | holdout_worse | not_passing | time_budget
+  reason        String?   @db.VarChar(24)
+  /// The proposed settings ({ outlierMads, halfLifeDays, shrinkK, spreadPrior }; the defaults when kept).
+  params        Json
+  /// { before, after, skipped }: CandidateMetrics of the defaults and of the proposal (full / search / holdout).
+  metrics       Json
+  candidates    Int
+  evaluated     Int
+  timedOut      Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  /// approved | rejected | superseded (null = pending, or a "keep the defaults" row)
+  decision      String?   @db.VarChar(16)
+  decidedAt     DateTime?
+  decidedById   String?
+
+  decidedBy User?                       @relation("PlanEstimateParamDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
+  approvals PlanEstimateParamApproval[]
+
+  @@index([lineage, createdAt(sort: Desc)])
+  @@map("plan_estimate_param_proposal")
+}
+
+/// The estimator settings an administrator approved for a lineage (from a proposal). Used by every run of the lineage
+/// while active; a later backtest that fails with them ends it (the lineage falls back to the defaults), as does a new
+/// method version, a newer approval or an administrator. Never deleted (history). UNIQUE NULLS NOT DISTINCT
+/// (lineage, endedAt) in the migration: at most one active row per lineage.
+model PlanEstimateParamApproval {
+  id            String    @id @default(cuid())
+  lineage       String    @db.VarChar(200)
+  methodVersion String    @db.VarChar(16)
+  proposalId    String?   @db.VarChar(191)
+  /// A copy of the approved settings (the proposal row may be read without them).
+  params        Json
+  approvedById  String?
+  approvedAt    DateTime  @default(now())
+  endedAt       DateTime?
+  endedById     String?
+  /// withdrawn (an administrator returned to the defaults) | failed (a backtest with them no longer passes) |
+  /// method (a new method version) | replaced (a newer approval)
+  endReason     String?   @db.VarChar(16)
+
+  proposal   PlanEstimateParamProposal? @relation(fields: [proposalId], references: [id], onDelete: SetNull)
+  approvedBy User?                      @relation("PlanEstimateParamApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  endedBy    User?                      @relation("PlanEstimateParamEndedBy", fields: [endedById], references: [id], onDelete: SetNull)
+  evals      PlanEstimateEval[]
+
+  @@unique([lineage, endedAt], map: "plan_estimate_param_approval_one_active_key")
+  @@index([lineage, approvedAt(sort: Desc)])
+  @@map("plan_estimate_param_approval")
 }

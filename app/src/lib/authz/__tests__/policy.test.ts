@@ -7,6 +7,7 @@ import {
   canManageUserCapacity,
   canPseudonymizeActuals,
   canManageEstimateGate,
+  canApproveEstimateParams,
   type ProjectAction,
   type ProjectActor,
 } from "@/lib/authz/policy"
@@ -85,6 +86,8 @@ const EXPECTED: Record<ProjectAction, Persona[]> = {
   "plan.lessonRule.confirm": PO_SM,
   "plan.lessonRule.requestPromotion": PO,
   "plan.actualsFinalize": PO_SM,
+  // AI review proposals of actuals: the PO / SM decide (a dev, a section manager who only views, an outsider are denied).
+  "plan.actualsReview": PO_SM,
   // plan 12 §4: PO / SM and the section manager see members' load (a dev only their own — in the service).
   "plan.viewMemberLoad": ["admin", "po", "sm", "sectionMgr", "sectionMgrDev"],
   "capacity.manage": PO_SM,
@@ -156,6 +159,13 @@ describe("canPseudonymizeActuals()", () => {
   // plan 12 §4 / Q8: pseudonymising actuals owners is admins only (pseudonymize_denied_for_non_admin).
   it.each(ALL.map((persona) => ({ persona, allowed: persona === "admin" })))("$persona → $allowed", ({ persona, allowed }) => {
     expect(canPseudonymizeActuals(ACTORS[persona])).toBe(allowed)
+  })
+})
+
+describe("canApproveEstimateParams()", () => {
+  // The deterministic parameter search: proposals are approved / rejected / ended by admins only (allow + deny rows).
+  it.each(ALL.map((persona) => ({ persona, allowed: persona === "admin" })))("$persona → $allowed", ({ persona, allowed }) => {
+    expect(canApproveEstimateParams(ACTORS[persona])).toBe(allowed)
   })
 })
 

@@ -38,12 +38,43 @@ export interface SnapshotItemView {
   endSlipDays: number | null
   waitGapDays: number | null
   onHoldDays: number | null
+  /** Set by accepting an AI review proposal (absent from older responses). */
+  learningUse?: "excluded" | "waiting" | null
 }
 
 export interface ActualsResponse {
   preview: ActualsPreview
   snapshots: SnapshotView[]
-  permissions: { finalize: boolean }
+  permissions: { finalize: boolean; review?: boolean }
+}
+
+/** One AI review proposal (JSON of services/plan-actuals/actuals-review.service). */
+export interface ReviewProposalView {
+  id: string
+  /** The leaf cites a PBI that is confidential now: a placeholder (no id, name, days or reason; decline only). */
+  hidden: boolean
+  snapshotItemId: string | null
+  itemName: string | null
+  plannedDays: number | null
+  actualDays: number | null
+  kind: "exclude_from_learning" | "treat_as_waiting"
+  quote: string | null
+  quoteSource: "item" | "note" | null
+  confidence: "low" | "medium" | "high"
+  state: "pending" | "accepted" | "rejected"
+  version: number
+  decidedAt: string | null
+  decidedByName: string | null
+}
+
+export interface ReviewListView {
+  snapshotId: string | null
+  job: "none" | "queued" | "running" | "done" | "failed" | "skipped"
+  /** Why a review was skipped (no_items | prompt_budget | superseded | snapshot_gone), else null. */
+  jobReason: string | null
+  /** Valid proposals not written because too many were pending. */
+  capped: number
+  proposals: ReviewProposalView[]
 }
 
 export interface AttributeView {
