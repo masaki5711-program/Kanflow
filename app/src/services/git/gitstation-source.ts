@@ -550,9 +550,10 @@ function projectsNamed(e: GitStationEvent): Set<string> {
  * A merge request as Kanflow records it. `mergedAt`: the merged event's time when this read saw it, or the
  * development status's `merged_at` on a re-read (`updated_at` stands in only when neither is known). Once a merge
  * time is stored it is kept (git-sync writeLinks). The development status names no author: null = unknown (the
- * stored author is kept).
+ * stored author is kept). `mergedBy`: the merged event's actor when this read saw that event — GitStation names
+ * the merger nowhere else, so a re-read passes null (unknown: the stored name is kept).
  */
-function toRecord(mr: GitStationMergeRequest, links: StationLinks, mergedAt: string | null): DevMergeRequest | null {
+function toRecord(mr: GitStationMergeRequest, links: StationLinks, mergedAt: string | null, mergedBy: string | null = null): DevMergeRequest | null {
   const state = kanflowState(mr.state)
   if (!state) return null
   return {
@@ -565,7 +566,20 @@ function toRecord(mr: GitStationMergeRequest, links: StationLinks, mergedAt: str
     updatedAt: mr.updated_at,
     mergedAt: state === "merged" ? mergedAt : null,
     openedAt: mr.created_at,
+    targetBranch: mr.target_branch ?? null,
+    mergedBy: state === "merged" ? mergedBy : null,
   }
+}
+
+/**
+ * The person an event names, for display: display name, else username. Null for the system (auto-merge has no
+ * person), for an actor without names, and when the event named no actor. A service account acting for a person
+ * (`user_via_service_account`) shows that person; a service account alone shows its own name.
+ */
+export function actorName(e: Pick<GitStationEvent, "actor">): string | null {
+  const user = e.actor?.kind === "system" ? null : e.actor?.user
+  const name = user?.display_name?.trim() || user?.username?.trim()
+  return name || null
 }
 
 /** A Kanflow repository a feed read is routed to (`stationProjectId` null = not located: nothing is routed to it). */
@@ -608,8 +622,15 @@ export function routeFeed(read: FeedRead, repositories: readonly FeedRepository[
   }
 
   // The merged event's time of each merge request in this read (the API sends none).
+  // ... and who merged it (N11: the merged event's actor; the API names no merger either).
   const mergedAt = new Map<string, string>()
-  for (const e of read.events) if (e.type === "merge_request.merged" && isIid(e.data.iid)) mergedAt.set(detailKey(e.project_id, e.data.iid), e.occurred_at)
+  const mergedBy = new Map<string, string | null>()
+  for (const e of read.events) {
+    if (e.type !== "merge_request.merged" || !isIid(e.data.iid)) continue
+    const key = detailKey(e.project_id, e.data.iid)
+    mergedAt.set(key, e.occurred_at)
+    mergedBy.set(key, actorName(e))
+  }
 
   const unusable: { id: string; type: string }[] = []
   const unrouted: { id: string; stationProjectId: number }[] = []
@@ -628,7 +649,7 @@ export function routeFeed(read: FeedRead, repositories: readonly FeedRepository[
       if (!mergeRequest || read.rereadFailures.has(e.project_id)) continue
       const key = isIid(e.data.iid) ? detailKey(e.project_id, e.data.iid) : null
       const detail = key === null ? undefined : read.details.get(key)
-      const record = detail && key !== null ? toRecord(detail, read.links, mergedAt.get(key) ?? null) : null
+      const record = detail && key !== null ? toRecord(detail, read.links, mergedAt.get(key) ?? null, mergedBy.get(key) ?? null) : null
       if (record) mrs.get(r.id)!.set(record.ref, record)
       else usable = false
     }

@@ -1846,6 +1846,11 @@ model GitLink {
   mergedAt          DateTime?
   /// MR links only (plan 12 E1): when the MR was opened (GitLab created_at / GitStation opened_at); null = unknown.
   openedAt          DateTime?
+  /// MR links only (N11 マージの履歴): the branch the MR merges into; null = the source did not say.
+  targetBranch      String?            @db.VarChar(255)
+  /// MR links only (N11): display name of who merged it, as the source reported (GitStation: the actor of the
+  /// merged event; GitLab: merge_user). Null = unknown (merged before this was recorded, or merged by the system).
+  mergedBy          String?            @db.VarChar(191)
   /// MR links only (plan 12 E1, filled once GitStation G1 reports them): number of versions, lines added / removed.
   /// Null = not reported (never 0 for unknown).
   versionCount      Int?
@@ -1876,6 +1881,8 @@ model GitLink {
   @@unique([repositoryId, kind, ref, backlogItemId])
   @@index([backlogItemId])
   @@index([projectId, occurredAt])
+  /// N11 マージの履歴: merged MRs of a project, newest first.
+  @@index([projectId, mergedAt])
   @@index([declaredById])
   @@map("git_link")
 }

@@ -127,6 +127,40 @@ export interface GitTranslations {
   gitPageRecentEmpty: string
   gitPageRecentEmptyDesc: string
   gitPageOpenPbi: string
+  gitMergesTitle: string
+  gitMergesNote: string
+  gitMergesCaption: string
+  gitMergesPeriod: string
+  gitMergesPeriodAll: string
+  gitMergesPeriodDays: string
+  gitMergesPeriodYear: string
+  gitMergesRepo: string
+  gitMergesRepoAll: string
+  gitMergesColMergedAt: string
+  gitMergesColMr: string
+  gitMergesColPbi: string
+  gitMergesColAuthor: string
+  gitMergesColMergedBy: string
+  gitMergesColTarget: string
+  gitMergesColLead: string
+  gitMergesLeadUnderHour: string
+  gitMergesLeadHours: string
+  gitMergesLeadDays: string
+  gitMergesUnknown: string
+  gitMergesOpenMr: string
+  gitMergesEmpty: string
+  gitMergesEmptyDesc: string
+  gitMergesEmptyFiltered: string
+  gitMergesEmptyFilteredDesc: string
+  gitMergesLoadFailed: string
+  gitMergesPager: string
+  gitMergesNewer: string
+  gitMergesOlder: string
+  gitMergesPage: string
+  gitMergesColSource: string
+  gitMergesLeadHour: string
+  gitMergesResult: string
+  gitMergesStale: string
   gitKindMr: string
   gitKindBranch: string
   gitKindCommit: string
@@ -273,6 +307,40 @@ export const ja: GitTranslations = {
   gitPageRecentEmpty: "まだ PBI にひも付いた動きはありません",
   gitPageRecentEmptyDesc: "ブランチ名やマージリクエストのタイトルに PBI 番号を入れると、ここに表示されます。",
   gitPageOpenPbi: "{key} をバックログで開く",
+  gitMergesTitle: "マージの履歴",
+  gitMergesNote: "PBI にひも付いたマージリクエストのうち、マージされたものを新しい順に表示します。マージした人とマージ先は、記録を始めてからの分だけ表示されます。",
+  gitMergesCaption: "マージされたマージリクエスト（新しい順）",
+  gitMergesPeriod: "期間",
+  gitMergesPeriodAll: "すべての期間",
+  gitMergesPeriodDays: "過去 {n} 日",
+  gitMergesPeriodYear: "過去 1 年",
+  gitMergesRepo: "リポジトリ",
+  gitMergesRepoAll: "すべてのリポジトリ",
+  gitMergesColMergedAt: "マージ日時",
+  gitMergesColMr: "マージリクエスト",
+  gitMergesColPbi: "PBI",
+  gitMergesColAuthor: "作成者",
+  gitMergesColMergedBy: "マージした人",
+  gitMergesColTarget: "マージ先",
+  gitMergesColLead: "作成からマージまで",
+  gitMergesLeadUnderHour: "1 時間未満",
+  gitMergesLeadHours: "{n} 時間",
+  gitMergesLeadDays: "{n} 日",
+  gitMergesUnknown: "不明",
+  gitMergesOpenMr: "新しいタブで開く",
+  gitMergesEmpty: "まだマージされたマージリクエストはありません",
+  gitMergesEmptyDesc: "PBI にひも付いたマージリクエストがマージされると、ここに表示されます。",
+  gitMergesEmptyFiltered: "この条件に合うマージはありません",
+  gitMergesEmptyFilteredDesc: "期間やリポジトリを変えてみてください。",
+  gitMergesLoadFailed: "マージの履歴を読み込めませんでした",
+  gitMergesPager: "マージの履歴のページ",
+  gitMergesNewer: "新しい方へ",
+  gitMergesOlder: "古い方へ",
+  gitMergesPage: "{n} ページ目",
+  gitMergesColSource: "リポジトリ・ブランチ",
+  gitMergesLeadHour: "1 時間",
+  gitMergesResult: "{n} ページ目、{count} 件のマージ",
+  gitMergesStale: "表示中の一覧は、前回読み込んだときのものです。",
   gitKindMr: "マージリクエスト",
   gitKindBranch: "ブランチ",
   gitKindCommit: "コミット",
@@ -419,6 +487,40 @@ export const en: GitTranslations = {
   gitPageRecentEmpty: "Nothing linked to a PBI yet",
   gitPageRecentEmptyDesc: "Put a PBI number in a branch name or merge request title and it shows up here.",
   gitPageOpenPbi: "Open {key} in the backlog",
+  gitMergesTitle: "Merge history",
+  gitMergesNote: "Merged merge requests that are linked to a PBI, newest first. Who merged and the target branch are shown only for merges recorded since Kanflow started keeping them.",
+  gitMergesCaption: "Merged merge requests (newest first)",
+  gitMergesPeriod: "Period",
+  gitMergesPeriodAll: "All time",
+  gitMergesPeriodDays: "Last {n} days",
+  gitMergesPeriodYear: "Last year",
+  gitMergesRepo: "Repository",
+  gitMergesRepoAll: "All repositories",
+  gitMergesColMergedAt: "Merged at",
+  gitMergesColMr: "Merge request",
+  gitMergesColPbi: "PBI",
+  gitMergesColAuthor: "Author",
+  gitMergesColMergedBy: "Merged by",
+  gitMergesColTarget: "Target branch",
+  gitMergesColLead: "Opened to merged",
+  gitMergesLeadUnderHour: "Under 1 hour",
+  gitMergesLeadHours: "{n} hours",
+  gitMergesLeadDays: "{n} days",
+  gitMergesUnknown: "Unknown",
+  gitMergesOpenMr: "opens in a new tab",
+  gitMergesEmpty: "No merged merge requests yet",
+  gitMergesEmptyDesc: "When a merge request linked to a PBI is merged, it shows up here.",
+  gitMergesEmptyFiltered: "No merges match these filters",
+  gitMergesEmptyFilteredDesc: "Try another period or repository.",
+  gitMergesLoadFailed: "Could not load the merge history",
+  gitMergesPager: "Merge history pages",
+  gitMergesNewer: "Newer",
+  gitMergesOlder: "Older",
+  gitMergesPage: "Page {n}",
+  gitMergesColSource: "Repository and branch",
+  gitMergesLeadHour: "1 hour",
+  gitMergesResult: "Page {n}, {count} merges",
+  gitMergesStale: "The list shown is from the previous load.",
   gitKindMr: "Merge request",
   gitKindBranch: "Branch",
   gitKindCommit: "Commit",
@@ -565,6 +667,40 @@ export const id: GitTranslations = {
   gitPageRecentEmpty: "Belum ada aktivitas yang tertaut ke PBI",
   gitPageRecentEmptyDesc: "Sertakan nomor PBI di nama branch atau judul merge request agar muncul di sini.",
   gitPageOpenPbi: "Buka {key} di backlog",
+  gitMergesTitle: "Riwayat merge",
+  gitMergesNote: "Merge request yang tertaut ke PBI dan sudah di-merge, dari yang terbaru. Siapa yang melakukan merge dan branch tujuan hanya ditampilkan untuk merge yang tercatat sejak Kanflow mulai menyimpannya.",
+  gitMergesCaption: "Merge request yang sudah di-merge (terbaru lebih dulu)",
+  gitMergesPeriod: "Periode",
+  gitMergesPeriodAll: "Semua waktu",
+  gitMergesPeriodDays: "{n} hari terakhir",
+  gitMergesPeriodYear: "1 tahun terakhir",
+  gitMergesRepo: "Repositori",
+  gitMergesRepoAll: "Semua repositori",
+  gitMergesColMergedAt: "Waktu merge",
+  gitMergesColMr: "Merge request",
+  gitMergesColPbi: "PBI",
+  gitMergesColAuthor: "Pembuat",
+  gitMergesColMergedBy: "Di-merge oleh",
+  gitMergesColTarget: "Branch tujuan",
+  gitMergesColLead: "Durasi hingga merge",
+  gitMergesLeadUnderHour: "Kurang dari 1 jam",
+  gitMergesLeadHours: "{n} jam",
+  gitMergesLeadDays: "{n} hari",
+  gitMergesUnknown: "Tidak diketahui",
+  gitMergesOpenMr: "buka di tab baru",
+  gitMergesEmpty: "Belum ada merge request yang di-merge",
+  gitMergesEmptyDesc: "Merge request tertaut ke PBI akan muncul di sini setelah di-merge.",
+  gitMergesEmptyFiltered: "Tidak ada merge yang cocok dengan filter ini",
+  gitMergesEmptyFilteredDesc: "Coba periode atau repositori lain.",
+  gitMergesLoadFailed: "Riwayat merge tidak dapat dimuat",
+  gitMergesPager: "Halaman riwayat merge",
+  gitMergesNewer: "Lebih baru",
+  gitMergesOlder: "Lebih lama",
+  gitMergesPage: "Halaman {n}",
+  gitMergesColSource: "Repositori dan branch",
+  gitMergesLeadHour: "1 jam",
+  gitMergesResult: "Halaman {n}, {count} merge",
+  gitMergesStale: "Daftar yang ditampilkan berasal dari pemuatan sebelumnya.",
   gitKindMr: "Merge request",
   gitKindBranch: "Branch",
   gitKindCommit: "Commit",

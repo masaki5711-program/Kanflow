@@ -58,6 +58,18 @@ export interface GitStationEvent {
   project_id: number
   work_items: { provider: string; project_id: string; ref: string }[]
   data: Record<string, unknown>
+  /**
+   * Who caused the event (integration-feed.md `actor`), reduced to the names Kanflow shows (マージの履歴):
+   * `user` is null for kind "system". Names are as of the read. Email and employee number are never kept,
+   * even when the token's scopes make the feed send them. Null = the event named no actor.
+   */
+  actor: GitStationActor | null
+}
+
+export interface GitStationActor {
+  /** user | service_account | user_via_service_account | system */
+  kind: string
+  user: { username: string | null; display_name: string | null } | null
 }
 
 export interface GitStationFeedPage {
@@ -331,7 +343,14 @@ const isId = (v: unknown): v is number => typeof v === "number" && Number.isSafe
 function parseEvent(v: unknown): GitStationEvent | null {
   if (!isObject(v) || !str(v.id) || !str(v.type) || !str(v.occurred_at) || !isId(v.project_id) || !isObject(v.data)) return null
   const workItems = Array.isArray(v.work_items) ? v.work_items.filter((w): w is GitStationEvent["work_items"][number] => isObject(w) && str(w.provider) && str(w.project_id) && str(w.ref)) : []
-  return { cursor: str(v.cursor) ? v.cursor : "", id: v.id, type: v.type, occurred_at: v.occurred_at, project_id: v.project_id, work_items: workItems, data: v.data }
+  return { cursor: str(v.cursor) ? v.cursor : "", id: v.id, type: v.type, occurred_at: v.occurred_at, project_id: v.project_id, work_items: workItems, data: v.data, actor: parseActor(v.actor) }
+}
+
+/** The event's actor, names only (anything else the feed sends about the person is dropped here). */
+function parseActor(v: unknown): GitStationActor | null {
+  if (!isObject(v) || !str(v.kind)) return null
+  const user = isObject(v.user) ? { username: str(v.user.username) ? v.user.username : null, display_name: str(v.user.display_name) ? v.user.display_name : null } : null
+  return { kind: v.kind, user }
 }
 
 /** A merge request of the expected shape, else null (a listing skips it, a detail read refuses it). */

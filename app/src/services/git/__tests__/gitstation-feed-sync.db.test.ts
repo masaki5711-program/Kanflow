@@ -172,6 +172,22 @@ describe.skipIf(!enabled)("GitStation feed sync on a real database (KANFLOW_DB_T
     expect(link.mergedAt!.getTime()).toBeLessThan(link.occurredAt.getTime())
   })
 
+  it("N11: stores who merged and the target branch from the merged event; a later re-read (which names no merger) keeps them", async () => {
+    await started()
+    const where = { repositoryId: ids.repoA1, kind: "mr", ref: "3" }
+    station.mergeRequest("merge_request.opened", 3, { project: "app/portal", title: "Reset (PBI-1)" }, station.workItem("PBI-1", ids.projectA))
+    await sync()
+    expect(await prisma.gitLink.findFirstOrThrow({ where })).toMatchObject({ state: "opened", targetBranch: "main", mergedBy: null })
+    station.mergeRequest("merge_request.merged", 3, { project: "app/portal" }, station.workItem("PBI-1", ids.projectA))
+    await sync()
+    expect(await prisma.gitLink.findFirstOrThrow({ where })).toMatchObject({ state: "merged", targetBranch: "main", mergedBy: "Dev One" })
+    // The events are gone; the restart reads the development status, which does not say who merged.
+    station.prune()
+    await service.resyncRepository(ids.projectA, ids.repoA1, actor, NOW)
+    await sync()
+    expect(await prisma.gitLink.findFirstOrThrow({ where })).toMatchObject({ state: "merged", targetBranch: "main", mergedBy: "Dev One" })
+  })
+
   it("stores pushed commits that name a PBI, linked from the history GitStation keeps", async () => {
     await started()
     station.pushed("app/portal", "refs/heads/main", [{ subject: "fix: lock (PBI-1)" }], [])

@@ -147,7 +147,18 @@ export const toDevMergeRequest = (mr: GitLabMergeRequest): DevMergeRequest => ({
   updatedAt: mr.updated_at,
   mergedAt: mr.merged_at,
   openedAt: mr.created_at ?? null,
+  targetBranch: text(mr.target_branch),
+  mergedBy: personName(mr.merge_user) ?? personName(mr.merged_by),
 })
+
+/** The listing is not validated field by field: anything that is not a non-empty string counts as unknown. */
+function text(v: unknown): string | null {
+  return typeof v === "string" && v.trim() !== "" ? v : null
+}
+
+function personName(p: { name?: unknown; username?: unknown } | null | undefined): string | null {
+  return p && typeof p === "object" ? (text(p.name) ?? text(p.username)) : null
+}
 
 export const toDevCommit = (c: GitLabCommit): DevCommit => ({
   sha: c.id,
