@@ -109,18 +109,42 @@ export interface ActiveParams {
 
 /**
  * The lineage's active approved estimator settings (plan_estimate_param_approval), whatever their method (null =
- * none). A stored value outside the search grid is a broken invariant (only grid values are ever written): it is never
- * used — the approval ends as "failed" (logged with its id), and the lineage uses the defaults, so a bad row cannot
- * break every run and the daily catch-up of the lineage.
+ * none). A READ: it never writes. A stored value outside the search grid is a broken invariant (only grid values are
+ * ever written): it is never used — logged with its id, and null is returned so the lineage uses the defaults (fail
+ * closed) — and it is ended by `endInvalidParamApproval`, under the lineage's lock, on the backtest path (finalize,
+ * the daily catch-up, a recompute) or before an administrator's approval.
  */
 export async function activeParamApproval(lineage: string, db: Db = defaultDb): Promise<ActiveParams | null> {
   const row = await db.planEstimateParamApproval.findFirst({ where: { lineage, endedAt: null }, select: { id: true, methodVersion: true, approvedAt: true, params: true } })
   if (!row) return null
   if (isGridParams(row.params)) return { id: row.id, methodVersion: row.methodVersion, approvedAt: row.approvedAt, params: row.params }
-  log.error("approved estimator settings are outside the search grid; ended, the lineage uses the defaults", { lineage, paramApprovalId: row.id, methodVersion: row.methodVersion })
-  const endedAt = new Date(Math.max(Date.now(), row.approvedAt.getTime() + 1))
-  await db.planEstimateParamApproval.updateMany({ where: { id: row.id, endedAt: null }, data: { endedAt, endReason: "failed" } })
+  log.error("approved estimator settings are outside the search grid; not used, the lineage uses the defaults until the next backtest ends them", { lineage, paramApprovalId: row.id, methodVersion: row.methodVersion })
   return null
+}
+
+/**
+ * When to end a lineage's active approval: `now`, but after its approval and after every earlier end of the lineage
+ * ((lineage, endedAt) is unique, NULLS NOT DISTINCT: two ends at the same instant would collide). Under the lock.
+ */
+export async function paramApprovalEndTime(lineage: string, approvedAt: Date, now: Date, tx: Db): Promise<Date> {
+  const last = await tx.planEstimateParamApproval.aggregate({ where: { lineage }, _max: { endedAt: true } })
+  return new Date(Math.max(now.getTime(), approvedAt.getTime() + 1, (last._max.endedAt?.getTime() ?? 0) + 1))
+}
+
+/**
+ * End the lineage's active approval when its stored settings are outside the search grid (reason "failed"). The caller
+ * holds the lineage's advisory lock (`plan_estimate_eval:<lineage>`) in `tx`. The ended row — endedAt, endReason, never
+ * deleted — is the audit record (an approval belongs to a lineage, not to a project, so there is no project history to
+ * write to); the warning log carries the id. Returns the id it ended (null = nothing to end).
+ */
+export async function endInvalidParamApproval(lineage: string, tx: Db, now: Date = new Date()): Promise<string | null> {
+  const row = await tx.planEstimateParamApproval.findFirst({ where: { lineage, endedAt: null }, select: { id: true, approvedAt: true, params: true } })
+  if (!row || isGridParams(row.params)) return null
+  const endedAt = await paramApprovalEndTime(lineage, row.approvedAt, now, tx)
+  const res = await tx.planEstimateParamApproval.updateMany({ where: { id: row.id, endedAt: null }, data: { endedAt, endReason: "failed" } })
+  if (res.count !== 1) return null
+  log.warn("approved estimator settings outside the search grid ended; the lineage uses the defaults", { lineage, paramApprovalId: row.id, endReason: "failed", cause: "outside_grid" })
+  return row.id
 }
 
 /** Active settings that apply to the CURRENT method (an approval of an older method is ignored, and ended by the next backtest). */
