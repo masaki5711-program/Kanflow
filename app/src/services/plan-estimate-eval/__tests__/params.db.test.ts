@@ -13,7 +13,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
  */
 const enabled = process.env.KANFLOW_DB_TESTS === "1"
 const d = (s: string) => new Date(`${s}T00:00:00.000Z`)
-const NOW = new Date("2026-11-10T03:00:00.000Z")
+// The real clock: approving settings records its backtest row on the real (Tokyo) date, so the backtests the
+// tests run must fall on that same day — a fixed date passed only on the day it was written.
+const NOW = new Date()
 
 describe.skipIf(!enabled)("estimator settings proposals (KANFLOW_DB_TESTS=1)", () => {
   const tag = `pstest-${Date.now().toString(36)}`
