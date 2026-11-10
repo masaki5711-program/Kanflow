@@ -8,6 +8,8 @@ import type { GitStationCommit, GitStationEvent, GitStationMergeRequest } from "
  * them), the same events from the same cursor, Bearer service-account token, numeric project ids,
  * unknown query parameters refused (400 FG-WEB-0006), and the error answers (410 with a reason,
  * 400 FG-INT-0008, 429 / 503 with Retry-After) on demand. Events carry ids only — never a title.
+ * Check runs (its docs/api/checks.md): one per project + commit + name, written again = updated (200),
+ * a commit the project cannot reach = 404 FG-REPO-0023.
  * Synthetic data only.
  */
 export const STATION = "https://gitstation.example"
@@ -58,7 +60,9 @@ const ALLOWED_QUERY: Record<string, string[]> = {
   devStatus: ["cursor", "limit", "state"],
 }
 
-export function createFakeGitStation(options: { pageSize?: number; devStatusPageSize?: number } = {}) {
+/** `origin`: the address this GitStation answers at (a test file with its own address shares no feed with the others). */
+export function createFakeGitStation(options: { pageSize?: number; devStatusPageSize?: number; origin?: string } = {}) {
+  const origin = options.origin ?? STATION
   const pageSize = options.pageSize ?? 500
   const devStatusPageSize = options.devStatusPageSize ?? 100
   const events: GitStationEvent[] = []
@@ -79,6 +83,8 @@ export function createFakeGitStation(options: { pageSize?: number; devStatusPage
   /** Projects whose merge request listing fails (403), every time. */
   const failingState = new Set<number>()
   const requests: string[] = []
+  /** Check runs written (POST …/commits/{sha}/checks), in order; `status` is the answer (201 new, 200 the same commit and name again). */
+  const checks: { projectId: number; sha: string; status: number; body: Record<string, unknown> }[] = []
   let seq = 0
   let nextProjectId = REPO_ID
 
@@ -201,7 +207,7 @@ export function createFakeGitStation(options: { pageSize?: number; devStatusPage
     const url = new URL(String(input))
     requests.push(`${url.pathname}${url.search}`)
     const headers = new Headers(init?.headers)
-    if (url.origin !== STATION) return json(404, {})
+    if (url.origin !== origin) return json(404, {})
     if (headers.get("authorization") !== `Bearer ${TOKEN}`) return json(401, { error_code: "FG-AUTH-0001", user_message: "token", request_id: "r" })
     const path = url.pathname.replace(/^\/api\/v1/, "")
     const s = scripted.find((x) => path.startsWith(x.path) && x.times > 0)
@@ -334,6 +340,28 @@ export function createFakeGitStation(options: { pageSize?: number; devStatusPage
         truncated: false,
       })
     }
+    const check = /^\/commits\/([0-9a-f]{40}|[0-9a-f]{64})\/checks$/.exec(rest)
+    if (check && init?.method === "POST") {
+      let body: Record<string, unknown>
+      try {
+        const parsed: unknown = JSON.parse(String(init.body))
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return paramInvalid("body")
+        body = parsed as Record<string, unknown>
+      } catch {
+        return paramInvalid("body")
+      }
+      if (headers.get("content-type") !== "application/json") return paramInvalid("content-type")
+      if (typeof body.name !== "string" || !/^[a-z0-9-]+\/[a-z0-9-]+$/.test(body.name)) return paramInvalid("name")
+      // A conclusion goes with `completed` only, and always.
+      if (body.status !== "completed" || typeof body.conclusion !== "string") return paramInvalid("status")
+      if (typeof body.summary !== "string") return paramInvalid("summary")
+      const sha = check[1]
+      const reachable = [...mergeRequests.values()].some((x) => x.project_id === p.id && x.head_sha === sha) || (history.get(p.id) ?? []).some((c) => c.oid === sha)
+      if (!reachable) return json(404, { error_code: "FG-REPO-0023", user_message: "commit", request_id: "r" })
+      const again = checks.some((c) => c.projectId === p.id && c.sha === sha && c.body.name === body.name)
+      checks.push({ projectId: p.id, sha, status: again ? 200 : 201, body })
+      return json(again ? 200 : 201, { id: checks.length, name: body.name, status: "completed", conclusion: body.conclusion })
+    }
     if (rest === "/repository/commits") {
       const bad = badQuery(url, ALLOWED_QUERY.commits)
       if (bad) return bad
@@ -350,6 +378,13 @@ export function createFakeGitStation(options: { pageSize?: number; devStatusPage
   return {
     fetchImpl,
     requests,
+    checks,
+    /** A push to the merge request's source branch: its head commit moves (no event; the state is what the API answers). */
+    moveHead: (iid: number, sha: string, path = REPO) => {
+      const key = `${project(path).id}!${iid}`
+      const mr = mergeRequests.get(key)
+      if (mr) mergeRequests.set(key, { ...mr, head_sha: sha })
+    },
     events,
     push,
     mergeRequest,

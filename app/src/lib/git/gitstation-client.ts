@@ -416,6 +416,14 @@ function parseDevStatusMergeRequest(v: unknown): GitStationMergeRequest | null {
   return { ...mr, merged_at: str(v.merged_at) && !Number.isNaN(Date.parse(v.merged_at)) ? v.merged_at : null }
 }
 
+/** A completed check run as Kanflow reports it (the conclusions Kanflow uses; `summary` is plain text). */
+export interface GitStationCheckReport {
+  /** `<namespace>/<name>`; the service account must hold the namespace for the project. */
+  name: string
+  conclusion: "success" | "action_required"
+  summary: string
+}
+
 const OID = /^[0-9a-f]{40}([0-9a-f]{24})?$/
 
 /** A commit id GitStation would accept as `?ref=` (40 or 64 lower-case hex). */
@@ -605,6 +613,17 @@ export function createGitStationClient({ apiBase, token, integrationId, fetchImp
       const mr = parseMergeRequest(await send(`${projectBase(projectId)}/merge-requests/${iid}`, {}))
       if (!mr || mr.project_id !== projectId || mr.iid !== iid) throw new GitStationError("invalid_response", "GitStation merge request has an unexpected shape")
       return mr
+    },
+
+    /**
+     * Reports a completed check run on a commit (GitStation docs/api/checks.md). Sent once, never retried: the same
+     * name on the same commit is one row there, so the caller's next report overwrites it. GitStation answers 201
+     * (new) or 200 (overwritten); the answer's body is not needed and is dropped unread.
+     */
+    async reportCheck(projectId: number, sha: string, check: GitStationCheckReport): Promise<void> {
+      if (!isObjectId(sha)) throw new GitStationError("invalid_response", "not a commit id")
+      const res = await sendOnce(`${projectBase(projectId)}/commits/${sha}/checks`, {}, { body: { name: check.name, status: "completed", conclusion: check.conclusion, summary: check.summary } })
+      await res.body?.cancel().catch(() => undefined)
     },
 
     /** Branches or tags of a project (GitStation lists up to its cap, without paging: `truncated` = cut short). */

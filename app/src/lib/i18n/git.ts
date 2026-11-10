@@ -10,12 +10,25 @@ export interface GitTranslations {
   gitStatusSynced: string
   gitStatusNever: string
   gitStatusError: string
+  gitSyncFailed: string
   gitSyncCursorInvalid: string
   gitSyncStationTruncated: string
   gitSyncStationHostNotAllowed: string
   gitSyncStationNotBound: string
   gitSyncStationHeld: string
   gitSyncStationQuarantined: string
+  gitSyncStationNoIntegration: string
+  gitSyncStationAuth: string
+  gitSyncStationForbidden: string
+  gitSyncStationNotFound: string
+  gitSyncStationGone: string
+  gitSyncStationRateLimited: string
+  gitSyncStationUnavailable: string
+  gitSyncStationNetwork: string
+  gitSyncStationInvalidResponse: string
+  gitSyncStationHttp: string
+  gitSyncAcceptanceRefused: string
+  gitSyncAcceptanceCommitMissing: string
   gitOwnToken: string
   gitOpenInGitLab: string
   gitSetTitle: string
@@ -52,6 +65,10 @@ export interface GitTranslations {
   gitSetStationIntegrationSave: string
   gitSetStationIntegrationMissing: string
   gitSetAutoCompleteHelp: string
+  gitSetAcceptanceCheck: string
+  gitSetAcceptanceCheckHelp: string
+  gitSetAcceptanceCheckError: string
+  gitSetAcceptanceCheckErrorNoTime: string
   gitSetRepos: string
   gitSetReposEmpty: string
   gitSetRepoName: string
@@ -133,12 +150,26 @@ export const ja: GitTranslations = {
   gitStatusSynced: "最終同期 {time}",
   gitStatusNever: "まだ同期していません",
   gitStatusError: "同期エラー（{time}）",
+  gitSyncFailed: "同期中にエラーが発生しました",
   gitSyncCursorInvalid: "同期位置の記録を読み取れません。リポジトリの「過去分を再同期」でやり直してください。",
   gitSyncStationTruncated: "GitStation の状態の取り直しが、1 回に読める上限を超えました。管理者に連絡してください。",
   gitSyncStationHostNotAllowed: "GitStation のホストが許可されていません（GITSTATION_ALLOWED_HOSTS）。管理者に連絡してください。",
   gitSyncStationNotBound: "このリポジトリは GitStation でこのプロジェクトだけに結び付けられていません。GitStation の管理者に、このプロジェクトへの結び付けを依頼してください（結び付けが戻ると状態を取り直します）。",
   gitSyncStationHeld: "リポジトリを確かめられない・書き込めないものがあったため、イベントの履歴の位置を進めていません。次回の同期でやり直します。",
   gitSyncStationQuarantined: "このリポジトリは 3 回続けて書き込めなかったため、いったん外しました（他のリポジトリは進みます）。状態は後で取り直します。",
+  gitSyncStationNoIntegration: "GitStation の連携 ID が設定されていません。チーム設定の Git 連携で入れてください。",
+  gitSyncStationAuth: "GitStation がトークンを拒否しました（無効または期限切れ）。連携のサービスアカウントの新しいトークンを設定してください。",
+  gitSyncStationForbidden: "連携のサービスアカウントに、このリポジトリを読む権限がありません。GitStation で連携にリポジトリを結び付けてください。",
+  gitSyncStationNotFound: "リポジトリか連携が GitStation に見つからないか、この連携からは見えません。URL と連携 ID を確認してください。",
+  gitSyncStationGone: "GitStation のイベントの履歴の位置が無効になりました。状態を取り直します（次回の同期）。",
+  gitSyncStationRateLimited: "GitStation の利用制限に達しました。次回の同期で再試行します。",
+  gitSyncStationUnavailable: "GitStation が一時的に利用できません。次回の同期で再試行します。",
+  gitSyncStationNetwork: "GitStation に接続できませんでした。次回の同期で再試行します。",
+  gitSyncStationInvalidResponse: "GitStation から想定外の応答がありました。次回の同期で再試行します（続く場合は管理者に連絡してください）。",
+  gitSyncStationHttp: "GitStation がエラーを返しました（{status}）。次回の同期で再試行します。",
+  gitSyncAcceptanceRefused:
+    "GitStation がチェックの報告を拒否しました。GitStation の管理者に、連携のサービスアカウントへこのリポジトリの kanflow チェックを報告する許可（check-grants）と、Developer 以上の権限を依頼してください。",
+  gitSyncAcceptanceCommitMissing: "チェックの報告先のコミットが GitStation に見つかりませんでした。次回の同期でやり直します。",
   gitOwnToken: "専用トークン",
   gitOpenInGitLab: "GitLab で開く（新しいタブ）",
   gitSetTitle: "Git 連携（GitLab）",
@@ -179,6 +210,11 @@ export const ja: GitTranslations = {
   gitSetAutoComplete: "マージで自動完了",
   gitSetAutoCompleteHelp:
     "PBI にひも付いたマージリクエストが「すべて」マージされたら、実行中のスプリントにあるその PBI の進行中タスクを自動で「完了」にします。",
+  gitSetAcceptanceCheck: "受入の準備を GitStation に報告",
+  gitSetAcceptanceCheckHelp:
+    "PBI にひも付いた開いているマージリクエストごとに、チェック「kanflow/acceptance」を GitStation に報告します。ひも付いた PBI のすべてに、開いているスプリントのタスクがあり、受入基準が 1 つ以上あって、そのすべてに確認の方法が決まっていれば「成功」、足りなければ「対応が必要」になります。報告するだけで、マージを止めるかどうかは GitStation 側の設定です。機密の PBI にひも付いたマージリクエストは報告しません。",
+  gitSetAcceptanceCheckError: "報告できませんでした（{time}）",
+  gitSetAcceptanceCheckErrorNoTime: "報告できませんでした",
   gitSetRepos: "リポジトリ",
   gitSetReposEmpty: "まだリポジトリが登録されていません。下のフォームから追加してください。",
   gitSetRepoName: "表示名",
@@ -260,12 +296,26 @@ export const en: GitTranslations = {
   gitStatusSynced: "Last synced {time}",
   gitStatusNever: "Not synced yet",
   gitStatusError: "Sync error ({time})",
+  gitSyncFailed: "An error occurred during the sync.",
   gitSyncCursorInvalid: "The stored sync position cannot be read. Use “Resync history” on the repository to start over.",
   gitSyncStationTruncated: "GitStation lists more than Kanflow reads at once, so the state cannot be re-read. Contact an administrator.",
   gitSyncStationHostNotAllowed: "The GitStation host is not allowed (GITSTATION_ALLOWED_HOSTS). Contact an administrator.",
   gitSyncStationNotBound: "In GitStation this repository is not bound to this project alone. Ask the GitStation administrator to bind it (its state is re-read once it is).",
   gitSyncStationHeld: "Some repositories could not be checked or written, so the event history position was not advanced. The next sync tries again.",
   gitSyncStationQuarantined: "This repository could not be written 3 times in a row and is set aside (the others go on); its state is re-read later.",
+  gitSyncStationNoIntegration: "The GitStation integration ID is not set. Enter it under Git integration in the project's Settings.",
+  gitSyncStationAuth: "GitStation rejected the token (invalid or expired). Set a new token of the integration's service account.",
+  gitSyncStationForbidden: "The integration's service account is not allowed to read this repository. Bind the repository to the integration in GitStation.",
+  gitSyncStationNotFound: "The repository or the integration was not found in GitStation, or this integration cannot see it. Check the URL and the integration ID.",
+  gitSyncStationGone: "The position in GitStation's event history is no longer valid. The state is re-read at the next sync.",
+  gitSyncStationRateLimited: "GitStation's rate limit was reached. The next sync tries again.",
+  gitSyncStationUnavailable: "GitStation is temporarily unavailable. The next sync tries again.",
+  gitSyncStationNetwork: "Could not connect to GitStation. The next sync tries again.",
+  gitSyncStationInvalidResponse: "GitStation gave an unexpected answer. The next sync tries again (contact an administrator if it continues).",
+  gitSyncStationHttp: "GitStation returned an error ({status}). The next sync tries again.",
+  gitSyncAcceptanceRefused:
+    "GitStation refused the check report. Ask GitStation's administrator to allow the integration's service account to report kanflow checks for this repository (check-grants) and to give it Developer access or higher.",
+  gitSyncAcceptanceCommitMissing: "The commit to report on was not found in GitStation. It is tried again at the next sync.",
   gitOwnToken: "Own token",
   gitOpenInGitLab: "Open in GitLab (new tab)",
   gitSetTitle: "Git integration (GitLab)",
@@ -306,6 +356,11 @@ export const en: GitTranslations = {
   gitSetAutoComplete: "Complete on merge",
   gitSetAutoCompleteHelp:
     "When ALL merge requests linked to a PBI are merged, that PBI's in-progress tasks in the active sprint are marked done automatically.",
+  gitSetAcceptanceCheck: "Report acceptance readiness to GitStation",
+  gitSetAcceptanceCheckHelp:
+    "For every open merge request linked to PBIs, the check \"kanflow/acceptance\" is reported to GitStation. It is \"success\" when every linked PBI has a task in an open sprint and at least one acceptance criterion, all with a decided way of proof, and \"action required\" otherwise. It only reports: whether a merge waits for it is set in GitStation. Merge requests linked to a confidential PBI are not reported.",
+  gitSetAcceptanceCheckError: "Could not report ({time})",
+  gitSetAcceptanceCheckErrorNoTime: "Could not report",
   gitSetRepos: "Repositories",
   gitSetReposEmpty: "No repositories yet. Add one with the form below.",
   gitSetRepoName: "Display name",
@@ -387,12 +442,26 @@ export const id: GitTranslations = {
   gitStatusSynced: "Terakhir disinkronkan {time}",
   gitStatusNever: "Belum pernah disinkronkan",
   gitStatusError: "Gagal sinkronisasi ({time})",
+  gitSyncFailed: "Terjadi kesalahan saat sinkronisasi.",
   gitSyncCursorInvalid: "Posisi sinkronisasi yang tersimpan tidak dapat dibaca. Gunakan “Sinkronkan ulang riwayat” pada repositori untuk mengulang.",
   gitSyncStationTruncated: "GitStation mencantumkan lebih banyak dari yang dapat dibaca Kanflow sekaligus, sehingga statusnya tidak dapat dibaca ulang. Hubungi administrator.",
   gitSyncStationHostNotAllowed: "Host GitStation tidak diizinkan (GITSTATION_ALLOWED_HOSTS). Hubungi administrator.",
   gitSyncStationNotBound: "Di GitStation repositori ini tidak terikat hanya ke proyek ini. Minta administrator GitStation untuk mengikatnya (statusnya dibaca ulang setelah terikat).",
   gitSyncStationHeld: "Beberapa repositori tidak dapat diperiksa atau ditulis, sehingga posisi riwayat peristiwa tidak dimajukan. Sinkronisasi berikutnya mencoba lagi.",
   gitSyncStationQuarantined: "Repositori ini gagal ditulis 3 kali berturut-turut dan disisihkan (yang lain tetap berjalan); statusnya dibaca ulang nanti.",
+  gitSyncStationNoIntegration: "ID integrasi GitStation belum diatur. Isi di bagian integrasi Git pada Pengaturan proyek.",
+  gitSyncStationAuth: "GitStation menolak token (tidak valid atau kedaluwarsa). Atur token baru dari akun layanan integrasi.",
+  gitSyncStationForbidden: "Akun layanan integrasi tidak berhak membaca repositori ini. Ikat repositori ke integrasi di GitStation.",
+  gitSyncStationNotFound: "Repositori atau integrasi tidak ditemukan di GitStation, atau tidak terlihat dari integrasi ini. Periksa URL dan ID integrasi.",
+  gitSyncStationGone: "Posisi riwayat peristiwa GitStation tidak berlaku lagi. Statusnya dibaca ulang pada sinkronisasi berikutnya.",
+  gitSyncStationRateLimited: "Batas penggunaan GitStation tercapai. Sinkronisasi berikutnya mencoba lagi.",
+  gitSyncStationUnavailable: "GitStation sementara tidak tersedia. Sinkronisasi berikutnya mencoba lagi.",
+  gitSyncStationNetwork: "Tidak dapat terhubung ke GitStation. Sinkronisasi berikutnya mencoba lagi.",
+  gitSyncStationInvalidResponse: "GitStation memberi jawaban yang tidak terduga. Sinkronisasi berikutnya mencoba lagi (hubungi administrator jika berlanjut).",
+  gitSyncStationHttp: "GitStation mengembalikan kesalahan ({status}). Sinkronisasi berikutnya mencoba lagi.",
+  gitSyncAcceptanceRefused:
+    "GitStation menolak laporan pemeriksaan. Minta administrator GitStation mengizinkan akun layanan integrasi melaporkan pemeriksaan kanflow untuk repositori ini (check-grants) dan memberinya akses Developer atau lebih tinggi.",
+  gitSyncAcceptanceCommitMissing: "Commit tujuan laporan tidak ditemukan di GitStation. Akan dicoba lagi pada sinkronisasi berikutnya.",
   gitOwnToken: "Token sendiri",
   gitOpenInGitLab: "Buka di GitLab (tab baru)",
   gitSetTitle: "Integrasi Git (GitLab)",
@@ -433,6 +502,11 @@ export const id: GitTranslations = {
   gitSetAutoComplete: "Selesai otomatis saat merge",
   gitSetAutoCompleteHelp:
     "Jika SEMUA merge request yang tertaut ke sebuah PBI sudah di-merge, tugas PBI tersebut yang sedang dikerjakan di sprint aktif otomatis ditandai selesai.",
+  gitSetAcceptanceCheck: "Laporkan kesiapan penerimaan ke GitStation",
+  gitSetAcceptanceCheckHelp:
+    "Untuk setiap merge request terbuka yang tertaut ke PBI, pemeriksaan \"kanflow/acceptance\" dilaporkan ke GitStation. Hasilnya \"berhasil\" jika setiap PBI yang tertaut memiliki tugas di sprint yang terbuka dan minimal satu kriteria penerimaan, dan cara pembuktian semua kriteria itu sudah ditentukan; jika belum, hasilnya \"perlu tindakan\". Ini hanya laporan: apakah merge menunggu pemeriksaan ini diatur di GitStation. Merge request yang tertaut ke PBI rahasia tidak dilaporkan.",
+  gitSetAcceptanceCheckError: "Gagal melaporkan ({time})",
+  gitSetAcceptanceCheckErrorNoTime: "Gagal melaporkan",
   gitSetRepos: "Repositori",
   gitSetReposEmpty: "Belum ada repositori. Tambahkan melalui formulir di bawah.",
   gitSetRepoName: "Nama tampilan",

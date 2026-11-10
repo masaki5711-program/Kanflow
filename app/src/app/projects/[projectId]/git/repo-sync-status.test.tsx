@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { screen } from "@testing-library/react"
 import { getTranslations } from "@/lib/i18n"
-import { CURSOR_INVALID_MESSAGE, syncMessageKey } from "@/lib/git/sync-messages"
+import { CURSOR_INVALID_MESSAGE, STATION_AUTH_MESSAGE, stationHttpMessage, syncMessageKey } from "@/lib/git/sync-messages"
 import { renderWithProviders } from "../settings/__tests__/providers"
 import { RepoSyncStatus } from "./repo-sync-status"
 
@@ -12,6 +12,18 @@ describe("RepoSyncStatus — stored messages in the viewer's language", () => {
   it.each(["ja", "en", "id"] as const)("shows the unreadable-cursor message in %s", (language) => {
     renderWithProviders(<RepoSyncStatus repo={failed(CURSOR_INVALID_MESSAGE)} now={NOW} />, { language })
     expect(screen.getByText(getTranslations(language).gitSyncCursorInvalid, { exact: false })).toBeInTheDocument()
+  })
+
+  it.each(["en", "id"] as const)("shows what GitStation answered in %s, not as stored", (language) => {
+    const t = getTranslations(language)
+    renderWithProviders(<RepoSyncStatus repo={failed(STATION_AUTH_MESSAGE)} now={NOW} />, { language })
+    expect(screen.getByText(t.gitSyncStationAuth, { exact: false })).toBeInTheDocument()
+    expect(screen.queryByText(STATION_AUTH_MESSAGE, { exact: false })).toBeNull()
+  })
+
+  it("keeps the status of an answer that has no text of its own", () => {
+    renderWithProviders(<RepoSyncStatus repo={failed(stationHttpMessage(500))} now={NOW} />, { language: "en" })
+    expect(screen.getByText(getTranslations("en").gitSyncStationHttp.replace("{status}", "500"), { exact: false })).toBeInTheDocument()
   })
 
   it("shows any other stored message as stored", () => {

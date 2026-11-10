@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import type { GitStationErrorKind } from "@/lib/git/gitstation-client"
 import type { DevConnection } from "../dev-source"
 import { describeDevSourceContract } from "./dev-source-contract"
 import { createFakeGitStation, INTEGRATION, oid, PROJECT_ID, REPO, REPO_ID, STATION, STATION_HOST, TOKEN, type FakeGitStation } from "./fake-gitstation"
@@ -767,6 +768,63 @@ describe("GitStation messages", () => {
       for (const t of [ja, en, id]) expect(t[key!].length).toBeGreaterThan(10)
       expect(ja[key!]).toBe(info.message)
     }
+  })
+
+  it("the acceptance check's stored messages are shown in the viewer's language too (ja / en / id)", async () => {
+    const { syncMessageKey, ACCEPTANCE_REPORT_REFUSED_MESSAGE, ACCEPTANCE_COMMIT_MISSING_MESSAGE } = await import("@/lib/git/sync-messages")
+    const { ja, en, id } = await import("@/lib/i18n/git")
+    const keys = [ACCEPTANCE_REPORT_REFUSED_MESSAGE, ACCEPTANCE_COMMIT_MISSING_MESSAGE].map((message) => {
+      const key = syncMessageKey(message)
+      expect(key).not.toBeNull()
+      for (const t of [ja, en, id]) expect(t[key!].length).toBeGreaterThan(10)
+      expect(ja[key!]).toBe(message)
+      expect(en[key!]).not.toBe(message)
+      expect(id[key!]).not.toBe(en[key!])
+      return key
+    })
+    expect(keys).toEqual(["gitSyncAcceptanceRefused", "gitSyncAcceptanceCommitMissing"])
+  })
+
+  it("every failure the source can store reaches an English or Indonesian reader translated", async () => {
+    const { syncMessageText } = await import("@/lib/git/sync-messages")
+    const { ja, en, id } = await import("@/lib/i18n/git")
+    const { gitStationErrorMessage, MissingIntegrationError, NotBoundError } = await import("../gitstation-source")
+    // One entry per kind: a kind added to the client does not compile here until it is listed.
+    const kinds: Record<GitStationErrorKind, true> = {
+      auth: true,
+      forbidden: true,
+      not_found: true,
+      gone: true,
+      cursor_invalid: true,
+      rate_limited: true,
+      unavailable: true,
+      network: true,
+      invalid_response: true,
+      truncated: true,
+      host_not_allowed: true,
+      act_as_target_invalid: true,
+      http: true,
+    }
+    const failures: unknown[] = [
+      ...(Object.keys(kinds) as GitStationErrorKind[]).map((kind) => new GitStationError(kind, "x", kind === "http" ? 500 : undefined)),
+      new GitStationError("http", "x", 418),
+      new MissingIntegrationError(),
+      new NotBoundError(),
+      new Error("x"),
+      "not an error",
+    ]
+    const seen = new Set<string>()
+    for (const failure of failures) {
+      const stored = gitStationErrorMessage(failure)
+      seen.add(stored)
+      expect(syncMessageText(stored, ja)).toBe(stored)
+      expect(syncMessageText(stored, en)).not.toBe(stored)
+      expect(syncMessageText(stored, en)).toMatch(/^[\x20-\x7e’“”]+$/)
+      expect(syncMessageText(stored, id)).not.toBe(stored)
+      expect(syncMessageText(stored, id)).not.toBe(syncMessageText(stored, en))
+    }
+    expect(seen.size).toBeGreaterThanOrEqual(14)
+    expect(syncMessageText(gitStationErrorMessage(new GitStationError("http", "x", 418)), en)).toContain("418")
   })
 })
 

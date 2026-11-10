@@ -7,8 +7,10 @@ vi.mock("@/lib/prisma", () => ({ prisma: { gitRepository: { findMany: (...a: unk
 vi.mock("@/lib/logger", () => ({ logger: noopLog }))
 vi.mock("@/services/git/git.service", () => ({ pollIntervalSec: vi.fn(() => 180) }))
 vi.mock("@/services/sprint-backlog/sprint-backlog.service", () => ({ updateTask: vi.fn() }))
+vi.mock("@/services/git/acceptance-check.service", () => ({ reportAcceptanceChecks: vi.fn(async () => ({ reported: 0, unchanged: 0, failed: 0, waiting: 0 })) }))
 
 const { shouldStartGitPoller, runGitSyncTick } = await import("../poller")
+const { reportAcceptanceChecks } = await import("@/services/git/acceptance-check.service")
 /** No GitStation feed in these tests (the feed pass has its own tests). */
 const noFeeds = vi.fn(async () => [])
 
@@ -120,6 +122,54 @@ describe("runGitSyncTick", () => {
     await runGitSyncTick(sync, noFeeds)
     await runGitSyncTick(sync, noFeeds)
     expect(gitRepositoryFindMany).toHaveBeenCalledTimes(2)
+  })
+
+  it("reports the acceptance checks once per tick, after the repositories and the feeds", async () => {
+    gitRepositoryFindMany.mockResolvedValue([{ id: "r1" }])
+    const order: string[] = []
+    const sync = vi.fn(async () => {
+      order.push("sync")
+      return { repositoryId: "r1", ok: true, links: 0 }
+    })
+    const feeds = vi.fn(async () => {
+      order.push("feeds")
+      return []
+    })
+    const report = vi.fn(async () => {
+      order.push("acceptance")
+    })
+    expect(await runGitSyncTick(sync, feeds, report)).toBe(1)
+    expect(order).toEqual(["sync", "feeds", "acceptance"])
+    expect(report).toHaveBeenCalledTimes(1)
+  })
+
+  it("uses the acceptance check service when no reporter is passed", async () => {
+    await runGitSyncTick(vi.fn(), noFeeds)
+    expect(reportAcceptanceChecks).toHaveBeenCalledTimes(1)
+    expect(reportAcceptanceChecks).toHaveBeenCalledWith()
+  })
+
+  it("a failing acceptance report is logged and never fails the tick", async () => {
+    gitRepositoryFindMany.mockResolvedValue([{ id: "r1" }])
+    const sync = vi.fn().mockResolvedValue({ repositoryId: "r1", ok: true, links: 0 })
+    const boom = new Error("boom")
+    const report = vi.fn(async () => {
+      throw boom
+    })
+    expect(await runGitSyncTick(sync, noFeeds, report)).toBe(1)
+    // The error itself, so the log keeps its stack.
+    expect(noopLog.error).toHaveBeenCalledWith("acceptance check tick failed", { error: boom })
+    // The next tick runs as usual (the failure did not leave the tick marked as running).
+    const again = vi.fn(async () => undefined)
+    expect(await runGitSyncTick(sync, noFeeds, again)).toBe(1)
+    expect(again).toHaveBeenCalledTimes(1)
+  })
+
+  it("does not report when the tick itself fails (the repository lookup rejects)", async () => {
+    gitRepositoryFindMany.mockRejectedValue(new Error("db down"))
+    const report = vi.fn(async () => undefined)
+    expect(await runGitSyncTick(vi.fn(), noFeeds, report)).toBe(0)
+    expect(report).not.toHaveBeenCalled()
   })
 })
 

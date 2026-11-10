@@ -3,6 +3,7 @@ import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { getTranslations } from "@/lib/i18n"
 import { fillTemplate } from "@/lib/fill-template"
+import { ACCEPTANCE_REPORT_REFUSED_MESSAGE, STATION_UNAVAILABLE_MESSAGE } from "@/lib/git/sync-messages"
 import { jsonResponse, renderWithProviders } from "./__tests__/providers"
 
 const mocks = vi.hoisted(() => ({ refresh: vi.fn() }))
@@ -25,6 +26,8 @@ const REPO = {
 }
 const ON = { enabled: true, hasToken: true, tokenHint: "abcd", autoCompleteOnMerge: false, repositories: [REPO], pollIntervalSec: 180 }
 const OFF = { ...ON, enabled: false }
+/** A project that reads GitStation (no repository yet), the acceptance check off. */
+const STATION_ON = { ...ON, provider: "gitstation", stationIntegrationId: "7", repositories: [], stationAcceptanceCheck: false, acceptanceCheckError: null }
 
 type Handler = (url: string, init: RequestInit) => Response | Promise<Response>
 let settings: Record<string, unknown> = OFF
@@ -57,7 +60,30 @@ afterEach(() => vi.unstubAllGlobals())
 
 describe("toGitSettings", () => {
   it("reads a malformed body as off with nothing configured", () => {
-    expect(toGitSettings({ ok: true })).toEqual({ enabled: false, provider: "gitlab", stationIntegrationId: null, hasToken: false, tokenHint: null, autoCompleteOnMerge: false, repositories: [], pollIntervalSec: 180 })
+    expect(toGitSettings({ ok: true })).toEqual({
+      enabled: false,
+      provider: "gitlab",
+      stationIntegrationId: null,
+      hasToken: false,
+      tokenHint: null,
+      autoCompleteOnMerge: false,
+      stationAcceptanceCheck: false,
+      acceptanceCheckError: null,
+      repositories: [],
+      pollIntervalSec: 180,
+    })
+  })
+
+  it("keeps the acceptance check switch and its last error (message + time)", () => {
+    const at = "2026-11-10T01:02:03.000Z"
+    expect(toGitSettings({ stationAcceptanceCheck: true, acceptanceCheckError: { message: "x", at } })).toMatchObject({ stationAcceptanceCheck: true, acceptanceCheckError: { message: "x", at } })
+    expect(toGitSettings({ acceptanceCheckError: { message: "x", at: 5 } }).acceptanceCheckError).toEqual({ message: "x", at: null })
+    expect(toGitSettings({ acceptanceCheckError: { message: "x" } }).acceptanceCheckError).toEqual({ message: "x", at: null })
+  })
+
+  it("reads a malformed acceptance check state as off / no error", () => {
+    expect(toGitSettings({ stationAcceptanceCheck: "yes" }).stationAcceptanceCheck).toBe(false)
+    for (const bad of [{ message: 5 }, { message: "" }, { at: "2026-11-10T01:02:03.000Z" }, "x", 3, null, []]) expect(toGitSettings({ acceptanceCheckError: bad }).acceptanceCheckError).toBeNull()
   })
 })
 
@@ -198,6 +224,18 @@ describe("GitSection", () => {
     expect(bodyOf(calls("POST", `${BASE}/repositories`)[0])).toMatchObject({ token: "repo-token-xyz" })
   })
 
+  it("a refused connection test shows a stored Japanese reason in the reader's language", async () => {
+    const en = getTranslations("en")
+    settings = ON
+    overrides[`POST ${BASE}/test`] = () => jsonResponse({ ok: false, error: STATION_UNAVAILABLE_MESSAGE })
+    const user = userEvent.setup()
+    renderWithProviders(<GitSection projectId="p1" canConfigure />, { language: "en" })
+    await user.type(await screen.findByLabelText(en.gitSetAddUrl), "https://gitstation.example.com/a/b")
+    await user.click(screen.getByRole("button", { name: en.gitSetAddTest }))
+    expect(await screen.findByText(fillTemplate(en.gitSetAddTestFailed, { error: en.gitSyncStationUnavailable }))).toBeInTheDocument()
+    expect(screen.queryByText(new RegExp(STATION_UNAVAILABLE_MESSAGE))).not.toBeInTheDocument()
+  })
+
   it("requires a token before testing when none is configured", async () => {
     settings = { ...ON, hasToken: false, tokenHint: null }
     const user = userEvent.setup()
@@ -227,5 +265,80 @@ describe("GitSection", () => {
     expect(screen.queryByRole("button", { name: t.gitSetTokenChange })).toBeNull()
     expect(screen.queryByRole("button", { name: t.gitSetAddSubmit })).toBeNull()
     expect(screen.queryByRole("button", { name: fillTemplate(t.gitSetRepoRemoveOf, { name: REPO.name }) })).toBeNull()
+  })
+})
+
+describe("GitSection: acceptance check (GitStation)", () => {
+  it("is not offered to a project that reads GitLab", async () => {
+    settings = ON
+    renderWithProviders(<GitSection projectId="p1" canConfigure />)
+    await screen.findByRole("switch", { name: t.gitSetAutoComplete })
+    expect(screen.queryByRole("switch", { name: t.gitSetAcceptanceCheck })).toBeNull()
+  })
+
+  it("is off by default, explained, and saves at once when switched on", async () => {
+    settings = STATION_ON
+    const user = userEvent.setup()
+    renderWithProviders(<GitSection projectId="p1" canConfigure />)
+    const toggle = await screen.findByRole("switch", { name: t.gitSetAcceptanceCheck })
+    expect(toggle).not.toBeChecked()
+    expect(toggle).toHaveAccessibleDescription(t.gitSetAcceptanceCheckHelp)
+    await user.click(toggle)
+    await waitFor(() => expect(calls("PUT", BASE)).toHaveLength(1))
+    expect(bodyOf(calls("PUT", BASE)[0])).toEqual({ stationAcceptanceCheck: true })
+    await waitFor(() => expect(screen.getByRole("switch", { name: t.gitSetAcceptanceCheck })).toBeChecked())
+    expect(screen.getByText(t.settingsSaved)).toBeInTheDocument()
+  })
+
+  it("switching off saves at once too", async () => {
+    settings = { ...STATION_ON, stationAcceptanceCheck: true }
+    const user = userEvent.setup()
+    renderWithProviders(<GitSection projectId="p1" canConfigure />)
+    const toggle = await screen.findByRole("switch", { name: t.gitSetAcceptanceCheck })
+    expect(toggle).toBeChecked()
+    await user.click(toggle)
+    await waitFor(() => expect(calls("PUT", BASE)).toHaveLength(1))
+    expect(bodyOf(calls("PUT", BASE)[0])).toEqual({ stationAcceptanceCheck: false })
+    await waitFor(() => expect(screen.getByRole("switch", { name: t.gitSetAcceptanceCheck })).not.toBeChecked())
+  })
+
+  it("shows the last failed report in the viewer's language, as part of the switch's description", async () => {
+    const en = getTranslations("en")
+    settings = { ...STATION_ON, stationAcceptanceCheck: true, acceptanceCheckError: { message: ACCEPTANCE_REPORT_REFUSED_MESSAGE, at: new Date(Date.now() - 5 * 60_000).toISOString() } }
+    renderWithProviders(<GitSection projectId="p1" canConfigure />, { language: "en" })
+    const toggle = await screen.findByRole("switch", { name: en.gitSetAcceptanceCheck })
+    expect(screen.getByText(en.gitSyncAcceptanceRefused)).toBeInTheDocument()
+    expect(screen.queryByText(ACCEPTANCE_REPORT_REFUSED_MESSAGE)).toBeNull()
+    expect(toggle).toHaveAccessibleDescription(expect.stringContaining(en.gitSetAcceptanceCheckHelp))
+    expect(toggle).toHaveAccessibleDescription(expect.stringContaining(en.gitSyncAcceptanceRefused))
+    expect(toggle).toHaveAccessibleDescription(expect.stringContaining(en.gitSetAcceptanceCheckError.split("{time}")[0].trim()))
+  })
+
+  it("shows a message it does not know as stored, and says so without a time when the time is missing", async () => {
+    const stored = "GitStation が一時的に利用できません。次回の同期で再試行します。(synthetic)"
+    settings = { ...STATION_ON, stationAcceptanceCheck: true, acceptanceCheckError: { message: stored, at: null } }
+    renderWithProviders(<GitSection projectId="p1" canConfigure />)
+    await screen.findByRole("switch", { name: t.gitSetAcceptanceCheck })
+    expect(screen.getByText(stored)).toBeInTheDocument()
+    expect(screen.getByText(t.gitSetAcceptanceCheckErrorNoTime)).toBeInTheDocument()
+    expect(screen.queryByText("—", { exact: false })).toBeNull()
+  })
+
+  it("a failure of the connection is shown in the viewer's language too", async () => {
+    const id = getTranslations("id")
+    settings = { ...STATION_ON, stationAcceptanceCheck: true, acceptanceCheckError: { message: STATION_UNAVAILABLE_MESSAGE, at: new Date(Date.now() - 5 * 60_000).toISOString() } }
+    renderWithProviders(<GitSection projectId="p1" canConfigure />, { language: "id" })
+    const toggle = await screen.findByRole("switch", { name: id.gitSetAcceptanceCheck })
+    expect(screen.getByText(id.gitSyncStationUnavailable)).toBeInTheDocument()
+    expect(screen.queryByText(STATION_UNAVAILABLE_MESSAGE)).toBeNull()
+    expect(toggle).toHaveAccessibleDescription(expect.stringContaining(id.gitSyncStationUnavailable))
+  })
+
+  it("is read-only for a developer", async () => {
+    settings = { ...STATION_ON, stationAcceptanceCheck: true }
+    renderWithProviders(<GitSection projectId="p1" canConfigure={false} />)
+    const toggle = await screen.findByRole("switch", { name: t.gitSetAcceptanceCheck })
+    expect(toggle).toBeChecked()
+    expect(toggle).toBeDisabled()
   })
 })
