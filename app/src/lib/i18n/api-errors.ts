@@ -91,6 +91,7 @@ export interface ApiErrorsTranslations {
   apiErrPlanActualsIncomplete: string
   apiErrPlanActualsNotFound: string
   apiErrPlanActualsChanged: string
+  apiErrPlanActualsReviewHidden: string
   apiErrPlanActualsUserActive: string
   apiErrPlanActualsCurrent: string
   apiErrPlanRoleAssignmentInvalid: string
@@ -246,6 +247,7 @@ export const API_ERROR_MESSAGE_KEYS: Readonly<Record<ApiErrorCode, ApiErrorMessa
   PLAN_ACTUALS_INCOMPLETE: "apiErrPlanActualsIncomplete",
   PLAN_ACTUALS_NOT_FOUND: "apiErrPlanActualsNotFound",
   PLAN_ACTUALS_CHANGED: "apiErrPlanActualsChanged",
+  PLAN_ACTUALS_REVIEW_HIDDEN: "apiErrPlanActualsReviewHidden",
   PLAN_ACTUALS_USER_ACTIVE: "apiErrPlanActualsUserActive",
   PLAN_ACTUALS_CURRENT: "apiErrPlanActualsCurrent",
   PLAN_ROLE_ASSIGNMENT_INVALID: "apiErrPlanRoleAssignmentInvalid",
@@ -408,6 +410,7 @@ export const ja: ApiErrorsTranslations = {
   apiErrPlanActualsIncomplete: "実績に確かめてほしい項目があります。一覧を確かめてから確定してください",
   apiErrPlanActualsNotFound: "実績のスナップショットが見つかりません",
   apiErrPlanActualsChanged: "実績のスナップショットが変更されています。読み込み直してからやり直してください",
+  apiErrPlanActualsReviewHidden: "機密の PBI を含む項目の提案は採用できません（採用しないことはできます）",
   apiErrPlanActualsUserActive: "在籍中の利用者の実績は仮名化できません",
   apiErrPlanActualsCurrent: "最新の記録は記録ごとには仮名化できません。退職者ごとに行ってください",
   apiErrPlanRoleAssignmentInvalid: "役割に割り当てられるのは、このプロジェクトのメンバーだけです",
@@ -564,6 +567,7 @@ export const en: ApiErrorsTranslations = {
   apiErrPlanActualsIncomplete: "Some items of the actuals need checking. Review the list, then finalize",
   apiErrPlanActualsNotFound: "Actuals snapshot not found",
   apiErrPlanActualsChanged: "The actuals snapshot has changed. Reload and try again",
+  apiErrPlanActualsReviewHidden: "A proposal on an item with a confidential PBI cannot be accepted (you can still decline it)",
   apiErrPlanActualsUserActive: "The actuals of an active user cannot be pseudonymised",
   apiErrPlanActualsCurrent: "The latest record cannot be pseudonymised as a whole. Pseudonymise by retired user instead",
   apiErrPlanRoleAssignmentInvalid: "Only members of this project can be assigned to a role",
@@ -720,6 +724,7 @@ export const id: ApiErrorsTranslations = {
   apiErrPlanActualsIncomplete: "Beberapa item realisasi perlu diperiksa. Tinjau daftarnya, lalu finalkan",
   apiErrPlanActualsNotFound: "Snapshot realisasi tidak ditemukan",
   apiErrPlanActualsChanged: "Snapshot realisasi telah berubah. Muat ulang lalu coba lagi",
+  apiErrPlanActualsReviewHidden: "Usulan pada item dengan PBI rahasia tidak dapat diterima (masih dapat ditolak)",
   apiErrPlanActualsUserActive: "Realisasi pengguna yang masih aktif tidak dapat disamarkan",
   apiErrPlanActualsCurrent: "Catatan terbaru tidak dapat disamarkan sekaligus. Samarkan per pengguna yang sudah keluar",
   apiErrPlanRoleAssignmentInvalid: "Hanya anggota proyek ini yang dapat ditugaskan ke suatu peran",

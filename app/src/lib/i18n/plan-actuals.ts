@@ -118,6 +118,12 @@ export const ja = {
   pacReviewRejectOf: "「{name}」の提案を採用しない",
   pacReviewAcceptedToast: "採用しました。学習の扱いを変えました",
   pacReviewRejectedToast: "採用しませんでした。この項目は記録どおりに学びます",
+  pacReviewJobSkippedBudget: "項目の文が長すぎて AI に渡せませんでした。学習はこれまでどおりです",
+  pacReviewCapped: "未決定の提案が多いため、AI の提案 {n} 件を出していません。先に今の提案を決めてください",
+  pacReviewHiddenItem: "（機密の PBI を含む項目）",
+  pacReviewReasonFromNote: "理由（確定のメモからの引用）",
+  pacColLearningUse: "学習の扱い",
+  pacLearningUseAsRecorded: "記録どおり",
 } as const
 
 export type PlanActualsTranslations = { [K in keyof typeof ja]: string }
@@ -238,6 +244,12 @@ export const en: PlanActualsTranslations = {
   pacReviewRejectOf: "Don't accept the proposal for “{name}”",
   pacReviewAcceptedToast: "Accepted. How learning uses the item has changed",
   pacReviewRejectedToast: "Not accepted. The item is learned as recorded",
+  pacReviewJobSkippedBudget: "The items' text was too long to give to the AI. Learning is unchanged",
+  pacReviewCapped: "{n} AI proposals were not shown because many proposals are still undecided. Decide the current ones first",
+  pacReviewHiddenItem: "(An item with a confidential PBI)",
+  pacReviewReasonFromNote: "Reason (quoted from the finalize note)",
+  pacColLearningUse: "Learning use",
+  pacLearningUseAsRecorded: "As recorded",
 }
 
 export const id: PlanActualsTranslations = {
@@ -356,4 +368,10 @@ export const id: PlanActualsTranslations = {
   pacReviewRejectOf: "Jangan terima usulan untuk “{name}”",
   pacReviewAcceptedToast: "Diterima. Cara pembelajaran memakai item telah berubah",
   pacReviewRejectedToast: "Tidak diterima. Item dipelajari sesuai catatan",
+  pacReviewJobSkippedBudget: "Teks item terlalu panjang untuk diberikan ke AI. Pembelajaran tidak berubah",
+  pacReviewCapped: "{n} usulan AI tidak ditampilkan karena masih banyak usulan yang belum diputuskan. Putuskan usulan yang ada terlebih dahulu",
+  pacReviewHiddenItem: "(Item dengan PBI rahasia)",
+  pacReviewReasonFromNote: "Alasan (kutipan dari catatan penetapan)",
+  pacColLearningUse: "Cara pembelajaran",
+  pacLearningUseAsRecorded: "Sesuai catatan",
 }

@@ -117,8 +117,13 @@ describe("actuals review answers", () => {
     )
     expect(res.ok).toBe(true)
     if (!res.ok) return
-    expect(res.value.proposals).toEqual([{ snapshotItemId: "a", kind: "exclude_from_learning", quote: "入力ミスで終了日を 1 か月後にしていた", confidence: "high" }])
+    expect(res.value.proposals).toEqual([{ snapshotItemId: "a", kind: "exclude_from_learning", quote: "入力ミスで終了日を 1 か月後にしていた", quoteSource: "item", confidence: "high" }])
     expect(res.value.dropped.map((d) => d.reason)).toEqual(["duplicate", "not_applicable", "quote_not_in_source", "unknown_item", "unknown_kind", "unknown_confidence", "quote_too_short"])
+  })
+
+  it("the quote's source is recorded: the leaf's own text first, else the finalize note", () => {
+    const res = parseActualsReview(JSON.stringify({ proposals: [{ iid: "i2", kind: "exclude_from_learning", quote: "部品の入荷待ち", confidence: "low" }] }), built)
+    expect(res.ok && res.value.proposals[0]).toMatchObject({ snapshotItemId: "b", quoteSource: "note" })
   })
 
   it("at most 10 proposals are kept", () => {

@@ -68,15 +68,16 @@ describe.skipIf(!enabled)("AI review of actuals on a real database (KANFLOW_DB_T
       ["design", "設計", 5, 20, "終了日の入力ミスで 2 週間長くなっている"],
       ["secret", "秘密の作業 SECRETITEM", 5, 9, "SECRETNOTE 顧客名入り"],
     ]
-    for (const [key, name, , , notes] of rows) await prisma.planItem.create({ data: { id: `${tag}-${key}`, projectId: ids.p, name, notes } })
+    // The live plan rows were edited after finalize: the review must read the frozen text, never this.
+    for (const [key, name] of rows) await prisma.planItem.create({ data: { id: `${tag}-${key}`, projectId: ids.p, name, notes: `LIVEEDIT ${key} 入力ミス` } })
     await prisma.productBacklogItem.create({ data: { id: ids.pbiOk, projectId: ids.p, displayId: 1, initiative: "synthetic" } })
     await prisma.productBacklogItem.create({ data: { id: ids.pbiSecret, projectId: ids.p, displayId: 2, initiative: "synthetic", confidential: true } })
     const snap = await prisma.planActualsSnapshot.create({
       data: { projectId: ids.p, projectType: `t-${tag}`.slice(0, 40), lineage, closedAt: d("2026-10-15"), firstFinalizedAt: d("2026-10-16"), finalizedAt: d("2026-10-16"), methodVersion: "e1-v1", finalizeNote: "全体として大きな問題は無かった。" },
     })
     snapshotId = snap.id
-    for (const [key, name, planned, actual] of rows) {
-      const it = await prisma.planActualsItem.create({ data: { snapshotId, planItemId: `${tag}-${key}`, templateKey: key, name, templateDays: planned, plannedDays: planned, actualDays: actual, waitGapDays: 1, complete: true } })
+    for (const [key, name, planned, actual, notes] of rows) {
+      const it = await prisma.planActualsItem.create({ data: { snapshotId, planItemId: `${tag}-${key}`, templateKey: key, name, notes, templateDays: planned, plannedDays: planned, actualDays: actual, waitGapDays: 1, complete: true } })
       leaf[key] = it.id
     }
     await prisma.planActualsItemPbi.create({ data: { snapshotItemId: leaf.inspect, backlogItemId: ids.pbiOk } })
@@ -124,15 +125,16 @@ describe.skipIf(!enabled)("AI review of actuals on a real database (KANFLOW_DB_T
     expect(sent).not.toContain("SECRETNOTE")
     expect(sent).not.toContain(ids.u1)
     expect(sent).toContain("部品の入荷待ちで 1 週間止まった")
+    expect(sent).not.toContain("LIVEEDIT")
     expect(sent).toContain("全体として大きな問題は無かった。")
     const stored = await prisma.planActualsReviewJob.findUniqueOrThrow({ where: { id: job.id } })
     expect(stored).toMatchObject({ status: "done", proposalsCreated: 2, proposalsDropped: 2, llmModel: "fake-model", promptVersion: "e6r-v1", attempts: 1 })
     expect(stored.sourceIds.sort()).toEqual([`item:${leaf.design}`, `item:${leaf.inspect}`, `note:${snapshotId}`].sort())
     const list = await review.listReviewProposals(ids.p)
     expect(list.job).toBe("done")
-    expect(list.proposals.map((p) => [p.itemName, p.kind, p.quote, p.confidence, p.state])).toEqual([
-      ["検査", "treat_as_waiting", "部品の入荷待ち", "high", "pending"],
-      ["設計", "exclude_from_learning", "終了日の入力ミス", "medium", "pending"],
+    expect(list.proposals.map((p) => [p.itemName, p.kind, p.quote, p.quoteSource, p.confidence, p.state])).toEqual([
+      ["検査", "treat_as_waiting", "部品の入荷待ち", "item", "high", "pending"],
+      ["設計", "exclude_from_learning", "終了日の入力ミス", "item", "medium", "pending"],
     ])
     // Proposals alone change nothing.
     expect(await learn.learnableItemFacts(Object.values(leaf))).toEqual(before)
@@ -189,7 +191,7 @@ describe.skipIf(!enabled)("AI review of actuals on a real database (KANFLOW_DB_T
     await prisma.planActualsSnapshot.update({ where: { id: snapshotId }, data: { supersededAt: new Date() } })
     try {
       await expect(review.decideReviewProposal(ids.p, first.id, { decision: "accept", version: rejected.version }, po)).rejects.toMatchObject({ code: "PLAN_ACTUALS_CHANGED" })
-      expect(await review.listReviewProposals(ids.p)).toEqual({ snapshotId: null, job: "none", proposals: [] })
+      expect(await review.listReviewProposals(ids.p)).toEqual({ snapshotId: null, job: "none", jobReason: null, capped: 0, proposals: [] })
     } finally {
       await prisma.planActualsSnapshot.update({ where: { id: snapshotId }, data: { supersededAt: null } })
     }
@@ -206,9 +208,14 @@ describe.skipIf(!enabled)("AI review of actuals on a real database (KANFLOW_DB_T
       const res = await batch.runActualsReviewBatch({ llm: fake.llm, config })
       expect(res.results[0]).toMatchObject({ outcome: "done", created: 1 })
       expect(await prisma.planActualsReviewProposal.count({ where: { snapshotItemId: leaf.inspect } })).toBe(0)
-      await prisma.planActualsReviewProposal.create({ data: { projectId: ids.p, snapshotId, snapshotItemId: leaf.inspect, kind: "treat_as_waiting", quote: "部品の入荷待ち", confidence: "high" } })
-      const shown = (await review.listReviewProposals(ids.p)).proposals.find((p) => p.snapshotItemId === leaf.inspect)
-      expect(shown?.quote).toBeNull()
+      const p = await prisma.planActualsReviewProposal.create({ data: { projectId: ids.p, snapshotId, snapshotItemId: leaf.inspect, kind: "treat_as_waiting", quote: "部品の入荷待ち", confidence: "high" } })
+      const shown = (await review.listReviewProposals(ids.p)).proposals.find((x) => x.id === p.id)
+      // A placeholder: no name, no days, no quote (D-5 at display), only that a proposal exists and can be rejected.
+      expect(shown).toMatchObject({ hidden: true, itemName: null, plannedDays: null, actualDays: null, quote: null, snapshotItemId: null })
+      // No blind accept on a leaf nobody may read now; rejecting stays possible.
+      await expect(review.decideReviewProposal(ids.p, p.id, { decision: "accept", version: 0 }, po)).rejects.toMatchObject({ code: "PLAN_ACTUALS_REVIEW_HIDDEN" })
+      expect((await prisma.planActualsItem.findUniqueOrThrow({ where: { id: leaf.inspect } })).learningUse).toBeNull()
+      expect((await review.decideReviewProposal(ids.p, p.id, { decision: "reject", version: 0 }, po)).state).toBe("rejected")
     } finally {
       await prisma.productBacklogItem.update({ where: { id: ids.pbiOk }, data: { confidential: false } })
     }
@@ -236,18 +243,70 @@ describe.skipIf(!enabled)("AI review of actuals on a real database (KANFLOW_DB_T
     await clear()
   })
 
-  it("proposals are limited per project", async () => {
+  it("concurrent decides of one proposal: exactly one wins, the other is refused (version)", async () => {
     await clear()
-    // The project already holds the maximum of pending proposals (synthetic placeholders on other leaves).
-    const filler = await prisma.planActualsSnapshot.create({ data: { projectId: ids.p, projectType: "x", lineage: `${tag}-filler`, closedAt: d("2025-01-01"), firstFinalizedAt: d("2025-01-02"), finalizedAt: d("2025-01-02"), methodVersion: "e1-v1", supersededAt: d("2025-02-01") } })
+    await queue()
+    await batch.runActualsReviewBatch({ llm: fakeLlm(answer).llm, config })
+    const p = (await review.listReviewProposals(ids.p)).proposals.find((x) => x.kind === "exclude_from_learning")!
+    const res = await Promise.allSettled([review.decideReviewProposal(ids.p, p.id!, { decision: "accept", version: p.version }, po), review.decideReviewProposal(ids.p, p.id!, { decision: "reject", version: p.version }, po)])
+    expect(res.filter((r) => r.status === "fulfilled")).toHaveLength(1)
+    expect(res.find((r) => r.status === "rejected")).toMatchObject({ reason: { code: "PLAN_ACTUALS_CHANGED" } })
+    const row = await prisma.planActualsReviewProposal.findUniqueOrThrow({ where: { id: p.id! } })
+    const use = (await prisma.planActualsItem.findUniqueOrThrow({ where: { id: leaf.design } })).learningUse
+    expect(use).toBe(row.state === "accepted" ? "excluded" : null)
+    expect(await prisma.activityLog.count({ where: { projectId: ids.p, diff: { contains: p.id! } } })).toBe(1)
+    await clear()
+  })
+
+  it("a snapshot replaced while the model answers gets no proposals; pending ones of a replaced snapshot are superseded and do not count against the cap", async () => {
+    await clear()
+    const old = await prisma.planActualsSnapshot.create({ data: { projectId: ids.p, projectType: "x", lineage: `${tag}-old`, closedAt: d("2025-01-01"), firstFinalizedAt: d("2025-01-02"), finalizedAt: d("2025-01-02"), methodVersion: "e1-v1", supersededAt: d("2025-02-01") } })
     for (let i = 0; i < batch.PENDING_PER_PROJECT_MAX; i++) {
-      const it = await prisma.planActualsItem.create({ data: { snapshotId: filler.id, planItemId: "", name: `f${i}`, complete: true } })
-      await prisma.planActualsReviewProposal.create({ data: { projectId: ids.p, snapshotId: filler.id, snapshotItemId: it.id, kind: "exclude_from_learning", quote: "xxxx", confidence: "low" } })
+      const it = await prisma.planActualsItem.create({ data: { snapshotId: old.id, planItemId: "", name: `o${i}`, complete: true } })
+      await prisma.planActualsReviewProposal.create({ data: { projectId: ids.p, snapshotId: old.id, snapshotItemId: it.id, kind: "exclude_from_learning", quote: "xxxx", confidence: "low" } })
     }
     await queue()
     const res = await batch.runActualsReviewBatch({ llm: fakeLlm(answer).llm, config })
-    expect(res.results[0]).toMatchObject({ outcome: "done", created: 0, dropped: 4 })
-    await prisma.planActualsSnapshot.delete({ where: { id: filler.id } })
+    expect(res.results[0]).toMatchObject({ outcome: "done", created: 2 })
+    expect(await prisma.planActualsReviewProposal.count({ where: { snapshotId: old.id, state: "pending" } })).toBe(0)
+    expect(await prisma.planActualsReviewProposal.count({ where: { snapshotId: old.id, state: "superseded" } })).toBe(batch.PENDING_PER_PROJECT_MAX)
+    await prisma.planActualsSnapshot.delete({ where: { id: old.id } })
+
+    await clear()
+    const job = await queue()
+    const racing = fakeLlm(async (data) => {
+      await prisma.planActualsSnapshot.update({ where: { id: snapshotId }, data: { supersededAt: new Date() } })
+      return answer(data)
+    })
+    try {
+      const r = await batch.runActualsReviewBatch({ llm: racing.llm, config })
+      expect(r.results).toEqual([{ jobId: job.id, outcome: "skipped", created: 0, dropped: 0, reason: "superseded" }])
+      expect(await prisma.planActualsReviewProposal.count({ where: { snapshotId } })).toBe(0)
+    } finally {
+      await prisma.planActualsSnapshot.update({ where: { id: snapshotId }, data: { supersededAt: null } })
+      await clear()
+    }
+  })
+
+  it("the cap is shown: valid proposals refused by it are counted on the job; pending proposals expire after 90 days", async () => {
+    await clear()
+    // The current snapshot already holds the most pending proposals (synthetic leaves that are not sent).
+    const extra: string[] = []
+    for (let i = 0; i < batch.PENDING_PER_PROJECT_MAX; i++) {
+      const it = await prisma.planActualsItem.create({ data: { snapshotId, planItemId: "", name: `c${i}`, complete: false } })
+      extra.push(it.id)
+      await prisma.planActualsReviewProposal.create({ data: { projectId: ids.p, snapshotId, snapshotItemId: it.id, kind: "exclude_from_learning", quote: "xxxx", confidence: "low" } })
+    }
+    await queue()
+    const r = await batch.runActualsReviewBatch({ llm: fakeLlm(answer).llm, config })
+    expect(r.results[0]).toMatchObject({ outcome: "done", created: 0 })
+    const list = await review.listReviewProposals(ids.p)
+    expect(list.capped).toBe(2)
+    // Ninety days later the pending ones expire (the next batch), freeing the cap.
+    await prisma.planActualsReviewProposal.updateMany({ where: { snapshotItemId: { in: extra } }, data: { createdAt: new Date(Date.now() - 91 * 86_400_000) } })
+    await batch.runActualsReviewBatch({ llm: fakeLlm(answer).llm, config })
+    expect(await prisma.planActualsReviewProposal.count({ where: { snapshotItemId: { in: extra }, state: "expired" } })).toBe(batch.PENDING_PER_PROJECT_MAX)
+    await prisma.planActualsItem.deleteMany({ where: { id: { in: extra } } })
     await clear()
   })
 })

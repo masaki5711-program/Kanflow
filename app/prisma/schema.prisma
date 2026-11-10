@@ -257,6 +257,9 @@ model PlanActualsItem {
   /// audited, like includeInLearning): null = as recorded | excluded (not learned from) | waiting (the overrun over the
   /// planned days is learned as waiting before the leaf, not as work). The recorded numbers never change.
   learningUse          String? @db.VarChar(16)
+  /// The plan row's description and notes AS FINALIZED (up to 1000 chars): what the AI review reads and quotes, so a
+  /// later edit of the live plan cannot steer it. Null on leaves finalized before it was recorded.
+  notes                String? @db.Text
 
   snapshot        PlanActualsSnapshot         @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
   pbis            PlanActualsItemPbi[]
@@ -2337,6 +2340,8 @@ model PlanActualsReviewJob {
   attempts         Int       @default(0)
   proposalsCreated Int       @default(0)
   proposalsDropped Int       @default(0)
+  /// Valid proposals not written because the project already held the most pending ones (shown on the screen).
+  proposalsCapped  Int       @default(0)
   llmModel         String?   @db.VarChar(64)
   promptVersion    String?   @db.VarChar(32)
   sourceIds        String[]  @default([])
@@ -2358,7 +2363,7 @@ model PlanActualsReviewJob {
 /// reason as an exact quote of the leaf's text or the finalize note, and the model's confidence (low | medium | high).
 /// state: pending → accepted | rejected by a PO / SM (plan.actualsReview, audited; deciding again is allowed while the
 /// snapshot is current). Accepting sets plan_actuals_item.learningUse; rejecting leaves (or puts back) the leaf as
-/// recorded. superseded = the snapshot was re-finalized before a decision.
+/// recorded. superseded = the snapshot was re-finalized before a decision; expired = still pending after 90 days.
 model PlanActualsReviewProposal {
   id             String    @id @default(cuid())
   projectId      String
@@ -2367,6 +2372,8 @@ model PlanActualsReviewProposal {
   jobId          String?
   kind           String    @db.VarChar(24)
   quote          String    @db.VarChar(1000)
+  /// Where the quote is from: item (the leaf's own name / notes) | note (the finalize note).
+  quoteSource    String    @default("item") @db.VarChar(8)
   confidence     String    @db.VarChar(8)
   state          String    @default("pending") @db.VarChar(16)
   /// Optimistic lock of the decision.

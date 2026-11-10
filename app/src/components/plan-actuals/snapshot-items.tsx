@@ -32,7 +32,7 @@ export function SnapshotItems({ projectId, snapshotId, dateLabel }: Props) {
   if (items.length === 0) return <EmptyState compact headingLevel={4} title={t.pacItemsEmpty} />
   return (
     <div className="overflow-x-auto rounded-ui-lg border border-border" role="region" aria-labelledby={captionId} tabIndex={0}>
-      <table className="w-full min-w-[40rem] text-body tabular-nums">
+      <table className="w-full min-w-[46rem] text-body tabular-nums">
         <caption id={captionId} className="sr-only">
           {fillTemplate(t.pacItemsCaption, { date: dateLabel })}
         </caption>
@@ -46,6 +46,7 @@ export function SnapshotItems({ projectId, snapshotId, dateLabel }: Props) {
             <th scope="col" className="px-3 py-2 text-right font-medium">{t.pacColWait}</th>
             <th scope="col" className="px-3 py-2 text-right font-medium">{t.pacColOnHold}</th>
             <th scope="col" className="px-3 py-2 font-medium">{t.pacColLearnable}</th>
+            <th scope="col" className="px-3 py-2 font-medium">{t.pacColLearningUse}</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-border">
@@ -61,18 +62,17 @@ export function SnapshotItems({ projectId, snapshotId, dateLabel }: Props) {
               <td className="px-3 py-2 text-right">{days(it.waitGapDays)}</td>
               <td className="px-3 py-2 text-right">{days(it.onHoldDays)}</td>
               <td className="px-3 py-2">
-                {it.complete && it.learningUse === "excluded" ? (
-                  <Badge tone="warning" dot>
-                    {t.pacReviewKindExclude}
-                  </Badge>
-                ) : it.complete && it.learningUse === "waiting" ? (
-                  <Badge tone="info" dot>
-                    {t.pacReviewKindWaiting}
-                  </Badge>
+                <Badge tone={it.complete ? "success" : "neutral"} dot>
+                  {it.complete ? t.pacYes : t.pacNo}
+                </Badge>
+              </td>
+              <td className="px-3 py-2">
+                {it.learningUse === "excluded" ? (
+                  <Badge tone="warning">{t.pacReviewKindExclude}</Badge>
+                ) : it.learningUse === "waiting" ? (
+                  <Badge tone="info">{t.pacReviewKindWaiting}</Badge>
                 ) : (
-                  <Badge tone={it.complete ? "success" : "neutral"} dot>
-                    {it.complete ? t.pacYes : t.pacNo}
-                  </Badge>
+                  <span className="text-fg-muted">{t.pacLearningUseAsRecorded}</span>
                 )}
               </td>
             </tr>

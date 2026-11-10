@@ -258,6 +258,8 @@ export interface ValidReviewProposal {
   snapshotItemId: string
   kind: ReviewKind
   quote: string
+  /** item = the leaf's own name / notes (preferred when both contain it) | note = the finalize note. */
+  quoteSource: "item" | "note"
   confidence: ReviewConfidence
 }
 
@@ -300,7 +302,8 @@ export function parseActualsReview(text: string, built: BuiltActualsReview): Par
       continue
     }
     // Exact: a contiguous part of what was sent for this item, or of the note (no normalisation).
-    if (!item.name.includes(quote) && !item.notes.includes(quote) && !(note !== "" && note.includes(quote))) {
+    const fromItem = item.name.includes(quote) || item.notes.includes(quote)
+    if (!fromItem && !(note !== "" && note.includes(quote))) {
       drop("quote_not_in_source")
       continue
     }
@@ -317,7 +320,7 @@ export function parseActualsReview(text: string, built: BuiltActualsReview): Par
       continue
     }
     seen.add(item.snapshotItemId)
-    proposals.push({ snapshotItemId: item.snapshotItemId, kind: p.kind as ReviewKind, quote, confidence: p.confidence as ReviewConfidence })
+    proposals.push({ snapshotItemId: item.snapshotItemId, kind: p.kind as ReviewKind, quote, quoteSource: fromItem ? "item" : "note", confidence: p.confidence as ReviewConfidence })
   }
   return { ok: true, value: { proposals, dropped } }
 }

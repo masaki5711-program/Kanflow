@@ -51,13 +51,15 @@ export interface ActualsResponse {
 /** One AI review proposal (JSON of services/plan-actuals/actuals-review.service). */
 export interface ReviewProposalView {
   id: string
-  snapshotItemId: string
-  itemName: string
+  /** The leaf cites a PBI that is confidential now: a placeholder (no id, name, days or reason; decline only). */
+  hidden: boolean
+  snapshotItemId: string | null
+  itemName: string | null
   plannedDays: number | null
   actualDays: number | null
   kind: "exclude_from_learning" | "treat_as_waiting"
-  /** null = not shown (the leaf includes a PBI that is confidential now). */
   quote: string | null
+  quoteSource: "item" | "note" | null
   confidence: "low" | "medium" | "high"
   state: "pending" | "accepted" | "rejected"
   version: number
@@ -68,6 +70,10 @@ export interface ReviewProposalView {
 export interface ReviewListView {
   snapshotId: string | null
   job: "none" | "queued" | "running" | "done" | "failed" | "skipped"
+  /** Why a review was skipped (no_items | prompt_budget | superseded | snapshot_gone), else null. */
+  jobReason: string | null
+  /** Valid proposals not written because too many were pending. */
+  capped: number
   proposals: ReviewProposalView[]
 }
 

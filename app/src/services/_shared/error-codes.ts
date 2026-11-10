@@ -116,6 +116,8 @@ export const API_ERROR_CODES = [
   "PLAN_ACTUALS_USER_ACTIVE",
   /** Pseudonymisation by snapshot is only for superseded (old) snapshots; the current one goes by retired user. */
   "PLAN_ACTUALS_CURRENT",
+  /** An AI review proposal on a leaf that cites a PBI confidential now cannot be accepted (only rejected). */
+  "PLAN_ACTUALS_REVIEW_HIDDEN",
   /** Levelling (plan 12 E4): a role is assigned to someone who is not an explicit member of the project. */
   "PLAN_ROLE_ASSIGNMENT_INVALID",
   /** 稼働量: the period overlaps another row of the same person (and project). */

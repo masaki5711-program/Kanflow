@@ -8,8 +8,9 @@
  * becomes outdated, as after finalize) and queues the lineage's backtest after the commit. Every decision is audited in
  * the same transaction (ActivityLog: who, when, from → to).
  *
- * A proposal's quote is project-internal text: it is shown only while the leaf cites no PBI that is confidential now
- * (use time); otherwise the proposal is listed without it.
+ * D-5 at display (use time): while a leaf cites a PBI that is confidential, trashed or gone NOW, its proposal is listed
+ * as a placeholder — no leaf name, no days, no quote, no leaf id — and it can only be rejected (an accept would be a
+ * blind change of learning on a leaf nobody may read: PLAN_ACTUALS_REVIEW_HIDDEN).
  */
 import type { Actor } from "@/services/_shared/actor"
 import { defaultDb, withTransaction, type Db } from "@/services/_shared/db"
@@ -25,13 +26,16 @@ export type ReviewJobState = "none" | "queued" | "running" | "done" | "failed" |
 
 export interface ReviewProposalDto {
   id: string
-  snapshotItemId: string
-  itemName: string
+  /** true = the leaf cites a PBI that is confidential now: a placeholder (no id, name, days or quote; reject only). */
+  hidden: boolean
+  snapshotItemId: string | null
+  itemName: string | null
   plannedDays: number | null
   actualDays: number | null
   kind: "exclude_from_learning" | "treat_as_waiting"
-  /** null = the leaf cites a PBI that is confidential now: the reason is not shown. */
   quote: string | null
+  /** item (the leaf's own text) | note (the finalize note); null when hidden. */
+  quoteSource: "item" | "note" | null
   confidence: "low" | "medium" | "high"
   state: ReviewProposalState
   version: number
@@ -43,6 +47,10 @@ export interface ReviewListDto {
   snapshotId: string | null
   /** The AI review of the current snapshot: none (no request) | queued | running | done | failed | skipped. */
   job: ReviewJobState
+  /** Why a review was skipped: no_items | prompt_budget | superseded | snapshot_gone (null otherwise). */
+  jobReason: string | null
+  /** Valid proposals of the review that were not written because the project held the most pending ones. */
+  capped: number
   proposals: ReviewProposalDto[]
 }
 
@@ -50,9 +58,9 @@ const learningUseOf = (kind: string): "excluded" | "waiting" => (kind === "treat
 
 export async function listReviewProposals(projectId: string, db: Db = defaultDb): Promise<ReviewListDto> {
   const snapshot = await db.planActualsSnapshot.findFirst({ where: { projectId, supersededAt: null }, select: { id: true } })
-  if (!snapshot) return { snapshotId: null, job: "none", proposals: [] }
+  if (!snapshot) return { snapshotId: null, job: "none", jobReason: null, capped: 0, proposals: [] }
   const [job, rows] = await Promise.all([
-    db.planActualsReviewJob.findUnique({ where: { snapshotId: snapshot.id }, select: { status: true } }),
+    db.planActualsReviewJob.findUnique({ where: { snapshotId: snapshot.id }, select: { status: true, lastError: true, proposalsCapped: true } }),
     db.planActualsReviewProposal.findMany({
       where: { projectId, snapshotId: snapshot.id, state: { in: ["pending", "accepted", "rejected"] } },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
@@ -62,6 +70,7 @@ export async function listReviewProposals(projectId: string, db: Db = defaultDb)
         snapshotItemId: true,
         kind: true,
         quote: true,
+        quoteSource: true,
         confidence: true,
         state: true,
         version: true,
@@ -78,21 +87,16 @@ export async function listReviewProposals(projectId: string, db: Db = defaultDb)
   return {
     snapshotId: snapshot.id,
     job: (job?.status ?? "none") as ReviewJobState,
+    jobReason: job?.status === "skipped" ? (job.lastError ?? null) : null,
+    capped: job?.proposalsCapped ?? 0,
     // Pending first (what needs a decision); the sort is stable, so the rest keep their order.
-    proposals: [...rows].sort((a, b) => Number(b.state === "pending") - Number(a.state === "pending")).map((r) => ({
-      id: r.id,
-      snapshotItemId: r.snapshotItemId,
-      itemName: r.item.name,
-      plannedDays: r.item.plannedDays,
-      actualDays: r.item.actualDays,
-      kind: r.kind as ReviewProposalDto["kind"],
-      quote: confidential.has(r.snapshotItemId) ? null : r.quote,
-      confidence: r.confidence as ReviewProposalDto["confidence"],
-      state: r.state as ReviewProposalState,
-      version: r.version,
-      decidedAt: r.decidedAt?.toISOString() ?? null,
-      decidedByName: r.decidedBy?.name ?? null,
-    })),
+    proposals: [...rows]
+      .sort((a, b) => Number(b.state === "pending") - Number(a.state === "pending"))
+      .map((r): ReviewProposalDto => {
+        const base = { id: r.id, kind: r.kind as ReviewProposalDto["kind"], confidence: r.confidence as ReviewProposalDto["confidence"], state: r.state as ReviewProposalState, version: r.version, decidedAt: r.decidedAt?.toISOString() ?? null, decidedByName: r.decidedBy?.name ?? null }
+        if (confidential.has(r.snapshotItemId)) return { ...base, hidden: true, snapshotItemId: null, itemName: null, plannedDays: null, actualDays: null, quote: null, quoteSource: null }
+        return { ...base, hidden: false, snapshotItemId: r.snapshotItemId, itemName: r.item.name, plannedDays: r.item.plannedDays, actualDays: r.item.actualDays, quote: r.quote, quoteSource: r.quoteSource as "item" | "note" }
+      }),
   }
 }
 
@@ -116,6 +120,10 @@ export async function decideReviewProposal(projectId: string, proposalId: string
     // Only the current snapshot is learned from: a proposal of a replaced one can no longer be decided.
     if (row.state === "superseded" || row.snapshot.supersededAt !== null) throw new ConflictError("前の記録の提案は決められません", {}, "PLAN_ACTUALS_CHANGED")
     if (row.version !== input.version) throw new ConflictError("提案が変更されています", {}, "PLAN_ACTUALS_CHANGED")
+    // D-5: no blind accept on a leaf whose cited PBI is confidential now (rejecting stays possible).
+    if (input.decision === "accept" && (await leavesCitingConfidentialPbis([row.snapshotItemId], tx)).size > 0) {
+      throw new ConflictError("機密の PBI を含む項目の提案は採用できません", {}, "PLAN_ACTUALS_REVIEW_HIDDEN")
+    }
     const state = input.decision === "accept" ? "accepted" : "rejected"
     const learningUse = state === "accepted" ? learningUseOf(row.kind) : null
     const changed = row.item.learningUse !== learningUse

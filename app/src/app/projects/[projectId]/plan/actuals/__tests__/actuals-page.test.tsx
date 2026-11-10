@@ -102,12 +102,14 @@ describe("actuals page (plan 12 E1)", () => {
 describe("AI review proposals on the actuals page", () => {
   const proposal = (over: Partial<ReviewProposalView> = {}): ReviewProposalView => ({
     id: "x1",
+    hidden: false,
     snapshotItemId: "i1",
     itemName: "検査",
     plannedDays: 5,
     actualDays: 12,
     kind: "treat_as_waiting",
     quote: "部品の入荷待ちで 1 週間止まった",
+    quoteSource: "item",
     confidence: "high",
     state: "pending",
     version: 2,
@@ -115,12 +117,12 @@ describe("AI review proposals on the actuals page", () => {
     decidedByName: null,
     ...over,
   })
-  const list = (proposals: ReviewProposalView[], job: ReviewListView["job"] = "done"): ReviewListView => ({ snapshotId: "s1", job, proposals })
+  const list = (proposals: ReviewProposalView[], job: ReviewListView["job"] = "done", over: Partial<ReviewListView> = {}): ReviewListView => ({ snapshotId: "s1", job, jobReason: null, capped: 0, proposals, ...over })
   const REVIEW = `${URL_BASE}/review`
 
   it("a PO / SM sees the pending proposal with its quoted reason and accepts it (with the version)", async () => {
     const user = userEvent.setup()
-    let current = list([proposal(), proposal({ id: "x2", snapshotItemId: "i2", itemName: "設計", kind: "exclude_from_learning", quote: null, confidence: "low" })])
+    let current = list([proposal(), proposal({ id: "x2", hidden: true, snapshotItemId: null, itemName: null, plannedDays: null, actualDays: null, kind: "exclude_from_learning", quote: null, quoteSource: null, confidence: "low" }), proposal({ id: "x3", snapshotItemId: "i3", itemName: "出荷", quote: "全体として遅れた", quoteSource: "note" })])
     const fetchMock = stubFetch([
       { match: URL_BASE, method: "GET", respond: () => jsonResponse(body({ snapshots: [snap()], permissions: { finalize: true, review: true } })) },
       { match: REVIEW, method: "GET", respond: () => jsonResponse(current) },
@@ -137,9 +139,14 @@ describe("AI review proposals on the actuals page", () => {
     renderWithProviders(<ActualsPage />)
     const section = await screen.findByRole("region", { name: t.pacReviewTitle })
     expect(await within(section).findByText("部品の入荷待ちで 1 週間止まった")).toBeInTheDocument()
-    expect(within(section).getByText(t.pacReviewKindWaiting)).toBeInTheDocument()
-    // A leaf with a confidential PBI: the proposal is there, its reason is not.
+    expect(within(section).getAllByText(t.pacReviewKindWaiting).length).toBeGreaterThan(0)
+    // A leaf with a confidential PBI: a placeholder without name or reason, which can only be declined.
     expect(within(section).getByText(t.pacReviewReasonHidden)).toBeInTheDocument()
+    expect(within(section).getByRole("heading", { name: t.pacReviewHiddenItem })).toBeInTheDocument()
+    expect(within(section).queryByRole("button", { name: t.pacReviewAcceptOf.replace("{name}", t.pacReviewHiddenItem) })).not.toBeInTheDocument()
+    expect(within(section).getByRole("button", { name: t.pacReviewRejectOf.replace("{name}", t.pacReviewHiddenItem) })).toBeInTheDocument()
+    // Where the quote is from.
+    expect(within(section).getByText(t.pacReviewReasonFromNote)).toBeInTheDocument()
     await user.click(within(section).getByRole("button", { name: t.pacReviewAcceptOf.replace("{name}", "検査") }))
     await waitFor(() => expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(true))
     const patch = fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH")
@@ -147,6 +154,8 @@ describe("AI review proposals on the actuals page", () => {
     // Accepted: who decided is shown, and it can be taken back.
     expect(await within(section).findByText(/PO 太郎/)).toBeInTheDocument()
     expect(within(section).getByRole("button", { name: t.pacReviewRejectOf.replace("{name}", "検査") })).toHaveTextContent(t.pacReviewUndoAccept)
+    // Focus moves to the decided card's heading (its buttons changed).
+    await waitFor(() => expect(within(section).getByRole("heading", { name: "検査" })).toHaveFocus())
   })
 
   it("rejecting sends reject; without proposals the job state is said", async () => {
@@ -161,6 +170,17 @@ describe("AI review proposals on the actuals page", () => {
     await user.click(await screen.findByRole("button", { name: t.pacReviewRejectOf.replace("{name}", "検査") }))
     await waitFor(() => expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(true))
     expect(JSON.parse(String(fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH")?.[1]?.body))).toEqual({ decision: "reject", version: 2 })
+  })
+
+  it("a review skipped for the prompt size and proposals refused by the cap are said", async () => {
+    stubFetch([
+      { match: URL_BASE, method: "GET", respond: () => jsonResponse(body({ snapshots: [snap()], permissions: { finalize: true, review: true } })) },
+      { match: REVIEW, method: "GET", respond: () => jsonResponse(list([], "skipped", { jobReason: "prompt_budget", capped: 3 })) },
+      attributesRoute,
+    ])
+    renderWithProviders(<ActualsPage />)
+    expect(await screen.findByText(t.pacReviewJobSkippedBudget)).toBeInTheDocument()
+    expect(screen.getByText(t.pacReviewCapped.replace("{n}", "3"))).toBeInTheDocument()
   })
 
   it("the job state is shown when there is nothing to decide", async () => {

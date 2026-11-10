@@ -3,7 +3,8 @@
  *
  * For each queued request (plan_actuals_review_job, one per finalized snapshot) the batch reads, NOW:
  *   - the snapshot's complete leaves (name, planned / actual days, slip, waiting and on-hold days) — never an owner;
- *   - the live plan row's description and notes of each leaf (project-internal text);
+ *   - each leaf's plan-row description and notes AS FINALIZED (frozen on the leaf: a later edit of the live plan cannot
+ *     steer the review, and a quote always matches the record);
  *   - the finalizer's note (確定の時のメモ);
  * leaves out every leaf citing a PBI that is confidential, trashed or gone NOW (D-5, use time: not even its name), builds
  * the one visible input (bounded as E6: 6,000 characters of escaped data, whole leaves, the largest deviation first),
@@ -33,6 +34,8 @@ export const BATCH_MAX = 20
 export const STALE_RUNNING_MS = 60 * 60_000
 /** Pending proposals a project may hold (a person decides each; more would not be read). */
 export const PENDING_PER_PROJECT_MAX = 30
+/** A pending proposal nobody decided for this long expires (it no longer counts against the cap). */
+export const PENDING_EXPIRES_MS = 90 * 86_400_000
 /** Leaves read per snapshot before ordering (a project rarely has more). */
 const LEAVES_READ_MAX = 2_000
 
@@ -57,21 +60,16 @@ export async function collectReviewSources(projectId: string, snapshotId: string
   const snapshot = await db.planActualsSnapshot.findFirst({ where: { id: snapshotId, projectId }, select: { id: true, finalizeNote: true } })
   if (!snapshot) return { note: null, items: [] }
   const leaves = await db.planActualsItem.findMany({
-    where: { snapshotId, complete: true },
+    // A leaf that already has a proposal (a decision carried over from the replaced record) is not proposed again.
+    where: { snapshotId, complete: true, reviewProposals: { none: {} } },
     orderBy: { id: "asc" },
     take: LEAVES_READ_MAX,
-    select: { id: true, planItemId: true, name: true, plannedDays: true, actualDays: true, endSlipDays: true, waitGapDays: true, onHoldDays: true },
+    select: { id: true, name: true, notes: true, plannedDays: true, actualDays: true, endSlipDays: true, waitGapDays: true, onHoldDays: true },
   })
-  const planItemIds = [...new Set(leaves.map((l) => l.planItemId).filter((id) => id !== ""))]
-  const [rows, confidential] = await Promise.all([
-    // Only this project's live, not-trashed rows: a pseudonymised leaf (planItemId "") has no notes.
-    planItemIds.length ? db.planItem.findMany({ where: { id: { in: planItemIds }, projectId, deletedAt: null }, select: { id: true, description: true, notes: true } }) : [],
-    leavesCitingConfidentialPbis(
-      leaves.map((l) => l.id),
-      db
-    ),
-  ])
-  const notes = new Map(rows.map((r) => [r.id, [r.description, r.notes].filter((x): x is string => Boolean(x?.trim())).join("\n")]))
+  const confidential = await leavesCitingConfidentialPbis(
+    leaves.map((l) => l.id),
+    db
+  )
   const items: RawReviewItem[] = leaves
     .map((l) => ({
       snapshotItemId: l.id,
@@ -82,7 +80,7 @@ export async function collectReviewSources(projectId: string, snapshotId: string
       endSlipDays: l.endSlipDays,
       waitGapDays: l.waitGapDays,
       onHoldDays: l.onHoldDays,
-      notes: notes.get(l.planItemId) || null,
+      notes: l.notes,
       confidentialNow: confidential.has(l.id),
     }))
     .sort((a, b) => deviation(b) - deviation(a) || (a.snapshotItemId < b.snapshotItemId ? -1 : 1))
@@ -155,29 +153,44 @@ export async function processActualsReviewJob(job: ClaimedReviewJob, llm: PlanLl
     log.error("actuals review failed; no proposal was written", { jobId: job.id, projectId: job.projectId, reason: outcome.reason, attempts: job.attempts })
     return { jobId: job.id, outcome: "failed", created: 0, dropped: 0, reason: outcome.reason }
   }
-  // The proposals and the outcome commit together; a request another batch took over rolls its proposals back.
-  const { created, refused } = await withTransaction(async (tx) => {
-    // Use time again: a leaf whose PBI became confidential while the model answered gets no proposal; nor does a
-    // snapshot re-finalized meanwhile (its successor is reviewed on its own).
+  // The proposals and the outcome commit together, under the project's actuals lock (the one finalize takes): a
+  // re-finalize cannot slip in between the check below and the insert. A request another batch took over rolls back.
+  const written = await withTransaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`plan_actuals:${job.projectId}`}))`
+    // A snapshot re-finalized while the model answered gets nothing (its successor is reviewed on its own).
     const current = await tx.planActualsSnapshot.findFirst({ where: { id: job.snapshotId, supersededAt: null }, select: { id: true } })
+    if (!current) {
+      await finishJob(tx, job, { ...meta, status: "skipped", lastError: "superseded" })
+      return null
+    }
+    // Use time again: a leaf whose PBI became confidential while the model answered gets no proposal.
     const nowConfidential = await leavesCitingConfidentialPbis(
       outcome.value.proposals.map((p) => p.snapshotItemId),
       tx
     )
-    const pending = await tx.planActualsReviewProposal.count({ where: { projectId: job.projectId, state: "pending" } })
+    const usable = outcome.value.proposals.filter((p) => !nowConfidential.has(p.snapshotItemId))
+    // Only pending proposals of CURRENT snapshots count (a replaced snapshot's are superseded).
+    const pending = await tx.planActualsReviewProposal.count({ where: { projectId: job.projectId, state: "pending", snapshot: { supersededAt: null } } })
     const room = Math.max(PENDING_PER_PROJECT_MAX - pending, 0)
-    const usable = current ? outcome.value.proposals.filter((p) => !nowConfidential.has(p.snapshotItemId)).slice(0, room) : []
-    const res = usable.length
+    const kept = usable.slice(0, room)
+    const capped = usable.length - kept.length
+    const res = kept.length
       ? await tx.planActualsReviewProposal.createMany({
-          data: usable.map((p) => ({ projectId: job.projectId, snapshotId: job.snapshotId, snapshotItemId: p.snapshotItemId, jobId: job.id, kind: p.kind, quote: p.quote, confidence: p.confidence, llmModel: llm.model, promptVersion: ACTUALS_REVIEW_PROMPT_VERSION })),
+          data: kept.map((p) => ({ projectId: job.projectId, snapshotId: job.snapshotId, snapshotItemId: p.snapshotItemId, jobId: job.id, kind: p.kind, quote: p.quote, quoteSource: p.quoteSource, confidence: p.confidence, llmModel: llm.model, promptVersion: ACTUALS_REVIEW_PROMPT_VERSION })),
           // A leaf that already has a proposal keeps it (at most one per leaf).
           skipDuplicates: true,
         })
       : { count: 0 }
     const refused = outcome.value.proposals.length - res.count
-    await finishJob(tx, job, { ...meta, status: "done", proposalsCreated: res.count, proposalsDropped: outcome.value.dropped.length + refused, lastError: null })
-    return { created: res.count, refused }
+    await finishJob(tx, job, { ...meta, status: "done", proposalsCreated: res.count, proposalsDropped: outcome.value.dropped.length + refused, proposalsCapped: capped, lastError: null })
+    return { created: res.count, refused, capped }
   })
+  if (!written) {
+    log.info("actuals review discarded: the snapshot was re-finalized while the model answered", { jobId: job.id, projectId: job.projectId })
+    return { jobId: job.id, outcome: "skipped", created: 0, dropped: 0, reason: "superseded" }
+  }
+  const { created, refused, capped } = written
+  if (capped > 0) log.warn("actuals-review proposals over the per-project cap were not written", { jobId: job.id, projectId: job.projectId, capped, max: PENDING_PER_PROJECT_MAX })
   const dropped = outcome.value.dropped.length + refused
   if (dropped > 0) log.warn("actuals-review proposals dropped", { jobId: job.id, projectId: job.projectId, reasons: countReasons(outcome.value.dropped), refusedAtWrite: refused })
   log.info("actuals-review proposals written", { jobId: job.id, projectId: job.projectId, created, dropped })
@@ -227,6 +240,11 @@ export async function runActualsReviewBatch(opts: {
   const abandoned = (await db.planActualsReviewJob.updateMany({ where: { status: "running", startedAt: { lt: staleBefore }, attempts: { gte: MAX_ATTEMPTS } }, data: { status: "failed", lastError: "batch_stopped", finishedAt: now() } })).count
   const recovered = (await db.planActualsReviewJob.updateMany({ where: { status: "running", startedAt: { lt: staleBefore } }, data: { status: "queued", startedAt: null } })).count
   if (recovered + abandoned > 0) log.warn("actuals-review requests of a stopped batch recovered", { requeued: recovered, failed: abandoned })
+  // Housekeeping: pending proposals of a replaced snapshot are superseded (a finalize does it too; this catches any left),
+  // and pending ones nobody decided for 90 days expire. Neither changes learning.
+  const superseded = (await db.planActualsReviewProposal.updateMany({ where: { state: "pending", snapshot: { supersededAt: { not: null } } }, data: { state: "superseded" } })).count
+  const expired = (await db.planActualsReviewProposal.updateMany({ where: { state: "pending", createdAt: { lt: new Date(now().getTime() - PENDING_EXPIRES_MS) } }, data: { state: "expired" } })).count
+  if (superseded + expired > 0) log.info("actuals-review proposals superseded / expired", { superseded, expired })
   const results: ReviewJobResult[] = []
   const seen = new Set<string>()
   const max = opts.max ?? BATCH_MAX

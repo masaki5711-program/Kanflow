@@ -243,6 +243,7 @@ function finalizeInTransaction(projectId: string, input: FinalizeInput, actor: A
           ownerId: it.leaf.ownerId,
           ownerConcurrentAvg: a.ownerConcurrentAvg,
           ownerConcurrentPeak: a.ownerConcurrentPeak,
+          notes: it.notes,
         })
         for (const p of it.pbis) {
           pbiRows.push({ snapshotItemId: id, backlogItemId: p.backlogItemId, effortHours: p.effortHours, estimatedHours: p.estimatedHours, reworkCount: p.reworkCount, mrSetLeadTimeHours: p.mr.mrSetLeadTimeHours, mrCount: p.mr.mrCount })
@@ -265,6 +266,12 @@ function finalizeInTransaction(projectId: string, input: FinalizeInput, actor: A
       for (let i = 0; i < pbiRows.length; i += INSERT_CHUNK) await tx.planActualsItemPbi.createMany({ data: pbiRows.slice(i, i + INSERT_CHUNK) })
       for (let i = 0; i < repoRows.length; i += INSERT_CHUNK) await tx.planActualsItemRepo.createMany({ data: repoRows.slice(i, i + INSERT_CHUNK) })
 
+      // The PO / SM's decisions on AI review proposals of the replaced record carry over (pending ones are superseded
+      // by enqueueActualsReview below and proposed again from the new record).
+      const carried = previous ? await carryReviewDecisions(tx, projectId, previous.id, snapshot.id, itemRows) : { accepted: 0, rejected: 0 }
+      if (carried.accepted + carried.rejected > 0) {
+        await auditStrict(tx, projectId, actor, { changes: { planActualsReviewCarried: { from: previous?.id ?? null, to: snapshot.id } }, meta: { snapshotId: snapshot.id, supersedes: previous?.id ?? null, ...carried } })
+      }
       const completeCount = c.items.filter((i) => i.actuals.complete).length
       // E6: ask for LLM rule drafts from the retrospectives, the lessons and the note — by the night batch, at
       // background priority. Drafts change nothing until a PO / SM confirms them one at a time.
@@ -279,6 +286,45 @@ function finalizeInTransaction(projectId: string, input: FinalizeInput, actor: A
     },
     { timeout: FINALIZE_TIMEOUT_MS },
   )
+}
+
+/**
+ * Copy the decided AI review proposals (accepted / rejected) of the replaced snapshot onto the matching new leaves —
+ * by plan row, else by a template key that matches exactly one leaf on both sides — with their decider and time, and
+ * set an accepted one's learningUse on the new leaf. A rejected one comes along so the leaf is not proposed again.
+ * Runs in the finalize transaction, under the project's lock (a decision cannot slip between the read and the copy).
+ */
+async function carryReviewDecisions(
+  tx: Db,
+  projectId: string,
+  previousId: string,
+  snapshotId: string,
+  newItems: readonly { id?: string; planItemId: string; templateKey?: string | null }[],
+): Promise<{ accepted: number; rejected: number }> {
+  const decided = await tx.planActualsReviewProposal.findMany({
+    where: { snapshotId: previousId, state: { in: ["accepted", "rejected"] } },
+    select: { kind: true, quote: true, quoteSource: true, confidence: true, state: true, decidedAt: true, decidedById: true, llmModel: true, promptVersion: true, createdAt: true, item: { select: { planItemId: true, templateKey: true } } },
+  })
+  if (decided.length === 0) return { accepted: 0, rejected: 0 }
+  const byPlanItem = new Map(newItems.filter((i) => i.planItemId !== "").map((i) => [i.planItemId, i.id as string]))
+  const keyCount = new Map<string, number>()
+  for (const i of newItems) if (i.templateKey) keyCount.set(i.templateKey, (keyCount.get(i.templateKey) ?? 0) + 1)
+  const byKey = new Map(newItems.filter((i) => i.templateKey && keyCount.get(i.templateKey) === 1).map((i) => [i.templateKey as string, i.id as string]))
+  const oldKeyCount = new Map<string, number>()
+  for (const p of decided) if (p.item.templateKey) oldKeyCount.set(p.item.templateKey, (oldKeyCount.get(p.item.templateKey) ?? 0) + 1)
+  const out = { accepted: 0, rejected: 0 }
+  for (const p of decided) {
+    const target = (p.item.planItemId !== "" ? byPlanItem.get(p.item.planItemId) : undefined) ?? (p.item.templateKey && oldKeyCount.get(p.item.templateKey) === 1 ? byKey.get(p.item.templateKey) : undefined)
+    if (!target) continue
+    await tx.planActualsReviewProposal.create({
+      data: { projectId, snapshotId, snapshotItemId: target, kind: p.kind, quote: p.quote, quoteSource: p.quoteSource, confidence: p.confidence, state: p.state, decidedAt: p.decidedAt, decidedById: p.decidedById, llmModel: p.llmModel, promptVersion: p.promptVersion, createdAt: p.createdAt },
+    })
+    if (p.state === "accepted") {
+      await tx.planActualsItem.update({ where: { id: target }, data: { learningUse: p.kind === "treat_as_waiting" ? "waiting" : "excluded" } })
+      out.accepted++
+    } else out.rejected++
+  }
+  return out
 }
 
 export interface LearningSwitchInput {
