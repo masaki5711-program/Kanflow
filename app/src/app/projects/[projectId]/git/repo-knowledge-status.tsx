@@ -7,6 +7,7 @@ import { useLanguage } from "@/lib/language-context"
 import { fillTemplate } from "@/lib/fill-template"
 import type { GitRepositoryDto } from "./git-labels"
 import { GitTime } from "./repo-sync-status"
+import { syncMessageText } from "@/lib/git/sync-messages"
 
 type KnowledgeFields = Pick<GitRepositoryDto, "aiKnowledge" | "indexedAt" | "indexedFiles" | "indexError" | "indexErrorAt" | "indexing" | "indexPending">
 
@@ -37,7 +38,7 @@ export function RepoKnowledgeStatus({ repo, now }: { repo: KnowledgeFields; now:
             {repo.indexErrorAt ? <GitTime iso={repo.indexErrorAt} now={now} /> : "—"}
             {after}
           </span>{" "}
-          {repo.indexError}
+          {syncMessageText(repo.indexError, t)}
         </p>
       </div>
     )

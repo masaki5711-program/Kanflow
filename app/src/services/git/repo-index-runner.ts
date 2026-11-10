@@ -39,7 +39,7 @@ async function runLocked(repositoryId: string, budgetMs: number, index: IndexFn)
 /**
  * Poller step: knowledge repositories of live, Git-enabled projects, least
  * recently indexed first, until the budget is used or a pass is cut short.
- * Up-to-date repositories cost one GitLab request each.
+ * Up-to-date repositories cost a few requests each (GitLab: one; GitStation: the binding check and the branch list).
  */
 export async function runKnowledgeTick(index: IndexFn = indexRepository, budgetMs = TICK_BUDGET_MS): Promise<number> {
   if (lock.current) return 0

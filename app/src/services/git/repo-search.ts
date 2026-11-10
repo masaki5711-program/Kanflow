@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { withFulltext } from "@/lib/fulltext/fallback"
 import { termsMatch, termsScore, type TermMode } from "@/lib/fulltext/trigram-sql"
 import { indexableProviderFilter } from "./dev-source"
+import { parseGitProvider, type GitProvider } from "./git-provider"
 
 /**
  * Search and read of the knowledge index (repo_chunk) for the AI chat
@@ -18,6 +19,11 @@ export interface KnowledgeRepo {
   id: string
   name: string
   webUrl: string
+  /** Which Git server the file links point to (each has its own URL scheme). */
+  provider: GitProvider
+  apiBase: string
+  /** GitStation: the numeric project id (rename-proof permalink); null = not located yet. */
+  externalId: number | null
   /** Commit the citations link to (the indexed one; HEAD while the first pass runs). */
   ref: string
   indexedFiles: number
@@ -44,15 +50,39 @@ const KEYWORD_MIN_LENGTH = 2
 
 /**
  * Knowledge repositories of a project (empty when the integration is off or none is switched on).
- * Only a source that can read repository files (GitLab): links are built in that source's URL scheme (blobUrl).
+ * Only a source that can read repository files: links are built in that source's URL scheme (blobUrl).
  */
 export async function listKnowledgeRepos(projectId: string): Promise<KnowledgeRepo[]> {
   const rows = await prisma.gitRepository.findMany({
     where: { projectId, aiKnowledge: true, project: { deletedAt: null, gitIntegration: { enabled: true, provider: indexableProviderFilter() } } },
-    select: { id: true, name: true, webUrl: true, indexedSha: true, indexTargetSha: true, indexedFiles: true, indexedAt: true },
+    select: {
+      id: true,
+      name: true,
+      webUrl: true,
+      apiBase: true,
+      externalId: true,
+      indexedSha: true,
+      indexTargetSha: true,
+      indexedFiles: true,
+      indexedAt: true,
+      project: { select: { gitIntegration: { select: { provider: true } } } },
+    },
     orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
   })
-  return rows.map((r) => ({ id: r.id, name: r.name, webUrl: r.webUrl, ref: r.indexedSha ?? r.indexTargetSha ?? "HEAD", indexedFiles: r.indexedFiles, indexedAt: r.indexedAt }))
+  return rows.flatMap((r) => {
+    const provider = parseKnownProvider(r.project.gitIntegration?.provider)
+    if (!provider) return []
+    return [{ id: r.id, name: r.name, webUrl: r.webUrl, provider, apiBase: r.apiBase, externalId: r.externalId, ref: r.indexedSha ?? r.indexTargetSha ?? "HEAD", indexedFiles: r.indexedFiles, indexedAt: r.indexedAt }]
+  })
+}
+
+function parseKnownProvider(value: unknown): GitProvider | null {
+  try {
+    return parseGitProvider(value)
+  } catch {
+    // The filter above admits only known providers; a row that is not one has no link scheme and is left out.
+    return null
+  }
 }
 
 /** Repositories matching the model's `repository` argument (id or part of the name); all when omitted. */
@@ -81,13 +111,24 @@ export function extractKeywords(query: string): string[] {
   return [...new Set(cleaned)].slice(0, MAX_KEYWORDS)
 }
 
-/** GitLab URL of a file (at the indexed commit), with the heading / line anchor when known. */
-export function blobUrl(repo: Pick<KnowledgeRepo, "webUrl" | "ref">, path: string, anchor: string | null): string {
+/**
+ * URL of a file at the indexed commit. GitLab: the repository's page, with the heading / line anchor when
+ * known. GitStation: its rename-proof permalink `/-/projects/{id}/blob/{ref}/{path}` (no anchors: its file
+ * page has none); before the project id is known, the repository's page. Dot segments are dropped so a
+ * stored path can never walk the link to another page.
+ */
+export function blobUrl(repo: Pick<KnowledgeRepo, "webUrl" | "ref"> & Partial<Pick<KnowledgeRepo, "provider" | "apiBase" | "externalId">>, path: string, anchor: string | null): string {
   const encoded = path
     .split("/")
+    .filter((s) => s !== "" && s !== "." && s !== "..")
     .map((s) => encodeURIComponent(s).replace(/\(/g, "%28").replace(/\)/g, "%29"))
     .join("/")
-  return `${repo.webUrl}/-/blob/${encodeURIComponent(repo.ref)}/${encoded}${anchor ? `#${anchor}` : ""}`
+  const ref = encodeURIComponent(repo.ref)
+  if (repo.provider === "gitstation") {
+    const base = repo.externalId !== null && repo.externalId !== undefined && repo.apiBase ? `${repo.apiBase.replace(/\/+$/, "")}/-/projects/${repo.externalId}` : `${repo.webUrl}/-`
+    return `${base}/blob/${ref}/${encoded}`
+  }
+  return `${repo.webUrl}/-/blob/${ref}/${encoded}${anchor ? `#${anchor}` : ""}`
 }
 
 /** ~350 characters around the first keyword (whitespace collapsed). */

@@ -175,8 +175,8 @@ export interface DevSourceKind {
   /** Shown as the actor of automatic changes (activity log: "GitLab", "GitStation"). */
   readonly actorName: string
   /**
-   * The source can list and download repository files (AI の参照資料, repo-index). GitStation's file
-   * API is not in the integration contract yet (M3), so its repositories are not indexed.
+   * The source can list and download repository files (AI の参照資料, repo-index): GitLab through its
+   * repository API, GitStation through its browse API (gitstation-files.ts).
    */
   readonly readsRepositoryFiles: boolean
   readonly cursors: DevCursorCodec

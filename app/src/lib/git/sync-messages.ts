@@ -74,7 +74,26 @@ export const ACCEPTANCE_REPORT_REFUSED_MESSAGE =
 /** GitStation acceptance check: the head commit read a moment ago is not in the repository (404 on the report). */
 export const ACCEPTANCE_COMMIT_MISSING_MESSAGE = "チェックの報告先のコミットが GitStation に見つかりませんでした。次回の同期でやり直します。"
 
+/** AI の参照資料 (git_repository.indexError): an internal error of the import (the server log has it). */
+export const INDEX_FAILED_MESSAGE = "取り込み中にエラーが発生しました。次回の同期で再試行します。"
+
+/** AI の参照資料: neither the repository nor the integration has a token that can be read. */
+export const INDEX_TOKEN_MISSING_MESSAGE = "アクセストークンが未設定か、読み取れません。設定画面で入れ直してください。"
+
+/** AI の参照資料 (GitStation): the folder walk did not finish inside one call (the 10-minute manual run usually does). */
+export const KNOWLEDGE_LISTING_SLOW_MESSAGE = "リポジトリのファイル一覧を時間内に読み切れませんでした。「今すぐ取り込む」を実行するか、対象フォルダーを絞ってください。"
+
+/**
+ * AI の参照資料 (GitStation): the import finished, but GitStation could not list every folder (a folder over its
+ * listing cap, or more folders than one call reads). A warning kept until a complete listing clears it.
+ */
+export const KNOWLEDGE_LISTING_INCOMPLETE_MESSAGE = "一部のフォルダーのファイル一覧を読み切れなかったため、そのフォルダーのファイルは取り込めていません。対象フォルダーを絞ってください。"
+
 export type SyncMessageKey =
+  | "gitSyncKnowledgeListingIncomplete"
+  | "gitSyncKnowledgeListingSlow"
+  | "gitSyncIndexFailed"
+  | "gitSyncIndexNoToken"
   | "gitSyncFailed"
   | "gitSyncCursorInvalid"
   | "gitSyncStationTruncated"
@@ -117,6 +136,10 @@ const KEYS: ReadonlyMap<string, SyncMessageKey> = new Map<string, SyncMessageKey
   [STATION_INVALID_RESPONSE_MESSAGE, "gitSyncStationInvalidResponse"],
   [ACCEPTANCE_REPORT_REFUSED_MESSAGE, "gitSyncAcceptanceRefused"],
   [ACCEPTANCE_COMMIT_MISSING_MESSAGE, "gitSyncAcceptanceCommitMissing"],
+  [INDEX_FAILED_MESSAGE, "gitSyncIndexFailed"],
+  [INDEX_TOKEN_MISSING_MESSAGE, "gitSyncIndexNoToken"],
+  [KNOWLEDGE_LISTING_SLOW_MESSAGE, "gitSyncKnowledgeListingSlow"],
+  [KNOWLEDGE_LISTING_INCOMPLETE_MESSAGE, "gitSyncKnowledgeListingIncomplete"],
 ])
 
 /** i18n key of a stored lastError that is one fixed text, or null. */

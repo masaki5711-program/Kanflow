@@ -442,8 +442,16 @@ describe.skipIf(!enabled)("GitStation feed sync on a real database (KANFLOW_DB_T
     expect(done).toMatchObject({ stationRereadAt: null, stationRereadFailures: 0, stationRereadNextAt: null })
   })
 
-  it("a GitStation repository cannot be AI knowledge (no file API yet)", async () => {
-    await expect(service.updateRepository(ids.projectA, ids.repoA1, { aiKnowledge: true }, actor)).rejects.toMatchObject({ status: 400, code: "GIT_KNOWLEDGE_UNSUPPORTED" })
+  it("a GitStation repository can be AI knowledge (N12) and is listed with GitStation's link scheme", async () => {
+    const { listKnowledgeRepos } = await import("../repo-search")
+    await service.updateRepository(ids.projectA, ids.repoA1, { aiKnowledge: true }, actor)
+    try {
+      const repos = await listKnowledgeRepos(ids.projectA)
+      expect(repos.find((r) => r.id === ids.repoA1)).toMatchObject({ provider: "gitstation" })
+    } finally {
+      // The other tests of this file read the repository as it was.
+      await service.updateRepository(ids.projectA, ids.repoA1, { aiKnowledge: false }, actor)
+    }
   })
 
   it("permanent failures skip, transient ones hold; re-reads back off exponentially up to a day", async () => {

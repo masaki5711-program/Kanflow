@@ -17,7 +17,18 @@ vi.mock("@/lib/logger", () => ({ logger: noopLog }))
 const search = await import("../repo-search")
 const { resetFulltextFallback } = await import("@/lib/fulltext/fallback")
 
-const REPO = { id: "r1", name: "仕様書", webUrl: "https://gitlab.example/g/spec", ref: "abc123", indexedFiles: 3, indexedAt: null }
+const REPO = {
+  id: "r1",
+  name: "仕様書",
+  webUrl: "https://gitlab.example/g/spec",
+  provider: "gitlab" as const,
+  apiBase: "https://gitlab.example/api/v4",
+  externalId: 12,
+  ref: "abc123",
+  indexedFiles: 3,
+  indexedAt: null,
+}
+const STATION_REPO = { ...REPO, id: "r2", webUrl: "https://station.example.test/g/spec", provider: "gitstation" as const, apiBase: "https://station.example.test/", externalId: 7 }
 const row = (o: Partial<{ id: string; path: string; heading: string | null; anchor: string | null; content: string; score: number }>) => ({
   id: o.id ?? "c1",
   repositoryId: "r1",
@@ -54,6 +65,17 @@ describe("blobUrl / snippetOf / pickRepos", () => {
   it("links the file at the indexed commit with the anchor, path segments encoded", () => {
     expect(search.blobUrl(REPO, "10-pfs/06 oee (draft).md", "11-oee")).toBe("https://gitlab.example/g/spec/-/blob/abc123/10-pfs/06%20oee%20%28draft%29.md#11-oee")
     expect(search.blobUrl(REPO, "a.md", null)).toBe("https://gitlab.example/g/spec/-/blob/abc123/a.md")
+  })
+
+  it("links a GitStation file through its rename-proof permalink, without anchors", () => {
+    expect(search.blobUrl(STATION_REPO, "docs/a b.md", "intro")).toBe("https://station.example.test/-/projects/7/blob/abc123/docs/a%20b.md")
+    // Not located yet: the repository's own page.
+    expect(search.blobUrl({ ...STATION_REPO, externalId: null }, "docs/a.md", null)).toBe("https://station.example.test/g/spec/-/blob/abc123/docs/a.md")
+  })
+
+  it("never lets a stored path walk the link to another page", () => {
+    expect(search.blobUrl(STATION_REPO, "../../../-/admin/x.md", null)).toBe("https://station.example.test/-/projects/7/blob/abc123/-/admin/x.md")
+    expect(search.blobUrl(REPO, "docs/../../x.md", null)).toBe("https://gitlab.example/g/spec/-/blob/abc123/docs/x.md")
   })
 
   it("cuts a snippet around the first keyword", () => {
@@ -123,10 +145,19 @@ describe("searchRepoDocs", () => {
 
 describe("listKnowledgeRepos / readRepoFile", () => {
   it("lists only switched-on repositories of a live project with the integration on", async () => {
-    repoFindMany.mockResolvedValue([{ id: "r1", name: "仕様書", webUrl: REPO.webUrl, indexedSha: null, indexTargetSha: "t", indexedFiles: 0, indexedAt: null }])
+    const row = { id: "r1", name: "仕様書", webUrl: REPO.webUrl, apiBase: REPO.apiBase, externalId: null, indexedSha: null, indexTargetSha: "t", indexedFiles: 0, indexedAt: null }
+    repoFindMany.mockResolvedValue([
+      { ...row, project: { gitIntegration: { provider: "gitlab" } } },
+      { ...row, id: "r2", externalId: 7, indexedSha: "s", project: { gitIntegration: { provider: "gitstation" } } },
+      // A provider Kanflow does not know has no link scheme: left out, never linked in another one's.
+      { ...row, id: "r3", project: { gitIntegration: { provider: "bitbucket" } } },
+    ])
     const repos = await search.listKnowledgeRepos("p1")
-    expect(repoFindMany.mock.calls[0][0].where).toEqual({ projectId: "p1", aiKnowledge: true, project: { deletedAt: null, gitIntegration: { enabled: true, provider: { in: ["gitlab"] } } } })
-    expect(repos[0].ref).toBe("t")
+    expect(repoFindMany.mock.calls[0][0].where).toEqual({ projectId: "p1", aiKnowledge: true, project: { deletedAt: null, gitIntegration: { enabled: true, provider: { in: ["gitlab", "gitstation"] } } } })
+    expect(repos.map((r) => [r.id, r.provider, r.ref, r.externalId])).toEqual([
+      ["r1", "gitlab", "t", null],
+      ["r2", "gitstation", "s", 7],
+    ])
   })
 
   it("reads the passages of an exact path inside the given repositories only", async () => {

@@ -308,7 +308,7 @@ const validCursor = (v: unknown): v is string => str(v) && v.length > 0 && v.len
 async function boundedText(res: Response): Promise<string> {
   if (Number(res.headers.get("content-length") ?? 0) > MAX_RESPONSE_BYTES) {
     await res.body?.cancel().catch(() => undefined)
-    throw new GitStationError("invalid_response", "GitStation response is too large")
+    throw new GitStationError("invalid_response", "GitStation response is too large", undefined, { reason: "response_too_large" })
   }
   const reader = res.body?.getReader()
   if (!reader) return ""
@@ -318,7 +318,7 @@ async function boundedText(res: Response): Promise<string> {
     total += r.value.byteLength
     if (total > MAX_RESPONSE_BYTES) {
       await reader.cancel().catch(() => undefined)
-      throw new GitStationError("invalid_response", "GitStation response is too large")
+      throw new GitStationError("invalid_response", "GitStation response is too large", undefined, { reason: "response_too_large" })
     }
     parts.push(r.value)
   }
@@ -651,6 +651,15 @@ export function createGitStationClient({ apiBase, token, integrationId, fetchImp
       if (!isObject(body) || !Array.isArray(body.refs) || typeof body.truncated !== "boolean") throw new GitStationError("invalid_response", "GitStation refs have an unexpected shape")
       const items = body.refs.flatMap((r) => (isObject(r) && str(r.name) && str(r.type) ? [{ name: r.name, full_name: str(r.full_name) ? r.full_name : undefined, type: r.type, commit: str(r.commit) ? r.commit : null }] : []))
       return { items, truncated: body.truncated }
+    },
+
+    /**
+     * One answer of the repository browse routes (`refs`, `tree`, `blob`, `compare`), unparsed: the shapes are
+     * checked by lib/git/gitstation-browse. Same auth, timeout, size cap and 429 / 503 retry as every read; an
+     * `undefined` query value is not sent (GitStation refuses unknown and empty parameters).
+     */
+    async repositoryGet(projectId: number, route: "refs" | "tree" | "blob" | "compare", query: Record<string, string | undefined>): Promise<unknown> {
+      return send(`${projectBase(projectId)}/repository/${route}`, query)
     },
 
     /** The newest commits reachable from `oid` (one page). */

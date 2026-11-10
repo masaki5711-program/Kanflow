@@ -113,8 +113,8 @@ describe("GET /git/knowledge", () => {
   it("gives members the names of indexed knowledge repositories only (no content, no URL)", async () => {
     asRole("dev")
     vi.mocked(search.listKnowledgeRepos).mockResolvedValue([
-      { id: "r1", name: "仕様書", webUrl: "https://g/x", ref: "a", indexedFiles: 137, indexedAt: new Date("2026-10-06T00:00:00Z") },
-      { id: "r2", name: "まだ", webUrl: "https://g/y", ref: "HEAD", indexedFiles: 0, indexedAt: null },
+      { id: "r1", name: "仕様書", webUrl: "https://g/x", provider: "gitlab", apiBase: "https://g/api/v4", externalId: 1, ref: "a", indexedFiles: 137, indexedAt: new Date("2026-10-06T00:00:00Z") },
+      { id: "r2", name: "まだ", webUrl: "https://g/y", provider: "gitlab", apiBase: "https://g/api/v4", externalId: null, ref: "HEAD", indexedFiles: 0, indexedAt: null },
     ])
     const res = await knowledgeRoute.GET(req("GET"), ctx())
     expect(await read(res)).toEqual({ status: 200, body: { repositories: [{ name: "仕様書", indexedFiles: 137, indexedAt: "2026-10-06T00:00:00.000Z" }] } })

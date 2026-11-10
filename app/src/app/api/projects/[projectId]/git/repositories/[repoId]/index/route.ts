@@ -6,7 +6,7 @@ import { startIndexInBackground } from "@/services/git/repo-index-runner"
 
 type Params = { params: Promise<{ projectId: string; repoId: string }> }
 
-/** Minimum gap between manual index runs of one repository (an up-to-date run is a single GitLab request). */
+/** Minimum gap between manual index runs of one repository (an up-to-date run is a few requests to the Git server). */
 const MIN_GAP_MS = 30_000
 const lastManual = new Map<string, number>()
 
