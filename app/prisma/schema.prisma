@@ -52,6 +52,9 @@ model User {
   capacityAuditsBy  MemberCapacityAudit[]    @relation("MemberCapacityAuditActor")
   estimateGateApprovals PlanEstimateGateApproval[] @relation("PlanEstimateGateApprovedBy")
   estimateGateEnds      PlanEstimateGateApproval[] @relation("PlanEstimateGateEndedBy")
+  estimateParamDecisions PlanEstimateParamProposal[] @relation("PlanEstimateParamDecidedBy")
+  estimateParamApprovals PlanEstimateParamApproval[] @relation("PlanEstimateParamApprovedBy")
+  estimateParamEnds      PlanEstimateParamApproval[] @relation("PlanEstimateParamEndedBy")
   estimateRuns      PlanEstimateRun[]        @relation("PlanEstimateRunCreatedBy")
   estimateFeedback  PlanEstimateFeedback[]   @relation("PlanEstimateFeedbackBy")
   /// Merge request links declared through a dev:write token.
@@ -2359,9 +2362,13 @@ model PlanEstimateEval {
   /// sha256 of the lineage's learnable snapshots (id + version) the row was computed from: the gate treats a row whose
   /// hash differs from the current one as outdated. Null on rows written before it was recorded (= outdated).
   inputHash            String?  @db.Char(64)
+  /// The approved estimator settings the row was computed with (null = the defaults). The gate treats a row whose
+  /// settings are not the lineage's active ones as outdated.
+  paramApprovalId      String?  @db.VarChar(191)
   createdAt            DateTime @default(now())
 
-  approvals PlanEstimateGateApproval[]
+  approvals     PlanEstimateGateApproval[]
+  paramApproval PlanEstimateParamApproval? @relation(fields: [paramApprovalId], references: [id], onDelete: SetNull)
 
   @@index([lineage, evaluatedOn(sort: Desc)])
   @@map("plan_estimate_eval")
@@ -2392,4 +2399,67 @@ model PlanEstimateGateApproval {
   @@unique([lineage, endedAt], map: "plan_estimate_gate_approval_one_active_key")
   @@index([lineage, approvedAt(sort: Desc)])
   @@map("plan_estimate_gate_approval")
+}
+
+/// One run of the deterministic parameter search of a lineage (services/plan-estimate-eval/param-search.ts): the
+/// outcome (a proposal, or "keep the defaults" with why), the settings, and the backtest metrics of the defaults and of
+/// the proposal (lineage aggregates only — no project ids; administrators only). An administrator approves or rejects a
+/// proposal; a newer search supersedes a pending one. Rows are never deleted (history).
+model PlanEstimateParamProposal {
+  id            String    @id @default(cuid())
+  lineage       String    @db.VarChar(200)
+  methodVersion String    @db.VarChar(16)
+  /// lineageInputHash the search was computed from: a proposal of other snapshots cannot be approved.
+  inputHash     String    @db.Char(64)
+  /// propose | keep_default
+  outcome       String    @db.VarChar(16)
+  /// Why the defaults are kept (null for a proposal): not_enough_actuals | no_improvement | holdout_worse | not_passing | time_budget
+  reason        String?   @db.VarChar(24)
+  /// The proposed settings ({ outlierMads, halfLifeDays, shrinkK, spreadPrior }; the defaults when kept).
+  params        Json
+  /// { before, after, skipped }: CandidateMetrics of the defaults and of the proposal (full / search / holdout).
+  metrics       Json
+  candidates    Int
+  evaluated     Int
+  timedOut      Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  /// approved | rejected | superseded (null = pending, or a "keep the defaults" row)
+  decision      String?   @db.VarChar(16)
+  decidedAt     DateTime?
+  decidedById   String?
+
+  decidedBy User?                       @relation("PlanEstimateParamDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
+  approvals PlanEstimateParamApproval[]
+
+  @@index([lineage, createdAt(sort: Desc)])
+  @@map("plan_estimate_param_proposal")
+}
+
+/// The estimator settings an administrator approved for a lineage (from a proposal). Used by every run of the lineage
+/// while active; a later backtest that fails with them ends it (the lineage falls back to the defaults), as does a new
+/// method version, a newer approval or an administrator. Never deleted (history). UNIQUE NULLS NOT DISTINCT
+/// (lineage, endedAt) in the migration: at most one active row per lineage.
+model PlanEstimateParamApproval {
+  id            String    @id @default(cuid())
+  lineage       String    @db.VarChar(200)
+  methodVersion String    @db.VarChar(16)
+  proposalId    String?   @db.VarChar(191)
+  /// A copy of the approved settings (the proposal row may be read without them).
+  params        Json
+  approvedById  String?
+  approvedAt    DateTime  @default(now())
+  endedAt       DateTime?
+  endedById     String?
+  /// withdrawn (an administrator returned to the defaults) | failed (a backtest with them no longer passes) |
+  /// method (a new method version) | replaced (a newer approval)
+  endReason     String?   @db.VarChar(16)
+
+  proposal   PlanEstimateParamProposal? @relation(fields: [proposalId], references: [id], onDelete: SetNull)
+  approvedBy User?                      @relation("PlanEstimateParamApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  endedBy    User?                      @relation("PlanEstimateParamEndedBy", fields: [endedById], references: [id], onDelete: SetNull)
+  evals      PlanEstimateEval[]
+
+  @@unique([lineage, endedAt], map: "plan_estimate_param_approval_one_active_key")
+  @@index([lineage, approvedAt(sort: Desc)])
+  @@map("plan_estimate_param_approval")
 }

@@ -106,6 +106,10 @@ export interface ApiErrorsTranslations {
   apiErrPlanEstimateEvalChanged: string
   apiErrPlanEstimateEvalNotPassing: string
   apiErrPlanEstimateEvalTooMany: string
+  apiErrPlanEstimateParamsNotFound: string
+  apiErrPlanEstimateParamsChanged: string
+  apiErrPlanEstimateParamsDecided: string
+  apiErrPlanEstimateParamsNotPassing: string
   apiErrFileRequired: string
   apiErrFileEmpty: string
   apiErrFileMissing: string
@@ -257,6 +261,10 @@ export const API_ERROR_MESSAGE_KEYS: Readonly<Record<ApiErrorCode, ApiErrorMessa
   PLAN_ESTIMATE_EVAL_CHANGED: "apiErrPlanEstimateEvalChanged",
   PLAN_ESTIMATE_EVAL_NOT_PASSING: "apiErrPlanEstimateEvalNotPassing",
   PLAN_ESTIMATE_EVAL_TOO_MANY: "apiErrPlanEstimateEvalTooMany",
+  PLAN_ESTIMATE_PARAMS_NOT_FOUND: "apiErrPlanEstimateParamsNotFound",
+  PLAN_ESTIMATE_PARAMS_CHANGED: "apiErrPlanEstimateParamsChanged",
+  PLAN_ESTIMATE_PARAMS_DECIDED: "apiErrPlanEstimateParamsDecided",
+  PLAN_ESTIMATE_PARAMS_NOT_PASSING: "apiErrPlanEstimateParamsNotPassing",
   FILE_REQUIRED: "apiErrFileRequired",
   FILE_EMPTY: "apiErrFileEmpty",
   FILE_MISSING: "apiErrFileMissing",
@@ -415,6 +423,10 @@ export const ja: ApiErrorsTranslations = {
   apiErrPlanEstimateEvalChanged: "検証の記録が新しくなっています。表示を更新して、もう一度確かめてください",
   apiErrPlanEstimateEvalNotPassing: "この系統の検証は条件を満たしていないため、有効にできません",
   apiErrPlanEstimateEvalTooMany: "系統が多すぎて一度に計算できません",
+  apiErrPlanEstimateParamsNotFound: "この系統のパラメータの提案がありません",
+  apiErrPlanEstimateParamsChanged: "パラメータの提案が新しくなっています。表示を更新して、もう一度確かめてください",
+  apiErrPlanEstimateParamsDecided: "この提案はもう承認または却下されています",
+  apiErrPlanEstimateParamsNotPassing: "この提案の検証は条件を満たしていないため、承認できません",
   apiErrFileRequired: "ファイルがありません",
   apiErrFileEmpty: "ファイルが空です",
   apiErrFileMissing: "ファイルが見つかりません",
@@ -567,6 +579,10 @@ export const en: ApiErrorsTranslations = {
   apiErrPlanEstimateEvalChanged: "The check has been updated. Reload and look at it again",
   apiErrPlanEstimateEvalNotPassing: "This lineage's check does not meet the conditions, so it cannot be turned on",
   apiErrPlanEstimateEvalTooMany: "There are too many lineages to compute at once",
+  apiErrPlanEstimateParamsNotFound: "There is no settings proposal for this lineage",
+  apiErrPlanEstimateParamsChanged: "The settings proposal has been updated. Reload and look at it again",
+  apiErrPlanEstimateParamsDecided: "This proposal has already been approved or rejected",
+  apiErrPlanEstimateParamsNotPassing: "This proposal's check does not meet the conditions, so it cannot be approved",
   apiErrFileRequired: "No file was provided",
   apiErrFileEmpty: "The file is empty",
   apiErrFileMissing: "The file was not found",
@@ -719,6 +735,10 @@ export const id: ApiErrorsTranslations = {
   apiErrPlanEstimateEvalChanged: "Hasil pengujian sudah diperbarui. Muat ulang dan periksa lagi",
   apiErrPlanEstimateEvalNotPassing: "Pengujian lini ini tidak memenuhi syarat, sehingga tidak dapat diaktifkan",
   apiErrPlanEstimateEvalTooMany: "Terlalu banyak lini untuk dihitung sekaligus",
+  apiErrPlanEstimateParamsNotFound: "Belum ada usulan parameter untuk lini ini",
+  apiErrPlanEstimateParamsChanged: "Usulan parameter sudah diperbarui. Muat ulang dan periksa lagi",
+  apiErrPlanEstimateParamsDecided: "Usulan ini sudah disetujui atau ditolak",
+  apiErrPlanEstimateParamsNotPassing: "Pengujian usulan ini tidak memenuhi syarat, sehingga tidak dapat disetujui",
   apiErrFileRequired: "Tidak ada file yang dikirim",
   apiErrFileEmpty: "File kosong",
   apiErrFileMissing: "File tidak ditemukan",

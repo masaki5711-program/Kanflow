@@ -6,14 +6,21 @@ const m = vi.hoisted(() => ({
   recordAll: vi.fn(),
   approve: vi.fn(),
   withdraw: vi.fn(),
+  search: vi.fn(),
+  approveParams: vi.fn(),
+  rejectParams: vi.fn(),
+  revertParams: vi.fn(),
 }))
 vi.mock("@/lib/auth", () => ({ auth: () => m.auth() }))
 vi.mock("@/lib/prisma", () => ({ prisma: {} }))
 vi.mock("@/services/plan-estimate-eval/admin.service", () => ({ listLineageEvals: m.list, approveLineage: m.approve, withdrawLineage: m.withdraw }))
 vi.mock("@/services/plan-estimate-eval/eval.service", () => ({ recordAllLineages: m.recordAll }))
+vi.mock("@/services/plan-estimate-eval/params.service", () => ({ enqueueAllParamSearches: m.search, approveParams: m.approveParams, rejectParams: m.rejectParams, revertParams: m.revertParams }))
 
 const route = await import("@/app/api/admin/plan-estimate-eval/route")
 const approval = await import("@/app/api/admin/plan-estimate-eval/approval/route")
+const params = await import("@/app/api/admin/plan-estimate-eval/params/route")
+const postParams = (body: unknown) => new Request("http://x/api/admin/plan-estimate-eval/params", { method: "POST", body: JSON.stringify(body), headers: { "Content-Type": "application/json" } })
 
 const OVERVIEW = { methodVersion: "e2-v1", conditions: { minProjects: 5, mapeRatio: 0.85, p80Range: [0.7, 0.9] }, lineages: [] }
 const post = (body: unknown) => new Request("http://x/api/admin/plan-estimate-eval/approval", { method: "POST", body: JSON.stringify(body), headers: { "Content-Type": "application/json" } })
@@ -74,5 +81,40 @@ describe("admin estimate eval routes (canManageEstimateGate)", () => {
     const res = await approval.POST(post({ decision: "approve", lineage: "template:x", evalId: "old" }))
     expect(res.status).toBe(409)
     expect((await res.json()).code).toBe("PLAN_ESTIMATE_EVAL_CHANGED")
+  })
+
+  it("estimator settings (canApproveEstimateParams): 401 / 403 for non-admins, nothing searched or decided", async () => {
+    m.auth.mockResolvedValue(null)
+    expect((await params.POST(postParams({ action: "search" }))).status).toBe(401)
+    for (const role of ["member", "section_manager"]) {
+      m.auth.mockResolvedValue({ user: { id: "u", role } })
+      for (const body of [{ action: "search" }, { action: "approve", lineage: "template:x", proposalId: "p1" }, { action: "reject", lineage: "template:x", proposalId: "p1" }, { action: "revert", lineage: "template:x" }]) {
+        expect((await params.POST(postParams(body))).status).toBe(403)
+      }
+    }
+    expect(m.search).not.toHaveBeenCalled()
+    expect(m.approveParams).not.toHaveBeenCalled()
+    expect(m.rejectParams).not.toHaveBeenCalled()
+    expect(m.revertParams).not.toHaveBeenCalled()
+  })
+
+  it("estimator settings: an admin queues the search (202), approves / rejects the shown proposal, reverts", async () => {
+    m.auth.mockResolvedValue({ user: { id: "a", role: "admin" } })
+    m.search.mockResolvedValue(["template:x"])
+    expect((await params.POST(postParams({ action: "search" }))).status).toBe(202)
+    expect(m.search).toHaveBeenCalledTimes(1)
+    expect((await params.POST(postParams({ action: "approve", lineage: "template:x", proposalId: "p1" }))).status).toBe(200)
+    expect(m.approveParams).toHaveBeenCalledWith("template:x", "p1", "a")
+    expect((await params.POST(postParams({ action: "reject", lineage: "template:x", proposalId: "p1" }))).status).toBe(200)
+    expect(m.rejectParams).toHaveBeenCalledWith("template:x", "p1", "a")
+    expect((await params.POST(postParams({ action: "revert", lineage: "template:x" }))).status).toBe(200)
+    expect(m.revertParams).toHaveBeenCalledWith("template:x", "a")
+    // Approving needs the proposal id that was shown; settings themselves are never sent.
+    expect((await params.POST(postParams({ action: "approve", lineage: "template:x" }))).status).toBe(400)
+    expect((await params.POST(postParams({ action: "set", lineage: "template:x", params: { shrinkK: 1 } }))).status).toBe(400)
+    m.approveParams.mockRejectedValue(Object.assign(new (await import("@/services/_shared/errors")).ConflictError("x", {}, "PLAN_ESTIMATE_PARAMS_CHANGED")))
+    const res = await params.POST(postParams({ action: "approve", lineage: "template:x", proposalId: "old" }))
+    expect(res.status).toBe(409)
+    expect((await res.json()).code).toBe("PLAN_ESTIMATE_PARAMS_CHANGED")
   })
 })

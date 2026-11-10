@@ -224,6 +224,15 @@ export function canManageEstimateGate(actor: Pick<ProjectActor, "systemRole">): 
 }
 
 /**
+ * Search the estimator's settings by backtest and approve, reject or end a lineage's settings (the deterministic
+ * parameter search; handoff 2026-11-05 "次の案" (2)). System admins only: approved settings change the estimates of
+ * every project of the lineage, and the proposal's numbers span all of its projects (plan 12 §10).
+ */
+export function canApproveEstimateParams(actor: Pick<ProjectActor, "systemRole">): boolean {
+  return isSystemAdmin(actor)
+}
+
+/**
  * Set a person's OWN FTE (member_capacity rows without a project; plan 12 §4): the person themselves, a section
  * manager of a section the person belongs to, or an admin. Not a PO / SM — not even of the person's projects (they set
  * the allocation to their project instead: `capacity.manage`). `sharesSectionAsManager` = the actor is a

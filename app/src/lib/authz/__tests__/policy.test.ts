@@ -7,6 +7,7 @@ import {
   canManageUserCapacity,
   canPseudonymizeActuals,
   canManageEstimateGate,
+  canApproveEstimateParams,
   type ProjectAction,
   type ProjectActor,
 } from "@/lib/authz/policy"
@@ -152,6 +153,13 @@ describe("canPseudonymizeActuals()", () => {
   // plan 12 §4 / Q8: pseudonymising actuals owners is admins only (pseudonymize_denied_for_non_admin).
   it.each(ALL.map((persona) => ({ persona, allowed: persona === "admin" })))("$persona → $allowed", ({ persona, allowed }) => {
     expect(canPseudonymizeActuals(ACTORS[persona])).toBe(allowed)
+  })
+})
+
+describe("canApproveEstimateParams()", () => {
+  // The deterministic parameter search: proposals are approved / rejected / ended by admins only (allow + deny rows).
+  it.each(ALL.map((persona) => ({ persona, allowed: persona === "admin" })))("$persona → $allowed", ({ persona, allowed }) => {
+    expect(canApproveEstimateParams(ACTORS[persona])).toBe(allowed)
   })
 })
 

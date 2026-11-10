@@ -38,6 +38,8 @@ export interface CollabDailyResult {
   planRunRetention?: PlanRunRetentionResult | null
   /** Step 7: lineages recomputed / failed (null when the step failed as a whole). */
   backtestCatchUp?: { recorded: number; failed: number } | null
+  /** The parameter search of the lineages whose backtest the catch-up recorded (null = none ran or it failed). */
+  paramSearch?: { searched: number; failed: number } | null
 }
 
 function errorMessage(err: unknown): string {
@@ -84,17 +86,40 @@ export async function runCollabDaily(cfg: CollabConfig, log: SchedulerLog, signa
     log.error("plan estimate run retention failed", { error: errorMessage(err) })
   }
   let backtestCatchUp: CollabDailyResult["backtestCatchUp"] = null
+  let outdatedLineages: string[] = []
   try {
     // Loaded lazily: the estimate engine is not needed by the other steps.
     const { recordOutdatedLineages } = await import("@/services/plan-estimate-eval/eval.service")
     const r = await recordOutdatedLineages()
     backtestCatchUp = { recorded: r.recorded.length, failed: r.failed.length }
+    outdatedLineages = r.recorded.filter((x) => x.written).map((x) => x.lineage)
     if (r.failed.length > 0) log.warn("backtest catch-up finished with failures", { ...backtestCatchUp, lineages: r.failed.slice(0, 20) })
     else log.info("backtest catch-up done", backtestCatchUp)
   } catch (err) {
     log.error("backtest catch-up failed", { error: errorMessage(err) })
   }
-  return { retention, notifyDue, chatRetention, improvementReminders, feedbackRecurrence, planRunRetention, backtestCatchUp }
+  const paramSearch = await runParamSearchStep(outdatedLineages, log)
+  return { retention, notifyDue, chatRetention, improvementReminders, feedbackRecurrence, planRunRetention, backtestCatchUp, paramSearch }
+}
+
+/**
+ * The parameter search of the lineages whose backtest was outdated (new actuals since the last record): a fresh
+ * PROPOSAL for an administrator, never a change by itself. On the same serialized path as the backtests; failures
+ * logged, never thrown.
+ */
+async function runParamSearchStep(lineages: readonly string[], log: SchedulerLog): Promise<CollabDailyResult["paramSearch"]> {
+  if (lineages.length === 0) return null
+  try {
+    const { enqueueParamSearch } = await import("@/services/plan-estimate-eval/params.service")
+    const r = await enqueueParamSearch(lineages)
+    const out = { searched: r.searched.length, failed: r.failed.length }
+    if (r.failed.length > 0) log.warn("parameter search finished with failures", { ...out, lineages: r.failed.slice(0, 20) })
+    else log.info("parameter search done", out)
+    return out
+  } catch (err) {
+    log.error("parameter search failed", { error: errorMessage(err) })
+    return null
+  }
 }
 
 /** Step 4: 定着確認 reminders (skipped when disabled; failures logged, never thrown). */

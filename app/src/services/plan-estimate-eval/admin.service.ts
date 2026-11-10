@@ -8,8 +8,11 @@ import { ESTIMATE_METHOD_VERSION } from "@/lib/plan-estimate"
 import { logger } from "@/lib/logger"
 import { defaultDb, withTransaction, type Db } from "@/services/_shared/db"
 import { ConflictError, NotFoundError } from "@/services/_shared/errors"
-import { activeApproval, decideGate, latestEval, lineageInputHash, lineageInputHashes, GATE_MAPE_RATIO, GATE_MIN_PROJECTS, GATE_P80_RANGE, type GateReason } from "@/services/plan-estimate-run/gate"
+import { DEFAULT_PARAMS, PARAM_GRID, type TunedKey, type TunedParams } from "@/lib/plan-estimate/params"
+import { activeApproval, activeParamApproval, currentParams, decideGate, latestEval, lineageInputHash, lineageInputHashes, GATE_MAPE_RATIO, GATE_MIN_PROJECTS, GATE_P80_RANGE, type GateReason } from "@/services/plan-estimate-run/gate"
 import { currentLineages, lineageNames } from "./eval.service"
+import { SEARCH_MARGIN } from "./param-search"
+import { lineageParamViews, searchingLineages, type LineageParamsView } from "./params.service"
 
 const log = logger.child({ module: "plan-estimate-eval" })
 
@@ -43,6 +46,8 @@ export interface LineageEvalView {
   lastEnded: { endedAt: string; reason: ApprovalEndReason } | null
   /** Approved, passing and current: runs of this lineage propose durations from actuals. */
   on: boolean
+  /** The estimator settings: the approved ones, the latest search and its proposal. */
+  params: LineageParamsView
 }
 
 export interface EvalOverview {
@@ -50,6 +55,8 @@ export interface EvalOverview {
   /** The thresholds of the gate (shown with the numbers). */
   conditions: { minProjects: number; mapeRatio: number; p80Range: readonly [number, number] }
   lineages: LineageEvalView[]
+  /** The parameter search: the defaults, the searched grid, the margin a proposal must beat the defaults by. */
+  paramSearch: { defaults: TunedParams; grid: Readonly<Record<TunedKey, readonly number[]>>; margin: number; searching: string[] }
 }
 
 const lineageLock = (tx: Db, lineage: string) => tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`plan_estimate_eval:${lineage}`}))`
@@ -61,22 +68,26 @@ export async function listLineageEvals(db: Db = defaultDb): Promise<EvalOverview
   const ended = lineages.length
     ? await db.planEstimateGateApproval.findMany({ where: { lineage: { in: lineages }, endedAt: { not: null } }, orderBy: { endedAt: "desc" }, select: { lineage: true, endedAt: true, endReason: true } })
     : []
-  const [names, hashes, latest] = await Promise.all([
+  const [names, hashes, latest, settings] = await Promise.all([
     lineageNames(lineages, { db }),
     lineageInputHashes(lineages, db),
     // One indexed read per lineage, bounded by LINEAGES_MAX (an admin page).
     Promise.all(lineages.map((l) => latestEval(l, db))),
+    Promise.all(lineages.map(async (l) => currentParams(await activeParamApproval(l, db)))),
   ])
+  const params = await lineageParamViews(lineages, hashes, db)
   const activeBy = new Map(actives.map((a) => [a.lineage, a]))
   const lastEndedBy = new Map<string, (typeof ended)[number]>()
   for (const e of ended) if (!lastEndedBy.has(e.lineage)) lastEndedBy.set(e.lineage, e)
   return {
     methodVersion: ESTIMATE_METHOD_VERSION,
     conditions: { minProjects: GATE_MIN_PROJECTS, mapeRatio: GATE_MAPE_RATIO, p80Range: GATE_P80_RANGE },
+    paramSearch: { defaults: DEFAULT_PARAMS, grid: PARAM_GRID, margin: SEARCH_MARGIN, searching: searchingLineages() },
     lineages: lineages.map((lineage, i) => {
       const rec = latest[i]
       const gate = decideGate(rec)
-      const outdated = rec !== null && rec.inputHash !== hashes.get(lineage)
+      // Of other snapshots, or computed with other settings than the active ones (the same rule as the gate).
+      const outdated = rec !== null && (rec.inputHash !== hashes.get(lineage) || (rec.paramApprovalId ?? null) !== (settings[i]?.id ?? null))
       const active = activeBy.get(lineage)
       const approval = active && active.methodVersion === ESTIMATE_METHOD_VERSION ? active : undefined
       const end = approval ? undefined : lastEndedBy.get(lineage)
@@ -92,6 +103,7 @@ export async function listLineageEvals(db: Db = defaultDb): Promise<EvalOverview
         approval: approval ? { approvedAt: approval.approvedAt.toISOString(), approvedByName: approval.approvedBy?.name ?? null } : null,
         lastEnded: end?.endedAt && end.endReason ? { endedAt: end.endedAt.toISOString(), reason: end.endReason as ApprovalEndReason } : null,
         on: gate.on && !outdated && approval !== undefined,
+        params: params.get(lineage) as LineageParamsView,
       }
     }),
   }
@@ -106,7 +118,8 @@ export async function approveLineage(lineage: string, evalId: string, actorId: s
     await lineageLock(tx, lineage)
     const rec = await latestEval(lineage, tx)
     if (!rec) throw new NotFoundError("この系統の検証の記録がありません", { lineage }, "PLAN_ESTIMATE_EVAL_NOT_FOUND")
-    if (rec.id !== evalId || rec.inputHash !== (await lineageInputHash(lineage, tx))) {
+    const settings = currentParams(await activeParamApproval(lineage, tx))
+    if (rec.id !== evalId || rec.inputHash !== (await lineageInputHash(lineage, tx)) || (rec.paramApprovalId ?? null) !== (settings?.id ?? null)) {
       throw new ConflictError("検証の記録が新しくなっています。もう一度確かめてください", { lineage }, "PLAN_ESTIMATE_EVAL_CHANGED")
     }
     if (!decideGate(rec).on) throw new ConflictError("この系統の検証は条件を満たしていません", { lineage }, "PLAN_ESTIMATE_EVAL_NOT_PASSING")

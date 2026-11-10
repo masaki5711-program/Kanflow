@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import type { Session } from "next-auth"
 import { requireAuth } from "@/lib/api-helpers"
-import { canConfirmLineageRule, canManageEstimateGate, canPseudonymizeActuals, type ProjectActor } from "./policy"
+import { canApproveEstimateParams, canConfirmLineageRule, canManageEstimateGate, canPseudonymizeActuals, type ProjectActor } from "./policy"
 
 type SystemDecision = (actor: Pick<ProjectActor, "systemRole">) => boolean
 
@@ -28,4 +28,9 @@ export function requireActualsPseudonymizer(): Promise<{ session: Session } | { 
 /** The backtest of real actuals and the per-lineage approval (plan 12 §5 / §8 item 6): `canManageEstimateGate`. */
 export function requireEstimateGateManager(): Promise<{ session: Session } | { error: NextResponse }> {
   return requireSystemDecision(canManageEstimateGate)
+}
+
+/** Searching and approving a lineage's estimator settings (the deterministic parameter search): `canApproveEstimateParams`. */
+export function requireEstimateParamsApprover(): Promise<{ session: Session } | { error: NextResponse }> {
+  return requireSystemDecision(canApproveEstimateParams)
 }

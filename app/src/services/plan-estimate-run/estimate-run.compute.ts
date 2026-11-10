@@ -27,7 +27,7 @@ import { effectiveLessonRules } from "@/services/plan-lesson-rules/lesson-rules.
 import { levelSchedule, type LevelResponse } from "@/services/plan-leveling/load.service"
 import * as templateRepo from "@/services/plan-templates/plan-templates.repository"
 import { logger } from "@/lib/logger"
-import { gateFor, type Gate } from "./gate"
+import { gateWithParams, type Gate } from "./gate"
 
 const log = logger.child({ module: "plan-estimate-run" })
 
@@ -389,7 +389,10 @@ export async function computeRun(input: RunInput, opts: ComputeOptions, db: Db =
   const ruled = rules.schedule
 
   // 2. Actuals (E1) for the lineage and the project type, through the use-time check.
-  const gate = await gateFor(lineage, db)
+  // The lineage's approved estimator settings (an administrator approved a proposal of the parameter search) apply only
+  // when durations from actuals are on; otherwise the defaults.
+  const { gate, params: approvedParams } = await gateWithParams(lineage, db)
+  const settings = gate.on && approvedParams ? { ...approvedParams.params } : null
   const factIds = gate.on ? [...new Set([...(await learnableItemIds({ lineage }, db)), ...(await learnableItemIds({ projectType }, db))])] : []
   const facts = gate.on ? await learnableItemFacts(factIds, db) : []
   const owners = await ownerFacts(assigned, db)
@@ -399,6 +402,7 @@ export async function computeRun(input: RunInput, opts: ComputeOptions, db: Db =
   const readHidden = new Map<string, HiddenState | null>()
   const attributes = (await db.projectAttribute.findMany({ where: { projectId: opts.projectId }, select: { kind: true, ref: true } })).map((a) => `${a.kind}:${a.ref}`).sort()
   const ctxBase = {
+    ...(settings ? { config: settings } : {}),
     lineage,
     projectType,
     attributes,
@@ -520,6 +524,8 @@ export async function computeRun(input: RunInput, opts: ComputeOptions, db: Db =
       skipWeekends: input.skipWeekends,
       // Only when the LLM rejected something: runs without a rejection keep the hash they had before E6.
       ...(Object.keys(candidates.rejected).length > 0 ? { rejectedCandidates: candidates.rejected } : {}),
+      // Only with approved settings: runs on the defaults keep the hash they had before the parameter search.
+      ...(settings ? { settings } : {}),
     })
   )
   const fixed: FixedInputs = {

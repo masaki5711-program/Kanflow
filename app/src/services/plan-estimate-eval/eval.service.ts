@@ -20,7 +20,7 @@
  * A leaf without template days (added by a lesson rule, or the key no longer maps) is not scored. Lesson rules are not
  * re-applied: the comparison is estimate vs template days.
  */
-import { runBacktest, ESTIMATE_METHOD_VERSION, type BacktestProject, type BacktestReport, type Observation } from "@/lib/plan-estimate"
+import { runBacktest, ESTIMATE_METHOD_VERSION, type BacktestProject, type BacktestReport, type EstimateConfig, type Observation } from "@/lib/plan-estimate"
 import { baseScheduleSchema, keyAliases, planBaseSchedule, type BaseSchedule, type BaseScheduleItem } from "@/lib/plan-schedule/base-schedule"
 import { tokyoDateKey } from "@/lib/plan-progress"
 import { logger } from "@/lib/logger"
@@ -29,7 +29,7 @@ import { ValidationError } from "@/services/_shared/errors"
 import { notify } from "@/services/_shared/notifications"
 import { learnableItemFacts, learnableItemIds, type LearnableFact } from "@/services/plan-actuals/actuals.learnable"
 import { observationOf } from "@/services/plan-estimate-run/estimate-run.compute"
-import { activeApproval, decideGate, latestEval, lineageInputHash, lineageInputHashes, type EvalRecord, type Gate } from "@/services/plan-estimate-run/gate"
+import { activeApproval, activeParamApproval, currentParams, decideGate, latestEval, lineageInputHash, lineageInputHashes, type EvalRecord, type Gate } from "@/services/plan-estimate-run/gate"
 
 const log = logger.child({ module: "plan-estimate-eval" })
 
@@ -92,8 +92,19 @@ async function poolFor(lineage: string, db: Db, cache?: TypePoolCache): Promise<
   return all.filter((f) => (seen.has(f.snapshotItemId) ? false : (seen.add(f.snapshotItemId), true)))
 }
 
-/** Builds and runs the backtest of one lineage on the current, learnable snapshots. Reads only. */
-export async function backtestLineage(lineage: string, db: Db = defaultDb, cache?: TypePoolCache): Promise<LineageBacktest> {
+/** What a lineage's backtest runs on: the scored projects, the learning pool, and what was left out (reads only). */
+export interface BacktestInput {
+  lineage: string
+  projects: BacktestProject[]
+  pool: Observation[]
+  /** Projects left out before scoring (projects without a scored leaf are added by `scoreBacktest`). */
+  skips: LineageBacktest["skips"]
+  leavesWithoutTemplate: number
+  inputHash: string
+}
+
+/** Builds the backtest input of one lineage from the current, learnable snapshots. Reads only. */
+export async function backtestInput(lineage: string, db: Db = defaultDb, cache?: TypePoolCache): Promise<BacktestInput> {
   const inputHash = await lineageInputHash(lineage, db)
   const facts = await poolFor(lineage, db, cache)
   const factsByProject = groupBy(facts.filter((f) => f.lineage === lineage), (f) => f.sourceProjectId)
@@ -194,10 +205,20 @@ export async function backtestLineage(lineage: string, db: Db = defaultDb, cache
     })
   }
   const pool: Observation[] = facts.map(observationOf)
-  const report = runBacktest(projects, undefined, pool)
+  return { lineage, projects, pool, skips, leavesWithoutTemplate, inputHash }
+}
+
+/** Runs the backtest on a built input, with the given estimator settings (undefined = the defaults). Pure. */
+export function scoreBacktest(input: BacktestInput, config?: Partial<EstimateConfig>): LineageBacktest {
+  const report = runBacktest(input.projects, config, input.pool)
   const scored = report.projects.filter((p) => p.leaves > 0).length
-  for (const p of report.projects) if (p.leaves === 0) skips.push({ projectId: p.projectId, reason: "no_scored_leaf" })
-  return { lineage, report, scored, skips, leavesWithoutTemplate, inputHash }
+  const skips = [...input.skips, ...report.projects.filter((p) => p.leaves === 0).map((p) => ({ projectId: p.projectId, reason: "no_scored_leaf" as const }))]
+  return { lineage: input.lineage, report, scored, skips, leavesWithoutTemplate: input.leavesWithoutTemplate, inputHash: input.inputHash }
+}
+
+/** Builds and runs the backtest of one lineage on the current, learnable snapshots (default settings unless given). Reads only. */
+export async function backtestLineage(lineage: string, db: Db = defaultDb, cache?: TypePoolCache, config?: Partial<EstimateConfig>): Promise<LineageBacktest> {
+  return scoreBacktest(await backtestInput(lineage, db, cache), config)
 }
 
 export function recordOf(b: LineageBacktest): EvalRecord {
@@ -207,44 +228,74 @@ export function recordOf(b: LineageBacktest): EvalRecord {
 
 export interface Recorded {
   lineage: string
-  /** false: the snapshots changed while computing — nothing was written (the newer change records again). */
+  /** false: the snapshots (or the active settings) changed while computing — nothing was written (the newer change records again). */
   written: boolean
   record: EvalRecord
   gate: Gate
   /** An active approval ended because the backtest no longer passes. */
   approvalEnded: boolean
+  /**
+   * The approved estimator settings ended: the backtest with them no longer passed (the row recorded is the defaults'),
+   * or they were of an older method.
+   */
+  paramsEnded: "failed" | "method" | null
   scored: number
   skipped: number
 }
 
+function logSkips(result: LineageBacktest): void {
+  const skipped = result.skips.length
+  if (skipped === 0 && result.leavesWithoutTemplate === 0) return
+  const reasons: Partial<Record<SkipReason, number>> = {}
+  for (const s of result.skips) reasons[s.reason] = (reasons[s.reason] ?? 0) + 1
+  const unusual = result.skips.filter((s) => s.reason !== "no_loaded_schedule")
+  const fields = { lineage: result.lineage, scored: result.scored, skipped, reasons, leavesWithoutTemplate: result.leavesWithoutTemplate, projects: unusual.slice(0, 20).map((s) => `${s.projectId}:${s.reason}`) }
+  if (unusual.length > 0 || result.leavesWithoutTemplate > 0) log.warn("backtest left projects or leaves out", fields)
+  else log.info("backtest left projects without a loaded schedule out", fields)
+}
+
 /**
- * Runs the backtest of a lineage and records it (one row per run; the gate reads the latest). Under a per-lineage
- * advisory lock: the row is written only if the snapshots are still the ones it was computed from; an active approval
- * of a record that no longer passes ends (reason "failed"), one of an older method ends (reason "method").
+ * Runs the backtest of a lineage and records it (one row per run; the gate reads the latest). It runs with the
+ * lineage's approved estimator settings when there are some; when the backtest with them no longer passes, the settings
+ * end (reason "failed") and the row recorded is the defaults' — the lineage falls back to the defaults automatically
+ * (settings of an older method end with reason "method"). Under a per-lineage advisory lock: the row is written only if
+ * the snapshots and the active settings are still the ones it was computed with; an active approval of a record that no
+ * longer passes ends (reason "failed"), one of an older method ends (reason "method").
  */
 export async function recordLineageBacktest(lineage: string, opts: { now?: Date; db?: Db; cache?: TypePoolCache } = {}): Promise<Recorded> {
-  const result = await backtestLineage(lineage, opts.db ?? defaultDb, opts.cache)
+  const active = await activeParamApproval(lineage, opts.db ?? defaultDb)
+  const params = currentParams(active)
+  const input = await backtestInput(lineage, opts.db ?? defaultDb, opts.cache)
+  const withParams = scoreBacktest(input, params ? { ...params.params } : undefined)
+  // Approved settings that no longer pass: the defaults are what the lineage falls back to, so they are what is recorded.
+  const fallback = params && !decideGate(recordOf(withParams)).on ? scoreBacktest(input) : null
+  const result = fallback ?? withParams
   const record = recordOf(result)
   const gate = decideGate(record)
   const skipped = result.skips.length
-  if (skipped > 0 || result.leavesWithoutTemplate > 0) {
-    const reasons: Partial<Record<SkipReason, number>> = {}
-    for (const s of result.skips) reasons[s.reason] = (reasons[s.reason] ?? 0) + 1
-    const unusual = result.skips.filter((s) => s.reason !== "no_loaded_schedule")
-    const fields = { lineage, scored: result.scored, skipped, reasons, leavesWithoutTemplate: result.leavesWithoutTemplate, projects: unusual.slice(0, 20).map((s) => `${s.projectId}:${s.reason}`) }
-    if (unusual.length > 0 || result.leavesWithoutTemplate > 0) log.warn("backtest left projects or leaves out", fields)
-    else log.info("backtest left projects without a loaded schedule out", fields)
-  }
+  logSkips(result)
   const run = async (tx: Db): Promise<Recorded> => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`plan_estimate_eval:${lineage}`}))`
     // The time is taken AFTER the lock (the computation can take a while, and an approval may have been made meanwhile).
     const now = opts.now ?? new Date()
+    const nothing = { lineage, written: false, record, gate, approvalEnded: false, paramsEnded: null, scored: result.scored, skipped }
     if ((await lineageInputHash(lineage, tx)) !== result.inputHash) {
       log.info("backtest result discarded: the snapshots changed while computing", { lineage })
-      return { lineage, written: false, record, gate, approvalEnded: false, scored: result.scored, skipped }
+      return nothing
+    }
+    if ((await activeParamApproval(lineage, tx))?.id !== active?.id) {
+      log.info("backtest result discarded: the estimator settings changed while computing", { lineage })
+      return nothing
+    }
+    let paramsEnded: Recorded["paramsEnded"] = null
+    if (active && (!params || fallback)) {
+      paramsEnded = params ? "failed" : "method"
+      const endedAt = new Date(Math.max(now.getTime(), active.approvedAt.getTime() + 1))
+      await tx.planEstimateParamApproval.update({ where: { id: active.id }, data: { endedAt, endReason: paramsEnded } })
+      log.warn("approved estimator settings ended for a lineage; it uses the defaults", { lineage, endReason: paramsEnded, paramApprovalId: active.id })
     }
     await tx.planEstimateEval.create({
-      data: { lineage, evaluatedOn: new Date(`${tokyoDateKey(now)}T00:00:00.000Z`), methodVersion: ESTIMATE_METHOD_VERSION, ...record, skipped, inputHash: result.inputHash },
+      data: { lineage, evaluatedOn: new Date(`${tokyoDateKey(now)}T00:00:00.000Z`), methodVersion: ESTIMATE_METHOD_VERSION, ...record, skipped, inputHash: result.inputHash, paramApprovalId: paramsEnded ? null : (params?.id ?? null) },
     })
     const approval = await activeApproval(lineage, tx)
     let approvalEnded = false
@@ -256,8 +307,8 @@ export async function recordLineageBacktest(lineage: string, opts: { now?: Date;
       approvalEnded = endReason === "failed"
       log.warn("estimate from actuals turned off for a lineage", { lineage, endReason, reason: gate.reason })
     }
-    log.info("backtest recorded", { lineage, n: record.n, skipped, passes: gate.on, reason: gate.reason })
-    return { lineage, written: true, record, gate, approvalEnded, scored: result.scored, skipped }
+    log.info("backtest recorded", { lineage, n: record.n, skipped, passes: gate.on, reason: gate.reason, params: paramsEnded ? "defaults" : params ? "approved" : "defaults" })
+    return { lineage, written: true, record, gate, approvalEnded, paramsEnded, scored: result.scored, skipped }
   }
   // The lock + check + insert only: the computation above holds no transaction.
   return opts.db ? run(opts.db) : withTransaction(run)
@@ -348,6 +399,30 @@ export function enqueueAfterActualsChange(projectId: string, lineage: string, ac
   })
 }
 
+/**
+ * Queue a recompute of the lineage's backtest with no project change (the approved settings ended or changed): the
+ * same coalesced, serialized path, no notification. Never throws.
+ */
+export function enqueueLineageRecompute(lineage: string): void {
+  if (pending.has(lineage)) return
+  pending.set(lineage, { changes: new Map() })
+  chain = chain.then(async () => {
+    const job = pending.get(lineage)
+    pending.delete(lineage)
+    if (job) await afterActualsChange(lineage, job.changes)
+  })
+}
+
+/**
+ * Run other backtest-sized CPU work (the parameter search) on the same serialized path: one job at a time with the
+ * backtests, in order. The returned promise settles with the job; a failure of the job never breaks the chain.
+ */
+export function runSerialized<T>(job: () => Promise<T>): Promise<T> {
+  const run = chain.then(job)
+  chain = run.catch(() => undefined)
+  return run
+}
+
 /** Resolves when every queued backtest has run (tests and shutdown). */
 export function settleQueuedBacktests(): Promise<void> {
   return chain.then(() => undefined)
@@ -363,16 +438,19 @@ export async function currentLineages(db: Db = defaultDb): Promise<string[]> {
 /**
  * The daily catch-up (collab daily): every lineage with current actuals whose latest record is missing or not of its
  * current snapshots — a queued run lost on restart, one that failed, a project hard-deleted with its snapshots, or
- * actuals finalized before this feature existed. Each lineage on its own; no notifications.
+ * actuals finalized before this feature existed, approved estimator settings that changed. Each lineage on its own; no
+ * notifications.
  */
 export async function recordOutdatedLineages(opts: { now?: Date } = {}): Promise<RecomputeResult> {
   const lineages = await currentLineages()
   const hashes = await lineageInputHashes(lineages)
   const latest = await Promise.all(lineages.map((l) => latestEval(l)))
+  const params = await Promise.all(lineages.map(async (l) => currentParams(await activeParamApproval(l))))
   const out: RecomputeResult = { recorded: [], failed: [] }
   const cache: TypePoolCache = new Map()
   for (const [i, lineage] of lineages.entries()) {
-    if (latest[i]?.inputHash === hashes.get(lineage)) continue
+    // Current = of the current snapshots AND of the active settings (approved settings of an older method count as none).
+    if (latest[i]?.inputHash === hashes.get(lineage) && (latest[i]?.paramApprovalId ?? null) === (params[i]?.id ?? null)) continue
     try {
       out.recorded.push(await recordLineageBacktest(lineage, { ...opts, cache }))
     } catch (err) {

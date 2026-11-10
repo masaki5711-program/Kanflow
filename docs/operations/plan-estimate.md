@@ -21,6 +21,26 @@
 **有効のあと**: 後の検証が条件を満たさなくなると、その時点で**自動で無効になる**（もう一度条件を満たしても、管理者がもう一度見て
 有効にするまで戻らない）。有効・無効の履歴は消さずに残る（`plan_estimate_gate_approval`: 誰が有効にしたか、無効にしたか、なぜ終わったか）。
 
+### 見積もりのパラメータ（探索と承認）
+
+外れ値の基準（MAD）・半減期・縮め K・P80 の既定の広がり S0 は、**系統ごとに管理者が承認した値**を使える（承認が無ければ既定の
+3 MAD・365 日・K 3・0.25）。値は人が決める。仕組みは提案するだけで、LLM は使わない
+（`services/plan-estimate-eval/param-search.ts`・`params.service.ts`）。
+
+- **探す**: 管理画面の「パラメータを探す」で、確定した実績のあるすべての系統について、既定を挟む 81 通りの組み合わせを過去の検証と
+  同じ計算で試す。応答は待たず、検証と同じ順番の道で 1 系統ずつ（候補ごとに他の要求に譲る）。毎朝の処理でも、検証の記録が古かった
+  系統について探す。1 系統 60 秒を超えると提案しない（「時間内に試し終わらなかった」）。
+- **提案の条件**: 終わったプロジェクトが 5 件以上。新しい方の 3 分の 1 は確かめ用で、選ぶのに使わない。残りで既定より期間の誤差が
+  5% 以上小さい（または P80 の当たりを 70〜90% に入れて誤差が悪くならない）、確かめ用で既定より悪くない、全体で「有効にできる条件」を
+  満たす。満たさなければ「提案はありません」と理由が出る。同じ実績なら何度探しても同じ提案になる。
+- **承認 / 却下**: 画面の表（既定と提案の値、全体と確かめ用の成績）を見て「提案を承認する」か「却下する」。承認できるのは最新の、今の
+  実績からの提案だけ（実績が変わると「探し直すまで承認できません」）。承認すると、その値での検証がその系統の最新の記録になる。
+  「実績で調整」の有効化（上の 2）は別の判断で、承認した値は有効なときだけ使われる。
+- **既定に戻る**: 「既定の値に戻す」（管理者）、または**後の検証が承認した値で条件を満たさなくなったとき自動で**（ログ
+  `approved estimator settings ended for a lineage; it uses the defaults`、`endReason` = `failed`）。方式の版が変わったときも戻る（`method`）。
+  手で戻したあとは既定の値での検証が計算し直されるまで（数秒〜数十秒）「再計算待ち」になる。
+- 承認した値が変わると、それより前に作った案は承認の時に「作り直してください」になる（入力のハッシュに値が入る）。
+
 ### 検証はいつ計算されるか
 
 - **実績を確定したとき** と **学習に含める / 含めないを切り替えたとき**、その系統について自動で（再確定で系統が変わったときは前の系統も）。
@@ -84,6 +104,12 @@
 | `plan-estimate-eval` | `backtest after an actuals change failed; …` | 確定の後の検証に失敗（確定は成功している）。系統は「再計算待ち」。「計算し直す」でやり直せる |
 | `plan-estimate-eval` | `estimate from actuals turned off for a lineage` | 有効だった系統が自動で無効になった（`endReason`: `failed` / `method`） |
 | `plan-estimate-eval` | `estimate from actuals approved / withdrawn for a lineage` | 管理者が有効 / 無効にした（`lineage`・`actorId`） |
+| `plan-estimate-eval` | `parameter search recorded` | 系統のパラメータを探した（`outcome`: `propose` / `keep_default`、`reason`、`evaluated` / `candidates`。時間切れは warn） |
+| `plan-estimate-eval` | `parameter search of a lineage failed; the others go on` | 1 系統の探索に失敗（ほかは続く）。「パラメータを探す」でやり直せる |
+| `plan-estimate-eval` | `parameter search discarded: …` | 探している間に実績が変わったので捨てた |
+| `plan-estimate-eval` | `estimator settings approved / … rejected / … returned to the defaults for a lineage` | 管理者がパラメータを承認 / 却下 / 既定に戻した |
+| `plan-estimate-eval` | `approved estimator settings ended for a lineage; it uses the defaults` | 承認した値での検証が条件を満たさない（`failed`）か方式が変わった（`method`）ので既定に戻った（warn） |
+| `collab-daily` | `parameter search done` / `… finished with failures` / `parameter search failed` | 毎朝の処理の探索（古かった系統だけ） |
 | `plan-llm` | `plan llm call failed; deterministic path` | LLM の時間切れ・停止。決定的な部分に戻った |
 
 計画 12 §6 の「メトリクス」（実行の時間、LLM の時間切れの数、`PLAN_ESTIMATE_STALE` の回数、確定の時に読めなかったリポジトリの数）は、
@@ -94,6 +120,8 @@
 | 表 | 中身 | 保持 |
 |---|---|---|
 | `plan_estimate_run` | 案（入力のハッシュ・根拠・カード） | 作ってから 1 年（毎日の処理で消す） |
-| `plan_estimate_eval` | 系統ごとの検証の記録（計算のたびに 1 行。ゲートは最新の行を読む。`inputHash` で今の実績からの計算かを見る） | 消さない（1 行 100 バイトほど） |
+| `plan_estimate_eval` | 系統ごとの検証の記録（計算のたびに 1 行。ゲートは最新の行を読む。`inputHash` で今の実績からの計算か、`paramApprovalId` で今の値での計算かを見る） | 消さない（1 行 100 バイトほど） |
 | `plan_estimate_gate_approval` | 系統ごとの管理者の有効化と、その終わり（無効にした・自動で無効・方式の変更） | 消さない（履歴） |
+| `plan_estimate_param_proposal` | 系統ごとのパラメータの探索の結果（提案または既定のままと理由、既定と提案の成績は系統の集計だけ、承認 / 却下 / 置き換え） | 消さない（履歴） |
+| `plan_estimate_param_approval` | 系統ごとの承認した値と、その終わり（既定に戻した・自動で戻った・方式の変更・新しい承認） | 消さない（履歴） |
 | `plan_estimate_hidden_state` | 見えない出典の保持状態 | **消さない**（数字から見えない出典が漏れるのを防ぐ。`references/decisions.md`） |

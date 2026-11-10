@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { AlertTriangle, Check, RefreshCw } from "lucide-react"
+import { AlertTriangle, Check, RefreshCw, SlidersHorizontal } from "lucide-react"
 import { Badge, Button, EmptyState, PageHeader, SkeletonCard, cn, useConfirm, useToast, type BadgeTone } from "@/components/ui"
 import { gateReasonText, type GateReason } from "@/components/plan-estimate/types"
 import { apiFetch, useApiQuery } from "@/hooks"
@@ -11,6 +11,7 @@ import { fillTemplate } from "@/lib/fill-template"
 import { formatDateTime, formatLongDate } from "@/lib/format-date"
 import { useLanguage } from "@/lib/language-context"
 import type { Translations } from "@/lib/i18n"
+import { ParamProposal, type LineageParams, type TunedKey, type TunedParams } from "./param-proposal"
 
 /** Mirrors services/plan-estimate-eval/admin.service.ts EvalOverview (the API's shape). */
 export interface LineageEval {
@@ -23,15 +24,20 @@ export interface LineageEval {
   approval: { approvedAt: string; approvedByName: string | null } | null
   lastEnded: { endedAt: string; reason: "withdrawn" | "failed" | "method" } | null
   on: boolean
+  params: LineageParams
 }
 
 export interface EvalOverview {
   methodVersion: string
   conditions: { minProjects: number; mapeRatio: number; p80Range: readonly [number, number] }
   lineages: LineageEval[]
+  paramSearch: { defaults: TunedParams; grid: Record<TunedKey, number[]>; margin: number; searching: string[] }
 }
 
 const URL = "/api/admin/plan-estimate-eval"
+const PARAMS_URL = `${URL}/params`
+/** While a parameter search runs in the background, the list is re-read this often. */
+const SEARCH_POLL_MS = 5000
 /** id of a card's heading (by position: a lineage may contain spaces, which an id / aria-labelledby cannot). */
 const headingIdOf = (index: number) => `pee-lineage-${index}`
 
@@ -106,6 +112,14 @@ export function AdminEstimateEval() {
   const percent = new Intl.NumberFormat(language, { style: "percent", maximumFractionDigits: 0 })
   const days = (x: number) => fillTemplate(t.peeAdminDays, { value: new Intl.NumberFormat(language, { maximumFractionDigits: 1 }).format(x) })
 
+  // The search runs after the response: re-read the list until no lineage is being searched.
+  const searchingCount = data?.paramSearch.searching.length ?? 0
+  useEffect(() => {
+    if (searchingCount === 0) return
+    const timer = setInterval(() => void refetch(), SEARCH_POLL_MS)
+    return () => clearInterval(timer)
+  }, [searchingCount, refetch])
+
   // A ref as well as the state: two clicks in the same tick both see the state before it re-renders.
   const inFlight = useRef(false)
 
@@ -122,7 +136,7 @@ export function AdminEstimateEval() {
       toast.error(localizeApiError(err, t))
       void refetch()
     } finally {
-      if (key !== "*") setFocusLineage(key)
+      if (!key.startsWith("*")) setFocusLineage(key)
       inFlight.current = false
       setBusy(null)
     }
@@ -131,6 +145,22 @@ export function AdminEstimateEval() {
   // aria-disabled does not stop a click: without a list there is nothing to recompute yet.
   const recompute = () => (data ? act("*", () => apiFetch<EvalOverview & { failed: string[] }>(URL, { method: "POST" }), t.peeAdminRecomputed) : Promise.resolve())
   const label = (l: LineageEval) => l.name ?? t.peeAdminUnnamed
+  const search = () => (data ? act("*params", () => apiFetch<EvalOverview>(PARAMS_URL, { method: "POST", json: { action: "search" } }), t.peeParamsSearchQueued) : Promise.resolve())
+
+  async function decideParams(l: LineageEval, action: "approve" | "reject" | "revert") {
+    if (busy) return
+    const proposalId = l.params.latest?.id
+    if (action !== "revert" && !proposalId) return
+    const texts = {
+      approve: { title: t.peeParamsApproveTitle, body: t.peeParamsApproveBody, confirm: t.peeParamsApprove, done: t.peeParamsApproved, variant: "warning" as const },
+      reject: { title: t.peeParamsRejectTitle, body: t.peeParamsRejectBody, confirm: t.peeParamsReject, done: t.peeParamsRejected, variant: "warning" as const },
+      revert: { title: t.peeParamsRevertTitle, body: t.peeParamsRevertBody, confirm: t.peeParamsRevert, done: t.peeParamsReverted, variant: "danger" as const },
+    }[action]
+    const yes = await confirm({ title: texts.title, message: `${label(l)}\n\n${texts.body}`, confirmLabel: texts.confirm, variant: texts.variant })
+    if (!yes) return
+    const json = action === "revert" ? { action, lineage: l.lineage } : { action, lineage: l.lineage, proposalId }
+    await act(l.lineage, () => apiFetch<EvalOverview>(PARAMS_URL, { method: "POST", json }), texts.done)
+  }
 
   async function approve(l: LineageEval) {
     if (busy || !l.latest) return
@@ -148,6 +178,7 @@ export function AdminEstimateEval() {
   }
 
   const recomputing = busy === "*"
+  const searchingAny = busy === "*params" || searchingCount > 0
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
@@ -156,20 +187,31 @@ export function AdminEstimateEval() {
         description={t.peeAdminDescription}
         actions={
           // Stays focusable while busy (aria-disabled, not disabled): the focus is not lost when the work ends.
-          <Button
-            variant="secondary"
-            onClick={() => void recompute()}
-            aria-disabled={!data || busy !== null || undefined}
-            aria-busy={recomputing || undefined}
-            leftIcon={<RefreshCw aria-hidden="true" className={cn("h-4 w-4", recomputing && "motion-safe:animate-spin")} />}
-          >
-            {t.peeAdminRecompute}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="secondary"
+              onClick={() => void search()}
+              aria-disabled={!data || busy !== null || searchingCount > 0 || undefined}
+              aria-busy={searchingAny || undefined}
+              leftIcon={<SlidersHorizontal aria-hidden="true" className="h-4 w-4" />}
+            >
+              {t.peeParamsSearch}
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => void recompute()}
+              aria-disabled={!data || busy !== null || undefined}
+              aria-busy={recomputing || undefined}
+              leftIcon={<RefreshCw aria-hidden="true" className={cn("h-4 w-4", recomputing && "motion-safe:animate-spin")} />}
+            >
+              {t.peeAdminRecompute}
+            </Button>
+          </div>
         }
       />
       <span className="sr-only" role="status">
         {/* Always mounted (announced when filled): the pressed row button is disabled while it works. */}
-        {recomputing ? t.peeAdminRecomputing : busy !== null ? t.peeAdminSaving : ""}
+        {recomputing ? t.peeAdminRecomputing : searchingAny ? t.peeParamsSearching : busy !== null ? t.peeAdminSaving : ""}
       </span>
 
       {data && (
@@ -181,6 +223,12 @@ export function AdminEstimateEval() {
             high: Math.round(data.conditions.p80Range[1] * 100),
           })}{" "}
           <span className="text-caption text-fg-subtle">{fillTemplate(t.peeAdminMethod, { version: data.methodVersion })}</span>
+          <span className="mt-2 block text-caption">
+            {fillTemplate(t.peeParamsHint, {
+              count: Object.values(data.paramSearch.grid).reduce((n, values) => n * values.length, 1),
+              margin: Math.round(data.paramSearch.margin * 100),
+            })}
+          </span>
         </p>
       )}
 
@@ -265,6 +313,19 @@ export function AdminEstimateEval() {
                       )}
                     </div>
                   )}
+
+                  <ParamProposal
+                    t={t}
+                    language={language}
+                    name={label(l)}
+                    params={l.params}
+                    defaults={data.paramSearch.defaults}
+                    busy={rowBusy}
+                    blocked={busy !== null && !rowBusy}
+                    onApprove={() => void decideParams(l, "approve")}
+                    onReject={() => void decideParams(l, "reject")}
+                    onRevert={() => void decideParams(l, "revert")}
+                  />
 
                   {(status || l.approval || canApprove) && (
                     <footer className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">

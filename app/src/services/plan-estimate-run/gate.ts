@@ -13,6 +13,7 @@
  */
 import { createHash } from "node:crypto"
 import { ESTIMATE_METHOD_VERSION } from "@/lib/plan-estimate"
+import { isGridParams, type TunedParams } from "@/lib/plan-estimate/params"
 import { defaultDb, type Db } from "@/services/_shared/db"
 
 export type GateReason = "no_backtest" | "not_enough_actuals" | "not_better_than_template" | "p80_out_of_range" | "end_error_worse" | "backtest_outdated" | "not_approved"
@@ -56,9 +57,9 @@ export function withApproval(gate: Gate, approved: boolean): Gate {
   return gate.on && !approved ? { on: false, reason: "not_approved" } : gate
 }
 
-const EVAL_SELECT = { id: true, evaluatedOn: true, n: true, mape: true, mapeTemplate: true, p80Hit: true, endErrorDays: true, endErrorTemplateDays: true, skipped: true, inputHash: true, createdAt: true } as const
+const EVAL_SELECT = { id: true, evaluatedOn: true, n: true, mape: true, mapeTemplate: true, p80Hit: true, endErrorDays: true, endErrorTemplateDays: true, skipped: true, inputHash: true, paramApprovalId: true, createdAt: true } as const
 
-export type LatestEval = EvalRecord & { id: string; evaluatedOn: Date; skipped: number | null; inputHash: string | null; createdAt: Date }
+export type LatestEval = EvalRecord & { id: string; evaluatedOn: Date; skipped: number | null; inputHash: string | null; paramApprovalId: string | null; createdAt: Date }
 
 /** The latest backtest record of the lineage for the current method (null = none). */
 export async function latestEval(lineage: string, db: Db = defaultDb): Promise<LatestEval | null> {
@@ -96,8 +97,40 @@ export async function activeApproval(lineage: string, db: Db = defaultDb): Promi
   return db.planEstimateGateApproval.findFirst({ where: { lineage, endedAt: null }, select: { id: true, methodVersion: true, approvedAt: true } })
 }
 
+export interface ActiveParams {
+  id: string
+  methodVersion: string
+  approvedAt: Date
+  params: TunedParams
+}
+
+/**
+ * The lineage's active approved estimator settings (plan_estimate_param_approval), whatever their method (null =
+ * none). A stored value outside the search grid is a broken invariant (only grid values are ever written): it throws
+ * rather than silently estimating with something nobody approved.
+ */
+export async function activeParamApproval(lineage: string, db: Db = defaultDb): Promise<ActiveParams | null> {
+  const row = await db.planEstimateParamApproval.findFirst({ where: { lineage, endedAt: null }, select: { id: true, methodVersion: true, approvedAt: true, params: true } })
+  if (!row) return null
+  if (!isGridParams(row.params)) throw new Error(`plan_estimate_param_approval ${row.id} holds settings outside the search grid`)
+  return { id: row.id, methodVersion: row.methodVersion, approvedAt: row.approvedAt, params: row.params }
+}
+
+/** Active settings that apply to the CURRENT method (an approval of an older method is ignored, and ended by the next backtest). */
+export const currentParams = (a: ActiveParams | null): ActiveParams | null => (a && a.methodVersion === ESTIMATE_METHOD_VERSION ? a : null)
+
+/**
+ * The gate and the settings a run of the lineage uses, from one set of reads. A record is current when it was computed
+ * from the current snapshots AND with the settings that are active now (approving or ending settings makes the old row
+ * outdated until a backtest with the new ones is recorded).
+ */
+export async function gateWithParams(lineage: string, db: Db = defaultDb): Promise<{ gate: Gate; params: ActiveParams | null }> {
+  const [record, approval, hash, active] = await Promise.all([latestEval(lineage, db), activeApproval(lineage, db), lineageInputHash(lineage, db), activeParamApproval(lineage, db)])
+  const params = currentParams(active)
+  const gate = withFreshness(decideGate(record), record?.inputHash === hash && (record?.paramApprovalId ?? null) === (params?.id ?? null))
+  return { gate: withApproval(gate, approval?.methodVersion === ESTIMATE_METHOD_VERSION), params }
+}
+
 export async function gateFor(lineage: string, db: Db = defaultDb): Promise<Gate> {
-  const [record, approval, hash] = await Promise.all([latestEval(lineage, db), activeApproval(lineage, db), lineageInputHash(lineage, db)])
-  const gate = withFreshness(decideGate(record), record?.inputHash === hash)
-  return withApproval(gate, approval?.methodVersion === ESTIMATE_METHOD_VERSION)
+  return (await gateWithParams(lineage, db)).gate
 }

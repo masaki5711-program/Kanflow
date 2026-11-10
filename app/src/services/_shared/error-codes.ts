@@ -135,6 +135,11 @@ export const API_ERROR_CODES = [
   "PLAN_ESTIMATE_EVAL_CHANGED",
   "PLAN_ESTIMATE_EVAL_NOT_PASSING",
   "PLAN_ESTIMATE_EVAL_TOO_MANY",
+  /** Estimator settings (admin): no proposal / a newer search since it was shown / already decided / it does not pass. */
+  "PLAN_ESTIMATE_PARAMS_NOT_FOUND",
+  "PLAN_ESTIMATE_PARAMS_CHANGED",
+  "PLAN_ESTIMATE_PARAMS_DECIDED",
+  "PLAN_ESTIMATE_PARAMS_NOT_PASSING",
   // Files / folders
   "FILE_REQUIRED",
   "FILE_EMPTY",

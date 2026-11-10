@@ -3,6 +3,7 @@ import { render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { getTranslations } from "@/lib/i18n"
 import type { EvalOverview, LineageEval } from "../admin-estimate-eval"
+import type { LineageParams } from "../param-proposal"
 
 const m = vi.hoisted(() => ({ query: vi.fn(), fetch: vi.fn(), confirm: vi.fn(), success: vi.fn(), error: vi.fn(), mutate: vi.fn(), refetch: vi.fn() }))
 vi.mock("@/lib/language-context", async () => {
@@ -22,8 +23,31 @@ const { AdminEstimateEval } = await import("../admin-estimate-eval")
 const t = getTranslations("ja")
 
 const rec = { id: "e1", evaluatedOn: "2026-11-06", n: 7, skipped: 1, mape: 0.1, mapeTemplate: 0.4, p80Hit: 0.8, endErrorDays: 1, endErrorTemplateDays: 5 }
-const line = (over: Partial<LineageEval>): LineageEval => ({ lineage: "template:t1", name: "製品開発", latest: rec, outdated: false, passes: true, reason: null, approval: null, lastEnded: null, on: false, ...over })
-const overview = (lineages: LineageEval[]): EvalOverview => ({ methodVersion: "e2-v1", conditions: { minProjects: 5, mapeRatio: 0.85, p80Range: [0.7, 0.9] }, lineages })
+const DEFAULTS = { outlierMads: 3, halfLifeDays: 365, shrinkK: 3, spreadPrior: 0.25 }
+const noParams: LineageParams = { active: null, lastEnded: null, latest: null, searching: false }
+const subset = (mape: number, projects: number) => ({ projects, leaves: projects * 3, mape, mapeTemplate: 0.4, p80Hit: 0.8, endErrorDays: 1, endErrorTemplateDays: 5 })
+const cand = (mape: number) => ({ full: { n: 9, mape, mapeTemplate: 0.4, p80Hit: 0.8, endErrorDays: 1, endErrorTemplateDays: 5 }, search: subset(mape, 6), holdout: subset(mape, 3) })
+const proposal = (over: Partial<NonNullable<LineageParams["latest"]>> = {}): NonNullable<LineageParams["latest"]> => ({
+  id: "p1",
+  createdAt: "2026-11-10T03:00:00Z",
+  outcome: "propose",
+  reason: null,
+  params: { ...DEFAULTS, shrinkK: 1.5 },
+  before: cand(0.2),
+  after: cand(0.12),
+  candidates: 81,
+  evaluated: 81,
+  outdated: false,
+  decision: null,
+  ...over,
+})
+const line = (over: Partial<LineageEval>): LineageEval => ({ lineage: "template:t1", name: "製品開発", latest: rec, outdated: false, passes: true, reason: null, approval: null, lastEnded: null, on: false, params: noParams, ...over })
+const overview = (lineages: LineageEval[], searching: string[] = []): EvalOverview => ({
+  methodVersion: "e2-v1",
+  conditions: { minProjects: 5, mapeRatio: 0.85, p80Range: [0.7, 0.9] },
+  paramSearch: { defaults: DEFAULTS, grid: { outlierMads: [2.5, 3, 3.5], halfLifeDays: [180, 365, 730], shrinkK: [1.5, 3, 6], spreadPrior: [0.15, 0.25, 0.35] }, margin: 0.05, searching },
+  lineages,
+})
 const loaded = (data: EvalOverview) => m.query.mockReturnValue({ data, isLoading: false, error: null, refetch: m.refetch, mutate: m.mutate })
 
 beforeEach(() => vi.clearAllMocks())
@@ -128,5 +152,100 @@ describe("/admin/plan-estimate-eval", () => {
     loaded(overview([]))
     render(<AdminEstimateEval />)
     expect(screen.getByText(t.peeAdminEmptyTitle)).toBeInTheDocument()
+  })
+
+  it("explains the parameter search with the grid size and margin from the API", () => {
+    loaded(overview([line({})]))
+    render(<AdminEstimateEval />)
+    expect(screen.getByText(/81 通りを試し/)).toBeInTheDocument()
+    expect(screen.getByText(/5% 以上小さい/)).toBeInTheDocument()
+    expect(screen.getByText(t.peeParamsInUseDefault)).toBeInTheDocument()
+    expect(screen.getByText(t.peeParamsNone)).toBeInTheDocument()
+  })
+
+  it("shows a proposal's settings and numbers before / after in captioned tables", () => {
+    loaded(overview([line({ params: { ...noParams, latest: proposal() } })]))
+    render(<AdminEstimateEval />)
+    const settings = screen.getByRole("table", { name: "製品開発 の既定の値と提案の値" })
+    const k = within(settings).getByRole("row", { name: /縮め/ })
+    expect(within(k).getByText("3")).toBeInTheDocument()
+    expect(within(k).getByText("1.5")).toBeInTheDocument()
+    const metrics = screen.getByRole("table", { name: "製品開発 の既定の値と提案の値での検証の成績" })
+    const err = within(metrics).getByRole("row", { name: /期間の誤差（全 9 件）/ })
+    expect(within(err).getByText("20%")).toBeInTheDocument()
+    expect(within(err).getByText("12%")).toBeInTheDocument()
+    expect(within(metrics).getByRole("row", { name: /確かめ用の新しい 3 件/ })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: t.peeParamsApprove })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: t.peeParamsReject })).toBeInTheDocument()
+  })
+
+  it("approves the proposal that was shown, after confirming", async () => {
+    loaded(overview([line({ params: { ...noParams, latest: proposal() } })]))
+    m.confirm.mockResolvedValue(true)
+    m.fetch.mockResolvedValue(overview([line({})]))
+    render(<AdminEstimateEval />)
+    await userEvent.click(screen.getByRole("button", { name: t.peeParamsApprove }))
+    expect(m.fetch).toHaveBeenCalledWith("/api/admin/plan-estimate-eval/params", { method: "POST", json: { action: "approve", lineage: "template:t1", proposalId: "p1" } })
+    expect(m.success).toHaveBeenCalledWith(t.peeParamsApproved)
+  })
+
+  it("rejects after confirming; a cancelled confirmation sends nothing", async () => {
+    loaded(overview([line({ params: { ...noParams, latest: proposal() } })]))
+    m.confirm.mockResolvedValueOnce(false).mockResolvedValueOnce(true)
+    m.fetch.mockResolvedValue(overview([line({})]))
+    render(<AdminEstimateEval />)
+    await userEvent.click(screen.getByRole("button", { name: t.peeParamsReject }))
+    expect(m.fetch).not.toHaveBeenCalled()
+    await userEvent.click(screen.getByRole("button", { name: t.peeParamsReject }))
+    expect(m.fetch).toHaveBeenCalledWith("/api/admin/plan-estimate-eval/params", { method: "POST", json: { action: "reject", lineage: "template:t1", proposalId: "p1" } })
+  })
+
+  it("an outdated proposal cannot be approved and says why; 'keep the defaults' says why in words", () => {
+    loaded(
+      overview([
+        line({ params: { ...noParams, latest: proposal({ outdated: true }) } }),
+        line({ lineage: "template:t2", name: "別の系統", params: { ...noParams, latest: proposal({ id: "p2", outcome: "keep_default", reason: "holdout_worse" }) } }),
+      ]),
+    )
+    render(<AdminEstimateEval />)
+    expect(screen.getByText(t.peeParamsOutdated)).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: t.peeParamsApprove })).toBeNull()
+    const other = screen.getByRole("article", { name: "別の系統" })
+    expect(within(other).getByText(/提案はありません: よい組み合わせはありましたが、確かめ用/)).toBeInTheDocument()
+  })
+
+  it("approved settings are listed and can be returned to the defaults; an automatic fall back says so", async () => {
+    const active = { params: { ...DEFAULTS, shrinkK: 1.5 }, approvedAt: "2026-11-10T03:00:00Z", approvedByName: "Admin" }
+    loaded(overview([line({ params: { ...noParams, active } }), line({ lineage: "template:t2", name: "別の系統", params: { ...noParams, lastEnded: { endedAt: "2026-11-10T03:00:00Z", reason: "failed" } } })]))
+    m.confirm.mockResolvedValue(true)
+    m.fetch.mockResolvedValue(overview([line({})]))
+    render(<AdminEstimateEval />)
+    expect(screen.getByText(/Admin が .* に承認した値を使っています/)).toBeInTheDocument()
+    expect(screen.getByText(/自動で既定の値に戻りました/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole("button", { name: t.peeParamsRevert }))
+    expect(m.fetch).toHaveBeenCalledWith("/api/admin/plan-estimate-eval/params", { method: "POST", json: { action: "revert", lineage: "template:t1" } })
+    expect(m.success).toHaveBeenCalledWith(t.peeParamsReverted)
+  })
+
+  it("starts the search in the background and re-reads the list while lineages are searched", async () => {
+    loaded(overview([line({})]))
+    m.fetch.mockResolvedValue(overview([line({})], ["template:t1"]))
+    render(<AdminEstimateEval />)
+    await userEvent.click(screen.getByRole("button", { name: t.peeParamsSearch }))
+    expect(m.fetch).toHaveBeenCalledWith("/api/admin/plan-estimate-eval/params", { method: "POST", json: { action: "search" } })
+    expect(m.success).toHaveBeenCalledWith(t.peeParamsSearchQueued)
+  })
+
+  it("polls while a search runs and says so on the card", () => {
+    vi.useFakeTimers()
+    try {
+      loaded(overview([line({ params: { ...noParams, searching: true } })], ["template:t1"]))
+      render(<AdminEstimateEval />)
+      expect(screen.getByText(t.peeParamsSearchingLine)).toBeInTheDocument()
+      vi.advanceTimersByTime(5000)
+      expect(m.refetch).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
