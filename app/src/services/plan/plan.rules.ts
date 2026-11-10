@@ -133,6 +133,20 @@ export function buildPlanUpdate(data: UpdateFields, existing: ExistingDates, has
   }
 }
 
+/**
+ * Pure: 400 PLAN_FOLLOWS_PBIS when a write names the status or an actual date of a row that is not kept by hand —
+ * the rule for writers with an API token (MCP update_plan_item; the web UI does not use it).
+ *
+ * Such a row takes these three from its linked PBIs, confidential ones included (D-5): a written status stays only
+ * when NO PBI is linked, so accepting the write would tell the caller whether a PBI it cannot see is linked. The
+ * refusal therefore looks at the row's mode alone, never at its PBIs. A mode this code does not know is refused too.
+ */
+export function assertHandKeptFields(progressMode: string, data: Pick<UpdateFields, "status" | "actualStart" | "actualEnd">): void {
+  if (progressMode === "manual") return
+  if (data.status === undefined && data.actualStart === undefined && data.actualEnd === undefined) return
+  throw new ValidationError("進捗を紐づく PBI に合わせる項目の状態と実績日は、ここからは変更できません", {}, "PLAN_FOLLOWS_PBIS")
+}
+
 export const PLAN_LINK_MILESTONE_MESSAGE = "マイルストーンには PBI を紐付けられません"
 
 /** 400 PLAN_LINK_MILESTONE: milestones never take PBI links (no "linked" progress mode either). */

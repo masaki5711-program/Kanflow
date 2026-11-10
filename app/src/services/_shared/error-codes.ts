@@ -64,6 +64,8 @@ export const API_ERROR_CODES = [
   "PLAN_PARENT_DATES_DERIVED",
   "PLAN_LINK_REQUIRES_LEAF",
   "PLAN_LINK_MILESTONE",
+  /** A writer with an API token named the status / an actual date of a plan item that follows its linked PBIs. */
+  "PLAN_FOLLOWS_PBIS",
   "PLAN_LINK_INVALID_PBI",
   "PLAN_DEPENDENCY_CYCLE",
   "PLAN_DEPENDENCY_INVALID",

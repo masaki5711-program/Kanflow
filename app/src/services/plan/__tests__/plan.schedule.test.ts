@@ -73,11 +73,91 @@ describe("plan.schedule", () => {
     await expect(sched.createDependency("p1", edge("a", "a"), ACTOR)).rejects.toMatchObject({ status: 400 })
   })
 
+  it("dependency writers take the project's lock before they read the edges (two of them could close a cycle together)", async () => {
+    vi.mocked(repo.findPlanTree).mockResolvedValue(TREE)
+    vi.mocked(repo.findDependencies).mockResolvedValue([])
+    vi.mocked(repo.insertDependency).mockResolvedValue({ id: "d1", predecessorId: "a", successorId: "b" })
+    const lockedFirst = () => {
+      expect(repo.lockDependencies).toHaveBeenCalledTimes(1)
+      expect(repo.lockDependencies).toHaveBeenCalledWith(TX, "p1")
+      expect(vi.mocked(repo.lockDependencies).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(repo.findDependencies).mock.invocationCallOrder[0])
+    }
+    await sched.createDependency("p1", edge("a", "b"), ACTOR)
+    lockedFirst()
+    vi.clearAllMocks()
+    vi.mocked(repo.findPlanTree).mockResolvedValue(TREE)
+    vi.mocked(repo.findDependencies).mockResolvedValue([])
+    await sched.setPredecessors("p1", "c", [], ACTOR)
+    lockedFirst()
+  })
+
   it("deleteDependency 404s outside the project", async () => {
     vi.mocked(repo.findDependency).mockResolvedValueOnce(null)
     await expect(sched.deleteDependency("p1", "d9", ACTOR)).rejects.toMatchObject({ status: 404 })
     vi.mocked(repo.findDependency).mockResolvedValueOnce({ id: "d1", predecessorId: "a", successorId: "b" })
     await sched.deleteDependency("p1", "d1", ACTOR)
     expect(repo.deleteDependency).toHaveBeenCalledWith(TX, "d1")
+  })
+
+  it("deleteDependency takes the writers' lock before it looks the dependency up (a replacement may be removing it)", async () => {
+    vi.mocked(repo.findDependency).mockResolvedValueOnce({ id: "d1", predecessorId: "a", successorId: "b" })
+    await sched.deleteDependency("p1", "d1", ACTOR)
+    expect(repo.lockDependencies).toHaveBeenCalledWith(TX, "p1")
+    expect(vi.mocked(repo.lockDependencies).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(repo.findDependency).mock.invocationCallOrder[0])
+  })
+
+  describe("setPredecessors (MCP set_plan_dependencies)", () => {
+    const dep = (id: string, predecessorId: string, successorId: string) => ({ id, predecessorId, successorId })
+    beforeEach(() => {
+      vi.mocked(repo.findPlanTree).mockResolvedValue(TREE)
+      // The only insert in the tests below is r → c (the service logs from the inserted row).
+      vi.mocked(repo.insertDependency).mockResolvedValue(dep("new", "r", "c"))
+    })
+
+    it("adds the missing predecessors, removes the others, keeps the rest, and logs every change", async () => {
+      vi.mocked(repo.findDependencies).mockResolvedValue([dep("d1", "a", "c"), dep("d2", "b", "c"), dep("d3", "a", "b")])
+      await expect(sched.setPredecessors("p1", "c", ["b", "r", "r"], ACTOR)).resolves.toEqual({ successorId: "c", dependsOn: ["b", "r"], added: 1, removed: 1, removedIds: ["a"] })
+      expect(repo.deleteDependency).toHaveBeenCalledTimes(1)
+      expect(repo.deleteDependency).toHaveBeenCalledWith(TX, "d1")
+      expect(repo.insertDependency).toHaveBeenCalledTimes(1)
+      expect(repo.insertDependency).toHaveBeenCalledWith(TX, { projectId: "p1", predecessorId: "r", successorId: "c" })
+      expect(act.logActivity).toHaveBeenCalledWith(TX, expect.objectContaining({ entityId: "c", diff: { meta: { dependency: { removed: "a" } } } }))
+      expect(act.logActivity).toHaveBeenCalledWith(TX, expect.objectContaining({ entityId: "c", diff: { meta: { dependency: { added: "r" } } } }))
+    })
+
+    it("an empty list removes every live predecessor", async () => {
+      vi.mocked(repo.findDependencies).mockResolvedValue([dep("d1", "a", "c"), dep("d2", "b", "c")])
+      await expect(sched.setPredecessors("p1", "c", [], ACTOR)).resolves.toEqual({ successorId: "c", dependsOn: [], added: 0, removed: 2, removedIds: ["a", "b"] })
+    })
+
+    it("the list the item already has changes nothing and logs nothing", async () => {
+      vi.mocked(repo.findDependencies).mockResolvedValue([dep("d1", "a", "c")])
+      await expect(sched.setPredecessors("p1", "c", ["a"], ACTOR)).resolves.toMatchObject({ added: 0, removed: 0, removedIds: [] })
+      expect(repo.deleteDependency).not.toHaveBeenCalled()
+      expect(repo.insertDependency).not.toHaveBeenCalled()
+      expect(act.logActivity).not.toHaveBeenCalled()
+    })
+
+    it("leaves a dependency whose predecessor is in the trash (get_plan does not show it)", async () => {
+      vi.mocked(repo.findDependencies).mockResolvedValue([dep("d1", "gone", "c"), dep("d2", "a", "c")])
+      await expect(sched.setPredecessors("p1", "c", [], ACTOR)).resolves.toMatchObject({ removed: 1, removedIds: ["a"] })
+      expect(repo.deleteDependency).toHaveBeenCalledTimes(1)
+      expect(repo.deleteDependency).toHaveBeenCalledWith(TX, "d2")
+    })
+
+    it.each([
+      ["an unknown item", "zz", ["a"], [], "PLAN_ITEM_NOT_FOUND"],
+      ["an unknown predecessor", "c", ["a", "zz"], [], "PLAN_ITEM_NOT_FOUND"],
+      ["a predecessor in the trash", "c", ["gone"], [dep("d1", "gone", "c")], "PLAN_ITEM_NOT_FOUND"],
+      ["the item itself", "c", ["c"], [], "PLAN_DEPENDENCY_INVALID"],
+      ["its parent", "a", ["r"], [], "PLAN_DEPENDENCY_INVALID"],
+      ["a cycle", "a", ["c"], [dep("d1", "a", "b"), dep("d2", "b", "c")], "PLAN_DEPENDENCY_CYCLE"],
+    ])("%s is refused and nothing is written, not even the removals of the same call", async (_label, successorId, wanted, edges, code) => {
+      vi.mocked(repo.findDependencies).mockResolvedValue([...edges, dep("d9", "b", successorId)])
+      await expect(sched.setPredecessors("p1", successorId, wanted, ACTOR)).rejects.toMatchObject({ code })
+      expect(repo.deleteDependency).not.toHaveBeenCalled()
+      expect(repo.insertDependency).not.toHaveBeenCalled()
+      expect(act.logActivity).not.toHaveBeenCalled()
+    })
   })
 })

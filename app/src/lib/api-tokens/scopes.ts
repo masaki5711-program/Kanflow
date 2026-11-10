@@ -21,6 +21,7 @@ export const API_TOKEN_SCOPES = [
   "icebox:write",
   "daily:write",
   "dev:write",
+  "plan:write",
 ] as const
 export type ApiTokenScope = (typeof API_TOKEN_SCOPES)[number]
 
@@ -36,6 +37,8 @@ export const SCOPE_ACTION: Record<ApiTokenScope, ProjectAction> = {
   "daily:write": "dailyScrum.write",
   // GitStation's plan documents (06 §4.1, 02 §12) call it "write:dev"; the implemented name follows "<area>:write".
   "dev:write": "dev.write",
+  // Direct edits of master-plan rows over MCP (docs/mcp.md "Plan tools"). Not part of the developer preset: Product Owner / Scrum Master only.
+  "plan:write": "plan.write",
 }
 
 /** Ready-made scope sets for the token form. */

@@ -142,7 +142,7 @@ describe("lists omit confidential PBIs and everything under them", () => {
 
   it("activity", async () => {
     const r = await answer(await activityRoute.GET(send("GET", "/activity"), seg({})))
-    expect(r.body.data?.map((a) => a.id).sort()).toEqual(["a1", "a12", "a3", "a5", "a7", "a9"])
+    expect(r.body.data?.map((a) => a.id).sort()).toEqual(["a1", "a12", "a14", "a3", "a5", "a7", "a9"])
     expect(leaksSecret(r.body)).toBe(false)
   })
 

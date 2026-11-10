@@ -147,9 +147,12 @@ const MAX_SCAN_ROUNDS = 20
  * confidential. A sprint task / release row is kept only when its owning PBI is known (recorded in
  * `meta.pbItemId` when it was written, else read from the entity if it still exists) and passes the same
  * test; a task or release whose parent cannot be resolved (old row with no record and the entity deleted)
- * is dropped. A release item recorded as having no PBI is kept. Other entity types carry no PBI text.
+ * is dropped. A release item recorded as having no PBI is kept. Other entity types carry no PBI text, with one
+ * exception: the plan row's "linked PBIs changed" entry counts every linked PBI, confidential ones included
+ * (`meta.linkedPbis`), so it is dropped — the link changes of the PBIs a token may see are in their own rows.
  */
 async function visibleToTokens(rows: readonly ActivityDto[]): Promise<ActivityDto[]> {
+  const countsLinkedPbis = (row: ActivityDto): boolean => row.entityType === "plan_item" && row.meta != null && "linkedPbis" in row.meta
   const recorded = (row: ActivityDto): string | null | undefined => {
     const meta = row.meta
     return meta && "pbItemId" in meta ? ((meta.pbItemId as string | null | undefined) ?? null) : undefined
@@ -168,7 +171,8 @@ async function visibleToTokens(rows: readonly ActivityDto[]): Promise<ActivityDt
   }
   const parents = rows.map(parentOf)
   const open = await repo.findOpenPbiIds(defaultDb, parents.filter((p): p is string => typeof p === "string"))
-  return rows.filter((_, i) => {
+  return rows.filter((row, i) => {
+    if (countsLinkedPbis(row)) return false
     const parent = parents[i]
     if (parent === undefined) return false // unresolvable: hidden
     return parent === null || open.has(parent)

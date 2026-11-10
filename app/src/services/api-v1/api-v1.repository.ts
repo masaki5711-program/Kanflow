@@ -142,6 +142,8 @@ export function findPlanItems(db: Db, projectId: string) {
       plannedEnd: true,
       actualStart: true,
       actualEnd: true,
+      // Not answered: decides whether the actual dates are (answersActualDates).
+      progressMode: true,
       isMilestone: true,
       sortOrder: true,
       createdAt: true,

@@ -41,6 +41,16 @@ export type PlanStatus = (typeof PLAN_STATUSES)[number]
 export const PROGRESS_MODES = ["manual", "linked"] as const
 export type ProgressMode = (typeof PROGRESS_MODES)[number]
 
+/**
+ * Pure: may the actual dates of a plan row leave Kanflow with an API token (REST /api/v1, MCP)? Only those of a row
+ * kept by hand. A linked row takes its actual dates from ALL its PBIs, confidential ones included (D-5), so no linked
+ * row answers them — every linked row, so the answer does not tell which rows have a confidential PBI. A mode this
+ * code does not know answers none either.
+ */
+export function answersActualDates(progressMode: string | undefined): boolean {
+  return progressMode === "manual"
+}
+
 export const SCHEDULE_STATES = ["done", "delayed", "at_risk", "not_started", "on_track", "on_hold"] as const
 export type ScheduleState = (typeof SCHEDULE_STATES)[number]
 

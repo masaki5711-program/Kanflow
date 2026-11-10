@@ -120,6 +120,9 @@ export const ACTIVITY = [
   activityRow("a11", "pbi", "pbPurged", "SECRET purged story"), // PBI no longer exists
   withMeta(activityRow("a12", "release", "rGone", "kept unlinked copy"), { pbItemId: null }),
   withMeta(activityRow("a13", "release", "rGone2", "SECRET deleted copy"), { pbItemId: "pbC" }),
+  // Plan rows: an ordinary change, and the "linked PBIs changed" entry, whose counts include the confidential PBI.
+  activityRow("a14", "plan_item", "plan1", "plan row"),
+  withMeta(activityRow("a15", "plan_item", "plan1", "plan row"), { linkedPbis: { added: 1, removed: 0, total: 2 } }),
 ]
 
 /** The Prisma stand-in; add the auth tables (project, projectMember, ...) where a test needs them. */

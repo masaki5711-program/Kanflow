@@ -25,7 +25,9 @@ for other MCP clients.
 
 1. Kanflow → My page (`/me`) → API tokens: issue a token. Pick the scopes the
    work needs (preset "Developer" = `read`, `task:write`, `comment:write`,
-   `icebox:write`, `daily:write`, `dev:write`) and, if you like, limit it to projects.
+   `icebox:write`, `daily:write`, `dev:write`; changing master-plan rows needs
+   `plan:write`, which only the "PO / SM (all)" preset carries) and, if you like,
+   limit it to projects.
 2. Put the token into the **environment variable** `KANFLOW_TOKEN` (never into a
    file in the repository, never into the chat).
 3. Register the server in the project's `.mcp.json` (or `claude mcp add`):
@@ -117,12 +119,16 @@ Lists that are cut at a limit say so with `truncated: true` and `limit`.
 | `link_merge_request` | `dev:write`, members | `pbi`, `url` (MR of a registered repository) |
 | `report_failure` | `dev:write` | `tool`, `text`, `errorCode?`, `projectId?`, `sessionRef?`, `branch?`, `techs?`, `source?` — the failure is redacted and stored; answers up to 3 confirmed `lessons` (W11) |
 | `report_resolution` | `dev:write` | `sessionRef`, `diffSummary`, `verifiedCommand?`, `cause?`, `scope?`, `evidence?` — becomes a **draft** lesson (W11) |
-| `get_plan` | read | the master plan (全体計画) as a tree: `name`, `status`, `progressPct`, `isMilestone`, `plannedStart` / `plannedEnd` (`YYYY-MM-DD`, `null` = 日程未定), `durationDays`, `owner`, `dependsOn` (ids that must finish first), `children`; `itemCount`, `truncated` (W12) |
+| `get_plan` | read | the master plan (全体計画) as a tree: `name`, `status`, `progressPct`, `isMilestone`, `plannedStart` / `plannedEnd` (`YYYY-MM-DD`, `null` = 日程未定), `actualStart` / `actualEnd` (always `null` for a row whose progress follows its linked PBIs), `durationDays`, `owner`, `dependsOn` (ids that must finish first), `version` (the lock token `update_plan_item` needs), `children`; `itemCount`, `truncated` (W12) |
+| `create_plan_item` | `plan:write`, PO / SM | `projectId`, `name`, `parentId?`, `plannedStart?` / `plannedEnd?` (both absent = 日程未定), `durationDays?`, `isMilestone?`, `status?` (`not_started` / `in_progress` / `done` / `on_hold`), `ownerId?`, `description?`, `notes?`, `idempotencyKey?` — adds **one row at once** (no approval card), kept by hand: see "Plan tools" |
+| `update_plan_item` | `plan:write`, PO / SM | `projectId`, `itemId`, the fields to change (those of `create_plan_item` without `isMilestone`, plus `actualStart` / `actualEnd`; `null` clears a date / owner; `parentId` moves the row; progress mode, the milestone switch, colour and the order among siblings are not fields), **`version` (required, from `get_plan`)** — a stale version answers `VERSION_CONFLICT` with no row data; `status` / actual dates of a row that follows its linked PBIs answer `PLAN_FOLLOWS_PBIS` |
+| `set_plan_dependencies` | `plan:write`, PO / SM | `projectId`, `itemId`, `dependsOn: [item ids]` (at most 50) — **replaces** the row's whole predecessor list (`[]` clears it); answers `{ successorId, dependsOn, added, removed, removedIds }` |
 | `propose_plan_from_actuals` | `backlog:write` **and** `plan.estimate` (PO / SM) | `projectId`, `startDate`, `templateId` or `items` (as propose_plan_items), `skipWeekends?`, `roleAssignments?` ({ role: [member userId] }), `sourceRef?`, `lineage?` — makes an estimate run (plan 12 E5) from actuals, confirmed lesson rules and levelling; answers only `{ runId, expiresAt, summary (end dates, counts), webPath }` — no per-person load, owners or item names. The plan changes only when the person approves the run on the web page |
 | `propose_plan_items` | `backlog:write`, PO / SM | `projectId`, `startDate`, `items` (tree of `{ key, name, durationDays?, milestone?, dependsOn?: [keys], children?, role?, load?, formerKeys? }`), `skipWeekends?`, `name?`, `reason?`, `sourceRef?`, `lineage?` — a **proposal**, not a write: see "Plan tools" (W12) |
 | `search_lessons` | read | `q`, `errorCode`, `tech`, `projectId`, `signature`, `limit` — confirmed / systemized, non-confidential lessons only (W11) |
 
-There are **no delete tools**, and no tool moves a task / PBI to another status
+There are **no delete tools** (one stated exception: `set_plan_dependencies` can take a dependency link between two
+plan rows away — never a row; see "Plan tools"), and no tool moves a task / PBI to another status
 or sprint on behalf of the developer tools: `claim_work` declares work, it does
 not set the task "in progress" (the user — or `update_task` after the user
 agreed — does).
@@ -233,7 +239,7 @@ For equipment-installation and process-improvement projects the agent builds the
   and derives the parents' spans. Limits: **500 items**, **5 levels**, unique `key`s; a dependency may not point at
   itself, an ancestor, a descendant, an unknown key, or close a cycle (`PLAN_SCHEDULE_INVALID`; too many / too deep:
   `PLAN_SCHEDULE_TOO_LARGE` / `PLAN_SCHEDULE_TOO_DEEP`).
-- **It never writes to the plan.** It stores one `plan_load` approval card (the existing AI-chat proposal) in a new chat
+- **`propose_plan_items` never writes to the plan.** It stores one `plan_load` approval card (the existing AI-chat proposal) in a new chat
   thread of the token's owner and answers `{ proposalId, threadId, itemCount, dependencyCount, plannedStart, plannedEnd, chatPath }`;
   tell the user to open `chatPath`. Approving the card calls `POST /api/projects/:id/plan/load` under the approver's own
   session (`plan.write`: PO / SM), which recomputes the dates and creates the rows, the dependencies and the progress
@@ -251,10 +257,63 @@ For equipment-installation and process-improvement projects the agent builds the
   A `lineage` that differs from the one its `sourceRef` implies is stored as given but reported in `warnings` (answer)
   and on the card. The proposal id covers `sourceRef` and the lineage, so the same schedule under another card name is
   another proposal.
-- **Scope**: there is no `plan:write` token scope. `backlog:write` is the least-privilege existing scope that PO and SM
-  hold (`backlog.write` and `plan.write` are granted to exactly the same roles), so the proposal needs `backlog:write` and
-  a PO / SM role; the approval re-checks `plan.write`. A developer's token is refused (`FORBIDDEN`).
+- **Scope of the proposals**: `propose_plan_items` and `propose_plan_from_actuals` need `backlog:write` and a PO / SM role
+  (`backlog.write` and `plan.write` are granted to exactly the same roles); the approval re-checks `plan.write` under the
+  approver's own session. A developer's token is refused (`FORBIDDEN`). The proposals do **not** need `plan:write`: a
+  token without it can still put a schedule in front of a person.
 - Create-tool retry safety applies (an identical call within 2 minutes returns the first result with `replayed: true`).
+
+**Single rows (`plan:write`).** `create_plan_item`, `update_plan_item` and `set_plan_dependencies` change the plan
+**at once**, without an approval card — for the day-to-day upkeep of a plan that already exists (add a row, move a date,
+set the status or the actual dates of a row kept by hand, re-link a dependency). A whole schedule still goes through `propose_plan_items`.
+
+- **Who**: the token must carry `plan:write` (missing → `INSUFFICIENT_SCOPE`, `requiredScope: "plan:write"`) **and** its
+  owner must be PO / SM of the project (`plan.write`; a developer or stakeholder → `FORBIDDEN`). The scope is in the
+  "PO / SM (all)" preset only, never in the developer preset; a token issued before the scope existed does not have it
+  (issue a new one).
+- **Same rules as the web UI**: the tools call the plan services the screen uses (`createPlanItem`, `updatePlanItem`,
+  the dependency checks), so validation, the progress roll-up and the activity history are the same; the history records
+  `via: mcp`.
+- **`version` is required for `update_plan_item`.** Take it from `get_plan`. When someone changed the row in between, the
+  answer is `{ error, code: "VERSION_CONFLICT" }` and nothing else — the current row is not returned; read `get_plan`
+  again and decide anew. `sortOrder` (drag order) cannot be changed over MCP.
+- **`set_plan_dependencies` replaces the list**: the predecessors not named are removed, the missing ones added, in one
+  transaction; every addition is checked first (unknown or trashed item `PLAN_ITEM_NOT_FOUND`; itself, an ancestor or a
+  descendant `PLAN_DEPENDENCY_INVALID`; a cycle `PLAN_DEPENDENCY_CYCLE`) and a refused call changes nothing. The writers
+  that add, replace or delete a dependency of one project (this tool and the web UI's dependency edits) run one after
+  the other, so two of them cannot close a cycle together or remove the same link twice. (Loading a base schedule and
+  duplicating rows only connect rows they have just made and do not wait in that line.) **This is the one place where
+  MCP takes something away**: a dependency link (a line on the Gantt chart — no date depends on it) is removed for
+  good, with no trash. There is no lock token on the list: a dependency a person
+  added after the agent's `get_plan` is removed when it is not in `dependsOn`. The answer names what was taken away
+  (`removedIds`), and each removal is in the activity history (the row and the predecessor it lost): from either it can
+  be put back. Moving a row under another one (`parentId`) does not look at dependencies — here as in the web UI — so a
+  dependency between a row and its new ancestor can remain; it is drawn, nothing more.
+- **A row that gets a child becomes a parent** — here as in the web UI: its dates, percentage and status are then
+  rolled up from its children, and a row that followed its linked PBIs stops following them (the links stay). Check
+  `get_plan` before putting a row under a leaf that is someone's working row.
+- **No cap on the number of rows**: each create / update also queues the translation of the row's texts (local LLM).
+  The per-token write budget is the only limit, so give `plan:write` to tokens whose user you would let edit the plan
+  by hand.
+- **Answers are compact**: the row's own fields (`id`, `parentId`, `name`, `status`, `progressPct`, `isMilestone`,
+  planned / actual dates, `durationDays`, `owner { id, name }`, `version`). Linked-PBI figures, sprint names,
+  descriptions, notes and mail addresses are never answered.
+- **Progress mode and colour are not fields of these tools.** A row made over MCP is kept by hand (its `status`); an
+  existing row keeps the mode it has. Switching a row to "follow the linked PBIs" is done in Kanflow by a person: such
+  a row takes its status, percentage and actual dates from all its PBIs, confidential ones included, so an agent that
+  could switch the mode could read a confidential PBI's state back through the row. For the same reason:
+  - `get_plan` and these answers carry **no actual dates for such a row** (`null`);
+  - `update_plan_item` refuses `status`, `actualStart` and `actualEnd` of such a row with `PLAN_FOLLOWS_PBIS` — by the
+    row's mode alone, with or without linked PBIs (a written status would stay only when no PBI is linked, and that
+    would tell). Its name, dates, owner, parent and texts can be changed; its progress is changed through its PBIs;
+  - `update_plan_item` has **no `isMilestone`**: Kanflow refuses to turn a row into a milestone while any PBI is
+    linked to it, and that refusal would tell as well. A milestone is made with `create_plan_item` or in Kanflow.
+
+  These close the ways the write tools would add. They do **not** make the row's numbers silent: `progressPct` /
+  `status` of such a row — and of every row above it, which roll up from it — still come from all its PBIs, and a
+  token that can also change visible PBIs can work out the hidden ones' aggregate from them — the residual signal
+  described in `docs/api-v1.md` "Confidential PBIs".
+- **No delete of rows**: a row or the whole plan is deleted in Kanflow by a person, not over MCP.
 
 ### Confidential PBIs (D-5)
 
@@ -262,8 +321,13 @@ A PBI marked confidential in the web UI is invisible to every tool: lists (`get_
 `my_tasks`, `get_activity`, `list_claims`) omit it and what hangs under it (its tasks, release copies, claims, feed
 rows); a tool that names it (`get_pbi`, `list_comments`, `add_comment`, `update_task`, `claim_work`, `post_progress`,
 `link_merge_request`, the acceptance-criterion tools, ...) answers `not found` exactly like a PBI that does not
-exist. `update_pbi` cannot set or clear the flag. Details and the list of covered routes: `docs/api-v1.md`
-"Confidential PBIs".
+exist. `update_pbi` cannot set or clear the flag. A plan row is not a PBI and stays visible; what a confidential PBI
+linked to it still moves is the `progressPct` / `status` of that row and of the rows above it — enough to show that a
+hidden PBI is linked and, for a token that can also change visible PBIs, about how far it is (never a title, text or
+person; the row's actual dates are not answered while it follows its PBIs, but they stay on the row if a person later
+switches it back to "kept by hand"). The activity feed leaves out the plan row's "linked PBIs changed" entry, which
+counts hidden PBIs too. Keep confidential PBIs off the plan rows of a project you expose to Claude if that matters.
+Details and the list of covered routes: `docs/api-v1.md` "Confidential PBIs".
 
 ### Prompt-injection guard
 

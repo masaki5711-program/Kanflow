@@ -54,4 +54,17 @@ describe("API token scopes", () => {
     const granting = API_TOKEN_SCOPES.filter((s) => SCOPE_ACTION[s] === "dev.write")
     expect(granting).toEqual(["dev:write"])
   })
+
+  // Direct plan edits over MCP: an explicit scope of its own, never part of what a developer token gets.
+  it("grants plan.write only through plan:write, which only the 'all' preset carries", () => {
+    expect(scopeForAction("plan.write")).toBe("plan:write")
+    expect(API_TOKEN_SCOPES.filter((s) => SCOPE_ACTION[s] === "plan.write")).toEqual(["plan:write"])
+    expect(API_TOKEN_SCOPE_PRESETS.readOnly).not.toContain("plan:write")
+    expect(API_TOKEN_SCOPE_PRESETS.developer).not.toContain("plan:write")
+    expect(API_TOKEN_SCOPE_PRESETS.all).toContain("plan:write")
+  })
+
+  it("appends new scopes: the stored order of the earlier ones never changes", () => {
+    expect(API_TOKEN_SCOPES.slice(0, 9)).toEqual(["read", "backlog:write", "backlog:reorder", "sprint:write", "task:write", "comment:write", "icebox:write", "daily:write", "dev:write"])
+  })
 })

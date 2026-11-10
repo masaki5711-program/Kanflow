@@ -234,6 +234,55 @@ describe("plan.service", () => {
     })
   })
 
+  describe("updatePlanItem for a writer with an API token (handKeptFieldsOnly)", () => {
+    const TOKEN_WRITER = { handKeptFieldsOnly: true }
+
+    it.each([
+      ["status", { status: "done" as const }],
+      ["actualStart", { actualStart: "2026-10-01" }],
+      ["actualEnd", { actualEnd: null }],
+    ])("%s of a row that follows its linked PBIs → 400 PLAN_FOLLOWS_PBIS, whether a PBI is linked or not", async (_field, change) => {
+      liveItem(planRow({ id: "l", progressMode: "linked" }))
+      // The same refusal with no PBI and with one: the answer must not tell the two apart (D-5).
+      await expect(svc.updatePlanItem("p1", "l", change, ACTOR, NOW, TOKEN_WRITER)).rejects.toMatchObject({ status: 400, code: "PLAN_FOLLOWS_PBIS" })
+      vi.mocked(repo.findLinkedPbisOfItem).mockResolvedValue([{ id: "b1" }] as never)
+      await expect(svc.updatePlanItem("p1", "l", change, ACTOR, NOW, TOKEN_WRITER)).rejects.toMatchObject({ status: 400, code: "PLAN_FOLLOWS_PBIS" })
+      expect(repo.findLinkedPbisOfItem).not.toHaveBeenCalled()
+      expect(repo.updatePlanItemVersioned).not.toHaveBeenCalled()
+    })
+
+    it("a stale version is answered first (VERSION_CONFLICT, not the rule): the caller re-reads the row either way", async () => {
+      liveItem(planRow({ id: "l", progressMode: "linked", version: 3 }))
+      await expect(svc.updatePlanItem("p1", "l", { status: "done", version: 2 }, ACTOR, NOW, TOKEN_WRITER)).rejects.toMatchObject({ code: "VERSION_CONFLICT" })
+    })
+
+    it("a mode this code does not know is refused as well", async () => {
+      liveItem(planRow({ id: "l", progressMode: "something-new" }))
+      await expect(svc.updatePlanItem("p1", "l", { status: "done" }, ACTOR, NOW, TOKEN_WRITER)).rejects.toMatchObject({ code: "PLAN_FOLLOWS_PBIS" })
+    })
+
+    it("the other fields of such a row are written", async () => {
+      const row = liveItem(planRow({ id: "l", progressMode: "linked" }))
+      vi.mocked(repo.updatePlanItemVersioned).mockResolvedValue(row as never)
+      await svc.updatePlanItem("p1", "l", { name: "n", plannedStart: "2026-10-01", plannedEnd: "2026-10-09" }, ACTOR, NOW, TOKEN_WRITER)
+      expect(repo.updatePlanItemVersioned).toHaveBeenCalledTimes(1)
+    })
+
+    it("a row kept by hand takes status and actual dates", async () => {
+      const row = liveItem(planRow({ id: "x" }))
+      vi.mocked(repo.updatePlanItemVersioned).mockResolvedValue(row as never)
+      await svc.updatePlanItem("p1", "x", { status: "done", actualEnd: "2026-10-02" }, ACTOR, NOW, TOKEN_WRITER)
+      expect(repo.updatePlanItemVersioned).toHaveBeenCalledWith(TX, "p1", "x", expect.objectContaining({ status: "done" }), undefined)
+    })
+
+    it("the web UI (no option) still sets the status of a linked row", async () => {
+      const row = liveItem(planRow({ id: "l", progressMode: "linked" }))
+      vi.mocked(repo.updatePlanItemVersioned).mockResolvedValue(row as never)
+      await svc.updatePlanItem("p1", "l", { status: "done" }, ACTOR, NOW)
+      expect(repo.updatePlanItemVersioned).toHaveBeenCalledTimes(1)
+    })
+  })
+
   describe("milestones never take PBI links", () => {
     it("PATCH progressMode linked on a milestone → 400 PLAN_LINK_MILESTONE", async () => {
       liveItem(planRow({ id: "m", isMilestone: true }))

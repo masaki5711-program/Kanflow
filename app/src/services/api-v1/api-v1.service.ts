@@ -5,6 +5,7 @@
  * token's user has `project.view` on `projectId`. Responses use the envelope
  * `{ data, nextCursor? }`; dates are ISO strings.
  */
+import { answersActualDates } from "@/lib/plan-progress"
 import type { Actor } from "@/services/_shared/actor"
 import { toPage } from "@/services/_shared/cursor"
 import { defaultDb } from "@/services/_shared/db"
@@ -113,7 +114,10 @@ export async function listSprintTasks(projectId: string, sprintId: string) {
 
 export async function listPlan(projectId: string) {
   const rows = await repo.findPlanItems(defaultDb, projectId)
-  return { data: rows.map(isoDates) }
+  return {
+    // A linked row's actual dates come from its PBIs, confidential ones included: they are not answered (D-5).
+    data: rows.map(({ progressMode, ...row }) => isoDates(answersActualDates(progressMode) ? row : { ...row, actualStart: null, actualEnd: null })),
+  }
 }
 
 export async function listReleases(projectId: string) {

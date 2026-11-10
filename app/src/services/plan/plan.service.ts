@@ -18,6 +18,7 @@ import { claimPlanHeal, computePlanHeal, persistPlanHeal, releasePlanHeal } from
 import * as repo from "./plan.repository"
 import {
   PARENT_MISSING,
+  assertHandKeptFields,
   assertMilestoneNotLinked,
   assertValidParent,
   assertValidReorder,
@@ -151,8 +152,23 @@ async function assertMilestoneLinkRules(
   }
 }
 
+export interface UpdatePlanItemOptions {
+  /**
+   * Writers with an API token (MCP): the status and the actual dates of a row that follows its linked PBIs are
+   * refused (400 PLAN_FOLLOWS_PBIS), whatever PBIs the row has — see assertHandKeptFields.
+   */
+  handKeptFieldsOnly?: boolean
+}
+
 /** `input.version` (optional) = the version the client loaded; stale → 409 VERSION_CONFLICT with `current`. */
-export async function updatePlanItem(projectId: string, itemId: string, input: UpdatePlanItemInput, actor: Actor, now: Date = new Date()): Promise<PlanItemDto> {
+export async function updatePlanItem(
+  projectId: string,
+  itemId: string,
+  input: UpdatePlanItemInput,
+  actor: Actor,
+  now: Date = new Date(),
+  options: UpdatePlanItemOptions = {}
+): Promise<PlanItemDto> {
   const { version, data: fields } = takeVersion(input)
   noteUnversionedWrite("plan_item", itemId, version)
   const data = await prepareText(fields, actor.userId)
@@ -160,6 +176,7 @@ export async function updatePlanItem(projectId: string, itemId: string, input: U
     const existing = await repo.findPlanItem(tx, projectId, itemId)
     if (!existing) throw planItemNotFound()
     if (version !== undefined && existing.version !== version) throw new VersionConflictError(await dtoOfRow(tx, existing, now))
+    if (options.handKeptFieldsOnly) assertHandKeptFields(existing.progressMode, data)
     if (data.parentId) assertValidParent(await repo.findPlanTree(tx, projectId), itemId, data.parentId)
     await assertOwner(tx, projectId, data.ownerId)
     await assertMilestoneLinkRules(tx, projectId, existing, data)

@@ -61,6 +61,10 @@ const READ_TOOLS = ["whoami", "list_projects", "resolve_project", "get_backlog",
 const WRITE_TOOLS = [
   "propose_plan_items",
   "propose_plan_from_actuals",
+  // Single plan rows (plan:write) — mcp-plan-write-tools.test.ts
+  "create_plan_item",
+  "update_plan_item",
+  "set_plan_dependencies",
   "report_failure",
   "report_resolution",
   "create_pbi",

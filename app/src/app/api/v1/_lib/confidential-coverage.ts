@@ -23,7 +23,7 @@ export const CONFIDENTIAL_MECHANISMS = [
   "read:my-tasks", // findMyTasks: same, for "my tasks"
   "read:similar-tasks", // findPbiTasksInSprint: the duplicate hint of create_task
   "read:releases", // findReleases: release copies of a confidential PBI are not listed
-  "read:activity", // listProjectActivity({ hideConfidential }): feed rows about them are not listed
+  "read:activity", // listProjectActivity({ hideConfidential }): feed rows about them, and a plan row's count of its linked PBIs, are not listed
   "mask:pbi-ref", // a PBI named by id / number is handed to the service as a missing id
   "mask:pbi-ids", // PBI ids in a body (sprint create / add PBIs / carry over)
   "mask:task-id", // a task under a confidential PBI is a missing task
@@ -83,9 +83,16 @@ export const MCP_TOOL_COVERAGE: Readonly<Record<string, Coverage>> = {
   report_resolution: independent(LESSON),
   search_lessons: independent(LESSON),
   // master plan
-  get_plan: independent("plan items carry a name, dates and progress; they do not carry or link PBI content"),
+  get_plan: independent(
+    "plan items carry a name, dates and progress, no PBI text or link. A linked row's progressPct / status are rolled up from all its PBIs — the documented residual signal: it shows that a hidden PBI is linked and, to a token that can re-link visible PBIs, its aggregate progress (docs/api-v1.md). Its actual dates, which also come from them, are not answered (answersActualDates)",
+  ),
   propose_plan_items: independent("proposes plan items from the caller's own schedule; returns no PBI content"),
   propose_plan_from_actuals: independent("answers only a run id, end dates and counts; the actuals behind it pass learnableItemFacts (confidential PBIs are left out at use time)"),
+  create_plan_item: independent("creates a hand-kept plan row from the caller's own fields (progressMode is not an input, so the row follows no PBI); the answer is that row (toPlanItemAnswer)"),
+  update_plan_item: independent(
+    "changes a plan row. Nothing it accepts depends on a PBI: progressMode and isMilestone are not inputs (the milestone switch is refused when any PBI is linked), status / actual dates of a row that follows its PBIs are refused by the mode alone (PLAN_FOLLOWS_PBIS, assertHandKeptFields). The answer is the get_plan node: no linked-PBI figures or sprint names, a linked row's progressPct / status as in get_plan (residual signal), its actual dates not answered (toPlanItemAnswer)",
+  ),
+  set_plan_dependencies: independent("answers plan item ids and counts only (the predecessors it removed included)"),
 }
 
 /** Every /api/v1 route: "METHOD path under src/app/api/v1 (folder names, [param] kept)". */

@@ -44,6 +44,7 @@ import {
 import { registerDevTools } from "./dev-tools"
 import { registerFeedbackTools } from "./feedback-tools"
 import { registerPlanTools } from "./plan-tools"
+import { registerPlanWriteTools } from "./plan-write-tools"
 import { CREATE_NOTE, DATA_NOTICE, definedOnly, guard, mcpWrite, pbiIdIn, pbiScope, projectScope, toolOk, visibleProjects } from "./tool-kit"
 
 /**
@@ -472,4 +473,6 @@ export function registerKanflowTools(server: McpServer, principal: ApiPrincipal)
 
   // ------------------------------------------- master plan (W12)
   registerPlanTools(server, principal)
+  // Single-row edits (scope plan:write)
+  registerPlanWriteTools(server, principal)
 }
