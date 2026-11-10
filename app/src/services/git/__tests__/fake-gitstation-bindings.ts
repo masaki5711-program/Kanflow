@@ -58,6 +58,8 @@ export function createFakeBindingStation(options: { employeeNumberScope?: boolea
   let nextAssertion = 1
   let nextBinding = 100
   let searches = 0
+  /** While set, claims wait for it (a claim in flight, for the double-press test). */
+  let claimGate: Promise<void> | null = null
   const employeeNumberScope = options.employeeNumberScope ?? true
 
   const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })
@@ -127,6 +129,7 @@ export function createFakeBindingStation(options: { employeeNumberScope?: boolea
       return json(200, { items: [...bindings.values()].filter((b) => kanflow === null || b.kanflowProjectId === kanflow).map(bindingBody) })
     }
     if (method === "POST" && path === `/integrations/${BIND_INTEGRATION}/act-as/claim`) {
+      if (claimGate) await claimGate
       if (headers.get("forge-act-as")) return fg(403, "FG-AUTH-0003")
       const c = body && typeof body.state === "string" ? confirmations.get(body.state) : undefined
       if (!c || c.claimed) return fg(403, "FG-AUTH-0020")
@@ -202,6 +205,21 @@ export function createFakeBindingStation(options: { employeeNumberScope?: boolea
       return b.bindingId
     },
     bindings: () => [...bindings.values()],
+    /** The binding is removed elsewhere (another person, an administrator). */
+    unbind(bindingId: number) {
+      bindings.delete(bindingId)
+    },
+    /** Claims wait until the returned function is called. */
+    holdClaims(): () => void {
+      let release: () => void = () => undefined
+      claimGate = new Promise<void>((resolve) => {
+        release = () => {
+          claimGate = null
+          resolve()
+        }
+      })
+      return release
+    },
     writes: () => requests.filter((r) => r.method !== "GET" && !r.path.endsWith("/act-as/claim")),
     /**
      * The person `employeeNumber` presses the button on the binding confirmation page of `confirmUrl` — parsed as

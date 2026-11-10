@@ -95,6 +95,14 @@ export function GitRepoBindings({ projectId, canBind, onRepositoriesChanged }: P
   const [note, setNote] = useState<string | null>(null)
   const linkRef = useRef<HTMLAnchorElement>(null)
   const sectionRef = useRef<HTMLElement>(null)
+  const resultsRef = useRef<HTMLHeadingElement>(null)
+  /** Bumped by each search that found something: focus moves to its results. */
+  const [searchRound, setSearchRound] = useState(0)
+
+  // A search that found repositories: focus its results heading (an empty one leaves focus in the field, the status says why).
+  useEffect(() => {
+    if (searchRound > 0) resultsRef.current?.focus()
+  }, [searchRound])
 
   // The confirmation appears below the list: focus its first step.
   useEffect(() => {
@@ -132,7 +140,9 @@ export function GitRepoBindings({ projectId, canBind, onRepositoriesChanged }: P
     if (!text || searching) return
     setSearching(true)
     try {
-      setFound(toFound(await apiFetch<unknown>(`${base}/search?q=${encodeURIComponent(text)}`)))
+      const next = toFound(await apiFetch<unknown>(`${base}/search?q=${encodeURIComponent(text)}`))
+      setFound(next)
+      if (next.length > 0) setSearchRound((n) => n + 1)
     } catch (err) {
       toast.error(`${t.gitBindSearchFailed}: ${localizeApiError(err, t)}`)
     } finally {
@@ -265,11 +275,14 @@ export function GitRepoBindings({ projectId, canBind, onRepositoriesChanged }: P
         </form>
       )}
 
-      {canAct && found !== null && (
+      {/* Always mounted: only its text changes, so screen readers announce every search's result. */}
+      <p role="status" className="text-caption text-fg-muted empty:hidden" data-git-bind-search-status>
+        {canAct && found !== null ? (found.length === 0 ? t.gitBindSearchEmpty : t.gitBindSearchFound.replace("{count}", String(found.length))) : ""}
+      </p>
+      {canAct && found !== null && found.length > 0 && (
         <div className="space-y-1">
-          <h4 className="text-caption font-medium text-fg">{t.gitBindSearchResults}</h4>
-          <p role="status" className="text-caption text-fg-muted">{found.length === 0 ? t.gitBindSearchEmpty : t.gitBindSearchFound.replace("{count}", String(found.length))}</p>
-          {found.length > 0 && (
+          <h4 ref={resultsRef} tabIndex={-1} className="text-caption font-medium text-fg outline-none">{t.gitBindSearchResults}</h4>
+          {(
             <ul className="divide-y divide-border rounded-ui-md border border-border">
               {found.map((r) => {
                 const bound = bindingOf(r.id)
@@ -315,9 +328,10 @@ export function GitRepoBindings({ projectId, canBind, onRepositoriesChanged }: P
             <Button size="sm" variant="primary" loading={busy} onClick={() => void complete()}>{t.gitDevConfirmDone}</Button>
             <Button size="sm" variant="ghost" disabled={busy} onClick={close}>{t.gitDevConfirmCancel}</Button>
           </div>
-          <p role="status" className="text-caption text-fg">{note}</p>
         </div>
       )}
+      {/* Always mounted (outside the confirmation, which comes and goes): "not confirmed yet" is announced each time. */}
+      <p role="status" className="text-caption text-fg empty:hidden" data-git-bind-confirm-status>{note ?? ""}</p>
     </section>
   )
 }

@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma"
 import { logger } from "@/lib/logger"
 import { open } from "@/lib/secret-box"
 import { stationAllowedHosts } from "@/lib/git/repo-url"
+import { getRateLimiter, type RateLimiter } from "@/lib/rate-limit"
 import {
   GitStationError,
   isBindableKanflowProjectId,
@@ -13,7 +14,7 @@ import {
   type GitStationRepositoryBinding,
 } from "@/lib/git/gitstation-client"
 import { NotFoundError, StatusError, ValidationError } from "@/services/_shared"
-import { assertClaimedBySamePerson, BINDING_INTENTS, type AttemptSubject, claimAttempt, discardClaim, employeeNumberOf, finishAttempt, lockAttempt, openAttempt, statusError as err } from "./act-as-attempts"
+import { assertClaimedBySamePerson, BINDING_INTENTS, type AttemptSubject, claimAttempt, discardClaim, employeeNumberOf, finishAfterWrite, finishAttempt, lockAttempt, openAttempt, statusError as err } from "./act-as-attempts"
 import { defaultGitStationClientFactory, type GitStationClientFactory } from "./gitstation-source"
 
 /**
@@ -41,7 +42,16 @@ export interface RepoBindingDeps {
   clientFactory?: GitStationClientFactory
   now?: () => Date
   random?: (bytes: number) => Buffer
+  /** Kanflow's own search throttle (default: the process-wide one, SEARCH_LIMIT_PER_MINUTE per user and project). */
+  searchLimiter?: RateLimiter
 }
+
+/**
+ * Searches one person may make per minute in one project. GitStation allows the integration's service account 30 a
+ * minute (FG-WEB-0010) and K4's status reads share that account: one person cannot use them all up.
+ */
+export const SEARCH_LIMIT_PER_MINUTE = 10
+const searchLimiter = (): RateLimiter => getRateLimiter("gitstation-repo-search", { limit: SEARCH_LIMIT_PER_MINUTE, windowMs: 60_000 })
 
 /** One repository bound to this project in GitStation. */
 export interface RepoBindingItem {
@@ -219,6 +229,11 @@ export async function searchBindableRepositories(projectId: string, userId: stri
   const station = await requireStation(projectId, deps.clientFactory ?? defaultGitStationClientFactory)
   const employeeNumber = await requireEmployeeNumber(userId)
   const context = { projectId, action: "search" }
+  const throttle = (deps.searchLimiter ?? searchLimiter()).consume(`${userId}\u0000${projectId}`)
+  if (!throttle.allowed) {
+    log.warn("gitstation repository search throttled", context)
+    throw err(429, "RATE_LIMITED", "検索の回数の上限です。少し待ってください", { retryAfterSec: Math.ceil(throttle.status.retryAfterMs / 1000) })
+  }
   const found = await asked(station.client.searchRepositoriesAs(text, employeeNumber), context)
   const bound = found.length > 0 ? await asked(station.client.repositoryBindings(projectId), context) : []
   const byRepository = new Map(bound.map((b) => [b.repositoryId, b]))
@@ -312,17 +327,22 @@ export async function completeRepositoryBinding(projectId: string, userId: strin
     const as = { userId: claim.sub.userId, assertion: claim.assertion }
     if (intent === "binding_remove") {
       await station.client.removeBindingAs(bindingId as number, as)
-      await finishAttempt(attempt.id, "removed", now)
+      await finishAfterWrite(attempt.id, "removed", now, context)
       log.info("gitstation binding removed", { ...context, bindingId })
       return { outcome: "removed", binding: null }
     }
     const answer = await station.client.setBindingAs({ kanflowProjectId: projectId, repositoryId, resolvesWorkItems: attempt.resolvesWorkItems as boolean, bindingId }, as)
-    await finishAttempt(attempt.id, answer.outcome, now)
+    await finishAfterWrite(attempt.id, answer.outcome, now, context)
     log.info("gitstation binding set", { ...context, outcome: answer.outcome, bindingId: answer.binding.bindingId, resolvesWorkItems: answer.binding.resolvesWorkItems })
     return { outcome: answer.outcome, binding: answer.binding }
   } catch (e) {
     await finishAttempt(attempt.id, "failed", now)
     if (e instanceof StatusError) throw e
+    // The binding (or repository) went away since the confirmation (another person unbound it): start again.
+    if (e instanceof GitStationError && e.status === 404) {
+      toServiceError(e, context)
+      throw err(409, "GIT_APPROVAL_RETRY", "結びつけが変わりました。もう一度やり直してください")
+    }
     throw toServiceError(e, context)
   }
 }

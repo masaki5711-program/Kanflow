@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { BIND_HOST, BIND_INTEGRATION, BIND_STATION, BIND_TOKEN, createFakeBindingStation, type FakeBindingStation } from "./fake-gitstation-bindings"
 
 /**
@@ -29,10 +29,13 @@ describe.skipIf(!enabled)("repository bindings through GitStation act-as on a re
   let createGitStationClient: typeof import("@/lib/git/gitstation-client").createGitStationClient
   let station: FakeBindingStation
   let t = new Date("2026-11-10T00:00:00.000Z")
+  let searchLimiter: ReturnType<typeof import("@/lib/rate-limit").createRateLimiter>
   const deps = () => ({
     clientFactory: (o: { apiBase: string; token: string; integrationId: string }) => createGitStationClient({ ...o, fetchImpl: station.fetchImpl, sleep: async () => undefined }),
     now: () => t,
+    searchLimiter,
   })
+  const claims = () => station.requests.filter((q) => q.path.endsWith("/act-as/claim"))
   const codeOf = async (p: Promise<unknown>) => {
     try {
       await p
@@ -78,6 +81,7 @@ describe.skipIf(!enabled)("repository bindings through GitStation act-as on a re
   beforeEach(async () => {
     t = new Date("2026-11-10T00:00:00.000Z")
     station = createFakeBindingStation()
+    searchLimiter = (await import("@/lib/rate-limit")).createRateLimiter({ limit: service.SEARCH_LIMIT_PER_MINUTE, windowMs: 60_000 })
     station.person(ALICE, 41)
     station.person(BOB, 42)
     station.repository(CODE, "app/portal", [41], "Portal")
@@ -105,6 +109,15 @@ describe.skipIf(!enabled)("repository bindings through GitStation act-as on a re
     station.person(ALICE, 41)
     expect(await codeOf(service.searchBindableRepositories(ids.project, ids.alice, "a", deps()))).toBe("RATE_LIMITED")
     expect(station.requests.filter((q) => q.path === "/repositories")).toHaveLength(1)
+  })
+
+  it("throttles one person's searches in Kanflow (10 a minute per user and project) before GitStation is asked", async () => {
+    for (let i = 0; i < service.SEARCH_LIMIT_PER_MINUTE; i++) expect(await codeOf(service.searchBindableRepositories(ids.project, ids.alice, "a", deps()))).toBe("resolved")
+    expect(await codeOf(service.searchBindableRepositories(ids.project, ids.alice, "a", deps()))).toBe("RATE_LIMITED")
+    expect(station.requests.filter((q) => q.path === "/repositories")).toHaveLength(service.SEARCH_LIMIT_PER_MINUTE)
+    // Another person (or another project) has their own allowance.
+    expect(await codeOf(service.searchBindableRepositories(ids.project, ids.bob, "a", deps()))).toBe("resolved")
+    expect(await codeOf(service.searchBindableRepositories(ids.other, ids.alice, "a", deps()))).toBe("resolved")
   })
 
   it("binds a code repository after the person confirmed: claim, checks, then POST as user:<sub> with the assertion", async () => {
@@ -195,34 +208,100 @@ describe.skipIf(!enabled)("repository bindings through GitStation act-as on a re
     expect(await prisma.gitMrApprovalAttempt.findUniqueOrThrow({ where: { id: started.attemptId } })).toMatchObject({ outcome: "discarded" })
   })
 
+  // Each row exercises exactly one check of completeRepositoryBinding's mismatch chain (removing it fails the row).
   it.each([
-    ["another Kanflow project", { kanflow_project_id: "someone-else" }],
-    ["another repository", { project_id: 99 }],
-    ["another setting", { resolves_work_items: false }],
-    ["a merge request intent", { intent: "approve" }],
-    ["a merge request subject", { iid: 3, head_sha: "a".repeat(40), target_ref: "refs/heads/main" }],
-  ])("discards a claim for %s — nothing is written", async (_name, claimExtra) => {
+    ["binding_set", "another intent (binding_remove)", { intent: "binding_remove", resolves_work_items: null }],
+    ["binding_set", "a merge request intent", { intent: "approve" }],
+    ["binding_set", "a merge request subject (iid / head / target)", { iid: 3, head_sha: "a".repeat(40), target_ref: "refs/heads/main" }],
+    ["binding_set", "another Kanflow project", { kanflow_project_id: "someone-else" }],
+    ["binding_set", "another repository", { project_id: 99 }],
+    ["binding_set", "another setting", { resolves_work_items: false }],
+    ["binding_remove", "an unbind carrying a setting", { resolves_work_items: true }],
+    ["binding_remove", "another intent (binding_set)", { intent: "binding_set" }],
+  ] as const)("%s: discards a claim for %s — one claim, no write, 409 GIT_APPROVAL_RETRY", async (intent, _name, claimExtra) => {
     station = createFakeBindingStation({ claimExtra })
     station.person(ALICE, 41)
     station.repository(CODE, "app/portal", [41], "Portal")
-    const started = await bindSet(CODE, true)
+    const bindingId = station.bind(CODE, ids.project, false)
+    const started =
+      intent === "binding_set"
+        ? await bindSet(CODE, true)
+        : await service.startRepositoryBinding(ids.project, ids.alice, { intent: "binding_remove", bindingId }, deps())
     station.press(started.confirmUrl, ALICE)
-    expect(await codeOf(service.completeRepositoryBinding(ids.project, ids.alice, started.attemptId, deps()))).toBe("GIT_APPROVAL_RETRY")
+    const answer = service.completeRepositoryBinding(ids.project, ids.alice, started.attemptId, deps())
+    await expect(answer).rejects.toMatchObject({ status: 409, code: "GIT_APPROVAL_RETRY" })
+    expect(claims()).toHaveLength(1)
     expect(station.writes()).toHaveLength(0)
-    expect(await prisma.gitMrApprovalAttempt.findUniqueOrThrow({ where: { id: started.attemptId } })).toMatchObject({ outcome: "discarded" })
+    expect(await prisma.gitMrApprovalAttempt.findUniqueOrThrow({ where: { id: started.attemptId } })).toMatchObject({ outcome: "discarded", claimingAt: null })
   })
 
   it("a second press of 確認しました never writes twice; another user's attempt is not found", async () => {
     const started = await bindSet(CODE, true)
     station.press(started.confirmUrl, ALICE)
     expect(await codeOf(service.completeRepositoryBinding(ids.project, ids.bob, started.attemptId, deps()))).toBe("NOT_FOUND")
-    const [a, b] = await Promise.all([
-      codeOf(service.completeRepositoryBinding(ids.project, ids.alice, started.attemptId, deps())),
-      codeOf(service.completeRepositoryBinding(ids.project, ids.alice, started.attemptId, deps())),
-    ])
-    expect([a, b].sort()).toEqual(["GIT_APPROVAL_BUSY", "resolved"])
+    expect(await codeOf(service.completeRepositoryBinding(ids.project, ids.alice, started.attemptId, deps()))).toBe("resolved")
+    // Finished: never sent again.
     expect(await codeOf(service.completeRepositoryBinding(ids.project, ids.alice, started.attemptId, deps()))).toBe("GIT_APPROVAL_RETRY")
+    expect(claims()).toHaveLength(1)
     expect(station.writes()).toHaveLength(1)
+  })
+
+  it("a double press while the first claim is in flight: the compare-and-set lets one through, the other is GIT_APPROVAL_BUSY", async () => {
+    const started = await bindSet(CODE, true)
+    station.press(started.confirmUrl, ALICE)
+    const release = station.holdClaims()
+    const first = codeOf(service.completeRepositoryBinding(ids.project, ids.alice, started.attemptId, deps()))
+    // The first press holds the lock and waits in GitStation's claim; then the second press arrives.
+    await vi.waitFor(() => expect(claims()).toHaveLength(1))
+    const second = await codeOf(service.completeRepositoryBinding(ids.project, ids.alice, started.attemptId, deps()))
+    expect(second).toBe("GIT_APPROVAL_BUSY")
+    release()
+    expect(await first).toBe("resolved")
+    expect(claims()).toHaveLength(1)
+    expect(station.writes()).toHaveLength(1)
+  })
+
+  it("a lock left by a crashed request is taken over after CLAIM_LOCK_MS (and only then)", async () => {
+    const started = await bindSet(CODE, true)
+    station.press(started.confirmUrl, ALICE)
+    await prisma.gitMrApprovalAttempt.update({ where: { id: started.attemptId }, data: { claimingAt: new Date(t.getTime() - 1_000) } })
+    expect(await codeOf(service.completeRepositoryBinding(ids.project, ids.alice, started.attemptId, deps()))).toBe("GIT_APPROVAL_BUSY")
+    expect(claims()).toHaveLength(0)
+    await prisma.gitMrApprovalAttempt.update({ where: { id: started.attemptId }, data: { claimingAt: new Date(t.getTime() - mrService.CLAIM_LOCK_MS - 1) } })
+    expect(await codeOf(service.completeRepositoryBinding(ids.project, ids.alice, started.attemptId, deps()))).toBe("resolved")
+    expect(station.writes()).toHaveLength(1)
+  })
+
+  it("a write GitStation made is reported as made even when Kanflow cannot close the attempt (logged)", async () => {
+    const started = await bindSet(CODE, true)
+    station.press(started.confirmUrl, ALICE)
+    // Kanflow's own bookkeeping fails right after GitStation bound (synthetic: a constraint refusing the outcome).
+    await prisma.$executeRawUnsafe(`ALTER TABLE "git_mr_approval_attempt" ADD CONSTRAINT "x3_test_refuse_bound" CHECK ("outcome" IS DISTINCT FROM 'bound') NOT VALID`)
+    try {
+      expect(await service.completeRepositoryBinding(ids.project, ids.alice, started.attemptId, deps())).toMatchObject({ outcome: "bound" })
+    } finally {
+      await prisma.$executeRawUnsafe(`ALTER TABLE "git_mr_approval_attempt" DROP CONSTRAINT "x3_test_refuse_bound"`)
+    }
+    expect(station.bindings()).toHaveLength(1)
+    expect(station.writes()).toHaveLength(1)
+  })
+
+  it("an unbind of a binding that is gone meanwhile (404 on the write) asks to start again", async () => {
+    const bindingId = station.bind(CODE, ids.project, true)
+    const started = await service.startRepositoryBinding(ids.project, ids.alice, { intent: "binding_remove", bindingId }, deps())
+    station.press(started.confirmUrl, ALICE)
+    station.unbind(bindingId)
+    expect(await codeOf(service.completeRepositoryBinding(ids.project, ids.alice, started.attemptId, deps()))).toBe("GIT_APPROVAL_RETRY")
+    expect(await prisma.gitMrApprovalAttempt.findUniqueOrThrow({ where: { id: started.attemptId } })).toMatchObject({ outcome: "failed" })
+  })
+
+  it("at most 20 open confirmations per user, also when presses race (the count and the insert are one step)", async () => {
+    const base = { projectId: ids.project, userId: ids.alice, intent: "binding_set", stationProjectId: BigInt(CODE), resolvesWorkItems: true, stateCipher: "x", expiresAt: new Date(t.getTime() + 60_000) }
+    await prisma.gitMrApprovalAttempt.createMany({ data: Array.from({ length: 18 }, () => base) })
+    const results = await Promise.all(Array.from({ length: 6 }, () => codeOf(bindSet(CODE, true))))
+    expect(results.filter((r) => r === "resolved")).toHaveLength(2)
+    expect(results.filter((r) => r === "RATE_LIMITED")).toHaveLength(4)
+    expect(await prisma.gitMrApprovalAttempt.count({ where: { userId: ids.alice, finishedAt: null } })).toBe(20)
   })
 
   it("keeps binding and approval attempts apart (each feature finds only its own; the CHECK pins the columns)", async () => {
@@ -238,6 +317,30 @@ describe.skipIf(!enabled)("repository bindings through GitStation act-as on a re
       { ...base, intent: "binding_remove", stationProjectId: BigInt(CODE), bindingId: BigInt(5), resolvesWorkItems: true },
     ]) {
       await expect(prisma.gitMrApprovalAttempt.create({ data })).rejects.toThrow()
+    }
+    // The outcome belongs to its intent: an approval is never "bound", a binding never "approved", an unbind never "bound".
+    const finished = { finishedAt: t }
+    for (const data of [
+      { ...base, ...finished, intent: "approve", gitLinkId: ids.link, headSha: "a".repeat(40), outcome: "bound" },
+      { ...base, ...finished, intent: "binding_set", stationProjectId: BigInt(CODE), resolvesWorkItems: true, outcome: "approved" },
+      { ...base, ...finished, intent: "binding_set", stationProjectId: BigInt(CODE), resolvesWorkItems: true, outcome: "removed" },
+      { ...base, ...finished, intent: "binding_remove", stationProjectId: BigInt(CODE), bindingId: BigInt(5), outcome: "bound" },
+    ]) {
+      await expect(prisma.gitMrApprovalAttempt.create({ data })).rejects.toThrow()
+    }
+  })
+
+  it("K4-shaped rows (open and finished approvals) are valid under the generalised constraints", async () => {
+    const base = { projectId: ids.project, userId: ids.alice, stateCipher: "x", expiresAt: t, gitLinkId: ids.link, headSha: "b".repeat(40) }
+    for (const data of [
+      { ...base, intent: "approve" },
+      { ...base, intent: "approve", finishedAt: t, outcome: "approved" },
+      { ...base, intent: "unapprove", finishedAt: t, outcome: "withdrawn" },
+      { ...base, intent: "unapprove", headSha: "c".repeat(64), finishedAt: t, outcome: "unchanged" },
+      { ...base, intent: "approve", finishedAt: t, outcome: "discarded" },
+      { ...base, intent: "approve", finishedAt: t, outcome: "failed" },
+    ]) {
+      await expect(prisma.gitMrApprovalAttempt.create({ data, select: { id: true } })).resolves.toBeTruthy()
     }
   })
 

@@ -69,16 +69,20 @@ export async function openAttempt(
   now: Date,
   random: (bytes: number) => Buffer = randomBytes,
 ): Promise<{ id: string; state: string; expiresAt: Date }> {
-  await prisma.gitMrApprovalAttempt.deleteMany({ where: { userId, expiresAt: { lt: new Date(now.getTime() - PURGE_AFTER_MS) } } })
-  const openCount = await prisma.gitMrApprovalAttempt.count({ where: { userId, finishedAt: null, expiresAt: { gt: now } } })
-  if (openCount >= MAX_OPEN_ATTEMPTS) throw statusError(429, "RATE_LIMITED", "確認を開きすぎています。少し待ってからやり直してください")
   // 256 bits, base64url (43 characters): inside GitStation's [A-Za-z0-9_-]{22,128}.
   const state = random(32).toString("base64url")
   const expiresAt = new Date(now.getTime() + ATTEMPT_TTL_MS)
   const columns = columnsOf(subject)
-  const row = await prisma.gitMrApprovalAttempt.create({
-    data: { projectId, userId, intent: subject.intent, stateCipher: seal(state), expiresAt, ...columns },
-    select: { id: true },
+  // Count and insert as one step per user (transaction-scoped advisory lock): racing presses cannot pass the limit together.
+  const row = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`git_act_as_attempt:${userId}`}))`
+    await tx.gitMrApprovalAttempt.deleteMany({ where: { userId, expiresAt: { lt: new Date(now.getTime() - PURGE_AFTER_MS) } } })
+    const openCount = await tx.gitMrApprovalAttempt.count({ where: { userId, finishedAt: null, expiresAt: { gt: now } } })
+    if (openCount >= MAX_OPEN_ATTEMPTS) throw statusError(429, "RATE_LIMITED", "確認を開きすぎています。少し待ってからやり直してください")
+    return tx.gitMrApprovalAttempt.create({
+      data: { projectId, userId, intent: subject.intent, stateCipher: seal(state), expiresAt, ...columns },
+      select: { id: true },
+    })
   })
   return { id: row.id, state, expiresAt }
 }
@@ -170,6 +174,19 @@ export async function assertClaimedBySamePerson(attempt: ActAsAttempt, claim: Gi
   log.warn("gitstation act-as claim discarded", { ...context, mismatch: claim.sub.employeeNumber ? "sub" : "sub_unnamed", stationUserId: claim.sub.userId })
   if (!claim.sub.employeeNumber) throw statusError(409, "GIT_APPROVAL_CONFIG", "GitStation が確認した人の社員番号を返しませんでした")
   throw statusError(409, "GIT_APPROVAL_DIFFERENT_USER", "GitStation で確認した人が違います")
+}
+
+/**
+ * Ends the row after GitStation made the write. The write happened whatever Kanflow's bookkeeping does: a failure to
+ * close the row is logged (with the outcome) and never reported as a failed write. The open row stays locked for
+ * CLAIM_LOCK_MS and its claim is spent, so a later press can only end it (GIT_APPROVAL_RETRY).
+ */
+export async function finishAfterWrite(attemptId: string, outcome: AttemptOutcome, now: Date, context: Record<string, unknown>): Promise<void> {
+  try {
+    await finishAttempt(attemptId, outcome, now)
+  } catch (e) {
+    log.error("gitstation act-as attempt not closed after the write", { ...context, outcome, error: e instanceof Error ? e.message : String(e) })
+  }
 }
 
 /** The claim does not match what the attempt asked for: discarded, never sent. */

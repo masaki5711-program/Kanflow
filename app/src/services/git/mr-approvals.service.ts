@@ -4,7 +4,7 @@ import { logger } from "@/lib/logger"
 import { GitStationError, isEmployeeNumber, isObjectId, type ActAsTrial, type ApprovalIntent, type GitStationClient } from "@/lib/git/gitstation-client"
 import { pbiKey } from "@/lib/git/pbi-keys"
 import { ForbiddenError, NotFoundError, StatusError, ValidationError } from "@/services/_shared"
-import { assertClaimedBySamePerson, claimAttempt, discardClaim, employeeNumberOf, finishAttempt, lockAttempt, MR_INTENTS, openAttempt, statusError as err } from "./act-as-attempts"
+import { assertClaimedBySamePerson, claimAttempt, discardClaim, employeeNumberOf, finishAfterWrite, finishAttempt, lockAttempt, MR_INTENTS, openAttempt, statusError as err } from "./act-as-attempts"
 import { repositoryToken } from "./git-sync"
 import { createGitStationSource, defaultGitStationClientFactory, NotBoundError, type GitStationClientFactory } from "./gitstation-source"
 
@@ -438,7 +438,7 @@ export async function completeMrApproval(projectId: string, userId: string, atte
     }
     await assertClaimedBySamePerson(attempt, claim, employeeNumber, now, context)
     const answer = await station.client.approveAs(stationProjectId, iid, attempt.intent as ApprovalIntent, { userId: claim.sub.userId, assertion: claim.assertion, sha: claim.headSha as string })
-    await finishAttempt(attempt.id, answer.outcome, now)
+    await finishAfterWrite(attempt.id, answer.outcome, now, context)
     log.info("gitstation approval sent", { ...context, outcome: answer.outcome, counted: answer.counted })
     return answer
   } catch (e) {

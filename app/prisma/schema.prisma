@@ -2405,6 +2405,7 @@ model PlanEstimateGateApproval {
 /// CHECK git_mr_approval_attempt_subject_chk: an MR intent has gitLinkId + headSha only; binding_set has
 /// stationProjectId + resolvesWorkItems (+ bindingId when an existing binding is changed); binding_remove has
 /// stationProjectId + bindingId. The Kanflow project a binding names is `projectId`.
+/// CHECK git_mr_approval_attempt_outcome_chk: each intent ends with its own outcomes (plus discarded / failed).
 model GitMrApprovalAttempt {
   id          String    @id @default(cuid())
   projectId   String

@@ -51,9 +51,16 @@ describe("GitStation repository bindings in the settings (X3)", () => {
     expect(within(list).getByText("specs/zeva")).toBeInTheDocument()
     expect(within(list).getByText(en.gitBindKindShared)).toBeInTheDocument()
 
+    // The search status region exists before any search (an empty live region), then only its text changes.
+    const status = document.querySelector("[data-git-bind-search-status]")
+    expect(status).toHaveAttribute("role", "status")
+    expect(status).toHaveTextContent("")
     await user.type(screen.getByLabelText(en.gitBindSearchLabel), "portal")
     await user.click(screen.getByRole("button", { name: en.gitBindSearch }))
-    expect(await screen.findByText(en.gitBindSearchFound.replace("{count}", "2"))).toBeInTheDocument()
+    await waitFor(() => expect(status).toHaveTextContent(en.gitBindSearchFound.replace("{count}", "2")))
+    expect(document.querySelector("[data-git-bind-search-status]")).toBe(status)
+    // Focus moves to the results.
+    await waitFor(() => expect(screen.getByRole("heading", { name: en.gitBindSearchResults })).toHaveFocus())
     expect(calls).toContain("GET /api/projects/p1/git/repo-bindings/search?q=portal")
     // Already bound here: no bind buttons, its kind instead.
     expect(screen.getByText(en.gitBindAlready.replace("{kind}", en.gitBindKindShared))).toBeInTheDocument()
@@ -82,7 +89,10 @@ describe("GitStation repository bindings in the settings (X3)", () => {
     const group = await screen.findByRole("group", { name: en.gitBindConfirmGroup.replace("{path}", "specs/zeva") })
     expect(posts("/start")[0]).toContain(JSON.stringify({ intent: "binding_remove", bindingId: 100 }))
     await user.click(within(group).getByRole("button", { name: en.gitDevConfirmDone }))
-    expect(await within(group).findByText(en.apiErrGitApprovalNotConfirmed)).toBeInTheDocument()
+    // The live region is always mounted (outside the group) and only its text changes.
+    const status = document.querySelector("[data-git-bind-confirm-status]")
+    expect(status).toHaveAttribute("role", "status")
+    await waitFor(() => expect(status).toHaveTextContent(en.apiErrGitApprovalNotConfirmed))
     await user.click(within(group).getByRole("button", { name: en.gitDevConfirmDone }))
     expect(await screen.findByText(en.gitBindRemoved)).toBeInTheDocument()
   })
@@ -99,6 +109,17 @@ describe("GitStation repository bindings in the settings (X3)", () => {
     await user.click(screen.getByRole("button", { name: en.gitBindMakeCodeLabel.replace("{path}", "specs/zeva") }))
     await screen.findByRole("group", { name: en.gitBindConfirmGroup.replace("{path}", "specs/zeva") })
     expect(posts("/start")[0]).toContain(JSON.stringify({ intent: "binding_set", repositoryId: 32, resolvesWorkItems: true }))
+  })
+
+  it("an empty search keeps focus in the field and says so in the status", async () => {
+    const user = userEvent.setup()
+    searchBody = { items: [] }
+    render()
+    const field = await screen.findByLabelText(en.gitBindSearchLabel)
+    await user.type(field, "nothing{Enter}")
+    await waitFor(() => expect(document.querySelector("[data-git-bind-search-status]")).toHaveTextContent(en.gitBindSearchEmpty))
+    expect(field).toHaveFocus()
+    expect(screen.queryByRole("heading", { name: en.gitBindSearchResults })).not.toBeInTheDocument()
   })
 
   it("without an employee number: the list and the reason, no search and no buttons", async () => {
