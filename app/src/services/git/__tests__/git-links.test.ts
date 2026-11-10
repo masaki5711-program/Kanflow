@@ -44,6 +44,12 @@ describe("linksFromMergeRequest", () => {
     expect(garbled.openedAt).toBeNull()
   })
 
+  it("N2: keeps the head commit (lower-case), and anything that is not a commit id as unknown", () => {
+    expect(linksFromMergeRequest(mr({ sha: "A".repeat(40) }), NOW)[0].headSha).toBe("a".repeat(40))
+    expect(linksFromMergeRequest(mr({ sha: "b".repeat(64) }), NOW)[0].headSha).toBe("b".repeat(64))
+    for (const sha of ["abc", "g".repeat(40), "a".repeat(41), null, undefined]) expect(linksFromMergeRequest(mr({ sha }), NOW)[0].headSha).toBeNull()
+  })
+
   it("maps every field of a merge request", () => {
     const [draft] = linksFromMergeRequest(mr(), NOW)
     expect(draft).toEqual({
@@ -61,6 +67,7 @@ describe("linksFromMergeRequest", () => {
       openedAt: null,
       targetBranch: null,
       mergedBy: null,
+      headSha: null,
     })
   })
 
@@ -155,6 +162,7 @@ describe("linksFromBranch", () => {
       openedAt: null,
       targetBranch: null,
       mergedBy: null,
+      headSha: null,
     })
   })
 
@@ -210,6 +218,7 @@ describe("linksFromCommit", () => {
       openedAt: null,
       targetBranch: null,
       mergedBy: null,
+      headSha: null,
     })
   })
 

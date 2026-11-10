@@ -1851,6 +1851,9 @@ model GitLink {
   /// MR links only (N11): display name of who merged it, as the source reported (GitStation: the actor of the
   /// merged event; GitLab: merge_user). Null = unknown (merged before this was recorded, or merged by the system).
   mergedBy          String?            @db.VarChar(191)
+  /// MR links only (N2): the commit at the head of the MR's source branch as last read (40 or 64 lower-case hex);
+  /// null = not read yet. GitStation's check.completed names a commit only: this finds its merge request.
+  headSha           String?            @db.VarChar(64)
   /// MR links only (plan 12 E1, filled once GitStation G1 reports them): number of versions, lines added / removed.
   /// Null = not reported (never 0 for unknown).
   versionCount      Int?
@@ -1883,6 +1886,8 @@ model GitLink {
   @@index([projectId, occurredAt])
   /// N11 マージの履歴: merged MRs of a project, newest first.
   @@index([projectId, mergedAt])
+  /// N2: the merge request whose head a check ran on.
+  @@index([repositoryId, headSha])
   @@index([declaredById])
   @@map("git_link")
 }

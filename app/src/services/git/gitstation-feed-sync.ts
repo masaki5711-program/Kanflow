@@ -11,6 +11,7 @@ import {
   createGitStationSource,
   describeGitStationError,
   gitStationCursorCodec,
+  type HeadResolver,
   MISSING_INTEGRATION_MESSAGE,
   MissingIntegrationError,
   NotBoundError,
@@ -195,6 +196,54 @@ function failure(repositoryId: string, source: Pick<DevSource, "describeError"> 
 
 type Feed = Awaited<ReturnType<typeof prisma.gitStationFeed.upsert>>
 
+/** Merge requests a head lookup returns per checked commit (a commit is the head of one MR, rarely a few). */
+const MAX_IIDS_PER_HEAD = 5
+/** Open merge requests without a stored head read per project and check read (they are then stored with one). */
+export const MAX_HEADLESS_PER_READ = 10
+
+const asIid = (ref: string): number | null => {
+  const iid = Number(ref)
+  return Number.isSafeInteger(iid) && iid > 0 ? iid : null
+}
+
+/**
+ * N2 (check.completed): among the repositories of this read bound to that GitStation project (located in this read:
+ * never another project's), the open merge request links whose stored head is one of the checked commits — and, up
+ * to MAX_HEADLESS_PER_READ, open links with no stored head yet (links older than the head column, or stored before
+ * GitStation recorded a version): reading them stores their head, so no check waits for an unrelated event.
+ * The distinct key ignores the repository on purpose: the answer is an iid list per head of ONE GitStation project.
+ */
+export function storedHeads(bound: readonly { repositoryId: string; stationProjectId: number }[]): HeadResolver {
+  return async (stationProjectId, heads) => {
+    const repositoryIds = bound.filter((b) => b.stationProjectId === stationProjectId).map((b) => b.repositoryId)
+    const byHead = new Map<string, number[]>()
+    if (repositoryIds.length === 0 || heads.length === 0) return { byHead, headless: [] }
+    const open = { repositoryId: { in: repositoryIds }, kind: "mr", state: { in: ["opened", "locked"] } }
+    // Bounded by the read's own repositories and the checked heads; the per-head cap is applied below.
+    const rows = await prisma.gitLink.findMany({
+      where: { ...open, headSha: { in: [...heads] } },
+      select: { ref: true, headSha: true },
+      distinct: ["headSha", "ref"],
+      orderBy: [{ headSha: "asc" }, { ref: "asc" }],
+    })
+    for (const r of rows) {
+      const iid = asIid(r.ref)
+      if (!r.headSha || iid === null) continue
+      const iids = byHead.get(r.headSha) ?? []
+      if (!iids.includes(iid) && iids.length < MAX_IIDS_PER_HEAD) byHead.set(r.headSha, [...iids, iid])
+    }
+    const headlessRows = await prisma.gitLink.findMany({
+      where: { ...open, headSha: null },
+      select: { ref: true },
+      distinct: ["ref"],
+      orderBy: [{ occurredAt: "desc" }, { ref: "asc" }],
+      take: MAX_HEADLESS_PER_READ,
+    })
+    const headless = headlessRows.map((r) => asIid(r.ref)).filter((iid): iid is number => iid !== null)
+    return { byHead, headless }
+  }
+}
+
 /** One feed, read once under its lease. Never throws: a failure is every member's result. */
 async function syncFeed(group: FeedGroup, clients: DevClients, now: Date): Promise<SyncResult[]> {
   const repositoryIds = group.members.map((m) => m.repo.id)
@@ -314,7 +363,7 @@ async function readAndWrite(feed: Feed, owner: string, group: FeedGroup, clients
 
   const due = (m: FeedMember) => (m.repo.syncedAt === null || m.repo.stationRereadAt !== null) && (m.repo.stationRereadNextAt === null || m.repo.stationRereadNextAt <= now)
   const reread = bound.filter(({ m }) => due(m)).map((b) => b.stationProjectId)
-  const read = await readFeed(client, cursor, bound.map((b) => b.stationProjectId), context, reread, feed.consecutiveHolds)
+  const read = await readFeed(client, cursor, bound.map((b) => b.stationProjectId), context, reread, feed.consecutiveHolds, storedHeads(bound.map((b) => ({ repositoryId: b.m.repo.id, stationProjectId: b.stationProjectId }))))
   if (read.restarted) log.info("gitstation state re-read", { ...context, reason: read.restarted, repositories: bound.length })
   // Skipped repositories are not located: nothing is routed to them (their state is re-read once they work).
   const routed = routeFeed(

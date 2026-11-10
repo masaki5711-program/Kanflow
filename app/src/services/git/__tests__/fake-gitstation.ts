@@ -85,6 +85,10 @@ export function createFakeGitStation(options: { pageSize?: number; devStatusPage
   const requests: string[] = []
   /** Check runs written (POST …/commits/{sha}/checks), in order; `status` is the answer (201 new, 200 the same commit and name again). */
   const checks: { projectId: number; sha: string; status: number; body: Record<string, unknown> }[] = []
+  /** N2: check runs other services reported (read back by GET …/commits/{sha}/checks). */
+  const runs: { projectId: number; sha: string; name: string; status: string; conclusion: string | null }[] = []
+  /** N3: changed files per merge request ("<project id>!<iid>"). */
+  const changedFiles = new Map<string, { files: { path: string; old_path?: string }[]; truncated: boolean; withheld: number }>()
   let seq = 0
   let nextProjectId = REPO_ID
 
@@ -362,6 +366,54 @@ export function createFakeGitStation(options: { pageSize?: number; devStatusPage
       checks.push({ projectId: p.id, sha, status: again ? 200 : 201, body })
       return json(again ? 200 : 201, { id: checks.length, name: body.name, status: "completed", conclusion: body.conclusion })
     }
+    if (check) {
+      // N2: the runs on a commit (by name; the last written wins), CheckRunList.
+      if ([...url.searchParams.keys()].length > 0) return paramInvalid([...url.searchParams.keys()][0])
+      const sha = check[1]
+      const reachable = [...mergeRequests.values()].some((x) => x.project_id === p.id && x.head_sha === sha) || (history.get(p.id) ?? []).some((c) => c.oid === sha)
+      if (!reachable) return json(404, { error_code: "FG-REPO-0023", user_message: "commit", request_id: "r" })
+      const byName = new Map<string, Record<string, unknown>>()
+      for (const r of runs.filter((x) => x.projectId === p.id && x.sha === sha)) byName.set(r.name, r)
+      return json(200, {
+        schema_version: 1,
+        head_sha: sha,
+        check_runs: [...byName.values()].map((r, i) => ({
+          id: i + 1,
+          name: r.name,
+          head_sha: sha,
+          status: r.status,
+          conclusion: r.conclusion,
+          summary: "synthetic summary (never kept by Kanflow)",
+          details_url: null,
+          annotations: [],
+          reported_by: null,
+          revision: 1,
+          created_at: "2026-10-01T00:00:00.000Z",
+          updated_at: "2026-10-01T00:00:00.000Z",
+          completed_at: r.status === "completed" ? "2026-10-01T00:00:00.000Z" : null,
+        })),
+      })
+    }
+    const context = /^\/merge-requests\/(\d+)\/context$/.exec(rest)
+    if (context) {
+      // N3: ContextMergeRequestBody (only what Kanflow reads is shaped faithfully; the rest is filler).
+      if ([...url.searchParams.keys()].length > 0) return paramInvalid([...url.searchParams.keys()][0])
+      const key = `${p.id}!${context[1]}`
+      const found = mergeRequests.get(key)
+      if (!found) return notFound()
+      const files = changedFiles.get(key) ?? { files: [], truncated: false, withheld: 0 }
+      return json(200, {
+        merge_request: { iid: found.iid, title: found.title, description: "synthetic", description_truncated: false, state: found.state, draft: false, source_branch: found.source_branch, target_branch: "main", merge_base_sha: oid(900) },
+        files: files.files.map((f) => ({ status: f.old_path ? "renamed" : "modified", old_path: f.old_path ?? null, source: { project_id: p.id, project: p.path, version: 1, commit: found.head_sha, path: f.path, line: null } })),
+        files_truncated: files.truncated,
+        requirements: [],
+        requirements_truncated: false,
+        work_items: [],
+        checks: [],
+        withheld: files.withheld > 0 ? { files: files.withheld } : null,
+        incomplete: null,
+      })
+    }
     if (rest === "/repository/commits") {
       const bad = badQuery(url, ALLOWED_QUERY.commits)
       if (bad) return bad
@@ -388,6 +440,26 @@ export function createFakeGitStation(options: { pageSize?: number; devStatusPage
     events,
     push,
     mergeRequest,
+    /**
+     * N2: a check run on `sha` reaches `conclusion` (null = still `status`), and — when it is completed — its
+     * check.completed event (data as GitStation's checks.rs builds it: head_sha, never a merge request).
+     */
+    checkRun: (sha: string, name: string, conclusion: string | null, opts: { status?: string; path?: string; previous?: string | null; workItems?: GitStationEvent["work_items"] } = {}) => {
+      const p = project(opts.path ?? REPO)
+      const status = opts.status ?? (conclusion === null ? "in_progress" : "completed")
+      runs.push({ projectId: p.id, sha, name, status, conclusion })
+      if (status !== "completed") return null
+      return push(
+        "check.completed",
+        { project_id: p.id, check_run_id: runs.length, head_sha: sha, name, status, conclusion, previous_conclusion: opts.previous ?? null, created: true, revision: 1 },
+        opts.workItems ?? [],
+        undefined,
+        opts.path ?? REPO,
+      )
+    },
+    /** N3: what the merge request's context answer lists as changed. */
+    setChangedFiles: (iid: number, files: { path: string; old_path?: string }[], opts: { truncated?: boolean; withheld?: number; path?: string } = {}) =>
+      changedFiles.set(`${project(opts.path ?? REPO).id}!${iid}`, { files, truncated: opts.truncated ?? false, withheld: opts.withheld ?? 0 }),
     pushed,
     fail,
     workItem,

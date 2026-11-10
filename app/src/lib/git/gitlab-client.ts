@@ -56,6 +56,8 @@ export interface GitLabMergeRequest {
   merge_user?: { name?: string; username?: string } | null
   /** Older GitLab's name of `merge_user` (deprecated there, still sent). */
   merged_by?: { name?: string; username?: string } | null
+  /** The head commit of the source branch (N2: stored on the link like GitStation's). */
+  sha?: string | null
 }
 
 export interface GitLabBranch {

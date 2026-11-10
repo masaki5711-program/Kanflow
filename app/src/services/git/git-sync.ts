@@ -270,9 +270,11 @@ async function resolvePbis(projectId: string, drafts: readonly LinkDraft[]): Pro
 async function attachPipelines(source: DevSource, repositoryId: string, drafts: LinkDraft[]): Promise<void> {
   const byRef = new Map<string, LinkDraft[]>()
   for (const d of drafts) byRef.set(d.ref, [...(byRef.get(d.ref) ?? []), d])
+  if (byRef.size > MAX_PIPELINE_LOOKUPS) log.info("git pipeline lookups bounded", { repositoryId, wanted: byRef.size, looked: MAX_PIPELINE_LOOKUPS })
   for (const [ref, group] of [...byRef].slice(-MAX_PIPELINE_LOOKUPS)) {
     try {
-      const status = await source.pipelineStatus(ref)
+      // Every draft of one ref is the same merge request: one head.
+      const status = await source.pipelineStatus(ref, group[0].headSha)
       for (const d of group) d.pipeline = status
     } catch (err) {
       // Pipeline status is decoration: keep the link (and its last known status) without it.
@@ -311,6 +313,7 @@ const LINK_SELECT = {
   openedAt: true,
   targetBranch: true,
   mergedBy: true,
+  headSha: true,
   goneAt: true,
   declaredAt: true,
 } as const
@@ -335,6 +338,11 @@ export function mergedAtToStore(before: { state?: unknown; mergedAt?: unknown } 
   return draft.mergedAt
 }
 
+/** Pure (N2): the merge request's head is known now and differs from the stored one (a push since the last read). */
+export function headMoved(before: { headSha?: unknown } | null, draft: { headSha: string | null }): boolean {
+  return draft.headSha !== null && typeof before?.headSha === "string" && before.headSha !== draft.headSha
+}
+
 async function writeLinks(projectId: string, repositoryId: string, drafts: readonly LinkDraft[], pbiIds: Map<number, string>): Promise<WriteResult> {
   const newlyMerged = new Set<string>()
   const newlyFailed: FailedPipeline[] = []
@@ -350,8 +358,9 @@ async function writeLinks(projectId: string, repositoryId: string, drafts: reado
       title: d.title,
       url: d.url,
       state: d.state,
-      // Keep the last known pipeline when this sync could not look it up.
-      pipeline: d.pipeline ?? before?.pipeline ?? null,
+      // Keep the last known pipeline when this sync could not look it up — but never across a new head (N2): the
+      // old commit's red / green is not the new commit's, so a new head without a status of its own shows none.
+      pipeline: d.pipeline ?? (headMoved(before, d) ? null : (before?.pipeline as string | null | undefined)) ?? null,
       // An unknown author keeps the stored one (GitStation's development status names none). For every source:
       // a GitLab MR / branch / commit always names its author, so null there means "not read", never "gone".
       author: d.author ?? (before?.author as string | null | undefined) ?? null,
@@ -364,6 +373,8 @@ async function writeLinks(projectId: string, repositoryId: string, drafts: reado
       // merged event, so every later re-read of the MR arrives without it.
       targetBranch: d.targetBranch ?? (before?.targetBranch as string | null | undefined) ?? null,
       mergedBy: d.mergedBy ?? (before?.mergedBy as string | null | undefined) ?? null,
+      // N2: an unknown head keeps the stored one (GitStation sends none before the MR's first version).
+      headSha: d.headSha ?? (before?.headSha as string | null | undefined) ?? null,
       // Seen in this sync: a branch marked gone that came back is live again.
       goneAt: null,
       // Git itself names the PBI now: a link a developer declared becomes a Git-derived one
@@ -425,6 +436,7 @@ async function refreshDeclaredLinks(
       openedAt: fields.openedAt ?? row.openedAt,
       targetBranch: fields.targetBranch ?? row.targetBranch,
       mergedBy: fields.mergedBy ?? row.mergedBy,
+      headSha: fields.headSha ?? row.headSha,
       pipeline: row.pipeline,
       goneAt: null,
       declaredAt: row.declaredAt,

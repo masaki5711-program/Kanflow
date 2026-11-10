@@ -38,6 +38,11 @@ export interface DevMergeRequest {
    * A name for people to read (マージの履歴) — never an identity to decide anything by.
    */
   mergedBy?: string | null
+  /**
+   * N2: the commit at the head of the MR's source branch (40 or 64 hex), if the source says (null / absent =
+   * unknown: the stored value is kept). GitStation's check results name this commit, not the merge request.
+   */
+  headSha?: string | null
 }
 
 export interface DevCommit {
@@ -90,7 +95,7 @@ export interface DevReleaseListing {
   complete: boolean
 }
 
-/** Changed files of one merge request (W4 scope check). */
+/** Changed files of one merge request (W4 scope check; GitStation since N3). */
 export interface DevChangedPaths {
   /** Repository-relative paths as the source reports them (a rename lists both names). */
   paths: string[]
@@ -121,8 +126,11 @@ export interface DevSource {
   readChanges(cursor: DevCursor, now: Date): Promise<DevChanges>
   /** The PBI branches (throws on failure). */
   listBranches(now: Date): Promise<DevBranchListing>
-  /** Pipeline status of a merge request (throws on failure). */
-  pipelineStatus(mergeRequestRef: string): Promise<string | null>
+  /**
+   * Pipeline status of a merge request (throws on failure), in GitLab's words (success, failed, running, pending,
+   * canceled, manual …). `headSha`: the MR's head as this read saw it (GitStation reads the checks of that commit).
+   */
+  pipelineStatus(mergeRequestRef: string, headSha?: string | null): Promise<string | null>
   /**
    * Changed files of a merge request (throws on failure). Optional: a source that cannot
    * list them cheaply leaves it out, and the sync then skips the 触る範囲 check (W4).

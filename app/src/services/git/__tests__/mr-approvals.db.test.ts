@@ -19,8 +19,8 @@ describe.skipIf(!enabled)("MR approvals through GitStation act-as on a real data
   const tag = `k4test-${Date.now().toString(36)}`
   const ids = { project: `${tag}-p`, repo: `${tag}-r`, pbi: `${tag}-b`, pbi2: `${tag}-b2`, alice: `${tag}-alice`, bob: `${tag}-bob`, carol: `${tag}-carol`, link1: `${tag}-l1`, link2: `${tag}-l2` }
   /** Employee numbers (synthetic): Alice reviews, Bob authored MR !1, Carol has no number. */
-  const ALICE = `A${tag.replace(/[^a-z0-9]/gi, "").slice(-8)}`
-  const BOB = `B${tag.replace(/[^a-z0-9]/gi, "").slice(-8)}`
+  const ALICE = `K4A${tag.replace(/[^a-z0-9]/gi, "").slice(-8)}`
+  const BOB = `K4B${tag.replace(/[^a-z0-9]/gi, "").slice(-8)}`
   let prisma: typeof import("@/lib/prisma").prisma
   let service: typeof import("../mr-approvals.service")
   let createGitStationClient: typeof import("@/lib/git/gitstation-client").createGitStationClient

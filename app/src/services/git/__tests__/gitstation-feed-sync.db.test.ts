@@ -454,6 +454,91 @@ describe.skipIf(!enabled)("GitStation feed sync on a real database (KANFLOW_DB_T
     }
   })
 
+  it("N2: a merge request's head is stored, and a failed check on it later turns its link red (check.completed names the commit only)", async () => {
+    const { oid } = await import("./fake-gitstation")
+    await started()
+    station.mergeRequest("merge_request.opened", 1, { project: "app/portal", title: "Login (PBI-1)" }, station.workItem("PBI-1", ids.projectA))
+    await sync()
+    const where = { repositoryId: ids.repoA1, kind: "mr", ref: "1" }
+    expect(await prisma.gitLink.findFirstOrThrow({ where })).toMatchObject({ headSha: oid(1), pipeline: null })
+    // A later read: only the check event — Kanflow finds the merge request by the head it stored.
+    station.checkRun(oid(1), "ci/build", "failure")
+    station.requests.length = 0
+    const results = await sync()
+    expect(results.every((r) => r.ok)).toBe(true)
+    expect(await prisma.gitLink.findFirstOrThrow({ where })).toMatchObject({ headSha: oid(1), pipeline: "failed" })
+    expect(station.requests.some((r) => r.startsWith(`/api/v1/projects/${station.projectId("app/portal")}/commits/${oid(1)}/checks`))).toBe(true)
+    // Green again: the dot follows.
+    station.checkRun(oid(1), "ci/build", "success", { previous: "failure" })
+    await sync()
+    expect(await prisma.gitLink.findFirstOrThrow({ where })).toMatchObject({ pipeline: "success" })
+  })
+
+  it("N2: the stored-head lookup answers only for the read's own repositories of that GitStation project, and only open merge requests", async () => {
+    const head = "d".repeat(40)
+    const base = { projectId: ids.projectA, kind: "mr", title: "t", url: `${STATION}/x`, occurredAt: NOW, headSha: head }
+    await prisma.gitLink.createMany({
+      data: [
+        { ...base, repositoryId: ids.repoA1, ref: "5", backlogItemId: ids.pbiA, state: "opened" },
+        { ...base, repositoryId: ids.repoA1, ref: "6", backlogItemId: ids.pbiA, state: "merged" },
+        { ...base, projectId: ids.projectB, repositoryId: ids.repoB, ref: "7", backlogItemId: ids.pbiB, state: "opened" },
+      ],
+    })
+    // An open link stored before the head column (null head): offered for a read; a merged one never.
+    await prisma.gitLink.createMany({
+      data: [
+        { ...base, headSha: null, repositoryId: ids.repoA1, ref: "8", backlogItemId: ids.pbiA, state: "opened" },
+        { ...base, headSha: null, repositoryId: ids.repoA1, ref: "9", backlogItemId: ids.pbiA, state: "merged" },
+      ],
+    })
+    const portal = station.projectId("app/portal")
+    const resolve = feedSync.storedHeads([{ repositoryId: ids.repoA1, stationProjectId: portal }])
+    expect(await resolve(portal, [head])).toEqual({ byHead: new Map([[head, [5]]]), headless: [8] })
+    // Another GitStation project of the read: its own repositories only (repo B is not among them).
+    expect(await resolve(station.projectId("tools/cli"), [head])).toEqual({ byHead: new Map(), headless: [] })
+  })
+
+  it("N2: a push moves the head — the old commit's red is not shown on the new one; links stored without a head get one from a check", async () => {
+    const { oid } = await import("./fake-gitstation")
+    await started()
+    station.mergeRequest("merge_request.opened", 1, { project: "app/portal", title: "Login (PBI-1)" }, station.workItem("PBI-1", ids.projectA))
+    station.checkRun(oid(1), "ci/build", "failure")
+    await sync()
+    const where = { repositoryId: ids.repoA1, kind: "mr", ref: "1" }
+    expect(await prisma.gitLink.findFirstOrThrow({ where })).toMatchObject({ headSha: oid(1), pipeline: "failed" })
+    // A fix is pushed: new head, no check reported yet → no dot (not the old red).
+    station.moveHead(1, oid(77), "app/portal")
+    station.mergeRequest("merge_request.pushed", 1, { project: "app/portal" }, station.workItem("PBI-1", ids.projectA))
+    station.moveHead(1, oid(77), "app/portal")
+    await sync()
+    expect(await prisma.gitLink.findFirstOrThrow({ where })).toMatchObject({ headSha: oid(77), pipeline: null })
+
+    // A link written before the head column existed: the next check on its project reads it and stores its head.
+    await prisma.gitLink.updateMany({ where, data: { headSha: null } })
+    station.checkRun(oid(77), "ci/build", "success")
+    await sync()
+    expect(await prisma.gitLink.findFirstOrThrow({ where })).toMatchObject({ headSha: oid(77), pipeline: "success" })
+  })
+
+  it("N3: the 触る範囲 check runs on GitStation merge requests (changed files from GitStation's context answer)", async () => {
+    await started()
+    const claim = await prisma.workClaim.create({
+      data: { projectId: ids.projectA, backlogItemId: ids.pbiA, userId: ids.user, sessionId: "synthetic-session", branch: "feature/PBI-1-login-form", heartbeatAt: NOW, scopes: { create: [{ kind: "path", value: "app/src/login", createdAt: new Date(NOW.getTime() - 60_000) }] } },
+    })
+    try {
+      station.mergeRequest("merge_request.opened", 1, { project: "app/portal", title: "Login (PBI-1)" }, station.workItem("PBI-1", ids.projectA))
+      station.setChangedFiles(1, [{ path: "app/src/login/form.ts" }, { path: "app/src/billing/total.ts" }], { path: "app/portal" })
+      await sync()
+      expect(await prisma.gitLink.findFirstOrThrow({ where: { repositoryId: ids.repoA1, kind: "mr", ref: "1" } })).toMatchObject({
+        outsideScopeCount: 1,
+        outsideScopePaths: ["app/src/billing/total.ts"],
+        scopeCheckedAt: NOW,
+      })
+    } finally {
+      await prisma.workClaim.delete({ where: { id: claim.id } })
+    }
+  })
+
   it("permanent failures skip, transient ones hold; re-reads back off exponentially up to a day", async () => {
     const { GitStationError } = await import("@/lib/git/gitstation-client")
     const { NotBoundError } = await import("../gitstation-source")
