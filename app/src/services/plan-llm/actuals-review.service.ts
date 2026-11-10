@@ -20,7 +20,7 @@ import { logger } from "@/lib/logger"
 import { ACTUALS_REVIEW_PROMPT_VERSION, planLlmConfig, type PlanLlmConfig } from "@/lib/plan-llm/config"
 import { parseActualsReview, type ReviewDropReason } from "@/lib/plan-llm/parse"
 import { runLlmTask, type PlanLlm } from "@/lib/plan-llm/run"
-import { actualsReviewInput, type RawReviewItem } from "@/lib/plan-llm/visible"
+import { actualsReviewInput, byReviewOrder, type RawReviewItem } from "@/lib/plan-llm/visible"
 import { defaultDb, withTransaction, type Db } from "@/services/_shared/db"
 import { leavesCitingConfidentialPbis } from "@/services/plan-actuals/actuals.learnable"
 
@@ -47,12 +47,6 @@ export interface ReviewJobResult {
   created: number
   dropped: number
   reason?: string
-}
-
-/** How unusual a leaf looks (the order leaves are offered in, so a cut prompt keeps the likeliest ones). */
-function deviation(i: { plannedDays: number | null; actualDays: number | null; waitGapDays: number | null; onHoldDays: number | null }): number {
-  const slip = i.actualDays !== null && i.plannedDays !== null ? Math.abs(i.actualDays - i.plannedDays) / Math.max(i.plannedDays, 1) : 0
-  return slip + ((i.waitGapDays ?? 0) + (i.onHoldDays ?? 0)) / Math.max(i.plannedDays ?? 1, 1)
 }
 
 /** The leaves and note of one request, read at use time (confidentiality now, this project only). */
@@ -83,7 +77,7 @@ export async function collectReviewSources(projectId: string, snapshotId: string
       notes: l.notes,
       confidentialNow: confidential.has(l.id),
     }))
-    .sort((a, b) => deviation(b) - deviation(a) || (a.snapshotItemId < b.snapshotItemId ? -1 : 1))
+    .sort(byReviewOrder)
   return { note: { snapshotId: snapshot.id, text: snapshot.finalizeNote }, items }
 }
 

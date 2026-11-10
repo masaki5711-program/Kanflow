@@ -362,6 +362,17 @@ export interface RawReviewItem {
   confidentialNow: boolean
 }
 
+/** How unusual a leaf looks (the order leaves are offered in, so a cut prompt keeps the likeliest ones). */
+export function reviewDeviation(i: { plannedDays: number | null; actualDays: number | null; waitGapDays: number | null; onHoldDays: number | null }): number {
+  const slip = i.actualDays !== null && i.plannedDays !== null ? Math.abs(i.actualDays - i.plannedDays) / Math.max(i.plannedDays, 1) : 0
+  return slip + ((i.waitGapDays ?? 0) + (i.onHoldDays ?? 0)) / Math.max(i.plannedDays ?? 1, 1)
+}
+
+/** The order the batch offers leaves in: the largest deviation first, then by id (the evaluation harness uses it too). */
+export function byReviewOrder(a: RawReviewItem, b: RawReviewItem): number {
+  return reviewDeviation(b) - reviewDeviation(a) || (a.snapshotItemId < b.snapshotItemId ? -1 : 1)
+}
+
 export interface SentReviewItem {
   snapshotItemId: string
   /** The leaf's text as sent (name and notes): a quote must be part of it or of the note. */

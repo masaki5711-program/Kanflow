@@ -86,6 +86,35 @@
   `superseded` になり、新しいスナップショットにはその夜に新しい依頼が来る。90 日決まらない未決定は `expired`。
 - 上限（未決定 30 件）で出せなかった数は画面に出る（`proposalsCapped`）。ログは `actuals-review proposals over the per-project cap were not written`。
 
+### 実績の精査の評価（既定で見せる前に測る）
+
+合成の評価セット（`app/src/lib/plan-llm/eval/actuals-review-eval-set.ts`、39 葉）を本番と同じ道（見える入力・プロンプト・1 回のやり直し・
+検査）で LLM に読ませ、提案の質を測る。**データベースは読まず、何も書かない**（書くのは `--out` の報告だけ）。条件は
+`references/decisions.md`（2026-11-10「評価セットと既定で見せる条件」）、指標と条件の数は `actuals-review-eval.ts` の
+`DEFAULT_ON_THRESHOLDS`。
+
+- **CI / 手元（Ollama 無し）**: `npx vitest run src/lib/plan-llm/__tests__/actuals-review-eval.test.ts`。決まった答えの偽のモデル
+  （正解・何でも外す・指示に従う・言い換える・形が違う）でハーネスそのものを確かめる。
+  `node --import tsx scripts/plan-actuals-review-eval.ts --fake=naive` のように手でも動かせる。
+- **本物の Ollama（本番サーバーの Ollama が空いているとき）**:
+  1. 本番のフォルダ（`D:\APP\KanflowV2`）では**動かさない**。v2 の作業用 worktree（例 `D:\APP\Kanflow-v2`）の `app/` で動かす。
+     本番の `.env`・データベースには触れない（このスクリプトは DB に接続しない）。
+  2. 空いている時間に（夜。ただし夜間のまとめ処理 `PLAN_RULE_DRAFT_SCHEDULE`、既定 02:30 の前後は避ける）。`ollama ps` で
+     分析のモデルが載っていることを確かめる。**モデルと `OLLAMA_NUM_CTX` は本番と同じ値**にする（違うとモデルの載せ替えが起き、
+     BankMasalah などの利用者を待たせる）。呼び出しは `background` の優先度。
+  3. 実行（PowerShell の例）:
+     ```
+     $env:OLLAMA_BASE_URL = "http://127.0.0.1:11434"
+     $env:OLLAMA_MODEL_ANALYSIS = "<本番と同じ分析のモデル>"
+     node --import tsx scripts/plan-actuals-review-eval.ts --live --runs 3 --out ..\eval-reports\actuals-review-<日付>
+     ```
+     外部のホストと Ollama の cloud モデル（名前に `cloud`）は断る（社内の別ホストは `PLAN_LLM_EVAL_ALLOWED_HOSTS` に足す）。
+     1 回あたり 5 件の依頼（各 `PLAN_LLM_BATCH_TIMEOUT_MS`、既定 5 分まで）。
+  4. 終了コード 0 = 3 回とも条件を満たした、3 = 満たさない回がある。報告（`actuals-review-eval.md` / `.json`）は ID と数だけなので、
+     そのまま引き継ぎに貼ってよい。外れた葉は報告の表に出る（期待・提案・確からしさ・タグ）。
+- 結果は `references/decisions.md` に 1 行足し、既定で見せるかは利用者が決める。プロンプトを変えたら
+  （`ACTUALS_REVIEW_PROMPT_VERSION`）測り直す。
+
 ## 2. 見積もりが変なときの調べ方
 
 1. **案の ID（`runId`）を確かめる**: 画面の案のカード、またはログの `estimate run created`（`projectId`・`runId`・`inputHash`・
