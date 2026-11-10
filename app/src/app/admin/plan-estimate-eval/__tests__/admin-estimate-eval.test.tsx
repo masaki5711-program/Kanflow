@@ -33,6 +33,7 @@ const proposal = (over: Partial<NonNullable<LineageParams["latest"]>> = {}): Non
   outcome: "propose",
   reason: null,
   params: { ...DEFAULTS, shrinkK: 1.5 },
+  baseline: DEFAULTS,
   before: cand(0.2),
   after: cand(0.12),
   candidates: 81,
@@ -166,11 +167,11 @@ describe("/admin/plan-estimate-eval", () => {
   it("shows a proposal's settings and numbers before / after in captioned tables", () => {
     loaded(overview([line({ params: { ...noParams, latest: proposal() } })]))
     render(<AdminEstimateEval />)
-    const settings = screen.getByRole("table", { name: "製品開発 の既定の値と提案の値" })
+    const settings = screen.getByRole("table", { name: "製品開発 の今の値と提案の値" })
     const k = within(settings).getByRole("row", { name: /縮め/ })
     expect(within(k).getByText("3")).toBeInTheDocument()
     expect(within(k).getByText("1.5")).toBeInTheDocument()
-    const metrics = screen.getByRole("table", { name: "製品開発 の既定の値と提案の値での検証の成績" })
+    const metrics = screen.getByRole("table", { name: "製品開発 の今の値と提案の値での検証の成績" })
     const err = within(metrics).getByRole("row", { name: /期間の誤差（全 9 件）/ })
     expect(within(err).getByText("20%")).toBeInTheDocument()
     expect(within(err).getByText("12%")).toBeInTheDocument()
@@ -247,5 +248,15 @@ describe("/admin/plan-estimate-eval", () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it("a proposal searched while approved settings were in use is compared with them, not with the defaults", () => {
+    const inUse = { ...DEFAULTS, shrinkK: 1.5 }
+    loaded(overview([line({ params: { ...noParams, active: { params: inUse, approvedAt: "2026-11-10T03:00:00Z", approvedByName: "Admin" }, latest: proposal({ baseline: inUse, params: { ...inUse, spreadPrior: 0.35 } }) } })]))
+    render(<AdminEstimateEval />)
+    const settings = screen.getByRole("table", { name: "製品開発 の今の値と提案の値" })
+    expect(within(settings).getByRole("columnheader", { name: t.peeParamsColInUse })).toBeInTheDocument()
+    const k = within(settings).getByRole("row", { name: /縮め/ })
+    expect(within(k).getAllByText("1.5")).toHaveLength(2)
   })
 })

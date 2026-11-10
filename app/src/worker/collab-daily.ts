@@ -38,8 +38,8 @@ export interface CollabDailyResult {
   planRunRetention?: PlanRunRetentionResult | null
   /** Step 7: lineages recomputed / failed (null when the step failed as a whole). */
   backtestCatchUp?: { recorded: number; failed: number } | null
-  /** The parameter search of the lineages whose backtest the catch-up recorded (null = none ran or it failed). */
-  paramSearch?: { searched: number; failed: number } | null
+  /** The parameter search queued for the lineages whose backtest the catch-up recorded (null = none, or it could not be queued). */
+  paramSearch?: { queued: number } | null
 }
 
 function errorMessage(err: unknown): string {
@@ -104,20 +104,19 @@ export async function runCollabDaily(cfg: CollabConfig, log: SchedulerLog, signa
 
 /**
  * The parameter search of the lineages whose backtest was outdated (new actuals since the last record): a fresh
- * PROPOSAL for an administrator, never a change by itself. On the same serialized path as the backtests; failures
- * logged, never thrown.
+ * PROPOSAL for an administrator, never a change by itself. Queued at the lowest priority (behind every backtest) and
+ * NOT awaited: the daily job returns at once; the search logs its own results and failures.
  */
 async function runParamSearchStep(lineages: readonly string[], log: SchedulerLog): Promise<CollabDailyResult["paramSearch"]> {
   if (lineages.length === 0) return null
   try {
     const { enqueueParamSearch } = await import("@/services/plan-estimate-eval/params.service")
-    const r = await enqueueParamSearch(lineages)
-    const out = { searched: r.searched.length, failed: r.failed.length }
-    if (r.failed.length > 0) log.warn("parameter search finished with failures", { ...out, lineages: r.failed.slice(0, 20) })
-    else log.info("parameter search done", out)
+    void enqueueParamSearch(lineages)
+    const out = { queued: lineages.length }
+    log.info("parameter search queued", out)
     return out
   } catch (err) {
-    log.error("parameter search failed", { error: errorMessage(err) })
+    log.error("parameter search could not be queued", { error: errorMessage(err) })
     return null
   }
 }

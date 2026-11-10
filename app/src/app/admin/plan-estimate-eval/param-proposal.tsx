@@ -43,6 +43,8 @@ export interface LineageParams {
     outcome: "propose" | "keep_default"
     reason: KeepReason | null
     params: TunedParams
+    /** The settings the proposal was compared with (in use when searched). */
+    baseline: TunedParams
     before: CandidateMetrics | null
     after: CandidateMetrics | null
     candidates: number
@@ -112,6 +114,9 @@ export function ParamProposal({ t, language, name, params, defaults, busy, block
   const decisionText = p?.decision ? { approved: t.peeParamsDecision_approved, rejected: t.peeParamsDecision_rejected, superseded: t.peeParamsDecision_superseded }[p.decision] : null
   const cell = "px-2 py-1.5 text-left align-top"
   const showTables = p?.outcome === "propose" && p.before && p.after && !decided
+  // The proposal is compared with the settings in use when it was searched: the defaults, or approved ones.
+  const baselineIsDefault = p ? TUNED_KEYS.every((k) => p.baseline[k] === defaults[k]) : true
+  const baselineHeader = baselineIsDefault ? t.peeParamsColDefault : t.peeParamsColInUse
 
   return (
     <section aria-label={t.peeParamsTitle} className="mt-4 space-y-3 border-t border-border pt-3">
@@ -153,7 +158,7 @@ export function ParamProposal({ t, language, name, params, defaults, busy, block
                   <thead>
                     <tr className="border-b border-border text-fg-muted">
                       <th scope="col" className={cell}>{t.peeParamsColSetting}</th>
-                      <th scope="col" className={cell}>{t.peeParamsColDefault}</th>
+                      <th scope="col" className={cell}>{baselineHeader}</th>
                       <th scope="col" className={cell}>{t.peeParamsColProposed}</th>
                     </tr>
                   </thead>
@@ -161,8 +166,8 @@ export function ParamProposal({ t, language, name, params, defaults, busy, block
                     {TUNED_KEYS.map((k) => (
                       <tr key={k} className="border-b border-border last:border-b-0">
                         <th scope="row" className={`${cell} font-normal text-fg-muted`}>{settingName(t, k)}</th>
-                        <td className={`${cell} tabular-nums text-fg`}>{value(k, defaults[k])}</td>
-                        <td className={`${cell} tabular-nums ${p.params[k] !== defaults[k] ? "font-semibold text-fg" : "text-fg"}`}>{value(k, p.params[k])}</td>
+                        <td className={`${cell} tabular-nums text-fg`}>{value(k, p.baseline[k])}</td>
+                        <td className={`${cell} tabular-nums ${p.params[k] !== p.baseline[k] ? "font-semibold text-fg" : "text-fg"}`}>{value(k, p.params[k])}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -174,7 +179,7 @@ export function ParamProposal({ t, language, name, params, defaults, busy, block
                   <thead>
                     <tr className="border-b border-border text-fg-muted">
                       <th scope="col" className={cell}>{t.peeParamsColSetting}</th>
-                      <th scope="col" className={cell}>{t.peeParamsColDefault}</th>
+                      <th scope="col" className={cell}>{baselineHeader}</th>
                       <th scope="col" className={cell}>{t.peeParamsColProposed}</th>
                     </tr>
                   </thead>

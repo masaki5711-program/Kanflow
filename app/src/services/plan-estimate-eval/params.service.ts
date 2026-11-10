@@ -10,13 +10,13 @@
 import { z } from "zod"
 import type { Prisma } from "@/generated/prisma/client"
 import { ESTIMATE_METHOD_VERSION } from "@/lib/plan-estimate"
-import { isGridParams, type TunedParams } from "@/lib/plan-estimate/params"
+import { DEFAULT_PARAMS, isGridParams, type TunedParams } from "@/lib/plan-estimate/params"
 import { tokyoDateKey } from "@/lib/plan-progress"
 import { logger } from "@/lib/logger"
 import { defaultDb, withTransaction, type Db } from "@/services/_shared/db"
 import { ConflictError, NotFoundError } from "@/services/_shared/errors"
 import { activeParamApproval, currentParams, decideGate, lineageInputHash } from "@/services/plan-estimate-run/gate"
-import { backtestInput, currentLineages, enqueueLineageRecompute, runSerialized, type TypePoolCache } from "./eval.service"
+import { backtestInput, backtestsBusy, currentLineages, enqueueLineageRecompute, settleQueuedBacktests } from "./eval.service"
 import { searchParams, type CandidateMetrics, type KeepReason, type SearchOptions } from "./param-search"
 
 const log = logger.child({ module: "plan-estimate-eval" })
@@ -31,7 +31,7 @@ const candidateSchema = z.object({
   holdout: subsetSchema,
 })
 /** The stored `metrics` column. */
-const metricsSchema = z.object({ before: candidateSchema.nullable(), after: candidateSchema.nullable(), skipped: z.number().int().min(0) })
+const metricsSchema = z.object({ baseline: z.unknown().optional(), before: candidateSchema.nullable(), after: candidateSchema.nullable(), skipped: z.number().int().min(0) })
 
 export type ParamDecision = "approved" | "rejected" | "superseded"
 export type ParamEndReason = "withdrawn" | "failed" | "method" | "replaced"
@@ -42,6 +42,8 @@ export interface ProposalView {
   outcome: "propose" | "keep_default"
   reason: KeepReason | null
   params: TunedParams
+  /** The settings the proposal was compared with (in use when searched: approved, else the defaults). */
+  baseline: TunedParams
   before: CandidateMetrics | null
   after: CandidateMetrics | null
   candidates: number
@@ -67,26 +69,47 @@ const searching = new Set<string>()
 
 export interface SearchRecorded {
   lineage: string
-  /** false: the snapshots changed while searching — nothing was written. */
+  /** false: the snapshots or the approved settings changed while searching — nothing was written. */
   written: boolean
   outcome: "propose" | "keep_default"
   reason: KeepReason | null
 }
 
+export interface SearchLineageOptions {
+  now?: Date
+  db?: Db
+  search?: SearchOptions
+  /**
+   * Pause (return null, record nothing) between candidates when this says so. The queue passes "a backtest is waiting,
+   * or this lineage's actuals changed"; a direct call without it runs to the end.
+   */
+  pauseWhen?: (inputHash: string) => Promise<boolean>
+}
+
 /**
- * Searches one lineage and records the result (a proposal or "keep the defaults"). Under the lineage's lock: written
- * only when the snapshots are still the ones searched; a pending older proposal is superseded.
+ * Searches one lineage and records the result (a proposal or "keep the settings in use"), comparing with the settings
+ * in use (the approved ones, else the defaults). Under the lineage's lock: written only when the snapshots and the
+ * approved settings are still the ones searched with; a pending older proposal is superseded. null = paused.
  */
-export async function searchLineageParams(lineage: string, opts: { now?: Date; db?: Db; cache?: TypePoolCache; search?: SearchOptions } = {}): Promise<SearchRecorded> {
-  const input = await backtestInput(lineage, opts.db ?? defaultDb, opts.cache)
-  const result = await searchParams(input, opts.search)
+export async function searchLineageParams(lineage: string, opts: SearchLineageOptions = {}): Promise<SearchRecorded | null> {
+  const db0 = opts.db ?? defaultDb
+  const active = currentParams(await activeParamApproval(lineage, db0))
+  const input = await backtestInput(lineage, db0)
+  const pauseWhen = opts.pauseWhen
+  const result = await searchParams(input, { ...opts.search, baseline: active?.params, ...(pauseWhen ? { shouldPause: () => pauseWhen(input.inputHash) } : {}) })
+  if (!result) return null
   const skipped = input.skips.length
   const run = async (tx: Db): Promise<SearchRecorded> => {
     await lineageLock(tx, lineage)
     const now = opts.now ?? new Date()
+    const nothing = { lineage, written: false, outcome: result.outcome, reason: result.reason }
     if ((await lineageInputHash(lineage, tx)) !== input.inputHash) {
       log.info("parameter search discarded: the snapshots changed while searching", { lineage })
-      return { lineage, written: false, outcome: result.outcome, reason: result.reason }
+      return nothing
+    }
+    if ((currentParams(await activeParamApproval(lineage, tx))?.id ?? null) !== (active?.id ?? null)) {
+      log.info("parameter search discarded: the approved settings changed while searching", { lineage })
+      return nothing
     }
     await tx.planEstimateParamProposal.updateMany({ where: { lineage, outcome: "propose", decision: null }, data: { decision: "superseded", decidedAt: now } })
     await tx.planEstimateParamProposal.create({
@@ -98,7 +121,7 @@ export async function searchLineageParams(lineage: string, opts: { now?: Date; d
         reason: result.reason,
         params: { ...result.params },
         // Plain JSON (numbers only): the metrics are lineage aggregates, never project ids.
-        metrics: JSON.parse(JSON.stringify({ before: result.before, after: result.after, skipped })) as Prisma.InputJsonObject,
+        metrics: JSON.parse(JSON.stringify({ baseline: result.baseline, before: result.before, after: result.after, skipped })) as Prisma.InputJsonObject,
         candidates: result.candidates,
         evaluated: result.evaluated,
         timedOut: result.timedOut,
@@ -108,7 +131,18 @@ export async function searchLineageParams(lineage: string, opts: { now?: Date; d
   }
   const recorded = await (opts.db ? run(opts.db) : withTransaction(run))
   const level = result.timedOut ? "warn" : "info"
-  log[level]("parameter search recorded", { lineage, written: recorded.written, outcome: result.outcome, reason: result.reason, evaluated: result.evaluated, candidates: result.candidates })
+  log[level]("parameter search recorded", {
+    lineage,
+    written: recorded.written,
+    outcome: result.outcome,
+    reason: result.reason,
+    evaluated: result.evaluated,
+    candidates: result.candidates,
+    baseline: active ? "approved" : "defaults",
+    elapsedMs: Math.round(result.elapsedMs),
+    slowestCandidateMs: Math.round(result.slowestCandidateMs),
+    meanCandidateMs: Math.round(result.elapsedMs / Math.max(result.evaluated, 1)),
+  })
   return recorded
 }
 
@@ -118,29 +152,97 @@ export interface SearchRun {
   failed: string[]
 }
 
+/** A search paused this many times (backtests or changes kept coming) is given up for now, logged; the next request or day retries. */
+export const SEARCH_MAX_PAUSES = 20
+/** How often the queue looks again while a backtest that is not on the chain (a recompute, the catch-up) runs. */
+const BUSY_POLL_MS = 250
+
+interface QueuedSearch {
+  lineage: string
+  opts: { now?: Date; search?: SearchOptions }
+  pauses: number
+  settle: (r: SearchRecorded | Error) => void
+}
+
+const queue: QueuedSearch[] = []
+let draining: Promise<void> | null = null
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
+
+/** Wait until no backtest is queued or running in this process. */
+async function backtestsIdle(): Promise<void> {
+  while (backtestsBusy()) {
+    await settleQueuedBacktests()
+    if (backtestsBusy()) await sleep(BUSY_POLL_MS)
+  }
+}
+
 /**
- * Queue the search of these lineages on the serialized backtest path, one lineage after another, each on its own (a
+ * The search queue: LOWEST priority. A search starts only when no backtest is waiting or running, and between
+ * candidates it pauses (nothing recorded, the lineage stays first in the queue) as soon as a backtest is waiting or the
+ * lineage's actuals changed; it starts again from the beginning once the backtests are done. A finalize's backtest —
+ * what the gate waits for — therefore never waits behind a search.
+ */
+async function drain(): Promise<void> {
+  while (queue.length > 0) {
+    await backtestsIdle()
+    const job = queue[0]
+    let outcome: SearchRecorded | null | Error
+    try {
+      outcome = await searchLineageParams(job.lineage, {
+        ...job.opts,
+        pauseWhen: async (hash) => backtestsBusy() || (await lineageInputHash(job.lineage)) !== hash,
+      })
+    } catch (err) {
+      outcome = err instanceof Error ? err : new Error(String(err))
+    }
+    if (outcome === null) {
+      job.pauses++
+      if (job.pauses <= SEARCH_MAX_PAUSES) {
+        log.info("parameter search paused for a backtest or a change of the actuals; it starts again after it", { lineage: job.lineage, pauses: job.pauses })
+        continue
+      }
+      outcome = new Error(`paused ${job.pauses} times`)
+    }
+    queue.shift()
+    searching.delete(job.lineage)
+    job.settle(outcome)
+  }
+}
+
+/**
+ * Queue the search of these lineages (lowest priority: see `drain`), one lineage after another, each on its own (a
  * failure is logged and the others go on). Resolves when they are done; never rejects. A lineage already queued here is
- * not queued twice.
+ * not queued twice. Callers that must not wait (the daily job, the admin request) do not await it.
  */
 export function enqueueParamSearch(lineages: readonly string[], opts: { now?: Date; search?: SearchOptions } = {}): Promise<SearchRun> {
   const todo = [...new Set(lineages)].filter((l) => !searching.has(l))
-  for (const l of todo) searching.add(l)
-  const cache: TypePoolCache = new Map()
   const out: SearchRun = { searched: [], failed: [] }
-  const jobs = todo.map((lineage) =>
-    runSerialized(async () => {
-      try {
-        out.searched.push(await searchLineageParams(lineage, { ...opts, cache }))
-      } catch (err) {
-        out.failed.push(lineage)
-        log.error("parameter search of a lineage failed; the others go on", { lineage, error: errText(err) })
-      } finally {
-        searching.delete(lineage)
-      }
-    }),
+  const jobs = todo.map(
+    (lineage) =>
+      new Promise<void>((resolve) => {
+        searching.add(lineage)
+        queue.push({
+          lineage,
+          opts,
+          pauses: 0,
+          settle: (r) => {
+            if (r instanceof Error) {
+              out.failed.push(lineage)
+              log.error("parameter search of a lineage failed; the others go on", { lineage, error: errText(r) })
+            } else out.searched.push(r)
+            resolve()
+          },
+        })
+      }),
   )
+  if (todo.length > 0 && !draining) draining = drain().finally(() => (draining = null))
   return Promise.all(jobs).then(() => out)
+}
+
+/** Resolves when the search queue is empty (tests and shutdown). */
+export function settleParamSearches(): Promise<void> {
+  return draining ?? Promise.resolve()
 }
 
 /** An administrator's "パラメータを探す": every lineage with current actuals, queued (the response does not wait). */
@@ -168,6 +270,8 @@ function toView(row: ProposalRow, currentHash: string | undefined): ProposalView
     outcome: row.outcome as ProposalView["outcome"],
     reason: (row.reason as KeepReason | null) ?? null,
     params: row.params,
+    // Rows written before the baseline was stored compared with the defaults.
+    baseline: isGridParams(metrics.baseline) ? metrics.baseline : DEFAULT_PARAMS,
     before: metrics.before,
     after: metrics.after,
     candidates: row.candidates,

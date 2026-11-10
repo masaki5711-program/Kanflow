@@ -21,6 +21,12 @@ describe.skipIf(!enabled)("estimator settings proposals (KANFLOW_DB_TESTS=1)", (
   const ptype = `t-${tag}`.slice(0, 40)
   const projects = Array.from({ length: 9 }, (_, i) => `${tag}-p${i + 1}`)
   const admin = `${tag}-admin`
+  // A project of the same lineage that asks for a plan (computeRun).
+  const target = `${tag}-target`
+  const creator = { userId: admin, userName: "Admin", systemRole: "admin" }
+  const runInput = () => ({ startDate: "2026-11-16", skipWeekends: true, roleAssignments: {}, source: { kind: "schedule" as const, schedule, lineage } })
+  const compute = () => run.computeRun(runInput() as Parameters<typeof run.computeRun>[0], { projectId: target, creator, todayKey: "2026-11-10" })
+  const hashes: Record<string, string> = {}
   const schedule = {
     items: [
       { key: "a", name: "設計", durationDays: 10 },
@@ -34,6 +40,7 @@ describe.skipIf(!enabled)("estimator settings proposals (KANFLOW_DB_TESTS=1)", (
   let adminSvc: typeof import("../admin.service")
   let svc: typeof import("../params.service")
   let gate: typeof import("@/services/plan-estimate-run/gate")
+  let run: typeof import("@/services/plan-estimate-run/estimate-run.compute")
   const view = async () => (await adminSvc.listLineageEvals()).lineages.find((l) => l.lineage === lineage)
   const latestProposal = () => prisma.planEstimateParamProposal.findFirst({ where: { lineage }, orderBy: { createdAt: "desc" } })
 
@@ -43,6 +50,7 @@ describe.skipIf(!enabled)("estimator settings proposals (KANFLOW_DB_TESTS=1)", (
     adminSvc = await import("../admin.service")
     svc = await import("../params.service")
     gate = await import("@/services/plan-estimate-run/gate")
+    run = await import("@/services/plan-estimate-run/estimate-run.compute")
     await prisma.user.create({ data: { id: admin, name: admin, email: `${admin}@example.test`, password: "synthetic", role: "admin" } })
     for (const [i, p] of projects.entries()) {
       const month = String(i + 1).padStart(2, "0")
@@ -55,18 +63,24 @@ describe.skipIf(!enabled)("estimator settings proposals (KANFLOW_DB_TESTS=1)", (
         await prisma.planActualsItem.create({ data: { snapshotId: snap.id, planItemId: `${p}-${key}`, templateKey: key, name, templateDays: days, plannedDays: days, actualDays: Math.round(days * 1.6), complete: true } })
       }
     }
+    await prisma.project.create({ data: { id: target, name: `${target}-名前`, projectType: ptype } })
+    await prisma.planScheduleLoad.create({ data: { projectId: target, proposalId: `${tag}-load-target`, lineage, scheduleHash: "e".repeat(64), content: schedule, startDate: d("2026-01-05") } })
+    // The lineage's backtest (defaults) passes and an administrator turned durations from actuals on.
+    await evalSvc.recordLineageBacktest(lineage, { now: NOW })
+    await adminSvc.approveLineage(lineage, (await gate.latestEval(lineage))?.id as string, admin)
   })
 
   afterAll(async () => {
     if (!prisma) return
+    await svc?.settleParamSearches()
     await evalSvc?.settleQueuedBacktests()
     await prisma.planEstimateGateApproval.deleteMany({ where: { lineage } })
     await prisma.planEstimateEval.deleteMany({ where: { lineage } })
     await prisma.planEstimateParamApproval.deleteMany({ where: { lineage } })
     await prisma.planEstimateParamProposal.deleteMany({ where: { lineage } })
     await prisma.planActualsSnapshot.deleteMany({ where: { projectId: { in: projects } } })
-    await prisma.planScheduleLoad.deleteMany({ where: { projectId: { in: projects } } })
-    await prisma.project.deleteMany({ where: { id: { in: projects } } })
+    await prisma.planScheduleLoad.deleteMany({ where: { projectId: { in: [...projects, target] } } })
+    await prisma.project.deleteMany({ where: { id: { in: [...projects, target] } } })
     await prisma.user.deleteMany({ where: { id: admin } })
   })
 
@@ -83,6 +97,34 @@ describe.skipIf(!enabled)("estimator settings proposals (KANFLOW_DB_TESTS=1)", (
     expect(v?.params.active).toBeNull()
     // Nothing changed for the estimates: no approved settings, the gate reads no settings.
     expect((await gate.gateWithParams(lineage)).params).toBeNull()
+    const computed = await compute()
+    expect(computed.summary.gateOn).toBe(true)
+    hashes.defaultsOn = computed.inputHash
+    hashes.defaultsEvidence = JSON.stringify(computed.evidence)
+  })
+
+  it("a finalize during a search gets its backtest recorded before the search continues (the search pauses)", async () => {
+    const evalsBefore = await prisma.planEstimateEval.count({ where: { lineage } })
+    let fired = false
+    let yields = 0
+    const yieldControl = async () => {
+      yields++
+      if (!fired) {
+        fired = true
+        // A finalize of the lineage arrives while the search runs.
+        evalSvc.enqueueAfterActualsChange(projects[0], lineage, null)
+      }
+      await new Promise<void>((resolve) => setImmediate(resolve))
+    }
+    const out = await svc.enqueueParamSearch([lineage], { search: { yieldControl } })
+    expect(out.searched).toEqual([{ lineage, written: true, outcome: "propose", reason: null }])
+    const evalRow = await prisma.planEstimateEval.findFirst({ where: { lineage }, orderBy: { createdAt: "desc" } })
+    expect(await prisma.planEstimateEval.count({ where: { lineage } })).toBe(evalsBefore + 1)
+    // The backtest went first: the proposal was recorded after it.
+    expect((await latestProposal())?.createdAt.getTime()).toBeGreaterThan(evalRow?.createdAt.getTime() as number)
+    expect(evalSvc.backtestsBusy()).toBe(false)
+    // Paused at the first candidate, then searched again from the start: 1 + 80 yields (80 without a pause).
+    expect(yields).toBe(81)
   })
 
   it("the same data searched again gives the same proposal; the older pending one is superseded", async () => {
@@ -115,15 +157,31 @@ describe.skipIf(!enabled)("estimator settings proposals (KANFLOW_DB_TESTS=1)", (
     const rec = await gate.latestEval(lineage)
     expect(rec).toMatchObject({ paramApprovalId: active?.id, inputHash: await gate.lineageInputHash(lineage), n: 9 })
     expect((await latestProposal())?.decision).toBe("approved")
-    // The gate is still the administrator's separate decision; once on, a run uses the approved settings.
-    expect((await gate.gateFor(lineage)).reason).toBe("not_approved")
-    await adminSvc.approveLineage(lineage, rec?.id as string, admin)
+    // Durations from actuals were already on (a separate decision): the run now uses the approved settings.
     const g = await gate.gateWithParams(lineage)
     expect(g.gate).toEqual({ on: true, reason: null })
     expect(g.params?.params).toEqual(p?.params)
     expect((await view())?.params.active).toMatchObject({ params: p?.params, approvedByName: admin })
     // Approving twice: already decided.
     await expect(svc.approveParams(lineage, p?.id as string, admin)).rejects.toMatchObject({ code: "PLAN_ESTIMATE_PARAMS_DECIDED" })
+  })
+
+  it("a run uses the approved settings only while durations from actuals are on, and they enter its input hash", async () => {
+    const withSettings = await compute()
+    expect(withSettings.summary.gateOn).toBe(true)
+    expect(withSettings.inputHash).not.toBe(hashes.defaultsOn)
+    hashes.settingsOn = withSettings.inputHash
+    // The settings change the estimate itself (evidence of the same data).
+    expect(JSON.stringify(withSettings.evidence)).not.toBe(hashes.defaultsEvidence)
+    const rerun = await compute()
+    expect(rerun.inputHash).toBe(withSettings.inputHash)
+    // Durations from actuals off: the settings are not used and not in the hash.
+    await adminSvc.withdrawLineage(lineage, admin)
+    const off = await compute()
+    expect(off.summary.gateOn).toBe(false)
+    hashes.offWithSettings = off.inputHash
+    await adminSvc.approveLineage(lineage, (await gate.latestEval(lineage))?.id as string, admin)
+    expect((await gate.gateFor(lineage)).on).toBe(true)
   })
 
   it("the backtest runs with the approved settings and stays current", async () => {
@@ -142,6 +200,11 @@ describe.skipIf(!enabled)("estimator settings proposals (KANFLOW_DB_TESTS=1)", (
     expect(await gate.gateFor(lineage)).toEqual({ on: true, reason: null })
     expect((await view())?.params.lastEnded?.reason).toBe("withdrawn")
     await svc.revertParams(lineage, admin) // idempotent
+    // Back on the defaults: a run has exactly the hash it had before any settings were approved.
+    expect((await compute()).inputHash).toBe(hashes.defaultsOn)
+    await adminSvc.withdrawLineage(lineage, admin)
+    expect((await compute()).inputHash).toBe(hashes.offWithSettings)
+    await adminSvc.approveLineage(lineage, (await gate.latestEval(lineage))?.id as string, admin)
   })
 
   it("a rejected proposal is kept as history and cannot be approved", async () => {
@@ -152,6 +215,29 @@ describe.skipIf(!enabled)("estimator settings proposals (KANFLOW_DB_TESTS=1)", (
     await expect(svc.approveParams(lineage, p?.id as string, admin)).rejects.toMatchObject({ code: "PLAN_ESTIMATE_PARAMS_DECIDED" })
   })
 
+  it("an approval racing a backtest leaves a record of the active settings (never an outdated gate)", async () => {
+    await svc.searchLineageParams(lineage, { now: NOW })
+    const p = await latestProposal()
+    const [, recorded] = await Promise.all([svc.approveParams(lineage, p?.id as string, admin), evalSvc.recordLineageBacktest(lineage, { now: NOW })])
+    const active = await gate.activeParamApproval(lineage)
+    expect(active?.params).toEqual(p?.params)
+    // Either the backtest ran first (the approval then records its own row) or it saw the settings change and wrote nothing.
+    if (recorded.written) expect(recorded.paramsEnded).toBeNull()
+    expect((await gate.latestEval(lineage))?.paramApprovalId).toBe(active?.id)
+    expect(await gate.gateFor(lineage)).toEqual({ on: true, reason: null })
+    await svc.revertParams(lineage, admin)
+    await evalSvc.settleQueuedBacktests()
+  })
+
+  it("approved settings outside the grid are never used: ended as failed, the defaults apply, the lineage still works", async () => {
+    await prisma.planEstimateParamApproval.create({ data: { lineage, methodVersion: "e2-v1", params: { outlierMads: 3, halfLifeDays: 365, shrinkK: 99, spreadPrior: 0.25 } } })
+    expect((await gate.gateWithParams(lineage)).params).toBeNull()
+    expect(await prisma.planEstimateParamApproval.findFirst({ where: { lineage, endedAt: null } })).toBeNull()
+    expect((await prisma.planEstimateParamApproval.findFirst({ where: { lineage }, orderBy: { approvedAt: "desc" }, select: { endReason: true } }))?.endReason).toBe("failed")
+    expect((await evalSvc.recordLineageBacktest(lineage, { now: NOW })).written).toBe(true)
+    expect((await compute()).inputHash).toBe(hashes.defaultsOn)
+  })
+
   it("settings of an older method end at the next backtest (method)", async () => {
     await svc.searchLineageParams(lineage, { now: NOW })
     await svc.approveParams(lineage, (await latestProposal())?.id as string, admin)
@@ -159,6 +245,7 @@ describe.skipIf(!enabled)("estimator settings proposals (KANFLOW_DB_TESTS=1)", (
     expect((await gate.gateWithParams(lineage)).params).toBeNull()
     const r = await evalSvc.recordLineageBacktest(lineage, { now: NOW })
     expect(r.paramsEnded).toBe("method")
+    expect((await gate.latestEval(lineage))?.paramApprovalId).toBeNull()
     expect(await prisma.planEstimateParamApproval.findFirst({ where: { lineage }, orderBy: { approvedAt: "desc" }, select: { endReason: true } })).toEqual({ endReason: "method" })
   })
 
@@ -174,7 +261,7 @@ describe.skipIf(!enabled)("estimator settings proposals (KANFLOW_DB_TESTS=1)", (
     expect((await gate.latestEval(lineage))?.paramApprovalId).toBeNull()
     expect((await view())?.params.lastEnded?.reason).toBe("failed")
     const history = await prisma.planEstimateParamApproval.findMany({ where: { lineage }, orderBy: { approvedAt: "asc" }, select: { endReason: true } })
-    expect(history.map((h) => h.endReason)).toEqual(["withdrawn", "method", "failed"])
+    expect(history.map((h) => h.endReason)).toEqual(["withdrawn", "withdrawn", "failed", "method", "failed"])
   })
 
   it("with too few finished projects the search proposes nothing and says why", async () => {

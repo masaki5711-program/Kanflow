@@ -28,17 +28,21 @@
 （`services/plan-estimate-eval/param-search.ts`・`params.service.ts`）。
 
 - **探す**: 管理画面の「パラメータを探す」で、確定した実績のあるすべての系統について、既定を挟む 81 通りの組み合わせを過去の検証と
-  同じ計算で試す。応答は待たず、検証と同じ順番の道で 1 系統ずつ（候補ごとに他の要求に譲る）。毎朝の処理でも、検証の記録が古かった
-  系統について探す。1 系統 60 秒を超えると提案しない（「時間内に試し終わらなかった」）。
-- **提案の条件**: 終わったプロジェクトが 5 件以上。新しい方の 3 分の 1 は確かめ用で、選ぶのに使わない。残りで既定より期間の誤差が
-  5% 以上小さい（または P80 の当たりを 70〜90% に入れて誤差が悪くならない）、確かめ用で既定より悪くない、全体で「有効にできる条件」を
-  満たす。満たさなければ「提案はありません」と理由が出る。同じ実績なら何度探しても同じ提案になる。
+  同じ計算で試す。応答は待たず、1 系統ずつ、**検証（バックテスト）より後回し**: 待っている・動いている検証が無いときだけ始め、
+  候補ごとに検証が来ていないか・その系統の実績が変わっていないかを見て、来ていれば記録せずに止め（ログ `parameter search paused …`）、
+  検証の後で初めからやり直す。実績の確定の後の検証が探索を待つことはない。毎朝の処理は、検証の記録が古かった系統の探索を積むだけで
+  待たない（ログ `parameter search queued`）。1 系統 60 秒を超えると提案しない（「時間内に試し終わらなかった」）。
+- **提案の条件**: 終わったプロジェクトが **8 件以上**（ゲートの 5 件より多い）。新しい方の 3 分の 1（最低 3 件）は確かめ用で、選ぶのに
+  使わない。比べる相手は**今使っている値**（承認した値、無ければ既定）。残りで今の値より期間の誤差が 5% 以上小さい（または P80 の当たりを
+  70〜90% に入れて誤差が悪くならない）組み合わせの中で誤差が最小のものを選び、確かめ用で今の値より悪くなく、全体で「有効にできる条件」を
+  満たすときだけ提案する。満たさなければ「提案はありません」と理由が出る。同じ実績なら何度探しても同じ提案になる。
 - **承認 / 却下**: 画面の表（既定と提案の値、全体と確かめ用の成績）を見て「提案を承認する」か「却下する」。承認できるのは最新の、今の
   実績からの提案だけ（実績が変わると「探し直すまで承認できません」）。承認すると、その値での検証がその系統の最新の記録になる。
   「実績で調整」の有効化（上の 2）は別の判断で、承認した値は有効なときだけ使われる。
 - **既定に戻る**: 「既定の値に戻す」（管理者）、または**後の検証が承認した値で条件を満たさなくなったとき自動で**（ログ
   `approved estimator settings ended for a lineage; it uses the defaults`、`endReason` = `failed`）。方式の版が変わったときも戻る（`method`）。
-  手で戻したあとは既定の値での検証が計算し直されるまで（数秒〜数十秒）「再計算待ち」になる。
+  手で戻したあとは既定の値での検証が計算し直されるまで（数秒〜数十秒）「再計算待ち」になる。保存した値が格子の外（壊れた行）なら
+  使わずにその承認を `failed` で終え、ログ `approved estimator settings are outside the search grid; …` に出して既定で続ける。
 - 承認した値が変わると、それより前に作った案は承認の時に「作り直してください」になる（入力のハッシュに値が入る）。
 
 ### 検証はいつ計算されるか
@@ -104,12 +108,14 @@
 | `plan-estimate-eval` | `backtest after an actuals change failed; …` | 確定の後の検証に失敗（確定は成功している）。系統は「再計算待ち」。「計算し直す」でやり直せる |
 | `plan-estimate-eval` | `estimate from actuals turned off for a lineage` | 有効だった系統が自動で無効になった（`endReason`: `failed` / `method`） |
 | `plan-estimate-eval` | `estimate from actuals approved / withdrawn for a lineage` | 管理者が有効 / 無効にした（`lineage`・`actorId`） |
-| `plan-estimate-eval` | `parameter search recorded` | 系統のパラメータを探した（`outcome`: `propose` / `keep_default`、`reason`、`evaluated` / `candidates`。時間切れは warn） |
+| `plan-estimate-eval` | `parameter search recorded` | 系統のパラメータを探した（`outcome`: `propose` / `keep_default`、`reason`、`evaluated` / `candidates`、`baseline`、`elapsedMs`・`slowestCandidateMs`・`meanCandidateMs`。時間切れは warn） |
 | `plan-estimate-eval` | `parameter search of a lineage failed; the others go on` | 1 系統の探索に失敗（ほかは続く）。「パラメータを探す」でやり直せる |
-| `plan-estimate-eval` | `parameter search discarded: …` | 探している間に実績が変わったので捨てた |
+| `plan-estimate-eval` | `parameter search discarded: …` | 記録の直前に実績か承認した値が変わっていたので捨てた |
+| `plan-estimate-eval` | `parameter search paused for a backtest or a change of the actuals; …` | 検証を先にするため探索を止めた（後で初めからやり直す。`pauses`） |
 | `plan-estimate-eval` | `estimator settings approved / … rejected / … returned to the defaults for a lineage` | 管理者がパラメータを承認 / 却下 / 既定に戻した |
 | `plan-estimate-eval` | `approved estimator settings ended for a lineage; it uses the defaults` | 承認した値での検証が条件を満たさない（`failed`）か方式が変わった（`method`）ので既定に戻った（warn） |
-| `collab-daily` | `parameter search done` / `… finished with failures` / `parameter search failed` | 毎朝の処理の探索（古かった系統だけ） |
+| `collab-daily` | `parameter search queued` / `parameter search could not be queued` | 毎朝の処理が古かった系統の探索を積んだ（待たない。結果は `parameter search recorded`） |
+| `plan-estimate-run` | `approved estimator settings are outside the search grid; …` | 壊れた承認の行を使わずに終えた（error。`paramApprovalId`） |
 | `plan-llm` | `plan llm call failed; deterministic path` | LLM の時間切れ・停止。決定的な部分に戻った |
 
 計画 12 §6 の「メトリクス」（実行の時間、LLM の時間切れの数、`PLAN_ESTIMATE_STALE` の回数、確定の時に読めなかったリポジトリの数）は、

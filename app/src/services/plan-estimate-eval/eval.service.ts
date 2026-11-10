@@ -380,6 +380,38 @@ interface Pending {
 const pending = new Map<string, Pending>()
 let chain: Promise<unknown> = Promise.resolve()
 
+/** Backtests running now in this process (queued runs, the daily catch-up, an administrator's recompute). */
+let running = 0
+
+/** Runs a backtest job counted as running, so the low-priority parameter search knows to wait. */
+async function counted<T>(job: () => Promise<T>): Promise<T> {
+  running++
+  try {
+    return await job()
+  } finally {
+    running--
+  }
+}
+
+/**
+ * A backtest is waiting or running in this process. The parameter search (params.service) runs only when this is
+ * false and pauses between candidates as soon as it turns true: a finalize's backtest — what the gate waits for —
+ * never queues behind a search.
+ */
+export function backtestsBusy(): boolean {
+  return pending.size > 0 || running > 0
+}
+
+function queueRun(lineage: string): void {
+  chain = chain.then(() =>
+    counted(async () => {
+      const job = pending.get(lineage)
+      pending.delete(lineage)
+      if (job) await afterActualsChange(lineage, job.changes)
+    }),
+  )
+}
+
 /**
  * Queue the lineage's backtest after an actuals change (the finalize / switch response does not wait). Changes of the
  * same lineage before its run starts are coalesced into one run; runs go one at a time (the backtest is CPU work on
@@ -392,11 +424,7 @@ export function enqueueAfterActualsChange(projectId: string, lineage: string, ac
     return
   }
   pending.set(lineage, { changes: new Map([[projectId, actorId]]) })
-  chain = chain.then(async () => {
-    const job = pending.get(lineage)
-    pending.delete(lineage)
-    if (job) await afterActualsChange(lineage, job.changes)
-  })
+  queueRun(lineage)
 }
 
 /**
@@ -406,21 +434,7 @@ export function enqueueAfterActualsChange(projectId: string, lineage: string, ac
 export function enqueueLineageRecompute(lineage: string): void {
   if (pending.has(lineage)) return
   pending.set(lineage, { changes: new Map() })
-  chain = chain.then(async () => {
-    const job = pending.get(lineage)
-    pending.delete(lineage)
-    if (job) await afterActualsChange(lineage, job.changes)
-  })
-}
-
-/**
- * Run other backtest-sized CPU work (the parameter search) on the same serialized path: one job at a time with the
- * backtests, in order. The returned promise settles with the job; a failure of the job never breaks the chain.
- */
-export function runSerialized<T>(job: () => Promise<T>): Promise<T> {
-  const run = chain.then(job)
-  chain = run.catch(() => undefined)
-  return run
+  queueRun(lineage)
 }
 
 /** Resolves when every queued backtest has run (tests and shutdown). */
@@ -442,6 +456,10 @@ export async function currentLineages(db: Db = defaultDb): Promise<string[]> {
  * notifications.
  */
 export async function recordOutdatedLineages(opts: { now?: Date } = {}): Promise<RecomputeResult> {
+  return counted(() => catchUp(opts))
+}
+
+async function catchUp(opts: { now?: Date }): Promise<RecomputeResult> {
   const lineages = await currentLineages()
   const hashes = await lineageInputHashes(lineages)
   const latest = await Promise.all(lineages.map((l) => latestEval(l)))
@@ -469,6 +487,10 @@ export interface RecomputeResult {
 
 /** An administrator's "計算し直す": every current lineage, one after another, each on its own (no notifications). */
 export async function recordAllLineages(opts: { now?: Date } = {}): Promise<RecomputeResult> {
+  return counted(() => recomputeAll(opts))
+}
+
+async function recomputeAll(opts: { now?: Date }): Promise<RecomputeResult> {
   const cache: TypePoolCache = new Map()
   const out: RecomputeResult = { recorded: [], failed: [] }
   for (const lineage of await currentLineages()) {

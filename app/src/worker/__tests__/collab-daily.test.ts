@@ -96,14 +96,17 @@ describe("runCollabDaily", () => {
     expect(log.info).toHaveBeenCalledWith("plan estimate run retention done", { estimateRuns: { deleted: 4, more: false } })
   })
 
-  it("searches the parameters of the lineages whose backtest the catch-up recorded (a proposal, nothing changes)", async () => {
+  it("queues the parameter search of the lineages whose backtest the catch-up recorded, without waiting for it", async () => {
     m.catchUp.mockResolvedValue({ recorded: [{ lineage: "template:a", written: true }, { lineage: "template:b", written: false }], failed: [] })
-    m.paramSearch.mockResolvedValue({ searched: [{}], failed: [] })
-    expect((await runCollabDaily(CFG, log)).paramSearch).toEqual({ searched: 1, failed: 0 })
+    // A search that never finishes: the daily job must still return.
+    m.paramSearch.mockReturnValue(new Promise(() => undefined))
+    expect((await runCollabDaily(CFG, log)).paramSearch).toEqual({ queued: 1 })
     expect(m.paramSearch).toHaveBeenCalledWith(["template:a"])
-    m.paramSearch.mockRejectedValue(new Error("db"))
+    m.paramSearch.mockImplementation(() => {
+      throw new Error("db")
+    })
     expect((await runCollabDaily(CFG, log)).paramSearch).toBeNull()
-    expect(log.error).toHaveBeenCalledWith("parameter search failed", { error: "db" })
+    expect(log.error).toHaveBeenCalledWith("parameter search could not be queued", { error: "db" })
     // Nothing outdated: no search.
     m.paramSearch.mockClear()
     m.catchUp.mockResolvedValue({ recorded: [], failed: [] })

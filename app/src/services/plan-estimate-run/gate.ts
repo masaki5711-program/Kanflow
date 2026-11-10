@@ -14,7 +14,10 @@
 import { createHash } from "node:crypto"
 import { ESTIMATE_METHOD_VERSION } from "@/lib/plan-estimate"
 import { isGridParams, type TunedParams } from "@/lib/plan-estimate/params"
+import { logger } from "@/lib/logger"
 import { defaultDb, type Db } from "@/services/_shared/db"
+
+const log = logger.child({ module: "plan-estimate-run" })
 
 export type GateReason = "no_backtest" | "not_enough_actuals" | "not_better_than_template" | "p80_out_of_range" | "end_error_worse" | "backtest_outdated" | "not_approved"
 
@@ -106,14 +109,18 @@ export interface ActiveParams {
 
 /**
  * The lineage's active approved estimator settings (plan_estimate_param_approval), whatever their method (null =
- * none). A stored value outside the search grid is a broken invariant (only grid values are ever written): it throws
- * rather than silently estimating with something nobody approved.
+ * none). A stored value outside the search grid is a broken invariant (only grid values are ever written): it is never
+ * used — the approval ends as "failed" (logged with its id), and the lineage uses the defaults, so a bad row cannot
+ * break every run and the daily catch-up of the lineage.
  */
 export async function activeParamApproval(lineage: string, db: Db = defaultDb): Promise<ActiveParams | null> {
   const row = await db.planEstimateParamApproval.findFirst({ where: { lineage, endedAt: null }, select: { id: true, methodVersion: true, approvedAt: true, params: true } })
   if (!row) return null
-  if (!isGridParams(row.params)) throw new Error(`plan_estimate_param_approval ${row.id} holds settings outside the search grid`)
-  return { id: row.id, methodVersion: row.methodVersion, approvedAt: row.approvedAt, params: row.params }
+  if (isGridParams(row.params)) return { id: row.id, methodVersion: row.methodVersion, approvedAt: row.approvedAt, params: row.params }
+  log.error("approved estimator settings are outside the search grid; ended, the lineage uses the defaults", { lineage, paramApprovalId: row.id, methodVersion: row.methodVersion })
+  const endedAt = new Date(Math.max(Date.now(), row.approvedAt.getTime() + 1))
+  await db.planEstimateParamApproval.updateMany({ where: { id: row.id, endedAt: null }, data: { endedAt, endReason: "failed" } })
+  return null
 }
 
 /** Active settings that apply to the CURRENT method (an approval of an older method is ignored, and ended by the next backtest). */
