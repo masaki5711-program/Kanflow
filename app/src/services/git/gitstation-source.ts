@@ -3,6 +3,7 @@ import {
   GitStationError,
   isObjectId,
   MAX_CURSOR_LENGTH,
+  type GitStationCheckRun,
   type GitStationClient,
   type GitStationClientOptions,
   type GitStationDevStatusPage,
@@ -27,8 +28,10 @@ import {
   SYNC_FAILED_MESSAGE,
 } from "@/lib/git/sync-messages"
 import { logger } from "@/lib/logger"
+import { headShaOf } from "./git-links"
 import type {
   DevBranchListing,
+  DevChangedPaths,
   DevChanges,
   DevClients,
   DevCommit,
@@ -57,6 +60,9 @@ import type {
  *   instead). Its CURRENT state is what Kanflow records; the merged event's time is its merge time.
  * - repository.pushed lists the new commit ids per ref (at most 20): their subjects come from the
  *   history (`/repository/commits?ref=<new>`). A push beyond that (commits_truncated) is a gap, logged.
+ * - check.completed names a commit only (N2): its merge request is the one whose head that commit is (in this read,
+ *   else Kanflow's stored head, git_link.headSha) and is read like a named one; its dot comes from the head's check
+ *   runs (`/commits/{sha}/checks`, `checksVerdict`). Any other type is counted per type (debug) and skipped.
  * - links are GitStation's permalinks (`/-/projects/{id}/…`): its API returns no web URLs.
  *
  * Cursor: "gitstation:v1:<GitStation cursor>", stored on git_station_feed.cursor. The empty
@@ -92,6 +98,12 @@ export const MAX_DETAILS_PER_PROJECT = 20
  */
 export const MAX_FOLLOW_UPS_PER_READ = 300
 const SAMPLES = 5
+/** Distinct unused event types counted per read (the feed decides the names: bounded); the rest count as OTHER_TYPES. */
+const MAX_UNUSED_TYPES = 20
+const OTHER_TYPES = "(other)"
+/** Unused event types this process already named at info (bounded). */
+const seenUnusedTypes = new Set<string>()
+const MAX_SEEN_TYPES = 100
 
 // ------------------------------------------------------------------ cursor
 
@@ -155,6 +167,17 @@ export interface FeedRead {
   rereadFailures: Map<number, unknown>
   /** The current merge request of each one an event of this read names ("<project id>!<iid>"). */
   details: Map<string, GitStationMergeRequest>
+  /**
+   * N2: the merge requests ("<project id>!<iid>", in `details`) each check.completed event of this read is about —
+   * those whose head is the checked commit. Absent / empty = no known merge request has that head (a check on a
+   * branch without a merge request, or on an older head).
+   */
+  checkTargets: Map<string, string[]>
+  /**
+   * N2: merge requests read for check events per GitStation project id (keys of `details`), matched or not — each is
+   * written fresh (an open link without a stored head gets one, so later checks find it).
+   */
+  checkReads: Map<number, string[]>
   /** Pushed commits per GitStation project id (each sha once). */
   commits: Map<number, DevCommit[]>
   links: StationLinks
@@ -168,6 +191,20 @@ export interface FeedRead {
 
 const isMergeRequestEvent = (e: GitStationEvent) => e.type.startsWith("merge_request.")
 const PUSHED = "repository.pushed"
+/** N2: a check run reached a conclusion different from its previous one (data: head_sha, name, conclusion …; no MR). */
+const CHECK_COMPLETED = "check.completed"
+/** The checked commit of a check.completed event (lower-case), else null. */
+const checkedHead = (e: GitStationEvent): string | null => (e.type === CHECK_COMPLETED ? headShaOf(typeof e.data.head_sha === "string" ? e.data.head_sha : null) : null)
+
+/**
+ * N2: what Kanflow stored about the open merge requests of one GitStation project (the repositories of this read
+ * bound to it): per checked commit, the iids whose stored head it is; and some open ones with no stored head yet
+ * (read so their head is known — then matched like the others). The feed sync answers from the database.
+ */
+export type HeadResolver = (stationProjectId: number, heads: readonly string[]) => Promise<{ byHead: Map<string, number[]>; headless: number[] }>
+
+/** Merge requests read for check events per read (beyond: the dot waits for the merge request's next event). */
+export const MAX_CHECK_READS = 20
 const detailKey = (projectId: number, iid: number) => `${projectId}!${iid}`
 const isIid = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v > 0
 const ZERO_OID = /^0+$/
@@ -287,13 +324,16 @@ async function readDevStatus(client: GitStationClient, context: Record<string, u
 /** Follow-up reads the events of `projects` need (one per named merge request, one per pushed ref with commits). */
 function followUps(events: readonly GitStationEvent[], projects: ReadonlySet<number>): number {
   const mrs = new Set<string>()
+  const heads = new Set<string>()
   let refs = 0
   for (const e of events) {
     if (!projects.has(e.project_id)) continue
     if (isMergeRequestEvent(e) && isIid(e.data.iid)) mrs.add(detailKey(e.project_id, e.data.iid))
     else if (e.type === PUSHED && Array.isArray(e.data.refs)) refs += e.data.refs.length
+    else if (checkedHead(e) !== null) heads.add(`${e.project_id}@${checkedHead(e)}`)
   }
-  return mrs.size + refs
+  // A checked commit is read at most once (the merge request whose head it is), usually not at all.
+  return mrs.size + refs + heads.size
 }
 
 /**
@@ -309,6 +349,7 @@ async function enrich(
   rereadFailures: Map<number, unknown>,
   context: Record<string, unknown>,
   holdsSoFar: number,
+  resolveHeads?: HeadResolver,
 ) {
   const details = new Map<string, GitStationMergeRequest>()
   const commits = new Map<number, Map<string, DevCommit>>()
@@ -343,6 +384,8 @@ async function enrich(
       refuse(projectId, projectFailure(err, holdsSoFar))
     }
   }
+
+  const checked = await checkedMergeRequests(client, events, projects, details, rereadFailures, resolveHeads, context)
 
   // Pushed commits: the ids the event lists, their subjects from the history of the new commit.
   let truncatedPushes = 0
@@ -400,7 +443,84 @@ async function enrich(
   // Commits are not in the state re-read: a project that failed loses these pushes' commit links (gap).
   if (skippedPushes.size > 0) log.warn("gitstation pushes of failed projects not read", { ...context, pushes: Object.fromEntries(skippedPushes) })
 
-  return { details, commits: new Map([...commits].map(([id, m]) => [id, [...m.values()]])) }
+  return { details, checkTargets: checked.targets, checkReads: checked.refreshed, commits: new Map([...commits].map(([id, m]) => [id, [...m.values()]])) }
+}
+
+/**
+ * N2: the merge requests each check.completed event is about. A check names a commit only, so the merge request is
+ * the one whose head that commit is — among the merge requests this read holds and the open links Kanflow stored
+ * (`resolveHeads`, both always: two merge requests can share a head). Open links with no stored head yet are read
+ * too (bounded), so their head is known from here on. A merge request found only in the database is read once (its
+ * current state; its dot is then looked up by the sync like any merge request of this read).
+ *
+ * A check is advisory: nothing on this path fails or holds the read. A merge request that cannot be read for a check
+ * (gone, refused, GitStation busy) and a lookup Kanflow could not make are logged and dropped — the dot then waits
+ * for the merge request's next event, and the feed moves on.
+ */
+async function checkedMergeRequests(
+  client: GitStationClient,
+  events: readonly GitStationEvent[],
+  projects: ReadonlySet<number>,
+  details: Map<string, GitStationMergeRequest>,
+  rereadFailures: ReadonlyMap<number, unknown>,
+  resolveHeads: HeadResolver | undefined,
+  context: Record<string, unknown>,
+): Promise<{ targets: Map<string, string[]>; refreshed: Map<number, string[]> }> {
+  const out = new Map<string, string[]>()
+  /** Merge requests read on this path per project, matched or not (a headless one stores its head). */
+  const refreshed = new Map<number, string[]>()
+  const checks = events.filter((e) => projects.has(e.project_id) && !rereadFailures.has(e.project_id) && checkedHead(e) !== null)
+  if (checks.length === 0) return { targets: out, refreshed }
+  const headsByProject = new Map<number, Set<string>>()
+  for (const e of checks) headsByProject.set(e.project_id, (headsByProject.get(e.project_id) ?? new Set<string>()).add(checkedHead(e)!))
+
+  const stored = new Map<string, number[]>()
+  let reads = 0
+  let unread = 0
+  for (const [projectId, heads] of resolveHeads ? headsByProject : []) {
+    let answer: Awaited<ReturnType<HeadResolver>>
+    try {
+      answer = await resolveHeads!(projectId, [...heads])
+    } catch (err) {
+      log.error("gitstation check lookup failed: these checks wait for their merge request's next event", { ...context, stationProjectId: projectId, error: err instanceof Error ? err.message : String(err) })
+      continue
+    }
+    for (const [head, iids] of answer.byHead) stored.set(`${projectId}@${head}`, iids)
+    const wanted = new Set([...[...heads].flatMap((h) => stored.get(`${projectId}@${h}`) ?? []), ...answer.headless])
+    for (const iid of wanted) {
+      const key = detailKey(projectId, iid)
+      if (details.has(key)) continue
+      if (reads >= MAX_CHECK_READS) {
+        unread++
+        continue
+      }
+      reads++
+      try {
+        details.set(key, await client.getMergeRequest(projectId, iid))
+        refreshed.set(projectId, [...(refreshed.get(projectId) ?? []), key])
+      } catch (err) {
+        unread++
+        log.warn("gitstation merge request not read for a check", { ...context, stationProjectId: projectId, iid, error: err instanceof Error ? err.message : String(err) })
+      }
+    }
+  }
+  if (unread > 0) log.info("gitstation check reads bounded or failed", { ...context, read: reads, unread })
+
+  const byHead = new Map<string, string[]>()
+  for (const [key, mr] of details) {
+    const head = headShaOf(mr.head_sha)
+    if (head) byHead.set(`${mr.project_id}@${head}`, [...(byHead.get(`${mr.project_id}@${head}`) ?? []), key])
+  }
+  const misses: { id: string; stationProjectId: number; head: string }[] = []
+  for (const e of checks) {
+    const at = `${e.project_id}@${checkedHead(e)!}`
+    const keys = [...new Set([...(byHead.get(at) ?? []), ...(stored.get(at) ?? []).map((iid) => detailKey(e.project_id, iid))])].filter((k) => details.has(k))
+    if (keys.length === 0) misses.push({ id: e.id, stationProjectId: e.project_id, head: checkedHead(e)! })
+    out.set(e.id, keys)
+  }
+  // Expected for checks on a branch without a merge request (main); the only trace of a dot that did not move.
+  if (misses.length > 0) log.info("gitstation checks on no known merge request head", { ...context, count: misses.length, samples: misses.slice(0, SAMPLES) })
+  return { targets: out, refreshed }
 }
 
 /**
@@ -424,6 +544,8 @@ export async function readFeed(
   reread: readonly number[] = [],
   /** Consecutive held reads of this feed so far (MAX_DEFECT_HOLDS). */
   holdsSoFar = 0,
+  /** N2: stored merge request heads (check.completed); without it a check finds only the merge requests of this read. */
+  resolveHeads?: HeadResolver,
 ): Promise<FeedRead> {
   let after = decodeStationCursor(start)
   let restarted: string | null = null
@@ -432,7 +554,7 @@ export async function readFeed(
   let snapshots = new Map<number, GitStationMergeRequest[]>()
   let rereadFailures = new Map<number, unknown>()
   const links: StationLinks = (projectId, ...segments) => client.webUrl(projectId, ...segments)
-  const held = (): FeedRead => ({ start, events: [], snapshots: new Map(), rereadFailures: new Map(), details: new Map(), commits: new Map(), links, cursor: start, failures, restarted: null })
+  const held = (): FeedRead => ({ start, events: [], snapshots: new Map(), rereadFailures: new Map(), details: new Map(), checkTargets: new Map(), checkReads: new Map(), commits: new Map(), links, cursor: start, failures, restarted: null })
   const ours = new Set(projects)
 
   try {
@@ -517,8 +639,8 @@ export async function readFeed(
   if (malformed > 0) log.warn("gitstation events of an unexpected shape skipped", { ...context, count: malformed, samples: malformedSamples })
   if (more && failures.length === 0) log.info("git sync backlog", { ...context, kind: "feed" })
 
-  const enriched = await enrich(client, events, ours, rereadFailures, context, holdsSoFar)
-  return { start, events, snapshots, rereadFailures, details: enriched.details, commits: enriched.commits, links, cursor: encodeStationCursor(after), failures, restarted }
+  const enriched = await enrich(client, events, ours, rereadFailures, context, holdsSoFar, resolveHeads)
+  return { start, events, snapshots, rereadFailures, details: enriched.details, checkTargets: enriched.checkTargets, checkReads: enriched.checkReads, commits: enriched.commits, links, cursor: encodeStationCursor(after), failures, restarted }
   }
 }
 
@@ -568,6 +690,7 @@ function toRecord(mr: GitStationMergeRequest, links: StationLinks, mergedAt: str
     openedAt: mr.created_at,
     targetBranch: mr.target_branch ?? null,
     mergedBy: state === "merged" ? mergedBy : null,
+    headSha: headShaOf(mr.head_sha),
   }
 }
 
@@ -599,7 +722,8 @@ export interface RoutedRead {
 /**
  * Routes one read to its Kanflow repositories by GitStation project id: each gets its re-read merge
  * requests first, then the merge requests its events name (their current state; the merged event's
- * time) and its pushed commits. Event types Kanflow does not use are skipped (02 §5.8). Logged once
+ * time), the merge requests its check.completed events are about (N2) and its pushed commits. Event types Kanflow
+ * does not use are skipped (02 §5.8) and counted per type (debug). Logged once
  * per read, with samples: events Kanflow cannot use, events naming one of these Kanflow projects
  * from a GitStation project that is none of their repositories, re-read items that do not parse.
  */
@@ -634,9 +758,22 @@ export function routeFeed(read: FeedRead, repositories: readonly FeedRepository[
 
   const unusable: { id: string; type: string }[] = []
   const unrouted: { id: string; stationProjectId: number }[] = []
+  /** N2: event types Kanflow does not use, counted per type (debug: they are expected, e.g. work_item.linked). */
+  const unused = new Map<string, number>()
   for (const e of read.events) {
     const mergeRequest = isMergeRequestEvent(e)
-    if (!mergeRequest && e.type !== PUSHED) continue
+    const check = e.type === CHECK_COMPLETED
+    if (!mergeRequest && !check && e.type !== PUSHED) {
+      const type = e.type.slice(0, 64)
+      const counted = unused.has(type) || unused.size < MAX_UNUSED_TYPES ? type : OTHER_TYPES
+      unused.set(counted, (unused.get(counted) ?? 0) + 1)
+      // A type first seen by this process is worth one line at info (a new GitStation event Kanflow may want).
+      if (counted === type && !seenUnusedTypes.has(type) && seenUnusedTypes.size < MAX_SEEN_TYPES) {
+        seenUnusedTypes.add(type)
+        log.info("gitstation event type not used", { ...context, type })
+      }
+      continue
+    }
     const targets = byProject.get(e.project_id) ?? []
     if (targets.length === 0) {
       if ([...projectsNamed(e)].some((p) => kanflowProjects.has(p))) unrouted.push({ id: e.id, stationProjectId: e.project_id })
@@ -646,7 +783,17 @@ export function routeFeed(read: FeedRead, repositories: readonly FeedRepository[
     for (const r of targets) {
       eventCounts.set(r.id, (eventCounts.get(r.id) ?? 0) + 1)
       // Pushed commits are read per project (read.commits); a refused project is re-read later.
-      if (!mergeRequest || read.rereadFailures.has(e.project_id)) continue
+      if ((!mergeRequest && !check) || read.rereadFailures.has(e.project_id)) continue
+      if (check) {
+        // The merge requests whose head was checked (none known = nothing to update, not a defect).
+        for (const key of read.checkTargets.get(e.id) ?? []) {
+          const detail = read.details.get(key)
+          const record = detail ? toRecord(detail, read.links, mergedAt.get(key) ?? null, mergedBy.get(key) ?? null) : null
+          if (record) mrs.get(r.id)!.set(record.ref, record)
+          else usable = false
+        }
+        continue
+      }
       const key = isIid(e.data.iid) ? detailKey(e.project_id, e.data.iid) : null
       const detail = key === null ? undefined : read.details.get(key)
       const record = detail && key !== null ? toRecord(detail, read.links, mergedAt.get(key) ?? null, mergedBy.get(key) ?? null) : null
@@ -655,9 +802,19 @@ export function routeFeed(read: FeedRead, repositories: readonly FeedRepository[
     }
     if (!usable) unusable.push({ id: e.id, type: e.type })
   }
+  // N2: merge requests read for checks (matched or not) are written fresh: a link without a stored head gets one.
+  for (const r of repositories) {
+    if (r.stationProjectId === null || read.rereadFailures.has(r.stationProjectId)) continue
+    for (const key of read.checkReads.get(r.stationProjectId) ?? []) {
+      const detail = read.details.get(key)
+      const record = detail ? toRecord(detail, read.links, mergedAt.get(key) ?? null, mergedBy.get(key) ?? null) : null
+      if (record && !mrs.get(r.id)!.has(record.ref)) mrs.get(r.id)!.set(record.ref, record)
+    }
+  }
   if (unusable.length > 0) log.warn("gitstation events not usable", { ...context, count: unusable.length, samples: unusable.slice(0, SAMPLES) })
   if (unrouted.length > 0) log.warn("gitstation events match no repository", { ...context, count: unrouted.length, samples: unrouted.slice(0, SAMPLES) })
   if (unparsedSnapshot > 0) log.warn("gitstation state items not usable", { ...context, count: unparsedSnapshot })
+  if (unused.size > 0) log.debug("gitstation event types not used", { ...context, counts: Object.fromEntries(unused) })
 
   const changes = new Map<string, DevChanges>()
   for (const r of repositories) {
@@ -677,6 +834,32 @@ export function routeFeed(read: FeedRead, repositories: readonly FeedRepository[
 /** One repository's slice of a read (the per-repository DevSource). */
 export function changesFor(read: FeedRead, repository: FeedRepository): DevChanges {
   return routeFeed(read, [repository], { repositoryId: repository.id }).changes.get(repository.id)!
+}
+
+// ------------------------------------------------------------------ checks
+
+/** Conclusions that mean the check did its job and found nothing wrong. */
+const PASSED = new Set(["success", "neutral"])
+/** Conclusions that mean the commit is broken (CI red: the card turns red and the PBI's people are told). */
+const BROKEN = new Set(["failure", "error"])
+
+/**
+ * N2: the check runs of a merge request's head as one pipeline status, in the words the card already uses
+ * (git-labels / git-format). Worst first:
+ * - a run that failed or errored → "failed" (CI red; notified once per change, git-sync)
+ * - a run still queued / running → "running" ("pending" when every unfinished run is still queued)
+ * - a run that waits for a person (`action_required`, e.g. kanflow/acceptance before the PBI is accepted) or ends with
+ *   a conclusion Kanflow does not know → "manual" (shown as waiting — never as red, never notified)
+ * - otherwise (success / neutral) → "success". No run → null (nothing to show).
+ */
+export function checksVerdict(runs: readonly GitStationCheckRun[]): string | null {
+  if (runs.length === 0) return null
+  const done = runs.filter((r) => r.status === "completed")
+  if (done.some((r) => r.conclusion !== null && BROKEN.has(r.conclusion))) return "failed"
+  const open = runs.filter((r) => r.status !== "completed")
+  if (open.length > 0) return open.every((r) => r.status === "queued") ? "pending" : "running"
+  if (done.some((r) => r.conclusion === null || !PASSED.has(r.conclusion))) return "manual"
+  return "success"
 }
 
 // ------------------------------------------------------------------ errors
@@ -819,8 +1002,28 @@ export function createGitStationSource(connection: DevConnection, factory: GitSt
       }
     },
 
-    /** Pipelines reach the feed in M4 (02 §5.8 段階); until then there is no status to show. */
-    pipelineStatus: async () => null,
+    /**
+     * N2: the card's dot from the check runs on the merge request's head (GitStation has no pipeline events yet; M4's
+     * pipelines are expected to report as checks too). The head this read saw, else the merge request is read for it.
+     * No head yet (no version recorded) or no check = no status.
+     */
+    async pipelineStatus(ref: string, headSha?: string | null): Promise<string | null> {
+      const id = await stationProject()
+      const head = headSha ?? (await station().getMergeRequest(id, Number(ref))).head_sha ?? null
+      if (!head || !isObjectId(head)) return null
+      return checksVerdict(await station().commitChecks(id, head))
+    },
+
+    /**
+     * N3 (W4 触る範囲): the merge request's changed files from GitStation's context answer (at most 300 there). Files
+     * withheld from the service account (confidential marks) are never named: a listing with any is incomplete.
+     */
+    async changedPaths(ref: string): Promise<DevChangedPaths> {
+      const id = await stationProject()
+      const r = await station().mergeRequestChangedPaths(id, Number(ref))
+      if (r.withheld > 0 || r.skipped > 0) log.info("gitstation changed files not all named", { repositoryId, mr: ref, withheld: r.withheld, skipped: r.skipped })
+      return { paths: r.paths, complete: !r.truncated && r.withheld === 0 && r.skipped === 0 }
+    },
 
     /** Tags without release data (GitStation has none); their date is kept once stored (null = unknown). */
     async listReleaseTags(): Promise<DevReleaseListing> {

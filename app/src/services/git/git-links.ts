@@ -25,6 +25,8 @@ export interface LinkDraft {
   targetBranch: string | null
   /** MR only: display name of who merged it; null = unknown (writers keep the stored value then). */
   mergedBy: string | null
+  /** MR only (N2): the head commit (lower-case hex); null = unknown (writers keep the stored value then). */
+  headSha: string | null
 }
 
 const cut = (s: string | null | undefined, max: number) => (s ?? "").slice(0, max)
@@ -54,7 +56,16 @@ export function mergeRequestFields(mr: DevMergeRequest, now: Date): Omit<LinkDra
     targetBranch: cut(mr.targetBranch, 255) || null,
     // Only a merged MR has a merger (a source that names one for an open MR is not believed).
     mergedBy: mr.state === "merged" ? cut(mr.mergedBy, 191).trim() || null : null,
+    headSha: headShaOf(mr.headSha),
   }
+}
+
+const OBJECT_ID = /^[0-9a-f]{40}([0-9a-f]{24})?$/
+
+/** A commit id (40 or 64 hex, stored lower-case) or null: anything else is unknown, never stored. */
+export function headShaOf(s: string | null | undefined): string | null {
+  const v = typeof s === "string" ? s.toLowerCase() : ""
+  return OBJECT_ID.test(v) ? v : null
 }
 
 /** A real date or null — never "now": an unknown open time must stay unknown (plan 12 E1: null, not a guess). */
@@ -90,6 +101,7 @@ export function linksFromBranch(branch: DevBranch, now: Date): LinkDraft[] {
     openedAt: null,
     targetBranch: null,
     mergedBy: null,
+    headSha: null,
   }))
 }
 
@@ -110,6 +122,7 @@ export function linksFromCommit(commit: DevCommit, now: Date): LinkDraft[] {
     openedAt: null,
     targetBranch: null,
     mergedBy: null,
+    headSha: null,
   }))
 }
 

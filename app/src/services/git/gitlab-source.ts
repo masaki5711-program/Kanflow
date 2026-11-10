@@ -149,6 +149,7 @@ export const toDevMergeRequest = (mr: GitLabMergeRequest): DevMergeRequest => ({
   openedAt: mr.created_at ?? null,
   targetBranch: text(mr.target_branch),
   mergedBy: personName(mr.merge_user) ?? personName(mr.merged_by),
+  headSha: text(mr.sha),
 })
 
 /** The listing is not validated field by field: anything that is not a non-empty string counts as unknown. */

@@ -443,6 +443,28 @@ export interface GitStationCheckReport {
   summary: string
 }
 
+/** One check run on a commit, as Kanflow keeps it (N2): no summary, annotations or links. */
+export interface GitStationCheckRun {
+  /** `<namespace>/<name>` (`forge/…` = GitStation's own). */
+  name: string
+  /** queued | in_progress | completed (others may come: unknown = not completed). */
+  status: string
+  /** success | neutral | failure | error | action_required; null until completed. */
+  conclusion: string | null
+}
+
+/** The changed files of a merge request (N3). */
+export interface GitStationChangedPaths {
+  /** New paths, plus the old path of a rename / copy; each once. */
+  paths: string[]
+  /** GitStation listed only part of the files (more than 300, or its diff was cut short). */
+  truncated: boolean
+  /** Files withheld from the service account (confidential marks): counted, never named. */
+  withheld: number
+  /** Files of an unexpected shape (no path). */
+  skipped: number
+}
+
 const OID = /^[0-9a-f]{40}([0-9a-f]{24})?$/
 
 /** A commit id GitStation would accept as `?ref=` (40 or 64 lower-case hex). */
@@ -632,6 +654,55 @@ export function createGitStationClient({ apiBase, token, integrationId, fetchImp
       const mr = parseMergeRequest(await send(`${projectBase(projectId)}/merge-requests/${iid}`, {}))
       if (!mr || mr.project_id !== projectId || mr.iid !== iid) throw new GitStationError("invalid_response", "GitStation merge request has an unexpected shape")
       return mr
+    },
+
+    /**
+     * N2: the check runs on a commit (`/commits/{sha}/checks`, CheckRead — the service account may read it), reduced to
+     * name, status and conclusion. The text GitStation holds about a run (summary, annotations, details link) is never
+     * kept: Kanflow shows the verdict and links to GitStation for the rest. Runs of an unexpected shape are dropped.
+     */
+    async commitChecks(projectId: number, sha: string): Promise<GitStationCheckRun[]> {
+      if (!isObjectId(sha)) throw new GitStationError("invalid_response", "not a commit id")
+      const body = await send(`${projectBase(projectId)}/commits/${sha}/checks`, {})
+      if (!isObject(body) || !Array.isArray(body.check_runs)) throw new GitStationError("invalid_response", "GitStation check runs have an unexpected shape")
+      return body.check_runs.flatMap((c) =>
+        isObject(c) && str(c.name) && str(c.status) && (c.conclusion === null || c.conclusion === undefined || str(c.conclusion))
+          ? [{ name: c.name.slice(0, 128), status: c.status.slice(0, 32), conclusion: str(c.conclusion) ? c.conclusion.slice(0, 32) : null }]
+          : [],
+      )
+    },
+
+    /**
+     * N3: the files a merge request changes (`/merge-requests/{iid}/context`, `merge_base..head`, at most 300 there),
+     * each file's path and, for a rename / copy, its old path. Only the paths are kept (the answer also carries the
+     * description and requirements — not read here). Files GitStation withholds from a service account (confidential
+     * marks) are counted only: their paths never reach Kanflow, and a listing with any is not complete.
+     */
+    async mergeRequestChangedPaths(projectId: number, iid: number): Promise<GitStationChangedPaths> {
+      if (!isId(iid)) throw new GitStationError("invalid_response", "not a merge request iid")
+      const body = await send(`${projectBase(projectId)}/merge-requests/${iid}/context`, {})
+      if (!isObject(body) || !Array.isArray(body.files) || typeof body.files_truncated !== "boolean") {
+        throw new GitStationError("invalid_response", "GitStation merge request context has an unexpected shape")
+      }
+      const paths = new Set<string>()
+      let skipped = 0
+      for (const f of body.files) {
+        const path = isObject(f) && isObject(f.source) && str(f.source.path) ? f.source.path : null
+        if (path === null) {
+          skipped++
+          continue
+        }
+        paths.add(path)
+        if (isObject(f) && str(f.old_path)) paths.add(f.old_path)
+      }
+      // Fail closed: `withheld` null / absent = nothing withheld; an object counts its `files` (other counters are about
+      // requirements and work items, not files); any other shape counts as withheld — a shape Kanflow does not know
+      // must never make a partial list look whole.
+      const w = body.withheld
+      const files = isObject(w) ? w.files : undefined
+      const withheld = w === null || w === undefined ? 0 : typeof files === "number" && Number.isSafeInteger(files) && files >= 0 ? files : isObject(w) && files === undefined ? 0 : 1
+      // `incomplete` (any non-null value): GitStation could not finish the answer: the list is not to be trusted as whole.
+      return { paths: [...paths], truncated: body.files_truncated || (body.incomplete !== null && body.incomplete !== undefined), withheld, skipped }
     },
 
     /**

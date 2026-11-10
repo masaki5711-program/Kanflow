@@ -19,8 +19,8 @@ describe.skipIf(!enabled)("repository bindings through GitStation act-as on a re
   const tag = `x3test-${Date.now().toString(36)}`
   const ids = { project: `${tag}-p`, other: `${tag}-q`, alice: `${tag}-alice`, bob: `${tag}-bob`, carol: `${tag}-carol`, link: `${tag}-l`, repo: `${tag}-r`, pbi: `${tag}-b` }
   /** Employee numbers (synthetic): Alice maintains both repositories, Bob none, Carol has no number. */
-  const ALICE = `A${tag.replace(/[^a-z0-9]/gi, "").slice(-8)}`
-  const BOB = `B${tag.replace(/[^a-z0-9]/gi, "").slice(-8)}`
+  const ALICE = `X3A${tag.replace(/[^a-z0-9]/gi, "").slice(-8)}`
+  const BOB = `X3B${tag.replace(/[^a-z0-9]/gi, "").slice(-8)}`
   const CODE = 31
   const SPECS = 32
   let prisma: typeof import("@/lib/prisma").prisma

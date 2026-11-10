@@ -131,6 +131,7 @@ describe("GitLabSource", () => {
       openedAt: null,
       targetBranch: null,
       mergedBy: null,
+      headSha: null,
     })
     expect((await source.listBranches(NOW)).items[0]).toEqual({ name: "feature/PBI-3-x", url: "https://gitlab.example/b", headTitle: "wip", headAuthor: "Dev", headCommittedAt: "2026-09-30T00:00:00.000Z" })
   })

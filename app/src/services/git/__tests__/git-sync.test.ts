@@ -1061,6 +1061,7 @@ describe("syncRepository — full success: links, pipelines, gone branches, auto
       openedAt: null,
       targetBranch: null,
       mergedBy: null,
+      headSha: null,
       goneAt: null,
       declaredAt: null,
     }
@@ -1077,6 +1078,17 @@ describe("syncRepository — full success: links, pipelines, gone branches, auto
     expect(isSameLink({ ...data, occurredAt: new Date(NOW.getTime() + 1) }, data)).toBe(false)
     // A gone branch seen again is rewritten (goneAt cleared).
     expect(isSameLink({ ...data, goneAt: new Date(NOW) }, data)).toBe(false)
+  })
+
+  it("N2: headMoved — only a known head that differs from a stored one (an old dot is never carried across a push)", () => {
+    const a = "a".repeat(40)
+    const b = "b".repeat(40)
+    expect(gitSync.headMoved({ headSha: a }, { headSha: b })).toBe(true)
+    expect(gitSync.headMoved({ headSha: a }, { headSha: a })).toBe(false)
+    // Unknown on either side: nothing proves a push, the last dot is kept.
+    expect(gitSync.headMoved({ headSha: null }, { headSha: b })).toBe(false)
+    expect(gitSync.headMoved({ headSha: a }, { headSha: null })).toBe(false)
+    expect(gitSync.headMoved(null, { headSha: b })).toBe(false)
   })
 
   it("mergedAtToStore keeps a stored merge time once merged (any source), else takes the source's", () => {

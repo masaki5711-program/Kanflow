@@ -12,7 +12,7 @@ vi.mock("@/lib/logger", () => ({ logger: noopLog }))
 process.env.GITSTATION_ALLOWED_HOSTS = STATION_HOST
 
 const { createGitStationClient, GONE_REASONS, GitStationError, MAX_RESPONSE_BYTES } = await import("@/lib/git/gitstation-client")
-const { actorName, gitStationSourceKind, createGitStationSource,decodeStationCursor, encodeStationCursor, readFeed, routeFeed, MAX_DEV_STATUS_PAGES, MAX_DETAILS_PER_PROJECT, MAX_FOLLOW_UPS_PER_READ, MAX_DEFECT_HOLDS } = await import("../gitstation-source")
+const { actorName, checksVerdict, gitStationSourceKind, createGitStationSource,decodeStationCursor, encodeStationCursor, readFeed, routeFeed, MAX_CHECK_READS, MAX_DEV_STATUS_PAGES, MAX_DETAILS_PER_PROJECT, MAX_FOLLOW_UPS_PER_READ, MAX_DEFECT_HOLDS } = await import("../gitstation-source")
 const { CURSOR_INVALID_MESSAGE } = await import("@/lib/git/sync-messages")
 
 /** GitStation's golden example (docs/api/integration-feed.example.json at GitStation main, I1c; synthetic). */
@@ -685,6 +685,8 @@ describe("GitStation feed", () => {
       snapshots: new Map([[REPO_ID, [{ ...ok, iid: 3, state: "weird" }, ok]]]),
       rereadFailures: new Map(),
       details: new Map(),
+      checkTargets: new Map(),
+      checkReads: new Map(),
       commits: new Map(),
       links: client.webUrl,
       cursor: fresh(),
@@ -730,8 +732,10 @@ describe("GitStation feed", () => {
     expect(station.requests).toEqual([])
   })
 
-  it("pipelines are not in the feed until M4: the status is null", async () => {
-    expect(await sourceOn(createFakeGitStation()).pipelineStatus("1")).toBeNull()
+  it("N2: a merge request without check runs (or without a head yet) has no status", async () => {
+    const station = createFakeGitStation()
+    station.mergeRequest("merge_request.opened", 1)
+    expect(await sourceOn(station).pipelineStatus("1")).toBeNull()
   })
 
   it("lists the PBI branches (GitStation's refs have no search) with their permalinks", async () => {
@@ -978,5 +982,248 @@ describe("N11: merge history fields", () => {
     const page = await client.events("AgAD")
     expect(page.malformed).toBe(0)
     expect(page.events.map((e) => e.actor)).toEqual([{ kind: "user", user: { username: "alice", display_name: "Alice Example" } }, null, null])
+  })
+})
+
+// ------------------------------------------------------------------ N2 / N3
+
+describe("N2: check results", () => {
+  /** A stored-head answer: iids per head, and open merge requests with no stored head. */
+  const answer = (byHead: [string, number[]][], headless: number[] = []) => ({ byHead: new Map(byHead), headless })
+  const run =(status: string, conclusion: string | null) => ({ name: "ci/build", status, conclusion })
+
+  it("checksVerdict: worst first — red, then unfinished, then waiting for a person, then green; none = null", () => {
+    expect(checksVerdict([])).toBeNull()
+    expect(checksVerdict([run("completed", "success"), run("completed", "neutral")])).toBe("success")
+    expect(checksVerdict([run("completed", "success"), run("completed", "failure")])).toBe("failed")
+    expect(checksVerdict([run("completed", "error"), run("in_progress", null)])).toBe("failed")
+    expect(checksVerdict([run("completed", "success"), run("in_progress", null)])).toBe("running")
+    expect(checksVerdict([run("queued", null), run("completed", "success")])).toBe("pending")
+    expect(checksVerdict([run("queued", null), run("in_progress", null)])).toBe("running")
+    // kanflow/acceptance before the PBI is accepted: waiting, never red (no CI-failure notification).
+    expect(checksVerdict([run("completed", "success"), { name: "kanflow/acceptance", status: "completed", conclusion: "action_required" }])).toBe("manual")
+    // A conclusion Kanflow does not know, or a status it does not know: shown as waiting / unfinished, never green.
+    expect(checksVerdict([run("completed", "stale")])).toBe("manual")
+    expect(checksVerdict([run("waiting", null)])).toBe("running")
+  })
+
+  it("the dot comes from the head the read saw (no merge request read); without one the merge request is read for it", async () => {
+    const station = createFakeGitStation()
+    station.mergeRequest("merge_request.opened", 1)
+    station.checkRun(oid(1), "ci/build", "failure")
+    const source = sourceOn(station)
+    expect(await source.pipelineStatus("1", oid(1))).toBe("failed")
+    expect(feedCalls(station)).toEqual([`/projects/${REPO_ID}/commits/${oid(1)}/checks`])
+    station.requests.length = 0
+    expect(await source.pipelineStatus("1")).toBe("failed")
+    expect(feedCalls(station)).toEqual([`/projects/${REPO_ID}/merge-requests/1`, `/projects/${REPO_ID}/commits/${oid(1)}/checks`])
+  })
+
+  it("the client keeps name, status and conclusion only — never the summary, annotations or links", async () => {
+    const station = createFakeGitStation()
+    station.mergeRequest("merge_request.opened", 1)
+    station.checkRun(oid(1), "ci/build", "success")
+    station.checkRun(oid(1), "ci/lint", null)
+    const runs = await clientOn(station).commitChecks(REPO_ID, oid(1))
+    expect(runs).toEqual([
+      { name: "ci/build", status: "completed", conclusion: "success" },
+      { name: "ci/lint", status: "in_progress", conclusion: null },
+    ])
+    await expect(clientOn(station).commitChecks(REPO_ID, "not-a-sha")).rejects.toMatchObject({ kind: "invalid_response" })
+    const odd: typeof fetch = async () => json(200, { check_runs: "nope" })
+    await expect(clientOn(station, odd).commitChecks(REPO_ID, oid(1))).rejects.toMatchObject({ kind: "invalid_response" })
+  })
+
+  it("check.completed on a head already stored: that merge request is read again and comes out fresh", async () => {
+    const station = createFakeGitStation()
+    station.mergeRequest("merge_request.opened", 1)
+    const start = here(station)
+    station.checkRun(oid(1), "ci/build", "failure")
+    const resolver = vi.fn(async (_project: number, heads: readonly string[]) => answer(heads.map((h) => [h, h === oid(1) ? [1] : []])))
+    const read = await readFeed(clientOn(station), start, [REPO_ID], {}, [], 0, resolver)
+    expect(resolver).toHaveBeenCalledWith(REPO_ID, [oid(1)])
+    const changes = routeFeed(read, [repo("r1", REPO_ID)]).changes.get("r1")!
+    expect(changes.mergeRequests).toEqual([expect.objectContaining({ ref: "1", headSha: oid(1) })])
+    expect([...changes.freshMergeRequestRefs]).toEqual(["1"])
+    expect(logs.warn).not.toHaveBeenCalledWith("gitstation events not usable", expect.anything())
+  })
+
+  it("check.completed in the same read as the event that named the merge request: matched in the read (not read twice)", async () => {
+    const station = createFakeGitStation()
+    const start = here(station)
+    station.mergeRequest("merge_request.opened", 2)
+    station.checkRun(oid(2), "ci/build", "success")
+    const read = await readFeed(clientOn(station), start, [REPO_ID], {}, [], 0, async () => answer([]))
+    expect([...read.checkTargets.values()]).toEqual([[`${REPO_ID}!2`]])
+    expect(station.requests.filter((r) => r.includes("/merge-requests/2"))).toHaveLength(1)
+    expect(routeFeed(read, [repo("r1", REPO_ID)]).changes.get("r1")!.mergeRequests.map((m) => m.ref)).toEqual(["2"])
+  })
+
+  it("two merge requests on one head (one in the read, one only stored): both are refreshed", async () => {
+    const station = createFakeGitStation()
+    station.mergeRequest("merge_request.opened", 3)
+    station.moveHead(3, oid(2))
+    const start = here(station)
+    station.mergeRequest("merge_request.opened", 2)
+    station.checkRun(oid(2), "ci/build", "failure")
+    const read = await readFeed(clientOn(station), start, [REPO_ID], {}, [], 0, async (_p, heads) => answer(heads.map((h) => [h, [3]])))
+    expect([...read.checkTargets.values()].map((keys) => [...keys].sort())).toEqual([[`${REPO_ID}!2`, `${REPO_ID}!3`]])
+    expect(routeFeed(read, [repo("r1", REPO_ID)]).changes.get("r1")!.mergeRequests.map((m) => m.ref).sort()).toEqual(["2", "3"])
+  })
+
+  it("open merge requests with no stored head yet are read (bounded) and written, so their head is stored and the check found", async () => {
+    const station = createFakeGitStation()
+    station.mergeRequest("merge_request.opened", 4)
+    station.mergeRequest("merge_request.opened", 5)
+    const start = here(station)
+    station.checkRun(oid(4), "ci/build", "failure")
+    const read = await readFeed(clientOn(station), start, [REPO_ID], {}, [], 0, async () => answer([], [4, 5]))
+    expect(read.checkTargets.get(station.events.at(-1)!.id)).toEqual([`${REPO_ID}!4`])
+    // Both written (5 matched nothing, but its head is stored from here on).
+    expect(routeFeed(read, [repo("r1", REPO_ID)]).changes.get("r1")!.mergeRequests.map((m) => [m.ref, m.headSha])).toEqual([
+      ["4", oid(4)],
+      ["5", oid(5)],
+    ])
+  })
+
+  it("an upper-case checked commit is matched like a lower-case one", async () => {
+    const station = createFakeGitStation()
+    const start = here(station)
+    station.mergeRequest("merge_request.opened", 2)
+    station.push("check.completed", { head_sha: oid(2).toUpperCase(), name: "ci/build", status: "completed", conclusion: "failure" }, [])
+    const read = await readFeed(clientOn(station), start, [REPO_ID])
+    expect([...read.checkTargets.values()]).toEqual([[`${REPO_ID}!2`]])
+  })
+
+  it(`check reads are bounded per read (${MAX_CHECK_READS}): the rest waits for the merge request's next event`, async () => {
+    const station = createFakeGitStation()
+    const iids = Array.from({ length: MAX_CHECK_READS + 5 }, (_, i) => i + 1)
+    for (const iid of iids) station.mergeRequest("merge_request.opened", iid)
+    const start = here(station)
+    for (const iid of iids) station.checkRun(oid(iid), "ci/build", "success")
+    station.requests.length = 0
+    const read = await readFeed(clientOn(station), start, [REPO_ID], {}, [], 0, async (_p, heads) => answer(heads.map((h) => [h, [iids[heads.indexOf(h)]]])))
+    expect(station.requests.filter((r) => /\/merge-requests\/\d+$/.test(r))).toHaveLength(MAX_CHECK_READS)
+    expect(logs.info).toHaveBeenCalledWith("gitstation check reads bounded or failed", { read: MAX_CHECK_READS, unread: 5 })
+    expect(read.cursor).not.toBe(start)
+  })
+
+  it("a check on a commit that is no known merge request head changes nothing and is not a defect", async () => {
+    const station = createFakeGitStation()
+    const push = station.pushed(REPO, "refs/heads/main", [{ subject: "chore: bump" }])
+    const start = here(station)
+    const head = (push.data.refs as { new: string }[])[0].new
+    station.checkRun(head, "ci/build", "failure")
+    const read = await readFeed(clientOn(station), start, [REPO_ID], {}, [], 0, async () => answer([]))
+    const changes = routeFeed(read, [repo("r1", REPO_ID)]).changes.get("r1")!
+    expect(changes.mergeRequests).toEqual([])
+    expect(changes.failures).toEqual([])
+    expect(logs.warn).not.toHaveBeenCalledWith("gitstation events not usable", expect.anything())
+    // At info, with samples: the only trace of a dot that did not move.
+    expect(logs.info).toHaveBeenCalledWith("gitstation checks on no known merge request head", { count: 1, samples: [{ id: station.events.at(-1)!.id, stationProjectId: REPO_ID, head }] })
+  })
+
+  it("a check on a project outside the read is not looked up", async () => {
+    const station = createFakeGitStation()
+    station.bind("app/other")
+    station.mergeRequest("merge_request.opened", 1, { project: "app/other" })
+    const start = here(station)
+    station.checkRun(oid(1), "ci/build", "failure", { path: "app/other" })
+    const resolver = vi.fn(async () => answer([]))
+    await readFeed(clientOn(station), start, [REPO_ID], {}, [], 0, resolver)
+    expect(resolver).not.toHaveBeenCalled()
+  })
+
+  it("a check is advisory: a failing stored-head lookup is logged and those checks dropped — the read goes on", async () => {
+    const station = createFakeGitStation()
+    station.mergeRequest("merge_request.opened", 1)
+    const start = here(station)
+    station.checkRun(oid(1), "ci/build", "failure")
+    const read = await readFeed(clientOn(station), start, [REPO_ID], {}, [], 0, async () => Promise.reject(new Error("db down")))
+    expect(read.cursor).not.toBe(start)
+    expect(read.failures).toEqual([])
+    expect(logs.error).toHaveBeenCalledWith("gitstation check lookup failed: these checks wait for their merge request's next event", { stationProjectId: REPO_ID, error: "db down" })
+  })
+
+  it.each([
+    ["refused (403)", 403, { error_code: "FG-AUTHZ-0001" }],
+    ["gone (404)", 404, { error_code: "FG-WEB-0004" }],
+    ["busy (503)", 503, {}],
+  ])("a merge request that cannot be read for a check (%s) is dropped with a warning: never a project failure, never a hold", async (_label, status, body) => {
+    const station = createFakeGitStation()
+    station.mergeRequest("merge_request.opened", 1)
+    const start = here(station)
+    station.checkRun(oid(1), "ci/build", "failure")
+    station.fail(`/projects/${REPO_ID}/merge-requests/1`, status, body, undefined, 5)
+    const read = await readFeed(clientOn(station), start, [REPO_ID], {}, [], 0, async () => answer([[oid(1), [1]]]))
+    expect(read.rereadFailures.size).toBe(0)
+    expect(read.failures).toEqual([])
+    expect(read.cursor).not.toBe(start)
+    expect(logs.warn).toHaveBeenCalledWith("gitstation merge request not read for a check", expect.objectContaining({ stationProjectId: REPO_ID, iid: 1 }))
+  })
+
+  it("event types Kanflow does not use are counted per type at debug level (each new one once at info), never failed", async () => {
+    const station = createFakeGitStation()
+    const start = here(station)
+    station.push("n2test.linked", { iid: 1 })
+    station.push("n2test.linked", { iid: 2 })
+    station.push("n2test.future", {})
+    const read = await readFeed(clientOn(station), start, [REPO_ID])
+    const changes = routeFeed(read, [repo("r1", REPO_ID)], { feedId: "f1" }).changes.get("r1")!
+    expect(changes.failures).toEqual([])
+    expect(logs.debug).toHaveBeenCalledWith("gitstation event types not used", { feedId: "f1", counts: { "n2test.linked": 2, "n2test.future": 1 } })
+    expect(logs.info.mock.calls.filter((c) => c[0] === "gitstation event type not used").map((c) => c[1].type)).toEqual(["n2test.linked", "n2test.future"])
+    // The same types again: no new info line.
+    logs.info.mockClear()
+    routeFeed(read, [repo("r1", REPO_ID)], { feedId: "f1" })
+    expect(logs.info).not.toHaveBeenCalledWith("gitstation event type not used", expect.anything())
+  })
+})
+
+describe("N3: changed files of a GitStation merge request", () => {
+  it("lists each path once, with the old path of a rename, complete when GitStation listed all", async () => {
+    const station = createFakeGitStation()
+    station.mergeRequest("merge_request.opened", 1)
+    station.setChangedFiles(1, [{ path: "app/src/a.ts" }, { path: "app/src/b.ts", old_path: "app/src/old-b.ts" }, { path: "app/src/a.ts" }])
+    const files = await sourceOn(station).changedPaths!("1")
+    expect(files).toEqual({ paths: ["app/src/a.ts", "app/src/b.ts", "app/src/old-b.ts"], complete: true })
+    expect(feedCalls(station)).toEqual([`/projects/${REPO_ID}/merge-requests/1/context`])
+  })
+
+  it("files GitStation withholds (confidential) are never named and make the listing incomplete", async () => {
+    const station = createFakeGitStation()
+    station.mergeRequest("merge_request.opened", 1)
+    station.setChangedFiles(1, [{ path: "app/src/a.ts" }], { withheld: 2 })
+    expect(await sourceOn(station).changedPaths!("1")).toEqual({ paths: ["app/src/a.ts"], complete: false })
+    expect(logs.info).toHaveBeenCalledWith("gitstation changed files not all named", { repositoryId: "r1", mr: "1", withheld: 2, skipped: 0 })
+  })
+
+  it("a listing GitStation cut short (over 300 files) is incomplete", async () => {
+    const station = createFakeGitStation()
+    station.mergeRequest("merge_request.opened", 1)
+    station.setChangedFiles(1, [{ path: "a" }], { truncated: true })
+    expect((await sourceOn(station).changedPaths!("1")).complete).toBe(false)
+  })
+
+  it("the client refuses a context answer of another shape, and an unfinished answer is not complete", async () => {
+    const station = createFakeGitStation()
+    const odd: typeof fetch = async () => json(200, { files: [] })
+    await expect(clientOn(station, odd).mergeRequestChangedPaths(REPO_ID, 1)).rejects.toMatchObject({ kind: "invalid_response" })
+    const partial: typeof fetch = async () =>
+      json(200, { files: [{ status: "modified", old_path: null, source: { path: "a.ts" } }, { status: "added" }], files_truncated: false, withheld: null, incomplete: { reason: "timeout" } })
+    expect(await clientOn(station, partial).mergeRequestChangedPaths(REPO_ID, 1)).toEqual({ paths: ["a.ts"], truncated: true, withheld: 0, skipped: 1 })
+  })
+
+  it.each([
+    ["incomplete: true", { incomplete: true }, { truncated: true, withheld: 0 }],
+    ["incomplete as text", { incomplete: "timeout" }, { truncated: true, withheld: 0 }],
+    ["withheld of an unknown shape", { withheld: true }, { truncated: false, withheld: 1 }],
+    ["withheld.files not a number", { withheld: { files: "2" } }, { truncated: false, withheld: 1 }],
+    ["withheld about requirements only", { withheld: { requirements: 2 } }, { truncated: false, withheld: 0 }],
+    ["nothing withheld", { withheld: { files: 0 } }, { truncated: false, withheld: 0 }],
+  ])("fails closed on the completeness fields: %s", async (_label, extra, expected) => {
+    const body = { files: [{ status: "modified", old_path: null, source: { path: "a.ts" } }], files_truncated: false, withheld: null, incomplete: null, ...extra }
+    const r = await clientOn(createFakeGitStation(), async () => json(200, body)).mergeRequestChangedPaths(REPO_ID, 1)
+    expect({ truncated: r.truncated, withheld: r.withheld }).toEqual(expected)
   })
 })

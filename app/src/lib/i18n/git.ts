@@ -362,7 +362,7 @@ export const ja: GitTranslations = {
   gitPipelinePending: "チェック待ち",
   gitPipelineCanceled: "チェック中止",
   gitPipelineSkipped: "チェックなし",
-  gitPipelineManual: "手動実行待ち",
+  gitPipelineManual: "対応待ち",
   gitPipelineOther: "チェック: {status}",
 }
 
@@ -546,7 +546,7 @@ export const en: GitTranslations = {
   gitPipelinePending: "Checks waiting",
   gitPipelineCanceled: "Checks canceled",
   gitPipelineSkipped: "Checks skipped",
-  gitPipelineManual: "Waiting for manual run",
+  gitPipelineManual: "Waiting for someone to act",
   gitPipelineOther: "Checks: {status}",
 }
 
@@ -730,6 +730,6 @@ export const id: GitTranslations = {
   gitPipelinePending: "Pemeriksaan menunggu",
   gitPipelineCanceled: "Pemeriksaan dibatalkan",
   gitPipelineSkipped: "Pemeriksaan dilewati",
-  gitPipelineManual: "Menunggu dijalankan manual",
+  gitPipelineManual: "Menunggu tindakan seseorang",
   gitPipelineOther: "Pemeriksaan: {status}",
 }

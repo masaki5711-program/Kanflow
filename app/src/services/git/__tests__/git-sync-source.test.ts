@@ -107,7 +107,7 @@ beforeEach(() => {
   gitLinkFindFirst.mockResolvedValue({ outsideScopeCount: null, outsideScopePaths: null })
   changedPaths.mockResolvedValue({ paths: ["app/in/a.ts", "app/out/b.ts"], complete: true })
   readChanges.mockResolvedValue({
-    mergeRequests: [{ ref: "12", title: "PBI-3 login", state: "opened", url: "https://source.example/mr/12", sourceBranch: "feature/PBI-3", author: "Dev", updatedAt: "2026-09-30T00:00:00Z", mergedAt: null }],
+    mergeRequests: [{ ref: "12", title: "PBI-3 login", state: "opened", url: "https://source.example/mr/12", sourceBranch: "feature/PBI-3", author: "Dev", updatedAt: "2026-09-30T00:00:00Z", mergedAt: null, headSha: "B".repeat(40) }],
     freshMergeRequestRefs: new Set(["12"]),
     commits: [{ sha: "a".repeat(40), title: "PBI-5 fix", message: "PBI-5 fix", url: "https://source.example/c", author: "Dev", committedAt: "2026-09-30T00:00:00Z" }],
     cursor: NEXT,
@@ -139,7 +139,9 @@ describe("syncRepository through a DevSource", () => {
     await syncRepository("r1", undefined, NOW)
     const written = gitLinkUpsert.mock.calls.map((c) => `${c[0].create.kind}:${c[0].create.ref}:${c[0].create.backlogItemId}`)
     expect(written.sort()).toEqual(["branch:feature/PBI-4-x:b-4", `commit:${"a".repeat(40)}:b-5`, "mr:12:b-3"])
-    expect(pipelineStatus).toHaveBeenCalledWith("12")
+    // N2: with the head this read saw (stored lower-case on the link: GitStation reads the checks of that commit).
+    expect(pipelineStatus).toHaveBeenCalledWith("12", "b".repeat(40))
+    expect(gitLinkUpsert.mock.calls.find((c) => c[0].create.kind === "mr")![0].create.headSha).toBe("b".repeat(40))
   })
 
   it("a failed listing reported by the source is logged once, stored with the source's message, and the cursor still saved", async () => {
