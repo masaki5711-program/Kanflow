@@ -338,7 +338,9 @@ async function writeLinks(projectId: string, repositoryId: string, drafts: reado
       state: d.state,
       // Keep the last known pipeline when this sync could not look it up.
       pipeline: d.pipeline ?? before?.pipeline ?? null,
-      author: d.author,
+      // An unknown author keeps the stored one (GitStation's development status names none). For every source:
+      // a GitLab MR / branch / commit always names its author, so null there means "not read", never "gone".
+      author: d.author ?? (before?.author as string | null | undefined) ?? null,
       sourceBranch: d.sourceBranch,
       occurredAt: d.occurredAt,
       mergedAt: mergedAtToStore(before, d),

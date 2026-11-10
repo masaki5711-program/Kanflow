@@ -4,10 +4,11 @@ import { useId, useMemo } from "react"
 import { useLanguage } from "@/lib/language-context"
 import { Button, IconButton, cn } from "@/components/ui"
 import { Copy, GitBranch, RefreshCw, Terminal } from "lucide-react"
-import { groupByRepository } from "./git-format"
+import { groupByRepository, isOpenMr } from "./git-format"
 import { RepositoryLinks } from "./git-link-list"
 import { useCopyText, useGitSync } from "./use-git-actions"
 import { usePbiGitPanel } from "./use-pbi-git-panel"
+import { useMrApprovals } from "./use-mr-approvals"
 import type { PbiGitPanelDto } from "./git-client-state"
 
 interface Props {
@@ -24,16 +25,19 @@ interface Props {
 export function PbiDevPanel({ projectId, pbiId, className }: Props) {
   const { panel, refetch } = usePbiGitPanel(projectId, pbiId)
   if (!panel) return null
-  return <PanelBody projectId={projectId} panel={panel} refetch={refetch} className={className} />
+  return <PanelBody projectId={projectId} pbiId={pbiId} panel={panel} refetch={refetch} className={className} />
 }
 
-function PanelBody({ projectId, panel, refetch, className }: { projectId: string; panel: PbiGitPanelDto; refetch: () => void; className?: string }) {
+function PanelBody({ projectId, pbiId, panel, refetch, className }: { projectId: string; pbiId: string; panel: PbiGitPanelDto; refetch: () => void; className?: string }) {
   const { t } = useLanguage()
   const headingId = useId()
   const copy = useCopyText()
   const { syncing, sync } = useGitSync(projectId, refetch)
   const groups = useMemo(() => groupByRepository(panel.links ?? []), [panel.links])
   const key = panel.pbiKey ?? ""
+  const hasOpenMr = (panel.links ?? []).some((l) => l.kind === "mr" && isOpenMr(l.state))
+  const approvalView = useMrApprovals(projectId, pbiId, hasOpenMr)
+  const approvals = useMemo(() => ({ projectId, view: approvalView }), [projectId, approvalView])
 
   return (
     <section aria-labelledby={headingId} className={cn("space-y-3 rounded-ui-md border border-border p-3", className)} data-pbi-dev-panel="">
@@ -63,7 +67,8 @@ function PanelBody({ projectId, panel, refetch, className }: { projectId: string
         </div>
       ) : (
         <div className="space-y-4">
-          {groups.map((g) => <RepositoryLinks key={g.repository.id} group={g} />)}
+          {approvalView.noEmployeeNumber && <p className="rounded-ui-sm bg-surface-muted px-2 py-1.5 text-caption text-fg-muted">{t.gitDevApproveNoEmployee}</p>}
+          {groups.map((g) => <RepositoryLinks key={g.repository.id} group={g} approvals={approvals} />)}
         </div>
       )}
     </section>

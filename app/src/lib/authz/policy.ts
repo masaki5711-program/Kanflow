@@ -84,6 +84,19 @@ export const PROJECT_ACTIONS = [
   /** Ask for an immediate GitLab sync ("今すぐ同期"). */
   "git.sync",
   /**
+   * Approve / withdraw the approval of a GitStation merge request from the PBI panel (plan 11 K4, F-36): Kanflow
+   * only opens GitStation's confirmation and relays it. GitStation decides again as the person who confirmed (its
+   * role, never the author's own MR), so this is only "may ask from this project".
+   */
+  "git.approve",
+  /**
+   * Bind / unbind GitStation repositories to this project from the settings (plan 11 §5.7 X3): search the person's
+   * repositories, open GitStation's confirmation and relay it. GitStation decides again as the person who confirmed
+   * (Maintainer of the repository and the binding rules), so this is only "may ask from this project" — the
+   * project's PO / SM, like git.configure.
+   */
+  "git.bindRepository",
+  /**
    * Developer writes of an AI session (token scope dev:write only, docs/api-v1.md
    * "Development"): declare / release work on a PBI or task (作業の宣言), post a
    * progress comment, link a merge request of a registered repository to a PBI.
@@ -160,6 +173,8 @@ const POLICY: Readonly<Record<ProjectAction, readonly Grantee[]>> = {
   "surveillance.configure": PO,
   "git.configure": PO_SM,
   "git.sync": MEMBER,
+  "git.approve": MEMBER,
+  "git.bindRepository": PO_SM,
   "dev.write": MEMBER,
   "plan.lessonRule.confirm": PO_SM,
   "plan.lessonRule.requestPromotion": PO,

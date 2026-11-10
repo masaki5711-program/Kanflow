@@ -185,6 +185,40 @@ export const API_ERROR_CODES = [
   "GIT_KNOWLEDGE_UNSUPPORTED",
   /** One ingestion source per project: the provider cannot change while repositories exist. */
   "GIT_SOURCE_LOCKED",
+  /** K4 approve from the PBI panel: the project does not read GitStation, or the MR cannot be approved (closed, no head). */
+  "GIT_APPROVAL_UNAVAILABLE",
+  /** K4: the signed-in user has no (usable) employee number, so GitStation cannot be told who acts. */
+  "GIT_APPROVAL_NO_EMPLOYEE_NUMBER",
+  /** K4: GitStation refuses the person (role / act-as not allowed, FG-AUTH-0003). */
+  "GIT_APPROVAL_NOT_ALLOWED",
+  /** K4: the person is the MR's author (FG-REVIEW-0013). */
+  "GIT_APPROVAL_SELF",
+  /** K4: the MR's head changed since the confirmation (FG-REVIEW-0008 / another head claimed). */
+  "GIT_APPROVAL_STALE",
+  /** K4: 確認しました before the person confirmed in GitStation (claim_unknown) — press again after confirming. */
+  "GIT_APPROVAL_NOT_CONFIRMED",
+  /** K4: the confirmation cannot be used (expired, used, FG-AUTH-0020): open it again. */
+  "GIT_APPROVAL_RETRY",
+  /** K4: GitStation cannot act for this user (FG-INT-0006: not signed in to GitStation, disabled, …). */
+  "GIT_APPROVAL_IDENTITY",
+  /** K4: the integration is set up wrongly (token scope, binding, integration id): an administrator fixes it. */
+  "GIT_APPROVAL_CONFIG",
+  /** K4: the person who confirmed in GitStation is not the signed-in Kanflow user (claim discarded). */
+  "GIT_APPROVAL_DIFFERENT_USER",
+  /** K4: the same confirmation is being completed right now (double press). */
+  "GIT_APPROVAL_BUSY",
+  /** X3 bind / unbind a repository from the settings: the project does not read GitStation, or Kanflow cannot tell which GitStation (host, integration id, token). */
+  "GIT_BINDING_UNAVAILABLE",
+  /** X3: GitStation refuses the person (not Maintainer of the repository, FG-AUTH-0003 / FG-REPO-0005). */
+  "GIT_BINDING_NOT_ALLOWED",
+  /** X3: GitStation's binding rules refuse it (FG-INT-0016: a code repository is bound to another project, shared and code bindings mixed, …). */
+  "GIT_BINDING_CONFLICT",
+  /** X3: the repository is already bound to this project with this setting (nothing to confirm). */
+  "GIT_BINDING_ALREADY",
+  /** X3: a code repository cannot become a shared spec repository in place (unbind, then bind again). */
+  "GIT_BINDING_RESOLUTION_FIXED",
+  /** X3: the integration is set up wrongly for binding (token scope, integration id): an administrator fixes it. */
+  "GIT_BINDING_CONFIG",
   /** dev:write MR link: not a merge request URL (https://<allowed host>/<group>/<repo>/-/merge_requests/<iid>). */
   "MR_URL_INVALID",
   /** dev:write MR link: the MR's repository is not registered in this project's (enabled) Git integration. */

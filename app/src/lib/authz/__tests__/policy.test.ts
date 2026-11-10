@@ -77,6 +77,10 @@ const EXPECTED: Record<ProjectAction, Persona[]> = {
   "surveillance.configure": PO,
   "git.configure": PO_SM,
   "git.sync": MEMBERS,
+  // plan 11 K4: any explicit member may ask; a section manager who only sees the project and a non-member may not.
+  "git.approve": MEMBERS,
+  // plan 11 §5.7 X3: PO / SM may ask (as with git.configure); a dev, a section manager who only sees the project and a non-member are denied.
+  "git.bindRepository": PO_SM,
   "dev.write": MEMBERS,
   "plan.lessonRule.confirm": PO_SM,
   "plan.lessonRule.requestPromotion": PO,

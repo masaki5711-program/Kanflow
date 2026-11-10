@@ -44,7 +44,8 @@ describe("PBI detail modal — 開発 panel", () => {
     const dialog = await screen.findByRole("dialog", { name: "Faster login" })
     const dev = await within(dialog).findByRole("region", { name: t.gitDevTitle })
     expect(within(dev).getByText("SSO button")).toBeInTheDocument()
-    expect(gitGets).toEqual(["/api/projects/p1/git/links?pbiId=pbi-1"])
+    // The open MR also asks what the user could do with it (plan 11 K4, approve through GitStation).
+    await vi.waitFor(() => expect(gitGets).toEqual(["/api/projects/p1/git/links?pbiId=pbi-1", "/api/projects/p1/git/mr-approvals?pbiId=pbi-1"]))
 
     await userEvent.click(screen.getByRole("button", { name: t.edit }))
     await screen.findByRole("button", { name: t.update })

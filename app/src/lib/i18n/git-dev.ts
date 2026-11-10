@@ -50,6 +50,30 @@ export interface GitDevTranslations {
   gitDevBadgeShortMerged: string
   gitDevBadgeShortBranches: string
   gitDevListSeparator: string
+  gitDevApprovals: string
+  gitDevApprovedByMe: string
+  gitDevApprove: string
+  gitDevUnapprove: string
+  gitDevApproveLabel: string
+  gitDevUnapproveLabel: string
+  gitDevApproveReasonSelf: string
+  gitDevApproveReasonRole: string
+  gitDevApproveReasonOther: string
+  gitDevApproveStateFailed: string
+  gitDevApproveNoEmployee: string
+  /** Dashboard (自分のタスク): open merge requests the user could approve now. */
+  gitDevAwaitingTitle: string
+  gitDevConfirmGroup: string
+  gitDevConfirmHelp: string
+  gitDevConfirmOpen: string
+  gitDevConfirmNewWindow: string
+  gitDevConfirmDone: string
+  gitDevConfirmCancel: string
+  gitDevApproved: string
+  gitDevUnapproved: string
+  gitDevApproveUnchanged: string
+  gitDevApproveStartFailed: string
+  gitDevApproveFailed: string
 }
 
 export const ja: GitDevTranslations = {
@@ -97,6 +121,29 @@ export const ja: GitDevTranslations = {
   gitDevBadgeShortMerged: "MR マージ済み",
   gitDevBadgeShortBranches: "ブランチ {count}",
   gitDevListSeparator: "、",
+  gitDevApprovals: "承認 {count} 件",
+  gitDevApprovedByMe: "自分は承認済み",
+  gitDevApprove: "承認する",
+  gitDevUnapprove: "承認を取り消す",
+  gitDevApproveLabel: "!{iid} を承認する",
+  gitDevUnapproveLabel: "!{iid} の承認を取り消す",
+  gitDevApproveReasonSelf: "自分の MR は承認できません",
+  gitDevApproveReasonRole: "承認には GitStation で Developer 以上の役割が必要です",
+  gitDevApproveReasonOther: "この MR は今は承認できません",
+  gitDevApproveStateFailed: "承認の状態を読み込めませんでした",
+  gitDevApproveNoEmployee: "社員番号が未登録のため、ここから MR を承認できません（管理者に登録を依頼してください）",
+  gitDevAwaitingTitle: "承認を待っている MR",
+  gitDevConfirmGroup: "!{iid} の GitStation での確認",
+  gitDevConfirmHelp: "GitStation の画面で MR の内容を確かめてボタンを押し、ここに戻って「確認しました」を押してください（10 分で期限切れ）。",
+  gitDevConfirmOpen: "GitStation で確認する",
+  gitDevConfirmNewWindow: "（新しいウィンドウで開きます）",
+  gitDevConfirmDone: "確認しました",
+  gitDevConfirmCancel: "やめる",
+  gitDevApproved: "承認しました",
+  gitDevUnapproved: "承認を取り消しました",
+  gitDevApproveUnchanged: "変わりませんでした（すでにその状態です）",
+  gitDevApproveStartFailed: "承認を始められませんでした",
+  gitDevApproveFailed: "承認できませんでした",
 }
 
 export const en: GitDevTranslations = {
@@ -144,6 +191,29 @@ export const en: GitDevTranslations = {
   gitDevBadgeShortMerged: "MR merged",
   gitDevBadgeShortBranches: "{count} branch",
   gitDevListSeparator: ", ",
+  gitDevApprovals: "{count} approval(s)",
+  gitDevApprovedByMe: "You approved",
+  gitDevApprove: "Approve",
+  gitDevUnapprove: "Withdraw approval",
+  gitDevApproveLabel: "Approve !{iid}",
+  gitDevUnapproveLabel: "Withdraw the approval of !{iid}",
+  gitDevApproveReasonSelf: "You cannot approve your own merge request",
+  gitDevApproveReasonRole: "Approving needs the Developer role or higher in GitStation",
+  gitDevApproveReasonOther: "This merge request cannot be approved now",
+  gitDevApproveStateFailed: "Could not load the approval state",
+  gitDevApproveNoEmployee: "Your employee number is not registered, so you cannot approve merge requests here (ask an administrator to register it)",
+  gitDevAwaitingTitle: "Merge requests awaiting your approval",
+  gitDevConfirmGroup: "Confirming !{iid} in GitStation",
+  gitDevConfirmHelp: "Check the merge request on the GitStation page and press its button, then come back and press \"I confirmed\" (expires in 10 minutes).",
+  gitDevConfirmOpen: "Confirm in GitStation",
+  gitDevConfirmNewWindow: "(opens in a new window)",
+  gitDevConfirmDone: "I confirmed",
+  gitDevConfirmCancel: "Cancel",
+  gitDevApproved: "Approved",
+  gitDevUnapproved: "Approval withdrawn",
+  gitDevApproveUnchanged: "Nothing changed (it was already so)",
+  gitDevApproveStartFailed: "Could not start the approval",
+  gitDevApproveFailed: "The approval failed",
 }
 
 export const id: GitDevTranslations = {
@@ -191,4 +261,27 @@ export const id: GitDevTranslations = {
   gitDevBadgeShortMerged: "MR di-merge",
   gitDevBadgeShortBranches: "{count} branch",
   gitDevListSeparator: ", ",
+  gitDevApprovals: "{count} persetujuan",
+  gitDevApprovedByMe: "Anda sudah menyetujui",
+  gitDevApprove: "Setujui",
+  gitDevUnapprove: "Tarik persetujuan",
+  gitDevApproveLabel: "Setujui !{iid}",
+  gitDevUnapproveLabel: "Tarik persetujuan !{iid}",
+  gitDevApproveReasonSelf: "Anda tidak dapat menyetujui merge request milik sendiri",
+  gitDevApproveReasonRole: "Persetujuan memerlukan peran Developer atau lebih tinggi di GitStation",
+  gitDevApproveReasonOther: "Merge request ini tidak dapat disetujui sekarang",
+  gitDevApproveStateFailed: "Tidak dapat memuat status persetujuan",
+  gitDevApproveNoEmployee: "Nomor karyawan Anda belum terdaftar, sehingga Anda tidak dapat menyetujui merge request di sini (minta administrator untuk mendaftarkannya)",
+  gitDevAwaitingTitle: "Merge request yang menunggu persetujuan Anda",
+  gitDevConfirmGroup: "Konfirmasi !{iid} di GitStation",
+  gitDevConfirmHelp: "Periksa merge request di halaman GitStation dan tekan tombolnya, lalu kembali dan tekan \"Sudah saya konfirmasi\" (kedaluwarsa dalam 10 menit).",
+  gitDevConfirmOpen: "Konfirmasi di GitStation",
+  gitDevConfirmNewWindow: "(terbuka di jendela baru)",
+  gitDevConfirmDone: "Sudah saya konfirmasi",
+  gitDevConfirmCancel: "Batal",
+  gitDevApproved: "Disetujui",
+  gitDevUnapproved: "Persetujuan ditarik",
+  gitDevApproveUnchanged: "Tidak ada perubahan (sudah dalam keadaan itu)",
+  gitDevApproveStartFailed: "Tidak dapat memulai persetujuan",
+  gitDevApproveFailed: "Persetujuan gagal",
 }

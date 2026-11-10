@@ -6,6 +6,14 @@ import { formatDateTime, formatRelative } from "@/lib/format-date"
 import { Badge, Button, cn } from "@/components/ui"
 import { isOpenMr, KIND_ICON, mrStateInfo, pipelineInfo, TONE_TEXT, type RepositoryGroup } from "./git-format"
 import type { GitLinkDto } from "./git-client-state"
+import { MrApprovalControls } from "./mr-approval-controls"
+import type { MrApprovalsView } from "./use-mr-approvals"
+
+/** Approve / withdraw on the open GitStation merge requests of a PBI panel (plan 11 K4). */
+export interface LinkApprovals {
+  projectId: string
+  view: MrApprovalsView
+}
 
 /** Commits shown per repository before 「さらに表示」. */
 export const COMMITS_SHOWN = 5
@@ -35,7 +43,7 @@ function Meta({ link }: { link: GitLinkDto }) {
 }
 
 /** One MR / branch / commit: kind icon, link to GitLab (new tab), state, pipeline, author, time. */
-function LinkRow({ link }: { link: GitLinkDto }) {
+function LinkRow({ link, approvals }: { link: GitLinkDto; approvals?: LinkApprovals }) {
   const { t, language } = useLanguage()
   const Icon = KIND_ICON[link.kind] ?? KIND_ICON.commit
   const mr = link.kind === "mr" ? mrStateInfo(link.state, t) : null
@@ -77,25 +85,34 @@ function LinkRow({ link }: { link: GitLinkDto }) {
           {link.kind === "branch" && link.title && link.title !== link.ref && <span className="truncate">{link.title}</span>}
           <Meta link={link} />
         </div>
+        {approvals && link.kind === "mr" && <LinkApproval link={link} approvals={approvals} />}
       </div>
     </li>
   )
 }
 
-function KindList({ title, links, total = links.length }: { title: string; links: readonly GitLinkDto[]; total?: number }) {
+function LinkApproval({ link, approvals }: { link: GitLinkDto; approvals: LinkApprovals }) {
+  const { t } = useLanguage()
+  const item = approvals.view.items.get(link.id)
+  if (item) return <MrApprovalControls projectId={approvals.projectId} item={item} onChanged={approvals.view.refetch} />
+  if (approvals.view.failed.has(link.id)) return <p className="mt-1 text-caption text-fg-muted">{t.gitDevApproveStateFailed}</p>
+  return null
+}
+
+function KindList({ title, links, total = links.length, approvals }: { title: string; links: readonly GitLinkDto[]; total?: number; approvals?: LinkApprovals }) {
   if (links.length === 0) return null
   return (
     <div className="space-y-1">
       <p className="text-caption font-medium text-fg-muted">{title}<span className="ml-1 font-normal">({total})</span></p>
       <ul className="space-y-1">
-        {links.map((l) => <LinkRow key={l.id} link={l} />)}
+        {links.map((l) => <LinkRow key={l.id} link={l} approvals={approvals} />)}
       </ul>
     </div>
   )
 }
 
 /** One repository: merge requests, then branches, then the latest commits. */
-export function RepositoryLinks({ group }: { group: RepositoryGroup }) {
+export function RepositoryLinks({ group, approvals }: { group: RepositoryGroup; approvals?: LinkApprovals }) {
   const { t } = useLanguage()
   const [allCommits, setAllCommits] = useState(false)
   const hidden = allCommits ? 0 : Math.max(0, group.commits.length - COMMITS_SHOWN)
@@ -103,7 +120,7 @@ export function RepositoryLinks({ group }: { group: RepositoryGroup }) {
   return (
     <div className="space-y-2" data-git-repository={group.repository.name}>
       <h4 className="text-caption font-semibold text-fg">{group.repository.name}</h4>
-      <KindList title={t.gitDevSectionMrs} links={group.mrs} />
+      <KindList title={t.gitDevSectionMrs} links={group.mrs} approvals={approvals} />
       <KindList title={t.gitDevSectionBranches} links={group.branches} />
       {group.commits.length > 0 && (
         <div className="space-y-1">

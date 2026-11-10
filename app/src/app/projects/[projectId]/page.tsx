@@ -92,11 +92,14 @@ export default async function ProjectDashboard({
   const activeSprint = project.sprints[0] ?? null
   const now = new Date()
 
-  const [myTasks, duePlanItems, planProgressPct] = await Promise.all([
+  const [myTasks, duePlanItems, planProgressPct, gitIntegration] = await Promise.all([
     loadMyProjectTasks(projectId, session.user.id, session.user.name),
     loadDuePlanItems(projectId, now),
     loadPlanProgress(projectId),
+    prisma.gitIntegration.findUnique({ where: { projectId }, select: { enabled: true, provider: true } }),
   ])
+  // 承認を待っている MR: only where the project reads GitStation and the policy gives git.approve (the route checks again).
+  const showMrApprovals = !!gitIntegration?.enabled && gitIntegration.provider === "gitstation" && can(actor, "git.approve")
 
   // Both-language text for the project, its goals, the active sprint, my tasks and the due list.
   const [projectI18n, goalI18n, sprintI18n, taskI18n, pbI18n, dueI18n] = await Promise.all([
@@ -171,6 +174,7 @@ export default async function ProjectDashboard({
       canEditGoals={can(actor, "goal.write")}
       canUseAi={can(actor, "ai.use")}
       isProjectMember={!!membership}
+      showMrApprovals={showMrApprovals}
       activeSprint={
         activeSprint
           ? {

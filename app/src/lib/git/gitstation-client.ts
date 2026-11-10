@@ -27,6 +27,7 @@ export type GitStationErrorKind =
   | "invalid_response"
   | "truncated" // a bounded listing had more than Kanflow reads (the state re-read cannot be trusted)
   | "host_not_allowed" // apiBase is not an https host in GITSTATION_ALLOWED_HOSTS
+  | "act_as_target_invalid" // the person cannot be named in Forge-Act-As (no / malformed employee number)
   | "http"
 
 export const GONE_REASONS = ["retention", "epoch_mismatch", "ahead_of_head", "visible_set_changed"] as const
@@ -80,6 +81,23 @@ export interface GitStationMergeRequest {
   updated_at: string
   closed_at?: string | null
   head_sha?: string | null
+  /** When the merge was applied (dev-status only; the MR API sends none). */
+  merged_at?: string | null
+}
+
+/** One page of `GET /integrations/{id}/dev-status` (I1d, docs/api/dev-status.md, schema_version 1). */
+export interface GitStationDevStatusPage {
+  /** The feed position of the FIRST page (the same on every page): reading the feed from it misses nothing. */
+  feedCursor: string
+  /** Merge requests of the page's work items, as the MR API shapes them (author unknown: null). Each once. */
+  mergeRequests: GitStationMergeRequest[]
+  /** Items of an unexpected shape (not returned). */
+  skipped: number
+  /** A work item listed more than 100 merge requests (the rest is not in the page). */
+  truncatedItems: number
+  /** GitStation projects of the merge requests such a work item did list (their own listing can be read instead). */
+  truncatedProjects: number[]
+  nextCursor: string | null
 }
 
 /** One ref of `/projects/{id}/repository/refs` (RefBody). */
@@ -121,6 +139,99 @@ export interface Listing<T> {
 
 type FetchLike = typeof fetch
 
+interface RequestExtra {
+  /** `Forge-Act-As` (`employee:<n>` / `user:<id>`). */
+  actAs?: string
+  /** `Forge-Assertion` (`fga_…`): only with `actAs`. */
+  assertion?: string
+  /** A JSON body makes the request a POST (unless `method` says otherwise). */
+  body?: unknown
+  /** A write other than POST (X3: PATCH / DELETE of a binding). */
+  method?: "PATCH" | "DELETE"
+}
+
+export type ApprovalIntent = "approve" | "unapprove"
+export const APPROVAL_OUTCOMES = ["approved", "withdrawn", "unchanged"] as const
+export type ApprovalOutcome = (typeof APPROVAL_OUTCOMES)[number]
+
+/** One act-as trial of `viewer.act_as` (GitStation StatusActAsTrialBody). */
+export interface ActAsTrial {
+  allowed: boolean
+  /** GitStation's reason when not allowed (`self_approval`, `required_role`, …), bounded. */
+  reason: string | null
+}
+
+/** `GET …/merge-requests/{iid}/status` read with `Forge-Act-As` (merge-status.md, schema_version 1). */
+export interface GitStationActAsStatus {
+  iid: number
+  /** null while the merge request has no version yet. */
+  headSha: string | null
+  open: boolean
+  approvedByMe: boolean
+  /** null when GitStation did not answer for a person (the read was not acted for): nothing is offered. */
+  actAs: { canApprove: ActAsTrial; canUnapprove: ActAsTrial } | null
+}
+
+/** `POST …/act-as/claim` → 200 (ClaimBody), once. */
+export interface GitStationActAsClaim {
+  assertion: string
+  sub: { userId: number; employeeNumber: string | null }
+  intent: string
+  projectId: number
+  iid: number | null
+  headSha: string | null
+  /** `refs/heads/…` for a merge request intent. */
+  targetRef: string | null
+  /** The Kanflow project of a binding intent; null for a merge request intent. */
+  kanflowProjectId: string | null
+  /** The setting confirmed for `binding_set` (true = code repository); null otherwise. */
+  resolvesWorkItems: boolean | null
+  expiresAt: string
+}
+
+/** X3: the act-as intents that bind / unbind a repository (ADR-0025 Amendment X3). */
+export type BindingIntent = "binding_set" | "binding_remove"
+
+/** `GET /repositories?q=` (BindableRepository): a repository the person may bind (Maintainer and above). */
+export interface GitStationBindableRepository {
+  id: number
+  /** `group/name`. */
+  path: string
+  displayName: string
+}
+
+/** One binding of a repository to a Kanflow project (RepositoryBindingBody). */
+export interface GitStationRepositoryBinding {
+  bindingId: number
+  repositoryId: number
+  /** null only when GitStation cannot read the path. */
+  repositoryPath: string | null
+  kanflowProjectId: string
+  resolvesWorkItems: boolean
+}
+
+export const BINDING_WRITE_OUTCOMES = ["bound", "updated", "unchanged"] as const
+export type BindingWriteOutcome = (typeof BINDING_WRITE_OUTCOMES)[number]
+
+/** Kanflow project ids GitStation accepts in a binding (`A-Z a-z 0-9 . _ : -`, 1..=100): never escaped. */
+const KANFLOW_PROJECT_ID = /^[A-Za-z0-9._:-]{1,100}$/
+export const isBindableKanflowProjectId = (v: unknown): v is string => typeof v === "string" && KANFLOW_PROJECT_ID.test(v)
+/** Search text GitStation accepts (1..=100 characters). */
+export const MAX_REPOSITORY_QUERY = 100
+/** Repositories one search returns at most (GitStation: 1..=50). */
+export const REPOSITORY_SEARCH_LIMIT = 20
+
+export interface GitStationApprovalAnswer {
+  outcome: ApprovalOutcome
+  counted: boolean
+}
+
+/** What GitStation's `employee:` form accepts (ADR-0025: letters, digits, `.`, `_`, `-`). */
+const EMPLOYEE_NUMBER = /^[A-Za-z0-9._-]{1,64}$/
+export const isEmployeeNumber = (v: unknown): v is string => typeof v === "string" && EMPLOYEE_NUMBER.test(v)
+/** `fga_<public id>_<secret>` (runbook act-as: 16 + 64 characters; bounded here, never logged). */
+const ASSERTION = /^fga_[A-Za-z0-9]{8,64}_[A-Za-z0-9_-]{16,256}$/
+
 export interface GitStationClientOptions {
   /** https://host (no path). */
   apiBase: string
@@ -143,6 +254,8 @@ const MAX_RETRY_WAIT_SEC = 10
 const DEFAULT_RETRY_WAIT_SEC = 1
 /** Events per feed request (plan 02 §11.2: default 100, max 500). */
 export const FEED_PAGE_LIMIT = 500
+/** Work items per dev-status page (GitStation: limit 1..100). */
+export const DEV_STATUS_PAGE_LIMIT = 100
 /** Merge requests per listing page (GitStation: limit 1..100). */
 const LIST_LIMIT = 100
 /** Commits per history page (GitStation max_log_page 100; a push lists at most 20 per ref). */
@@ -241,6 +354,68 @@ function parseMergeRequest(v: unknown): GitStationMergeRequest | null {
   }
 }
 
+function parseTrial(v: unknown): ActAsTrial | null {
+  if (!isObject(v) || typeof v.allowed !== "boolean") return null
+  return { allowed: v.allowed, reason: str(v.reason) ? v.reason.slice(0, 64) : null }
+}
+
+function parseActAsStatus(v: unknown): GitStationActAsStatus | null {
+  if (!isObject(v) || !isId(v.iid) || !isObject(v.viewer) || !Array.isArray(v.reasons)) return null
+  const headSha = v.head_sha === null || v.head_sha === undefined ? null : isObjectId(v.head_sha) ? v.head_sha : undefined
+  if (headSha === undefined) return null
+  const open = !v.reasons.some((r) => isObject(r) && r.reason === "not_open")
+  const raw = isObject(v.viewer.act_as) ? v.viewer.act_as : null
+  const canApprove = raw ? parseTrial(raw.can_approve) : null
+  const canUnapprove = raw ? parseTrial(raw.can_unapprove) : null
+  return {
+    iid: v.iid,
+    headSha,
+    open,
+    approvedByMe: v.viewer.approved_by_me === true,
+    actAs: canApprove && canUnapprove ? { canApprove, canUnapprove } : null,
+  }
+}
+
+function parseClaim(v: unknown): GitStationActAsClaim | null {
+  if (!isObject(v) || !str(v.assertion) || !ASSERTION.test(v.assertion) || !isObject(v.sub) || !isId(v.sub.user_id) || !str(v.intent) || !isId(v.project_id) || !str(v.expires_at)) return null
+  const iid = v.iid === null || v.iid === undefined ? null : isId(v.iid) ? v.iid : undefined
+  const headSha = v.head_sha === null || v.head_sha === undefined ? null : isObjectId(v.head_sha) ? v.head_sha : undefined
+  if (iid === undefined || headSha === undefined) return null
+  return {
+    assertion: v.assertion,
+    sub: { userId: v.sub.user_id, employeeNumber: str(v.sub.employee_number) ? v.sub.employee_number : null },
+    intent: v.intent.slice(0, 32),
+    projectId: v.project_id,
+    iid,
+    headSha,
+    targetRef: str(v.target_ref) ? v.target_ref.slice(0, 512) : null,
+    kanflowProjectId: str(v.kanflow_project_id) ? v.kanflow_project_id.slice(0, 128) : null,
+    resolvesWorkItems: typeof v.resolves_work_items === "boolean" ? v.resolves_work_items : null,
+    expiresAt: v.expires_at,
+  }
+}
+
+/** One RepositoryBindingBody, else null. */
+function parseRepositoryBinding(v: unknown): GitStationRepositoryBinding | null {
+  if (!isObject(v) || !isId(v.binding_id) || !isId(v.repository_id) || !str(v.kanflow_project_id) || !isObject(v.settings) || typeof v.settings.resolves_work_items !== "boolean") return null
+  return {
+    bindingId: v.binding_id,
+    repositoryId: v.repository_id,
+    repositoryPath: str(v.repository_path) ? v.repository_path.slice(0, 512) : null,
+    kanflowProjectId: v.kanflow_project_id.slice(0, 128),
+    resolvesWorkItems: v.settings.resolves_work_items,
+  }
+}
+
+/** A dev-status merge request (`merge_requests[]`) in the MR API's shape, else null. */
+function parseDevStatusMergeRequest(v: unknown): GitStationMergeRequest | null {
+  if (!isObject(v) || !isObject(v.project)) return null
+  const mr = parseMergeRequest({ ...v, project_id: v.project.id, author: null })
+  if (!mr) return null
+  // A merge time that is not a date is unknown (updated_at stands in), never stored as garbage.
+  return { ...mr, merged_at: str(v.merged_at) && !Number.isNaN(Date.parse(v.merged_at)) ? v.merged_at : null }
+}
+
 const OID = /^[0-9a-f]{40}([0-9a-f]{24})?$/
 
 /** A commit id GitStation would accept as `?ref=` (40 or 64 lower-case hex). */
@@ -252,13 +427,20 @@ export function createGitStationClient({ apiBase, token, integrationId, fetchImp
   const integration = encodeURIComponent(integrationId)
   const base = apiBase.replace(/\/+$/, "")
 
-  async function sendOnce(path: string, query: Query): Promise<Response> {
+  async function sendOnce(path: string, query: Query, extra: RequestExtra = {}): Promise<Response> {
     const url = new URL(`${base}/api/v1${path}`)
     for (const [k, v] of Object.entries(query)) if (v !== undefined) url.searchParams.set(k, String(v))
+    const headers: Record<string, string> = { Authorization: `Bearer ${token}`, Accept: "application/json" }
+    // Act-as (ADR-0025): who the service account acts for, and the person's one-time confirmation.
+    if (extra.actAs) headers["Forge-Act-As"] = extra.actAs
+    if (extra.assertion) headers["Forge-Assertion"] = extra.assertion
+    if (extra.body !== undefined) headers["Content-Type"] = "application/json"
     let res: Response
     try {
       res = await fetchImpl(url, {
-        headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+        method: extra.method ?? (extra.body !== undefined ? "POST" : "GET"),
+        headers,
+        body: extra.body !== undefined ? JSON.stringify(extra.body) : undefined,
         signal: AbortSignal.timeout(timeoutMs),
         cache: "no-store",
         redirect: "error",
@@ -292,17 +474,34 @@ export function createGitStationClient({ apiBase, token, integrationId, fetchImp
     }
   }
 
+  async function parsed(res: Response): Promise<unknown> {
+    const text = await boundedText(res)
+    try {
+      return JSON.parse(text) as unknown
+    } catch {
+      throw new GitStationError("invalid_response", "GitStation sent a body that is not JSON")
+    }
+  }
+
+  /**
+   * A write (POST): sent ONCE, never retried — a claim hands its secret out only once and an approval consumes the
+   * assertion, so a repeat after a lost answer could only fail (claim_repeated / consumed).
+   */
+  async function sendWrite(path: string, body: unknown, extra: Omit<RequestExtra, "body"> = {}): Promise<unknown> {
+    return parsed(await sendOnce(path, {}, { ...extra, body }))
+  }
+
+  /** A DELETE: sent once, never retried; GitStation answers 204 (any body is dropped unread). */
+  async function sendDelete(path: string, extra: Omit<RequestExtra, "body" | "method"> = {}): Promise<void> {
+    const res = await sendOnce(path, {}, { ...extra, method: "DELETE" })
+    await res.body?.cancel().catch(() => undefined)
+  }
+
   /** 429 / 503 are retried (honouring Retry-After up to MAX_RETRY_WAIT_SEC); anything else throws at once. */
-  async function send(path: string, query: Query): Promise<unknown> {
+  async function send(path: string, query: Query, extra: Omit<RequestExtra, "body"> = {}): Promise<unknown> {
     for (let attempt = 0; ; attempt++) {
       try {
-        const res = await sendOnce(path, query)
-        const text = await boundedText(res)
-        try {
-          return JSON.parse(text) as unknown
-        } catch {
-          throw new GitStationError("invalid_response", "GitStation sent a body that is not JSON")
-        }
+        return await parsed(await sendOnce(path, query, extra))
       } catch (err) {
         const transient = err instanceof GitStationError && (err.kind === "rate_limited" || err.kind === "unavailable")
         const wait = transient ? (err.detail.retryAfterSec ?? DEFAULT_RETRY_WAIT_SEC) : Number.POSITIVE_INFINITY
@@ -422,6 +621,151 @@ export function createGitStationClient({ apiBase, token, integrationId, fetchImp
       const body = await send(`${projectBase(projectId)}/repository/commits`, { ref: oid, limit })
       if (!isObject(body) || !Array.isArray(body.commits)) throw new GitStationError("invalid_response", "GitStation commits have an unexpected shape")
       return body.commits.flatMap((c) => (isObject(c) && str(c.oid) && str(c.subject) && str(c.committed_at) ? [{ oid: c.oid.toLowerCase(), subject: c.subject, committed_at: c.committed_at, author_name: str(c.author_name) ? c.author_name : "" }] : []))
+    },
+
+    /**
+     * One page of the integration's development status (I1d): every work item of the bound Kanflow projects
+     * with its linked merge requests, any state. `cursor` = the previous page's `next_cursor` (none = first page).
+     */
+    async devStatusPage(cursor: string | null, limit = DEV_STATUS_PAGE_LIMIT): Promise<GitStationDevStatusPage> {
+      const body = await send(`/integrations/${integration}/dev-status`, { cursor: cursor ?? undefined, limit, state: "all" })
+      if (!isObject(body) || !Array.isArray(body.work_items) || !validCursor(body.feed_cursor) || typeof body.has_more !== "boolean") {
+        throw new GitStationError("invalid_response", "GitStation dev-status has an unexpected shape")
+      }
+      const next = body.next_cursor
+      if (body.has_more ? !validCursor(next) : next !== null && next !== undefined) throw new GitStationError("invalid_response", "GitStation dev-status has no usable next page")
+      const seen = new Map<string, GitStationMergeRequest>()
+      let skipped = 0
+      let truncatedItems = 0
+      const truncatedProjects = new Set<number>()
+      for (const w of body.work_items) {
+        if (!isObject(w) || !Array.isArray(w.merge_requests)) {
+          skipped++
+          continue
+        }
+        const truncated = w.merge_requests_truncated === true
+        if (truncated) truncatedItems++
+        for (const raw of w.merge_requests) {
+          const mr = parseDevStatusMergeRequest(raw)
+          if (mr) seen.set(`${mr.project_id}!${mr.iid}`, mr)
+          else skipped++
+          if (mr && truncated) truncatedProjects.add(mr.project_id)
+        }
+      }
+      return { feedCursor: body.feed_cursor, mergeRequests: [...seen.values()], skipped, truncatedItems, truncatedProjects: [...truncatedProjects], nextCursor: body.has_more ? (next as string) : null }
+    },
+
+    /**
+     * The merge request's status as `employeeNumber` would see it through the integration (`Forge-Act-As:
+     * employee:<n>`, scope act_as + read_api): the head, and whether the person could approve / withdraw with a
+     * confirmation (`viewer.act_as`). A hint for the screen, never a permission — GitStation decides again.
+     */
+    async mergeRequestStatusAs(projectId: number, iid: number, employeeNumber: string): Promise<GitStationActAsStatus> {
+      if (!isId(iid)) throw new GitStationError("invalid_response", "not a merge request iid")
+      if (!isEmployeeNumber(employeeNumber)) throw new GitStationError("act_as_target_invalid", "The employee number cannot be named to GitStation")
+      const body = await send(`${projectBase(projectId)}/merge-requests/${iid}/status`, {}, { actAs: `employee:${employeeNumber}` })
+      const status = parseActAsStatus(body)
+      if (!status || status.iid !== iid) throw new GitStationError("invalid_response", "GitStation merge request status has an unexpected shape")
+      return status
+    },
+
+    /**
+     * The person's confirmation, claimed once with the `state` Kanflow put into the confirmation URL (no
+     * `Forge-Act-As`). Before the person pressed GitStation answers 403 FG-AUTH-0020 (claim_unknown).
+     */
+    async claimActAs(state: string): Promise<GitStationActAsClaim> {
+      const claim = parseClaim(await sendWrite(`/integrations/${integration}/act-as/claim`, { state }))
+      if (!claim) throw new GitStationError("invalid_response", "GitStation act-as claim has an unexpected shape")
+      return claim
+    },
+
+    /**
+     * Approve (or withdraw the approval of) the merge request as the person who confirmed: `Forge-Act-As:
+     * user:<id>` and the claimed assertion (scope act_as + merge_approve). Sent once.
+     */
+    async approveAs(projectId: number, iid: number, intent: ApprovalIntent, as: { userId: number; assertion: string; sha: string }): Promise<GitStationApprovalAnswer> {
+      if (!isId(iid) || !isId(as.userId) || !isObjectId(as.sha)) throw new GitStationError("invalid_response", "not an approval request")
+      const verb = intent === "approve" ? "approve" : "unapprove"
+      const body = await sendWrite(`${projectBase(projectId)}/merge-requests/${iid}/${verb}`, { sha: as.sha }, { actAs: `user:${as.userId}`, assertion: as.assertion })
+      if (!isObject(body) || !str(body.outcome) || !APPROVAL_OUTCOMES.includes(body.outcome as ApprovalOutcome)) throw new GitStationError("invalid_response", "GitStation approval answer has an unexpected shape")
+      return { outcome: body.outcome as ApprovalOutcome, counted: body.counted === true }
+    },
+
+    /**
+     * Live approvals per merge request of one work item (`PBI-<n>`) of one Kanflow project (I1d dev-status, the
+     * service account itself — no Forge-Act-As). Key `<GitStation project id>!<iid>`; `null` = not reported.
+     */
+    async workItemApprovals(ref: string, kanflowProjectId: string): Promise<Map<string, number | null>> {
+      if (!/^PBI-[1-9][0-9]{0,6}$/.test(ref)) throw new GitStationError("invalid_response", "not a work item ref")
+      const body = await send(`/integrations/${integration}/work-items/${ref}/dev-status`, { project_id: kanflowProjectId, state: "all" })
+      if (!isObject(body) || !Array.isArray(body.work_items)) throw new GitStationError("invalid_response", "GitStation dev-status has an unexpected shape")
+      const out = new Map<string, number | null>()
+      for (const w of body.work_items) {
+        if (!isObject(w) || !Array.isArray(w.merge_requests)) continue
+        for (const m of w.merge_requests) {
+          if (!isObject(m) || !isObject(m.project) || !isId(m.project.id) || !isId(m.iid)) continue
+          const given = isObject(m.approvals) && typeof m.approvals.given === "number" && Number.isSafeInteger(m.approvals.given) && m.approvals.given >= 0 ? m.approvals.given : null
+          out.set(`${m.project.id}!${m.iid}`, given)
+        }
+      }
+      return out
+    },
+
+    /**
+     * X3: the repositories the person (`Forge-Act-As: employee:<n>`, no assertion) may bind — Maintainer and above —
+     * whose path or name contains `q`. Read ONCE (no retry: GitStation allows 30 searches a minute per service
+     * account, a 429 is shown to the person). Only id, path and name: GitStation says nothing about the others.
+     */
+    async searchRepositoriesAs(q: string, employeeNumber: string, limit = REPOSITORY_SEARCH_LIMIT): Promise<GitStationBindableRepository[]> {
+      if (!isEmployeeNumber(employeeNumber)) throw new GitStationError("act_as_target_invalid", "The employee number cannot be named to GitStation")
+      const text = q.trim()
+      if (text.length === 0 || text.length > MAX_REPOSITORY_QUERY) throw new GitStationError("invalid_response", "not a repository search")
+      const body = await parsed(await sendOnce(`/repositories`, { q: text, limit: Math.min(Math.max(1, limit), 50) }, { actAs: `employee:${employeeNumber}` }))
+      if (!isObject(body) || !Array.isArray(body.items)) throw new GitStationError("invalid_response", "GitStation repository search has an unexpected shape")
+      return body.items.flatMap((r) => (isObject(r) && isId(r.id) && str(r.path) && str(r.display_name) ? [{ id: r.id, path: r.path.slice(0, 512), displayName: r.display_name.slice(0, 255) }] : []))
+    },
+
+    /** X3: the repositories bound to one Kanflow project of this integration (the service account itself, no act-as). */
+    async repositoryBindings(kanflowProjectId: string): Promise<GitStationRepositoryBinding[]> {
+      if (!isBindableKanflowProjectId(kanflowProjectId)) throw new GitStationError("invalid_response", "not a bindable Kanflow project id")
+      const body = await send(`/integrations/${integration}/bindings`, { kanflow_project_id: kanflowProjectId })
+      if (!isObject(body) || !Array.isArray(body.items)) throw new GitStationError("invalid_response", "GitStation bindings have an unexpected shape")
+      return body.items.flatMap((b) => {
+        const parsedBinding = parseRepositoryBinding(b)
+        // Only this project's: anything else is not ours to show.
+        return parsedBinding && parsedBinding.kanflowProjectId === kanflowProjectId ? [parsedBinding] : []
+      })
+    },
+
+    /**
+     * X3: bind (POST) the repository to the Kanflow project, or change an existing binding's setting (PATCH, when
+     * `bindingId` is given), as the person who confirmed (`Forge-Act-As: user:<id>` + the `binding_set` assertion).
+     * Sent once.
+     */
+    async setBindingAs(
+      input: { kanflowProjectId: string; repositoryId: number; resolvesWorkItems: boolean; bindingId: number | null },
+      as: { userId: number; assertion: string },
+    ): Promise<{ outcome: BindingWriteOutcome; binding: GitStationRepositoryBinding }> {
+      if (!isBindableKanflowProjectId(input.kanflowProjectId) || !isId(input.repositoryId) || !isId(as.userId) || (input.bindingId !== null && !isId(input.bindingId))) {
+        throw new GitStationError("invalid_response", "not a binding request")
+      }
+      const settings = { resolves_work_items: input.resolvesWorkItems }
+      const extra = { actAs: `user:${as.userId}`, assertion: as.assertion }
+      const body =
+        input.bindingId === null
+          ? await sendWrite(`/integrations/${integration}/bindings`, { kanflow_project_id: input.kanflowProjectId, repository_id: input.repositoryId, settings }, extra)
+          : await sendWrite(`/integrations/${integration}/bindings/${input.bindingId}`, { settings }, { ...extra, method: "PATCH" })
+      const binding = isObject(body) ? parseRepositoryBinding(body.binding) : null
+      if (!isObject(body) || !str(body.outcome) || !BINDING_WRITE_OUTCOMES.includes(body.outcome as BindingWriteOutcome) || !binding) {
+        throw new GitStationError("invalid_response", "GitStation binding answer has an unexpected shape")
+      }
+      return { outcome: body.outcome as BindingWriteOutcome, binding }
+    },
+
+    /** X3: remove a binding as the person who confirmed (`binding_remove` assertion). Sent once; 204. */
+    async removeBindingAs(bindingId: number, as: { userId: number; assertion: string }): Promise<void> {
+      if (!isId(bindingId) || !isId(as.userId)) throw new GitStationError("invalid_response", "not a binding removal")
+      await sendDelete(`/integrations/${integration}/bindings/${bindingId}`, { actAs: `user:${as.userId}`, assertion: as.assertion })
     },
 
     /** GitStation's permalink of a project page (`/-/projects/{id}/<segments>`: survives renames). */

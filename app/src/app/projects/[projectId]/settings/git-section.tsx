@@ -9,6 +9,7 @@ import { forgetGitState } from "@/components/git-dev/git-client-state"
 import { useLiveRefetch } from "@/components/realtime/use-live-refetch"
 import type { GitSettingsDto } from "../git/git-labels"
 import { GitAddRepository } from "./git-add-repository"
+import { GitRepoBindings } from "./git-repo-bindings"
 import { GitRepositoryList } from "./git-repository-list"
 import { GitTokenField } from "./git-token-field"
 import { SettingsCard } from "./settings-card"
@@ -192,6 +193,8 @@ function GitSettingsBody({ projectId, settings, canConfigure, onSettings, onRepo
             onChanged={onRepositoriesChanged}
           />
           {canConfigure && <GitAddRepository projectId={projectId} hasToken={settings.hasToken} onAdded={onRepositoriesChanged} />}
+          {/* X3: "git.bindRepository" is granted to the same people as git.configure (PO / SM / admin). */}
+          {settings.provider === "gitstation" && <GitRepoBindings projectId={projectId} canBind={canConfigure} onRepositoriesChanged={onRepositoriesChanged} />}
         </>
       )}
     </div>

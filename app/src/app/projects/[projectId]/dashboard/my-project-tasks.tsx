@@ -6,6 +6,7 @@ import { Badge, EmptyState, type BadgeTone } from "@/components/ui"
 import { I18nText } from "@/components/i18n-text"
 import { useLanguage } from "@/lib/language-context"
 import { pickText } from "@/lib/translation/pick-text"
+import { AwaitingMrApprovals } from "@/components/git-dev/awaiting-mr-approvals"
 import type { DashboardMyTask } from "./types"
 
 /** Rows shown before the "N more" link. */
@@ -13,8 +14,11 @@ export const MY_TASKS_VISIBLE = 5
 
 const STATUS_TONE: Record<string, BadgeTone> = { todo: "neutral", in_progress: "primary", review: "info", done: "success" }
 
-/** My open tasks of this project's planning / active sprints, linked into the sprint board. */
-export function MyProjectTasks({ projectId, tasks }: { projectId: string; tasks: DashboardMyTask[] }) {
+/**
+ * My open tasks of this project's planning / active sprints, linked into the sprint board; with `showMrApprovals`
+ * (GitStation project, git.approve) also the merge requests awaiting my approval.
+ */
+export function MyProjectTasks({ projectId, tasks, showMrApprovals = false }: { projectId: string; tasks: DashboardMyTask[]; showMrApprovals?: boolean }) {
   const { t, language } = useLanguage()
   const statusLabel: Record<string, string> = { todo: t.taskTodo, in_progress: t.taskInProgress, review: t.topTaskReview, done: t.taskDone }
   const sprintsHref = `/projects/${projectId}/sprints`
@@ -62,6 +66,7 @@ export function MyProjectTasks({ projectId, tasks }: { projectId: string; tasks:
           )}
         </>
       )}
+      <AwaitingMrApprovals projectId={projectId} enabled={showMrApprovals} />
     </section>
   )
 }

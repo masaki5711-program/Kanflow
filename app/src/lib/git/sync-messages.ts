@@ -8,8 +8,10 @@
 export const CURSOR_INVALID_MESSAGE = "同期位置の記録を読み取れません。リポジトリの「過去分を再同期」でやり直してください。"
 
 
-/** GitStation (K3). */
-export const STATION_TRUNCATED_MESSAGE = "GitStation の状態の取り直しが上限（マージリクエスト 2000 件）を超えました。管理者に連絡してください。"
+/** GitStation (K3; the state re-read reads the development status since I1d, so the bound is no longer one number). */
+export const STATION_TRUNCATED_MESSAGE = "GitStation の状態の取り直しが、1 回に読める上限を超えました。管理者に連絡してください。"
+/** The K3 wording, still stored on rows written before (shown translated like the new one). */
+const STATION_TRUNCATED_MESSAGE_K3 = "GitStation の状態の取り直しが上限（マージリクエスト 2000 件）を超えました。管理者に連絡してください。"
 
 /** GitStation (K3). */
 export const STATION_HOST_NOT_ALLOWED_MESSAGE = "GitStation のホストが許可されていません（GITSTATION_ALLOWED_HOSTS）。管理者に連絡してください。"
@@ -28,6 +30,7 @@ export type SyncMessageKey = "gitSyncCursorInvalid" | "gitSyncStationTruncated" 
 const KEYS: ReadonlyMap<string, SyncMessageKey> = new Map<string, SyncMessageKey>([
   [CURSOR_INVALID_MESSAGE, "gitSyncCursorInvalid"],
   [STATION_TRUNCATED_MESSAGE, "gitSyncStationTruncated"],
+  [STATION_TRUNCATED_MESSAGE_K3, "gitSyncStationTruncated"],
   [STATION_HOST_NOT_ALLOWED_MESSAGE, "gitSyncStationHostNotAllowed"],
   [STATION_NOT_BOUND_MESSAGE, "gitSyncStationNotBound"],
   [STATION_HELD_MESSAGE, "gitSyncStationHeld"],

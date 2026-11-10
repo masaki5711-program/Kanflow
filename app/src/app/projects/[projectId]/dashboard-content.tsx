@@ -43,6 +43,8 @@ interface DashboardContentProps {
   canUseAi?: boolean
   /** Explicit project member: only members have "my tasks" here (section managers do not). */
   isProjectMember?: boolean
+  /** The project reads GitStation and the user has git.approve: "my tasks" lists the MRs awaiting their approval. */
+  showMrApprovals?: boolean
   activeSprint: ActiveSprint | null
   /** My open tasks in this project's planning / active sprints. */
   myTasks?: DashboardMyTask[]
@@ -73,6 +75,7 @@ export function DashboardContent({
   canEditGoals = false,
   canUseAi = true,
   isProjectMember = true,
+  showMrApprovals = false,
   activeSprint,
   myTasks = [],
   upcomingDue = [],
@@ -120,7 +123,7 @@ export function DashboardContent({
         </div>
         {isProjectMember && (
           <div className="min-w-0 lg:col-span-3">
-            <MyProjectTasks projectId={projectId} tasks={myTasks} />
+            <MyProjectTasks projectId={projectId} tasks={myTasks} showMrApprovals={showMrApprovals} />
           </div>
         )}
         {/* Without "my tasks" (section manager, A3-13) the due list takes the freed columns. */}
