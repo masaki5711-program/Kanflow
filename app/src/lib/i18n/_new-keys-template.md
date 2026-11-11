@@ -59,6 +59,7 @@ Rules:
 | `admin-org.ts` | Sections admin, `/settings/categories` | `section*`, `roleSectionManager`, `category*` |
 | `admin-glossary.ts` | Admin glossary + translation queue | `glossary*`, `translations*` |
 | `trash.ts` | Project trash, admin project trash, "move to trash" wording | `trash*` |
+| `boards.ts` | ボード (drawing boards, `docs/plan/10-board.md`): board list, sidebar entry, editor toolbar / canvas / sheet tabs / save state | `wb*` |
 | `comments.ts` | Comment thread / composer (`components/comments/`), PBI detail tabs, change history | `comments*`, `history*` |
 | `insights.ts` | Dashboard top rows (sprint pulse, my tasks, coming up, activity feed), home KPIs / inline task status / lazy archived list, burndown sprint selector, velocity chart, IceBox undo | `dashboardPulse*`, `dashboardMyTasks*`, `dashboardDue*`, `dashboardFeed*`, `top{Kpi,Task,Archived,Retry}*`, `burndownSprint*`, `velocity*`, `iceboxUndo` |
 | `project-organize.ts` | Home project list organizing: card / list layout, by-role grouping, dormant reminder, bulk archive (`_project-list/`) | `projectLayout*`, `projectGroup*`, `projectListCol*`, `projectDormantBanner*`, `projectBulkArchive*` |

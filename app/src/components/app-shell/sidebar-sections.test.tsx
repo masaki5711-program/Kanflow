@@ -170,8 +170,8 @@ describe("Sidebar section headings", () => {
     )
     const toggle = within(projectNav()).getByRole("button", { name: t.navGroupPlan })
     await userEvent.click(toggle)
-    // 4 plan items hidden; the count is decorative so the name stays the label
-    expect(toggle).toHaveTextContent("4")
+    // 5 plan items hidden; the count is decorative so the name stays the label
+    expect(toggle).toHaveTextContent("5")
     expect(toggle).toHaveAccessibleName(t.navGroupPlan)
   })
 })
