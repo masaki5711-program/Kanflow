@@ -145,6 +145,8 @@ export interface ApiErrorsTranslations {
   apiErrBoardSheetFull: string
   apiErrBoardVersionJump: string
   apiErrBoardWriteTooLarge: string
+  apiErrBoardImageLimit: string
+  apiErrBoardImageType: string
   apiErrInvalidDate: string
   apiErrGlossarySameLocale: string
   apiErrTranslationFailed: string
@@ -325,6 +327,8 @@ export const API_ERROR_MESSAGE_KEYS: Readonly<Record<ApiErrorCode, ApiErrorMessa
   BOARD_SHEET_FULL: "apiErrBoardSheetFull",
   BOARD_VERSION_JUMP: "apiErrBoardVersionJump",
   BOARD_WRITE_TOO_LARGE: "apiErrBoardWriteTooLarge",
+  BOARD_IMAGE_LIMIT: "apiErrBoardImageLimit",
+  BOARD_IMAGE_TYPE: "apiErrBoardImageType",
   INVALID_DATE: "apiErrInvalidDate",
   GLOSSARY_SAME_LOCALE: "apiErrGlossarySameLocale",
   TRANSLATION_FAILED: "apiErrTranslationFailed",
@@ -512,6 +516,8 @@ export const ja: ApiErrorsTranslations = {
   apiErrBoardSheetFull: "このシートにはこれ以上置けません（図形の数の上限です）。新しいシートを使ってください",
   apiErrBoardVersionJump: "保存できない変更がありました。ページを読み込み直してください",
   apiErrBoardWriteTooLarge: "一度に保存できる量を超えました",
+  apiErrBoardImageLimit: "このホワイトボードにはこれ以上画像を置けません（件数の上限です）",
+  apiErrBoardImageType: "画像（PNG・JPEG・GIF・WebP）だけを置けます",
   apiErrInvalidDate: "日付が不正です",
   apiErrGlossarySameLocale: "翻訳元と翻訳先の言語は別にしてください",
   apiErrTranslationFailed: "翻訳に失敗しました",
@@ -687,12 +693,14 @@ export const en: ApiErrorsTranslations = {
   apiErrImprovementTooManyRollouts: "Too many rollout targets",
   apiErrImprovementTooManyChecks: "Too many sustainment checks",
   apiErrMilestoneLimitReached: "Cannot add more (the limit has been reached)",
-  apiErrBoardLimitReached: "Cannot create more whiteboards (the limit has been reached). Delete whiteboards you no longer use",
+  apiErrBoardLimitReached: "Cannot create more White Boards (the limit has been reached). Delete White Boards you no longer use",
   apiErrBoardSheetLimitReached: "Cannot add more sheets (the limit has been reached)",
   apiErrBoardLastSheet: "The last sheet cannot be deleted",
   apiErrBoardSheetFull: "This sheet cannot hold more shapes (the limit has been reached). Use a new sheet",
   apiErrBoardVersionJump: "A change could not be saved. Reload the page",
   apiErrBoardWriteTooLarge: "Too much to save at once",
+  apiErrBoardImageLimit: "This White Board cannot hold more images (the limit has been reached)",
+  apiErrBoardImageType: "Only images (PNG, JPEG, GIF, WebP) can be placed",
   apiErrInvalidDate: "Invalid date",
   apiErrGlossarySameLocale: "Source and target languages must differ",
   apiErrTranslationFailed: "Translation failed",
@@ -868,12 +876,14 @@ export const id: ApiErrorsTranslations = {
   apiErrImprovementTooManyRollouts: "Terlalu banyak tujuan penerapan",
   apiErrImprovementTooManyChecks: "Terlalu banyak pengecekan",
   apiErrMilestoneLimitReached: "Tidak dapat menambah lagi (batas jumlah tercapai)",
-  apiErrBoardLimitReached: "Tidak dapat membuat papan tulis lagi (batas jumlah tercapai). Hapus papan tulis yang tidak dipakai",
+  apiErrBoardLimitReached: "Tidak dapat membuat White Board lagi (batas jumlah tercapai). Hapus White Board yang tidak dipakai",
   apiErrBoardSheetLimitReached: "Tidak dapat menambah lembar lagi (batas jumlah tercapai)",
   apiErrBoardLastSheet: "Lembar terakhir tidak dapat dihapus",
   apiErrBoardSheetFull: "Lembar ini tidak dapat memuat bentuk lagi (batas jumlah tercapai). Gunakan lembar baru",
   apiErrBoardVersionJump: "Ada perubahan yang tidak dapat disimpan. Muat ulang halaman",
   apiErrBoardWriteTooLarge: "Terlalu banyak untuk disimpan sekaligus",
+  apiErrBoardImageLimit: "White Board ini tidak dapat memuat gambar lagi (batas jumlah tercapai)",
+  apiErrBoardImageType: "Hanya gambar (PNG, JPEG, GIF, WebP) yang dapat ditaruh",
   apiErrInvalidDate: "Tanggal tidak valid",
   apiErrGlossarySameLocale: "Bahasa sumber dan bahasa tujuan harus berbeda",
   apiErrTranslationFailed: "Terjemahan gagal",

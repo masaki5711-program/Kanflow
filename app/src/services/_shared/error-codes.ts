@@ -185,6 +185,10 @@ export const API_ERROR_CODES = [
   "BOARD_WRITE_TOO_LARGE",
   /** An element's version jumps further than one client could edit it (refused: it would lock the element). */
   "BOARD_VERSION_JUMP",
+  /** The board holds as many images as it may. */
+  "BOARD_IMAGE_LIMIT",
+  /** Only PNG / JPEG / GIF / WebP images (checked by content) can be placed on a board. */
+  "BOARD_IMAGE_TYPE",
   // Dates / glossary / translation
   "INVALID_DATE",
   "GLOSSARY_SAME_LOCALE",

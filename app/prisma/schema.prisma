@@ -2683,9 +2683,28 @@ model Board {
   updatedAt   DateTime     @updatedAt
   project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
   sheets      BoardSheet[]
+  files       BoardFile[]
 
   @@index([projectId, deletedAt])
   @@map("board")
+}
+
+/// An image placed on a board (B2). The bytes are stored under private/uploads/<projectId>/<fileName>; an image
+/// element names the row by `fileId` (= id). Rows stay while the board lives (undo can bring an image back);
+/// they go with the board (purge deletes the files too) and count against the project storage quota.
+model BoardFile {
+  id          String   @id @default(cuid())
+  boardId     String
+  fileName    String   @unique @db.VarChar(200)
+  mimeType    String   @db.VarChar(100)
+  fileSize    Int
+  /// Plain User id (no FK).
+  createdById String?
+  createdAt   DateTime @default(now())
+  board       Board    @relation(fields: [boardId], references: [id], onDelete: Cascade)
+
+  @@index([boardId])
+  @@map("board_file")
 }
 
 /// One sheet (tab) of a board. A board always keeps at least one.

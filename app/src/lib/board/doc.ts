@@ -176,6 +176,39 @@ export function rebaseStale(doc: BoardDoc, stale: readonly StoredElement[]): Boa
 }
 
 /**
+ * Applies what others saved (a delta read): a row whose version is above the one this client has replaces the
+ * local element — the server already holds it, so it is also recorded as saved. Rows this client already has
+ * (its own saves come back too) change nothing. An element with a local change not saved yet (or in flight) is
+ * left alone: its save comes back as stale and goes above the server's version (the later save wins, plan §6).
+ * Undo steps that touch a replaced element are dropped, so undo never brings back what someone else changed.
+ */
+export function applyRemote(state: EditorState, saved: SavedVersions, remote: readonly StoredElement[]): { state: EditorState; saved: SavedVersions; changed: boolean } {
+  const elements: Record<string, BoardElement> = { ...state.doc.elements }
+  const versions: Record<string, number> = { ...state.doc.versions }
+  const nextSaved: Record<string, number> = { ...saved }
+  const replaced = new Set<string>()
+  let changed = false
+  for (const row of remote) {
+    if (row.version <= (versions[row.id] ?? 0)) continue
+    const local = versions[row.id]
+    if (local !== undefined && local > (saved[row.id] ?? -1)) continue
+    replaced.add(row.id)
+    versions[row.id] = row.version
+    nextSaved[row.id] = row.version
+    if (row.deleted) delete elements[row.id]
+    else elements[row.id] = elementFromData(row.id, row.data)
+    changed = true
+  }
+  if (!changed) return { state, saved, changed }
+  const keep = (entry: HistoryEntry) => !Object.keys(entry.undo).some((id) => replaced.has(id))
+  return {
+    state: { doc: { elements, versions }, undoStack: state.undoStack.filter(keep), redoStack: state.redoStack.filter(keep) },
+    saved: nextSaved,
+    changed,
+  }
+}
+
+/**
  * Splits the writes into requests of at most `maxCount` elements and at most `maxBytes` of JSON, so a
  * request is never refused for its size. The size is an upper bound (3 bytes per UTF-16 unit); an element
  * above the budget on its own goes alone.

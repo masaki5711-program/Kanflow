@@ -1,18 +1,28 @@
 "use client"
 
-import { useState, type ReactNode } from "react"
+import type { ReactNode } from "react"
 import {
   BringToFront,
   Circle,
+  Columns3,
   Copy,
+  Download,
+  FileText,
+  Frame,
+  Grid2x2,
+  ImagePlus,
+  Inbox,
+  Magnet,
   Maximize,
   Minus,
   MousePointer2,
   MoveUpRight,
+  NotebookPen,
   Redo2,
   SendToBack,
   Square,
   StickyNote,
+  Table,
   Trash2,
   Type,
   Undo2,
@@ -21,9 +31,10 @@ import {
 } from "lucide-react"
 import { FILL_KEYS, STROKE_KEYS, isBox, isKnown, type FillKey, type StrokeKey } from "@/lib/board/model"
 import { FILL_COLOR, STROKE_COLOR } from "@/lib/board/palette"
+import type { TemplateKind } from "@/lib/board/templates"
 import type { Translations } from "@/lib/i18n"
 import { useLanguage } from "@/lib/language-context"
-import { cn } from "@/components/ui"
+import { Swatch, ToolbarRow, type ToolbarGroup } from "./toolbar-row"
 import { TOOLS, type BoardEditorController, type Tool } from "./use-board-editor"
 
 const TOOL_ICON: Record<Tool, ReactNode> = {
@@ -34,94 +45,68 @@ const TOOL_ICON: Record<Tool, ReactNode> = {
   arrow: <MoveUpRight className="h-4 w-4" />,
   text: <Type className="h-4 w-4" />,
   sticky: <StickyNote className="h-4 w-4" />,
+  frame: <Frame className="h-4 w-4" />,
+  table: <Table className="h-4 w-4" />,
 }
 
-function toolLabel(t: Translations, tool: Tool): string {
-  switch (tool) {
-    case "select":
-      return t.wbToolSelect
-    case "rect":
-      return t.wbToolRect
-    case "ellipse":
-      return t.wbToolEllipse
-    case "line":
-      return t.wbToolLine
-    case "arrow":
-      return t.wbToolArrow
-    case "text":
-      return t.wbToolText
-    case "sticky":
-      return t.wbToolSticky
-  }
+const TOOL_LABEL: Record<Tool, keyof Translations> = {
+  select: "wbToolSelect",
+  rect: "wbToolRect",
+  ellipse: "wbToolEllipse",
+  line: "wbToolLine",
+  arrow: "wbToolArrow",
+  text: "wbToolText",
+  sticky: "wbToolSticky",
+  frame: "wbToolFrame",
+  table: "wbToolTable",
 }
 
-function colorName(t: Translations, key: FillKey | StrokeKey): string {
-  switch (key) {
-    case "none":
-      return t.wbColorNone
-    case "white":
-      return t.wbColorWhite
-    case "ink":
-      return t.wbColorInk
-    case "gray":
-      return t.wbColorGray
-    case "blue":
-      return t.wbColorBlue
-    case "sky":
-      return t.wbColorSky
-    case "green":
-      return t.wbColorGreen
-    case "amber":
-      return t.wbColorAmber
-    case "red":
-      return t.wbColorRed
-    case "violet":
-      return t.wbColorViolet
-  }
+const TEMPLATES: { kind: TemplateKind; label: keyof Translations; icon: ReactNode }[] = [
+  { kind: "kpt", label: "wbTemplateKpt", icon: <Columns3 className="h-4 w-4" /> },
+  { kind: "swot", label: "wbTemplateSwot", icon: <Grid2x2 className="h-4 w-4" /> },
+  { kind: "minutes", label: "wbTemplateMinutes", icon: <NotebookPen className="h-4 w-4" /> },
+  { kind: "report", label: "wbTemplateReport", icon: <FileText className="h-4 w-4" /> },
+]
+
+const COLOR_NAME: Record<FillKey | StrokeKey, keyof Translations> = {
+  none: "wbColorNone",
+  white: "wbColorWhite",
+  ink: "wbColorInk",
+  gray: "wbColorGray",
+  blue: "wbColorBlue",
+  sky: "wbColorSky",
+  green: "wbColorGreen",
+  amber: "wbColorAmber",
+  red: "wbColorRed",
+  violet: "wbColorViolet",
 }
 
-interface ToolbarItem {
-  key: string
-  label: string
-  content: ReactNode
-  onClick: () => void
-  disabled?: boolean
-  /** Toggle buttons (tools, colours) say whether they are on. */
-  pressed?: boolean
-  /** A wider button with text (the zoom percentage). */
-  wide?: boolean
-}
-
-function Swatch({ color, none }: { color: string; none?: boolean }) {
-  return (
-    <span
-      className={cn("block h-4 w-4 rounded-full border border-border-strong", none && "bg-surface")}
-      style={
-        none
-          ? { backgroundImage: "linear-gradient(to top right, transparent 44%, var(--color-danger) 44%, var(--color-danger) 56%, transparent 56%)" }
-          : { backgroundColor: color }
-      }
-    />
-  )
+export function colorName(t: Translations, key: FillKey | StrokeKey): string {
+  return String(t[COLOR_NAME[key]])
 }
 
 /** The one value all of `values` share, or null. */
-function shared<T>(values: readonly T[]): T | null {
+export function shared<T>(values: readonly T[]): T | null {
   if (values.length === 0) return null
   return values.every((value) => value === values[0]) ? values[0] : null
 }
 
-interface BoardToolbarProps {
-  editor: BoardEditorController
+/** What the toolbar asks the sheet editor to do (things that need a file picker, a download or another API). */
+export interface BoardToolbarActions {
+  pickImage: () => void
+  exportPng: () => void
+  /** Undefined when the person cannot add IceBox items. */
+  toIcebox?: () => void
 }
 
-/**
- * Tools, edit commands, colours and zoom of the canvas. One tab stop (toolbar pattern): ← / → / Home / End
- * move between the buttons, so the canvas is one Tab away from the toolbar.
- */
-export function BoardToolbar({ editor }: BoardToolbarProps) {
+interface BoardToolbarProps {
+  editor: BoardEditorController
+  actions: BoardToolbarActions
+}
+
+/** Tools, insert, edit commands, colours, view and export of the canvas (one toolbar, one tab stop). */
+export function BoardToolbar({ editor, actions }: BoardToolbarProps) {
   const { t } = useLanguage()
-  const [activeKey, setActiveKey] = useState<string | null>(null)
   const { readOnly, elements, selection } = editor
 
   const selected = selection.map((id) => elements[id]).filter(isKnown)
@@ -129,18 +114,38 @@ export function BoardToolbar({ editor }: BoardToolbarProps) {
   const fill = shared(boxes.map((el) => el.fill))
   const stroke = shared(selected.map((el) => el.stroke))
   const none = selection.length === 0
+  const stickies = boxes.filter((el) => el.type === "sticky" && el.text.trim() !== "")
 
-  const groups: { key: string; label?: string; items: ToolbarItem[] }[] = []
+  const groups: ToolbarGroup[] = []
   if (!readOnly) {
     groups.push({
       key: "tools",
       items: TOOLS.map((tool) => ({
         key: `tool-${tool}`,
-        label: toolLabel(t, tool),
+        label: String(t[TOOL_LABEL[tool]]),
         content: TOOL_ICON[tool],
         onClick: () => editor.setTool(tool),
         pressed: editor.tool === tool,
       })),
+    })
+    groups.push({
+      key: "insert",
+      label: t.wbTemplates,
+      items: [
+        {
+          key: "image",
+          label: editor.uploading > 0 ? t.wbImageUploading : t.wbImageInsert,
+          content: <ImagePlus className="h-4 w-4" />,
+          onClick: actions.pickImage,
+          disabled: editor.uploading > 0,
+        },
+        ...TEMPLATES.map((tpl) => ({
+          key: `template-${tpl.kind}`,
+          label: `${t.wbTemplates}: ${String(t[tpl.label])}`,
+          content: tpl.icon,
+          onClick: () => editor.applyTemplate(tpl.kind),
+        })),
+      ],
     })
     groups.push({
       key: "edit",
@@ -183,6 +188,7 @@ export function BoardToolbar({ editor }: BoardToolbarProps) {
     key: "zoom",
     label: t.wbZoomLabel,
     items: [
+      ...(readOnly ? [] : [{ key: "snap", label: t.wbSnap, content: <Magnet className="h-4 w-4" />, onClick: () => editor.setSnap(!editor.snap), pressed: editor.snap }]),
       { key: "zoom-out", label: t.wbZoomOut, content: <ZoomOut className="h-4 w-4" />, onClick: editor.zoomOut },
       {
         key: "zoom-reset",
@@ -195,67 +201,15 @@ export function BoardToolbar({ editor }: BoardToolbarProps) {
       { key: "zoom-fit", label: t.wbZoomFit, content: <Maximize className="h-4 w-4" />, onClick: editor.zoomFit },
     ],
   })
+  groups.push({
+    key: "export",
+    items: [
+      { key: "export-png", label: t.wbExportPng, content: <Download className="h-4 w-4" />, onClick: actions.exportPng },
+      ...(actions.toIcebox
+        ? [{ key: "to-icebox", label: t.wbToIcebox, content: <Inbox className="h-4 w-4" />, onClick: actions.toIcebox, disabled: stickies.length === 0 }]
+        : []),
+    ],
+  })
 
-  // Exactly one button is in the tab order: the last one used while it can still be used, else the first.
-  const enabled = groups.flatMap((group) => group.items).filter((item) => !item.disabled)
-  const tabStop = enabled.some((item) => item.key === activeKey) ? activeKey : (enabled[0]?.key ?? null)
-
-  function onKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
-    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key) || e.ctrlKey || e.metaKey || e.altKey) return
-    const buttons = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>("button:not(:disabled)"))
-    if (buttons.length === 0) return
-    const index = buttons.indexOf(document.activeElement as HTMLButtonElement)
-    const next =
-      e.key === "Home" ? 0 : e.key === "End" ? buttons.length - 1 : (index + (e.key === "ArrowRight" ? 1 : -1) + buttons.length) % buttons.length
-    e.preventDefault()
-    buttons[next].focus()
-  }
-
-  return (
-    <div
-      role="toolbar"
-      aria-label={t.wbToolbarLabel}
-      aria-orientation="horizontal"
-      className="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-1"
-      onKeyDown={onKeyDown}
-      onFocus={(e) => {
-        const key = (e.target as HTMLElement).closest("button")?.dataset.toolbarKey
-        if (key) setActiveKey(key)
-      }}
-    >
-      {groups.map((group, index) => (
-        <div
-          key={group.key}
-          role="group"
-          aria-label={group.label}
-          className={cn("flex items-center gap-0.5", index > 0 && "border-l border-border pl-1")}
-        >
-          {group.items.map((item) => (
-            <button
-              key={item.key}
-              type="button"
-              data-toolbar-key={item.key}
-              aria-label={item.label}
-              title={item.label}
-              aria-pressed={item.pressed}
-              disabled={item.disabled}
-              tabIndex={item.key === tabStop ? 0 : -1}
-              onClick={item.onClick}
-              className={cn(
-                "inline-flex h-8 shrink-0 items-center justify-center rounded-ui-sm text-caption font-medium text-fg-muted",
-                "hover:bg-surface-sunken hover:text-fg",
-                "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent",
-                item.wide ? "min-w-12 px-1.5" : "w-8",
-                item.pressed && "bg-primary-soft text-primary-strong ring-1 ring-inset ring-primary",
-              )}
-            >
-              <span aria-hidden="true" className="inline-flex">
-                {item.content}
-              </span>
-            </button>
-          ))}
-        </div>
-      ))}
-    </div>
-  )
+  return <ToolbarRow label={t.wbToolbarLabel} groups={groups} />
 }

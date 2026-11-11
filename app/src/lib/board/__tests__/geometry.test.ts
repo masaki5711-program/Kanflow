@@ -1,17 +1,21 @@
 import { describe, expect, it } from "vitest"
 import {
-  anchorPoint,
   boundsOf,
   boxAt,
   distanceToSegment,
   elementBounds,
   elementsInRect,
+  facingSide,
   hitBoxHandle,
   hitLineHandle,
   hitTest,
+  lineGeometry,
+  nearestSide,
   rectFromPoints,
   resizeRect,
   resolveLine,
+  sidePoint,
+  snapTarget,
   sortByZ,
   type ElementMap,
 } from "../geometry"
@@ -30,29 +34,72 @@ function map(...els: Array<BoxElement | LineElement>): ElementMap {
   return Object.fromEntries(els.map((el) => [el.id, el]))
 }
 
-describe("anchorPoint", () => {
-  it("meets a rectangle on the side facing the other end", () => {
-    const b = box("a", 0, 0, 100, 50)
-    expect(anchorPoint(b, { x: 300, y: 25 })).toEqual({ x: 100, y: 25 })
-    expect(anchorPoint(b, { x: 50, y: -100 })).toEqual({ x: 50, y: 0 })
-    expect(anchorPoint(b, { x: -50, y: 25 })).toEqual({ x: 0, y: 25 })
+describe("side midpoints (where lines attach)", () => {
+  const b = box("a", 0, 0, 100, 50)
+
+  it("sidePoint is the middle of each side", () => {
+    expect(sidePoint(b, "n")).toEqual({ x: 50, y: 0 })
+    expect(sidePoint(b, "e")).toEqual({ x: 100, y: 25 })
+    expect(sidePoint(b, "s")).toEqual({ x: 50, y: 50 })
+    expect(sidePoint(b, "w")).toEqual({ x: 0, y: 25 })
   })
 
-  it("meets an ellipse on its outline", () => {
-    const e = box("a", 0, 0, 100, 50, { type: "ellipse" })
-    const right = anchorPoint(e, { x: 500, y: 25 })
-    expect(right.x).toBeCloseTo(100)
-    expect(right.y).toBeCloseTo(25)
-    const diagonal = anchorPoint(e, { x: 150, y: 75 })
-    // On the ellipse: ((x-50)/50)^2 + ((y-25)/25)^2 = 1
-    expect(((diagonal.x - 50) / 50) ** 2 + ((diagonal.y - 25) / 25) ** 2).toBeCloseTo(1)
+  it("facingSide uses the box's proportions", () => {
+    expect(facingSide(b, { x: 300, y: 25 })).toBe("e")
+    expect(facingSide(b, { x: -300, y: 40 })).toBe("w")
+    expect(facingSide(b, { x: 50, y: -100 })).toBe("n")
+    expect(facingSide(b, { x: 60, y: 200 })).toBe("s")
   })
 
-  it("is the centre when the other end is the centre", () => {
-    expect(anchorPoint(box("a", 0, 0, 100, 50), { x: 50, y: 25 })).toEqual({ x: 50, y: 25 })
+  it("nearestSide picks the closest midpoint", () => {
+    expect(nearestSide(b, { x: 95, y: 30 })).toBe("e")
+    expect(nearestSide(b, { x: 48, y: 3 })).toBe("n")
+  })
+
+  it("snapTarget snaps a nearby point to the nearest side midpoint, skipping frames and excluded ids", () => {
+    const frame = box("f", -500, -500, 2000, 2000, { type: "frame", z: 0 })
+    const els = map(frame, b)
+    expect(snapTarget(els, { x: 108, y: 10 }, 12)).toEqual({ id: "a", side: "e", point: { x: 100, y: 25 } })
+    expect(snapTarget(els, { x: 50, y: 49 }, 12)).toEqual({ id: "a", side: "s", point: { x: 50, y: 50 } })
+    expect(snapTarget(els, { x: 140, y: 10 }, 12)).toBeNull()
+    expect(snapTarget(els, { x: 108, y: 10 }, 12, ["a"])).toBeNull()
   })
 })
 
+describe("lineGeometry", () => {
+  const a = box("a", 0, 0, 100, 100)
+  const b = box("b", 300, 200, 100, 100)
+
+  it("an attached end sits on its stored side's midpoint", () => {
+    const l = line("l", { x: 0, y: 0, attach: "a", side: "s" }, { x: 0, y: 0, attach: "b", side: "n" })
+    const g = lineGeometry(l, map(a, b, l))
+    expect(g.a).toEqual({ x: 50, y: 100 })
+    expect(g.b).toEqual({ x: 350, y: 200 })
+  })
+
+  it("routes an elbow line at right angles, leaving each box straight out of its side", () => {
+    const l = line("l", { x: 0, y: 0, attach: "a", side: "e" }, { x: 0, y: 0, attach: "b", side: "w" }, { route: "elbow" })
+    const g = lineGeometry(l, map(a, b, l))
+    for (let i = 1; i < g.points.length; i++) {
+      const p = g.points[i - 1]
+      const q = g.points[i]
+      expect(p.x === q.x || p.y === q.y).toBe(true)
+    }
+    // a → out of a's right side → across at mid-x → into b's left side (collinear stubs are merged)
+    expect(g.points).toEqual([{ x: 100, y: 50 }, { x: 200, y: 50 }, { x: 200, y: 250 }, { x: 300, y: 250 }])
+    expect(g.d.startsWith("M100 50")).toBe(true)
+  })
+
+  it("a curve starts and ends on the ends and its midpoint lies between them", () => {
+    const l = line("l", { x: 0, y: 0, attach: "a", side: "e" }, { x: 0, y: 0, attach: "b", side: "w" }, { route: "curve" })
+    const g = lineGeometry(l, map(a, b, l))
+    expect(g.points[0]).toEqual({ x: 100, y: 50 })
+    expect(g.points[g.points.length - 1]).toEqual({ x: 300, y: 250 })
+    expect(g.mid.x).toBeGreaterThan(100)
+    expect(g.mid.x).toBeLessThan(300)
+    expect(g.d).toContain("C")
+  })
+})
 describe("resolveLine (arrow attachment)", () => {
   it("draws a free line between its stored points", () => {
     const l = line("l", { x: 1, y: 2 }, { x: 30, y: 40 })

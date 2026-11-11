@@ -2,7 +2,10 @@ import type { Prisma } from "@/generated/prisma/client"
 import { BOARD_LIMITS } from "@/lib/board/limits"
 import { MAX_VERSION_STEP, planMerge, type ExistingElement } from "@/lib/board/merge"
 import type { StoredElement } from "@/lib/board/model"
+import { deleteUploadedFile } from "@/lib/upload/stored-files"
 import type { Actor } from "@/services/_shared/actor"
+import { assertStorageQuota } from "@/services/attachments/storage-quota"
+import { saveBoardImage } from "./boards.files"
 import { defaultDb, withTransaction, type Db } from "@/services/_shared/db"
 import { ConflictError, NotFoundError, ValidationError } from "@/services/_shared/errors"
 import { RESTORE_DATA, softDeleteData } from "@/services/_shared/soft-delete"
@@ -179,10 +182,67 @@ export async function restoreBoard(projectId: string, boardId: string): Promise<
   })
 }
 
-/** Permanent delete of a board in the trash (the purge job). 404 when it is not in the trash. */
+/**
+ * Permanent delete of a board in the trash (the purge job), with its stored images. 404 when it is not in the
+ * trash. The rows go first: a file left behind by a failed unlink is only disk space, a row without its file
+ * would be a broken image.
+ */
 export async function purgeBoard(projectId: string, boardId: string): Promise<void> {
-  const { count } = await repo.deleteTrashedBoard(defaultDb, projectId, boardId)
-  if (count === 0) throw notFound()
+  // Under the board's row lock: an upload landing now either finished before (its name is read here) or waits
+  // and then finds no board (its own file is removed by the upload).
+  const files = await withTransaction(async (tx) => {
+    await repo.lockBoard(tx, boardId)
+    const names = await repo.findBoardFileNames(tx, boardId)
+    const { count } = await repo.deleteTrashedBoard(tx, projectId, boardId)
+    if (count === 0) throw notFound()
+    return names
+  })
+  // Best effort (a missing file is ignored): a file left behind is only disk space.
+  for (const fileName of files) await deleteUploadedFile(projectId, fileName)
+}
+
+// ---------------------------------------------------------------------------
+// Images
+// ---------------------------------------------------------------------------
+
+export interface BoardFileDto {
+  /** The `fileId` an image element names. */
+  id: string
+  mimeType: string
+  fileSize: number
+}
+
+/** POST /boards/[boardId]/files: stores an image (checked by its content) for the board. */
+export async function uploadBoardImage(projectId: string, boardId: string, file: File | null, actor: Actor): Promise<BoardFileDto> {
+  if (!file) throw new ValidationError("No file", {}, "FILE_REQUIRED")
+  const limitReached = () => new ConflictError("Image limit reached", { limit: BOARD_LIMITS.imagesPerBoard }, "BOARD_IMAGE_LIMIT")
+  // Cheap checks first, so a refused upload is not written to disk at all.
+  await liveBoard(defaultDb, projectId, boardId)
+  if ((await repo.countBoardFiles(defaultDb, boardId)) >= BOARD_LIMITS.imagesPerBoard) throw limitReached()
+  await assertStorageQuota(projectId, file.size)
+  // The bytes are written outside the transaction (no lock held while streaming); the row is added under the
+  // board's row lock, where the limits are checked again, so concurrent uploads cannot pass them together.
+  const saved = await saveBoardImage(projectId, file)
+  try {
+    const row = await withTransaction(async (tx) => {
+      await lockedBoard(tx, projectId, boardId)
+      if ((await repo.countBoardFiles(tx, boardId)) >= BOARD_LIMITS.imagesPerBoard) throw limitReached()
+      await assertStorageQuota(projectId, saved.fileSize, process.env, tx)
+      return repo.createBoardFile(tx, { boardId, fileName: saved.fileName, mimeType: saved.mimeType, fileSize: saved.fileSize, createdById: actor.userId })
+    })
+    return { id: row.id, mimeType: row.mimeType, fileSize: row.fileSize }
+  } catch (error) {
+    await deleteUploadedFile(projectId, saved.fileName)
+    throw error
+  }
+}
+
+/** GET /boards/[boardId]/files/[fileId]: where the bytes of one image of a live board are. 404 otherwise. */
+export async function getBoardImage(projectId: string, boardId: string, fileId: string): Promise<{ fileName: string; mimeType: string }> {
+  await liveBoard(defaultDb, projectId, boardId)
+  const row = await repo.findBoardFile(defaultDb, boardId, fileId)
+  if (!row) throw new NotFoundError("Image not found")
+  return { fileName: row.fileName, mimeType: row.mimeType }
 }
 
 // ---------------------------------------------------------------------------

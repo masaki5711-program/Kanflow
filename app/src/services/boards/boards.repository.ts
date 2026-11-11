@@ -92,6 +92,30 @@ export function findExpiredTrashedBoards(db: Db, cutoff: Date, take: number) {
   })
 }
 
+// ---------------------------------------------------------------------------
+// Files (images placed on a board)
+// ---------------------------------------------------------------------------
+
+const FILE_FIELDS = { id: true, fileName: true, mimeType: true, fileSize: true } as const
+
+export function countBoardFiles(db: Db, boardId: string) {
+  return db.boardFile.count({ where: { boardId } })
+}
+
+export function createBoardFile(db: Db, data: { boardId: string; fileName: string; mimeType: string; fileSize: number; createdById: string }) {
+  return db.boardFile.create({ data, select: FILE_FIELDS })
+}
+
+export function findBoardFile(db: Db, boardId: string, fileId: string) {
+  return db.boardFile.findFirst({ where: { id: fileId, boardId }, select: FILE_FIELDS })
+}
+
+/** Stored names of every file of the board (to remove them from disk when the board is purged). */
+export async function findBoardFileNames(db: Db, boardId: string): Promise<string[]> {
+  const rows = await db.boardFile.findMany({ where: { boardId }, select: { fileName: true } })
+  return rows.map((r) => r.fileName)
+}
+
 /** Permanent delete of trashed boards of the project (sheets and elements go with them). */
 export function deleteTrashedBoard(db: Db, projectId: string, boardId: string) {
   return db.board.deleteMany({ where: { id: boardId, projectId, deletedAt: { not: null } } })

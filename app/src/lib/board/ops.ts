@@ -3,23 +3,31 @@ import { attachedBox, boxRect, resizeRect, resolveLine, sortByZ, type BoxHandle,
 import { BOARD_LIMITS } from "./limits"
 import {
   isBox,
+  isHttpUrl,
   isKnown,
   isLine,
   type BoardElement,
   type BoxElement,
   type BoxType,
+  type Dash,
   type FillKey,
+  type FontFamily,
+  type HAlign,
   type KnownElement,
   type LineElement,
   type LineEnd,
+  type LineRoute,
   type LineType,
+  type Side,
   type StrokeKey,
+  type VAlign,
 } from "./model"
 
 /**
  * Every editing operation of the ボード editor as a pure function: elements in, a `Patch` out (doc.ts
  * applies it and records the undo step). Coordinates are rounded to whole sheet units and kept inside the
- * limits the server accepts, so an operation can never produce an element the save would refuse.
+ * limits the server accepts, so an operation can never produce an element the save would refuse. A locked
+ * element is never changed by any operation except unlocking it.
  */
 
 function coord(n: number): number {
@@ -28,6 +36,16 @@ function coord(n: number): number {
 
 function size(n: number): number {
   return Math.max(1, Math.min(BOARD_LIMITS.boxSize, Math.round(n)))
+}
+
+const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n))
+
+/** The ids that may be changed (known, not locked). */
+export function unlocked(elements: ElementMap, ids: readonly string[]): string[] {
+  return ids.filter((id) => {
+    const el = elements[id]
+    return isKnown(el) && !el.locked
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -40,6 +58,9 @@ export const DEFAULT_STYLE: Readonly<Record<BoxType, { fill: FillKey; stroke: St
   ellipse: { fill: "white", stroke: "ink" },
   text: { fill: "none", stroke: "ink" },
   sticky: { fill: "amber", stroke: "ink" },
+  image: { fill: "none", stroke: "gray" },
+  table: { fill: "white", stroke: "gray" },
+  frame: { fill: "none", stroke: "gray" },
 }
 
 /** Size of a box placed with a click (no drag). */
@@ -48,7 +69,13 @@ export const DEFAULT_BOX_SIZE: Readonly<Record<BoxType, { w: number; h: number }
   ellipse: { w: 160, h: 100 },
   text: { w: 200, h: 40 },
   sticky: { w: 160, h: 160 },
+  image: { w: 240, h: 160 },
+  table: { w: 360, h: 96 },
+  frame: { w: 640, h: 420 },
 }
+
+/** Rows and columns of a table placed with the table tool. */
+export const NEW_TABLE = { rows: 3, cols: 3 }
 
 /** A drag shorter than this (sheet units) counts as a click. */
 export const CLICK_SLOP = 4
@@ -60,8 +87,21 @@ export function nextZ(elements: ElementMap): number {
   return Math.min(BOARD_LIMITS.counter, max + 1)
 }
 
+/** z below everything (frames go behind what they hold). */
+export function bottomZ(elements: ElementMap): number {
+  let min = 0
+  for (const el of Object.values(elements)) if (el.type !== "unknown") min = Math.min(min, el.z)
+  return Math.max(-BOARD_LIMITS.counter, min - 1)
+}
+
+/** Splits `total` into `count` whole parts. */
+function split(total: number, count: number): number[] {
+  const part = Math.max(BOARD_LIMITS.tableCellMin, Math.floor(total / count))
+  return Array.from({ length: count }, () => part)
+}
+
 export function newBox(type: BoxType, rect: Rect, id: string, z: number, style: Partial<{ fill: FillKey; stroke: StrokeKey }> = {}): BoxElement {
-  return {
+  const box: BoxElement = {
     id,
     type,
     x: coord(rect.x),
@@ -73,6 +113,12 @@ export function newBox(type: BoxType, rect: Rect, id: string, z: number, style: 
     fill: style.fill ?? DEFAULT_STYLE[type].fill,
     stroke: style.stroke ?? DEFAULT_STYLE[type].stroke,
   }
+  if (type === "table") {
+    const colWidths = split(box.w, NEW_TABLE.cols)
+    const rowHeights = split(box.h, NEW_TABLE.rows)
+    return withTableSize({ ...box, colWidths, rowHeights, cells: rowHeights.map(() => colWidths.map(() => "")) })
+  }
+  return box
 }
 
 /** The rectangle of a new box: the dragged area, or the type's default size at the click. */
@@ -83,39 +129,109 @@ export function newBoxRect(type: BoxType, from: Point, to: Point): Rect {
   return { x: Math.min(from.x, to.x), y: Math.min(from.y, to.y), w: Math.max(w, 1), h: Math.max(h, 1) }
 }
 
-function lineEnd(point: Point, attach: string | null): LineEnd {
-  return attach ? { x: coord(point.x), y: coord(point.y), attach } : { x: coord(point.x), y: coord(point.y) }
+/** An image box for a stored board file, fitted inside `max` (sheet units) with its proportions kept. */
+export function newImage(fileId: string, natural: { width: number; height: number }, center: Point, id: string, z: number, max = 480): BoxElement {
+  const scale = Math.min(1, max / Math.max(natural.width, natural.height, 1))
+  const w = Math.max(16, natural.width * scale)
+  const h = Math.max(16, natural.height * scale)
+  return { ...newBox("image", { x: center.x - w / 2, y: center.y - h / 2, w, h }, id, z), fileId }
 }
 
-export function newLine(
-  type: LineType,
-  start: { point: Point; attach: string | null },
-  end: { point: Point; attach: string | null },
-  id: string,
-  z: number,
-  stroke: StrokeKey = "ink",
-): LineElement {
-  return { id, type, z, start: lineEnd(start.point, start.attach), end: lineEnd(end.point, end.attach), stroke }
+/** The end of a line where it is drawn; attached ends name the box and the side whose middle they sit on. */
+export function lineEnd(point: Point, attach: string | null, side: Side | null = null): LineEnd {
+  const at = { x: coord(point.x), y: coord(point.y) }
+  if (!attach) return at
+  return side ? { ...at, attach, side } : { ...at, attach }
+}
+
+export interface LineEndInput {
+  point: Point
+  attach: string | null
+  side?: Side | null
+}
+
+export function newLine(type: LineType, start: LineEndInput, end: LineEndInput, id: string, z: number, stroke: StrokeKey = "ink"): LineElement {
+  return {
+    id,
+    type,
+    z,
+    start: lineEnd(start.point, start.attach, start.side ?? null),
+    end: lineEnd(end.point, end.attach, end.side ?? null),
+    stroke,
+  }
 }
 
 // ---------------------------------------------------------------------------
-// Move / resize
+// Move / resize / snap
 // ---------------------------------------------------------------------------
+
+/** The value on the grid closest to `n` (grid ≤ 0: unchanged). */
+export function snap(n: number, grid: number): number {
+  return grid > 0 ? Math.round(n / grid) * grid : n
+}
+
+/**
+ * The move (dx, dy) adjusted so the moved elements' top-left corner lands on the grid. Without a grid the
+ * move is as given.
+ */
+export function snapMove(elements: ElementMap, ids: readonly string[], dx: number, dy: number, grid: number): Point {
+  if (grid <= 0) return { x: dx, y: dy }
+  let minX = Infinity
+  let minY = Infinity
+  for (const id of ids) {
+    const el = elements[id]
+    if (isBox(el)) {
+      minX = Math.min(minX, el.x)
+      minY = Math.min(minY, el.y)
+    }
+  }
+  if (!Number.isFinite(minX)) return { x: snap(dx, grid), y: snap(dy, grid) }
+  return { x: snap(minX + dx, grid) - minX, y: snap(minY + dy, grid) - minY }
+}
+
+/**
+ * Frames carry what lies inside them: the ids plus every unlocked element whose bounds are wholly inside one of
+ * the frames among the ids (a line when both its ends are inside).
+ */
+export function withFrameContents(elements: ElementMap, ids: readonly string[]): string[] {
+  const frames = ids.map((id) => elements[id]).filter((el): el is BoxElement => isBox(el) && el.type === "frame" && !el.locked)
+  if (frames.length === 0) return [...ids]
+  const out = new Set(ids)
+  const insideAny = (p: Point, frame: BoxElement) => p.x >= frame.x && p.y >= frame.y && p.x <= frame.x + frame.w && p.y <= frame.y + frame.h
+  for (const el of Object.values(elements)) {
+    if (!isKnown(el) || el.locked || out.has(el.id)) continue
+    for (const frame of frames) {
+      if (frame.id === el.id) continue
+      let inside: boolean
+      if (isBox(el)) inside = insideAny({ x: el.x, y: el.y }, frame) && insideAny({ x: el.x + el.w, y: el.y + el.h }, frame)
+      else {
+        const { a, b } = resolveLine(el, elements)
+        inside = insideAny(a, frame) && insideAny(b, frame)
+      }
+      if (inside) {
+        out.add(el.id)
+        break
+      }
+    }
+  }
+  return [...out]
+}
 
 /**
  * Moves the elements by (dx, dy). A line end attached to a box that is not moving stays attached (the
- * line follows its box, not the drag); free ends and ends whose box moves too are shifted.
+ * line follows its box, not the drag); free ends and ends whose box moves too are shifted. Locked elements stay.
  */
 export function movePatch(elements: ElementMap, ids: readonly string[], dx: number, dy: number): Patch {
   const patch: Record<string, BoardElement | null> = {}
   if (dx === 0 && dy === 0) return patch
-  const moving = new Set(ids)
+  const free = unlocked(elements, ids)
+  const moving = new Set(free)
   const shift = (end: LineEnd): LineEnd => {
     const box = attachedBox(end, elements)
     if (box && !moving.has(box.id)) return end
     return { ...end, x: coord(end.x + dx), y: coord(end.y + dy) }
   }
-  for (const id of ids) {
+  for (const id of free) {
     const el = elements[id]
     if (isBox(el)) patch[id] = { ...el, x: coord(el.x + dx), y: coord(el.y + dy) }
     else if (isLine(el)) patch[id] = { ...el, start: shift(el.start), end: shift(el.end) }
@@ -123,20 +239,46 @@ export function movePatch(elements: ElementMap, ids: readonly string[], dx: numb
   return patch
 }
 
-/** Resizes one box by dragging a handle by (dx, dy). */
-export function resizePatch(elements: ElementMap, id: string, handle: BoxHandle, dx: number, dy: number): Patch {
-  const el = elements[id]
-  if (!isBox(el)) return {}
-  const rect = resizeRect(boxRect(el), handle, dx, dy)
-  return { [id]: { ...el, x: coord(rect.x), y: coord(rect.y), w: size(rect.w), h: size(rect.h) } }
+/** A table's w / h from its column widths and row heights. */
+function withTableSize(el: BoxElement): BoxElement {
+  if (!el.colWidths || !el.rowHeights) return el
+  return { ...el, w: size(el.colWidths.reduce((a, b) => a + b, 0)), h: size(el.rowHeights.reduce((a, b) => a + b, 0)) }
 }
 
-/** Puts one end of a line at `point`, attached to the box `attach` (null = free). */
-export function lineEndPatch(elements: ElementMap, id: string, which: LineHandle, point: Point, attach: string | null): Patch {
+/** Scales a table's columns and rows to a new outer size (each at least the smallest cell). */
+function scaleTable(el: BoxElement, w: number, h: number): BoxElement {
+  if (!el.colWidths || !el.rowHeights) return { ...el, w, h }
+  const sx = w / Math.max(1, el.w)
+  const sy = h / Math.max(1, el.h)
+  const colWidths = el.colWidths.map((c) => Math.max(BOARD_LIMITS.tableCellMin, Math.round(c * sx)))
+  const rowHeights = el.rowHeights.map((r) => Math.max(BOARD_LIMITS.tableCellMin, Math.round(r * sy)))
+  return withTableSize({ ...el, colWidths, rowHeights })
+}
+
+/** Resizes one box by dragging a handle by (dx, dy). `keepRatio` (Shift, images) keeps its proportions. */
+export function resizePatch(elements: ElementMap, id: string, handle: BoxHandle, dx: number, dy: number, keepRatio = false): Patch {
   const el = elements[id]
-  if (!isLine(el)) return {}
+  if (!isBox(el) || el.locked) return {}
+  let rect = resizeRect(boxRect(el), handle, dx, dy)
+  if (keepRatio && el.w > 0 && el.h > 0) {
+    const ratio = el.w / el.h
+    const corner = handle.length === 2
+    const w = corner ? Math.max(rect.w, rect.h * ratio) : handle === "n" || handle === "s" ? rect.h * ratio : rect.w
+    const h = w / ratio
+    const x = handle.includes("w") ? el.x + el.w - w : handle === "n" || handle === "s" ? el.x + (el.w - w) / 2 : el.x
+    const y = handle.includes("n") ? el.y + el.h - h : handle === "e" || handle === "w" ? el.y + (el.h - h) / 2 : el.y
+    rect = { x, y, w, h }
+  }
+  const moved = { ...el, x: coord(rect.x), y: coord(rect.y) }
+  return { [id]: el.type === "table" ? scaleTable(moved, size(rect.w), size(rect.h)) : { ...moved, w: size(rect.w), h: size(rect.h) } }
+}
+
+/** Puts one end of a line at `point`, attached to the box `attach` on `side` (null = free). */
+export function lineEndPatch(elements: ElementMap, id: string, which: LineHandle, point: Point, attach: string | null, side: Side | null = null): Patch {
+  const el = elements[id]
+  if (!isLine(el) || el.locked) return {}
   const target = attach && attach !== id && isBox(elements[attach]) ? attach : null
-  return { [id]: { ...el, [which]: lineEnd(point, target) } }
+  return { [id]: { ...el, [which]: lineEnd(point, target, target ? side : null) } }
 }
 
 // ---------------------------------------------------------------------------
@@ -144,12 +286,12 @@ export function lineEndPatch(elements: ElementMap, id: string, which: LineHandle
 // ---------------------------------------------------------------------------
 
 /**
- * Deletes the elements. Lines that stay but were attached to a deleted box are detached at the point where
- * they were drawn, so they do not jump (and undo re-attaches them: they are part of the same patch).
+ * Deletes the elements (locked ones stay). Lines that stay but were attached to a deleted box are detached at
+ * the point where they were drawn, so they do not jump (and undo re-attaches them: they are part of the same patch).
  */
 export function deletePatch(elements: ElementMap, ids: readonly string[]): Patch {
   const patch: Record<string, BoardElement | null> = {}
-  const removed = new Set(ids.filter((id) => isKnown(elements[id])))
+  const removed = new Set(unlocked(elements, ids))
   if (removed.size === 0) return patch
   for (const id of removed) patch[id] = null
   for (const el of Object.values(elements)) {
@@ -167,6 +309,14 @@ export function deletePatch(elements: ElementMap, ids: readonly string[]): Patch
   return patch
 }
 
+/** An element without its lock (copies are never locked). */
+function withoutLock<T extends KnownElement>(el: T): T {
+  if (!el.locked) return { ...el }
+  const copy = { ...el }
+  delete copy.locked
+  return copy
+}
+
 /**
  * What Ctrl+C keeps: the selected elements, back to front. A line end attached to a box that is not copied
  * becomes a free end at the point where it was drawn.
@@ -177,12 +327,12 @@ export function copyElements(elements: ElementMap, ids: readonly string[]): Know
   for (const el of sortByZ(elements)) {
     if (!selected.has(el.id) || !isKnown(el)) continue
     if (isBox(el)) {
-      copies.push({ ...el })
+      copies.push(withoutLock(el))
       continue
     }
     const { a, b } = resolveLine(el, elements)
     const keep = (end: LineEnd, drawn: Point): LineEnd => (end.attach && selected.has(end.attach) && isBox(elements[end.attach]) ? { ...end } : lineEnd(drawn, null))
-    copies.push({ ...el, start: keep(el.start, a), end: keep(el.end, b) })
+    copies.push({ ...withoutLock(el), start: keep(el.start, a), end: keep(el.end, b) })
   }
   return copies
 }
@@ -199,7 +349,7 @@ export function pastePatch(elements: ElementMap, clip: readonly KnownElement[], 
   const ids: string[] = []
   const moveEnd = (end: LineEnd): LineEnd => {
     const attach = end.attach ? (idMap.get(end.attach) ?? null) : null
-    return lineEnd({ x: end.x + offset.x, y: end.y + offset.y }, attach)
+    return lineEnd({ x: end.x + offset.x, y: end.y + offset.y }, attach, attach ? (end.side ?? null) : null)
   }
   for (const el of clip) {
     const id = idMap.get(el.id) as string
@@ -215,13 +365,13 @@ export function pastePatch(elements: ElementMap, clip: readonly KnownElement[], 
 export const PASTE_OFFSET: Point = { x: 16, y: 16 }
 
 // ---------------------------------------------------------------------------
-// Order, style, text
+// Order, format, text, link, lock
 // ---------------------------------------------------------------------------
 
 /** Brings the elements to the front, or sends them to the back, keeping their order among themselves. */
 export function reorderPatch(elements: ElementMap, ids: readonly string[], to: "front" | "back"): Patch {
   const patch: Record<string, BoardElement | null> = {}
-  const selected = new Set(ids)
+  const selected = new Set(unlocked(elements, ids))
   const ordered = sortByZ(elements).filter(isKnown)
   const picked = ordered.filter((el) => selected.has(el.id))
   const rest = ordered.filter((el) => !selected.has(el.id))
@@ -242,20 +392,271 @@ export function reorderPatch(elements: ElementMap, ids: readonly string[], to: "
   return patch
 }
 
-/** Sets the fill (boxes only) and / or the outline colour of the elements. */
-export function stylePatch(elements: ElementMap, ids: readonly string[], style: Partial<{ fill: FillKey; stroke: StrokeKey }>): Patch {
+/** Every format setting the editor offers; each applies to the elements it fits (boxes, lines, or both). */
+export interface FormatChange {
+  fill: FillKey
+  stroke: StrokeKey
+  /** Boxes. */
+  fontSize: number
+  fontFamily: FontFamily
+  bold: boolean
+  italic: boolean
+  textColor: StrokeKey
+  align: HAlign
+  valign: VAlign
+  /** Boxes (outline) and lines. */
+  strokeWidth: number
+  dash: Dash
+  /** Lines. */
+  route: LineRoute
+  arrowStart: boolean
+  arrowEnd: boolean
+}
+
+const BOX_KEYS = ["fill", "fontSize", "fontFamily", "bold", "italic", "textColor", "align", "valign"] as const
+const LINE_KEYS = ["route", "arrowStart", "arrowEnd"] as const
+const BOTH_KEYS = ["stroke", "strokeWidth", "dash"] as const
+
+/** Sets format settings on the elements they fit (locked ones stay as they are). */
+export function formatPatch(elements: ElementMap, ids: readonly string[], change: Partial<FormatChange>): Patch {
   const patch: Record<string, BoardElement | null> = {}
-  for (const id of ids) {
+  const pick = (keys: readonly (keyof FormatChange)[]) => {
+    const out: Record<string, unknown> = {}
+    for (const key of keys) if (change[key] !== undefined) out[key] = change[key]
+    return out
+  }
+  const boxPart = pick([...BOX_KEYS, ...BOTH_KEYS])
+  const linePart = pick([...LINE_KEYS, ...BOTH_KEYS])
+  if (typeof boxPart.fontSize === "number") boxPart.fontSize = clamp(Math.round(boxPart.fontSize), BOARD_LIMITS.fontSizeMin, BOARD_LIMITS.fontSizeMax)
+  if (typeof boxPart.strokeWidth === "number") boxPart.strokeWidth = clamp(boxPart.strokeWidth, 0, BOARD_LIMITS.strokeWidthMax)
+  if (typeof linePart.strokeWidth === "number") linePart.strokeWidth = clamp(linePart.strokeWidth, BOARD_LIMITS.lineWidthMin, BOARD_LIMITS.strokeWidthMax)
+  for (const id of unlocked(elements, ids)) {
     const el = elements[id]
-    if (isBox(el)) patch[id] = { ...el, ...(style.fill ? { fill: style.fill } : {}), ...(style.stroke ? { stroke: style.stroke } : {}) }
-    else if (isLine(el) && style.stroke) patch[id] = { ...el, stroke: style.stroke }
+    if (isBox(el) && Object.keys(boxPart).length > 0) patch[id] = { ...el, ...boxPart }
+    else if (isLine(el) && Object.keys(linePart).length > 0) patch[id] = { ...el, ...linePart }
   }
   return patch
+}
+
+/** Sets the fill (boxes only) and / or the outline colour of the elements. */
+export function stylePatch(elements: ElementMap, ids: readonly string[], style: Partial<{ fill: FillKey; stroke: StrokeKey }>): Patch {
+  return formatPatch(elements, ids, style)
 }
 
 /** Sets the text of a box (cut at the length the server accepts). */
 export function textPatch(elements: ElementMap, id: string, text: string): Patch {
   const el = elements[id]
-  if (!isBox(el)) return {}
+  if (!isBox(el) || el.locked) return {}
   return { [id]: { ...el, text: text.slice(0, BOARD_LIMITS.textLength) } }
+}
+
+/** Sets the label on a line (empty = none). */
+export function labelPatch(elements: ElementMap, id: string, label: string): Patch {
+  const el = elements[id]
+  if (!isLine(el) || el.locked) return {}
+  const text = label.replace(/\s+/g, " ").trim().slice(0, BOARD_LIMITS.labelLength)
+  const next: LineElement = { ...el }
+  if (text) next.label = text
+  else delete next.label
+  return { [id]: next }
+}
+
+/** Sets (an http(s) address) or removes (null / empty) the link of the elements. Anything else changes nothing. */
+export function linkPatch(elements: ElementMap, ids: readonly string[], link: string | null): Patch {
+  const patch: Record<string, BoardElement | null> = {}
+  const value = link?.trim() ?? ""
+  if (value !== "" && (!isHttpUrl(value) || value.length > BOARD_LIMITS.linkLength)) return patch
+  for (const id of unlocked(elements, ids)) {
+    const next = { ...(elements[id] as KnownElement) }
+    if (value) next.link = value
+    else delete next.link
+    patch[id] = next
+  }
+  return patch
+}
+
+/** Locks or unlocks the elements. */
+export function lockPatch(elements: ElementMap, ids: readonly string[], locked: boolean): Patch {
+  const patch: Record<string, BoardElement | null> = {}
+  for (const id of ids) {
+    const el = elements[id]
+    if (!isKnown(el)) continue
+    const next = { ...el }
+    if (locked) next.locked = true
+    else delete next.locked
+    patch[id] = next
+  }
+  return patch
+}
+
+// ---------------------------------------------------------------------------
+// Align / distribute
+// ---------------------------------------------------------------------------
+
+export type AlignHow = "left" | "center" | "right" | "top" | "middle" | "bottom"
+
+/** Lines the boxes up on the selection's left / centre / right edge or top / middle / bottom (2 or more boxes). */
+export function alignPatch(elements: ElementMap, ids: readonly string[], how: AlignHow): Patch {
+  const boxes = unlocked(elements, ids)
+    .map((id) => elements[id])
+    .filter(isBox)
+  const patch: Record<string, BoardElement | null> = {}
+  if (boxes.length < 2) return patch
+  const left = Math.min(...boxes.map((b) => b.x))
+  const right = Math.max(...boxes.map((b) => b.x + b.w))
+  const top = Math.min(...boxes.map((b) => b.y))
+  const bottom = Math.max(...boxes.map((b) => b.y + b.h))
+  for (const b of boxes) {
+    let { x, y } = b
+    if (how === "left") x = left
+    else if (how === "right") x = right - b.w
+    else if (how === "center") x = (left + right) / 2 - b.w / 2
+    else if (how === "top") y = top
+    else if (how === "bottom") y = bottom - b.h
+    else y = (top + bottom) / 2 - b.h / 2
+    const next = { ...b, x: coord(x), y: coord(y) }
+    if (next.x !== b.x || next.y !== b.y) patch[b.id] = next
+  }
+  return patch
+}
+
+/** Spaces the boxes evenly between the first and the last along the axis (3 or more boxes). */
+export function distributePatch(elements: ElementMap, ids: readonly string[], axis: "horizontal" | "vertical"): Patch {
+  const boxes = unlocked(elements, ids)
+    .map((id) => elements[id])
+    .filter(isBox)
+  const patch: Record<string, BoardElement | null> = {}
+  if (boxes.length < 3) return patch
+  const horizontal = axis === "horizontal"
+  const sorted = [...boxes].sort((a, b) => (horizontal ? a.x - b.x : a.y - b.y))
+  const start = horizontal ? sorted[0].x : sorted[0].y
+  const last = sorted[sorted.length - 1]
+  const end = horizontal ? last.x + last.w : last.y + last.h
+  const total = sorted.reduce((sum, b) => sum + (horizontal ? b.w : b.h), 0)
+  const gap = (end - start - total) / (sorted.length - 1)
+  let at = start
+  for (const b of sorted) {
+    const next = horizontal ? { ...b, x: coord(at) } : { ...b, y: coord(at) }
+    if (next.x !== b.x || next.y !== b.y) patch[b.id] = next
+    at += (horizontal ? b.w : b.h) + gap
+  }
+  return patch
+}
+
+// ---------------------------------------------------------------------------
+// Tables
+// ---------------------------------------------------------------------------
+
+/** Width of a column for the longest text in it (a rough measure: full-width characters count double). */
+function columnWidth(texts: readonly string[], fontSize: number): number {
+  let longest = 0
+  for (const text of texts) {
+    for (const line of text.split("\n")) {
+      let units = 0
+      for (const ch of line) units += /[　-鿿＀-￯]/.test(ch) ? 2 : 1
+      longest = Math.max(longest, units)
+    }
+  }
+  return clamp(Math.round(longest * fontSize * 0.55 + 16), 48, 360)
+}
+
+/**
+ * A table element from pasted cells (Excel / a spreadsheet: rows of cells). Cut to the limits the server accepts;
+ * columns are sized to their text, rows to their line count. Null when nothing is left.
+ */
+export function newTableFromCells(cells: readonly (readonly string[])[], at: Point, id: string, z: number, fontSize = 14): BoxElement | null {
+  const rows = cells.slice(0, BOARD_LIMITS.tableRows).map((row) => row.slice(0, BOARD_LIMITS.tableCols).map((c) => c.slice(0, BOARD_LIMITS.tableCellLength)))
+  const cols = Math.max(0, ...rows.map((r) => r.length))
+  if (rows.length === 0 || cols === 0) return null
+  const grid = rows.map((r) => Array.from({ length: cols }, (_, i) => r[i] ?? ""))
+  const colWidths = Array.from({ length: cols }, (_, c) => columnWidth(grid.map((r) => r[c]), fontSize))
+  const rowHeights = grid.map((r) => Math.round(Math.max(1, ...r.map((c) => c.split("\n").length)) * fontSize * 1.4 + 12))
+  return withTableSize({ ...newBox("table", { x: at.x, y: at.y, w: 1, h: 1 }, id, z), colWidths, rowHeights, cells: grid })
+}
+
+/** Sets the text of one cell. */
+export function cellPatch(elements: ElementMap, id: string, row: number, col: number, text: string): Patch {
+  const el = elements[id]
+  if (!isBox(el) || el.type !== "table" || el.locked || !el.cells?.[row] || col >= el.cells[row].length) return {}
+  const cells = el.cells.map((r, i) => (i === row ? r.map((c, j) => (j === col ? text.slice(0, BOARD_LIMITS.tableCellLength) : c)) : r))
+  return { [id]: { ...el, cells } }
+}
+
+export type TableEdit = "row-above" | "row-below" | "row-delete" | "col-left" | "col-right" | "col-delete"
+
+/** Adds or removes a row / column next to the cell (a table keeps at least one of each, at most the limits). */
+export function tablePatch(elements: ElementMap, id: string, row: number, col: number, edit: TableEdit): Patch {
+  const el = elements[id]
+  if (!isBox(el) || el.type !== "table" || el.locked || !el.cells || !el.colWidths || !el.rowHeights) return {}
+  let { cells, colWidths, rowHeights } = el
+  const rowsN = cells.length
+  const colsN = colWidths.length
+  if (edit === "row-above" || edit === "row-below") {
+    if (rowsN >= BOARD_LIMITS.tableRows) return {}
+    const at = edit === "row-above" ? row : row + 1
+    cells = [...cells.slice(0, at), colWidths.map(() => ""), ...cells.slice(at)]
+    rowHeights = [...rowHeights.slice(0, at), rowHeights[Math.min(row, rowsN - 1)] ?? 32, ...rowHeights.slice(at)]
+  } else if (edit === "row-delete") {
+    if (rowsN <= 1) return {}
+    cells = cells.filter((_, i) => i !== row)
+    rowHeights = rowHeights.filter((_, i) => i !== row)
+  } else if (edit === "col-left" || edit === "col-right") {
+    if (colsN >= BOARD_LIMITS.tableCols) return {}
+    const at = edit === "col-left" ? col : col + 1
+    cells = cells.map((r) => [...r.slice(0, at), "", ...r.slice(at)])
+    colWidths = [...colWidths.slice(0, at), colWidths[Math.min(col, colsN - 1)] ?? 96, ...colWidths.slice(at)]
+  } else {
+    if (colsN <= 1) return {}
+    cells = cells.map((r) => r.filter((_, j) => j !== col))
+    colWidths = colWidths.filter((_, j) => j !== col)
+  }
+  return { [id]: withTableSize({ ...el, cells, colWidths, rowHeights }) }
+}
+
+/** The cell of a table under a point (sheet coordinates), or null. */
+export function cellAt(el: BoxElement, p: Point): { row: number; col: number } | null {
+  if (el.type !== "table" || !el.colWidths || !el.rowHeights) return null
+  let x = el.x
+  let col = -1
+  for (let j = 0; j < el.colWidths.length; j++) {
+    if (p.x >= x && p.x <= x + el.colWidths[j]) {
+      col = j
+      break
+    }
+    x += el.colWidths[j]
+  }
+  let y = el.y
+  let row = -1
+  for (let i = 0; i < el.rowHeights.length; i++) {
+    if (p.y >= y && p.y <= y + el.rowHeights[i]) {
+      row = i
+      break
+    }
+    y += el.rowHeights[i]
+  }
+  return row >= 0 && col >= 0 ? { row, col } : null
+}
+
+/** The rectangle of one cell (sheet coordinates). */
+export function cellRect(el: BoxElement, row: number, col: number): Rect | null {
+  if (!el.colWidths || !el.rowHeights || row >= el.rowHeights.length || col >= el.colWidths.length) return null
+  const x = el.x + el.colWidths.slice(0, col).reduce((a, b) => a + b, 0)
+  const y = el.y + el.rowHeights.slice(0, row).reduce((a, b) => a + b, 0)
+  return { x, y, w: el.colWidths[col], h: el.rowHeights[row] }
+}
+
+// ---------------------------------------------------------------------------
+// Votes
+// ---------------------------------------------------------------------------
+
+/** Adds or takes back one person's vote on a sticky note. */
+export function votePatch(elements: ElementMap, id: string, userId: string): Patch {
+  const el = elements[id]
+  if (!isBox(el) || el.type !== "sticky" || el.locked || !userId) return {}
+  const voters = el.voters ?? []
+  const next = voters.includes(userId) ? voters.filter((v) => v !== userId) : [...voters, userId].slice(0, BOARD_LIMITS.votersPerSticky)
+  const out: BoxElement = { ...el }
+  if (next.length > 0) out.voters = next
+  else delete out.voters
+  return { [id]: out }
 }

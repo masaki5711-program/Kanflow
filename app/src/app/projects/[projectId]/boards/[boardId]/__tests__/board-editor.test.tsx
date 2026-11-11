@@ -95,7 +95,7 @@ describe("ボードの編集画面: キャンバス (plan 10 B1)", () => {
   it("draws a rectangle with a drag and saves only that element", async () => {
     const user = userEvent.setup()
     const fetchMock = stubFetch([boardRoute(), elementsOf("s1"), savesOf("s1")])
-    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" />)
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
     const canvas = await canvasOf("全体図")
     expect(screen.getByRole("heading", { level: 1, name: "構成図（合成）" })).toBeInTheDocument()
 
@@ -129,7 +129,7 @@ describe("ボードの編集画面: キャンバス (plan 10 B1)", () => {
   it("selects with a click, deletes with the Delete key and brings the shape back with Ctrl+Z", async () => {
     const stored = { id: "el-stored-1", version: 3, deleted: false, data: { type: "rect", x: 50, y: 50, w: 100, h: 60, z: 1, text: "", fill: "white", stroke: "ink" } }
     const fetchMock = stubFetch([boardRoute(), elementsOf("s1", [stored]), savesOf("s1")])
-    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" />)
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
     const canvas = await canvasOf("全体図")
     expect(shapes(canvas, "rect")).toHaveLength(1)
     expect(screen.getByRole("button", { name: t.wbDeleteSelection })).toBeDisabled()
@@ -158,7 +158,7 @@ describe("ボードの編集画面: キャンバス (plan 10 B1)", () => {
   it("moves a shape by dragging it and by the arrow keys", async () => {
     const stored = { id: "el-stored-1", version: 1, deleted: false, data: { type: "rect", x: 50, y: 50, w: 100, h: 60, z: 1, text: "", fill: "white", stroke: "ink" } }
     const fetchMock = stubFetch([boardRoute(), elementsOf("s1", [stored]), savesOf("s1")])
-    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" />)
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
     const canvas = await canvasOf("全体図")
 
     drag(canvas, [100, 80], [140, 110])
@@ -174,7 +174,7 @@ describe("ボードの編集画面: キャンバス (plan 10 B1)", () => {
   it("a sticky note opens for typing; the text is saved when the edit ends", async () => {
     const user = userEvent.setup()
     const fetchMock = stubFetch([boardRoute(), elementsOf("s1"), savesOf("s1")])
-    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" />)
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
     const canvas = await canvasOf("全体図")
 
     // Keyboard drawing: tool, then Enter on the canvas puts the shape in the middle.
@@ -206,7 +206,7 @@ describe("ボードの編集画面: キャンバス (plan 10 B1)", () => {
         respond: () => (fail ? jsonResponse({ error: "サーバーエラー（合成）" }, 500) : jsonResponse({ rev: 1, applied: 1, stale: [] })),
       },
     ])
-    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" />)
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
     const canvas = await canvasOf("全体図")
     await user.click(screen.getByRole("button", { name: t.wbToolRect }))
     drag(canvas, [100, 80], [300, 200])
@@ -231,7 +231,7 @@ describe("ボードの編集画面: キャンバス (plan 10 B1)", () => {
       elementsOf("s1"),
       { match: `${BOARD_URL}/sheets/s1/elements`, method: "POST", respond: () => jsonResponse({ error: "シートの図形数が上限です（合成）" }, 409) },
     ])
-    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" />)
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
     const canvas = await canvasOf("全体図")
     await user.click(screen.getByRole("button", { name: t.wbToolRect }))
     drag(canvas, [100, 80], [300, 200])
@@ -244,7 +244,7 @@ describe("ボードの編集画面: キャンバス (plan 10 B1)", () => {
   it("read only: no drawing tools, no save state, the keyboard changes nothing", async () => {
     const stored = { id: "el-stored-1", version: 1, deleted: false, data: { type: "rect", x: 50, y: 50, w: 100, h: 60, z: 1, text: "", fill: "white", stroke: "ink" } }
     const fetchMock = stubFetch([boardRoute(board([S1, S2], { canWrite: false, canManage: false })), elementsOf("s1", [stored])])
-    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" />)
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
     const canvas = await canvasOf("全体図")
     expect(screen.getByText(t.wbReadOnly)).toBeInTheDocument()
     const toolbar = screen.getByRole("toolbar", { name: t.wbToolbarLabel })
@@ -264,7 +264,7 @@ describe("ボードの編集画面: キャンバス (plan 10 B1)", () => {
   it("the toolbar is one tab stop with arrow-key navigation, and zooms the view", async () => {
     const user = userEvent.setup()
     stubFetch([boardRoute(), elementsOf("s1"), savesOf("s1")])
-    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" />)
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
     await canvasOf("全体図")
     const toolbar = screen.getByRole("toolbar", { name: t.wbToolbarLabel })
     const buttons = within(toolbar).getAllByRole("button")
@@ -274,7 +274,8 @@ describe("ボードの編集画面: キャンバス (plan 10 B1)", () => {
     await user.keyboard("{ArrowRight}")
     expect(within(toolbar).getByRole("button", { name: t.wbToolRect })).toHaveFocus()
     await user.keyboard("{End}")
-    expect(within(toolbar).getByRole("button", { name: t.wbZoomFit })).toHaveFocus()
+    // The last enabled button (IceBox is disabled while no sticky note is selected).
+    expect(within(toolbar).getByRole("button", { name: t.wbExportPng })).toHaveFocus()
     expect(within(toolbar).getAllByRole("button").filter((button) => button.tabIndex === 0)).toHaveLength(1)
 
     expect(within(toolbar).getByRole("button", { name: t.wbZoomReset.replace("{percent}", "100") })).toBeInTheDocument()
@@ -296,7 +297,7 @@ describe("ホワイトボード: without pictures and with the keyboard (B1 revi
 
   it("lists the sheet's contents in words, outside the canvas (a line names the boxes it connects)", async () => {
     stubFetch([boardRoute(), elementsOf("s1", stored), savesOf("s1")])
-    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" />)
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
     await canvasOf("全体図")
     const list = screen.getByTestId("board-contents")
     expect(within(list).getByRole("heading", { name: t.wbSheetContents.replace("{count}", "3") })).toBeInTheDocument()
@@ -310,7 +311,7 @@ describe("ホワイトボード: without pictures and with the keyboard (B1 revi
 
   it("] and [ select the shapes one by one and say which one it is", async () => {
     stubFetch([boardRoute(), elementsOf("s1", stored), savesOf("s1")])
-    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" />)
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
     const canvas = await canvasOf("全体図")
     canvas.focus()
     fireEvent.keyDown(canvas, { key: "]" })
@@ -328,7 +329,7 @@ describe("ホワイトボード: without pictures and with the keyboard (B1 revi
 
   it("a second pointer does not end the first one's drag", async () => {
     stubFetch([boardRoute(), elementsOf("s1"), savesOf("s1")])
-    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" />)
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
     const canvas = await canvasOf("全体図")
     fireEvent.click(screen.getByRole("button", { name: t.wbToolRect }))
     fireEvent.pointerDown(canvas, { button: 0, pointerId: 1, clientX: 100, clientY: 80 })
@@ -348,7 +349,7 @@ describe("ボードの編集画面: シート (plan 10 B1)", () => {
     const user = userEvent.setup()
     const stored = { id: "el-on-s2", version: 1, deleted: false, data: { type: "ellipse", x: 0, y: 0, w: 80, h: 80, z: 1, text: "", fill: "white", stroke: "ink" } }
     stubFetch([boardRoute(), elementsOf("s1"), elementsOf("s2", [stored])])
-    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" />)
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
     await canvasOf("全体図")
     await user.click(screen.getByRole("tab", { name: "詳細" }))
     const canvas = await canvasOf("詳細")
@@ -366,7 +367,7 @@ describe("ボードの編集画面: シート (plan 10 B1)", () => {
       elementsOf("s3"),
       { match: `${BOARD_URL}/sheets`, method: "POST", respond: () => jsonResponse({ board: board([S1, S2, s3]), sheetId: "s3" }, 201) },
     ])
-    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" />)
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
     await canvasOf("全体図")
     await user.click(screen.getByRole("button", { name: t.wbSheetAdd }))
     await canvasOf(s3.name)
@@ -381,7 +382,7 @@ describe("ボードの編集画面: シート (plan 10 B1)", () => {
       elementsOf("s1"),
       { match: `${BOARD_URL}/sheets/s1`, method: "PATCH", respond: () => jsonResponse(board([{ ...S1, name: "全体図 v2" }, S2])) },
     ])
-    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" />)
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
     await canvasOf("全体図")
     await openSheetMenu(user, "全体図", t.wbRename)
     const dialog = await screen.findByRole("dialog", { name: t.wbSheetRenameTitle })
@@ -400,7 +401,7 @@ describe("ボードの編集画面: シート (plan 10 B1)", () => {
       elementsOf("s1"),
       { match: `${BOARD_URL}/sheets/order`, method: "PUT", respond: () => jsonResponse(board([S2, S1])) },
     ])
-    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" />)
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
     await canvasOf("全体図")
     await openSheetMenu(user, "全体図", t.wbSheetMoveRight)
     await waitFor(() => expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["詳細", "全体図"]))
@@ -419,7 +420,7 @@ describe("ボードの編集画面: シート (plan 10 B1)", () => {
       elementsOf("s9"),
       { match: `${BOARD_URL}/sheets/s1/duplicate`, method: "POST", respond: () => jsonResponse({ board: board([S1, copy, S2]), sheetId: "s9" }, 201) },
     ])
-    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" />)
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
     await canvasOf("全体図")
     await openSheetMenu(user, "全体図", t.wbSheetDuplicate)
     const dialog = await screen.findByRole("dialog", { name: t.wbSheetDuplicateTitle })
@@ -437,7 +438,7 @@ describe("ボードの編集画面: シート (plan 10 B1)", () => {
       elementsOf("s2"),
       { match: `${BOARD_URL}/sheets/s1`, method: "DELETE", respond: () => jsonResponse(board([S2])) },
     ])
-    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" />)
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
     await canvasOf("全体図")
     await openSheetMenu(user, "全体図", t.wbSheetDelete)
     const confirm = await screen.findByRole("alertdialog")
@@ -456,7 +457,7 @@ describe("ボードの編集画面: シート (plan 10 B1)", () => {
       elementsOf("s2"),
       { match: `${BOARD_URL}/sheets/s1/elements`, method: "POST", respond: () => jsonResponse({ error: "サーバーエラー（合成）" }, 500) },
     ])
-    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" />)
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
     const canvas = await canvasOf("全体図")
     await user.click(screen.getByRole("button", { name: t.wbToolRect }))
     drag(canvas, [100, 80], [300, 200])
@@ -475,7 +476,7 @@ describe("ボードの編集画面: シート (plan 10 B1)", () => {
 
   it("an unknown board says so and links back to the list", async () => {
     stubFetch([{ match: BOARD_URL, method: "GET", respond: () => jsonResponse({ error: "見つかりません（合成）" }, 404) }])
-    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" />)
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
     expect(await screen.findByRole("heading", { name: t.wbNotFoundTitle })).toBeInTheDocument()
     expect(screen.getByRole("link", { name: t.wbBackToList })).toHaveAttribute("href", "/projects/p1/boards")
   })
@@ -491,10 +492,95 @@ describe("ボードの編集画面: シート (plan 10 B1)", () => {
         respond: () => (fail ? jsonResponse({ error: "サーバーエラー（合成）" }, 500) : jsonResponse({ rev: 0, full: true, elements: [] })),
       },
     ])
-    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" />)
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
     expect(await screen.findByRole("heading", { name: t.wbSheetLoadFailed })).toBeInTheDocument()
     fail = false
     await user.click(screen.getByRole("button", { name: t.errorRetry }))
     await canvasOf("全体図")
+  })
+})
+
+describe("ホワイトボード B2: connections, typing, format and paste", () => {
+  const RECT = { id: "el-stored-1", version: 1, deleted: false, data: { type: "rect", x: 50, y: 50, w: 100, h: 60, z: 1, text: "", fill: "white", stroke: "ink" } }
+
+  it("a line end brought near a shape connects to the middle of its nearest side, and the midpoints are shown", async () => {
+    const user = userEvent.setup()
+    const fetchMock = stubFetch([boardRoute(), elementsOf("s1", [RECT]), savesOf("s1")])
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
+    const canvas = await canvasOf("全体図")
+    await user.click(screen.getByRole("button", { name: t.wbToolArrow }))
+    // Near the right side (not on its middle): the end goes to the middle of that side.
+    fireEvent.pointerDown(canvas, { button: 0, pointerId: 1, clientX: 158, clientY: 62 })
+    fireEvent.pointerMove(canvas, { pointerId: 1, clientX: 400, clientY: 300 })
+    const markers = screen.getByTestId("board-snap")
+    expect(markers).toHaveAttribute("data-snap-side", "e")
+    expect(markers.querySelectorAll("circle")).toHaveLength(4)
+    fireEvent.pointerUp(canvas, { button: 0, pointerId: 1, clientX: 400, clientY: 300 })
+    await waitFor(() => expect(writes(fetchMock)).toHaveLength(1))
+    const line = writes(fetchMock)[0][0].data as unknown as { start: unknown; end: unknown }
+    expect(line.start).toEqual({ x: 150, y: 80, attach: "el-stored-1", side: "e" })
+    expect(line.end).toEqual({ x: 400, y: 300 })
+    expect(screen.queryByTestId("board-snap")).not.toBeInTheDocument()
+  })
+
+  it("typing with a shape selected writes into it", async () => {
+    const user = userEvent.setup()
+    const fetchMock = stubFetch([boardRoute(), elementsOf("s1", [RECT]), savesOf("s1")])
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
+    const canvas = await canvasOf("全体図")
+    drag(canvas, [100, 80], [100, 80])
+    await user.keyboard("A")
+    const field = screen.getByRole("textbox", { name: t.wbTextEditLabel })
+    expect(field).toHaveFocus()
+    await user.keyboard("BC{Escape}")
+    await waitFor(() => expect(writes(fetchMock).flat().some((w) => w.data?.text?.endsWith("BC"))).toBe(true))
+  })
+
+  it("Alt+arrow keys resize the selected shape; Insert adds a connected mind-map child; Tab is not taken", async () => {
+    const fetchMock = stubFetch([boardRoute(), elementsOf("s1", [RECT]), savesOf("s1")])
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
+    const canvas = await canvasOf("全体図")
+    drag(canvas, [100, 80], [100, 80])
+    fireEvent.keyDown(canvas, { key: "ArrowRight", altKey: true, shiftKey: true })
+    fireEvent.keyDown(canvas, { key: "ArrowDown", altKey: true })
+    await waitFor(() => expect(writes(fetchMock).flat().some((w) => w.data?.w === 110 && w.data?.h === 61)).toBe(true))
+    // Tab is left to the browser (the focus can leave the canvas).
+    expect(fireEvent.keyDown(canvas, { key: "Tab" })).toBe(true)
+    fireEvent.keyDown(canvas, { key: "Insert" })
+    expect(shapes(canvas, "rect")).toHaveLength(2)
+    expect(shapes(canvas, "line")).toHaveLength(1)
+    expect(screen.getByRole("textbox", { name: t.wbTextEditLabel })).toHaveFocus()
+  })
+
+  it("the format bar sets bold and right alignment on the selection", async () => {
+    const user = userEvent.setup()
+    const fetchMock = stubFetch([boardRoute(), elementsOf("s1", [RECT]), savesOf("s1")])
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
+    const canvas = await canvasOf("全体図")
+    expect(screen.queryByRole("toolbar", { name: t.wbFormatLabel })).not.toBeInTheDocument()
+    drag(canvas, [100, 80], [100, 80])
+    const bar = screen.getByRole("toolbar", { name: t.wbFormatLabel })
+    await user.click(within(bar).getByRole("button", { name: t.wbBold }))
+    await user.click(within(bar).getByRole("button", { name: t.wbAlignRight }))
+    expect(within(bar).getByRole("button", { name: t.wbAlignRight })).toHaveAttribute("aria-pressed", "true")
+    await waitFor(() => expect(writes(fetchMock).flat().some((w) => (w.data as { bold?: boolean; align?: string } | undefined)?.align === "right")).toBe(true))
+    const last = writes(fetchMock).flat().pop()?.data as { bold?: boolean }
+    expect(last.bold).toBe(true)
+  })
+
+  it("a spreadsheet range pasted on the canvas becomes a table", async () => {
+    const fetchMock = stubFetch([boardRoute(), elementsOf("s1"), savesOf("s1")])
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
+    const canvas = await canvasOf("全体図")
+    canvas.focus()
+    const data: Record<string, string> = { "text/plain": "品目\t数量\r\nA\t1\r\nB\t2\r\n", "text/html": "" }
+    fireEvent.paste(canvas, { clipboardData: { getData: (type: string) => data[type] ?? "", files: [] } })
+    expect(shapes(canvas, "table")).toHaveLength(1)
+    await waitFor(() => expect(writes(fetchMock)).toHaveLength(1))
+    expect((writes(fetchMock)[0][0].data as unknown as { cells: string[][] }).cells).toEqual([
+      ["品目", "数量"],
+      ["A", "1"],
+      ["B", "2"],
+    ])
   })
 })

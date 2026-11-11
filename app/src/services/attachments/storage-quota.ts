@@ -63,6 +63,10 @@ export async function projectStorageUsed(db: Db, projectId: string): Promise<num
            FROM handover_file hf
            JOIN handover_document hd ON hd."id" = hf."documentId"
           WHERE hd."projectId" = ${projectId})
+      + (SELECT COALESCE(SUM(bf."fileSize"), 0)
+           FROM board_file bf
+           JOIN board b ON b."id" = bf."boardId"
+          WHERE b."projectId" = ${projectId})
     AS TEXT) AS total`
   const total = Number(rows[0]?.total ?? 0)
   return Number.isFinite(total) ? total : 0
