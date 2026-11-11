@@ -174,3 +174,31 @@ export function rebaseStale(doc: BoardDoc, stale: readonly StoredElement[]): Boa
   for (const row of stale) versions[row.id] = Math.max(versions[row.id] ?? 0, row.version + 1)
   return { elements: doc.elements, versions }
 }
+
+/**
+ * Splits the writes into requests of at most `maxCount` elements and at most `maxBytes` of JSON, so a
+ * request is never refused for its size. The size is an upper bound (3 bytes per UTF-16 unit); an element
+ * above the budget on its own goes alone.
+ */
+export function batchWrites(
+  writes: readonly ElementWrite[],
+  maxCount: number,
+  maxBytes: number,
+  sizeOf: (write: ElementWrite) => number = (write) => JSON.stringify(write).length * 3,
+): ElementWrite[][] {
+  const batches: ElementWrite[][] = []
+  let batch: ElementWrite[] = []
+  let bytes = 0
+  for (const write of writes) {
+    const size = sizeOf(write)
+    if (batch.length > 0 && (batch.length >= maxCount || bytes + size > maxBytes)) {
+      batches.push(batch)
+      batch = []
+      bytes = 0
+    }
+    batch.push(write)
+    bytes += size
+  }
+  if (batch.length > 0) batches.push(batch)
+  return batches
+}

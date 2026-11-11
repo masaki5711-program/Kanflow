@@ -5,6 +5,7 @@ import {
   canRedo,
   canUndo,
   changedWrites,
+  batchWrites,
   chunkWrites,
   commit,
   docFromStored,
@@ -178,5 +179,17 @@ describe("changed set", () => {
     const writes = Array.from({ length: 5 }, (_, i) => ({ id: `e${i}`, version: 1, deleted: true as const }))
     expect(chunkWrites(writes, 2).map((c) => c.length)).toEqual([2, 2, 1])
     expect(chunkWrites([], 2)).toEqual([])
+  })
+
+  it("batches the writes by count and by size, never refusing an oversized element", () => {
+    const writes = Array.from({ length: 5 }, (_, i) => ({ id: `e${i}`, version: 1, deleted: true as const }))
+    const sizes: Record<string, number> = { e0: 40, e1: 40, e2: 500, e3: 10, e4: 10 }
+    const sizeOf = (w: { id: string }) => sizes[w.id]
+    expect(batchWrites(writes, 2, 1000, sizeOf).map((b) => b.map((w) => w.id))).toEqual([["e0", "e1"], ["e2", "e3"], ["e4"]])
+    expect(batchWrites(writes, 10, 100, sizeOf).map((b) => b.map((w) => w.id))).toEqual([["e0", "e1"], ["e2"], ["e3", "e4"]])
+    expect(batchWrites([], 10, 100)).toEqual([])
+    // The default size is an upper bound of the UTF-8 length of the JSON.
+    const big = { id: "e9", version: 1, data: { type: "text", text: "あ".repeat(100) } }
+    expect(batchWrites([big, big], 10, JSON.stringify(big).length * 3 + 10).length).toBe(2)
   })
 })
