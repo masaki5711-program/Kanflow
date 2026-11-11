@@ -461,6 +461,49 @@ export interface GitLinkDto {
   /** MR linked by a developer (dev:write, …/dev/mr-links) rather than found by the sync. */
   declared: boolean
   repository: { id: string; name: string }
+  /** N4 / N5: an open MR's merge state as last read (GitStation); null = not read (GitLab, closed, not yet). */
+  merge: GitMergeStateDto | null
+}
+
+/** N4 / N5: why an open MR cannot merge (GitStation's reason names; detail is its text) and its predicted conflicts. */
+export interface GitMergeStateDto {
+  mergeable: boolean | null
+  blockers: { reason: string; detail: string | null }[]
+  /** null = the prediction was not read. */
+  conflicts: {
+    status: string
+    stale: boolean
+    scannedAt: string | null
+    /** The other MR's number and how many files would conflict (never the paths). */
+    peers: { iid: number; draft: boolean; outcome: string; files: number; truncated: boolean }[]
+  } | null
+  checkedAt: string
+}
+
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v)
+const text = (v: unknown, max: number): string | null => (typeof v === "string" ? v.slice(0, max) : null)
+const count = (v: unknown): number => (typeof v === "number" && Number.isSafeInteger(v) && v >= 0 ? v : 0)
+
+/** Pure: the stored merge state columns → DTO (anything malformed is dropped, never thrown). */
+export function toMergeStateDto(row: { mergeBlockers: unknown; mergeable: boolean | null; conflictPrediction: unknown; mergeStatusAt: Date | null }): GitMergeStateDto | null {
+  if (!row.mergeStatusAt) return null
+  const blockers = Array.isArray(row.mergeBlockers)
+    ? row.mergeBlockers.flatMap((b) => (isRecord(b) && typeof b.reason === "string" && b.reason ? [{ reason: b.reason.slice(0, 64), detail: text(b.detail, 300) }] : []))
+    : []
+  const c = row.conflictPrediction
+  const conflicts = isRecord(c) && typeof c.status === "string"
+    ? {
+        status: c.status.slice(0, 16),
+        stale: c.stale === true,
+        scannedAt: text(c.scannedAt, 40),
+        peers: (Array.isArray(c.peers) ? c.peers : []).flatMap((p) =>
+          isRecord(p) && typeof p.iid === "number" && Number.isSafeInteger(p.iid)
+            ? [{ iid: p.iid, draft: p.draft === true, outcome: text(p.outcome, 16) ?? "conflict", files: count(p.files), truncated: p.truncated === true }]
+            : [],
+        ),
+      }
+    : null
+  return { mergeable: row.mergeable, blockers, conflicts, checkedAt: row.mergeStatusAt.toISOString() }
 }
 
 type LinkRow = Awaited<ReturnType<typeof findLinks>>[number]
@@ -490,6 +533,8 @@ function toLinkDto(l: LinkRow): GitLinkDto {
     goneAt: l.goneAt?.toISOString() ?? null,
     declared: l.declaredAt !== null,
     repository: l.repository,
+    // Only an open MR is blocked or predicted to conflict (the sync clears the state when it closes).
+    merge: l.kind === "mr" && (l.state === "opened" || l.state === "locked") ? toMergeStateDto(l) : null,
   }
 }
 
@@ -526,17 +571,36 @@ export interface PbiGitSummary {
   branches: number
   /** failed > running > pending > success over open MRs (else the latest merged MR's). */
   pipeline: string | null
+  /** N4: open MRs that GitStation says cannot merge yet (at least one reason). */
+  blockedMrs: number
+  /** N5: open MRs predicted to conflict with another open MR. */
+  conflictMrs: number
+}
+
+type SummaryLink = Pick<GitLinkDto, "kind" | "state" | "pipeline" | "occurredAt"> & { blocked?: boolean; conflicts?: boolean }
+
+/** Pure (N4 / N5): whether a stored merge state blocks the MR, and whether it predicts a conflict. */
+export function mergeFlags(row: { mergeBlockers: unknown; conflictPrediction: unknown; mergeStatusAt: Date | null }): { blocked: boolean; conflicts: boolean } {
+  const dto = toMergeStateDto({ ...row, mergeable: null })
+  return { blocked: (dto?.blockers.length ?? 0) > 0, conflicts: (dto?.conflicts?.peers.some((p) => p.outcome === "conflict") ?? false) }
 }
 
 const PIPELINE_RANK: Record<string, number> = { failed: 4, running: 3, pending: 2, created: 2, waiting_for_resource: 2, preparing: 2, success: 1 }
 
-export function summarize(links: ReadonlyArray<Pick<GitLinkDto, "kind" | "state" | "pipeline" | "occurredAt">>): PbiGitSummary {
+export function summarize(links: ReadonlyArray<SummaryLink>): PbiGitSummary {
   const mrs = links.filter((l) => l.kind === "mr")
   const open = mrs.filter((l) => l.state === "opened" || l.state === "locked")
   const merged = mrs.filter((l) => l.state === "merged").sort((a, b) => b.occurredAt.localeCompare(a.occurredAt))
   const pool = open.length > 0 ? open : merged.slice(0, 1)
   const pipeline = pool.map((l) => l.pipeline).filter((p): p is string => !!p).sort((a, b) => (PIPELINE_RANK[b] ?? 0) - (PIPELINE_RANK[a] ?? 0))[0] ?? null
-  return { openMrs: open.length, mergedMrs: merged.length, branches: links.filter((l) => l.kind === "branch").length, pipeline }
+  return {
+    openMrs: open.length,
+    mergedMrs: merged.length,
+    branches: links.filter((l) => l.kind === "branch").length,
+    pipeline,
+    blockedMrs: open.filter((l) => l.blocked === true).length,
+    conflictMrs: open.filter((l) => l.conflicts === true).length,
+  }
 }
 
 /** Badges for many PBIs at once (sprint board / backlog). Only PBIs with links appear. */
@@ -547,11 +611,12 @@ export async function getGitSummaries(projectId: string, backlogItemIds: readonl
   const rows = await prisma.gitLink.findMany({
     // A deleted branch stays on the PBI panel (削除済み) but no longer counts on the card badge.
     where: { projectId, backlogItemId: { in: ids }, kind: { in: ["mr", "branch"] }, goneAt: null },
-    select: { backlogItemId: true, kind: true, state: true, pipeline: true, occurredAt: true },
+    select: { backlogItemId: true, kind: true, state: true, pipeline: true, occurredAt: true, mergeBlockers: true, conflictPrediction: true, mergeStatusAt: true },
   })
-  const grouped = new Map<string, Array<Pick<GitLinkDto, "kind" | "state" | "pipeline" | "occurredAt">>>()
+  const grouped = new Map<string, SummaryLink[]>()
   for (const r of rows) {
-    grouped.set(r.backlogItemId, [...(grouped.get(r.backlogItemId) ?? []), { kind: r.kind, state: r.state, pipeline: r.pipeline, occurredAt: r.occurredAt.toISOString() }])
+    const link = { kind: r.kind, state: r.state, pipeline: r.pipeline, occurredAt: r.occurredAt.toISOString(), ...mergeFlags(r) }
+    grouped.set(r.backlogItemId, [...(grouped.get(r.backlogItemId) ?? []), link])
   }
   return { enabled: true, summaries: Object.fromEntries([...grouped].map(([id, links]) => [id, summarize(links)])) }
 }

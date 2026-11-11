@@ -39,7 +39,9 @@ agent model (edge, PFE, Tier-2, ZEVA-Engine) do not apply to Kanflow.
    rollback: leave it untouched too. **v2 is one line: branch
    `feat/L4-NOPBI-kanflow-v2`, folder `D:\APP\Kanflow-v2`.** New work branches
    from it in its own worktree and merges back into it:
-   `git worktree add D:/APP/Kanflow-<name> -b <type>/L4-NOPBI-<topic> feat/L4-NOPBI-kanflow-v2`.
+   `git worktree add D:/APP/Claudecode_Agent_Ver2.0/apps/kanflow-<name> -b <type>/L4-NOPBI-<topic> feat/L4-NOPBI-kanflow-v2`
+   (the agent-model workspace, which ignores `apps/*`; decided by the user 2026-11-11 — never inside the production
+   folder). Older worktrees at `D:/APP/Kanflow-<name>` stay where they are until they land.
 2. **The K1 lineage (PostgreSQL) does not enter `main`** before the K2 cutover
    (runbook + human approval): production auto-deploy would run PG code against
    the MySQL URL. Every v2 branch descends from K1.

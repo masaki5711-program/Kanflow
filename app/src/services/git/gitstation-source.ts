@@ -40,6 +40,7 @@ import type {
   DevCursorCodec,
   DevListingFailure,
   DevMergeRequest,
+  DevMergeState,
   DevReleaseListing,
   DevSource,
   DevSourceErrorInfo,
@@ -1012,6 +1013,27 @@ export function createGitStationSource(connection: DevConnection, factory: GitSt
       const head = headSha ?? (await station().getMergeRequest(id, Number(ref))).head_sha ?? null
       if (!head || !isObjectId(head)) return null
       return checksVerdict(await station().commitChecks(id, head))
+    },
+
+    /**
+     * N4 / N5: the merge status (why it cannot merge) and the conflict prediction, both with the service account. A
+     * prediction that cannot be read is null (logged; stored as "not available", shown as not checked); the status
+     * failing throws (the sync clears the stored state).
+     */
+    async mergeState(ref: string): Promise<DevMergeState> {
+      const id = await stationProject()
+      const iid = Number(ref)
+      const status = await station().mergeRequestMergeStatus(id, iid)
+      let conflicts: DevMergeState["conflicts"] = null
+      try {
+        conflicts = await station().mergeRequestConflicts(id, iid)
+      } catch (err) {
+        const info = describeGitStationError(err)
+        // Refused, busy or unreachable is not about this prediction: the step stops for the repository (git-merge-state).
+        if (["auth", "forbidden", "rate_limited", "unavailable", "network"].includes(info.kind)) throw err
+        log.warn("gitstation conflict prediction not read", { repositoryId, mr: ref, errorKind: info.kind, status: info.status })
+      }
+      return { mergeable: status.mergeable, blockers: status.blockers, conflicts }
     },
 
     /**

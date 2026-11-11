@@ -1857,6 +1857,21 @@ model GitLink {
   /// MR links only (N2): the commit at the head of the MR's source branch as last read (40 or 64 lower-case hex);
   /// null = not read yet. GitStation's check.completed names a commit only: this finds its merge request.
   headSha           String?            @db.VarChar(64)
+  /// MR links only (N4): why the open MR cannot merge yet, as GitStation's merge status said at mergeStatusAt — a JSON
+  /// array of { reason, detail } (at most 20; detail is GitStation's text, at most 300 characters, shown as data).
+  /// [] = nothing blocks it; null = not read (GitLab, a closed MR, or not read yet).
+  mergeBlockers     Json?
+  /// MR links only (N4): GitStation's `mergeable` at mergeStatusAt; null = not read.
+  mergeable         Boolean?
+  /// MR links only (N4/N5): when the merge status and the conflict prediction were last read; null = not read.
+  mergeStatusAt     DateTime?
+  /// MR links only (N4/N5): when the sync last tried to read them (success or not) — a failing MR waits its turn
+  /// instead of being retried first on every sync.
+  mergeStatusTriedAt DateTime?
+  /// MR links only (N5): GitStation's conflict prediction at mergeStatusAt — JSON { status, reason, stale, scannedAt,
+  /// peers: [{ iid, draft, outcome, files, truncated }] } (at most 50 peers). Only the other MR's number and how many
+  /// files would conflict — never the paths (GitStation does not withhold confidential paths there). null = not read.
+  conflictPrediction Json?
   /// MR links only (plan 12 E1, filled once GitStation G1 reports them): number of versions, lines added / removed.
   /// Null = not reported (never 0 for unknown).
   versionCount      Int?

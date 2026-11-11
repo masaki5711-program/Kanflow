@@ -44,6 +44,7 @@ import * as teamChat from "./team-chat"
 import * as pbiAttachments from "./pbi-attachments"
 import * as improvement from "./improvement"
 import * as gitDev from "./git-dev"
+import * as gitMergeState from "./git-merge-state"
 import * as gitBindings from "./git-bindings"
 import * as sprintUx from "./sprint-ux"
 import * as git from "./git"
@@ -112,6 +113,7 @@ export interface Translations
     pbiAttachments.PbiAttachmentsTranslations,
     improvement.ImprovementTranslations,
     gitDev.GitDevTranslations,
+    gitMergeState.GitMergeStateTranslations,
     gitBindings.GitBindingsTranslations,
     sprintUx.SprintUxTranslations,
     git.GitTranslations,
@@ -174,6 +176,7 @@ export const domains = {
   "pbi-attachments": pbiAttachments,
   "improvement": improvement,
   "git-dev": gitDev,
+  "git-merge-state": gitMergeState,
   "git-bindings": gitBindings,
   "sprint-ux": sprintUx,
   "git": git,
@@ -236,6 +239,7 @@ const ja: Translations = {
   ...pbiAttachments.ja,
   ...improvement.ja,
   ...gitDev.ja,
+  ...gitMergeState.ja,
   ...gitBindings.ja,
   ...sprintUx.ja,
   ...git.ja,
@@ -298,6 +302,7 @@ const en: Translations = {
   ...pbiAttachments.en,
   ...improvement.en,
   ...gitDev.en,
+  ...gitMergeState.en,
   ...gitBindings.en,
   ...sprintUx.en,
   ...git.en,
@@ -360,6 +365,7 @@ const id: Translations = {
   ...pbiAttachments.id,
   ...improvement.id,
   ...gitDev.id,
+  ...gitMergeState.id,
   ...gitBindings.id,
   ...sprintUx.id,
   ...git.id,

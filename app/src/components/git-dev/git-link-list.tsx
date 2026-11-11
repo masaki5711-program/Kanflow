@@ -6,6 +6,7 @@ import { formatDateTime, formatRelative } from "@/lib/format-date"
 import { Badge, Button, cn } from "@/components/ui"
 import { isOpenMr, KIND_ICON, mrStateInfo, pipelineInfo, TONE_TEXT, type RepositoryGroup } from "./git-format"
 import type { GitLinkDto } from "./git-client-state"
+import { MergeState } from "./merge-state"
 import { MrApprovalControls } from "./mr-approval-controls"
 import type { MrApprovalsView } from "./use-mr-approvals"
 
@@ -85,6 +86,7 @@ function LinkRow({ link, approvals }: { link: GitLinkDto; approvals?: LinkApprov
           {link.kind === "branch" && link.title && link.title !== link.ref && <span className="truncate">{link.title}</span>}
           <Meta link={link} />
         </div>
+        {link.kind === "mr" && link.merge && <MergeState merge={link.merge} />}
         {approvals && link.kind === "mr" && <LinkApproval link={link} approvals={approvals} />}
       </div>
     </li>

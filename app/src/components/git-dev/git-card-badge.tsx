@@ -2,7 +2,7 @@
 
 import { useLanguage } from "@/lib/language-context"
 import { cn } from "@/components/ui"
-import { GitBranch, GitMerge, GitPullRequest } from "lucide-react"
+import { CircleSlash, GitBranch, GitCompareArrows, GitMerge, GitPullRequest } from "lucide-react"
 import { badgeLabel, badgeMain, hasGitActivity, pipelineInfo, TONE_DOT } from "./git-format"
 import type { PbiGitSummary } from "./git-client-state"
 
@@ -20,7 +20,10 @@ interface Props {
 export function GitCardBadge({ summary, className }: Props) {
   const { t } = useLanguage()
   if (!hasGitActivity(summary)) return null
-  const label = badgeLabel(summary, t)
+  // N4 / N5: open MRs blocked from merging and open MRs with predicted conflicts (text in the label, marks below).
+  const blocked = summary.blockedMrs > 0 ? (summary.blockedMrs === 1 ? t.gitDevBadgeBlockedOne : t.gitDevBadgeBlocked.replace("{count}", String(summary.blockedMrs))) : null
+  const conflicts = summary.conflictMrs > 0 ? (summary.conflictMrs === 1 ? t.gitDevBadgeConflictsOne : t.gitDevBadgeConflicts.replace("{count}", String(summary.conflictMrs))) : null
+  const label = [badgeLabel(summary, t), blocked, conflicts].filter(Boolean).join(" / ")
   const main = badgeMain(summary)
   const pipeline = summary.pipeline ? pipelineInfo(summary.pipeline, t) : null
   const short =
@@ -41,6 +44,8 @@ export function GitCardBadge({ summary, className }: Props) {
         {main === "branches" && <GitBranch className="h-3.5 w-3.5" />}
         {short}
         {pipeline && <span className={cn("h-2 w-2 rounded-full", TONE_DOT[pipeline.tone])} />}
+        {blocked && <CircleSlash data-git-badge-blocked="" className="h-3 w-3 text-warning" />}
+        {conflicts && <GitCompareArrows data-git-badge-conflicts="" className="h-3 w-3 text-warning" />}
       </span>
       <span className="sr-only">{label}</span>
     </span>

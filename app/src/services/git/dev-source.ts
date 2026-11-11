@@ -103,6 +103,38 @@ export interface DevChangedPaths {
   complete: boolean
 }
 
+/** N4: one reason an open merge request cannot merge (the source's name; `detail` is its text, shown as data). */
+export interface DevMergeBlocker {
+  reason: string
+  detail: string | null
+}
+
+/** N5: one merge request this one is predicted to conflict with — its number and how many files, never the paths. */
+export interface DevConflictPeer {
+  iid: number
+  draft: boolean
+  outcome: string
+  files: number
+  truncated: boolean
+}
+
+export interface DevConflictPrediction {
+  /** none | pending | scanning | scanned | incomplete | failed (anything else: not checked). */
+  status: string
+  reason: string | null
+  stale: boolean
+  scannedAt: string | null
+  peers: DevConflictPeer[]
+}
+
+/** N4 / N5: what keeps an open merge request from merging, and its predicted conflicts. */
+export interface DevMergeState {
+  mergeable: boolean
+  blockers: DevMergeBlocker[]
+  /** null = the prediction could not be read (the status still counts). */
+  conflicts: DevConflictPrediction | null
+}
+
 /** How a source failure is logged and shown. */
 export interface DevSourceErrorInfo {
   /** Short machine kind returned by the sync ("auth", "network", ...). */
@@ -136,6 +168,11 @@ export interface DevSource {
    * list them cheaply leaves it out, and the sync then skips the 触る範囲 check (W4).
    */
   changedPaths?(mergeRequestRef: string): Promise<DevChangedPaths>
+  /**
+   * N4 / N5: why the open merge request cannot merge and its predicted conflicts (throws when the status cannot be
+   * read). Optional: GitLab leaves it out (its state is not read), and the sync then skips the step.
+   */
+  mergeState?(mergeRequestRef: string): Promise<DevMergeState>
   /** Tags / releases (throws on failure). */
   listReleaseTags(webUrl: string, now: Date): Promise<DevReleaseListing>
   describeError(error: unknown): DevSourceErrorInfo
