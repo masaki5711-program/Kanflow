@@ -9,6 +9,7 @@ import { saveBoardImage } from "./boards.files"
 import { defaultDb, withTransaction, type Db } from "@/services/_shared/db"
 import { ConflictError, NotFoundError, ValidationError } from "@/services/_shared/errors"
 import { RESTORE_DATA, softDeleteData } from "@/services/_shared/soft-delete"
+import { autoVersion } from "./boards.collab"
 import * as repo from "./boards.repository"
 import type { CreateBoardInput, ReorderSheetsInput, SheetNameInput, UpdateBoardInput, WriteElementsInput } from "./boards.schemas"
 
@@ -369,7 +370,7 @@ export async function readElements(projectId: string, boardId: string, sheetId: 
  * A repeated request (same versions, same content) stores nothing and answers the current revision.
  */
 export async function writeElements(projectId: string, boardId: string, sheetId: string, input: WriteElementsInput, actor: Actor): Promise<WriteResultDto> {
-  return withTransaction(
+  const result = await withTransaction(
     async (tx) => {
       // Lock order board → sheet, like every change of the sheet list (rename / delete / duplicate): the other order
       // deadlocks against them, since the write touches the board too. Writes to one board are serialized by it.
@@ -425,4 +426,7 @@ export async function writeElements(projectId: string, boardId: string, sheetId:
     },
     { isolationLevel: "ReadCommitted" }
   )
+  // The sheet's history (B7): now and then an automatic version, after the write is committed (never fails it).
+  if (result.applied > 0) await autoVersion(boardId, sheetId, actor)
+  return result
 }

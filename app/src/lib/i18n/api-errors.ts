@@ -147,6 +147,9 @@ export interface ApiErrorsTranslations {
   apiErrBoardWriteTooLarge: string
   apiErrBoardImageLimit: string
   apiErrBoardImageType: string
+  apiErrBoardCommentLimit: string
+  apiErrBoardAiUnreadable: string
+  apiErrBoardVersionLimit: string
   apiErrInvalidDate: string
   apiErrGlossarySameLocale: string
   apiErrTranslationFailed: string
@@ -329,6 +332,9 @@ export const API_ERROR_MESSAGE_KEYS: Readonly<Record<ApiErrorCode, ApiErrorMessa
   BOARD_WRITE_TOO_LARGE: "apiErrBoardWriteTooLarge",
   BOARD_IMAGE_LIMIT: "apiErrBoardImageLimit",
   BOARD_IMAGE_TYPE: "apiErrBoardImageType",
+  BOARD_COMMENT_LIMIT: "apiErrBoardCommentLimit",
+  BOARD_AI_UNREADABLE: "apiErrBoardAiUnreadable",
+  BOARD_VERSION_LIMIT: "apiErrBoardVersionLimit",
   INVALID_DATE: "apiErrInvalidDate",
   GLOSSARY_SAME_LOCALE: "apiErrGlossarySameLocale",
   TRANSLATION_FAILED: "apiErrTranslationFailed",
@@ -518,6 +524,9 @@ export const ja: ApiErrorsTranslations = {
   apiErrBoardWriteTooLarge: "一度に保存できる量を超えました",
   apiErrBoardImageLimit: "このホワイトボードにはこれ以上画像を置けません（件数の上限です）",
   apiErrBoardImageType: "画像（PNG・JPEG・GIF・WebP）だけを置けます",
+  apiErrBoardCommentLimit: "このホワイトボードのコメントが上限に達しました",
+  apiErrBoardAiUnreadable: "AI の答えを読み取れませんでした。もう一度お試しください",
+  apiErrBoardVersionLimit: "名前を付けた版は 1 シートに 30 件までです",
   apiErrInvalidDate: "日付が不正です",
   apiErrGlossarySameLocale: "翻訳元と翻訳先の言語は別にしてください",
   apiErrTranslationFailed: "翻訳に失敗しました",
@@ -701,6 +710,9 @@ export const en: ApiErrorsTranslations = {
   apiErrBoardWriteTooLarge: "Too much to save at once",
   apiErrBoardImageLimit: "This White Board cannot hold more images (the limit has been reached)",
   apiErrBoardImageType: "Only images (PNG, JPEG, GIF, WebP) can be placed",
+  apiErrBoardCommentLimit: "This White Board has reached its comment limit",
+  apiErrBoardAiUnreadable: "The AI's answer could not be read. Please try again",
+  apiErrBoardVersionLimit: "This sheet has reached its limit of named versions",
   apiErrInvalidDate: "Invalid date",
   apiErrGlossarySameLocale: "Source and target languages must differ",
   apiErrTranslationFailed: "Translation failed",
@@ -884,6 +896,9 @@ export const id: ApiErrorsTranslations = {
   apiErrBoardWriteTooLarge: "Terlalu banyak untuk disimpan sekaligus",
   apiErrBoardImageLimit: "White Board ini tidak dapat memuat gambar lagi (batas jumlah tercapai)",
   apiErrBoardImageType: "Hanya gambar (PNG, JPEG, GIF, WebP) yang dapat ditaruh",
+  apiErrBoardCommentLimit: "Komentar White Board ini sudah mencapai batas",
+  apiErrBoardAiUnreadable: "Jawaban AI tidak dapat dibaca. Silakan coba lagi",
+  apiErrBoardVersionLimit: "Lembar ini sudah mencapai batas versi bernama",
   apiErrInvalidDate: "Tanggal tidak valid",
   apiErrGlossarySameLocale: "Bahasa sumber dan bahasa tujuan harus berbeda",
   apiErrTranslationFailed: "Terjemahan gagal",

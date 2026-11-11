@@ -1,5 +1,6 @@
 import { z } from "zod"
 import { BOARD_LIMITS, ELEMENT_ID_PATTERN, ELEMENT_TYPE_PATTERN } from "./limits"
+import { SHAPE_KINDS, type ShapeKind } from "./shapes"
 
 /**
  * The element model of the ボード editor.
@@ -19,8 +20,11 @@ export type StrokeKey = (typeof STROKE_KEYS)[number]
 export const FILL_KEYS = ["none", "white", "gray", "blue", "green", "amber", "red", "sky"] as const
 export type FillKey = (typeof FILL_KEYS)[number]
 
-/** Boxes: drawn shapes, plus a picture (`image`), a table and a frame (a titled area that carries what lies in it). */
-export const BOX_TYPES = ["rect", "ellipse", "text", "sticky", "image", "table", "frame"] as const
+/**
+ * Boxes: drawn shapes, plus a picture (`image`), a table, a frame (a titled area that carries what lies in it), a
+ * shape of the library (`shape`, its outline named by `shape`) and a timer (shared countdown and vote budget).
+ */
+export const BOX_TYPES = ["rect", "ellipse", "text", "sticky", "image", "table", "frame", "shape", "timer"] as const
 export type BoxType = (typeof BOX_TYPES)[number]
 
 export const LINE_TYPES = ["line", "arrow"] as const
@@ -129,8 +133,20 @@ export interface BoxElement extends BoxStyle, ElementExtras {
   /** `table`: column widths / row heights in sheet units (their sums are w / h). */
   colWidths?: number[]
   rowHeights?: number[]
-  /** `sticky`: who voted for it (user ids; one vote each). */
+  /** `sticky`: who voted for it (user ids; one entry per vote — with a vote budget a person may give several). */
   voters?: string[]
+  /** `shape`: which outline of the library. */
+  shape?: ShapeKind
+  /** `timer`: length of the countdown (seconds). */
+  durationSec?: number
+  /** `timer`: when the running countdown ends (ms since 1970, UTC); absent while stopped. */
+  endsAt?: number
+  /** `timer`: seconds left while paused (absent: the full duration). */
+  remainingSec?: number
+  /** `timer`: votes each person may give on this sheet while the timer is on it (absent: one per sticky note). */
+  voteBudget?: number
+  /** The backlog item (PBI) this box stands for. Only the id is kept: title and state are read live. */
+  pbiId?: string
 }
 
 /** One end of a line. `attach` names the box it is connected to; x / y are where it was last drawn. */
@@ -247,6 +263,7 @@ const boxBase = {
   z: zOrder,
   text: z.string().max(BOARD_LIMITS.textLength),
   runs: textRuns.optional(),
+  pbiId: z.string().regex(/^[A-Za-z0-9_-]{1,40}$/).optional(),
   fill: z.enum(FILL_KEYS),
   stroke: z.enum(STROKE_KEYS),
   ...boxStyle,
@@ -305,6 +322,15 @@ export const ELEMENT_DATA_SCHEMAS = {
   ellipse: boxSchema("ellipse"),
   text: boxSchema("text"),
   sticky: z.looseObject({ type: z.literal("sticky"), ...boxBase, voters: z.array(z.string().min(1).max(64)).max(BOARD_LIMITS.votersPerSticky).optional() }),
+  shape: z.looseObject({ type: z.literal("shape"), ...boxBase, shape: z.enum(SHAPE_KINDS) }),
+  timer: z.looseObject({
+    type: z.literal("timer"),
+    ...boxBase,
+    durationSec: z.number().int().min(10).max(BOARD_LIMITS.timerMaxSec),
+    endsAt: z.number().int().min(0).max(8_640_000_000_000).optional(),
+    remainingSec: z.number().min(0).max(BOARD_LIMITS.timerMaxSec).optional(),
+    voteBudget: z.number().int().min(1).max(BOARD_LIMITS.voteBudgetMax).optional(),
+  }),
   image: z.looseObject({ type: z.literal("image"), ...boxBase, fileId }),
   table: tableSchema,
   frame: z.looseObject({

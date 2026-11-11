@@ -2,6 +2,7 @@ import type { Patch } from "./doc"
 import { attachedBox, boxRect, resizeRect, resolveLine, sortByZ, type BoxHandle, type ElementMap, type LineHandle, type Point, type Rect } from "./geometry"
 import { BOARD_LIMITS } from "./limits"
 import { normalizeRuns, runsFor, runsText, truncateRuns } from "./rich"
+import { SHAPE_SIZE, type ShapeKind } from "./shapes"
 import type { TextSlot } from "./style"
 import {
   elementJsonLimit,
@@ -66,6 +67,8 @@ export const DEFAULT_STYLE: Readonly<Record<BoxType, { fill: FillKey; stroke: St
   image: { fill: "none", stroke: "gray" },
   table: { fill: "white", stroke: "gray" },
   frame: { fill: "none", stroke: "gray" },
+  shape: { fill: "white", stroke: "ink" },
+  timer: { fill: "white", stroke: "blue" },
 }
 
 /** Size of a box placed with a click (no drag). */
@@ -77,6 +80,20 @@ export const DEFAULT_BOX_SIZE: Readonly<Record<BoxType, { w: number; h: number }
   image: { w: 240, h: 160 },
   table: { w: 360, h: 96 },
   frame: { w: 640, h: 420 },
+  shape: { w: 140, h: 100 },
+  timer: { w: 220, h: 120 },
+}
+
+/** A box of the shape library, `kind` centred on `center`. */
+export function newShape(kind: ShapeKind, center: Point, id: string, z: number): BoxElement {
+  const s = SHAPE_SIZE[kind]
+  return { ...newBox("shape", { x: center.x - s.w / 2, y: center.y - s.h / 2, w: s.w, h: s.h }, id, z), shape: kind }
+}
+
+/** A timer of `minutes`, stopped, centred on `center`. */
+export function newTimer(minutes: number, center: Point, id: string, z: number): BoxElement {
+  const s = DEFAULT_BOX_SIZE.timer
+  return { ...newBox("timer", { x: center.x - s.w / 2, y: center.y - s.h / 2, w: s.w, h: s.h }, id, z), durationSec: clamp(Math.round(minutes * 60), 10, BOARD_LIMITS.timerMaxSec) }
 }
 
 /** Rows and columns of a table placed with the table tool. */
@@ -872,14 +889,191 @@ export function ungroupPatch(elements: ElementMap, ids: readonly string[]): Patc
 // Votes
 // ---------------------------------------------------------------------------
 
-/** Adds or takes back one person's vote on a sticky note. */
-export function votePatch(elements: ElementMap, id: string, userId: string): Patch {
+/** The vote budget of the sheet: set on a timer on it (null: one vote per sticky note, given and taken back). */
+export function voteBudgetOf(elements: ElementMap): number | null {
+  for (const el of Object.values(elements)) if (isBox(el) && el.type === "timer" && el.voteBudget) return el.voteBudget
+  return null
+}
+
+/** Votes one person has given on the sheet. */
+export function votesUsed(elements: ElementMap, userId: string): number {
+  let used = 0
+  for (const el of Object.values(elements)) if (isBox(el) && el.type === "sticky") used += (el.voters ?? []).filter((v) => v === userId).length
+  return used
+}
+
+/**
+ * A person's vote on a sticky note. Without a budget it is given or taken back ("toggle"); with a budget on the sheet
+ * one more is given ("add", while some are left — several on one note are allowed) or one taken back ("remove").
+ */
+export function votePatch(elements: ElementMap, id: string, userId: string, mode: "toggle" | "add" | "remove" = "toggle"): Patch {
   const el = elements[id]
   if (!isBox(el) || el.type !== "sticky" || el.locked || !userId) return {}
   const voters = el.voters ?? []
-  const next = voters.includes(userId) ? voters.filter((v) => v !== userId) : [...voters, userId].slice(0, BOARD_LIMITS.votersPerSticky)
+  const budget = voteBudgetOf(elements)
+  let next: string[]
+  // Under a budget a toggle adds while votes are left, otherwise takes one of this person's back.
+  const spent = budget !== null && votesUsed(elements, userId) >= budget
+  if (mode === "remove" || (mode === "toggle" && voters.includes(userId) && (budget === null || spent))) {
+    const at = voters.lastIndexOf(userId)
+    if (at < 0) return {}
+    next = [...voters.slice(0, at), ...voters.slice(at + 1)]
+  } else {
+    if (budget === null && voters.includes(userId)) return {}
+    if (budget !== null && votesUsed(elements, userId) >= budget) return {}
+    next = [...voters, userId].slice(0, BOARD_LIMITS.votersPerSticky)
+  }
   const out: BoxElement = { ...el }
   if (next.length > 0) out.voters = next
   else delete out.voters
   return { [id]: out }
+}
+
+/** Lines the sticky notes up by votes (most first), row by row from where they are now. */
+export function sortByVotesPatch(elements: ElementMap, ids: readonly string[], gap = 16): Patch {
+  const notes = unlocked(elements, ids)
+    .map((id) => elements[id])
+    .filter((el): el is BoxElement => isBox(el) && el.type === "sticky")
+  const patch: Record<string, BoardElement | null> = {}
+  if (notes.length < 2) return patch
+  const left = Math.min(...notes.map((n) => n.x))
+  const top = Math.min(...notes.map((n) => n.y))
+  const cols = Math.ceil(Math.sqrt(notes.length))
+  const cellW = Math.max(...notes.map((n) => n.w)) + gap
+  const cellH = Math.max(...notes.map((n) => n.h)) + gap
+  // Stable: equal votes keep their reading order (top to bottom, left to right).
+  const ordered = [...notes].sort((a, b) => (b.voters?.length ?? 0) - (a.voters?.length ?? 0) || a.y - b.y || a.x - b.x)
+  ordered.forEach((note, i) => {
+    const x = coord(left + (i % cols) * cellW)
+    const y = coord(top + Math.floor(i / cols) * cellH)
+    if (x !== note.x || y !== note.y) patch[note.id] = { ...note, x, y }
+  })
+  return patch
+}
+
+// ---------------------------------------------------------------------------
+// Timer
+// ---------------------------------------------------------------------------
+
+export type TimerAction = { kind: "start" } | { kind: "pause" } | { kind: "reset" } | { kind: "duration"; sec: number } | { kind: "budget"; votes: number | null }
+
+/** Seconds left on a timer at `now` (ms). */
+export function timerLeft(el: BoxElement, now: number): number {
+  const full = el.durationSec ?? 300
+  if (el.endsAt !== undefined) return Math.max(0, (el.endsAt - now) / 1000)
+  return el.remainingSec ?? full
+}
+
+/** Starts, pauses or resets a timer, or sets its length or the sheet's vote budget. Everyone sees the same countdown. */
+export function timerPatch(elements: ElementMap, id: string, action: TimerAction, now: number): Patch {
+  const el = elements[id]
+  if (!isBox(el) || el.type !== "timer" || el.locked) return {}
+  const next: BoxElement = { ...el }
+  switch (action.kind) {
+    case "start": {
+      const left = timerLeft(el, now)
+      next.endsAt = Math.round(now + (left > 0 ? left : (el.durationSec ?? 300)) * 1000)
+      delete next.remainingSec
+      break
+    }
+    case "pause":
+      if (el.endsAt === undefined) return {}
+      next.remainingSec = Math.round(timerLeft(el, now) * 10) / 10
+      delete next.endsAt
+      break
+    case "reset":
+      delete next.endsAt
+      delete next.remainingSec
+      break
+    case "duration":
+      next.durationSec = clamp(Math.round(action.sec), 10, BOARD_LIMITS.timerMaxSec)
+      delete next.endsAt
+      delete next.remainingSec
+      break
+    case "budget":
+      if (action.votes === null) delete next.voteBudget
+      else next.voteBudget = clamp(Math.round(action.votes), 1, BOARD_LIMITS.voteBudgetMax)
+      break
+  }
+  return { [id]: next }
+}
+
+// ---------------------------------------------------------------------------
+// PBI links and AI results
+// ---------------------------------------------------------------------------
+
+/** Links a box to a backlog item (null: unlinks it). Only the id is stored. */
+export function pbiPatch(elements: ElementMap, id: string, pbiId: string | null): Patch {
+  const el = elements[id]
+  if (!isBox(el) || el.locked) return {}
+  const next: BoxElement = { ...el }
+  if (pbiId) next.pbiId = pbiId
+  else delete next.pbiId
+  return { [id]: next }
+}
+
+/** A text box with `text`, to the right of the given elements (the AI's summary of them). */
+export function besidePatch(elements: ElementMap, ids: readonly string[], text: string, makeId: () => string): { patch: Patch; id: string } | null {
+  const bounds = boundsOfBoxes(elements, ids)
+  if (!bounds) return null
+  const id = makeId()
+  const box = newBox("text", { x: bounds.x + bounds.w + 60, y: bounds.y, w: 360, h: Math.max(120, Math.min(600, 24 + text.split("\n").length * 22)) }, id, nextZ(elements))
+  return { patch: { [id]: { ...box, text: text.slice(0, BOARD_LIMITS.textLength), fill: "sky", strokeWidth: 1 } }, id }
+}
+
+function boundsOfBoxes(elements: ElementMap, ids: readonly string[]): Rect | null {
+  const boxes = ids.map((id) => elements[id]).filter(isBox)
+  if (boxes.length === 0) return null
+  const x = Math.min(...boxes.map((b) => b.x))
+  const y = Math.min(...boxes.map((b) => b.y))
+  return { x, y, w: Math.max(...boxes.map((b) => b.x + b.w)) - x, h: Math.max(...boxes.map((b) => b.y + b.h)) - y }
+}
+
+/**
+ * The notes `noteIds` sorted into one frame per group (the AI's grouping), the frames side by side to the right of
+ * where the notes were, each titled with its group's theme. `groups[i].items` index into `noteIds`.
+ */
+export function groupFramesPatch(elements: ElementMap, noteIds: readonly string[], groups: readonly { title: string; items: readonly number[] }[], makeId: () => string): { patch: Patch; frameIds: string[] } {
+  const bounds = boundsOfBoxes(elements, noteIds)
+  const patch: Record<string, BoardElement | null> = {}
+  const frameIds: string[] = []
+  if (!bounds) return { patch, frameIds }
+  const gap = 16
+  const notes = noteIds.map((id) => elements[id]).filter((el): el is BoxElement => isBox(el) && !el.locked)
+  const cellW = Math.max(120, ...notes.map((n) => n.w)) + gap
+  const cellH = Math.max(80, ...notes.map((n) => n.h)) + gap
+  let x = bounds.x + bounds.w + 80
+  let z = bottomZ(elements)
+  for (const group of groups) {
+    const members = group.items.map((i) => elements[noteIds[i]]).filter((el): el is BoxElement => isBox(el) && !el.locked)
+    if (members.length === 0) continue
+    const cols = Math.min(3, Math.max(1, Math.ceil(Math.sqrt(members.length))))
+    const rows = Math.ceil(members.length / cols)
+    const frameId = makeId()
+    const w = cols * cellW + gap
+    const h = rows * cellH + gap + 28
+    patch[frameId] = { ...newBox("frame", { x, y: bounds.y, w, h }, frameId, z), text: group.title.slice(0, 120), fill: "gray" }
+    z = Math.max(-BOARD_LIMITS.counter, z - 1)
+    members.forEach((note, i) => {
+      patch[note.id] = { ...note, x: coord(x + gap + (i % cols) * cellW), y: coord(bounds.y + 28 + gap + Math.floor(i / cols) * cellH) }
+    })
+    frameIds.push(frameId)
+    x += w + 40
+  }
+  return { patch, frameIds }
+}
+
+// ---------------------------------------------------------------------------
+// Connect
+// ---------------------------------------------------------------------------
+
+/** An arrow from the first box to the second (each end on the side facing the other). Null when not two boxes. */
+export function connectPatch(elements: ElementMap, ids: readonly string[], makeId: () => string, type: LineType = "arrow"): { patch: Patch; id: string } | null {
+  const boxes = ids.map((id) => elements[id]).filter((el): el is BoxElement => isBox(el) && el.type !== "frame")
+  if (boxes.length !== 2) return null
+  const [a, b] = boxes
+  const id = makeId()
+  const center = (box: BoxElement) => ({ x: box.x + box.w / 2, y: box.y + box.h / 2 })
+  const line = newLine(type, { point: center(a), attach: a.id }, { point: center(b), attach: b.id }, id, nextZ(elements))
+  return { patch: { [id]: line }, id }
 }

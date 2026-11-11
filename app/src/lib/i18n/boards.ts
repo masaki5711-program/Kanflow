@@ -215,6 +215,207 @@ export interface BoardsTranslations {
   wbFullscreen: string
   wbFullscreenExit: string
   wbFormatTooLarge: string
+  wbTemplateWhy5: string
+  wbTemplateFishbone: string
+  wbTemplatePdcas: string
+  wbTemplateEcrs: string
+  wbTemplateA3: string
+  wbTplWhy5Problem: string
+  wbTplWhy5ProblemHint: string
+  wbTplWhy5Why: string
+  wbTplWhy5WhyHint: string
+  wbTplWhy5Root: string
+  wbTplWhy5RootHint: string
+  wbTplWhy5Action: string
+  wbTplWhy5ActionHint: string
+  wbTplFishEffect: string
+  wbTplFishEffectHint: string
+  wbTplFishMan: string
+  wbTplFishMachine: string
+  wbTplFishMaterial: string
+  wbTplFishMethod: string
+  wbTplFishMeasurement: string
+  wbTplFishManagement: string
+  wbTplFishEnvironment: string
+  wbTplFishNote: string
+  wbTplPdcaP: string
+  wbTplPdcaPHint: string
+  wbTplPdcaD: string
+  wbTplPdcaDHint: string
+  wbTplPdcaC: string
+  wbTplPdcaCHint: string
+  wbTplPdcaA: string
+  wbTplPdcaAHint: string
+  wbTplPdcaS: string
+  wbTplPdcaSHint: string
+  wbTplPdcaNote: string
+  wbTplEcrsTitle: string
+  wbTplEcrsWork: string
+  wbTplEcrsE: string
+  wbTplEcrsC: string
+  wbTplEcrsR: string
+  wbTplEcrsS: string
+  wbTplEcrsEffect: string
+  wbTplEcrsNote: string
+  wbTplA3Title: string
+  wbTplA3Meta: string
+  wbTplA3Background: string
+  wbTplA3Current: string
+  wbTplA3Target: string
+  wbTplA3Cause: string
+  wbTplA3Measures: string
+  wbTplA3Plan: string
+  wbTplA3Result: string
+  wbTplA3Standard: string
+  wbShapeLibrary: string
+  wbShapeGroupBasic: string
+  wbShapeGroupFlow: string
+  wbShapeGroupProcess: string
+  wbShapeGroupSite: string
+  wbShapeDiamond: string
+  wbShapeTriangle: string
+  wbShapeStorage: string
+  wbShapeHexagon: string
+  wbShapeParallelogram: string
+  wbShapeChevron: string
+  wbShapeBlockArrow: string
+  wbShapeCylinder: string
+  wbShapeDocument: string
+  wbShapeDelay: string
+  wbShapeTransport: string
+  wbShapeInspectQty: string
+  wbShapePerson: string
+  wbShapeFactory: string
+  wbShapeTruck: string
+  wbShapeCloud: string
+  wbShapeStar: string
+  wbToolTimer: string
+  wbTimerStart: string
+  wbTimerPause: string
+  wbTimerReset: string
+  wbTimerLonger: string
+  wbTimerShorter: string
+  wbTimerDone: string
+  wbTimerAria: string
+  wbVoteBudget: string
+  wbVoteBudgetNone: string
+  wbVoteBudgetMore: string
+  wbVoteBudgetLess: string
+  wbVotesLeft: string
+  wbVoteAdd: string
+  wbVoteRemove: string
+  wbSortByVotes: string
+  wbConnect: string
+  wbContextMenu: string
+  wbCut: string
+  wbCopy: string
+  wbPaste: string
+  wbEditText: string
+  wbEditTitle: string
+  wbSelectAll: string
+  wbAddHere: string
+  wbOrderLabel: string
+  wbSearch: string
+  wbSearchLabel: string
+  wbSearchPlaceholder: string
+  wbSearchNone: string
+  wbSearchCount: string
+  wbSearchLoading: string
+  wbSearchClose: string
+  wbExportMenu: string
+  wbExportPdfA4: string
+  wbExportPdfA3: string
+  wbHelp: string
+  wbHelpTitle: string
+  wbHelpClose: string
+  wbHelp01: string
+  wbHelp02: string
+  wbHelp03: string
+  wbHelp04: string
+  wbHelp05: string
+  wbHelp06: string
+  wbHelp07: string
+  wbHelp08: string
+  wbHelp09: string
+  wbHelp10: string
+  wbHelp11: string
+  wbHelp12: string
+  wbHelp13: string
+  wbHelp14: string
+  wbHelp15: string
+  wbHelp16: string
+  wbHelp17: string
+  wbAlignGuides: string
+  wbPbiLink: string
+  wbPbiCreate: string
+  wbComment: string
+  wbViewersLabel: string
+  wbViewersMoreCount: string
+  wbViewerSelecting: string
+  wbHistory: string
+  wbHistoryTitle: string
+  wbHistoryEmpty: string
+  wbHistoryAuto: string
+  wbHistorySaveNow: string
+  wbHistoryLabel: string
+  wbHistorySave: string
+  wbHistoryView: string
+  wbHistoryRestore: string
+  wbHistoryRestoreTitle: string
+  wbHistoryRestoreMessage: string
+  wbHistoryRestored: string
+  wbHistorySaved: string
+  wbHistoryFailed: string
+  wbHistoryElements: string
+  wbHistoryPreview: string
+  wbHistoryClose: string
+  wbComments: string
+  wbCommentsCount: string
+  wbCommentsEmpty: string
+  wbCommentOn: string
+  wbCommentOnSheet: string
+  wbCommentLabel: string
+  wbCommentSend: string
+  wbCommentResolve: string
+  wbCommentReopen: string
+  wbCommentDelete: string
+  wbCommentShowResolved: string
+  wbCommentShow: string
+  wbCommentFailed: string
+  wbCommentBadge: string
+  wbCommentSheetName: string
+  wbPbiLinkTitle: string
+  wbPbiSearch: string
+  wbPbiNone: string
+  wbPbiUnlink: string
+  wbPbiOpen: string
+  wbPbiCreated: string
+  wbPbiCreateFailed: string
+  wbPbiStatusReady: string
+  wbPbiStatusNotReady: string
+  wbPbiStatusCompleted: string
+  wbPbiMissing: string
+  wbPbiConfidential: string
+  wbPbiLinked: string
+  wbLinkedBoardsTitle: string
+  wbLinkedBoardsEmpty: string
+  wbLinkedBoardsOpen: string
+  wbAiSummarize: string
+  wbAiGroup: string
+  wbAiWorking: string
+  wbAiFailed: string
+  wbAiSummaryTitle: string
+  wbAiDone: string
+  wbTimerMinutes: string
+  wbGroupLabel: string
+  wbUngroupLabel: string
+  wbConnectLabel: string
+  wbTimerDoneStatus: string
+  wbHistoryViewOf: string
+  wbHistoryRestoreOf: string
+  wbPbiDrafts: string
+  wbPbiDraftUse: string
+  wbPbiCreatedNotLinked: string
   wbMindChild: string
   wbMindSibling: string
   wbMindLayout: string
@@ -449,6 +650,207 @@ export const ja: BoardsTranslations = {
   wbFullscreen: "全画面表示",
   wbFullscreenExit: "全画面表示を終了",
   wbFormatTooLarge: "書式の情報が多すぎるため、文字だけを保存しました（書式は保存されていません）",
+  wbTemplateWhy5: "なぜなぜ分析",
+  wbTemplateFishbone: "特性要因図（7つの要因）",
+  wbTemplatePdcas: "PDCA-S",
+  wbTemplateEcrs: "ECRS 検討表",
+  wbTemplateA3: "A3 報告書",
+  wbTplWhy5Problem: "問題（起きたこと）",
+  wbTplWhy5ProblemHint: "いつ・どこで・何が起きたか。事実と数値で書く",
+  wbTplWhy5Why: "なぜ{n}",
+  wbTplWhy5WhyHint: "なぜそれが起きたか。推測でなく現場・現物で確かめる",
+  wbTplWhy5Root: "真因（X）",
+  wbTplWhy5RootHint: "ここに手を打てば再発しない原因。人の意識ではなく仕組み・条件で書く",
+  wbTplWhy5Action: "対策",
+  wbTplWhy5ActionHint: "真因への対策と、標準（4M）にどう反映するか",
+  wbTplFishEffect: "特性（結果 Y）",
+  wbTplFishEffectHint: "ばらつきを減らしたい結果を数値で（例：CT のばらつき、不良率）",
+  wbTplFishMan: "人（Man）",
+  wbTplFishMachine: "設備（Machine）",
+  wbTplFishMaterial: "材料（Material）",
+  wbTplFishMethod: "方法（Method）",
+  wbTplFishMeasurement: "測定（Measurement）",
+  wbTplFishManagement: "管理（Management）",
+  wbTplFishEnvironment: "環境（Environment）",
+  wbTplFishNote: "7つのバラツキ要因（X）ごとに、思いつく要因を付箋で骨の近くに貼る",
+  wbTplPdcaP: "P 計画（Plan）",
+  wbTplPdcaPHint: "目標と、やり方の仮説を決める",
+  wbTplPdcaD: "D 実行（Do）",
+  wbTplPdcaDHint: "計画どおりに試す（小さく・早く）",
+  wbTplPdcaC: "C 確認（Check）",
+  wbTplPdcaCHint: "結果を目標・理論値と数値で比べる",
+  wbTplPdcaA: "A 処置（Act）",
+  wbTplPdcaAHint: "効果があれば定着へ、なければ原因を見直す",
+  wbTplPdcaS: "S 標準化（Standardize）",
+  wbTplPdcaSHint: "良い状態を 4M 標準・手順書に反映し、誰がやっても同じ結果にする",
+  wbTplPdcaNote: "標準化で土台が更新され、次のサイクルはより高い水準から始まる",
+  wbTplEcrsTitle: "ECRS 検討表",
+  wbTplEcrsWork: "作業・工程",
+  wbTplEcrsE: "E 排除（なくせないか）",
+  wbTplEcrsC: "C 結合（まとめられないか）",
+  wbTplEcrsR: "R 交換（順序・場所を替えられないか）",
+  wbTplEcrsS: "S 簡素化（簡単にできないか）",
+  wbTplEcrsEffect: "効果（時間・人・ばらつき）",
+  wbTplEcrsNote: "E（その作業は本当に必要か）から順に考える",
+  wbTplA3Title: "テーマ：",
+  wbTplA3Meta: "部署・氏名・日付：",
+  wbTplA3Background: "1. 背景・テーマ選定の理由",
+  wbTplA3Current: "2. 現状把握（データ・理論値との差）",
+  wbTplA3Target: "3. 目標（いつまでに何をどれだけ）",
+  wbTplA3Cause: "4. 要因分析（真因）",
+  wbTplA3Measures: "5. 対策",
+  wbTplA3Plan: "6. 実施計画（誰が・いつ）",
+  wbTplA3Result: "7. 効果の確認",
+  wbTplA3Standard: "8. 標準化と横展開",
+  wbShapeLibrary: "図形ライブラリ",
+  wbShapeGroupBasic: "基本",
+  wbShapeGroupFlow: "流れ・データ",
+  wbShapeGroupProcess: "工程図記号",
+  wbShapeGroupSite: "現場",
+  wbShapeDiamond: "ひし形（判断・品質検査）",
+  wbShapeTriangle: "三角形",
+  wbShapeStorage: "貯蔵（▽）",
+  wbShapeHexagon: "六角形（準備）",
+  wbShapeParallelogram: "平行四辺形（入出力）",
+  wbShapeChevron: "矢羽根（工程の流れ）",
+  wbShapeBlockArrow: "太い矢印",
+  wbShapeCylinder: "円柱（データ）",
+  wbShapeDocument: "書類",
+  wbShapeDelay: "滞留（D）",
+  wbShapeTransport: "運搬",
+  wbShapeInspectQty: "数量検査（□）",
+  wbShapePerson: "人",
+  wbShapeFactory: "工場・設備",
+  wbShapeTruck: "トラック・搬送",
+  wbShapeCloud: "雲（アイデア）",
+  wbShapeStar: "星",
+  wbToolTimer: "タイマー・投票",
+  wbTimerStart: "開始",
+  wbTimerPause: "一時停止",
+  wbTimerReset: "リセット",
+  wbTimerLonger: "1 分長く",
+  wbTimerShorter: "1 分短く",
+  wbTimerDone: "時間です",
+  wbTimerAria: "タイマー：残り {time}",
+  wbVoteBudget: "持ち票：{n} 票",
+  wbVoteBudgetNone: "持ち票なし（1 枚に 1 票）",
+  wbVoteBudgetMore: "持ち票を増やす",
+  wbVoteBudgetLess: "持ち票を減らす",
+  wbVotesLeft: "あなたの残り：{n} 票",
+  wbVoteAdd: "1 票入れる",
+  wbVoteRemove: "1 票取り消す",
+  wbSortByVotes: "票の多い順に並べる",
+  wbConnect: "矢印でつなぐ (Alt+L)",
+  wbContextMenu: "メニュー",
+  wbCut: "切り取り",
+  wbCopy: "コピー",
+  wbPaste: "貼り付け",
+  wbEditText: "文字を編集",
+  wbEditTitle: "見出しを編集",
+  wbSelectAll: "すべて選択",
+  wbAddHere: "ここに追加",
+  wbOrderLabel: "重なり順",
+  wbSearch: "検索 (Ctrl+F)",
+  wbSearchLabel: "ホワイトボード内を検索",
+  wbSearchPlaceholder: "全シートの文字を検索",
+  wbSearchNone: "見つかりません",
+  wbSearchCount: "{count} 件",
+  wbSearchLoading: "検索しています…",
+  wbSearchClose: "検索を閉じる",
+  wbExportMenu: "保存・出力",
+  wbExportPdfA4: "PDF で保存（A4）",
+  wbExportPdfA3: "PDF で保存（A3）",
+  wbHelp: "操作ガイド (?)",
+  wbHelpTitle: "ホワイトボードの操作",
+  wbHelpClose: "閉じる",
+  wbHelp01: "ダブルクリック\t文字を編集（フレームは本文、見出しの所は見出し）",
+  wbHelp02: "右クリック\tその場で使えるメニュー（Shift+F10・メニューキーでも開きます）",
+  wbHelp03: "空いた所をドラッグ\t範囲を選ぶ。Space＋ドラッグ・ホイールで表示を動かす",
+  wbHelp04: "Ctrl＋ホイール\t拡大・縮小",
+  wbHelp05: "図形を選んで文字を打つ\tそのまま書き込む",
+  wbHelp06: "Enter / F2\t文字を編集 / フレームの見出しを編集",
+  wbHelp07: "Esc\t編集を終える・選択を外す",
+  wbHelp08: "矢印キー（Shift で 10 ずつ）\t動かす。Alt＋矢印キーで大きさを変える",
+  wbHelp09: "Ctrl+C / X / V / D\tコピー・切り取り・貼り付け・複製",
+  wbHelp10: "Ctrl+Z / Ctrl+Y\t元に戻す・やり直す",
+  wbHelp11: "Ctrl+G / Ctrl+Shift+G\tグループ化・グループ解除",
+  wbHelp12: "Alt+L\t選んだ 2 つの図形を矢印でつなぐ",
+  wbHelp13: "Insert\tマインドマップの子を追加",
+  wbHelp14: "Ctrl+B / I / U\t（文字の編集中）選んだ文字を太字・斜体・下線に",
+  wbHelp15: "] / [\t図形を 1 つずつ選ぶ",
+  wbHelp16: "Ctrl+F\t全シートの文字を検索",
+  wbHelp17: "?\tこの操作ガイドを開く",
+  wbAlignGuides: "整列ガイド",
+  wbPbiLink: "PBI とつなぐ…",
+  wbPbiCreate: "この内容で PBI を作る",
+  wbComment: "コメント…",
+  wbViewersLabel: "このシートを開いている人",
+  wbViewersMoreCount: "ほか {n} 人",
+  wbViewerSelecting: "{name} さんが選択中",
+  wbHistory: "履歴・版",
+  wbHistoryTitle: "このシートの履歴",
+  wbHistoryEmpty: "まだ版はありません（描いていると 10 分ごとに自動で残ります）",
+  wbHistoryAuto: "自動",
+  wbHistorySaveNow: "今の状態に名前を付けて保存",
+  wbHistoryLabel: "版の名前",
+  wbHistorySave: "保存",
+  wbHistoryView: "見る",
+  wbHistoryRestore: "この版に戻す",
+  wbHistoryRestoreTitle: "この版に戻しますか",
+  wbHistoryRestoreMessage: "{time} の状態に戻します。今の状態も版として残るので、あとで戻せます。",
+  wbHistoryRestored: "{time} の状態に戻しました",
+  wbHistorySaved: "版を保存しました",
+  wbHistoryFailed: "履歴を読めませんでした",
+  wbHistoryElements: "{n} 個",
+  wbHistoryPreview: "{time} の版",
+  wbHistoryClose: "閉じる",
+  wbComments: "コメント",
+  wbCommentsCount: "コメント（{n}）",
+  wbCommentsEmpty: "まだコメントはありません。図形を右クリック →「コメント」で書けます",
+  wbCommentOn: "「{target}」へのコメント",
+  wbCommentOnSheet: "シート全体へのコメント",
+  wbCommentLabel: "コメントを書く（@ で人を呼べます）",
+  wbCommentSend: "コメントする",
+  wbCommentResolve: "解決",
+  wbCommentReopen: "未解決に戻す",
+  wbCommentDelete: "削除",
+  wbCommentShowResolved: "解決済みも表示",
+  wbCommentShow: "図形を表示",
+  wbCommentFailed: "コメントを保存できませんでした",
+  wbCommentBadge: "コメント {n} 件",
+  wbCommentSheetName: "シート：{name}",
+  wbPbiLinkTitle: "PBI とつなぐ",
+  wbPbiSearch: "番号（#12）か言葉で探す",
+  wbPbiNone: "見つかりません",
+  wbPbiUnlink: "つながりを外す",
+  wbPbiOpen: "PBI を開く",
+  wbPbiCreated: "PBI #{n} を作ってつなぎました",
+  wbPbiCreateFailed: "PBI を作れませんでした",
+  wbPbiStatusReady: "準備完了",
+  wbPbiStatusNotReady: "準備中",
+  wbPbiStatusCompleted: "完了",
+  wbPbiMissing: "PBI が見つかりません",
+  wbPbiConfidential: "機密",
+  wbPbiLinked: "PBI #{n} とつなぎました",
+  wbLinkedBoardsTitle: "つながっているホワイトボード",
+  wbLinkedBoardsEmpty: "この PBI につながるホワイトボードの図形はありません",
+  wbLinkedBoardsOpen: "{board} の「{sheet}」を開く",
+  wbAiSummarize: "AI で要約（社内のローカル AI）",
+  wbAiGroup: "AI でグループ分け（社内のローカル AI）",
+  wbAiWorking: "AI が考えています…",
+  wbAiFailed: "AI を使えませんでした：{reason}",
+  wbAiSummaryTitle: "要約（AI）",
+  wbAiDone: "AI の結果を置きました（元に戻すは Ctrl+Z）",
+  wbTimerMinutes: "{n} 分",
+  wbGroupLabel: "グループ化",
+  wbUngroupLabel: "グループ解除",
+  wbConnectLabel: "矢印でつなぐ",
+  wbTimerDoneStatus: "タイマーの時間になりました",
+  wbHistoryViewOf: "{name} を見る",
+  wbHistoryRestoreOf: "{name} に戻す",
+  wbPbiDrafts: "AI で PBI 候補を 3 案作る（つながり・枠・コメントも読む）",
+  wbPbiDraftUse: "この案で PBI を作ってつなぐ",
+  wbPbiCreatedNotLinked: "PBI #{n} を作りましたが、図形がロック中か削除されたためつなげませんでした",
   wbMindChild: "子を追加（Insert）",
   wbMindSibling: "兄弟を追加（Enter）",
   wbMindLayout: "マインドマップを整列",
@@ -681,6 +1083,207 @@ export const en: BoardsTranslations = {
   wbFullscreen: "Full screen",
   wbFullscreenExit: "Exit full screen",
   wbFormatTooLarge: "The formatting was too large to store: only the text was saved (without its formatting)",
+  wbTemplateWhy5: "5 Whys",
+  wbTemplateFishbone: "Fishbone (7 factors)",
+  wbTemplatePdcas: "PDCA-S",
+  wbTemplateEcrs: "ECRS worksheet",
+  wbTemplateA3: "A3 report",
+  wbTplWhy5Problem: "Problem (what happened)",
+  wbTplWhy5ProblemHint: "When, where and what happened — in facts and numbers",
+  wbTplWhy5Why: "Why {n}",
+  wbTplWhy5WhyHint: "Why did that happen? Check on site, with the real thing — not by guessing",
+  wbTplWhy5Root: "Root cause (X)",
+  wbTplWhy5RootHint: "The cause that, once fixed, stops it recurring. Write a mechanism or condition, not someone's awareness",
+  wbTplWhy5Action: "Countermeasure",
+  wbTplWhy5ActionHint: "What you do about the root cause, and how it goes into the standard (4M)",
+  wbTplFishEffect: "Effect (result Y)",
+  wbTplFishEffectHint: "The result whose variation you want to reduce, in numbers (e.g. CT variation, defect rate)",
+  wbTplFishMan: "Man",
+  wbTplFishMachine: "Machine",
+  wbTplFishMaterial: "Material",
+  wbTplFishMethod: "Method",
+  wbTplFishMeasurement: "Measurement",
+  wbTplFishManagement: "Management",
+  wbTplFishEnvironment: "Environment",
+  wbTplFishNote: "For each of the seven variation factors (X), put the causes you can think of on sticky notes near its bone",
+  wbTplPdcaP: "P Plan",
+  wbTplPdcaPHint: "Set the target and the hypothesis of how to reach it",
+  wbTplPdcaD: "D Do",
+  wbTplPdcaDHint: "Try it as planned (small and quick)",
+  wbTplPdcaC: "C Check",
+  wbTplPdcaCHint: "Compare the result with the target and the theoretical value, in numbers",
+  wbTplPdcaA: "A Act",
+  wbTplPdcaAHint: "If it worked, make it stick; if not, revisit the cause",
+  wbTplPdcaS: "S Standardize",
+  wbTplPdcaSHint: "Put the good state into the 4M standards and instructions, so anyone gets the same result",
+  wbTplPdcaNote: "Standardizing renews the foundation: the next cycle starts from a higher level",
+  wbTplEcrsTitle: "ECRS worksheet",
+  wbTplEcrsWork: "Task / process",
+  wbTplEcrsE: "E Eliminate (can it go?)",
+  wbTplEcrsC: "C Combine (can it be merged?)",
+  wbTplEcrsR: "R Rearrange (other order or place?)",
+  wbTplEcrsS: "S Simplify (can it be easier?)",
+  wbTplEcrsEffect: "Effect (time, people, variation)",
+  wbTplEcrsNote: "Start with E: is this task really needed?",
+  wbTplA3Title: "Theme:",
+  wbTplA3Meta: "Department, name, date:",
+  wbTplA3Background: "1. Background and why this theme",
+  wbTplA3Current: "2. Current state (data, gap to the theoretical value)",
+  wbTplA3Target: "3. Target (what, how much, by when)",
+  wbTplA3Cause: "4. Cause analysis (root cause)",
+  wbTplA3Measures: "5. Countermeasures",
+  wbTplA3Plan: "6. Plan (who, when)",
+  wbTplA3Result: "7. Results",
+  wbTplA3Standard: "8. Standardize and spread",
+  wbShapeLibrary: "Shape library",
+  wbShapeGroupBasic: "Basic",
+  wbShapeGroupFlow: "Flow and data",
+  wbShapeGroupProcess: "Process chart symbols",
+  wbShapeGroupSite: "Shop floor",
+  wbShapeDiamond: "Diamond (decision, quality check)",
+  wbShapeTriangle: "Triangle",
+  wbShapeStorage: "Storage (▽)",
+  wbShapeHexagon: "Hexagon (preparation)",
+  wbShapeParallelogram: "Parallelogram (input / output)",
+  wbShapeChevron: "Chevron (process flow)",
+  wbShapeBlockArrow: "Block arrow",
+  wbShapeCylinder: "Cylinder (data)",
+  wbShapeDocument: "Document",
+  wbShapeDelay: "Delay (D)",
+  wbShapeTransport: "Transport",
+  wbShapeInspectQty: "Quantity check (□)",
+  wbShapePerson: "Person",
+  wbShapeFactory: "Factory / equipment",
+  wbShapeTruck: "Truck / delivery",
+  wbShapeCloud: "Cloud (idea)",
+  wbShapeStar: "Star",
+  wbToolTimer: "Timer and voting",
+  wbTimerStart: "Start",
+  wbTimerPause: "Pause",
+  wbTimerReset: "Reset",
+  wbTimerLonger: "1 minute longer",
+  wbTimerShorter: "1 minute shorter",
+  wbTimerDone: "Time is up",
+  wbTimerAria: "Timer: {time} left",
+  wbVoteBudget: "Votes per person: {n}",
+  wbVoteBudgetNone: "No vote budget (one vote per note)",
+  wbVoteBudgetMore: "More votes per person",
+  wbVoteBudgetLess: "Fewer votes per person",
+  wbVotesLeft: "You have {n} votes left",
+  wbVoteAdd: "Add a vote",
+  wbVoteRemove: "Take back a vote",
+  wbSortByVotes: "Sort by votes (most first)",
+  wbConnect: "Connect with an arrow (Alt+L)",
+  wbContextMenu: "Menu",
+  wbCut: "Cut",
+  wbCopy: "Copy",
+  wbPaste: "Paste",
+  wbEditText: "Edit text",
+  wbEditTitle: "Edit title",
+  wbSelectAll: "Select all",
+  wbAddHere: "Add here",
+  wbOrderLabel: "Order",
+  wbSearch: "Search (Ctrl+F)",
+  wbSearchLabel: "Search this White Board",
+  wbSearchPlaceholder: "Search the text of every sheet",
+  wbSearchNone: "Nothing found",
+  wbSearchCount: "{count} found",
+  wbSearchLoading: "Searching…",
+  wbSearchClose: "Close search",
+  wbExportMenu: "Save and export",
+  wbExportPdfA4: "Save as PDF (A4)",
+  wbExportPdfA3: "Save as PDF (A3)",
+  wbHelp: "How to use (?)",
+  wbHelpTitle: "Using the White Board",
+  wbHelpClose: "Close",
+  wbHelp01: "Double-click\tEdit the text (in a frame: its body; on the title bar: the title)",
+  wbHelp02: "Right-click\tThe menu for what you clicked (also Shift+F10 or the menu key)",
+  wbHelp03: "Drag on empty space\tSelect an area. Space + drag or the wheel moves the view",
+  wbHelp04: "Ctrl + wheel\tZoom in and out",
+  wbHelp05: "Type with a shape selected\tWrite into it",
+  wbHelp06: "Enter / F2\tEdit the text / edit a frame's title",
+  wbHelp07: "Esc\tFinish editing, clear the selection",
+  wbHelp08: "Arrow keys (Shift: by 10)\tMove. Alt + arrow keys resize",
+  wbHelp09: "Ctrl+C / X / V / D\tCopy, cut, paste, duplicate",
+  wbHelp10: "Ctrl+Z / Ctrl+Y\tUndo, redo",
+  wbHelp11: "Ctrl+G / Ctrl+Shift+G\tGroup, ungroup",
+  wbHelp12: "Alt+L\tConnect the two selected shapes with an arrow",
+  wbHelp13: "Insert\tAdd a mind-map child",
+  wbHelp14: "Ctrl+B / I / U\t(While editing) bold, italic, underline the selected characters",
+  wbHelp15: "] / [\tSelect the shapes one by one",
+  wbHelp16: "Ctrl+F\tSearch the text of every sheet",
+  wbHelp17: "?\tOpen this guide",
+  wbAlignGuides: "Alignment guides",
+  wbPbiLink: "Link to a PBI…",
+  wbPbiCreate: "Create a PBI from this",
+  wbComment: "Comment…",
+  wbViewersLabel: "People on this sheet",
+  wbViewersMoreCount: "{n} more",
+  wbViewerSelecting: "Selected by {name}",
+  wbHistory: "History",
+  wbHistoryTitle: "History of this sheet",
+  wbHistoryEmpty: "No versions yet (one is kept every 10 minutes while people draw)",
+  wbHistoryAuto: "Automatic",
+  wbHistorySaveNow: "Save the current state under a name",
+  wbHistoryLabel: "Name of the version",
+  wbHistorySave: "Save",
+  wbHistoryView: "View",
+  wbHistoryRestore: "Restore this version",
+  wbHistoryRestoreTitle: "Restore this version?",
+  wbHistoryRestoreMessage: "The sheet goes back to how it was at {time}. The current state is kept as a version too, so this can be undone.",
+  wbHistoryRestored: "Restored the state of {time}",
+  wbHistorySaved: "Version saved",
+  wbHistoryFailed: "The history could not be read",
+  wbHistoryElements: "{n} items",
+  wbHistoryPreview: "Version of {time}",
+  wbHistoryClose: "Close",
+  wbComments: "Comments",
+  wbCommentsCount: "Comments ({n})",
+  wbCommentsEmpty: "No comments yet. Right-click a shape → Comment to write one",
+  wbCommentOn: "On “{target}”",
+  wbCommentOnSheet: "On the whole sheet",
+  wbCommentLabel: "Write a comment (@ to mention someone)",
+  wbCommentSend: "Post",
+  wbCommentResolve: "Resolve",
+  wbCommentReopen: "Reopen",
+  wbCommentDelete: "Delete",
+  wbCommentShowResolved: "Show resolved",
+  wbCommentShow: "Show the shape",
+  wbCommentFailed: "The comment could not be saved",
+  wbCommentBadge: "{n} comments",
+  wbCommentSheetName: "Sheet: {name}",
+  wbPbiLinkTitle: "Link to a PBI",
+  wbPbiSearch: "Search by number (#12) or words",
+  wbPbiNone: "Nothing found",
+  wbPbiUnlink: "Unlink",
+  wbPbiOpen: "Open the PBI",
+  wbPbiCreated: "Created PBI #{n} and linked it",
+  wbPbiCreateFailed: "The PBI could not be created",
+  wbPbiStatusReady: "Ready",
+  wbPbiStatusNotReady: "Not ready",
+  wbPbiStatusCompleted: "Done",
+  wbPbiMissing: "PBI not found",
+  wbPbiConfidential: "Confidential",
+  wbPbiLinked: "Linked to PBI #{n}",
+  wbLinkedBoardsTitle: "Linked White Boards",
+  wbLinkedBoardsEmpty: "No White Board shape stands for this PBI",
+  wbLinkedBoardsOpen: "Open “{sheet}” of {board}",
+  wbAiSummarize: "Summarize with AI (local)",
+  wbAiGroup: "Group with AI (local)",
+  wbAiWorking: "The AI is working…",
+  wbAiFailed: "The AI could not be used: {reason}",
+  wbAiSummaryTitle: "Summary (AI)",
+  wbAiDone: "The AI's result is on the sheet (Ctrl+Z to undo)",
+  wbTimerMinutes: "{n} min",
+  wbGroupLabel: "Group",
+  wbUngroupLabel: "Ungroup",
+  wbConnectLabel: "Connect with an arrow",
+  wbTimerDoneStatus: "The timer is up",
+  wbHistoryViewOf: "View {name}",
+  wbHistoryRestoreOf: "Restore {name}",
+  wbPbiDrafts: "AI: 3 PBI drafts (reads arrows, frame, comments)",
+  wbPbiDraftUse: "Create this PBI and link it",
+  wbPbiCreatedNotLinked: "Created PBI #{n}, but the shape is locked or gone, so it was not linked",
   wbMindChild: "Add a child (Insert)",
   wbMindSibling: "Add a sibling (Enter)",
   wbMindLayout: "Tidy the mind map",
@@ -913,6 +1516,207 @@ export const id: BoardsTranslations = {
   wbFullscreen: "Layar penuh",
   wbFullscreenExit: "Keluar dari layar penuh",
   wbFormatTooLarge: "Format terlalu besar untuk disimpan: hanya teksnya yang disimpan (tanpa format)",
+  wbTemplateWhy5: "Analisis 5 Mengapa",
+  wbTemplateFishbone: "Diagram tulang ikan (7 faktor)",
+  wbTemplatePdcas: "PDCA-S",
+  wbTemplateEcrs: "Lembar ECRS",
+  wbTemplateA3: "Laporan A3",
+  wbTplWhy5Problem: "Masalah (apa yang terjadi)",
+  wbTplWhy5ProblemHint: "Kapan, di mana, dan apa yang terjadi — dengan fakta dan angka",
+  wbTplWhy5Why: "Mengapa {n}",
+  wbTplWhy5WhyHint: "Mengapa itu terjadi? Pastikan di lapangan dengan barang nyata, bukan menebak",
+  wbTplWhy5Root: "Akar masalah (X)",
+  wbTplWhy5RootHint: "Penyebab yang bila diatasi tidak akan berulang. Tulis mekanisme atau kondisi, bukan kesadaran orang",
+  wbTplWhy5Action: "Tindakan",
+  wbTplWhy5ActionHint: "Tindakan atas akar masalah, dan bagaimana masuk ke standar (4M)",
+  wbTplFishEffect: "Karakteristik (hasil Y)",
+  wbTplFishEffectHint: "Hasil yang variasinya ingin dikurangi, dalam angka (mis. variasi CT, rasio cacat)",
+  wbTplFishMan: "Manusia (Man)",
+  wbTplFishMachine: "Mesin (Machine)",
+  wbTplFishMaterial: "Material",
+  wbTplFishMethod: "Metode (Method)",
+  wbTplFishMeasurement: "Pengukuran (Measurement)",
+  wbTplFishManagement: "Manajemen (Management)",
+  wbTplFishEnvironment: "Lingkungan (Environment)",
+  wbTplFishNote: "Untuk tiap faktor variasi (X), tempel penyebab yang terpikir dengan catatan tempel di dekat tulangnya",
+  wbTplPdcaP: "P Rencana (Plan)",
+  wbTplPdcaPHint: "Tetapkan target dan hipotesis cara mencapainya",
+  wbTplPdcaD: "D Lakukan (Do)",
+  wbTplPdcaDHint: "Coba sesuai rencana (kecil dan cepat)",
+  wbTplPdcaC: "C Periksa (Check)",
+  wbTplPdcaCHint: "Bandingkan hasil dengan target dan nilai teoretis, dalam angka",
+  wbTplPdcaA: "A Tindak lanjut (Act)",
+  wbTplPdcaAHint: "Bila berhasil, tetapkan; bila tidak, tinjau ulang penyebabnya",
+  wbTplPdcaS: "S Standarisasi (Standardize)",
+  wbTplPdcaSHint: "Masukkan kondisi yang baik ke standar 4M dan instruksi kerja agar siapa pun mendapat hasil yang sama",
+  wbTplPdcaNote: "Standarisasi memperbarui fondasi: siklus berikutnya mulai dari tingkat yang lebih tinggi",
+  wbTplEcrsTitle: "Lembar ECRS",
+  wbTplEcrsWork: "Pekerjaan / proses",
+  wbTplEcrsE: "E Hilangkan (bisa ditiadakan?)",
+  wbTplEcrsC: "C Gabungkan (bisa disatukan?)",
+  wbTplEcrsR: "R Tata ulang (urutan atau tempat lain?)",
+  wbTplEcrsS: "S Sederhanakan (bisa lebih mudah?)",
+  wbTplEcrsEffect: "Efek (waktu, orang, variasi)",
+  wbTplEcrsNote: "Mulai dari E: apakah pekerjaan ini benar-benar perlu?",
+  wbTplA3Title: "Tema:",
+  wbTplA3Meta: "Departemen, nama, tanggal:",
+  wbTplA3Background: "1. Latar belakang dan alasan tema",
+  wbTplA3Current: "2. Kondisi saat ini (data, selisih dengan nilai teoretis)",
+  wbTplA3Target: "3. Target (apa, berapa, kapan)",
+  wbTplA3Cause: "4. Analisis penyebab (akar masalah)",
+  wbTplA3Measures: "5. Tindakan",
+  wbTplA3Plan: "6. Rencana (siapa, kapan)",
+  wbTplA3Result: "7. Hasil",
+  wbTplA3Standard: "8. Standarisasi dan perluasan",
+  wbShapeLibrary: "Pustaka bentuk",
+  wbShapeGroupBasic: "Dasar",
+  wbShapeGroupFlow: "Alur dan data",
+  wbShapeGroupProcess: "Simbol peta proses",
+  wbShapeGroupSite: "Lapangan",
+  wbShapeDiamond: "Belah ketupat (keputusan, inspeksi mutu)",
+  wbShapeTriangle: "Segitiga",
+  wbShapeStorage: "Penyimpanan (▽)",
+  wbShapeHexagon: "Segi enam (persiapan)",
+  wbShapeParallelogram: "Jajaran genjang (masukan / keluaran)",
+  wbShapeChevron: "Chevron (alur proses)",
+  wbShapeBlockArrow: "Panah tebal",
+  wbShapeCylinder: "Silinder (data)",
+  wbShapeDocument: "Dokumen",
+  wbShapeDelay: "Tunda (D)",
+  wbShapeTransport: "Transportasi",
+  wbShapeInspectQty: "Inspeksi jumlah (□)",
+  wbShapePerson: "Orang",
+  wbShapeFactory: "Pabrik / mesin",
+  wbShapeTruck: "Truk / pengiriman",
+  wbShapeCloud: "Awan (ide)",
+  wbShapeStar: "Bintang",
+  wbToolTimer: "Pengatur waktu dan voting",
+  wbTimerStart: "Mulai",
+  wbTimerPause: "Jeda",
+  wbTimerReset: "Atur ulang",
+  wbTimerLonger: "1 menit lebih lama",
+  wbTimerShorter: "1 menit lebih singkat",
+  wbTimerDone: "Waktu habis",
+  wbTimerAria: "Pengatur waktu: sisa {time}",
+  wbVoteBudget: "Suara per orang: {n}",
+  wbVoteBudgetNone: "Tanpa batas suara (satu suara per catatan)",
+  wbVoteBudgetMore: "Tambah suara per orang",
+  wbVoteBudgetLess: "Kurangi suara per orang",
+  wbVotesLeft: "Sisa suara Anda: {n}",
+  wbVoteAdd: "Beri satu suara",
+  wbVoteRemove: "Tarik satu suara",
+  wbSortByVotes: "Urutkan menurut suara (terbanyak dulu)",
+  wbConnect: "Hubungkan dengan panah (Alt+L)",
+  wbContextMenu: "Menu",
+  wbCut: "Potong",
+  wbCopy: "Salin",
+  wbPaste: "Tempel",
+  wbEditText: "Edit teks",
+  wbEditTitle: "Edit judul",
+  wbSelectAll: "Pilih semua",
+  wbAddHere: "Tambah di sini",
+  wbOrderLabel: "Urutan tumpukan",
+  wbSearch: "Cari (Ctrl+F)",
+  wbSearchLabel: "Cari di White Board ini",
+  wbSearchPlaceholder: "Cari teks di semua lembar",
+  wbSearchNone: "Tidak ditemukan",
+  wbSearchCount: "{count} ditemukan",
+  wbSearchLoading: "Mencari…",
+  wbSearchClose: "Tutup pencarian",
+  wbExportMenu: "Simpan dan ekspor",
+  wbExportPdfA4: "Simpan sebagai PDF (A4)",
+  wbExportPdfA3: "Simpan sebagai PDF (A3)",
+  wbHelp: "Panduan (?)",
+  wbHelpTitle: "Cara memakai White Board",
+  wbHelpClose: "Tutup",
+  wbHelp01: "Klik ganda\tEdit teks (pada bingkai: isinya; pada bilah judul: judulnya)",
+  wbHelp02: "Klik kanan\tMenu untuk yang diklik (juga Shift+F10 atau tombol menu)",
+  wbHelp03: "Seret di ruang kosong\tPilih area. Spasi + seret atau roda menggeser tampilan",
+  wbHelp04: "Ctrl + roda\tPerbesar dan perkecil",
+  wbHelp05: "Ketik saat bentuk dipilih\tMenulis di dalamnya",
+  wbHelp06: "Enter / F2\tEdit teks / edit judul bingkai",
+  wbHelp07: "Esc\tSelesai mengedit, hapus pilihan",
+  wbHelp08: "Tombol panah (Shift: per 10)\tPindahkan. Alt + tombol panah mengubah ukuran",
+  wbHelp09: "Ctrl+C / X / V / D\tSalin, potong, tempel, gandakan",
+  wbHelp10: "Ctrl+Z / Ctrl+Y\tUrungkan, ulangi",
+  wbHelp11: "Ctrl+G / Ctrl+Shift+G\tKelompokkan, pisahkan kelompok",
+  wbHelp12: "Alt+L\tHubungkan dua bentuk yang dipilih dengan panah",
+  wbHelp13: "Insert\tTambah anak peta pikiran",
+  wbHelp14: "Ctrl+B / I / U\t(Saat mengedit) tebal, miring, garis bawah pada karakter yang dipilih",
+  wbHelp15: "] / [\tPilih bentuk satu per satu",
+  wbHelp16: "Ctrl+F\tCari teks di semua lembar",
+  wbHelp17: "?\tBuka panduan ini",
+  wbAlignGuides: "Garis bantu perataan",
+  wbPbiLink: "Hubungkan ke PBI…",
+  wbPbiCreate: "Buat PBI dari ini",
+  wbComment: "Komentar…",
+  wbViewersLabel: "Orang di lembar ini",
+  wbViewersMoreCount: "{n} lainnya",
+  wbViewerSelecting: "Dipilih oleh {name}",
+  wbHistory: "Riwayat",
+  wbHistoryTitle: "Riwayat lembar ini",
+  wbHistoryEmpty: "Belum ada versi (disimpan otomatis tiap 10 menit saat menggambar)",
+  wbHistoryAuto: "Otomatis",
+  wbHistorySaveNow: "Simpan keadaan saat ini dengan nama",
+  wbHistoryLabel: "Nama versi",
+  wbHistorySave: "Simpan",
+  wbHistoryView: "Lihat",
+  wbHistoryRestore: "Pulihkan versi ini",
+  wbHistoryRestoreTitle: "Pulihkan versi ini?",
+  wbHistoryRestoreMessage: "Lembar kembali ke keadaan pada {time}. Keadaan sekarang juga disimpan sebagai versi, jadi bisa dibatalkan.",
+  wbHistoryRestored: "Keadaan {time} telah dipulihkan",
+  wbHistorySaved: "Versi disimpan",
+  wbHistoryFailed: "Riwayat tidak dapat dibaca",
+  wbHistoryElements: "{n} elemen",
+  wbHistoryPreview: "Versi {time}",
+  wbHistoryClose: "Tutup",
+  wbComments: "Komentar",
+  wbCommentsCount: "Komentar ({n})",
+  wbCommentsEmpty: "Belum ada komentar. Klik kanan bentuk → Komentar untuk menulis",
+  wbCommentOn: "Untuk “{target}”",
+  wbCommentOnSheet: "Untuk seluruh lembar",
+  wbCommentLabel: "Tulis komentar (@ untuk menyebut seseorang)",
+  wbCommentSend: "Kirim",
+  wbCommentResolve: "Selesaikan",
+  wbCommentReopen: "Buka lagi",
+  wbCommentDelete: "Hapus",
+  wbCommentShowResolved: "Tampilkan yang selesai",
+  wbCommentShow: "Tampilkan bentuk",
+  wbCommentFailed: "Komentar tidak dapat disimpan",
+  wbCommentBadge: "{n} komentar",
+  wbCommentSheetName: "Lembar: {name}",
+  wbPbiLinkTitle: "Hubungkan ke PBI",
+  wbPbiSearch: "Cari dengan nomor (#12) atau kata",
+  wbPbiNone: "Tidak ditemukan",
+  wbPbiUnlink: "Lepaskan tautan",
+  wbPbiOpen: "Buka PBI",
+  wbPbiCreated: "PBI #{n} dibuat dan ditautkan",
+  wbPbiCreateFailed: "PBI tidak dapat dibuat",
+  wbPbiStatusReady: "Siap",
+  wbPbiStatusNotReady: "Belum siap",
+  wbPbiStatusCompleted: "Selesai",
+  wbPbiMissing: "PBI tidak ditemukan",
+  wbPbiConfidential: "Rahasia",
+  wbPbiLinked: "Ditautkan ke PBI #{n}",
+  wbLinkedBoardsTitle: "White Board yang tertaut",
+  wbLinkedBoardsEmpty: "Tidak ada bentuk White Board untuk PBI ini",
+  wbLinkedBoardsOpen: "Buka “{sheet}” dari {board}",
+  wbAiSummarize: "Ringkas dengan AI (lokal)",
+  wbAiGroup: "Kelompokkan dengan AI (lokal)",
+  wbAiWorking: "AI sedang bekerja…",
+  wbAiFailed: "AI tidak dapat digunakan: {reason}",
+  wbAiSummaryTitle: "Ringkasan (AI)",
+  wbAiDone: "Hasil AI sudah ditaruh (Ctrl+Z untuk membatalkan)",
+  wbTimerMinutes: "{n} menit",
+  wbGroupLabel: "Kelompokkan",
+  wbUngroupLabel: "Pisahkan kelompok",
+  wbConnectLabel: "Hubungkan dengan panah",
+  wbTimerDoneStatus: "Waktu pengatur waktu habis",
+  wbHistoryViewOf: "Lihat {name}",
+  wbHistoryRestoreOf: "Pulihkan {name}",
+  wbPbiDrafts: "AI: 3 draf PBI (membaca panah, bingkai, komentar)",
+  wbPbiDraftUse: "Buat PBI ini dan tautkan",
+  wbPbiCreatedNotLinked: "PBI #{n} dibuat, tetapi bentuknya terkunci atau terhapus sehingga tidak ditautkan",
   wbMindChild: "Tambah anak (Insert)",
   wbMindSibling: "Tambah saudara (Enter)",
   wbMindLayout: "Rapikan peta pikiran",

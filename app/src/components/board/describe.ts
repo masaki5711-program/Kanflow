@@ -1,6 +1,7 @@
 import type { ElementMap } from "@/lib/board/geometry"
 import { isBox, isLine, type BoardElement, type BoxType, type LineType } from "@/lib/board/model"
 import type { Translations } from "@/lib/i18n"
+import { shapeName } from "./board-toolbar"
 
 /**
  * What the canvas says without pictures (WCAG 1.1.1 / 1.3.1): each element as words — its kind and its text, a line
@@ -20,6 +21,8 @@ const KIND: Record<BoxType | LineType, keyof Translations> = {
   image: "wbToolImage",
   table: "wbToolTable",
   frame: "wbToolFrame",
+  shape: "wbShapeLibrary",
+  timer: "wbToolTimer",
 }
 
 /** The elements a person can see and select, back to front (unknown types are neither drawn nor listed). */
@@ -54,6 +57,7 @@ function extras(el: BoardElement, t: Translations): string {
 }
 
 export function kindName(el: BoardElement, t: Translations): string {
+  if (isBox(el) && el.type === "shape" && el.shape) return shapeName(t, el.shape)
   return isBox(el) || isLine(el) ? String(t[KIND[el.type]]) : ""
 }
 

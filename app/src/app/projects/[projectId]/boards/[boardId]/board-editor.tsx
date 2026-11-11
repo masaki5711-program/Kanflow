@@ -5,6 +5,7 @@ import Link from "next/link"
 import { ChevronLeft, Maximize2, Minimize2 } from "lucide-react"
 import { useProjectDocumentTitle } from "@/components/app-shell/project-title-context"
 import { boardUrl, nextSheetName, sheetUrl, type BoardDto, type BoardSheetDto, type BoardWithPermissions, type SheetCreatedDto } from "@/components/board/board-api"
+import { BoardSearch } from "@/components/board/board-search"
 import { NameDialog } from "@/components/board/name-dialog"
 import { SheetEditor, type SheetEditorHandle } from "@/components/board/sheet-editor"
 import { SheetTabs } from "@/components/board/sheet-tabs"
@@ -21,12 +22,14 @@ interface Props {
   userId: string
   /** May add IceBox items (sticky notes can be sent there). */
   canAddToIcebox: boolean
+  /** May have the AI draft PBIs (from a shape and its surroundings), as from an IceBox item. */
+  canDraftPbi?: boolean
 }
 
 type Dialog = { kind: "rename"; sheet: BoardSheetDto } | { kind: "duplicate"; sheet: BoardSheetDto }
 
 /** The board editor page: title, the open sheet's editor and the sheet tabs at the bottom. */
-export function BoardEditor({ projectId, boardId, userId, canAddToIcebox }: Props) {
+export function BoardEditor({ projectId, boardId, userId, canAddToIcebox, canDraftPbi = false }: Props) {
   const { t } = useLanguage()
   const confirm = useConfirm()
   const toast = useToast()
@@ -40,6 +43,21 @@ export function BoardEditor({ projectId, boardId, userId, canAddToIcebox }: Prop
   const [busy, setBusy] = useState(false)
   /** Full screen: the board covers the app (and the browser goes full screen where it allows). */
   const [full, setFull] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
+  /** The element a search picked (shown once the sheet is open). */
+  const [focus, setFocus] = useState<{ sheetId: string; id: string; nonce: number } | null>(null)
+  /** A link into the board (a mention's notification, a PBI's linked boards): ?sheet=…&element=…&comments=1. */
+  const [deepLink] = useState(() => {
+    if (typeof window === "undefined") return null
+    const q = new URLSearchParams(window.location.search)
+    const sheet = q.get("sheet")
+    return sheet ? { sheetId: sheet, elementId: q.get("element"), comments: q.get("comments") === "1" } : null
+  })
+  useEffect(() => {
+    if (!deepLink) return
+    setActiveId(deepLink.sheetId)
+    if (deepLink.elementId) setFocus({ sheetId: deepLink.sheetId, id: deepLink.elementId, nonce: Date.now() })
+  }, [deepLink])
   const editorRef = useRef<SheetEditorHandle>(null)
 
   const rootRef = useRef<HTMLDivElement>(null)
@@ -156,6 +174,12 @@ export function BoardEditor({ projectId, boardId, userId, canAddToIcebox }: Prop
     })
   }
 
+  /** The search reads what is saved: the open sheet is saved first (best effort — it searches either way). */
+  function openSearch() {
+    void editorRef.current?.flush().finally(() => setSearchOpen(true))
+    if (!editorRef.current) setSearchOpen(true)
+  }
+
   function select(sheetId: string) {
     if (sheetId === active?.id) return
     void run(async () => {
@@ -250,6 +274,11 @@ export function BoardEditor({ projectId, boardId, userId, canAddToIcebox }: Prop
               clipboard={clipboard}
               userId={userId}
               canAddToIcebox={canAddToIcebox}
+              canDraftPbi={canDraftPbi}
+              onSearch={openSearch}
+              focus={focus?.sheetId === active.id ? focus : null}
+              canManage={board.permissions.canManage}
+              openComments={!!deepLink?.comments && deepLink.sheetId === active.id}
             />
           )}
         </div>
@@ -269,6 +298,21 @@ export function BoardEditor({ projectId, boardId, userId, canAddToIcebox }: Prop
         />
       </div>
 
+      {searchOpen && (
+        <BoardSearch
+          sheets={sheets}
+          elementsUrl={(sheetId) => `${sheetUrl(projectId, boardId, sheetId)}/elements`}
+          onClose={() => setSearchOpen(false)}
+          onPick={(hit) => {
+            setSearchOpen(false)
+            void run(async () => {
+              if (hit.sheetId !== active?.id && !(await leaveSheet())) return
+              setActiveId(hit.sheetId)
+              setFocus({ sheetId: hit.sheetId, id: hit.elementId, nonce: Date.now() })
+            })
+          }}
+        />
+      )}
       {dialog?.kind === "rename" && (
         <NameDialog
           title={t.wbSheetRenameTitle}

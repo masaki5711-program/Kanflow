@@ -52,8 +52,10 @@ import { panBy, toScreen, toSheet, wheelZoom, zoomAt, type Viewport } from "@/li
 import { useLanguage } from "@/lib/language-context"
 import { cn, VisuallyHidden } from "@/components/ui"
 import { describable, describeElement, selectionAnnouncement, stepSelection } from "./describe"
-import { ElementView, frameBodyRect, lineEndsOf, TEXT_PADDING, textCss } from "./element-view"
+import { ElementView, frameBodyRect, lineEndsOf, TEXT_PADDING, textArea, textCss } from "./element-view"
+import { BoardMenu, type MenuEntry } from "./board-menu"
 import { RichTextOverlay, type RichController, type SelectionMarks } from "./rich-editor"
+import { guidedMove, type Guide } from "@/lib/board/guides"
 import { DEFAULT_LINE_LENGTH, isBoxTool, type BoardEditorController, type DrawBoxType, type EditTarget } from "./use-board-editor"
 
 /** How close (screen pixels) the pointer has to be to pick an element / a handle. */
@@ -68,7 +70,7 @@ const GHOST_ID = "ghost-element"
 
 type Drag =
   | { kind: "pan"; last: Point }
-  | { kind: "move"; start: Point; ids: readonly string[]; moved: boolean }
+  | { kind: "move"; start: Point; ids: readonly string[]; moved: boolean; last?: Point }
   | { kind: "resize"; id: string; handle: BoxHandle; start: Point }
   | { kind: "line-end"; id: string; which: LineHandle }
   | { kind: "marquee"; start: Point; base: readonly string[] }
@@ -126,14 +128,27 @@ interface BoardCanvasProps {
   editor: BoardEditorController
   /** Accessible name of the canvas (names the sheet). */
   label: string
+  /** The right-click menu for a point of the sheet (built when shown, from the editor's current selection). */
+  menuFor?: (at: Point) => MenuEntry[]
+  /** Ctrl+F: search; ?: the guide. */
+  onSearch?: () => void
+  onHelp?: () => void
+  /** Other people on the sheet and what they have selected (outlined in their colour). */
+  others?: { userId: string; name: string; color: string; ids: readonly string[] }[]
+  /** Open comments per element id (a badge on the element opens them). */
+  commentCounts?: Record<string, number>
+  onOpenComments?: (elementId: string) => void
 }
+
+/** How close (screen pixels) a dragged shape's edge has to come to another's to line up with it. */
+const GUIDE_REACH = 6
 
 /**
  * The drawing surface: SVG for the elements, an HTML textarea over the text being edited. Pointer, keyboard and
  * clipboard input is turned into the editor's commands; a drag shows its result as a preview and becomes one undo
  * step when the button is released. Line ends brought near a shape connect to the middle of its nearest side.
  */
-export function BoardCanvas({ editor, label }: BoardCanvasProps) {
+export function BoardCanvas({ editor, label, menuFor, onSearch, onHelp, others = [], commentCounts = {}, onOpenComments }: BoardCanvasProps) {
   const { t } = useLanguage()
   const { elements, viewport, selection, tool, readOnly, editing, reportCanvasSize, setViewport, grid, activeCell } = editor
   const rootRef = useRef<HTMLDivElement>(null)
@@ -152,6 +167,10 @@ export function BoardCanvas({ editor, label }: BoardCanvasProps) {
   const [panning, setPanning] = useState(false)
   /** The pointer is over a ruling of the selected table: it can be dragged. */
   const [borderHover, setBorderHover] = useState<"col" | "row" | null>(null)
+  /** The lines the dragged shapes line up with. */
+  const [guides, setGuides] = useState<Guide[]>([])
+  /** The right-click menu: where it opens (window) and the sheet point it is for. */
+  const [menu, setMenu] = useState<{ at: { x: number; y: number }; sheet: Point } | null>(null)
   const helpId = useId()
 
   const shown = useMemo(() => withPatch(elements, preview), [elements, preview])
@@ -214,6 +233,41 @@ export function BoardCanvas({ editor, label }: BoardCanvasProps) {
     setGhost(null)
     setSnapHint(null)
     setPanning(false)
+    setGuides([])
+  }
+
+  /** The move of a drag: on the grid when snapping, else lined up with the shapes nearby. */
+  function dragMove(ids: readonly string[], dx: number, dy: number): Point {
+    if (grid > 0) return snapMove(elements, ids, dx, dy, grid)
+    const guided = guidedMove(elements, ids, dx, dy, GUIDE_REACH / viewport.zoom)
+    setGuides(guided.guides)
+    return guided.d
+  }
+
+  function openMenu(client: { x: number; y: number }, sheet: Point) {
+    if (!menuFor) return
+    setMenu({ at: client, sheet })
+  }
+
+  function onContextMenu(e: React.MouseEvent<HTMLDivElement>) {
+    if ((e.target as HTMLElement).closest("textarea,[contenteditable],a")) return
+    e.preventDefault()
+    if (dragRef.current) endDrag()
+    const { sheet } = pointOf(e)
+    const hit = hitTest(elements, sheet, HIT_TOLERANCE / viewport.zoom)
+    // What was right-clicked is what the menu acts on (the selection stays when it is part of it).
+    if (hit === null) {
+      const frame = frameAt(elements, sheet)
+      if (frame && !selection.includes(frame.id)) editor.select([frame.id])
+      else if (!frame) editor.select([])
+    } else if (!selection.includes(hit)) editor.select([hit])
+    const target = hit !== null ? elements[hit] : undefined
+    if (isBox(target) && target.type === "table" && !readOnly) {
+      const cell = cellAt(target, sheet)
+      editor.setActiveCell(cell ? { id: target.id, ...cell } : null)
+    }
+    rootRef.current?.focus({ preventScroll: true })
+    openMenu({ x: e.clientX, y: e.clientY }, sheet)
   }
 
   /** The end of a line at the pointer: the side midpoint of a shape within reach, or the (grid) point itself. */
@@ -347,7 +401,10 @@ export function BoardCanvas({ editor, label }: BoardCanvasProps) {
         // A click that wobbles a little is a click, not a move.
         if (!drag.moved && Math.hypot(dx, dy) * viewport.zoom < CLICK_SLOP) break
         drag.moved = true
-        const d = snapMove(elements, drag.ids, dx, dy, grid)
+        // Alt held: no lining up (free placement).
+        const d = e.altKey ? { x: dx, y: dy } : dragMove(drag.ids, dx, dy)
+        if (e.altKey) setGuides([])
+        drag.last = d
         setPreview(movePatch(elements, drag.ids, d.x, d.y))
         break
       }
@@ -397,10 +454,8 @@ export function BoardCanvas({ editor, label }: BoardCanvasProps) {
     }
     switch (drag.kind) {
       case "move":
-        if (drag.moved) {
-          const d = snapMove(elements, drag.ids, sheet.x - drag.start.x, sheet.y - drag.start.y, grid)
-          editor.commit(movePatch(elements, drag.ids, d.x, d.y))
-        }
+        // The move as last shown (lined up / on the grid).
+        if (drag.moved && drag.last) editor.commit(movePatch(elements, drag.ids, drag.last.x, drag.last.y))
         break
       case "resize":
         editor.commit(resizePatch(elements, drag.id, drag.handle, sheet.x - drag.start.x, sheet.y - drag.start.y, keepRatio(drag.id, e.shiftKey)))
@@ -462,7 +517,7 @@ export function BoardCanvas({ editor, label }: BoardCanvasProps) {
     else if (el.type === "table") {
       const cell = activeCell?.id === id ? activeCell : { row: 0, col: 0 }
       flushSync(() => editor.startCellEditing(id, cell.row, cell.col))
-    } else if (el.type === "image") return false
+    } else if (el.type === "image" || el.type === "timer") return false
     else if (el.type === "frame") flushSync(() => editor.startBodyEditing(id, true))
     else flushSync(() => editor.startEditing(id, true))
     return true
@@ -481,6 +536,32 @@ export function BoardCanvas({ editor, label }: BoardCanvasProps) {
       if (dragRef.current) endDrag()
       else if (tool !== "select") editor.setTool("select")
       else editor.select([])
+      return
+    }
+    // Shift+F10 / the menu key: the right-click menu, at the selection (or the middle of the view).
+    if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
+      e.preventDefault()
+      const bounds = selection.length > 0 ? boundsOf([...selection], elements) : null
+      const root = rootRef.current?.getBoundingClientRect()
+      const sheet = bounds ? { x: bounds.x + bounds.w / 2, y: bounds.y + bounds.h / 2 } : toSheet(viewport, { x: (root?.width ?? 0) / 2, y: (root?.height ?? 0) / 2 })
+      const screen = toScreen(viewport, sheet)
+      openMenu({ x: (root?.left ?? 0) + screen.x, y: (root?.top ?? 0) + screen.y }, sheet)
+      return
+    }
+    // Alt+L: an arrow between the two selected shapes.
+    if (e.altKey && !e.ctrlKey && !e.metaKey && e.code === "KeyL") {
+      e.preventDefault()
+      editor.connect()
+      return
+    }
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "f" && onSearch) {
+      e.preventDefault()
+      onSearch()
+      return
+    }
+    if (e.key === "?" && !e.ctrlKey && !e.metaKey && onHelp && !(selection.length === 1 && !readOnly)) {
+      e.preventDefault()
+      onHelp()
       return
     }
     // Alt + arrow keys resize the one selected shape (the keyboard way to what the handles do).
@@ -663,6 +744,7 @@ export function BoardCanvas({ editor, label }: BoardCanvasProps) {
           if (e.button === 1) e.preventDefault()
         }}
         onDoubleClick={onDoubleClick}
+        onContextMenu={onContextMenu}
         onKeyDown={onKeyDown}
         onKeyUp={(e) => {
           if (e.key === " ") setSpaceDown(false)
@@ -773,6 +855,63 @@ export function BoardCanvas({ editor, label }: BoardCanvasProps) {
             </g>
           )}
           {marquee && <MarqueeRect rect={screenRect(viewport, marquee)} />}
+          {others.map((o) =>
+            o.ids.map((id) => {
+              const el = shown[id]
+              const bounds = el ? elementBounds(el, shown) : null
+              if (!bounds) return null
+              const r = screenRect(viewport, bounds)
+              return (
+                <g key={`${o.userId}:${id}`} data-other-selection={o.userId} className="pointer-events-none">
+                  <rect x={r.x - 4} y={r.y - 4} width={r.w + 8} height={r.h + 8} fill="none" style={{ stroke: o.color }} strokeWidth={2} strokeDasharray="6 3" rx={4} />
+                  {/* The name on a surface label in the person's colour: readable on any canvas. */}
+                  <rect x={r.x - 4} y={r.y - 22} width={Math.min(200, o.name.length * 12 + 12)} height={17} rx={3} style={{ fill: "var(--color-surface)", stroke: o.color }} strokeWidth={1.5} />
+                  <text x={r.x + 2} y={r.y - 9} style={{ fill: "var(--color-fg)" }} fontSize={11} fontWeight={700}>
+                    {o.name}
+                  </text>
+                </g>
+              )
+            }),
+          )}
+          {Object.entries(commentCounts).map(([id, count]) => {
+            const el = shown[id]
+            const bounds = el ? elementBounds(el, shown) : null
+            if (!bounds) return null
+            const r = screenRect(viewport, bounds)
+            const label = t.wbCommentBadge.replace("{n}", String(count))
+            return (
+              <g
+                key={`comment-${id}`}
+                role="button"
+                tabIndex={-1}
+                aria-label={label}
+                data-comment-badge={id}
+                transform={`translate(${r.x + r.w + 2} ${r.y - 18})`}
+                style={{ cursor: "pointer" }}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={() => onOpenComments?.(id)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    onOpenComments?.(id)
+                  }
+                }}
+              >
+                <title>{label}</title>
+                <rect x={-2} y={-3} width={26} height={26} fill="transparent" />
+                <path d="M0 4a4 4 0 0 1 4-4h14a4 4 0 0 1 4 4v8a4 4 0 0 1-4 4H8l-5 4v-4H4a4 4 0 0 1-4-4z" style={{ fill: "var(--color-warning, #f59e0b)", stroke: "var(--color-surface)" }} strokeWidth={1} />
+                <text x={11} y={11.5} textAnchor="middle" fontSize={10} fontWeight={700} style={{ fill: "var(--color-fg)" }}>
+                  {count}
+                </text>
+              </g>
+            )
+          })}
+          {guides.map((g, i) => {
+            const a = toScreen(viewport, g.axis === "x" ? { x: g.x, y: g.y1 } : { x: g.x1, y: g.y })
+            const b = toScreen(viewport, g.axis === "x" ? { x: g.x, y: g.y2 } : { x: g.x2, y: g.y })
+            return <line key={i} data-guide={g.axis} x1={a.x} y1={a.y} x2={b.x} y2={b.y} style={{ stroke: "var(--color-danger)" }} strokeWidth={1} strokeDasharray="4 3" className="pointer-events-none" />
+          })}
         </svg>
         {!readOnly && (tool === "line" || tool === "arrow") && (
           <p aria-hidden="true" className="pointer-events-none absolute bottom-2 left-1/2 max-w-[90%] -translate-x-1/2 rounded-ui-sm bg-surface px-2 py-1 text-caption text-fg-muted shadow-sm ring-1 ring-border">
@@ -829,6 +968,10 @@ export function BoardCanvas({ editor, label }: BoardCanvasProps) {
           />
         )}
       </div>
+      {/* Outside the canvas element: the menu's clicks must not reach the canvas's own pointer handling. */}
+      {menu && menuFor && (
+        <BoardMenu label={t.wbContextMenu} items={menuFor(menu.sheet)} at={menu.at} returnFocus={() => rootRef.current} onClose={() => setMenu(null)} />
+      )}
     </>
   )
 }
@@ -922,7 +1065,7 @@ interface RichOverlayProps {
 
 /** The formatted-text editor placed over a box's text, a frame's body or a table cell. */
 function RichOverlay({ target, el, slot, viewport, label, hint, register, onMarks, onDone }: RichOverlayProps) {
-  const area = slot.kind === "cell" ? cellRect(el, slot.row, slot.col) : slot.kind === "body" ? frameBodyRect(el) : boxRect(el)
+  const area = slot.kind === "cell" ? cellRect(el, slot.row, slot.col) : slot.kind === "body" ? frameBodyRect(el) : textArea(el)
   if (!area) return null
   const base = baseMarks(el, slot)
   // Readable however far the view is zoomed out (the drawn text keeps its real size).

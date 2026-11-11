@@ -29,6 +29,13 @@ import {
   CornerDownRight,
   Group,
   Italic,
+  ListOrdered,
+  MoveUpRight,
+  Pause,
+  Play,
+  Plus,
+  RotateCcw,
+  ThumbsDown,
   Link,
   ListTree,
   Lock,
@@ -255,13 +262,45 @@ export function FormatBar({ editor, onEditLink }: FormatBarProps) {
       ],
     })
   }
+  const timer = one && isBox(one) && one.type === "timer" ? one : null
+  if (timer) {
+    const running = timer.endsAt !== undefined
+    const minutes = Math.round((timer.durationSec ?? 300) / 60)
+    const budget = timer.voteBudget ?? 0
+    groups.push({
+      key: "timer",
+      label: t.wbToolTimer,
+      items: [
+        { key: "timer-run", label: running ? t.wbTimerPause : t.wbTimerStart, text: running ? t.wbTimerPause : t.wbTimerStart, content: running ? <Pause className={ICON} /> : <Play className={ICON} />, onClick: () => editor.timer({ kind: running ? "pause" : "start" }) },
+        { key: "timer-reset", label: t.wbTimerReset, content: <RotateCcw className={ICON} />, onClick: () => editor.timer({ kind: "reset" }) },
+        { key: "timer-shorter", label: t.wbTimerShorter, content: <Minus className={ICON} />, onClick: () => editor.timer({ kind: "duration", sec: Math.max(1, minutes - 1) * 60 }), disabled: minutes <= 1 },
+        { key: "timer-minutes", label: t.wbTimerMinutes.replace("{n}", String(minutes)), content: <span className="tabular-nums">{minutes}′</span>, onClick: () => editor.timer({ kind: "reset" }), wide: true },
+        { key: "timer-longer", label: t.wbTimerLonger, content: <Plus className={ICON} />, onClick: () => editor.timer({ kind: "duration", sec: (minutes + 1) * 60 }), disabled: minutes >= 120 },
+        { key: "budget-less", label: t.wbVoteBudgetLess, content: <ThumbsDown className={ICON} />, onClick: () => editor.timer({ kind: "budget", votes: budget <= 1 ? null : budget - 1 }), disabled: budget === 0 },
+        { key: "budget", label: budget ? t.wbVoteBudget.replace("{n}", String(budget)) : t.wbVoteBudgetNone, content: <span className="tabular-nums">{budget || "—"}</span>, onClick: () => {}, wide: true },
+        { key: "budget-more", label: t.wbVoteBudgetMore, content: <ThumbsUp className={ICON} />, onClick: () => editor.timer({ kind: "budget", votes: budget + 1 }), disabled: budget >= BOARD_LIMITS.voteBudgetMax },
+      ],
+    })
+  }
+  const stickies = boxes.filter((b) => b.type === "sticky")
   const misc: ToolbarItem[] = [
     { key: "group", label: t.wbGroup, content: <Group className={ICON} />, onClick: editor.group, disabled: selected.length < 2 },
     { key: "ungroup", label: t.wbUngroup, content: <Ungroup className={ICON} />, onClick: editor.ungroup, disabled: !grouped },
     { key: "lock", label: locked ? t.wbUnlock : t.wbLock, content: locked ? <LockOpen className={ICON} /> : <Lock className={ICON} />, onClick: () => editor.setLocked(!locked), pressed: locked },
     { key: "link", label: t.wbLink, content: <Link className={ICON} />, onClick: onEditLink, disabled: locked, pressed: selected.some((el) => !!el.link) },
   ]
-  if (sticky) misc.push({ key: "vote", label: t.wbVote, content: <ThumbsUp className={ICON} />, onClick: editor.vote, pressed: voted, disabled: !editor.userId || !!sticky.locked })
+  if (boxes.filter((b) => b.type !== "frame").length === 2 && selected.length === 2) {
+    misc.unshift({ key: "connect", label: t.wbConnect, content: <MoveUpRight className={ICON} />, onClick: editor.connect })
+  }
+  if (sticky && editor.voteBudget !== null) {
+    const left = editor.votesLeft ?? 0
+    const mine = !!editor.userId && (sticky.voters ?? []).includes(editor.userId)
+    misc.push(
+      { key: "vote-add", label: `${t.wbVoteAdd} — ${t.wbVotesLeft.replace("{n}", String(left))}`, text: t.wbVotesLeft.replace("{n}", String(left)), content: <ThumbsUp className={ICON} />, onClick: () => editor.vote("add"), disabled: !editor.userId || !!sticky.locked || left <= 0 },
+      { key: "vote-remove", label: t.wbVoteRemove, content: <ThumbsDown className={ICON} />, onClick: () => editor.vote("remove"), disabled: !mine || !!sticky.locked },
+    )
+  } else if (sticky) misc.push({ key: "vote", label: t.wbVote, content: <ThumbsUp className={ICON} />, onClick: () => editor.vote("toggle"), pressed: voted, disabled: !editor.userId || !!sticky.locked })
+  if (stickies.length >= 2) misc.push({ key: "sort-votes", label: t.wbSortByVotes, content: <ListOrdered className={ICON} />, onClick: editor.sortByVotes })
   if (one && isBox(one) && one.type !== "image" && one.type !== "frame" && one.type !== "table") {
     misc.push({ key: "mind-child", label: t.wbMindChild, content: <Network className={ICON} />, onClick: editor.mindChild })
     if (mindParent(elements, one.id)) misc.push({ key: "mind-sibling", label: t.wbMindSibling, content: <ListTree className={ICON} />, onClick: () => void editor.mindSibling() })
