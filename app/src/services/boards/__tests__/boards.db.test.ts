@@ -191,6 +191,23 @@ describe.skipIf(!enabled)("boards on a real database (KANFLOW_DB_TESTS=1)", () =
     await expect(svc.writeElements(projectId, board.id, sheetId, { elements: [{ id: "el-new0001", version: 1, deleted: false, data: rect(1) }] }, actor)).rejects.toMatchObject({ code: "BOARD_SHEET_FULL" })
   })
 
+  it("image rows (B2) count against the project storage quota and go with the board", async () => {
+    const repo = await import("../boards.repository")
+    const { projectStorageUsed } = await import("@/services/attachments/storage-quota")
+    const board = await svc.createBoard(projectId, { title: "images" }, actor)
+    const before = await projectStorageUsed(prisma, projectId)
+    const row = await repo.createBoardFile(prisma, { boardId: board.id, fileName: `${tag}-missing.png`, mimeType: "image/png", fileSize: 1234, createdById: actor.userId })
+    expect(await projectStorageUsed(prisma, projectId)).toBe(before + 1234)
+    expect(await repo.countBoardFiles(prisma, board.id)).toBe(1)
+    expect(await svc.getBoardImage(projectId, board.id, row.id)).toEqual({ fileName: `${tag}-missing.png`, mimeType: "image/png" })
+    await expect(prisma.boardFile.create({ data: { boardId: board.id, fileName: "x.png", mimeType: "image/png", fileSize: -1 } })).rejects.toThrow()
+    await svc.deleteBoard(projectId, board.id, actor)
+    await expect(svc.getBoardImage(projectId, board.id, row.id)).rejects.toMatchObject({ status: 404 })
+    // The purge removes the row (the file is not on disk here: a missing file is ignored).
+    await svc.purgeBoard(projectId, board.id)
+    expect(await prisma.boardFile.count({ where: { boardId: board.id } })).toBe(0)
+    expect(await projectStorageUsed(prisma, projectId)).toBe(before)
+  })
   it("trash keeps the content, restore returns it, the purge removes board, sheets and elements", async () => {
     const board = await svc.createBoard(projectId, { title: "trash" }, actor)
     const sheetId = board.sheets[0].id

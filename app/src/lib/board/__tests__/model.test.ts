@@ -23,8 +23,8 @@ describe("elementDataProblem", () => {
   })
 
   it("accepts an unknown type by shape only, within the size limit", () => {
-    expect(elementDataProblem({ type: "image", fileId: "f1", x: 1 })).toBeNull()
-    expect(elementDataProblem({ type: "table", cells: "x".repeat(BOARD_LIMITS.elementJsonChars) })).toBe("data is too large")
+    expect(elementDataProblem({ type: "video", fileId: "f1", x: 1 })).toBeNull()
+    expect(elementDataProblem({ type: "video", cells: "x".repeat(BOARD_LIMITS.elementJsonChars) })).toBe("data is too large")
   })
 
   it("refuses what is not an object with a type", () => {
@@ -50,14 +50,14 @@ describe("elementFromData / elementToData", () => {
   })
 
   it("keeps the keys of a known type that this build does not know", () => {
-    const data = { ...RECT, link: { url: "https://example.test" }, rotation: 15 }
+    const data = { ...RECT, shadow: { blur: 4 }, rotation: 15 }
     const el = elementFromData("box-000001", data) as BoxElement
     const moved = { ...el, x: 99 }
     expect(elementToData(moved)).toEqual({ ...data, x: 99 })
   })
 
   it("carries an unknown type untouched", () => {
-    const data = { type: "image", fileId: "f1", x: 1, y: 2, nested: { a: [1, 2] } }
+    const data = { type: "video", fileId: "f1", x: 1, y: 2, nested: { a: [1, 2] } }
     const el = elementFromData("img-000001", data)
     expect(el.type).toBe("unknown")
     expect(elementToData(el)).toBe(data)

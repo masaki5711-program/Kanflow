@@ -71,6 +71,22 @@ export function sheetUrl(projectId: string, boardId: string, sheetId: string): s
   return `${boardUrl(projectId, boardId)}/sheets/${sheetId}`
 }
 
+/** Stored image of a board (`POST …/files` answers it). */
+export interface BoardFileDto {
+  id: string
+  mimeType: string
+  fileSize: number
+}
+
+export function boardFilesUrl(projectId: string, boardId: string): string {
+  return `${boardUrl(projectId, boardId)}/files`
+}
+
+/** Where the bytes of an image element are (same origin: allowed by CSP `img-src 'self'`). */
+export function boardFileUrl(projectId: string, boardId: string, fileId: string): string {
+  return `${boardFilesUrl(projectId, boardId)}/${encodeURIComponent(fileId)}`
+}
+
 /** "Sheet 3": the first free numbered name among the board's sheets. */
 export function nextSheetName(template: string, existing: readonly string[]): string {
   const taken = new Set(existing)

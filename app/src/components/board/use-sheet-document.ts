@@ -5,6 +5,7 @@ import { apiFetch, isAbortError, isApiError, useUnsavedChangesGuard } from "@/ho
 import { createAutosave, PermanentSaveError, type Autosave, type SaveStatus } from "@/lib/board/autosave"
 import {
   acknowledge,
+  applyRemote,
   batchWrites,
   canRedo,
   canUndo,
@@ -43,7 +44,16 @@ export interface SheetDocument {
   saveRetries: boolean
   /** Saves now (retry button, before leaving the sheet). Resolves true when nothing is left unsaved. */
   flush: () => Promise<boolean>
+  /** Grows by one each time changes saved by someone else were applied (for a polite announcement). */
+  remoteUpdates: number
+  /** Reading what others saved failed several times in a row (the sheet may be out of date). */
+  remoteFailing: boolean
 }
+
+/** How often an open sheet asks for what others saved (ms); paused while the tab is hidden. */
+export const REMOTE_POLL_MS = 4000
+/** Failed reads in a row before the editor says the sheet may be out of date. */
+const REMOTE_FAILURES_SHOWN = 3
 
 /**
  * A request the server refused for good: trying the same bytes again cannot help. Not 401 / 403 (a session that
@@ -70,6 +80,10 @@ export function useSheetDocument(projectId: string, boardId: string, sheetId: st
   const stateRef = useRef(state)
   const savedRef = useRef<SavedVersions>({})
   const autosaveRef = useRef<Autosave | null>(null)
+  /** The sheet revision this client has read up to (delta reads ask for what came after it). */
+  const revRef = useRef(0)
+  const [remoteUpdates, setRemoteUpdates] = useState(0)
+  const [remoteFailing, setRemoteFailing] = useState(false)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -77,6 +91,7 @@ export function useSheetDocument(projectId: string, boardId: string, sheetId: st
       .then((dto) => {
         const { doc, saved } = docFromStored(dto.elements)
         savedRef.current = saved
+        revRef.current = dto.rev
         stateRef.current = initialState(doc)
         setState(stateRef.current)
         setLoad({ status: "ready", error: null })
@@ -87,6 +102,45 @@ export function useSheetDocument(projectId: string, boardId: string, sheetId: st
       })
     return () => controller.abort()
   }, [elementsUrl, reloadKey])
+
+  // What others saved: a delta read every few seconds while the sheet is open and the tab is visible. A failed
+  // read is tried again at the next tick (the sheet stays usable; saving reports its own errors).
+  const ready = load.status === "ready"
+  useEffect(() => {
+    if (!ready) return
+    let controller: AbortController | null = null
+    let failures = 0
+    const tick = async () => {
+      if (controller || (typeof document !== "undefined" && document.visibilityState === "hidden")) return
+      controller = new AbortController()
+      try {
+        const dto = await apiFetch<SheetElementsDto>(`${elementsUrl}?since=${revRef.current}`, { signal: controller.signal })
+        revRef.current = Math.max(revRef.current, dto.rev)
+        failures = 0
+        setRemoteFailing(false)
+        const next = applyRemote(stateRef.current, savedRef.current, dto.elements)
+        if (next.changed) {
+          stateRef.current = next.state
+          savedRef.current = next.saved
+          setState(next.state)
+          setRemoteUpdates((n) => n + 1)
+        }
+      } catch (error) {
+        // Offline or signed out for a moment: the next tick asks again. After a few misses in a row it is said.
+        if (!isAbortError(error)) {
+          failures += 1
+          if (failures >= REMOTE_FAILURES_SHOWN) setRemoteFailing(true)
+        }
+      } finally {
+        controller = null
+      }
+    }
+    const timer = setInterval(() => void tick(), REMOTE_POLL_MS)
+    return () => {
+      clearInterval(timer)
+      controller?.abort()
+    }
+  }, [elementsUrl, ready])
 
   useEffect(() => {
     async function saveChanges() {
@@ -165,5 +219,7 @@ export function useSheetDocument(projectId: string, boardId: string, sheetId: st
     saveError: save.error,
     saveRetries: save.retries,
     flush,
+    remoteUpdates,
+    remoteFailing,
   }
 }

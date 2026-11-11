@@ -17,12 +17,16 @@ import { useLanguage } from "@/lib/language-context"
 interface Props {
   projectId: string
   boardId: string
+  /** The signed-in user (votes on sticky notes are per person). */
+  userId: string
+  /** May add IceBox items (sticky notes can be sent there). */
+  canAddToIcebox: boolean
 }
 
 type Dialog = { kind: "rename"; sheet: BoardSheetDto } | { kind: "duplicate"; sheet: BoardSheetDto }
 
 /** The board editor page: title, the open sheet's editor and the sheet tabs at the bottom. */
-export function BoardEditor({ projectId, boardId }: Props) {
+export function BoardEditor({ projectId, boardId, userId, canAddToIcebox }: Props) {
   const { t } = useLanguage()
   const confirm = useConfirm()
   const toast = useToast()
@@ -191,7 +195,18 @@ export function BoardEditor({ projectId, boardId }: Props) {
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-ui-lg border border-border bg-surface">
         <div role="tabpanel" id={panelId} aria-labelledby={active ? tabId(active.id) : undefined} className="flex min-h-0 flex-1 flex-col">
           {active && (
-            <SheetEditor key={active.id} ref={editorRef} projectId={projectId} boardId={boardId} sheet={active} canWrite={canWrite} clipboard={clipboard} />
+            <SheetEditor
+              key={active.id}
+              ref={editorRef}
+              projectId={projectId}
+              boardId={boardId}
+              boardTitle={board.title}
+              sheet={active}
+              canWrite={canWrite}
+              clipboard={clipboard}
+              userId={userId}
+              canAddToIcebox={canAddToIcebox}
+            />
           )}
         </div>
         <SheetTabs

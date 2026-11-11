@@ -23,5 +23,5 @@ export default async function BoardPage({ params }: { params: Promise<{ projectI
   if (!can(actor, "project.view")) notFound()
   if (!can(actor, "board.read")) return <ForbiddenView projectId={projectId} className="py-16" />
 
-  return <BoardEditor projectId={projectId} boardId={boardId} />
+  return <BoardEditor projectId={projectId} boardId={boardId} userId={session.user.id} canAddToIcebox={can(actor, "icebox.write")} />
 }

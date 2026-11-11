@@ -446,8 +446,8 @@ describe("elements: write only what changed, the higher version stays", () => {
   it("stores an element of a type it does not know untouched, and extra keys of a known type", async () => {
     const created = await newBoard()
     const sheetId = created.sheets[0].id
-    const image = { type: "image", fileId: "file-1", x: 5, y: 6, w: 320, h: 200, crop: { top: 0.1 }, future: [1, "two", null] }
-    const richRect = rect(1, { fontSize: 18, link: { href: "/projects/p/backlog" } })
+    const image = { type: "video", fileId: "file-1", x: 5, y: 6, w: 320, h: 200, crop: { top: 0.1 }, future: [1, "two", null] }
+    const richRect = rect(1, { fontSize: 18, rotation: 15, shadow: { blur: 4 } })
     expect((await write(created.id, sheetId, [
       { id: "img-000001", version: 1, data: image },
       { id: "box-000001", version: 1, data: richRect },

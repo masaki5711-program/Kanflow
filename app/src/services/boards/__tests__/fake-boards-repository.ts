@@ -45,6 +45,7 @@ const state = {
   sheets: new Map<string, FakeSheet>(),
   elements: new Map<string, Map<string, FakeElement>>(),
   users: new Map<string, string>(),
+  files: new Map<string, { id: string; boardId: string; fileName: string; mimeType: string; fileSize: number }>(),
 }
 
 /** Empties the store (call in beforeEach). */
@@ -55,6 +56,7 @@ export function resetFakeBoards(): void {
   state.sheets.clear()
   state.elements.clear()
   state.users.clear()
+  state.files.clear()
 }
 
 /** Direct access for arranging and asserting. */
@@ -162,6 +164,7 @@ export const fakeBoardsRepository = {
       state.elements.delete(sheet.id)
     }
     state.boards.delete(boardId)
+    for (const [id, file] of state.files) if (file.boardId === boardId) state.files.delete(id)
     return { count: 1 }
   },
 
@@ -236,6 +239,25 @@ export const fakeBoardsRepository = {
     const stored = rowsOf(sheetId)
     for (const row of rows) stored.delete(row.elementId)
     await fakeBoardsRepository.insertElements(_db, sheetId, rows)
+  },
+
+  async countBoardFiles(_db: unknown, boardId: string) {
+    return [...state.files.values()].filter((f) => f.boardId === boardId).length
+  },
+
+  async createBoardFile(_db: unknown, data: { boardId: string; fileName: string; mimeType: string; fileSize: number }) {
+    const row = { id: `file${String(++state.seq).padStart(8, "0")}`, boardId: data.boardId, fileName: data.fileName, mimeType: data.mimeType, fileSize: data.fileSize }
+    state.files.set(row.id, row)
+    return { id: row.id, fileName: row.fileName, mimeType: row.mimeType, fileSize: row.fileSize }
+  },
+
+  async findBoardFile(_db: unknown, boardId: string, fileId: string) {
+    const row = state.files.get(fileId)
+    return row && row.boardId === boardId ? { id: row.id, fileName: row.fileName, mimeType: row.mimeType, fileSize: row.fileSize } : null
+  },
+
+  async findBoardFileNames(_db: unknown, boardId: string) {
+    return [...state.files.values()].filter((f) => f.boardId === boardId).map((f) => f.fileName)
   },
 
   async insertElements(_db: unknown, sheetId: string, rows: readonly ElementRowInput[]) {
