@@ -1,18 +1,26 @@
 "use client"
 
-import { useImperativeHandle, useMemo, useRef, useState, type Ref, type RefObject } from "react"
+import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref, type RefObject } from "react"
+import type { PaperSize } from "@/lib/board/pdf"
+import { contextMenuEntries, type ContextMenuActions } from "./context-menu"
+import { HelpDialog } from "./help-dialog"
+import { CommentsPanel } from "./comments-panel"
+import { HistoryDialog } from "./history-dialog"
+import { PbiLinkDialog } from "./pbi-link-dialog"
+import { useBoardComments, usePbiInfo, usePresence, viewerColor, type Viewer } from "./use-board-collab"
 import { AlertTriangle, Check } from "lucide-react"
 import { apiFetch } from "@/hooks"
 import { compressImageFile } from "@/lib/image-compress"
-import { isBox, isKnown, type KnownElement } from "@/lib/board/model"
-import type { TemplateTexts } from "@/lib/board/templates"
+import { isBox, isKnown, type BoxElement, type KnownElement } from "@/lib/board/model"
+import { TEMPLATE_TEXT_KEYS, type TemplateTextKey, type TemplateTexts } from "@/lib/board/templates"
+import type { Translations } from "@/lib/i18n"
 import { useLanguage } from "@/lib/language-context"
 import { Button, EmptyState, Spinner, VisuallyHidden, cn, useToast } from "@/components/ui"
 import { boardFilesUrl, boardFileUrl, type BoardFileDto, type BoardSheetDto } from "./board-api"
 import { BoardCanvas } from "./board-canvas"
 import { BoardToolbar } from "./board-toolbar"
 import { BoardRenderContextValue, type BoardRenderContext } from "./element-view"
-import { downloadBlob, renderSheetPng } from "./export-png"
+import { downloadBlob, renderSheetPdf, renderSheetPng } from "./export-png"
 import { FormatBar } from "./format-bar"
 import { LinkDialog } from "./link-dialog"
 import { useBoardEditor, type EditorNotice } from "./use-board-editor"
@@ -33,7 +41,25 @@ interface SheetEditorProps {
   clipboard: RefObject<KnownElement[]>
   userId: string | null
   canAddToIcebox: boolean
+  /** Opens the board's search (Ctrl+F, the toolbar). */
+  onSearch?: () => void
+  /** An element to select and show (a search result); a new nonce shows it again. */
+  focus?: { id: string; nonce: number } | null
+  /** May delete anyone's comment (board.manage). */
+  canManage?: boolean
+  /** Open the comments beside the canvas from the start (a notification's link). */
+  openComments?: boolean
   ref?: Ref<SheetEditorHandle>
+}
+
+/** The template texts in the viewer's language: `key` → `wbTpl<Key>` (KPT's "Try" is `wbTplTry`). */
+export function templateTextsOf(t: Translations): TemplateTexts {
+  const out = {} as Record<TemplateTextKey, string>
+  for (const key of TEMPLATE_TEXT_KEYS) {
+    const name = (key === "tryNext" ? "wbTplTry" : `wbTpl${key[0].toUpperCase()}${key.slice(1)}`) as keyof Translations
+    out[key] = String(t[name] ?? "")
+  }
+  return out
 }
 
 /** A file name without characters Windows or browsers refuse. */
@@ -42,42 +68,22 @@ function safeName(text: string): string {
 }
 
 /** The editor of one sheet: toolbars, save state and canvas. Mount it with `key={sheet.id}`. */
-export function SheetEditor({ projectId, boardId, boardTitle, sheet, canWrite, clipboard, userId, canAddToIcebox, ref }: SheetEditorProps) {
-  const { t } = useLanguage()
+export function SheetEditor({ projectId, boardId, boardTitle, sheet, canWrite, canManage = false, clipboard, userId, canAddToIcebox, onSearch, focus, openComments = false, ref }: SheetEditorProps) {
+  const { t, language } = useLanguage()
   const toast = useToast()
   const doc = useSheetDocument(projectId, boardId, sheet.id, canWrite)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [linkOpen, setLinkOpen] = useState(false)
+  const [helpOpen, setHelpOpen] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [commentsOpen, setCommentsOpen] = useState(openComments)
+  const [pbiOpen, setPbiOpen] = useState(false)
+  const pbi = usePbiInfo(projectId, boardId, doc.elements, { missing: t.wbPbiMissing, confidential: t.wbPbiConfidential })
+  const pbiInfo = pbi.info
+  const comments = useBoardComments(projectId, boardId)
 
-  const templateTexts: TemplateTexts = {
-    keep: t.wbTplKeep,
-    problem: t.wbTplProblem,
-    tryNext: t.wbTplTry,
-    zevaCurrent: t.wbTplZevaCurrent,
-    zevaFuture: t.wbTplZevaFuture,
-    zevaResult: t.wbTplZevaResult,
-    zevaCause: t.wbTplZevaCause,
-    zeva1: t.wbTplZeva1,
-    zeva1Hint: t.wbTplZeva1Hint,
-    zeva2: t.wbTplZeva2,
-    zeva2Hint: t.wbTplZeva2Hint,
-    zeva3: t.wbTplZeva3,
-    zeva3Hint: t.wbTplZeva3Hint,
-    zeva4: t.wbTplZeva4,
-    zeva4Hint: t.wbTplZeva4Hint,
-    zevaLoop: t.wbTplZevaLoop,
-    minutesTitle: t.wbTplMinutesTitle,
-    minutesMeta: t.wbTplMinutesMeta,
-    agenda: t.wbTplAgenda,
-    decisions: t.wbTplDecisions,
-    actions: t.wbTplActions,
-    reportTitle: t.wbTplReportTitle,
-    summary: t.wbTplSummary,
-    progress: t.wbTplProgress,
-    issues: t.wbTplIssues,
-    next: t.wbTplNext,
-  }
+  const templateTexts = templateTextsOf(t)
 
   function notify(notice: EditorNotice) {
     if (notice.tone === "error") toast.error(notice.text)
@@ -92,8 +98,12 @@ export function SheetEditor({ projectId, boardId, boardTitle, sheet, canWrite, c
     return dto.id
   }
 
+  // Server time (from the presence answers): a timer started here ends at the same moment for everyone.
+  const offsetRef = useRef(0)
+  const now = useCallback(() => Date.now() + offsetRef.current, [])
   const editor = useBoardEditor(doc, !canWrite, clipboard, {
     userId,
+    now,
     uploadImage,
     templateTexts,
     notify,
@@ -107,13 +117,105 @@ export function SheetEditor({ projectId, boardId, boardTitle, sheet, canWrite, c
   })
   const flush = doc.flush
   useImperativeHandle(ref, () => ({ flush }), [flush])
+  const { viewers, offset: clockOffset } = usePresence(projectId, boardId, sheet.id, editor.selection)
+  useEffect(() => {
+    offsetRef.current = clockOffset
+  }, [clockOffset])
+  const others = useMemo(() => viewers.map((v) => ({ userId: v.userId, name: v.name, color: viewerColor(v.userId), ids: v.selection })), [viewers])
+  const commentCounts = useMemo(() => {
+    const counts: Record<string, number> = {}
+    for (const c of comments.comments) if (c.sheetId === sheet.id && c.elementId && !c.resolved) counts[c.elementId] = (counts[c.elementId] ?? 0) + 1
+    return counts
+  }, [comments.comments, sheet.id])
+  const openCount = comments.comments.filter((c) => c.sheetId === sheet.id && !c.resolved).length
 
   const linkOpenText = t.wbLinkOpenNewTab
   const imageAlt = t.wbImageAlt
+  const timerAria = t.wbTimerAria
+  const timerDone = t.wbTimerDone
+  const timerBudget = t.wbVoteBudget
+  const timerDoneStatus = t.wbTimerDoneStatus
   const renderContext = useMemo<BoardRenderContext>(
-    () => ({ fileUrl: (fileId) => boardFileUrl(projectId, boardId, fileId), userId, linkLabel: (url) => linkOpenText.replace("{url}", url), imageAlt }),
-    [projectId, boardId, userId, linkOpenText, imageAlt],
+    () => ({
+      fileUrl: (fileId) => boardFileUrl(projectId, boardId, fileId),
+      userId,
+      linkLabel: (url) => linkOpenText.replace("{url}", url),
+      imageAlt,
+      timerLabels: { aria: timerAria, done: timerDone, budget: timerBudget },
+      pbi: pbiInfo,
+      now,
+      timerDoneStatus,
+    }),
+    [projectId, boardId, userId, linkOpenText, imageAlt, timerAria, timerDone, timerBudget, pbiInfo, now, timerDoneStatus],
   )
+
+  // A search result on this sheet: select it and bring it into view.
+  const focusId = focus?.id
+  const focusNonce = focus?.nonce
+  const { select: selectIds, showElement } = editor
+  useEffect(() => {
+    if (!focusId || doc.load !== "ready") return
+    selectIds([focusId])
+    showElement(focusId)
+    // Each search pick is acted on once (the nonce changes per pick).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusId, focusNonce, doc.load])
+
+  async function exportPdf(paper: PaperSize) {
+    if (busy) return
+    setBusy(true)
+    try {
+      const blob = await renderSheetPdf(doc.elements, renderContext.fileUrl, paper, sheet.name)
+      if (!blob) throw new Error(t.wbExportFailed)
+      downloadBlob(blob, `${safeName(boardTitle)}-${safeName(sheet.name)}.pdf`)
+    } catch {
+      toast.error(t.wbExportFailed)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** The selected sticky notes' texts, in reading order (what the AI is given). */
+  function selectedNotes(): { ids: string[]; texts: string[] } {
+    const notes = editor.selection
+      .map((id) => doc.elements[id])
+      .filter((el): el is BoxElement => isBox(el) && el.text.trim() !== "" && (el.type === "sticky" || el.type === "rect" || el.type === "text" || el.type === "ellipse" || el.type === "shape"))
+      .sort((a, b) => a.y - b.y || a.x - b.x)
+    return { ids: notes.map((n) => n.id), texts: notes.map((n) => n.text.trim().slice(0, 1000)) }
+  }
+
+  async function aiAssist(action: "summarize" | "group") {
+    const { ids, texts } = selectedNotes()
+    if (busy || texts.length < 2) return
+    setBusy(true)
+    toast.success(t.wbAiWorking)
+    try {
+      const body = await apiFetch<{ summary?: string; groups?: { title: string; items: number[] }[] }>(`/api/projects/${projectId}/boards/${boardId}/ai`, { method: "POST", json: { action, texts: texts.slice(0, 100), language } })
+      if (action === "summarize" && body.summary) editor.placeSummary(ids, `${t.wbAiSummaryTitle}\n${body.summary}`)
+      if (action === "group" && body.groups) editor.placeGroups(ids.slice(0, 100), body.groups)
+      toast.success(t.wbAiDone)
+    } catch (error) {
+      toast.error(t.wbAiFailed.replace("{reason}", error instanceof Error && error.message ? error.message : ""))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** A new backlog item from the selected box's text, linked to the box. */
+  async function createPbi() {
+    const box = editor.selection.length === 1 ? doc.elements[editor.selection[0]] : undefined
+    if (busy || !isBox(box) || !box.text.trim()) return
+    setBusy(true)
+    try {
+      const created = await apiFetch<{ id: string; displayId: number }>(`/api/projects/${projectId}/backlog`, { method: "POST", json: { userStory: box.text.trim().slice(0, 5000) } })
+      editor.setPbi(created.id)
+      toast.success(t.wbPbiCreated.replace("{n}", String(created.displayId)))
+    } catch (error) {
+      toast.error(error instanceof Error && error.message ? error.message : t.wbPbiCreateFailed)
+    } finally {
+      setBusy(false)
+    }
+  }
 
   async function exportPng() {
     if (busy) return
@@ -176,6 +278,20 @@ export function SheetEditor({ projectId, boardId, boardTitle, sheet, canWrite, c
     )
   }
 
+  const selectedBox = editor.selection.length === 1 ? doc.elements[editor.selection[0]] : undefined
+  const linkedPbi = isBox(selectedBox) ? selectedBox.pbiId : undefined
+  const notes = selectedNotes()
+  const menuActions: ContextMenuActions = {
+    editLink: () => setLinkOpen(true),
+    toIcebox: canAddToIcebox ? () => void toIcebox() : undefined,
+    comment: () => setCommentsOpen(true),
+    linkPbi: () => setPbiOpen(true),
+    createPbi: () => void createPbi(),
+    openPbi: linkedPbi ? () => window.open(`/projects/${encodeURIComponent(projectId)}/backlog?pbi=${encodeURIComponent(linkedPbi)}`, "_blank", "noopener,noreferrer") : undefined,
+    aiSummarize: notes.texts.length >= 2 ? () => void aiAssist("summarize") : undefined,
+    aiGroup: notes.texts.length >= 2 ? () => void aiAssist("group") : undefined,
+  }
+
   const linkInitial = (() => {
     const links = editor.selection.map((id) => doc.elements[id]).filter(isKnown).map((el) => el.link ?? "")
     return links.length > 0 && links.every((l) => l === links[0]) ? links[0] : ""
@@ -190,10 +306,20 @@ export function SheetEditor({ projectId, boardId, boardTitle, sheet, canWrite, c
             actions={{
               pickImage: () => fileInputRef.current?.click(),
               exportPng: () => void exportPng(),
+              exportPdf: (paper) => void exportPdf(paper),
               toIcebox: canAddToIcebox ? () => void toIcebox() : undefined,
+              search: onSearch,
+              help: () => setHelpOpen(true),
+              history: () => setHistoryOpen(true),
+              comments: () => setCommentsOpen((open) => !open),
+              commentsOpen,
+              commentCount: openCount,
             }}
           />
-          {canWrite && <SaveState doc={doc} />}
+          <div className="flex min-w-0 flex-wrap items-center gap-3">
+            <Viewers viewers={viewers} />
+            {canWrite && <SaveState doc={doc} />}
+          </div>
         </div>
         <FormatBar editor={editor} onEditLink={() => setLinkOpen(true)} />
         <VisuallyHidden>
@@ -208,8 +334,42 @@ export function SheetEditor({ projectId, boardId, boardTitle, sheet, canWrite, c
             {t.wbRemotePaused}
           </p>
         )}
-        <div className="relative min-h-0 flex-1">
-          <BoardCanvas editor={editor} label={t.wbCanvasLabel.replace("{sheet}", sheet.name)} />
+        <div className="flex min-h-0 flex-1">
+        <div className="relative min-h-0 min-w-0 flex-1">
+          <BoardCanvas
+            editor={editor}
+            label={t.wbCanvasLabel.replace("{sheet}", sheet.name)}
+            menuFor={(at) => contextMenuEntries(editor, t, at, menuActions)}
+            onSearch={onSearch}
+            onHelp={() => setHelpOpen(true)}
+            others={others}
+            commentCounts={commentCounts}
+            onOpenComments={(id) => {
+              editor.select([id])
+              setCommentsOpen(true)
+            }}
+          />
+        </div>
+        {commentsOpen && (
+          <CommentsPanel
+            projectId={projectId}
+            sheetId={sheet.id}
+            elements={doc.elements}
+            comments={comments.comments}
+            target={editor.selection.length === 1 ? editor.selection[0] : null}
+            userId={userId}
+            canWrite={canWrite}
+            canManage={canManage}
+            add={comments.add}
+            resolve={comments.resolve}
+            remove={comments.remove}
+            show={(id) => {
+              editor.select([id])
+              editor.showElement(id)
+            }}
+            onClose={() => setCommentsOpen(false)}
+          />
+        )}
         </div>
         {canWrite && (
           <input
@@ -234,6 +394,25 @@ export function SheetEditor({ projectId, boardId, boardTitle, sheet, canWrite, c
               setLinkOpen(false)
             }}
             onClose={() => setLinkOpen(false)}
+          />
+        )}
+        {helpOpen && <HelpDialog onClose={() => setHelpOpen(false)} />}
+        {historyOpen && <HistoryDialog projectId={projectId} boardId={boardId} sheetId={sheet.id} canWrite={canWrite} onRestored={doc.reload} onClose={() => setHistoryOpen(false)} />}
+        {pbiOpen && (
+          <PbiLinkDialog
+            projectId={projectId}
+            boardId={boardId}
+            linked={!!linkedPbi}
+            onPick={(item) => {
+              editor.setPbi(item.id)
+              setPbiOpen(false)
+              toast.success(t.wbPbiLinked.replace("{n}", String(item.displayId)))
+            }}
+            onUnlink={() => {
+              editor.setPbi(null)
+              setPbiOpen(false)
+            }}
+            onClose={() => setPbiOpen(false)}
           />
         )}
       </div>
@@ -275,6 +454,30 @@ function SaveState({ doc }: { doc: SheetDocument }) {
           {t.wbSaveRetry}
         </Button>
       )}
+    </div>
+  )
+}
+
+/** The others on this sheet now: a dot in their colour and their initial, names on hover and for screen readers. */
+function Viewers({ viewers }: { viewers: Viewer[] }) {
+  const { t } = useLanguage()
+  if (viewers.length === 0) return null
+  const shown = viewers.slice(0, 5)
+  const more = viewers.length - shown.length
+  return (
+    <div role="group" aria-label={t.wbViewersLabel} className="flex items-center -space-x-1.5" data-testid="board-viewers">
+      {shown.map((v) => (
+        <span
+          key={v.userId}
+          title={v.name}
+          className="inline-flex h-7 w-7 items-center justify-center rounded-full border-2 bg-surface text-caption font-semibold text-fg"
+          style={{ borderColor: viewerColor(v.userId) }}
+        >
+          <span aria-hidden="true">{(v.name || "?").slice(0, 1)}</span>
+          <VisuallyHidden>{v.name}</VisuallyHidden>
+        </span>
+      ))}
+      {more > 0 && <span className="pl-2.5 text-caption text-fg-muted">{t.wbViewersMoreCount.replace("{n}", String(more))}</span>}
     </div>
   )
 }

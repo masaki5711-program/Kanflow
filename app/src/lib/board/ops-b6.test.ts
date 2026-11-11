@@ -19,7 +19,7 @@ import {
   textPatch,
   ungroupPatch,
 } from "./ops"
-import { templatePatch, type TemplateTexts } from "./templates"
+import { TEMPLATE_TEXT_KEYS, templatePatch, type TemplateTextKey, type TemplateTexts } from "./templates"
 
 const box = (id: string, x = 0, extra: Partial<BoxElement> = {}): BoxElement => ({ ...newBox("rect", { x, y: 0, w: 100, h: 60 }, id, 1), ...extra })
 const map = (...els: KnownElement[]): ElementMap => Object.fromEntries(els.map((el) => [el.id, el]))
@@ -179,6 +179,7 @@ describe("B6 model: what the server accepts", () => {
 
 describe("B6 templates", () => {
   const texts: TemplateTexts = {
+    ...(Object.fromEntries(TEMPLATE_TEXT_KEYS.map((k) => [k, k])) as Record<TemplateTextKey, string>),
     keep: "K",
     problem: "P",
     tryNext: "T",

@@ -228,3 +228,11 @@ describe("background AI report notifications", () => {
     expect(text).not.toContain("template:")
   })
 })
+
+describe("a mention in a White Board comment (B7)", () => {
+  it("links to the board, its sheet and the element, with the comments open", () => {
+    const n = item("mentioned", { entityType: "board", entityId: "b1", sheetId: "s1", elementId: "el-1", entityLabel: "構成図（合成）" }, { entityType: "board", entityId: "b1" })
+    expect(notificationHref(n)).toBe("/projects/p1/boards/b1?sheet=s1&element=el-1&comments=1")
+    expect(notificationHref(item("mentioned", { entityType: "board", entityId: "b1", sheetId: "s1" }, { entityType: "board", entityId: "b1" }))).toBe("/projects/p1/boards/b1?sheet=s1&comments=1")
+  })
+})

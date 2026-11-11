@@ -77,6 +77,9 @@ function entityHref(projectId: string, entityType: string | null, entityId: stri
     case "release":
       // 改善成果ボード (process_improvement): opens the item's detail dialog.
       return `${base}/releases?item=${id}`
+    case "board":
+      // A White Board (a comment that mentions someone).
+      return `${base}/boards/${id}`
     default:
       return base
   }
@@ -99,6 +102,13 @@ export function notificationHref(n: NotificationItem): string | null {
     const entityType = str(n.payload, "entityType") ?? n.entityType
     const entityId = str(n.payload, "entityId") ?? n.entityId
     const href = entityHref(n.projectId, entityType, entityId)
+    if (entityType === "board") {
+      // Straight to the sheet and the element the comment is on.
+      const sheet = str(n.payload, "sheetId")
+      const element = str(n.payload, "elementId")
+      const query = new URLSearchParams({ ...(sheet ? { sheet } : {}), ...(element ? { element } : {}), comments: "1" })
+      return `${href}?${query.toString()}`
+    }
     return entityId && entityType && COMMENTABLE.has(entityType) ? `${href}&${TAB_PARAM}=${COMMENTS_TAB}` : href
   }
   if (n.type === "surveillance_critical") return `/projects/${encodeURIComponent(n.projectId)}`

@@ -45,6 +45,17 @@ export const BOARD_LIMITS = {
   runsPerText: 400,
   /** A frame's hint (what a template says goes in it). */
   hintLength: 500,
+  /** Timer: longest countdown (seconds) and most votes per person. */
+  timerMaxSec: 7200,
+  voteBudgetMax: 20,
+  /** Comments: characters of one, comments per board. */
+  commentLength: 2000,
+  commentsPerBoard: 2000,
+  /** Automatic versions kept per sheet (the oldest go first) and versions saved by hand per sheet. */
+  versionsPerSheet: 50,
+  namedVersionsPerSheet: 30,
+  /** JSON characters of one saved version. */
+  versionChars: 4 * 1024 * 1024,
   /** Images: bytes per file, files per board. */
   imageBytes: 10 * 1024 * 1024,
   imagesPerBoard: 300,

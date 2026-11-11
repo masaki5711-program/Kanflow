@@ -1,7 +1,9 @@
 "use client"
 
 import { useState, type ReactNode } from "react"
+import { ChevronDown } from "lucide-react"
 import { cn } from "@/components/ui"
+import { BoardMenu, type MenuEntry } from "./board-menu"
 
 export interface ToolbarItem {
   key: string
@@ -13,6 +15,10 @@ export interface ToolbarItem {
   pressed?: boolean
   /** A wider button with text (the zoom percentage, the text size). */
   wide?: boolean
+  /** Text shown next to the icon (on wide screens), so the button says what it does. */
+  text?: string
+  /** A button that opens a menu (its entries are built when it opens). */
+  menu?: () => MenuEntry[]
 }
 
 export interface ToolbarGroup {
@@ -49,6 +55,18 @@ interface ToolbarRowProps {
  */
 export function ToolbarRow({ label, groups, testId, keepFocus }: ToolbarRowProps) {
   const [activeKey, setActiveKey] = useState<string | null>(null)
+  const [menu, setMenu] = useState<{ key: string; label: string; items: MenuEntry[]; at: { x: number; y: number }; button: HTMLElement } | null>(null)
+
+  function openMenu(item: ToolbarItem, button: HTMLElement) {
+    if (!item.menu) return
+    // The button of the open menu closes it.
+    if (menu?.key === item.key) {
+      setMenu(null)
+      return
+    }
+    const box = button.getBoundingClientRect()
+    setMenu({ key: item.key, label: item.label, items: item.menu(), at: { x: box.left, y: box.bottom + 4 }, button })
+  }
 
   // Exactly one button is in the tab order: the last one used while it can still be used, else the first.
   const enabled = groups.flatMap((group) => group.items).filter((item) => !item.disabled)
@@ -87,26 +105,41 @@ export function ToolbarRow({ label, groups, testId, keepFocus }: ToolbarRowProps
               data-toolbar-key={item.key}
               aria-label={item.label}
               title={item.label}
-              aria-pressed={item.pressed}
+              aria-pressed={item.menu ? undefined : item.pressed}
+              aria-haspopup={item.menu ? "menu" : undefined}
+              aria-expanded={item.menu ? menu?.key === item.key : undefined}
               disabled={item.disabled}
               tabIndex={item.key === tabStop ? 0 : -1}
               onMouseDown={keepFocus ? (e) => e.preventDefault() : undefined}
-              onClick={item.onClick}
+              onClick={(e) => (item.menu ? openMenu(item, e.currentTarget) : item.onClick())}
+              onKeyDown={(e) => {
+                if (item.menu && e.key === "ArrowDown") {
+                  e.preventDefault()
+                  openMenu(item, e.currentTarget)
+                }
+              }}
               className={cn(
-                "inline-flex h-8 shrink-0 items-center justify-center rounded-ui-sm text-caption font-medium text-fg-muted",
+                "inline-flex h-8 shrink-0 items-center justify-center gap-1 rounded-ui-sm text-caption font-medium text-fg-muted",
                 "hover:bg-surface-sunken hover:text-fg",
                 "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent",
-                item.wide ? "min-w-12 px-1.5" : "w-8",
+                item.wide || item.text ? "min-w-12 px-1.5" : "w-8",
                 item.pressed && "bg-primary-soft text-primary-strong ring-1 ring-inset ring-primary",
               )}
             >
               <span aria-hidden="true" className="inline-flex">
                 {item.content}
               </span>
+              {item.text && (
+                <span aria-hidden="true" className="hidden whitespace-nowrap xl:inline">
+                  {item.text}
+                </span>
+              )}
+              {item.menu && <ChevronDown aria-hidden className="h-3 w-3" />}
             </button>
           ))}
         </div>
       ))}
+      {menu && <BoardMenu label={menu.label} items={menu.items} at={menu.at} returnFocus={() => menu.button} opener={() => menu.button} onClose={() => setMenu(null)} />}
     </div>
   )
 }

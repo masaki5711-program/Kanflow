@@ -6,7 +6,10 @@ import { slotContent } from "@/lib/board/ops"
 import { FILL_COLOR, STROKE_COLOR } from "@/lib/board/palette"
 import { effectiveMarks, type BaseMarks } from "@/lib/board/rich"
 import { baseMarks, boxOutline, dashArray, FONT_STACK, lineStyle, TEXT_PADDING, textStyle, type TextSlot } from "@/lib/board/style"
-import { arrowHeadPoints } from "./element-view"
+import { imagePdf, type PaperSize } from "@/lib/board/pdf"
+import { timerLeft } from "@/lib/board/ops"
+import { shapePath } from "@/lib/board/shapes"
+import { arrowHeadPoints, clock, textArea } from "./element-view"
 
 /**
  * The sheet as a PNG, drawn with the 2D canvas (not by rasterizing the SVG: its HTML text would taint the
@@ -168,8 +171,9 @@ async function drawBox(ctx: CanvasRenderingContext2D, el: BoxElement, styles: CS
   ctx.strokeStyle = stroke
   ctx.lineWidth = Math.max(outline.width, el.type === "frame" ? 1 : 0)
   setDash(ctx, dashArray(outline.dash, ctx.lineWidth))
-  const path = new Path2D()
+  let path = new Path2D()
   if (el.type === "ellipse") path.ellipse(el.x + el.w / 2, el.y + el.h / 2, el.w / 2, el.h / 2, 0, 0, Math.PI * 2)
+  else if (el.type === "shape") path = new Path2D(shapePath(el.shape ?? "diamond", el.x, el.y, el.w, el.h))
   else path.rect(el.x, el.y, el.w, el.h)
   if (el.type === "image") {
     const img = el.fileId ? await loadImage(fileUrl(el.fileId)) : null
@@ -179,9 +183,17 @@ async function drawBox(ctx: CanvasRenderingContext2D, el: BoxElement, styles: CS
       const h = img.naturalHeight * scale
       ctx.drawImage(img, el.x + (el.w - w) / 2, el.y + (el.h - h) / 2, w, h)
     }
-  } else if (el.fill !== "none") ctx.fill(path)
+  } else if (el.fill !== "none") ctx.fill(path, "evenodd")
+  if (el.type === "timer") ctx.lineWidth = 2
   if (ctx.lineWidth > 0) ctx.stroke(path)
   setDash(ctx, undefined)
+
+  if (el.type === "timer") {
+    // The time as it is now (a picture does not tick).
+    const base = { ...baseMarks(el), fontSize: Math.min(el.h * 0.45, el.w / 4), fontFamily: "mono" as const, bold: true, color: el.stroke }
+    drawRuns(ctx, [{ text: clock(timerLeft(el, Date.now())) }], { base, align: "center", valign: "middle" }, el, styles)
+    return
+  }
 
   if (el.type === "frame") {
     ctx.fillStyle = resolve("var(--color-surface-sunken)", styles)
@@ -204,7 +216,7 @@ async function drawBox(ctx: CanvasRenderingContext2D, el: BoxElement, styles: CS
       })
       y += h
     })
-  } else if (el.type !== "image") drawText(ctx, el, { kind: "text" }, el, styles)
+  } else if (el.type !== "image") drawText(ctx, el, { kind: "text" }, textArea(el), styles)
 
   const votes = el.voters?.length ?? 0
   if (el.type === "sticky" && votes > 0) {
@@ -223,6 +235,23 @@ async function drawBox(ctx: CanvasRenderingContext2D, el: BoxElement, styles: CS
 
 /** Draws every element and resolves to the PNG; null when there is nothing to draw or the browser cannot. */
 export async function renderSheetPng(elements: ElementMap, fileUrl: (fileId: string) => string): Promise<Blob | null> {
+  const canvas = await renderSheetCanvas(elements, fileUrl)
+  if (!canvas) return null
+  return new Promise((done) => canvas.toBlob((blob) => done(blob), "image/png"))
+}
+
+/** The sheet as a one-page PDF (A4 / A3, turned to fit), made in the browser. */
+export async function renderSheetPdf(elements: ElementMap, fileUrl: (fileId: string) => string, paper: PaperSize, title: string): Promise<Blob | null> {
+  const canvas = await renderSheetCanvas(elements, fileUrl, true)
+  if (!canvas) return null
+  const jpeg = await new Promise<Blob | null>((done) => canvas.toBlob((blob) => done(blob), "image/jpeg", 0.92))
+  if (!jpeg) return null
+  const bytes = new Uint8Array(await jpeg.arrayBuffer())
+  return new Blob([imagePdf(bytes, canvas.width, canvas.height, paper, title)], { type: "application/pdf" })
+}
+
+/** Every element drawn on a canvas (`paper`: on white, as printed). */
+async function renderSheetCanvas(elements: ElementMap, fileUrl: (fileId: string) => string, paper = false): Promise<HTMLCanvasElement | null> {
   const ordered = sortByZ(elements).filter((el) => isBox(el) || isLine(el))
   const bounds = boundsOf(
     ordered.map((el) => el.id),
@@ -238,7 +267,7 @@ export async function renderSheetPng(elements: ElementMap, fileUrl: (fileId: str
   const ctx = canvas.getContext("2d")
   if (!ctx) return null
   const styles = getComputedStyle(document.documentElement)
-  ctx.fillStyle = resolve("var(--color-surface)", styles)
+  ctx.fillStyle = paper ? "#ffffff" : resolve("var(--color-surface)", styles)
   ctx.fillRect(0, 0, canvas.width, canvas.height)
   ctx.scale(scale, scale)
   ctx.translate(PADDING - bounds.x, PADDING - bounds.y)
@@ -246,7 +275,7 @@ export async function renderSheetPng(elements: ElementMap, fileUrl: (fileId: str
     if (isBox(el)) await drawBox(ctx, el, styles, fileUrl)
     else if (isLine(el)) drawLine(ctx, el, elements, styles)
   }
-  return new Promise((done) => canvas.toBlob((blob) => done(blob), "image/png"))
+  return canvas
 }
 
 /** Hands the PNG to the person as a file named after the board and sheet. */

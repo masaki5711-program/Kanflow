@@ -1,4 +1,6 @@
-import { createContext, memo, useContext, type CSSProperties } from "react"
+import { createContext, memo, useContext, useEffect, useState, type CSSProperties } from "react"
+import { timerLeft } from "@/lib/board/ops"
+import { shapePath, shapeTextRect } from "@/lib/board/shapes"
 import { FRAME_TITLE_HEIGHT, lineGeometry, type ElementMap, type LineGeometry, type Point } from "@/lib/board/geometry"
 import { isBox, isHttpUrl, isLine, type BoardElement, type BoxElement, type LineElement, type StrokeKey, type TextRuns } from "@/lib/board/model"
 import { FILL_COLOR, STROKE_COLOR } from "@/lib/board/palette"
@@ -19,9 +21,30 @@ export interface BoardRenderContext {
   linkLabel: (url: string) => string
   /** Accessible name of an image without a caption. */
   imageAlt: string
+  /** Texts of the timer. */
+  timerLabels: { aria: string; done: string; budget: string }
+  /** A linked backlog item, as read now (null while it is being read). */
+  pbi: (id: string) => PbiBadgeInfo | null
+  /** The shared clock (server time) the timers count down by. */
+  now?: () => number
+  /** Said once when a timer reaches zero. */
+  timerDoneStatus?: string
 }
 
-export const BoardRenderContextValue = createContext<BoardRenderContext>({ fileUrl: () => "", userId: null, linkLabel: (url) => url, imageAlt: "" })
+/** What a box shows of its backlog item. */
+export interface PbiBadgeInfo {
+  label: string
+  tone: "ready" | "notReady" | "done" | "missing" | "neutral"
+}
+
+export const BoardRenderContextValue = createContext<BoardRenderContext>({
+  fileUrl: () => "",
+  userId: null,
+  linkLabel: (url) => url,
+  imageAlt: "",
+  timerLabels: { aria: "{time}", done: "0:00", budget: "{n}" },
+  pbi: () => null,
+})
 
 /** The three corners of an arrow head at `tip`, for a line coming from `from`. */
 export function arrowHeadPoints(from: Point, tip: Point, size = ARROW_HEAD): Point[] {
@@ -169,22 +192,33 @@ function BoxShape({ el, hideText, hideBody, hideCell }: { el: BoxElement; hideTe
         <TableShape el={el} hideCell={hideCell} />
       ) : el.type === "frame" ? (
         <FrameShape el={el} hideText={hideText} hideBody={hideBody} />
+      ) : el.type === "shape" ? (
+        <path d={shapePath(el.shape ?? "diamond", el.x, el.y, el.w, el.h)} style={{ fill, stroke: shapeStroke }} {...strokeProps} strokeLinejoin="round" fillRule="evenodd" />
+      ) : el.type === "timer" ? (
+        <TimerShape el={el} />
       ) : el.type === "sticky" ? (
         <rect x={el.x} y={el.y} width={el.w} height={el.h} rx={2} style={{ fill, stroke: shapeStroke }} {...strokeProps} strokeOpacity={0.6} />
       ) : (
         <rect x={el.x} y={el.y} width={el.w} height={el.h} rx={el.type === "rect" ? 3 : 0} style={{ fill, stroke: shapeStroke }} {...strokeProps} />
       )}
-      {!hideText && el.text !== "" && el.type !== "frame" && el.type !== "table" && el.type !== "image" && <BoxText el={el} />}
+      {!hideText && el.text !== "" && el.type !== "frame" && el.type !== "table" && el.type !== "image" && el.type !== "timer" && <BoxText el={el} />}
+      {el.pbiId && <PbiBadge el={el} />}
       {el.type === "sticky" && <Votes el={el} />}
       {el.link && isHttpUrl(el.link) && <LinkMark href={el.link} at={{ x: el.x + el.w - 10, y: el.y - 10 }} />}
     </g>
   )
 }
 
+/** Where a box's text is drawn (a library shape keeps it inside its outline). */
+export function textArea(el: BoxElement): { x: number; y: number; w: number; h: number } {
+  return el.type === "shape" ? shapeTextRect(el.shape ?? "diamond", el.x, el.y, el.w, el.h) : { x: el.x, y: el.y, w: el.w, h: el.h }
+}
+
 function BoxText({ el }: { el: BoxElement }) {
   const s = textStyle(el)
+  const area = textArea(el)
   return (
-    <foreignObject x={el.x} y={el.y} width={el.w} height={el.h} className="pointer-events-none">
+    <foreignObject x={area.x} y={area.y} width={area.w} height={area.h} className="pointer-events-none">
       <div
         className="flex h-full w-full overflow-hidden whitespace-pre-wrap [overflow-wrap:anywhere]"
         style={{ ...textCss(el), justifyContent: JUSTIFY[s.align], alignItems: ALIGN_ITEMS[s.valign], padding: TEXT_PADDING }}
@@ -288,6 +322,67 @@ function FrameShape({ el, hideText, hideBody }: { el: BoxElement; hideText?: boo
         </foreignObject>
       )}
     </>
+  )
+}
+
+/** mm:ss of a number of seconds (rounded up, so 0:00 only when the time is up). */
+export function clock(seconds: number): string {
+  const s = Math.max(0, Math.ceil(seconds))
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`
+}
+
+/** A timer: the time left, ticking while it runs; red when it is up. Everyone's clock counts down to the same end. */
+function TimerShape({ el }: { el: BoxElement }) {
+  const { timerLabels, now: clockNow, timerDoneStatus } = useContext(BoardRenderContextValue)
+  const running = el.endsAt !== undefined
+  const read = clockNow ?? Date.now
+  const [now, setNow] = useState(() => read())
+  useEffect(() => {
+    if (!running) return
+    const tick = window.setInterval(() => setNow(read()), 250)
+    return () => window.clearInterval(tick)
+  }, [running, read])
+  // Never above its length (the clock read before the start, until the first tick).
+  const left = Math.min(timerLeft(el, running ? now : 0), el.durationSec ?? Infinity)
+  const done = running && left <= 0
+  const color = done ? "var(--color-danger)" : STROKE_COLOR[el.stroke]
+  const size = Math.min(el.h * 0.45, el.w / 4)
+  return (
+    <>
+      <rect x={el.x} y={el.y} width={el.w} height={el.h} rx={12} style={{ fill: done ? "var(--color-danger-soft, var(--color-surface))" : FILL_COLOR[el.fill], stroke: color }} strokeWidth={done ? 4 : 2} />
+      <foreignObject x={el.x} y={el.y} width={el.w} height={el.h} className="pointer-events-none">
+        <div className="flex h-full w-full flex-col items-center justify-center" style={{ color, fontFamily: FONT_STACK.mono, lineHeight: 1.1 }} role="timer" aria-label={timerLabels.aria.replace("{time}", clock(Math.ceil(left / 15) * 15))}>
+          <span className="tabular-nums" style={{ fontSize: size, fontWeight: 700 }} data-timer-left={Math.ceil(left)}>
+            {done ? timerLabels.done : clock(left)}
+          </span>
+          {/* Said once when the time is up (the clock itself is not read out every second). */}
+          <span className="sr-only" role="status">
+            {done ? (timerDoneStatus ?? timerLabels.done) : ""}
+          </span>
+          {el.voteBudget ? (
+            <span style={{ fontSize: Math.max(11, size * 0.28), fontFamily: FONT_STACK.sans }}>{timerLabels.budget.replace("{n}", String(el.voteBudget))}</span>
+          ) : null}
+        </div>
+      </foreignObject>
+    </>
+  )
+}
+
+/** The backlog item a box stands for: its number and state, read live (a confidential or deleted one says so). */
+function PbiBadge({ el }: { el: BoxElement }) {
+  const { pbi } = useContext(BoardRenderContextValue)
+  const info = el.pbiId ? pbi(el.pbiId) : null
+  const label = info ? info.label : "…"
+  const tone = info?.tone ?? "neutral"
+  const color = tone === "done" ? "var(--color-success)" : tone === "ready" ? "var(--color-primary)" : tone === "missing" ? "var(--color-danger)" : "var(--color-fg-muted)"
+  const width = Math.min(el.w, Math.max(48, label.length * 7 + 22))
+  return (
+    <foreignObject x={el.x} y={el.y + el.h + 4} width={width} height={22} data-pbi-badge={el.pbiId} className="pointer-events-none">
+      <div className="flex h-full items-center gap-1 truncate rounded-ui-sm border bg-surface px-1.5" style={{ borderColor: color, color, fontSize: 11, fontFamily: FONT_STACK.sans }}>
+        <span aria-hidden className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: color }} />
+        <span className="truncate">{label}</span>
+      </div>
+    </foreignObject>
   )
 }
 

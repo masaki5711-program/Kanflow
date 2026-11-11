@@ -189,6 +189,12 @@ export const API_ERROR_CODES = [
   "BOARD_IMAGE_LIMIT",
   /** Only PNG / JPEG / GIF / WebP images (checked by content) can be placed on a board. */
   "BOARD_IMAGE_TYPE",
+  /** A board holds at most BOARD_LIMITS.commentsPerBoard comments. */
+  "BOARD_COMMENT_LIMIT",
+  /** The local LLM answered, but not in a form the White Board could use. */
+  "BOARD_AI_UNREADABLE",
+  /** A sheet keeps at most BOARD_LIMITS.namedVersionsPerSheet versions saved by hand. */
+  "BOARD_VERSION_LIMIT",
   // Dates / glossary / translation
   "INVALID_DATE",
   "GLOSSARY_SAME_LOCALE",

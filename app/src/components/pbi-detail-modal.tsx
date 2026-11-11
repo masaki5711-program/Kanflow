@@ -23,6 +23,7 @@ import type { PbiAttachmentDto } from "@/types/api"
 import { PbiDependencySection } from "@/components/pbi-dependencies/pbi-dependency-section"
 import { PbiDevPanel } from "@/components/git-dev/pbi-dev-panel"
 import { PbiClaimsPanel } from "@/components/work-claims/pbi-claims-panel"
+import { PbiBoardsSection } from "@/components/board/pbi-boards-section"
 
 interface Props {
   projectId: string
@@ -275,6 +276,8 @@ export default function PbiDetailModal(props: Props) {
                 {!isEditing && <PbiClaimsPanel projectId={projectId} pbiId={item.id} />}
                 {/* GitLab development info (renders nothing when the project has Git off). */}
                 {!isEditing && <PbiDevPanel projectId={projectId} pbiId={item.id} />}
+                {/* The White Board shapes that stand for this PBI (nothing when there are none). */}
+                {!isEditing && <PbiBoardsSection projectId={projectId} pbiId={item.id} />}
               </div>
             }
           />

@@ -62,6 +62,12 @@ function shapes(canvas: HTMLElement, type: string) {
   return canvas.querySelectorAll(`[data-element-type="${type}"]`)
 }
 
+/** The toolbar's template menu, then the template. */
+async function chooseTemplate(user: ReturnType<typeof userEvent.setup>, name: string) {
+  await user.click(screen.getByRole("button", { name: t.wbTemplates }))
+  await user.click(screen.getByRole("menuitem", { name }))
+}
+
 async function openSheetMenu(user: ReturnType<typeof userEvent.setup>, sheetName: string, item: string) {
   await user.click(screen.getByRole("button", { name: t.wbActionsFor.replace("{name}", sheetName) }))
   await user.click(screen.getByRole("menuitem", { name: item }))
@@ -258,7 +264,8 @@ describe("ボードの編集画面: キャンバス (plan 10 B1)", () => {
     fireEvent.keyDown(canvas, { key: "Delete" })
     drag(canvas, [100, 80], [200, 200])
     expect(shapes(canvas, "rect")).toHaveLength(1)
-    expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false)
+    // Nothing is written (saying "I am here" is not a write).
+    expect(fetchMock.mock.calls.some(([input, init]) => init?.method === "POST" && !String(input).endsWith("/presence"))).toBe(false)
   })
 
   it("the toolbar is one tab stop with arrow-key navigation, and zooms the view", async () => {
@@ -274,8 +281,8 @@ describe("ボードの編集画面: キャンバス (plan 10 B1)", () => {
     await user.keyboard("{ArrowRight}")
     expect(within(toolbar).getByRole("button", { name: t.wbToolRect })).toHaveFocus()
     await user.keyboard("{End}")
-    // The last enabled button (IceBox is disabled while no sticky note is selected).
-    expect(within(toolbar).getByRole("button", { name: t.wbExportPng })).toHaveFocus()
+    // The last button: the guide.
+    expect(within(toolbar).getByRole("button", { name: t.wbHelp })).toHaveFocus()
     expect(within(toolbar).getAllByRole("button").filter((button) => button.tabIndex === 0)).toHaveLength(1)
 
     expect(within(toolbar).getByRole("button", { name: t.wbZoomReset.replace("{percent}", "100") })).toBeInTheDocument()
@@ -672,7 +679,7 @@ describe("ホワイトボード B6: tables, formatted text, groups, ZEVA four bo
     const fetchMock = stubFetch([boardRoute(), elementsOf("s1"), savesOf("s1")])
     renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
     const canvas = await canvasOf("全体図")
-    await user.click(screen.getByRole("button", { name: `${t.wbTemplates}: ${t.wbTemplateZeva}` }))
+    await chooseTemplate(user, t.wbTemplateZeva)
     expect(shapes(canvas, "frame")).toHaveLength(4)
     expect(shapes(canvas, "arrow")).toHaveLength(4)
     for (const title of [t.wbTplZeva1, t.wbTplZeva2, t.wbTplZeva3, t.wbTplZeva4, t.wbTplZevaCurrent, t.wbTplZevaFuture, t.wbTplZevaResult, t.wbTplZevaCause]) {
@@ -704,7 +711,7 @@ describe("ホワイトボード B6: tables, formatted text, groups, ZEVA four bo
     stubFetch([boardRoute(), elementsOf("s1"), savesOf("s1")])
     renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
     const canvas = await canvasOf("全体図")
-    await user.click(screen.getByRole("button", { name: `${t.wbTemplates}: ${t.wbTemplateReport}` }))
+    await chooseTemplate(user, t.wbTemplateReport)
     for (const title of ["背景／目的", "報告課題", "結論", "次の予定"]) expect(within(canvas).getByText(title)).toBeInTheDocument()
   })
 
@@ -724,5 +731,233 @@ describe("ホワイトボード B6: tables, formatted text, groups, ZEVA four bo
     expect(document.querySelector("[data-fullscreen]")).not.toBeInTheDocument()
     expect(outside.inert).toBe(false)
     outside.remove()
+  })
+})
+describe("ホワイトボード B7: right-click menu, library, timer, search, guide", () => {
+  const rect = (id: string, x: number, text = "") => ({ id, version: 1, deleted: false, data: { type: "rect", x, y: 50, w: 100, h: 60, z: 1, text, fill: "white", stroke: "ink" } })
+  type Data = Record<string, unknown>
+  const dataOf = (fetchMock: ReturnType<typeof stubFetch>, sheetId = "s1") => writes(fetchMock, sheetId).flat().map((w) => (w.data ?? {}) as Data)
+
+  it("right-click on a shape opens its menu (with shortcuts); Duplicate copies it, Escape closes it", async () => {
+    const user = userEvent.setup()
+    const fetchMock = stubFetch([boardRoute(), elementsOf("s1", [rect("el-stored-1", 50, "合成")]), savesOf("s1")])
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
+    const canvas = await canvasOf("全体図")
+    fireEvent.contextMenu(canvas, { clientX: 100, clientY: 80 })
+    const menu = await screen.findByRole("menu", { name: t.wbContextMenu })
+    expect(within(menu).getByRole("menuitem", { name: new RegExp(t.wbEditText) })).toBeInTheDocument()
+    expect(within(menu).getByRole("menuitem", { name: new RegExp(t.wbDuplicate) })).toHaveTextContent("Ctrl+D")
+    await user.click(within(menu).getByRole("menuitem", { name: new RegExp(t.wbDuplicate) }))
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument()
+    expect(shapes(canvas, "rect")).toHaveLength(2)
+    // On empty space: "add here" puts a sticky note where it was clicked.
+    fireEvent.contextMenu(canvas, { clientX: 500, clientY: 400 })
+    const empty = await screen.findByRole("menu", { name: t.wbContextMenu })
+    await user.click(within(empty).getByRole("menuitem", { name: t.wbAddHere }))
+    await user.click(screen.getByRole("menuitem", { name: t.wbToolSticky }))
+    await waitFor(() => expect(dataOf(fetchMock).some((d) => d.type === "sticky")).toBe(true))
+    // The keyboard opens it too.
+    fireEvent.keyDown(canvas, { key: "F10", shiftKey: true })
+    expect(await screen.findByRole("menu", { name: t.wbContextMenu })).toBeInTheDocument()
+    await user.keyboard("{Escape}")
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument()
+  })
+
+  it("Alt+L connects the two selected shapes with an arrow", async () => {
+    const fetchMock = stubFetch([boardRoute(), elementsOf("s1", [rect("el-stored-1", 50), rect("el-stored-2", 300)]), savesOf("s1")])
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
+    const canvas = await canvasOf("全体図")
+    fireEvent.keyDown(canvas, { key: "a", ctrlKey: true })
+    fireEvent.keyDown(canvas, { key: "l", code: "KeyL", altKey: true })
+    await waitFor(() => expect(dataOf(fetchMock).some((d) => d.type === "arrow")).toBe(true))
+    const arrow = dataOf(fetchMock).find((d) => d.type === "arrow") as { start: { attach: string }; end: { attach: string } }
+    expect([arrow.start.attach, arrow.end.attach].sort()).toEqual(["el-stored-1", "el-stored-2"])
+  })
+
+  it("the shape library and the timer: a library shape is placed; the timer starts and gives each person a vote budget", async () => {
+    const user = userEvent.setup()
+    const fetchMock = stubFetch([boardRoute(), elementsOf("s1"), savesOf("s1")])
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
+    const canvas = await canvasOf("全体図")
+    await user.click(screen.getByRole("button", { name: t.wbShapeLibrary }))
+    await user.click(screen.getByRole("menuitem", { name: t.wbShapeStorage }))
+    expect(shapes(canvas, "shape")).toHaveLength(1)
+    await user.click(screen.getByRole("button", { name: t.wbToolTimer }))
+    expect(within(canvas).getByRole("timer")).toHaveTextContent("5:00")
+    const bar = screen.getByRole("toolbar", { name: t.wbFormatLabel })
+    await user.click(within(bar).getByRole("button", { name: t.wbVoteBudgetMore }))
+    await user.click(within(bar).getByRole("button", { name: t.wbTimerStart }))
+    await waitFor(() => expect(dataOf(fetchMock).some((d) => d.type === "timer" && typeof d.endsAt === "number" && d.voteBudget === 1)).toBe(true))
+    expect(within(bar).getByRole("button", { name: t.wbTimerPause })).toBeInTheDocument()
+  })
+
+  it("Ctrl+F searches every sheet and opens the sheet of what is picked, with it selected", async () => {
+    const user = userEvent.setup()
+    stubFetch([boardRoute(), elementsOf("s1", [rect("el-stored-1", 50, "表紙")]), elementsOf("s2", [rect("el-stored-9", 400, "金型温度（合成）")]), savesOf("s1"), savesOf("s2")])
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
+    const canvas = await canvasOf("全体図")
+    fireEvent.keyDown(canvas, { key: "f", ctrlKey: true })
+    const search = await screen.findByRole("searchbox", { name: t.wbSearchPlaceholder })
+    await user.type(search, "金型")
+    const hit = await screen.findByRole("button", { name: /金型温度/ })
+    expect(hit).toHaveTextContent("詳細")
+    await user.click(hit)
+    const other = await canvasOf("詳細")
+    await waitFor(() => expect(other.querySelector('[data-selected-id="el-stored-9"]')).toBeInTheDocument())
+  })
+
+  it("? opens the guide of mouse and keyboard operations", async () => {
+    stubFetch([boardRoute(), elementsOf("s1"), savesOf("s1")])
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
+    const canvas = await canvasOf("全体図")
+    fireEvent.keyDown(canvas, { key: "?" })
+    const guide = await screen.findByTestId("board-help")
+    expect(within(guide).getByText("Alt+L")).toBeInTheDocument()
+    expect(within(guide).getAllByRole("row").length).toBeGreaterThan(15)
+  })
+})
+
+describe("ホワイトボード B7: viewers, comments, PBIs, history, AI", () => {
+  const box = (id: string, x: number, extra: Record<string, unknown> = {}) => ({ id, version: 1, deleted: false, data: { type: "sticky", x, y: 50, w: 100, h: 100, z: 1, text: "", fill: "amber", stroke: "ink", ...extra } })
+  type Data = Record<string, unknown>
+  const dataOf = (fetchMock: ReturnType<typeof stubFetch>) => writes(fetchMock).flat().map((w) => (w.data ?? {}) as Data)
+  const presence = (viewers: unknown[] = []): Route => ({ match: `${BOARD_URL}/sheets/s1/presence`, method: "POST", respond: () => jsonResponse({ viewers }) })
+  const noComments: Route = { match: `${BOARD_URL}/comments`, method: "GET", respond: () => jsonResponse({ comments: [] }) }
+  const bodyOf = (fetchMock: ReturnType<typeof stubFetch>, method: string, url: string | RegExp) =>
+    fetchMock.mock.calls.filter(([input, init]) => init?.method === method && (typeof url === "string" ? String(input) === url : url.test(String(input)))).map(([, init]) => JSON.parse(String(init?.body ?? "null")))
+
+  it("shows who else is on the sheet, and what they selected in their colour", async () => {
+    stubFetch([boardRoute(), elementsOf("s1", [box("el-stored-1", 50, { text: "合成" })]), savesOf("s1"), noComments, presence([{ userId: "u-synthetic-2", name: "合成花子", selection: ["el-stored-1"] }])])
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
+    const canvas = await canvasOf("全体図")
+    const viewers = await screen.findByRole("group", { name: t.wbViewersLabel })
+    expect(within(viewers).getByText("合成花子")).toBeInTheDocument()
+    await waitFor(() => expect(canvas.querySelector('[data-other-selection="u-synthetic-2"]')).toHaveTextContent("合成花子"))
+  })
+
+  it("a comment on a shape: right-click → Comment, write with @, it is posted for that shape and the shape shows a badge", async () => {
+    const user = userEvent.setup()
+    const created = { id: "c-1", sheetId: "s1", elementId: "el-stored-1", author: { id: "u-synthetic-1", name: "合成太郎" }, body: "確認お願いします", createdAt: "2026-11-12T00:00:00.000Z", resolved: false }
+    const fetchMock = stubFetch([
+      boardRoute(),
+      elementsOf("s1", [box("el-stored-1", 50, { text: "合成" })]),
+      savesOf("s1"),
+      presence(),
+      noComments,
+      { match: `${BOARD_URL}/comments`, method: "POST", respond: () => jsonResponse(created, 201) },
+      { match: "/api/projects/p1/members", respond: () => jsonResponse([]) },
+    ])
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
+    const canvas = await canvasOf("全体図")
+    fireEvent.contextMenu(canvas, { clientX: 100, clientY: 100 })
+    await user.click(await screen.findByRole("menuitem", { name: t.wbComment }))
+    const panel = await screen.findByRole("complementary", { name: t.wbComments })
+    await user.type(within(panel).getByRole("textbox", { name: t.wbCommentLabel }), "確認お願いします")
+    await user.click(within(panel).getByRole("button", { name: t.wbCommentSend }))
+    await waitFor(() => expect(bodyOf(fetchMock, "POST", `${BOARD_URL}/comments`)).toEqual([{ sheetId: "s1", elementId: "el-stored-1", body: "確認お願いします" }]))
+    expect(await within(panel).findByText("確認お願いします")).toBeInTheDocument()
+    expect(canvas.querySelector('[data-comment-badge="el-stored-1"]')).toHaveTextContent("1")
+  })
+
+  it("a box linked to a PBI shows its number and state (read live); the link dialog links another box", async () => {
+    const user = userEvent.setup()
+    const item = { id: "pbi-1", displayId: 7, title: "合成ストーリー", status: "ready", assignee: null, confidential: false }
+    const fetchMock = stubFetch([
+      boardRoute(),
+      elementsOf("s1", [box("el-stored-1", 50, { text: "A", pbiId: "pbi-1" }), box("el-stored-2", 300, { text: "B" })]),
+      savesOf("s1"),
+      presence(),
+      noComments,
+      { match: /\/boards\/b1\/pbis\?ids=/, respond: () => jsonResponse({ items: [item] }) },
+      { match: /\/boards\/b1\/pbis\?q=/, respond: () => jsonResponse({ items: [{ ...item, id: "pbi-2", displayId: 8, title: "別の合成" }] }) },
+    ])
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
+    const canvas = await canvasOf("全体図")
+    await waitFor(() => expect(canvas.querySelector('[data-pbi-badge="pbi-1"]')).toHaveTextContent("#7 合成ストーリー"))
+    fireEvent.contextMenu(canvas, { clientX: 350, clientY: 100 })
+    await user.click(await screen.findByRole("menuitem", { name: t.wbPbiLink }))
+    await user.click(await screen.findByRole("button", { name: /#8/ }))
+    await waitFor(() => expect(dataOf(fetchMock).some((d) => d.pbiId === "pbi-2" && d.text === "B")).toBe(true))
+  })
+
+  it("history: a version can be restored after confirming; the sheet is read again", async () => {
+    const user = userEvent.setup()
+    let restored = false
+    const fetchMock = stubFetch([
+      boardRoute(),
+      { match: `${BOARD_URL}/sheets/s1/elements`, method: "GET", respond: () => jsonResponse({ rev: restored ? 5 : 1, full: true, elements: restored ? [box("el-old-0001", 0, { text: "戻った（合成）" })] : [box("el-stored-1", 50)] }) },
+      savesOf("s1"),
+      presence(),
+      noComments,
+      { match: `${BOARD_URL}/sheets/s1/versions`, method: "GET", respond: () => jsonResponse({ versions: [{ id: "v-1", label: "レビュー前", auto: false, elementCount: 1, createdAt: "2026-11-11T01:00:00.000Z", createdBy: "合成太郎" }] }) },
+      {
+        match: `${BOARD_URL}/sheets/s1/versions/v-1/restore`,
+        method: "POST",
+        respond: () => {
+          restored = true
+          return jsonResponse({ rev: 5, restored: 1, removed: 1 })
+        },
+      },
+    ])
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
+    const canvas = await canvasOf("全体図")
+    await user.click(screen.getByRole("button", { name: t.wbHistory }))
+    const history = await screen.findByTestId("board-history")
+    expect(await within(history).findByText("レビュー前")).toBeInTheDocument()
+    // Each version's buttons are named after it.
+    await user.click(within(history).getByRole("button", { name: /レビュー前.*に戻す/ }))
+    await user.click(await screen.findByRole("button", { name: t.wbHistoryRestore }))
+    await waitFor(() => expect(bodyOf(fetchMock, "POST", `${BOARD_URL}/sheets/s1/versions/v-1/restore`)).toHaveLength(1))
+    // The sheet is read again (the canvas is drawn anew with the restored content).
+    await waitFor(async () => expect(within(await canvasOf("全体図")).getAllByText(/戻った（合成）/).length).toBeGreaterThan(0))
+    expect(canvas).toBeDefined()
+  })
+
+  it("AI summary of the selected notes goes to the local AI and is placed beside them", async () => {
+    const user = userEvent.setup()
+    const fetchMock = stubFetch([
+      boardRoute(),
+      elementsOf("s1", [box("el-stored-1", 50, { text: "金型温度（合成）" }), box("el-stored-2", 200, { text: "段取り（合成）" })]),
+      savesOf("s1"),
+      presence(),
+      noComments,
+      { match: `${BOARD_URL}/ai`, method: "POST", respond: () => jsonResponse({ summary: "- 温度と段取り" }) },
+    ])
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
+    const canvas = await canvasOf("全体図")
+    fireEvent.keyDown(canvas, { key: "a", ctrlKey: true })
+    fireEvent.contextMenu(canvas, { clientX: 100, clientY: 100 })
+    await user.click(await screen.findByRole("menuitem", { name: t.wbAiSummarize }))
+    await waitFor(() => expect(bodyOf(fetchMock, "POST", `${BOARD_URL}/ai`)).toEqual([{ action: "summarize", texts: ["金型温度（合成）", "段取り（合成）"], language: "ja" }]))
+    await waitFor(() => expect(dataOf(fetchMock).some((d) => d.type === "text" && String(d.text).includes("- 温度と段取り"))).toBe(true))
+  })
+})
+
+describe("ホワイトボード B7: menus with the keyboard and the pointer", () => {
+  it("a toolbar menu toggles from its button; its keys stay in it; a submenu opens with → and closes with ←", async () => {
+    const user = userEvent.setup()
+    stubFetch([boardRoute(), elementsOf("s1"), savesOf("s1"), { match: `${BOARD_URL}/sheets/s1/presence`, method: "POST", respond: () => jsonResponse({ viewers: [] }) }, { match: `${BOARD_URL}/comments`, respond: () => jsonResponse({ comments: [] }) }])
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
+    const canvas = await canvasOf("全体図")
+    const button = screen.getByRole("button", { name: t.wbTemplates })
+    await user.click(button)
+    expect(screen.getByRole("menu", { name: t.wbTemplates })).toBeInTheDocument()
+    expect(button).toHaveAttribute("aria-expanded", "true")
+    // → / ← inside the menu do not move the toolbar's focus.
+    await user.keyboard("{ArrowRight}")
+    expect(screen.getByRole("menu", { name: t.wbTemplates }).contains(document.activeElement)).toBe(true)
+    await user.click(button)
+    expect(screen.queryByRole("menu", { name: t.wbTemplates })).not.toBeInTheDocument()
+
+    // The right-click menu on empty space: "add here" is a submenu.
+    fireEvent.contextMenu(canvas, { clientX: 400, clientY: 300 })
+    const menu = await screen.findByRole("menu", { name: t.wbContextMenu })
+    within(menu).getByRole("menuitem", { name: t.wbAddHere }).focus()
+    await user.keyboard("{ArrowRight}")
+    const sub = await screen.findByRole("menu", { name: t.wbAddHere })
+    expect(sub.contains(document.activeElement)).toBe(true)
+    await user.keyboard("{ArrowLeft}")
+    expect(screen.queryByRole("menu", { name: t.wbAddHere })).not.toBeInTheDocument()
+    expect(within(menu).getByRole("menuitem", { name: t.wbAddHere })).toHaveFocus()
   })
 })

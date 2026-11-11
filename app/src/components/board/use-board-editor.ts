@@ -39,11 +39,23 @@ import {
   tablePatch,
   textPatch,
   votePatch,
+  voteBudgetOf,
+  votesUsed,
+  sortByVotesPatch,
+  newShape,
+  newTimer,
+  timerPatch,
+  connectPatch,
+  pbiPatch,
+  besidePatch,
+  groupFramesPatch,
   type AlignHow,
   type FormatChange,
   type LineEndInput,
   type TableEdit,
+  type TimerAction,
 } from "@/lib/board/ops"
+import type { ShapeKind } from "@/lib/board/shapes"
 import type { TextSlot } from "@/lib/board/style"
 import { templatePatch, type TemplateKind, type TemplateTexts } from "@/lib/board/templates"
 import { fitViewport, INITIAL_VIEWPORT, stepZoom, toSheet, zoomAt, type Viewport } from "@/lib/board/viewport"
@@ -52,8 +64,8 @@ import type { SheetDocument } from "./use-sheet-document"
 
 export type { LineEndInput } from "@/lib/board/ops"
 
-/** A box type drawn by dragging (an image comes from a file, not a drag). */
-export type DrawBoxType = Exclude<BoxType, "image">
+/** A box type drawn by dragging (an image comes from a file; library shapes and timers are placed from menus). */
+export type DrawBoxType = Exclude<BoxType, "image" | "shape" | "timer">
 export type Tool = "select" | DrawBoxType | LineType
 export const TOOLS: readonly Tool[] = ["select", "rect", "ellipse", "line", "arrow", "text", "sticky", "frame", "table"]
 
@@ -103,6 +115,8 @@ export interface BoardEditorOptions {
   templateTexts: TemplateTexts
   /** Announces a result (an image that could not be stored, a pasted table). */
   notify: (notice: EditorNotice) => void
+  /** The shared clock (server time) for timers; default this computer's. */
+  now?: () => number
   /** User-facing texts the editor composes. */
   messages: { imageNotImage: string; imageTooLarge: string; imageFailed: string; formatTooLarge: string; pastedTable: (rows: number, cols: number) => string }
 }
@@ -187,7 +201,27 @@ export interface BoardEditorController {
   align: (how: AlignHow) => void
   distribute: (axis: "horizontal" | "vertical") => void
   tableEdit: (edit: TableEdit) => void
-  vote: () => void
+  /** A vote on the selected sticky note: given / taken back, or with a vote budget one more ("add") or one less ("remove"). */
+  vote: (mode?: "toggle" | "add" | "remove") => void
+  /** The sheet's vote budget (null: one vote per note) and how many the viewer has left. */
+  voteBudget: number | null
+  votesLeft: number | null
+  sortByVotes: () => void
+  /** A shape of the library in the middle of the view (or at `at`). */
+  insertShape: (kind: ShapeKind, at?: Point) => void
+  /** A timer in the middle of the view. */
+  insertTimer: () => void
+  /** Starts / pauses / resets the selected timer, or sets its length / the vote budget. */
+  timer: (action: TimerAction) => void
+  /** An arrow between the two selected shapes (Alt+L). */
+  connect: () => void
+  /** Adds a box of `type` at a point (the right-click menu's "add here"). */
+  addAt: (type: DrawBoxType, at: Point) => void
+  /** Links the selected box to a backlog item (null: unlinks). */
+  setPbi: (pbiId: string | null) => void
+  /** Places the AI's summary of the selection beside it, or sorts the selected notes into frames by its groups. */
+  placeSummary: (ids: readonly string[], text: string) => void
+  placeGroups: (ids: readonly string[], groups: readonly { title: string; items: readonly number[] }[]) => void
   userId: string | null
   snap: boolean
   setSnap: (on: boolean) => void
@@ -207,6 +241,8 @@ export interface BoardEditorController {
   zoomOut: () => void
   zoomReset: () => void
   zoomFit: () => void
+  /** Brings an element into the middle of the view (a search result, a comment's element). */
+  showElement: (id: string) => void
 }
 
 /** Width and height of an image file (0 × 0 when the browser cannot read it). */
@@ -278,6 +314,7 @@ export function useBoardEditor(doc: SheetDocument, readOnly: boolean, clipboardR
 
   // An undo can take a selected element away.
   const selection = useMemo(() => selected.filter((id) => isKnown(elements[id])), [selected, elements])
+  const voteBudget = useMemo(() => voteBudgetOf(elements), [elements])
   const grid = snap ? SNAP_GRID : 0
 
   const allIds = () =>
@@ -411,7 +448,7 @@ export function useBoardEditor(doc: SheetDocument, readOnly: boolean, clipboardR
     startEditing: (id, typing = false) => {
       const el = elements[id]
       if (readOnly || !isBox(el) || el.locked || el.type === "image") return
-      if (el.type === "table") return
+      if (el.type === "table" || el.type === "timer") return
       setSelected([id])
       setEditing({ kind: "text", id, typing })
     },
@@ -582,9 +619,62 @@ export function useBoardEditor(doc: SheetDocument, readOnly: boolean, clipboardR
         setActiveCell({ id: activeCell.id, row, col })
       }
     },
-    vote: () => {
+    vote: (mode = "toggle") => {
       const box = selectedBox()
-      if (box && options.userId) doc.commit(votePatch(elements, box.id, options.userId))
+      if (box && options.userId) doc.commit(votePatch(elements, box.id, options.userId, mode))
+    },
+    voteBudget,
+    votesLeft: voteBudget !== null && options.userId ? Math.max(0, voteBudget - votesUsed(elements, options.userId)) : null,
+    sortByVotes: () => {
+      if (!readOnly) doc.commit(sortByVotesPatch(elements, selection))
+    },
+    insertShape: (kind, at) => {
+      if (readOnly) return
+      const id = newElementId()
+      doc.commit({ [id]: newShape(kind, at ?? sheetCenter(), id, nextZ(elements)) })
+      setSelected([id])
+      setTool("select")
+    },
+    insertTimer: () => {
+      if (readOnly) return
+      const id = newElementId()
+      doc.commit({ [id]: newTimer(5, sheetCenter(), id, nextZ(elements)) })
+      setSelected([id])
+      setTool("select")
+    },
+    timer: (action) => {
+      const box = selectedBox()
+      if (!readOnly && box?.type === "timer") doc.commit(timerPatch(elements, box.id, action, options.now?.() ?? Date.now()))
+    },
+    connect: () => {
+      if (readOnly) return
+      const made = connectPatch(elements, selection, newElementId)
+      if (!made) return
+      doc.commit(made.patch)
+      setSelected([made.id])
+    },
+    addAt: (type, at) => {
+      const size = DEFAULT_BOX_SIZE[type]
+      addBox(type, { x: at.x - size.w / 2, y: at.y - size.h / 2, w: size.w, h: size.h })
+    },
+    setPbi: (pbiId) => {
+      const box = selectedBox()
+      if (!readOnly && box) doc.commit(pbiPatch(elements, box.id, pbiId))
+    },
+    placeSummary: (ids, text) => {
+      if (readOnly) return
+      // The newest elements: the answer comes back after renders.
+      const made = besidePatch(elementsRef.current, ids, text, newElementId)
+      if (!made || !mountedRef.current) return
+      doc.commit(made.patch)
+      setSelected([made.id])
+    },
+    placeGroups: (ids, groups) => {
+      if (readOnly || !mountedRef.current) return
+      const made = groupFramesPatch(elementsRef.current, ids, groups, newElementId)
+      if (made.frameIds.length === 0) return
+      doc.commit(made.patch)
+      setSelected(made.frameIds)
     },
     userId: options.userId,
     snap,
@@ -627,5 +717,16 @@ export function useBoardEditor(doc: SheetDocument, readOnly: boolean, clipboardR
     zoomOut: () => zoomBy((zoom) => stepZoom(zoom, -1)),
     zoomReset: () => zoomBy(() => 1),
     zoomFit: () => setViewport(fitViewport(boundsOf(allIds(), elements), sizeRef.current)),
+    showElement: (id) => {
+      const bounds = boundsOf([id], elements)
+      if (!bounds) return
+      // Fitted, but not closer than 100%, with room around it.
+      const pad = 160
+      const fitted = fitViewport({ x: bounds.x - pad, y: bounds.y - pad, w: bounds.w + 2 * pad, h: bounds.h + 2 * pad }, sizeRef.current)
+      const zoom = Math.min(1, fitted.zoom)
+      const c = { x: bounds.x + bounds.w / 2, y: bounds.y + bounds.h / 2 }
+      fittedRef.current = true
+      setViewport({ zoom, x: sizeRef.current.width / 2 - c.x * zoom, y: sizeRef.current.height / 2 - c.y * zoom })
+    },
   }
 }

@@ -339,6 +339,15 @@ const ROUTES: RouteCase[] = [
   { file: "boards/[boardId]/sheets/[sheetId]/elements/route.ts", load: () => import("@/app/api/projects/[projectId]/boards/[boardId]/sheets/[sheetId]/elements/route"), params: { boardId: "board-1", sheetId: "sheet-1" } },
   { file: "boards/[boardId]/files/route.ts", load: () => import("@/app/api/projects/[projectId]/boards/[boardId]/files/route"), params: { boardId: "board-1" } },
   { file: "boards/[boardId]/files/[fileId]/route.ts", load: () => import("@/app/api/projects/[projectId]/boards/[boardId]/files/[fileId]/route"), params: { boardId: "board-1", fileId: "file-1" } },
+  { file: "boards/[boardId]/sheets/[sheetId]/presence/route.ts", load: () => import("@/app/api/projects/[projectId]/boards/[boardId]/sheets/[sheetId]/presence/route"), params: { boardId: "board-1", sheetId: "sheet-1" } },
+  { file: "boards/[boardId]/sheets/[sheetId]/versions/route.ts", load: () => import("@/app/api/projects/[projectId]/boards/[boardId]/sheets/[sheetId]/versions/route"), params: { boardId: "board-1", sheetId: "sheet-1" } },
+  { file: "boards/[boardId]/sheets/[sheetId]/versions/[versionId]/route.ts", load: () => import("@/app/api/projects/[projectId]/boards/[boardId]/sheets/[sheetId]/versions/[versionId]/route"), params: { boardId: "board-1", sheetId: "sheet-1", versionId: "v-1" } },
+  { file: "boards/[boardId]/sheets/[sheetId]/versions/[versionId]/restore/route.ts", load: () => import("@/app/api/projects/[projectId]/boards/[boardId]/sheets/[sheetId]/versions/[versionId]/restore/route"), params: { boardId: "board-1", sheetId: "sheet-1", versionId: "v-1" } },
+  { file: "boards/[boardId]/comments/route.ts", load: () => import("@/app/api/projects/[projectId]/boards/[boardId]/comments/route"), params: { boardId: "board-1" } },
+  { file: "boards/[boardId]/comments/[commentId]/route.ts", load: () => import("@/app/api/projects/[projectId]/boards/[boardId]/comments/[commentId]/route"), params: { boardId: "board-1", commentId: "c-1" } },
+  { file: "boards/[boardId]/pbis/route.ts", load: () => import("@/app/api/projects/[projectId]/boards/[boardId]/pbis/route"), params: { boardId: "board-1" } },
+  { file: "boards/[boardId]/ai/route.ts", load: () => import("@/app/api/projects/[projectId]/boards/[boardId]/ai/route"), params: { boardId: "board-1" } },
+  { file: "backlog/[itemId]/boards/route.ts", load: () => import("@/app/api/projects/[projectId]/backlog/[itemId]/boards/route"), params: { itemId: "item-1" } },
   { file: "velocity/route.ts", load: () => import("@/app/api/projects/[projectId]/velocity/route"), params: {} },
 ]
 

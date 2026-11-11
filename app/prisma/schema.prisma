@@ -2684,6 +2684,7 @@ model Board {
   project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
   sheets      BoardSheet[]
   files       BoardFile[]
+  comments    BoardComment[]
 
   @@index([projectId, deletedAt])
   @@map("board")
@@ -2719,9 +2720,75 @@ model BoardSheet {
   updatedAt DateTime       @updatedAt
   board     Board          @relation(fields: [boardId], references: [id], onDelete: Cascade)
   elements  BoardElement[]
+  presence  BoardPresence[]
+  versions  BoardSheetVersion[]
+  comments  BoardComment[]
 
   @@index([boardId, sortOrder])
   @@map("board_sheet")
+}
+
+/// Who has a sheet open now (B7): one row per person and sheet, refreshed while the sheet is open (every few
+/// seconds) and read back as "seen in the last 20 s". Only ids and what is selected — never content.
+model BoardPresence {
+  sheetId   String
+  /// Plain User id (no FK).
+  userId    String
+  userName  String     @db.VarChar(120)
+  /// Ids of the elements the person has selected (at most 50), shown to the others as an outline.
+  selection Json
+  seenAt    DateTime   @default(now())
+  sheet     BoardSheet @relation(fields: [sheetId], references: [id], onDelete: Cascade)
+
+  /// No index on seenAt: it changes on every refresh (an index would stop in-place updates); reads go by the key.
+  @@id([sheetId, userId])
+  @@map("board_presence")
+}
+
+/// A saved state of a sheet (B7 history): taken automatically while people draw (at most one per 10 minutes) or
+/// by hand with a name. Restoring writes it back as a normal change (it can be undone by restoring another one).
+/// The oldest automatic versions go first when a sheet has more than BOARD_LIMITS.versionsPerSheet.
+model BoardSheetVersion {
+  id            String     @id @default(cuid())
+  sheetId       String
+  /// Empty for an automatic version.
+  label         String     @default("") @db.VarChar(120)
+  auto          Boolean    @default(true)
+  /// The live elements: [{ id, data }].
+  elements      Json
+  elementCount  Int
+  /// The sheet's rev when it was taken.
+  rev           Int
+  /// Plain User id (no FK) and the name at the time (shown in the history).
+  createdById   String?
+  createdByName String     @default("") @db.VarChar(120)
+  createdAt     DateTime   @default(now())
+  sheet         BoardSheet @relation(fields: [sheetId], references: [id], onDelete: Cascade)
+
+  @@index([sheetId, createdAt(sort: Desc)])
+  @@map("board_sheet_version")
+}
+
+/// A comment on a sheet, usually on one of its elements (B7). @mentions notify the person ("mentioned").
+model BoardComment {
+  id           String     @id @default(cuid())
+  boardId      String
+  sheetId      String
+  /// The element it is about (the client's id); null = the sheet itself.
+  elementId    String?    @db.VarChar(40)
+  /// Plain User id (no FK).
+  authorId     String
+  body         String     @db.VarChar(2000)
+  resolvedAt   DateTime?
+  resolvedById String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  board        Board      @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  sheet        BoardSheet @relation(fields: [sheetId], references: [id], onDelete: Cascade)
+
+  @@index([boardId, createdAt])
+  @@index([sheetId, elementId])
+  @@map("board_comment")
 }
 
 /// One drawn element = one row, so two people changing different elements never overwrite each other.
