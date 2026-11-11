@@ -1,8 +1,8 @@
 "use client"
 
-import { useId, useRef, useState } from "react"
+import { useEffect, useId, useRef, useState } from "react"
 import Link from "next/link"
-import { ChevronLeft } from "lucide-react"
+import { ChevronLeft, Maximize2, Minimize2 } from "lucide-react"
 import { useProjectDocumentTitle } from "@/components/app-shell/project-title-context"
 import { boardUrl, nextSheetName, sheetUrl, type BoardDto, type BoardSheetDto, type BoardWithPermissions, type SheetCreatedDto } from "@/components/board/board-api"
 import { NameDialog } from "@/components/board/name-dialog"
@@ -38,7 +38,43 @@ export function BoardEditor({ projectId, boardId, userId, canAddToIcebox }: Prop
   const [activeId, setActiveId] = useState<string | null>(null)
   const [dialog, setDialog] = useState<Dialog | null>(null)
   const [busy, setBusy] = useState(false)
+  /** Full screen: the board covers the app (and the browser goes full screen where it allows). */
+  const [full, setFull] = useState(false)
   const editorRef = useRef<SheetEditorHandle>(null)
+
+  const rootRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (typeof document === "undefined") return
+    if (!full) {
+      if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {})
+      return
+    }
+    // The whole page, so dialogs and messages (rendered at the page's root) stay visible.
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => {})
+    // What the board covers (menu, header …) can be neither reached with Tab nor read out meanwhile. Dialogs and
+    // messages are rendered directly under <body>: they stay usable.
+    const covered: HTMLElement[] = []
+    for (let node: HTMLElement | null = rootRef.current; node && node.parentElement && node.parentElement !== document.body; node = node.parentElement) {
+      for (const sibling of Array.from(node.parentElement.children)) {
+        if (sibling !== node && sibling instanceof HTMLElement && !sibling.inert) {
+          sibling.inert = true
+          covered.push(sibling)
+        }
+      }
+    }
+    return () => {
+      for (const el of covered) el.inert = false
+    }
+  }, [full])
+
+  useEffect(() => {
+    if (typeof document === "undefined") return
+    // Esc ends the browser's full screen (also when it ends a text edit): the board keeps covering the app until its
+    // own button is used, so editing is not thrown out of the full view.
+    return () => {
+      if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {})
+    }
+  }, [])
   // Copies live as long as the board is open, so they can be pasted on another sheet.
   const clipboard = useRef<KnownElement[]>([])
   const baseId = useId()
@@ -186,11 +222,19 @@ export function BoardEditor({ projectId, boardId, userId, canAddToIcebox }: Prop
   }
 
   return (
-    <div className="flex h-[calc(100dvh-7rem)] min-h-[30rem] flex-col">
+    <div
+      ref={rootRef}
+      className={full ? "fixed inset-0 z-[60] flex flex-col bg-surface-sunken p-2 sm:p-3" : "flex h-[calc(100dvh-7rem)] min-h-[30rem] flex-col"}
+      data-fullscreen={full ? "" : undefined}
+    >
       <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-        {backLink}
+        {!full && backLink}
         <h1 className="min-w-0 break-words text-title font-semibold text-fg">{board.title}</h1>
         {!canWrite && <Badge tone="neutral">{t.wbReadOnly}</Badge>}
+        <Button variant="ghost" size="sm" className="ml-auto" onClick={() => setFull((on) => !on)} data-testid="board-fullscreen">
+          {full ? <Minimize2 className="h-4 w-4" aria-hidden /> : <Maximize2 className="h-4 w-4" aria-hidden />}
+          {full ? t.wbFullscreenExit : t.wbFullscreen}
+        </Button>
       </div>
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-ui-lg border border-border bg-surface">
         <div role="tabpanel" id={panelId} aria-labelledby={active ? tabId(active.id) : undefined} className="flex min-h-0 flex-1 flex-col">

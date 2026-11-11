@@ -1,4 +1,6 @@
 import type { BoxElement, Dash, FontFamily, HAlign, LineElement, LineRoute, StrokeKey, VAlign } from "./model"
+import { BOARD_LIMITS } from "./limits"
+import type { BaseMarks } from "./rich"
 
 /**
  * The resolved look of an element: every optional style field of model.ts with its default filled in. An
@@ -30,6 +32,7 @@ export interface ResolvedTextStyle {
   fontFamily: FontFamily
   bold: boolean
   italic: boolean
+  underline: boolean
   /** Palette key of the text colour. */
   color: StrokeKey | "fg"
   align: HAlign
@@ -44,10 +47,30 @@ export function textStyle(el: BoxElement): ResolvedTextStyle {
     fontFamily: el.fontFamily ?? "sans",
     bold: el.bold ?? el.type === "frame",
     italic: el.italic ?? false,
+    underline: el.underline ?? false,
     color: el.textColor ?? (el.type === "text" ? el.stroke : "fg"),
     align: el.align ?? (free ? "left" : "center"),
     valign: el.valign ?? (free ? "top" : "middle"),
   }
+}
+
+/** The next / previous offered text size from `size`. */
+export function stepFontSize(size: number, direction: 1 | -1): number {
+  if (direction > 0) return FONT_SIZES.find((s) => s > size) ?? BOARD_LIMITS.fontSizeMax
+  return [...FONT_SIZES].reverse().find((s) => s < size) ?? BOARD_LIMITS.fontSizeMin
+}
+
+/** Which text of a box: its own text, a frame's body, or a table cell. */
+export type TextSlot = { kind: "text" } | { kind: "body" } | { kind: "cell"; row: number; col: number }
+
+/**
+ * The format a run of a text takes where it sets nothing itself. A frame's title is bold by default, its body is
+ * not; a table's header row is bold when the table is.
+ */
+export function baseMarks(el: BoxElement, slot: TextSlot = { kind: "text" }): BaseMarks {
+  const s = textStyle(el)
+  const bold = slot.kind === "body" ? (el.bold ?? false) : slot.kind === "cell" ? slot.row === 0 && s.bold : s.bold
+  return { bold, italic: s.italic, underline: s.underline, fontSize: s.fontSize, fontFamily: s.fontFamily, color: s.color }
 }
 
 export interface ResolvedBoxOutline {

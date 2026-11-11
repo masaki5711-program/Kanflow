@@ -1,7 +1,10 @@
 import type { Patch } from "./doc"
 import { attachedBox, boxRect, resizeRect, resolveLine, sortByZ, type BoxHandle, type ElementMap, type LineHandle, type Point, type Rect } from "./geometry"
 import { BOARD_LIMITS } from "./limits"
+import { normalizeRuns, runsFor, runsText, truncateRuns } from "./rich"
+import type { TextSlot } from "./style"
 import {
+  elementJsonLimit,
   isBox,
   isHttpUrl,
   isKnown,
@@ -20,6 +23,8 @@ import {
   type LineType,
   type Side,
   type StrokeKey,
+  type TextRun,
+  type TextRuns,
   type VAlign,
 } from "./model"
 
@@ -294,14 +299,28 @@ export function deletePatch(elements: ElementMap, ids: readonly string[]): Patch
   const removed = new Set(unlocked(elements, ids))
   if (removed.size === 0) return patch
   for (const id of removed) patch[id] = null
+  // A group left with one member is no group any more.
+  const left = new Map<string, KnownElement[]>()
+  for (const el of Object.values(elements)) {
+    if (isKnown(el) && el.groupId && !removed.has(el.id)) left.set(el.groupId, [...(left.get(el.groupId) ?? []), el])
+  }
+  const touched = new Set([...removed].map((id) => (elements[id] as KnownElement).groupId).filter(Boolean))
+  for (const [group, rest] of left) {
+    if (!touched.has(group) || rest.length !== 1) continue
+    const alone = { ...rest[0] }
+    delete alone.groupId
+    patch[alone.id] = alone
+  }
   for (const el of Object.values(elements)) {
     if (!isLine(el) || removed.has(el.id)) continue
     const startGone = !!el.start.attach && removed.has(el.start.attach)
     const endGone = !!el.end.attach && removed.has(el.end.attach)
     if (!startGone && !endGone) continue
     const { a, b } = resolveLine(el, elements)
+    // On top of what the patch already holds for it (it may have left its group above).
+    const base = (patch[el.id] as LineElement | undefined) ?? el
     patch[el.id] = {
-      ...el,
+      ...base,
       start: startGone ? lineEnd(a, null) : el.start,
       end: endGone ? lineEnd(b, null) : el.end,
     }
@@ -345,17 +364,29 @@ export function pastePatch(elements: ElementMap, clip: readonly KnownElement[], 
   const patch: Record<string, BoardElement | null> = {}
   const idMap = new Map<string, string>()
   for (const el of clip) idMap.set(el.id, makeId())
+  // A pasted group is a new group (not joined to the one copied); a group with one member left is no group.
+  const groupMap = new Map<string, string>()
+  const groupSize = new Map<string, number>()
+  for (const el of clip) if (el.groupId) groupSize.set(el.groupId, (groupSize.get(el.groupId) ?? 0) + 1)
+  for (const [group, count] of groupSize) if (count > 1) groupMap.set(group, makeId())
   let z = nextZ(elements)
   const ids: string[] = []
   const moveEnd = (end: LineEnd): LineEnd => {
     const attach = end.attach ? (idMap.get(end.attach) ?? null) : null
     return lineEnd({ x: end.x + offset.x, y: end.y + offset.y }, attach, attach ? (end.side ?? null) : null)
   }
+  const regroup = <T extends KnownElement>(el: T): T => {
+    const next = { ...el }
+    const group = el.groupId ? groupMap.get(el.groupId) : undefined
+    if (group) next.groupId = group
+    else delete next.groupId
+    return next
+  }
   for (const el of clip) {
     const id = idMap.get(el.id) as string
     ids.push(id)
-    if (isBox(el)) patch[id] = { ...el, id, z, x: coord(el.x + offset.x), y: coord(el.y + offset.y) }
-    else patch[id] = { ...el, id, z, start: moveEnd(el.start), end: moveEnd(el.end) }
+    if (isBox(el)) patch[id] = { ...regroup(el), id, z, x: coord(el.x + offset.x), y: coord(el.y + offset.y) }
+    else patch[id] = { ...regroup(el), id, z, start: moveEnd(el.start), end: moveEnd(el.end) }
     z = Math.min(BOARD_LIMITS.counter, z + 1)
   }
   return { patch, ids }
@@ -401,6 +432,7 @@ export interface FormatChange {
   fontFamily: FontFamily
   bold: boolean
   italic: boolean
+  underline: boolean
   textColor: StrokeKey
   align: HAlign
   valign: VAlign
@@ -413,7 +445,7 @@ export interface FormatChange {
   arrowEnd: boolean
 }
 
-const BOX_KEYS = ["fill", "fontSize", "fontFamily", "bold", "italic", "textColor", "align", "valign"] as const
+const BOX_KEYS = ["fill", "fontSize", "fontFamily", "bold", "italic", "underline", "textColor", "align", "valign"] as const
 const LINE_KEYS = ["route", "arrowStart", "arrowEnd"] as const
 const BOTH_KEYS = ["stroke", "strokeWidth", "dash"] as const
 
@@ -443,11 +475,82 @@ export function stylePatch(elements: ElementMap, ids: readonly string[], style: 
   return formatPatch(elements, ids, style)
 }
 
-/** Sets the text of a box (cut at the length the server accepts). */
-export function textPatch(elements: ElementMap, id: string, text: string): Patch {
+/**
+ * Plain text and runs cut to `max` characters; the runs are kept only when they add up to the text and something
+ * in them is formatted.
+ */
+function textAndRuns(text: string, runs: readonly TextRun[] | null | undefined, max: number): { text: string; runs: TextRuns | null } {
+  const plain = text.slice(0, max)
+  if (!runs || runsText(runs) !== text) return { text: plain, runs: null }
+  return { text: plain, runs: normalizeRuns(truncateRuns(runs, max)) }
+}
+
+/**
+ * The element as the server accepts it: when its formatting makes it larger than the limit, first the runs of the
+ * text just written go, then every other format run of it (the plain texts always stay).
+ */
+function withinJsonLimit(el: BoxElement, drop: (el: BoxElement) => BoxElement): BoxElement {
+  const limit = elementJsonLimit(el.type)
+  if (JSON.stringify(el).length <= limit) return el
+  const first = drop(el)
+  if (JSON.stringify(first).length <= limit) return first
+  const plain = { ...first }
+  delete plain.runs
+  delete plain.bodyRuns
+  delete plain.cellRuns
+  return plain
+}
+
+/** True when the element lost format runs it was given (too large to store): the editor says so. */
+export function formatDropped(given: readonly TextRun[] | null | undefined, stored: BoxElement | undefined, slot: TextSlot): boolean {
+  if (!given || !stored || !normalizeRuns(given)) return false
+  return slotContent(stored, slot).runs === null
+}
+
+/** Sets the text of a box (cut at the length the server accepts) and its format runs (none: all in the box's format). */
+export function textPatch(elements: ElementMap, id: string, text: string, runs?: readonly TextRun[] | null): Patch {
   const el = elements[id]
   if (!isBox(el) || el.locked) return {}
-  return { [id]: { ...el, text: text.slice(0, BOARD_LIMITS.textLength) } }
+  const value = textAndRuns(text, runs, BOARD_LIMITS.textLength)
+  const next: BoxElement = { ...el, text: value.text }
+  if (value.runs) next.runs = value.runs
+  else delete next.runs
+  return {
+    [id]: withinJsonLimit(next, (big) => {
+      const plain = { ...big }
+      delete plain.runs
+      return plain
+    }),
+  }
+}
+
+/** Sets the body text of a frame (what is written below its title) and its runs. */
+export function bodyPatch(elements: ElementMap, id: string, text: string, runs?: readonly TextRun[] | null): Patch {
+  const el = elements[id]
+  if (!isBox(el) || el.type !== "frame" || el.locked) return {}
+  const value = textAndRuns(text, runs, BOARD_LIMITS.textLength)
+  const next: BoxElement = { ...el }
+  if (value.text) next.body = value.text
+  else delete next.body
+  if (value.text && value.runs) next.bodyRuns = value.runs
+  else delete next.bodyRuns
+  return {
+    [id]: withinJsonLimit(next, (big) => {
+      const plain = { ...big }
+      delete plain.bodyRuns
+      return plain
+    }),
+  }
+}
+
+/** The text and runs of one text slot of a box (its text, a frame's body, a table cell). */
+export function slotContent(el: BoxElement, slot: TextSlot): { text: string; runs: TextRuns | null } {
+  if (slot.kind === "body") return { text: el.body ?? "", runs: runsFor(el.body ?? "", el.bodyRuns) }
+  if (slot.kind === "cell") {
+    const text = el.cells?.[slot.row]?.[slot.col] ?? ""
+    return { text, runs: runsFor(text, el.cellRuns?.[slot.row]?.[slot.col]) }
+  }
+  return { text: el.text, runs: runsFor(el.text, el.runs) }
 }
 
 /** Sets the label on a line (empty = none). */
@@ -574,12 +677,74 @@ export function newTableFromCells(cells: readonly (readonly string[])[], at: Poi
   return withTableSize({ ...newBox("table", { x: at.x, y: at.y, w: 1, h: 1 }, id, z), colWidths, rowHeights, cells: grid })
 }
 
-/** Sets the text of one cell. */
-export function cellPatch(elements: ElementMap, id: string, row: number, col: number, text: string): Patch {
+/** A table's cell runs in the shape of its cells (null where a cell has none); absent when no cell has any. */
+function fitCellRuns(cells: readonly (readonly string[])[], cellRuns: readonly (readonly (TextRuns | null)[])[] | undefined): (TextRuns | null)[][] | undefined {
+  if (!cellRuns) return undefined
+  let any = false
+  const out = cells.map((row, i) =>
+    row.map((text, j) => {
+      const runs = runsFor(text, cellRuns[i]?.[j] ?? null)
+      if (runs) any = true
+      return runs
+    }),
+  )
+  return any ? out : undefined
+}
+
+/** The table with `cellRuns` matching its cells (dropped when nothing is formatted or the table would be too large). */
+function withCellRuns(el: BoxElement, cellRuns: (TextRuns | null)[][] | undefined): BoxElement {
+  const next: BoxElement = { ...el }
+  const fitted = next.cells ? fitCellRuns(next.cells, cellRuns) : undefined
+  if (fitted) next.cellRuns = fitted
+  else delete next.cellRuns
+  return withinJsonLimit(next, (big) => {
+    const plain = { ...big }
+    delete plain.cellRuns
+    return plain
+  })
+}
+
+/** Sets the text of one cell and its format runs. */
+export function cellPatch(elements: ElementMap, id: string, row: number, col: number, text: string, runs?: readonly TextRun[] | null): Patch {
   const el = elements[id]
   if (!isBox(el) || el.type !== "table" || el.locked || !el.cells?.[row] || col >= el.cells[row].length) return {}
-  const cells = el.cells.map((r, i) => (i === row ? r.map((c, j) => (j === col ? text.slice(0, BOARD_LIMITS.tableCellLength) : c)) : r))
-  return { [id]: { ...el, cells } }
+  const value = textAndRuns(text, runs, BOARD_LIMITS.tableCellLength)
+  const cells = el.cells.map((r, i) => (i === row ? r.map((c, j) => (j === col ? value.text : c)) : r))
+  const cellRuns = el.cells.map((r, i) => r.map((c, j) => (i === row && j === col ? value.runs : runsFor(c, el.cellRuns?.[i]?.[j] ?? null))))
+  return { [id]: withCellRuns({ ...el, cells }, cellRuns) }
+}
+
+/** Sets the width of one column / the height of one row of a table (the table grows or shrinks with it). */
+export function tableTrackPatch(elements: ElementMap, id: string, axis: "col" | "row", index: number, length: number): Patch {
+  const el = elements[id]
+  if (!isBox(el) || el.type !== "table" || el.locked || !el.colWidths || !el.rowHeights) return {}
+  const tracks = axis === "col" ? el.colWidths : el.rowHeights
+  if (index < 0 || index >= tracks.length) return {}
+  const value = clamp(Math.round(length), BOARD_LIMITS.tableCellMin, BOARD_LIMITS.boxSize)
+  if (value === tracks[index]) return {}
+  const next = tracks.map((t, i) => (i === index ? value : t))
+  return { [id]: withTableSize(axis === "col" ? { ...el, colWidths: next } : { ...el, rowHeights: next }) }
+}
+
+/**
+ * The column / row border of a table at a point (within `tolerance`), or null: the line between column `index` and
+ * the next (the table's right edge for the last column), likewise for rows.
+ */
+export function tableBorderAt(el: BoxElement, p: Point, tolerance: number): { axis: "col" | "row"; index: number; start: number } | null {
+  if (el.type !== "table" || !el.colWidths || !el.rowHeights) return null
+  const inside = (v: number, from: number, to: number) => v >= from - tolerance && v <= to + tolerance
+  if (!inside(p.x, el.x, el.x + el.w) || !inside(p.y, el.y, el.y + el.h)) return null
+  let x = el.x
+  for (let j = 0; j < el.colWidths.length; j++) {
+    x += el.colWidths[j]
+    if (Math.abs(p.x - x) <= tolerance) return { axis: "col", index: j, start: el.colWidths[j] }
+  }
+  let y = el.y
+  for (let i = 0; i < el.rowHeights.length; i++) {
+    y += el.rowHeights[i]
+    if (Math.abs(p.y - y) <= tolerance) return { axis: "row", index: i, start: el.rowHeights[i] }
+  }
+  return null
 }
 
 export type TableEdit = "row-above" | "row-below" | "row-delete" | "col-left" | "col-right" | "col-delete"
@@ -589,28 +754,34 @@ export function tablePatch(elements: ElementMap, id: string, row: number, col: n
   const el = elements[id]
   if (!isBox(el) || el.type !== "table" || el.locked || !el.cells || !el.colWidths || !el.rowHeights) return {}
   let { cells, colWidths, rowHeights } = el
+  const source = el.cells
+  let runs: (TextRuns | null)[][] = source.map((r, i) => r.map((c, j) => runsFor(c, el.cellRuns?.[i]?.[j] ?? null)))
   const rowsN = cells.length
   const colsN = colWidths.length
   if (edit === "row-above" || edit === "row-below") {
     if (rowsN >= BOARD_LIMITS.tableRows) return {}
     const at = edit === "row-above" ? row : row + 1
     cells = [...cells.slice(0, at), colWidths.map(() => ""), ...cells.slice(at)]
+    runs = [...runs.slice(0, at), colWidths.map(() => null), ...runs.slice(at)]
     rowHeights = [...rowHeights.slice(0, at), rowHeights[Math.min(row, rowsN - 1)] ?? 32, ...rowHeights.slice(at)]
   } else if (edit === "row-delete") {
     if (rowsN <= 1) return {}
     cells = cells.filter((_, i) => i !== row)
+    runs = runs.filter((_, i) => i !== row)
     rowHeights = rowHeights.filter((_, i) => i !== row)
   } else if (edit === "col-left" || edit === "col-right") {
     if (colsN >= BOARD_LIMITS.tableCols) return {}
     const at = edit === "col-left" ? col : col + 1
     cells = cells.map((r) => [...r.slice(0, at), "", ...r.slice(at)])
+    runs = runs.map((r) => [...r.slice(0, at), null, ...r.slice(at)])
     colWidths = [...colWidths.slice(0, at), colWidths[Math.min(col, colsN - 1)] ?? 96, ...colWidths.slice(at)]
   } else {
     if (colsN <= 1) return {}
     cells = cells.map((r) => r.filter((_, j) => j !== col))
+    runs = runs.map((r) => r.filter((_, j) => j !== col))
     colWidths = colWidths.filter((_, j) => j !== col)
   }
-  return { [id]: withTableSize({ ...el, cells, colWidths, rowHeights }) }
+  return { [id]: withCellRuns(withTableSize({ ...el, cells, colWidths, rowHeights }), runs) }
 }
 
 /** The cell of a table under a point (sheet coordinates), or null. */
@@ -643,6 +814,58 @@ export function cellRect(el: BoxElement, row: number, col: number): Rect | null 
   const x = el.x + el.colWidths.slice(0, col).reduce((a, b) => a + b, 0)
   const y = el.y + el.rowHeights.slice(0, row).reduce((a, b) => a + b, 0)
   return { x, y, w: el.colWidths[col], h: el.rowHeights[row] }
+}
+
+// ---------------------------------------------------------------------------
+// Groups
+// ---------------------------------------------------------------------------
+
+/** The ids plus every element in a group with one of them: a group is selected and moved as one. */
+export function expandGroups(elements: ElementMap, ids: readonly string[]): string[] {
+  const groups = new Set<string>()
+  for (const id of ids) {
+    const el = elements[id]
+    if (isKnown(el) && el.groupId) groups.add(el.groupId)
+  }
+  if (groups.size === 0) return [...ids]
+  const out = new Set(ids)
+  for (const el of Object.values(elements)) if (isKnown(el) && el.groupId && groups.has(el.groupId)) out.add(el.id)
+  return [...out]
+}
+
+/** Makes the elements one group (two or more; a member of another group leaves it). Locked elements join too. */
+export function groupPatch(elements: ElementMap, ids: readonly string[], groupId: string): Patch {
+  const members = ids.filter((id) => isKnown(elements[id]))
+  const patch: Record<string, BoardElement | null> = {}
+  if (members.length < 2) return patch
+  for (const id of members) patch[id] = { ...(elements[id] as KnownElement), groupId }
+  // A group left with a single member is no group any more.
+  const left = new Map<string, string[]>()
+  for (const el of Object.values(elements)) {
+    if (!isKnown(el) || !el.groupId || members.includes(el.id)) continue
+    left.set(el.groupId, [...(left.get(el.groupId) ?? []), el.id])
+  }
+  const touched = new Set(members.map((id) => (elements[id] as KnownElement).groupId).filter(Boolean))
+  for (const [group, rest] of left) {
+    if (!touched.has(group) || rest.length !== 1) continue
+    const alone = { ...(elements[rest[0]] as KnownElement) }
+    delete alone.groupId
+    patch[alone.id] = alone
+  }
+  return patch
+}
+
+/** Takes the elements' groups apart (every member of a group one of them is in). */
+export function ungroupPatch(elements: ElementMap, ids: readonly string[]): Patch {
+  const patch: Record<string, BoardElement | null> = {}
+  for (const id of expandGroups(elements, ids)) {
+    const el = elements[id]
+    if (!isKnown(el) || !el.groupId) continue
+    const next = { ...el }
+    delete next.groupId
+    patch[id] = next
+  }
+  return patch
 }
 
 // ---------------------------------------------------------------------------

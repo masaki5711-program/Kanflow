@@ -37,7 +37,8 @@ function textOf(el: BoardElement): string {
   if (isLine(el)) return oneLine(el.label ?? "")
   if (!isBox(el)) return ""
   if (el.type === "table") return oneLine((el.cells ?? []).map((row) => row.filter(Boolean).join(", ")).filter(Boolean).join(" / "))
-  return oneLine(el.text)
+  // A frame: its title, then what is written in it.
+  return oneLine([el.text, el.body ?? ""].filter(Boolean).join(" — "))
 }
 
 /** Votes, lock and link, said after the text. */
@@ -46,6 +47,7 @@ function extras(el: BoardElement, t: Translations): string {
   const parts: string[] = []
   const votes = isBox(el) ? (el.voters?.length ?? 0) : 0
   if (votes > 0) parts.push(votes === 1 ? t.wbVoteCountOne : t.wbVoteCount.replace("{count}", String(votes)))
+  if (el.groupId) parts.push(t.wbGrouped)
   if (el.locked) parts.push(t.wbLocked)
   if (el.link) parts.push(`${t.wbLink}: ${el.link}`)
   return parts.length > 0 ? ` (${parts.join(", ")})` : ""

@@ -7,10 +7,16 @@ import { boundsOf, sortByZ, type ElementMap, type Point, type Rect } from "@/lib
 import { newElementId } from "@/lib/board/ids"
 import { BOARD_LIMITS } from "@/lib/board/limits"
 import { mindChildPatch, mindLayoutPatch, mindParent, mindSiblingPatch } from "@/lib/board/mindmap"
-import { isBox, isKnown, isLine, type BoxType, type FillKey, type KnownElement, type LineType, type StrokeKey } from "@/lib/board/model"
+import { isBox, isKnown, isLine, type BoxType, type FillKey, type KnownElement, type LineType, type StrokeKey, type TextRuns } from "@/lib/board/model"
 import {
   alignPatch,
+  bodyPatch,
   cellPatch,
+  expandGroups,
+  formatDropped,
+  groupPatch,
+  tableTrackPatch,
+  ungroupPatch,
   copyElements,
   DEFAULT_BOX_SIZE,
   deletePatch,
@@ -38,8 +44,10 @@ import {
   type LineEndInput,
   type TableEdit,
 } from "@/lib/board/ops"
+import type { TextSlot } from "@/lib/board/style"
 import { templatePatch, type TemplateKind, type TemplateTexts } from "@/lib/board/templates"
 import { fitViewport, INITIAL_VIEWPORT, stepZoom, toSheet, zoomAt, type Viewport } from "@/lib/board/viewport"
+import type { RichController, RichOp, SelectionMarks } from "./rich-editor"
 import type { SheetDocument } from "./use-sheet-document"
 
 export type { LineEndInput } from "@/lib/board/ops"
@@ -63,8 +71,15 @@ export const DEFAULT_LINE_LENGTH = 120
 /** Grid spacing of "snap to the grid" (sheet units; the dots on the canvas). */
 export const SNAP_GRID = 24
 
-/** What the text overlay edits: a box's text, a line's label, or one cell of a table. */
-export type EditTarget = { kind: "text"; id: string; typing: boolean } | { kind: "label"; id: string } | { kind: "cell"; id: string; row: number; col: number }
+/** What the text overlay edits: a box's text (a frame's title), a frame's body, a line's label, or one cell of a table. */
+export type EditTarget =
+  | { kind: "text"; id: string; typing: boolean }
+  | { kind: "body"; id: string; typing: boolean }
+  | { kind: "label"; id: string }
+  | { kind: "cell"; id: string; row: number; col: number }
+
+/** Steps of the table's column / row size buttons (sheet units). */
+export const TABLE_TRACK_STEP = 8
 
 export interface ActiveCell {
   id: string
@@ -89,7 +104,7 @@ export interface BoardEditorOptions {
   /** Announces a result (an image that could not be stored, a pasted table). */
   notify: (notice: EditorNotice) => void
   /** User-facing texts the editor composes. */
-  messages: { imageNotImage: string; imageTooLarge: string; imageFailed: string; pastedTable: (rows: number, cols: number) => string }
+  messages: { imageNotImage: string; imageTooLarge: string; imageFailed: string; formatTooLarge: string; pastedTable: (rows: number, cols: number) => string }
 }
 
 /** Raster images the board accepts (the server checks the content again). */
@@ -121,7 +136,27 @@ export interface BoardEditorController {
   startEditing: (id: string, typing?: boolean) => void
   startCellEditing: (id: string, row: number, col: number) => void
   startLabelEditing: (id: string) => void
-  finishEditing: (text: string) => void
+  /** A frame's body (what is written below its title). */
+  startBodyEditing: (id: string, typing?: boolean) => void
+  /** Ends the edit with the text and, for formatted texts, its runs. */
+  finishEditing: (text: string, runs?: TextRuns | null) => void
+  /** The open formatted-text editor registers itself here (its selection can be formatted). */
+  registerRich: (controller: RichController | null) => void
+  /** The format of the characters selected in the text being edited (null: none selected). */
+  richMarks: SelectionMarks | null
+  setRichMarks: (marks: SelectionMarks | null) => void
+  /** Ends the text edit from outside the text (Esc in the format bar). */
+  endTextEdit: () => void
+  /**
+   * A text format command: on the selected characters while a text is being edited and some are selected,
+   * otherwise `fallback` on the selected elements.
+   */
+  textFormat: (op: RichOp, fallback: Partial<FormatChange>) => void
+  /** Ctrl+G / Ctrl+Shift+G. */
+  group: () => void
+  ungroup: () => void
+  /** Wider / narrower column, taller / lower row of the active table cell. */
+  tableTrack: (axis: "col" | "row", delta: number) => void
   /** The table cell the row / column buttons act on. */
   activeCell: ActiveCell | null
   setActiveCell: (cell: ActiveCell | null) => void
@@ -197,7 +232,7 @@ export function elementsText(elements: readonly KnownElement[]): string {
   })
   for (const el of ordered) {
     if (isBox(el) && el.type === "table") parts.push((el.cells ?? []).map((row) => row.join("\t")).join("\n"))
-    else if (isBox(el) && el.text) parts.push(el.text)
+    else if (isBox(el) && (el.text || el.body)) parts.push([el.text, el.body].filter(Boolean).join("\n"))
     else if (isLine(el) && el.label) parts.push(el.label)
   }
   return parts.join("\n\n")
@@ -224,6 +259,9 @@ export function useBoardEditor(doc: SheetDocument, readOnly: boolean, clipboardR
   const pasteCountRef = useRef(0)
   /** The text this editor last put on the system clipboard: pasting it back pastes the copied elements. */
   const copiedTextRef = useRef<string | null>(null)
+  /** The open formatted-text editor (null while none is open). */
+  const richRef = useRef<RichController | null>(null)
+  const [richMarks, setRichMarks] = useState<SelectionMarks | null>(null)
   // The upload finishes after renders: it reads the newest elements.
   const elementsRef = useRef(elements)
   useEffect(() => {
@@ -355,8 +393,10 @@ export function useBoardEditor(doc: SheetDocument, readOnly: boolean, clipboardR
     },
     selection,
     select: (ids) => {
-      setSelected([...ids])
-      if (activeCell && !ids.includes(activeCell.id)) setActiveCell(null)
+      // A group is selected as a whole.
+      const all = expandGroups(elements, ids)
+      setSelected(all)
+      if (activeCell && !all.includes(activeCell.id)) setActiveCell(null)
     },
     viewport,
     setViewport,
@@ -388,23 +428,72 @@ export function useBoardEditor(doc: SheetDocument, readOnly: boolean, clipboardR
       setSelected([id])
       setEditing({ kind: "label", id })
     },
-    finishEditing: (text) => {
+    startBodyEditing: (id, typing = false) => {
+      const el = elements[id]
+      if (readOnly || !isBox(el) || el.type !== "frame" || el.locked) return
+      setSelected([id])
+      setEditing({ kind: "body", id, typing })
+    },
+    finishEditing: (text, runs) => {
       const target = editing
       if (target === null) return
       setEditing(null)
+      setRichMarks(null)
+      richRef.current = null
       const el = elements[target.id]
       if (target.kind === "label") {
         doc.commit(labelPatch(elements, target.id, text))
         return
       }
+      /** Commits a formatted text, saying so when its format was too large to keep. */
+      const commitText = (patch: Patch, slot: TextSlot) => {
+        doc.commit(patch)
+        const stored = patch[target.id]
+        if (formatDropped(runs, isBox(stored) ? stored : undefined, slot)) options.notify({ tone: "error", text: options.messages.formatTooLarge })
+      }
       if (target.kind === "cell") {
-        doc.commit(cellPatch(elements, target.id, target.row, target.col, text))
+        commitText(cellPatch(elements, target.id, target.row, target.col, text, runs), { kind: "cell", row: target.row, col: target.col })
+        return
+      }
+      if (target.kind === "body") {
+        commitText(bodyPatch(elements, target.id, text.trim() === "" ? "" : text, runs), { kind: "body" })
         return
       }
       if (!isBox(el)) return
       // A text element with nothing written is nothing: it goes away instead of staying invisible.
       if (el.type === "text" && text.trim() === "") doc.commit(deletePatch(elements, [target.id]))
-      else doc.commit(textPatch(elements, target.id, text))
+      else commitText(textPatch(elements, target.id, text, runs), { kind: "text" })
+    },
+    registerRich: (controller) => {
+      richRef.current = controller
+    },
+    richMarks,
+    setRichMarks,
+    endTextEdit: () => richRef.current?.finish(true),
+    textFormat: (op, fallback) => {
+      if (readOnly) return
+      if (richRef.current?.apply(op)) return
+      doc.commit(formatPatch(elements, selection, fallback))
+    },
+    group: () => {
+      if (readOnly) return
+      const ids = expandGroups(elements, selection)
+      if (ids.length < 2) return
+      doc.commit(groupPatch(elements, ids, newElementId()))
+      setSelected(ids)
+    },
+    ungroup: () => {
+      if (readOnly) return
+      doc.commit(ungroupPatch(elements, selection))
+    },
+    tableTrack: (axis, delta) => {
+      if (readOnly || !activeCell) return
+      const table = elements[activeCell.id]
+      if (!isBox(table) || !table.colWidths || !table.rowHeights) return
+      const index = axis === "col" ? activeCell.col : activeCell.row
+      const current = (axis === "col" ? table.colWidths : table.rowHeights)[index]
+      if (current === undefined) return
+      doc.commit(tableTrackPatch(elements, table.id, axis, index, current + delta))
     },
     activeCell,
     setActiveCell,

@@ -1,9 +1,11 @@
 "use client"
 
 import { boundsOf, FRAME_TITLE_HEIGHT, lineGeometry, sortByZ, type ElementMap, type Point } from "@/lib/board/geometry"
-import { isBox, isLine, type BoxElement, type LineElement } from "@/lib/board/model"
+import { isBox, isLine, type BoxElement, type HAlign, type LineElement, type TextRun, type VAlign } from "@/lib/board/model"
+import { slotContent } from "@/lib/board/ops"
 import { FILL_COLOR, STROKE_COLOR } from "@/lib/board/palette"
-import { boxOutline, dashArray, FONT_STACK, lineStyle, TEXT_PADDING, textStyle } from "@/lib/board/style"
+import { effectiveMarks, type BaseMarks } from "@/lib/board/rich"
+import { baseMarks, boxOutline, dashArray, FONT_STACK, lineStyle, TEXT_PADDING, textStyle, type TextSlot } from "@/lib/board/style"
 import { arrowHeadPoints } from "./element-view"
 
 /**
@@ -37,42 +39,93 @@ function setDash(ctx: CanvasRenderingContext2D, dash: string | undefined) {
   ctx.setLineDash(dash ? dash.split(" ").map(Number) : [])
 }
 
-/** Breaks text into lines that fit `width` (by characters, so Japanese without spaces wraps too). */
-function wrap(ctx: CanvasRenderingContext2D, text: string, width: number): string[] {
-  const out: string[] = []
-  for (const paragraph of text.split("\n")) {
-    let line = ""
-    for (const ch of Array.from(paragraph)) {
-      if (line && ctx.measureText(line + ch).width > width) {
-        out.push(line)
-        line = ch.trimStart()
-      } else line += ch
-    }
-    out.push(line)
-  }
-  return out
+/** One character with the format it is drawn in. */
+interface Glyph {
+  ch: string
+  font: string
+  size: number
+  color: string
+  underline: boolean
+  width: number
 }
 
-function drawText(ctx: CanvasRenderingContext2D, el: BoxElement, text: string, area: { x: number; y: number; w: number; h: number }, color: string) {
-  const s = textStyle(el)
-  ctx.font = `${s.italic ? "italic " : ""}${s.bold ? "700" : "400"} ${s.fontSize}px ${FONT_STACK[s.fontFamily]}`
-  ctx.fillStyle = color
-  ctx.textBaseline = "top"
-  const lineHeight = s.fontSize * 1.4
-  const inner = { x: area.x + TEXT_PADDING, y: area.y + TEXT_PADDING, w: Math.max(1, area.w - 2 * TEXT_PADDING), h: area.h - 2 * TEXT_PADDING }
-  const lines = wrap(ctx, text, inner.w)
-  const height = lines.length * lineHeight
-  const top = s.valign === "top" ? inner.y : s.valign === "bottom" ? inner.y + inner.h - height : inner.y + (inner.h - height) / 2
+interface GlyphLine {
+  glyphs: Glyph[]
+  width: number
+  /** Tallest text size on the line. */
+  size: number
+}
+
+/** Breaks formatted text into lines that fit `width` (by characters, so Japanese without spaces wraps too). */
+function layoutGlyphs(ctx: CanvasRenderingContext2D, runs: readonly TextRun[], base: BaseMarks, width: number, styles: CSSStyleDeclaration): GlyphLine[] {
+  const lines: GlyphLine[] = []
+  let line: GlyphLine = { glyphs: [], width: 0, size: base.fontSize }
+  const push = () => {
+    lines.push(line)
+    line = { glyphs: [], width: 0, size: base.fontSize }
+  }
+  for (const run of runs) {
+    const m = effectiveMarks(run, base)
+    const font = `${m.italic ? "italic " : ""}${m.bold ? "700" : "400"} ${m.fontSize}px ${FONT_STACK[m.fontFamily]}`
+    const color = m.color === "fg" ? resolve("var(--color-fg)", styles) : resolve(STROKE_COLOR[m.color], styles)
+    ctx.font = font
+    for (const ch of Array.from(run.text)) {
+      if (ch === "\n") {
+        push()
+        continue
+      }
+      const w = ctx.measureText(ch).width
+      if (line.glyphs.length > 0 && line.width + w > width) {
+        push()
+        if (ch.trim() === "") continue
+      }
+      line.glyphs.push({ ch, font, size: m.fontSize, color, underline: m.underline, width: w })
+      line.width += w
+      line.size = Math.max(line.size, m.fontSize)
+    }
+  }
+  lines.push(line)
+  return lines
+}
+
+interface TextLook {
+  base: BaseMarks
+  align: HAlign
+  valign: VAlign
+}
+
+function drawRuns(ctx: CanvasRenderingContext2D, runs: readonly TextRun[], look: TextLook, area: { x: number; y: number; w: number; h: number }, styles: CSSStyleDeclaration, padding = TEXT_PADDING) {
+  const inner = { x: area.x + padding, y: area.y + padding, w: Math.max(1, area.w - 2 * padding), h: area.h - 2 * padding }
+  const lines = layoutGlyphs(ctx, runs, look.base, inner.w, styles)
+  const height = lines.reduce((sum, l) => sum + l.size * 1.4, 0)
+  let y = look.valign === "top" ? inner.y : look.valign === "bottom" ? inner.y + inner.h - height : inner.y + (inner.h - height) / 2
   ctx.save()
   ctx.beginPath()
   ctx.rect(area.x, area.y, area.w, area.h)
   ctx.clip()
-  lines.forEach((line, i) => {
-    const width = ctx.measureText(line).width
-    const x = s.align === "left" ? inner.x : s.align === "right" ? inner.x + inner.w - width : inner.x + (inner.w - width) / 2
-    ctx.fillText(line, x, top + i * lineHeight + (lineHeight - s.fontSize) / 2)
-  })
+  ctx.textBaseline = "alphabetic"
+  for (const line of lines) {
+    const lineHeight = line.size * 1.4
+    const baseline = y + (lineHeight - line.size) / 2 + line.size * 0.88
+    let x = look.align === "left" ? inner.x : look.align === "right" ? inner.x + inner.w - line.width : inner.x + (inner.w - line.width) / 2
+    for (const g of line.glyphs) {
+      ctx.font = g.font
+      ctx.fillStyle = g.color
+      ctx.fillText(g.ch, x, baseline)
+      if (g.underline) ctx.fillRect(x, baseline + Math.max(1, g.size * 0.08), g.width, Math.max(1, g.size / 14))
+      x += g.width
+    }
+    y += lineHeight
+  }
   ctx.restore()
+}
+
+/** A box's text (or one of its slots) as the drawing shows it. */
+function drawText(ctx: CanvasRenderingContext2D, el: BoxElement, slot: TextSlot, area: { x: number; y: number; w: number; h: number }, styles: CSSStyleDeclaration, look: Partial<TextLook> = {}) {
+  const content = slotContent(el, slot)
+  if (content.text === "") return
+  const s = textStyle(el)
+  drawRuns(ctx, content.runs ?? [{ text: content.text }], { base: look.base ?? baseMarks(el, slot), align: look.align ?? s.align, valign: look.valign ?? s.valign }, area, styles)
 }
 
 function drawLine(ctx: CanvasRenderingContext2D, el: LineElement, elements: ElementMap, styles: CSSStyleDeclaration) {
@@ -111,11 +164,6 @@ async function drawBox(ctx: CanvasRenderingContext2D, el: BoxElement, styles: CS
   const fill = resolve(FILL_COLOR[el.fill], styles)
   const stroke = resolve(STROKE_COLOR[el.stroke], styles)
   const outline = boxOutline(el)
-  const fg = resolve("var(--color-fg)", styles)
-  const textColor = (() => {
-    const c = textStyle(el).color
-    return c === "fg" ? fg : resolve(STROKE_COLOR[c], styles)
-  })()
   ctx.fillStyle = fill
   ctx.strokeStyle = stroke
   ctx.lineWidth = Math.max(outline.width, el.type === "frame" ? 1 : 0)
@@ -138,7 +186,9 @@ async function drawBox(ctx: CanvasRenderingContext2D, el: BoxElement, styles: CS
   if (el.type === "frame") {
     ctx.fillStyle = resolve("var(--color-surface-sunken)", styles)
     ctx.fillRect(el.x, el.y, el.w, FRAME_TITLE_HEIGHT)
-    drawText(ctx, { ...el, align: "left", valign: "middle", fontSize: Math.min(textStyle(el).fontSize, 20) }, el.text, { x: el.x, y: el.y, w: el.w, h: FRAME_TITLE_HEIGHT }, textColor)
+    const title = { ...baseMarks(el), fontSize: Math.min(textStyle(el).fontSize, 20) }
+    if (el.text) drawRuns(ctx, [{ text: el.text }], { base: title, align: "left", valign: "middle" }, { x: el.x, y: el.y, w: el.w, h: FRAME_TITLE_HEIGHT }, styles)
+    drawText(ctx, el, { kind: "body" }, { x: el.x, y: el.y + FRAME_TITLE_HEIGHT, w: el.w, h: Math.max(1, el.h - FRAME_TITLE_HEIGHT) }, styles)
   } else if (el.type === "table") {
     let y = el.y
     ctx.lineWidth = 1
@@ -146,15 +196,15 @@ async function drawBox(ctx: CanvasRenderingContext2D, el: BoxElement, styles: CS
     ;(el.cells ?? []).forEach((row, i) => {
       let x = el.x
       const h = el.rowHeights?.[i] ?? 0
-      row.forEach((cell, j) => {
+      row.forEach((_cell, j) => {
         const w = el.colWidths?.[j] ?? 0
         ctx.strokeRect(x, y, w, h)
-        if (cell) drawText(ctx, { ...el, bold: i === 0 && textStyle(el).bold }, cell, { x: x - 2, y: y - 4, w: w + 4, h: h + 8 }, textColor)
+        drawText(ctx, el, { kind: "cell", row: i, col: j }, { x: x - 2, y: y - 4, w: w + 4, h: h + 8 }, styles, { align: "left" })
         x += w
       })
       y += h
     })
-  } else if (el.type !== "image" && el.text) drawText(ctx, el, el.text, el, textColor)
+  } else if (el.type !== "image") drawText(ctx, el, { kind: "text" }, el, styles)
 
   const votes = el.voters?.length ?? 0
   if (el.type === "sticky" && votes > 0) {

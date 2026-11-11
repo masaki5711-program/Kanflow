@@ -63,7 +63,7 @@ const TOOL_LABEL: Record<Tool, keyof Translations> = {
 
 const TEMPLATES: { kind: TemplateKind; label: keyof Translations; icon: ReactNode }[] = [
   { kind: "kpt", label: "wbTemplateKpt", icon: <Columns3 className="h-4 w-4" /> },
-  { kind: "swot", label: "wbTemplateSwot", icon: <Grid2x2 className="h-4 w-4" /> },
+  { kind: "zeva", label: "wbTemplateZeva", icon: <Grid2x2 className="h-4 w-4" /> },
   { kind: "minutes", label: "wbTemplateMinutes", icon: <NotebookPen className="h-4 w-4" /> },
   { kind: "report", label: "wbTemplateReport", icon: <FileText className="h-4 w-4" /> },
 ]

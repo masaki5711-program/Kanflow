@@ -584,3 +584,145 @@ describe("ホワイトボード B2: connections, typing, format and paste", () =
     ])
   })
 })
+
+describe("ホワイトボード B6: tables, formatted text, groups, ZEVA four boxes, full screen", () => {
+  const rect = (id: string, x: number, text = "") => ({ id, version: 1, deleted: false, data: { type: "rect", x, y: 50, w: 100, h: 60, z: 1, text, fill: "white", stroke: "ink" } })
+  const TABLE = {
+    id: "el-table-1",
+    version: 1,
+    deleted: false,
+    data: { type: "table", x: 50, y: 50, w: 200, h: 60, z: 1, text: "", fill: "white", stroke: "gray", cells: [["a", "b"], ["c", "d"]], colWidths: [100, 100], rowHeights: [30, 30] },
+  }
+  type Data = Record<string, unknown>
+  const dataOf = (fetchMock: ReturnType<typeof stubFetch>) => writes(fetchMock).flat().map((w) => (w.data ?? {}) as Data)
+
+  it("a table's column width and row height follow a drag of its ruling, and the format bar steps them", async () => {
+    const user = userEvent.setup()
+    const fetchMock = stubFetch([boardRoute(), elementsOf("s1", [TABLE]), savesOf("s1")])
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
+    const canvas = await canvasOf("全体図")
+    drag(canvas, [70, 60], [70, 60])
+    expect(screen.getByText(t.wbTableResizeHint)).toBeInTheDocument()
+    // The ruling between the two columns (x = 150) dragged 40 to the right.
+    drag(canvas, [150, 70], [190, 70])
+    await waitFor(() => expect(dataOf(fetchMock).some((d) => JSON.stringify(d.colWidths) === "[140,100]" && d.w === 240)).toBe(true))
+    // The ruling below the first row (y = 80) dragged down by 20.
+    drag(canvas, [120, 80], [120, 100])
+    await waitFor(() => expect(dataOf(fetchMock).some((d) => JSON.stringify(d.rowHeights) === "[50,30]")).toBe(true))
+    // The buttons act on the active cell's column.
+    const bar = screen.getByRole("toolbar", { name: t.wbFormatLabel })
+    await user.click(within(bar).getByRole("button", { name: t.wbTableColWiden }))
+    await waitFor(() => expect(dataOf(fetchMock).some((d) => JSON.stringify(d.colWidths) === "[148,100]")).toBe(true))
+  })
+
+  it("selected characters are formatted on their own (format bar and Ctrl+U); the rest keeps the shape's format", async () => {
+    const user = userEvent.setup()
+    const fetchMock = stubFetch([boardRoute(), elementsOf("s1", [rect("el-stored-1", 50, "abcdef")]), savesOf("s1")])
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
+    const canvas = await canvasOf("全体図")
+    drag(canvas, [100, 80], [100, 80])
+    fireEvent.keyDown(canvas, { key: "Enter" })
+    const field = await screen.findByRole("textbox", { name: t.wbTextEditLabel })
+    expect(field).toHaveAttribute("contenteditable", "true")
+    // Select "cd".
+    const text = field.querySelector("span")?.firstChild as Text
+    const range = document.createRange()
+    range.setStart(text, 2)
+    range.setEnd(text, 4)
+    document.getSelection()?.removeAllRanges()
+    document.getSelection()?.addRange(range)
+    const bar = screen.getByRole("toolbar", { name: t.wbFormatLabel })
+    await user.click(within(bar).getByRole("button", { name: t.wbBold }))
+    // The click kept the caret in the text: the edit is still open, and Bold shows the selected characters' format.
+    expect(field).toBeInTheDocument()
+    expect(within(bar).getByRole("button", { name: t.wbBold })).toHaveAttribute("aria-pressed", "true")
+    fireEvent.keyDown(field, { key: "u", ctrlKey: true })
+    fireEvent.keyDown(field, { key: "Escape" })
+    await waitFor(() => expect(dataOf(fetchMock).some((d) => Array.isArray(d.runs))).toBe(true))
+    const saved = dataOf(fetchMock).find((d) => Array.isArray(d.runs)) as Data
+    expect(saved.text).toBe("abcdef")
+    expect(saved.bold).toBeUndefined()
+    expect(saved.runs).toEqual([{ text: "ab" }, { text: "cd", bold: true, underline: true }, { text: "ef" }])
+    // Drawn with the stretch in bold.
+    await waitFor(() => expect(canvas.querySelector('[data-run][style*="font-weight: 700"]')).toHaveTextContent("cd"))
+  })
+
+  it("Ctrl+G groups the selection: a click then picks the whole group; Ctrl+Shift+G takes it apart", async () => {
+    const fetchMock = stubFetch([boardRoute(), elementsOf("s1", [rect("el-stored-1", 50), rect("el-stored-2", 250)]), savesOf("s1")])
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
+    const canvas = await canvasOf("全体図")
+    drag(canvas, [100, 80], [100, 80])
+    fireEvent.pointerDown(canvas, { button: 0, pointerId: 1, clientX: 300, clientY: 80, shiftKey: true })
+    fireEvent.pointerUp(canvas, { button: 0, pointerId: 1, clientX: 300, clientY: 80 })
+    fireEvent.keyDown(canvas, { key: "g", ctrlKey: true })
+    await waitFor(() => expect(dataOf(fetchMock).filter((d) => typeof d.groupId === "string")).toHaveLength(2))
+    const [a, b] = dataOf(fetchMock).filter((d) => typeof d.groupId === "string")
+    expect(a.groupId).toBe(b.groupId)
+    // Nothing selected, then one click on one member: both are selected.
+    fireEvent.keyDown(canvas, { key: "Escape" })
+    drag(canvas, [100, 80], [100, 80])
+    expect(canvas.querySelectorAll("[data-selected-id]")).toHaveLength(2)
+    expect(canvas.querySelector("[data-group-id]")).toBeInTheDocument()
+    fireEvent.keyDown(canvas, { key: "G", ctrlKey: true, shiftKey: true })
+    await waitFor(() => expect(dataOf(fetchMock).slice(-2).every((d) => d.groupId === undefined)).toBe(true))
+  })
+
+  it("the ZEVA four boxes: four coloured boxes with hints, connected by arrows; their body takes text", async () => {
+    const user = userEvent.setup()
+    const fetchMock = stubFetch([boardRoute(), elementsOf("s1"), savesOf("s1")])
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
+    const canvas = await canvasOf("全体図")
+    await user.click(screen.getByRole("button", { name: `${t.wbTemplates}: ${t.wbTemplateZeva}` }))
+    expect(shapes(canvas, "frame")).toHaveLength(4)
+    expect(shapes(canvas, "arrow")).toHaveLength(4)
+    for (const title of [t.wbTplZeva1, t.wbTplZeva2, t.wbTplZeva3, t.wbTplZeva4, t.wbTplZevaCurrent, t.wbTplZevaFuture, t.wbTplZevaResult, t.wbTplZevaCause]) {
+      expect(within(canvas).getByText(title)).toBeInTheDocument()
+    }
+    expect(within(canvas).getByText(t.wbTplZeva1Hint)).toBeInTheDocument()
+    await waitFor(() => expect(dataOf(fetchMock).filter((d) => d.type === "arrow")).toHaveLength(4))
+    const arrows = dataOf(fetchMock).filter((d) => d.type === "arrow") as { start: { attach?: string; side?: string }; end: { attach?: string; side?: string } }[]
+    expect(arrows.every((a) => !!a.start.attach && !!a.end.attach && !!a.start.side && !!a.end.side)).toBe(true)
+
+    // Double-click in the body of box ①: the body is edited (not the title), and the hint gives way to the text.
+    const frame = [...shapes(canvas, "frame")].find((el) => el.textContent?.includes(t.wbTplZeva1)) as HTMLElement
+    const id = frame.getAttribute("data-element-id") as string
+    const stored = dataOf(fetchMock).find((d) => d.text === t.wbTplZeva1) as { x: number; y: number }
+    // jsdom has no layout: the view starts at zoom 1, offset by the fit; the body is 100 below the frame's top.
+    const viewport = canvas.querySelector("svg g[transform]")?.getAttribute("transform") ?? ""
+    const [, tx, ty, zoom] = /translate\(([-\d.]+) ([-\d.]+)\) scale\(([\d.]+)\)/.exec(viewport) ?? []
+    const at = { clientX: Number(tx) + (stored.x + 100) * Number(zoom), clientY: Number(ty) + (stored.y + 100) * Number(zoom) }
+    fireEvent.doubleClick(canvas, at)
+    const body = await screen.findByRole("textbox", { name: t.wbBodyEditLabel })
+    await user.type(body, "合成の現状値")
+    fireEvent.keyDown(body, { key: "Escape" })
+    await waitFor(() => expect(dataOf(fetchMock).some((d) => d.body === "合成の現状値" && d.text === t.wbTplZeva1)).toBe(true))
+    expect(within(canvas.querySelector(`[data-element-id="${id}"]`) as HTMLElement).queryByText(t.wbTplZeva1Hint)).not.toBeInTheDocument()
+  })
+
+  it("the report template has background / purpose, topics reported, conclusion and next steps", async () => {
+    const user = userEvent.setup()
+    stubFetch([boardRoute(), elementsOf("s1"), savesOf("s1")])
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
+    const canvas = await canvasOf("全体図")
+    await user.click(screen.getByRole("button", { name: `${t.wbTemplates}: ${t.wbTemplateReport}` }))
+    for (const title of ["背景／目的", "報告課題", "結論", "次の予定"]) expect(within(canvas).getByText(title)).toBeInTheDocument()
+  })
+
+  it("full screen covers the app and is left with the same button", async () => {
+    const user = userEvent.setup()
+    stubFetch([boardRoute(), elementsOf("s1"), savesOf("s1")])
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
+    await canvasOf("全体図")
+    const outside = document.createElement("nav")
+    document.body.firstElementChild?.prepend(outside)
+    await user.click(screen.getByRole("button", { name: t.wbFullscreen }))
+    expect(document.querySelector("[data-fullscreen]")).toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: t.wbBackToList })).not.toBeInTheDocument()
+    // What the board covers is out of reach meanwhile.
+    expect(outside.inert).toBe(true)
+    await user.click(screen.getByRole("button", { name: t.wbFullscreenExit }))
+    expect(document.querySelector("[data-fullscreen]")).not.toBeInTheDocument()
+    expect(outside.inert).toBe(false)
+    outside.remove()
+  })
+})
