@@ -89,6 +89,10 @@ export function createFakeGitStation(options: { pageSize?: number; devStatusPage
   const runs: { projectId: number; sha: string; name: string; status: string; conclusion: string | null }[] = []
   /** N3: changed files per merge request ("<project id>!<iid>"). */
   const changedFiles = new Map<string, { files: { path: string; old_path?: string }[]; truncated: boolean; withheld: number }>()
+  /** N4: merge status reasons per merge request ("<project id>!<iid>"); none = mergeable. */
+  const mergeStatus = new Map<string, { reason: string; detail: string | null }[]>()
+  /** N5: conflict scans per merge request (paths as GitStation would send them). */
+  const conflictScans = new Map<string, { status: string; stale?: boolean; peers: { iid: number; paths: string[] }[] }>()
   let seq = 0
   let nextProjectId = REPO_ID
 
@@ -394,6 +398,42 @@ export function createFakeGitStation(options: { pageSize?: number; devStatusPage
         })),
       })
     }
+    const statusRoute = /^\/merge-requests\/(\d+)\/(status|conflicts)$/.exec(rest)
+    if (statusRoute) {
+      // N4 / N5: MergeStatusBody (the service account's view: viewer all false) and ConflictsBody (paths included, as
+      // GitStation sends them — Kanflow must keep only the count).
+      if ([...url.searchParams.keys()].length > 0) return paramInvalid([...url.searchParams.keys()][0])
+      const key = `${p.id}!${statusRoute[1]}`
+      const found = mergeRequests.get(key)
+      if (!found) return notFound()
+      const iid = Number(statusRoute[1])
+      if (statusRoute[2] === "status") {
+        const reasons = mergeStatus.get(key) ?? []
+        return json(200, {
+          schema_version: 1,
+          iid,
+          head_sha: found.head_sha ?? null,
+          merge_result_sha: null,
+          target_branch: "main",
+          method: "merge",
+          mergeable: reasons.length === 0,
+          reasons,
+          approvals: null,
+          checks: [],
+          discussions: null,
+          work_item_link: { linked: true },
+          codeowners: { enforced: false, suspended_until: null },
+          viewer: { can_approve: false, can_unapprove: false, can_merge: false, can_mark_ready: false, approved_by_me: false },
+        })
+      }
+      const c = conflictScans.get(key) ?? { status: "scanned", peers: [] }
+      return json(200, {
+        iid,
+        head_sha: found.head_sha ?? null,
+        scan: { status: c.status, reason: null, stale: c.stale ?? false, scanned_head_sha: found.head_sha ?? null, scanned_target_sha: oid(900), scanned_at: "2026-10-01T00:00:00.000Z", peers: c.peers.length, pairs_tried: c.peers.length, pairs_skipped: 0 },
+        predictions: c.peers.map((peer) => ({ iid: peer.iid, draft: false, head_sha: oid(peer.iid), outcome: "conflict", reason: null, conflicts: peer.paths, conflicts_truncated: false, checked_at: "2026-10-01T00:00:00.000Z" })),
+      })
+    }
     const context = /^\/merge-requests\/(\d+)\/context$/.exec(rest)
     if (context) {
       // N3: ContextMergeRequestBody (only what Kanflow reads is shaped faithfully; the rest is filler).
@@ -457,6 +497,12 @@ export function createFakeGitStation(options: { pageSize?: number; devStatusPage
         opts.path ?? REPO,
       )
     },
+    /** N4: why the merge request cannot merge (none = mergeable). */
+    setMergeStatus: (iid: number, reasons: { reason: string; detail?: string | null }[], path = REPO) =>
+      mergeStatus.set(`${project(path).id}!${iid}`, reasons.map((r) => ({ reason: r.reason, detail: r.detail ?? null }))),
+    /** N5: the conflict scan of the merge request. */
+    setConflicts: (iid: number, scan: { status: string; stale?: boolean; peers: { iid: number; paths: string[] }[] }, path = REPO) =>
+      conflictScans.set(`${project(path).id}!${iid}`, scan),
     /** N3: what the merge request's context answer lists as changed. */
     setChangedFiles: (iid: number, files: { path: string; old_path?: string }[], opts: { truncated?: boolean; withheld?: number; path?: string } = {}) =>
       changedFiles.set(`${project(opts.path ?? REPO).id}!${iid}`, { files, truncated: opts.truncated ?? false, withheld: opts.withheld ?? 0 }),

@@ -1227,3 +1227,47 @@ describe("N3: changed files of a GitStation merge request", () => {
     expect({ truncated: r.truncated, withheld: r.withheld }).toEqual(expected)
   })
 })
+
+describe("N4 / N5: merge status and conflict prediction", () => {
+  it("reads why the merge request cannot merge and its predicted conflicts — the paths never come through", async () => {
+    const station = createFakeGitStation()
+    station.mergeRequest("merge_request.opened", 1)
+    station.setMergeStatus(1, [{ reason: "approvals_missing", detail: "rule=default required=2 counted=1" }, { reason: "draft" }])
+    station.setConflicts(1, { status: "scanned", stale: true, peers: [{ iid: 7, paths: ["secret/plan.md", "app/a.ts"] }] })
+    const merge = await sourceOn(station).mergeState!("1")
+    expect(merge).toEqual({
+      mergeable: false,
+      blockers: [{ reason: "approvals_missing", detail: "rule=default required=2 counted=1" }, { reason: "draft", detail: null }],
+      conflicts: { status: "scanned", reason: null, stale: true, scannedAt: "2026-10-01T00:00:00.000Z", peers: [{ iid: 7, draft: false, outcome: "conflict", files: 2, truncated: false }] },
+    })
+    expect(JSON.stringify(merge)).not.toContain("secret/plan.md")
+    // The service account itself: no act-as header on either read.
+    expect(feedCalls(station)).toEqual([`/projects/${REPO_ID}/merge-requests/1/status`, `/projects/${REPO_ID}/merge-requests/1/conflicts`])
+  })
+
+  it("a prediction that cannot be read is null (logged); a refused or busy GitStation throws; the status failing throws", async () => {
+    const station = createFakeGitStation()
+    station.mergeRequest("merge_request.opened", 1)
+    station.fail(`/projects/${REPO_ID}/merge-requests/1/conflicts`, 404, { error_code: "FG-WEB-0004" })
+    expect((await sourceOn(station).mergeState!("1")).conflicts).toBeNull()
+    expect(logs.warn).toHaveBeenCalledWith("gitstation conflict prediction not read", expect.objectContaining({ mr: "1", errorKind: "not_found" }))
+    station.fail(`/projects/${REPO_ID}/merge-requests/1/conflicts`, 403, { error_code: "FG-AUTHZ-0001" })
+    await expect(sourceOn(station).mergeState!("1")).rejects.toMatchObject({ kind: "forbidden" })
+    station.fail(`/projects/${REPO_ID}/merge-requests/1/status`, 404, { error_code: "FG-WEB-0004" })
+    await expect(sourceOn(station).mergeState!("1")).rejects.toMatchObject({ kind: "not_found" })
+  })
+
+  it("the client refuses answers of another shape and bounds what it keeps", async () => {
+    const station = createFakeGitStation()
+    const client = (body: unknown) => clientOn(station, async () => json(200, body))
+    await expect(client({ iid: 2, mergeable: true, reasons: [] }).mergeRequestMergeStatus(REPO_ID, 1)).rejects.toMatchObject({ kind: "invalid_response" })
+    await expect(client({ iid: 1, mergeable: "yes", reasons: [] }).mergeRequestMergeStatus(REPO_ID, 1)).rejects.toMatchObject({ kind: "invalid_response" })
+    const long = await client({ iid: 1, mergeable: false, reasons: [...Array.from({ length: 25 }, () => ({ reason: "draft", detail: "x".repeat(500) })), { nope: 1 }] }).mergeRequestMergeStatus(REPO_ID, 1)
+    expect(long.blockers).toHaveLength(20)
+    expect(long.blockers[0].detail).toHaveLength(300)
+    await expect(client({ scan: {}, predictions: [] }).mergeRequestConflicts(REPO_ID, 1)).rejects.toMatchObject({ kind: "invalid_response" })
+    const many = await client({ scan: { status: "incomplete", reason: "peers_capped", scanned_at: "not a date" }, predictions: Array.from({ length: 60 }, (_, i) => ({ iid: i + 1, outcome: "conflict", conflicts: ["a"] })) }).mergeRequestConflicts(REPO_ID, 1)
+    expect(many).toMatchObject({ status: "incomplete", reason: "peers_capped", scannedAt: null })
+    expect(many.peers).toHaveLength(50)
+  })
+})

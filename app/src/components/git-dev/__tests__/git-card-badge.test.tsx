@@ -3,11 +3,13 @@ import { screen } from "@testing-library/react"
 import { renderWithProviders } from "@/components/__tests__/helpers"
 import { GitCardBadge } from "../git-card-badge"
 
-const summary = (over: Partial<{ openMrs: number; mergedMrs: number; branches: number; pipeline: string | null }> = {}) => ({
+const summary = (over: Partial<{ openMrs: number; mergedMrs: number; branches: number; pipeline: string | null; blockedMrs: number; conflictMrs: number }> = {}) => ({
   openMrs: 0,
   mergedMrs: 0,
   branches: 0,
   pipeline: null,
+  blockedMrs: 0,
+  conflictMrs: 0,
   ...over,
 })
 

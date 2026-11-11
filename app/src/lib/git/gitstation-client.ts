@@ -453,6 +453,44 @@ export interface GitStationCheckRun {
   conclusion: string | null
 }
 
+/** One reason a merge request cannot merge (N4): GitStation's name (fixed vocabulary, may grow) and its `detail` text. */
+export interface GitStationBlocker {
+  reason: string
+  /** GitStation's `key=value` text (rule / check names, counts, CODEOWNERS owners): data, at most 300 characters. */
+  detail: string | null
+}
+
+/** A merge request's status as the service account reads it (N4; no act-as: the viewer part is not kept). */
+export interface GitStationMergeStatus {
+  iid: number
+  headSha: string | null
+  mergeable: boolean
+  /** In GitStation's fixed order; at most 20. */
+  blockers: GitStationBlocker[]
+}
+
+/** One merge request this one is predicted to conflict with (N5). The paths are never kept — only how many. */
+export interface GitStationConflictPeer {
+  iid: number
+  draft: boolean
+  /** conflict | failed (a trial merge that could not be run). */
+  outcome: string
+  files: number
+  truncated: boolean
+}
+
+/** GitStation's conflict prediction for a merge request (N5, `/conflicts`, never starts a scan). */
+export interface GitStationConflictPrediction {
+  /** none | pending | scanning | scanned | incomplete | failed (others may come: shown as not checked). */
+  status: string
+  reason: string | null
+  /** The finished scan's head / target differs from now. */
+  stale: boolean
+  scannedAt: string | null
+  /** At most 50. */
+  peers: GitStationConflictPeer[]
+}
+
 /** The changed files of a merge request (N3). */
 export interface GitStationChangedPaths {
   /** New paths, plus the old path of a rename / copy; each once. */
@@ -670,6 +708,52 @@ export function createGitStationClient({ apiBase, token, integrationId, fetchImp
           ? [{ name: c.name.slice(0, 128), status: c.status.slice(0, 32), conclusion: str(c.conclusion) ? c.conclusion.slice(0, 32) : null }]
           : [],
       )
+    },
+
+    /**
+     * N4: why the merge request cannot merge, as the service account reads it (MergeRequestRead; no Forge-Act-As — the
+     * `viewer` part answers for the service account and is not kept). Reasons beyond 20 are dropped (GitStation lists
+     * at most 18 names today); an item of another shape is dropped. `mergeable` must be a boolean.
+     */
+    async mergeRequestMergeStatus(projectId: number, iid: number): Promise<GitStationMergeStatus> {
+      if (!isId(iid)) throw new GitStationError("invalid_response", "not a merge request iid")
+      const body = await send(`${projectBase(projectId)}/merge-requests/${iid}/status`, {})
+      if (!isObject(body) || body.iid !== iid || typeof body.mergeable !== "boolean" || !Array.isArray(body.reasons)) {
+        throw new GitStationError("invalid_response", "GitStation merge request status has an unexpected shape")
+      }
+      const blockers = body.reasons
+        .flatMap((r) => (isObject(r) && str(r.reason) && r.reason.length > 0 ? [{ reason: r.reason.slice(0, 64), detail: str(r.detail) ? r.detail.slice(0, 300) : null }] : []))
+        .slice(0, 20)
+      return { iid, headSha: isObjectId(body.head_sha) ? body.head_sha : null, mergeable: body.mergeable, blockers }
+    },
+
+    /**
+     * N5: the conflict prediction of a merge request (`/conflicts`, MergeRequestRead; never starts a scan). Only the
+     * other merge request's number and how many files would conflict are kept: GitStation returns the paths without
+     * withholding confidential ones, so they never enter Kanflow. At most 50 peers (GitStation scans 50).
+     */
+    async mergeRequestConflicts(projectId: number, iid: number): Promise<GitStationConflictPrediction> {
+      if (!isId(iid)) throw new GitStationError("invalid_response", "not a merge request iid")
+      const body = await send(`${projectBase(projectId)}/merge-requests/${iid}/conflicts`, {})
+      if (!isObject(body) || !isObject(body.scan) || !str(body.scan.status) || !Array.isArray(body.predictions)) {
+        throw new GitStationError("invalid_response", "GitStation conflict prediction has an unexpected shape")
+      }
+      const scan = body.scan
+      const status = str(scan.status) ? scan.status : ""
+      const peers = body.predictions
+        .flatMap((p) =>
+          isObject(p) && isId(p.iid) && str(p.outcome)
+            ? [{ iid: p.iid, draft: p.draft === true, outcome: p.outcome.slice(0, 16), files: Array.isArray(p.conflicts) ? p.conflicts.length : 0, truncated: p.conflicts_truncated === true }]
+            : [],
+        )
+        .slice(0, 50)
+      return {
+        status: status.slice(0, 16),
+        reason: str(scan.reason) ? scan.reason.slice(0, 64) : null,
+        stale: scan.stale === true,
+        scannedAt: str(scan.scanned_at) && !Number.isNaN(Date.parse(scan.scanned_at)) ? scan.scanned_at : null,
+        peers,
+      }
     },
 
     /**

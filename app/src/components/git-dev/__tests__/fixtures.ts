@@ -22,6 +22,7 @@ export function link(over: Partial<GitLinkDto> & Pick<GitLinkDto, "kind">): GitL
     goneAt: null,
     declared: false,
     repository: REPO_WEB,
+    merge: null,
     ...over,
   }
 }

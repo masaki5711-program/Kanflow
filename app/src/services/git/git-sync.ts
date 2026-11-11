@@ -10,6 +10,7 @@ import { readableProvider, UnsupportedProviderError, type GitProvider } from "./
 import { writeReleases } from "./git-release-sync"
 import { allMergeRequestsMerged, linksFromBranch, linksFromCommit, linksFromMergeRequest, mergeRequestFields, type LinkDraft } from "./git-links"
 import { checkMergeRequestScopes, type ScopeCheckCandidate } from "./git-scope-check"
+import { refreshMergeStates, type MergeStateCandidate } from "./git-merge-state"
 
 /**
  * Polling sync of one repository: merge requests and commits changed since the
@@ -169,7 +170,10 @@ export async function writeRead(repo: SyncRepositoryRow, integration: SyncIntegr
   // declared scope of the PBI's active claims — a warning on the link (never blocks). Skipped
   // like the pipelines when the MR listing failed.
   const scoped = mrFailed ? 0 : await checkMergeRequestScopes(source, { id: repo.id, projectId: repo.projectId }, scopeCandidates(mrDrafts, pbiIds, read.freshMrRefs), now)
-  const changed = linkChanges + declared + scoped
+  // N4 / N5: why open merge requests cannot merge and their predicted conflicts (GitStation only; a display). Skipped
+  // like the scope check when the merge request listing failed.
+  const mergeStates = mrFailed ? 0 : await refreshMergeStates(source, repo.id, mergeStateCandidates(mrDrafts, pbiIds, read.freshMrRefs), now)
+  const changed = linkChanges + declared + scoped + mergeStates
   // `branches` is null when that listing failed: then nothing is marked gone.
   const gone = read.branches ? await markGoneBranches(repo.id, read.branches, branchDrafts, pbiIds, now) : 0
   const releases = await syncReleasesSafely(source, repo, now)
@@ -391,6 +395,13 @@ async function writeLinks(projectId: string, repositoryId: string, drafts: reado
     }
   }
   return { written, changed, newlyMerged, newlyFailed }
+}
+
+/** N4 / N5: merge requests read past the cursor that name a live PBI, any state (a closed one has its state cleared). */
+export function mergeStateCandidates(mrDrafts: readonly LinkDraft[], pbiIds: ReadonlyMap<number, string>, freshRefs: ReadonlySet<string>): MergeStateCandidate[] {
+  const out = new Map<string, MergeStateCandidate>()
+  for (const d of mrDrafts) if (pbiIds.has(d.pbiNumber) && freshRefs.has(d.ref)) out.set(d.ref, { ref: d.ref, state: d.state })
+  return [...out.values()]
 }
 
 /** Open merge requests read past the cursor (a push updates them) that name a live PBI: what the scope check compares. */

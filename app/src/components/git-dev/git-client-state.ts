@@ -1,6 +1,6 @@
-import type { GitLinkDto, PbiGitPanelDto, PbiGitSummary } from "@/services/git/git.service"
+import type { GitLinkDto, GitMergeStateDto, PbiGitPanelDto, PbiGitSummary } from "@/services/git/git.service"
 
-export type { GitLinkDto, PbiGitPanelDto, PbiGitSummary }
+export type { GitLinkDto, GitMergeStateDto, PbiGitPanelDto, PbiGitSummary }
 
 /**
  * Client-side state shared by the Git hooks.
@@ -66,7 +66,33 @@ function toLink(raw: unknown): GitLinkDto[] {
     goneAt: str(raw.goneAt),
     declared: raw.declared === true,
     repository: { id: str(raw.repository.id) ?? "", name: str(raw.repository.name) ?? "" },
+    merge: toMergeState(raw.merge),
   }]
+}
+
+const nonNegative = (v: unknown): number => (typeof v === "number" && Number.isSafeInteger(v) && v >= 0 ? v : 0)
+
+/** Pure (N4 / N5): a link's `merge` → state, anything unexpected → null (the panel then shows nothing for it). */
+export function toMergeState(raw: unknown): GitMergeStateDto | null {
+  if (!isRecord(raw) || typeof raw.checkedAt !== "string") return null
+  const blockers = Array.isArray(raw.blockers)
+    ? raw.blockers.flatMap((b) => (isRecord(b) && typeof b.reason === "string" && b.reason ? [{ reason: b.reason, detail: str(b.detail) }] : []))
+    : []
+  const c = raw.conflicts
+  const conflicts =
+    isRecord(c) && typeof c.status === "string"
+      ? {
+          status: c.status,
+          stale: c.stale === true,
+          scannedAt: str(c.scannedAt),
+          peers: (Array.isArray(c.peers) ? c.peers : []).flatMap((p) =>
+            isRecord(p) && typeof p.iid === "number" && Number.isSafeInteger(p.iid)
+              ? [{ iid: p.iid, draft: p.draft === true, outcome: str(p.outcome) ?? "conflict", files: nonNegative(p.files), truncated: p.truncated === true }]
+              : [],
+          ),
+        }
+      : null
+  return { mergeable: typeof raw.mergeable === "boolean" ? raw.mergeable : null, blockers, conflicts, checkedAt: raw.checkedAt }
 }
 
 /** Pure: `/git/links` body → panel DTO (anything unexpected → off). */
@@ -94,7 +120,9 @@ export function toSummaries(raw: unknown): GitSummaries {
   const rows = isRecord(raw.summaries) ? Object.entries(raw.summaries) : []
   const summaries = Object.fromEntries(
     rows.flatMap(([id, s]) =>
-      isRecord(s) ? [[id, { openMrs: num(s.openMrs), mergedMrs: num(s.mergedMrs), branches: num(s.branches), pipeline: str(s.pipeline) }]] : [],
+      isRecord(s)
+        ? [[id, { openMrs: num(s.openMrs), mergedMrs: num(s.mergedMrs), branches: num(s.branches), pipeline: str(s.pipeline), blockedMrs: num(s.blockedMrs), conflictMrs: num(s.conflictMrs) }]]
+        : [],
     ),
   )
   return { enabled: true, summaries }
