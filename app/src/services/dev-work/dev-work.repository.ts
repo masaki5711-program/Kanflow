@@ -198,6 +198,56 @@ export function findOutsideScopeLinks(db: Db, backlogItemId: string) {
   })
 }
 
+/** Open MR links read for the N6 overlap warnings (one more row = `truncated`). */
+export const OVERLAP_LINKS_LIMIT = 300
+
+/**
+ * N6: the project's open MR links on live PBIs that the sync read changed files or a conflict prediction for, newest
+ * change first, OVERLAP_LINKS_LIMIT + 1 rows (only while the project's Git integration is on).
+ */
+export function findOpenMrLinksForOverlap(db: Db, projectId: string) {
+  return db.gitLink.findMany({
+    where: {
+      projectId,
+      kind: "mr",
+      state: { in: ["opened", "locked"] },
+      backlogItem: NOT_DELETED,
+      project: { gitIntegration: { enabled: true } },
+      OR: [{ changedPathsAt: { not: null } }, { mergeStatusAt: { not: null } }],
+    },
+    select: {
+      repositoryId: true,
+      ref: true,
+      title: true,
+      url: true,
+      author: true,
+      sourceBranch: true,
+      backlogItemId: true,
+      changedPaths: true,
+      changedPathsComplete: true,
+      conflictPrediction: true,
+      mergeStatusAt: true,
+      repository: { select: { name: true } },
+      backlogItem: { select: { displayId: true, confidential: true } },
+    },
+    orderBy: [{ occurredAt: "desc" }, { id: "asc" }],
+    take: OVERLAP_LINKS_LIMIT + 1,
+  })
+}
+
+/**
+ * N6: open MR links of the project whose changed files were not read yet (the warning may be incomplete), with their
+ * PBI — each claim counts only other PBIs' MRs, and token answers leave out confidential ones. OVERLAP_LINKS_LIMIT + 1.
+ */
+export function findOpenMrLinksWithoutPaths(db: Db, projectId: string) {
+  return db.gitLink.findMany({
+    where: { projectId, kind: "mr", state: { in: ["opened", "locked"] }, backlogItem: NOT_DELETED, changedPathsAt: null, project: { gitIntegration: { enabled: true } } },
+    select: { repositoryId: true, ref: true, backlogItemId: true, backlogItem: { select: { confidential: true } } },
+    orderBy: [{ occurredAt: "desc" }, { id: "asc" }],
+    take: OVERLAP_LINKS_LIMIT + 1,
+  })
+}
+
 /** The project's repository at host + path, only while the project's Git integration is on. */
 export function findRegisteredRepository(db: Db, projectId: string, apiBase: string, repoPath: string) {
   return db.gitRepository.findFirst({

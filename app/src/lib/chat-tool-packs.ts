@@ -6,6 +6,7 @@ import { HISTORY_TOOL_DEFS, historyHandlers } from "@/lib/analysis-tools-history
 import { PORTFOLIO_TOOL_DEFS, canViewPortfolio, portfolioHandlers } from "@/lib/analysis-tools-portfolio"
 import { PROPOSAL_TOOL_DEFS, proposalHandlers } from "@/lib/proposal-tools"
 import { SCHEDULE_TOOL_DEFS, scheduleHandlers } from "@/lib/schedule-tools"
+import { GIT_STATUS_GUIDE, GIT_STATUS_TOOL_DEFS, gitStatusHandlers } from "@/lib/git-status-tools"
 
 /**
  * Optional tool packs of the chat (P3). The core pack (CHAT_TOOLS in
@@ -19,7 +20,7 @@ import { SCHEDULE_TOOL_DEFS, scheduleHandlers } from "@/lib/schedule-tools"
  * rephrase with the keyword.
  */
 
-export type PackName = "planning" | "history" | "portfolio" | "proposals" | "schedule"
+export type PackName = "planning" | "history" | "portfolio" | "proposals" | "schedule" | "git"
 
 interface Pack {
   defs: ToolDefinition[]
@@ -78,6 +79,13 @@ export const PACKS: Readonly<Record<PackName, Pack>> = {
         "- Alat ini hanya MENGUSULKAN; tidak ada yang ditulis. UI menampilkan kartu persetujuan — minta pengguna menekan Setujui. Jangan mengatakan sudah dibuat/diubah.",
     },
   },
+  git: {
+    defs: GIT_STATUS_TOOL_DEFS,
+    handlers: gitStatusHandlers,
+    // N9: merge requests (why blocked, who acts next, conflicts).
+    keywords: /マージ|ＭＲ|\bMR\b|プルリク|止まっ|ブロック|承認待ち|衝突|コンフリクト|merge request|merge|blocked|conflict|approval|permintaan merge|tertahan|konflik|persetujuan/i,
+    guide: GIT_STATUS_GUIDE,
+  },
   schedule: {
     defs: SCHEDULE_TOOL_DEFS,
     handlers: scheduleHandlers,
@@ -105,7 +113,7 @@ export const PACKS: Readonly<Record<PackName, Pack>> = {
   },
 }
 
-const PACK_ORDER: readonly PackName[] = ["planning", "history", "portfolio", "proposals", "schedule"]
+const PACK_ORDER: readonly PackName[] = ["planning", "history", "portfolio", "proposals", "schedule", "git"]
 
 /** How many recent user messages are scanned (follow-ups keep the pack). */
 const RECENT_USER_MESSAGES = 3

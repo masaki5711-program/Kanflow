@@ -35,7 +35,11 @@ vi.mock("@/services/api-v1/api-v1.confidential", async (orig) => ({
   ...(await import("@/services/api-v1/__tests__/confidential-passthrough")).confidentialPassthrough,
 }))
 vi.mock("@/services/dev-work/dev-work.service")
+vi.mock("@/services/dev-work/dev-work.start")
+vi.mock("@/services/dev-work/dev-work.repository")
 
+const start = await import("@/services/dev-work/dev-work.start")
+const devRepo = await import("@/services/dev-work/dev-work.repository")
 const repo = await import("@/services/api-tokens/api-tokens.repository")
 const v1 = await import("@/services/api-v1/api-v1.service")
 const realV1 = await vi.importActual<typeof import("@/services/api-v1/api-v1.service")>("@/services/api-v1/api-v1.service")
@@ -51,7 +55,7 @@ const token = generateApiToken()
 const MCP_ACTOR = { userId: "u1", userName: "Dev One", systemRole: "member", via: "mcp" }
 const CLAIM = { id: "c1", projectId: "p1", pbi: { id: "b1", displayId: 12, title: "Login" }, task: null, sessionId: "s-1", active: true }
 const MR_URL = "https://gitlab.scm.service.infosys.yamaha.com/grp/api/-/merge_requests/7"
-const DEV_TOOLS = ["claim_work", "declare_scope", "release_claim", "list_claims", "post_progress", "link_merge_request"]
+const DEV_TOOLS = ["claim_work", "start_work", "declare_scope", "release_claim", "list_claims", "post_progress", "link_merge_request"]
 
 let rpcId = 0
 async function rpc(method: string, params: unknown) {
@@ -97,7 +101,7 @@ beforeEach(() => {
   vi.mocked(dev.claimWork).mockResolvedValue({ claim: CLAIM, created: true, takenOver: [] } as never)
   vi.mocked(dev.releaseClaim).mockResolvedValue({ claim: { ...CLAIM, active: false } } as never)
   vi.mocked(dev.listClaims).mockResolvedValue({ data: [CLAIM], staleAfterHours: 4 } as never)
-  vi.mocked(dev.declareScope).mockResolvedValue({ scope: [{ kind: "module", value: "forge-auth" }], overlaps: [] })
+  vi.mocked(dev.declareScope).mockResolvedValue({ scope: [{ kind: "module", value: "forge-auth" }], overlaps: [], mergeRequests: null })
   vi.mocked(dev.postProgress).mockResolvedValue({ id: "cm1", via: "mcp" } as never)
   vi.mocked(dev.linkMergeRequest).mockResolvedValue({ link: { id: "l1", ref: "7", declared: true }, created: true } as never)
 })
@@ -204,9 +208,9 @@ describe("claim_work / release_claim", () => {
 describe("declare_scope (触る範囲, W4)", () => {
   it("declares through the same service as PUT .../scope, as the token user via mcp, and answers the overlaps", async () => {
     const overlaps = [{ claimId: "c2", user: { id: "u2", name: "Dev Two" }, branch: "feat/y", pbi: { id: "b2", displayId: 13 }, task: null, paths: ["crates/forge-auth/src"] }]
-    vi.mocked(dev.declareScope).mockResolvedValue({ scope: [{ kind: "module", value: "forge-auth" }], overlaps })
+    vi.mocked(dev.declareScope).mockResolvedValue({ scope: [{ kind: "module", value: "forge-auth" }], overlaps, mergeRequests: null })
     const r = await callTool("declare_scope", { claimId: "c1", projectId: "p1", scope: [{ kind: "module", value: "forge-auth" }] })
-    expect(r).toEqual({ isError: undefined, payload: { data: { scope: [{ kind: "module", value: "forge-auth" }], overlaps } } })
+    expect(r).toEqual({ isError: undefined, payload: { data: { scope: [{ kind: "module", value: "forge-auth" }], overlaps, mergeRequests: null } } })
     expect(dev.declareScope).toHaveBeenCalledWith("p1", "c1", { scope: [{ kind: "module", value: "forge-auth" }] }, MCP_ACTOR)
   })
 
@@ -254,5 +258,62 @@ describe("post_progress / link_merge_request", () => {
     vi.mocked(dev.linkMergeRequest).mockRejectedValue(new ValidationError("not registered", {}, "MR_REPOSITORY_NOT_REGISTERED"))
     const bad = await callTool("link_merge_request", { pbi: "PBI-12", projectId: "p1", url: "https://gitlab.scm.service.infosys.yamaha.com/x/y/-/merge_requests/1" })
     expect(bad).toEqual({ isError: true, payload: { error: "not registered", code: "MR_REPOSITORY_NOT_REGISTERED" } })
+  })
+})
+
+describe("start_work (N7)", () => {
+  const DEVELOPMENT = { enabled: true, provider: "gitstation", pbiKey: "PBI-12", branchSuggestion: "feature/PBI-12-login", repositories: [], mergeRequests: [], readAt: null }
+  const WARNINGS = { mergeRequestOverlaps: [{ source: "mr_paths", ref: "9", pbis: [7], count: 1, paths: ["app/src/x.ts"], complete: true }], predictedConflicts: [], predictionUnchecked: [] }
+
+  beforeEach(() => {
+    vi.mocked(v1.getPbi).mockResolvedValue({ data: { id: "b1", displayId: 12, initiative: "Login", epic: null, acceptanceCriteriaItems: [{ id: "PBI-12/AC-1" }] } } as never)
+    vi.mocked(start.pbiDevelopment).mockResolvedValue(DEVELOPMENT as never)
+    vi.mocked(start.startCommands).mockReturnValue([{ step: "branch", command: "git switch -c 'feature/PBI-12-login'", note: "n" }])
+    vi.mocked(dev.claimWork).mockResolvedValue({ claim: { ...CLAIM, scope: [] }, created: true, takenOver: [], superseded: [] } as never)
+    vi.mocked(dev.declareScope).mockResolvedValue({ scope: [{ kind: "path", value: "app/src" }], overlaps: [], mergeRequests: WARNINGS as never })
+  })
+
+  it("claims with the suggested branch, declares the scope, and answers the PBI, the warnings, the development copy and the commands", async () => {
+    const r = await callTool("start_work", { pbi: "PBI-12", projectId: "p1", sessionId: "s-1", scope: [{ kind: "path", value: "app/src" }] })
+    expect(r.isError).toBeFalsy()
+    expect(dev.claimWork).toHaveBeenCalledWith("p1", { pbi: "b1", sessionId: "s-1", branch: "feature/PBI-12-login" }, MCP_ACTOR)
+    expect(dev.declareScope).toHaveBeenCalledWith("p1", "c1", { scope: [{ kind: "path", value: "app/src" }] }, MCP_ACTOR)
+    expect(start.startCommands).toHaveBeenCalledWith(expect.objectContaining({ branch: "feature/PBI-12-login", pbiKey: "PBI-12", criteria: ["PBI-12/AC-1"], sessionId: "s-1", hasOpenMr: false }))
+    expect(r.payload.data).toMatchObject({
+      claim: { id: "c1", scope: [{ kind: "path", value: "app/src" }] },
+      created: true,
+      mergeRequestWarnings: WARNINGS,
+      pbi: { id: "b1", displayId: 12 },
+      development: { branch: "feature/PBI-12-login", provider: "gitstation" },
+      nextCommands: [{ step: "branch" }],
+    })
+  })
+
+  it("TASK_CLAIMED stops before the scope is declared (nothing else written)", async () => {
+    vi.mocked(dev.claimWork).mockRejectedValue(new ConflictError("held", { holders: [] }, "TASK_CLAIMED"))
+    const r = await callTool("start_work", { pbi: "PBI-12", projectId: "p1", sessionId: "s-1", scope: [{ kind: "path", value: "app/src" }] })
+    expect(r).toMatchObject({ isError: true, payload: { code: "TASK_CLAIMED" } })
+    expect(dev.declareScope).not.toHaveBeenCalled()
+  })
+
+  it("a bad scope is refused before anything is claimed", async () => {
+    vi.mocked(dev.normalizedScopeOrThrow).mockImplementation(() => {
+      throw new ValidationError('scope[0] contains ".."', {}, "SCOPE_INVALID")
+    })
+    const r = await callTool("start_work", { pbi: "PBI-12", projectId: "p1", sessionId: "s-1", scope: [{ kind: "path", value: "../x" }] })
+    expect(r).toMatchObject({ isError: true, payload: { code: "SCOPE_INVALID" } })
+    expect(dev.claimWork).not.toHaveBeenCalled()
+  })
+
+  it("a task: its PBI is resolved first; without a scope the MR warnings come from the project's MRs", async () => {
+    vi.mocked(devRepo.findTask).mockResolvedValue({ id: "k1", pbItemId: "b1" })
+    vi.mocked(dev.readMrContext).mockResolvedValue({ links: [], truncated: false, pending: [] })
+    vi.mocked(dev.claimMrWarnings).mockReturnValue(null)
+    const r = await callTool("start_work", { taskId: "k1", projectId: "p1", sessionId: "s-1", branch: "feat/mine" })
+    expect(r.isError).toBeFalsy()
+    expect(v1.getPbi).toHaveBeenCalledWith("p1", "b1")
+    expect(dev.claimWork).toHaveBeenCalledWith("p1", { taskId: "k1", sessionId: "s-1", branch: "feat/mine" }, MCP_ACTOR)
+    expect(dev.declareScope).not.toHaveBeenCalled()
+    expect(r.payload.data).toMatchObject({ mergeRequestWarnings: null, development: { branch: "feat/mine" } })
   })
 })

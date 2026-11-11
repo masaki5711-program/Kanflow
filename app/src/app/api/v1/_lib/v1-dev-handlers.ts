@@ -8,8 +8,26 @@ import {
   listClaimsQuerySchema,
   mrLinkSchema,
   progressCommentSchema,
+  startWorkSchema,
 } from "@/services/dev-work/dev-work.schemas"
-import { claimWork, declareScope, heartbeatClaim, linkMergeRequest, listClaims, postProgress, releaseClaim } from "@/services/dev-work/dev-work.service"
+import {
+  claimMrWarnings,
+  claimWork,
+  declareScope,
+  heartbeatClaim,
+  linkMergeRequest,
+  listClaims,
+  normalizedScopeOrThrow,
+  postProgress,
+  readMrContext,
+  releaseClaim,
+  type ScopeOverlapDto,
+} from "@/services/dev-work/dev-work.service"
+import { findTask } from "@/services/dev-work/dev-work.repository"
+import { pbiDevelopment, startCommands } from "@/services/dev-work/dev-work.start"
+import { getPbi } from "@/services/api-v1/api-v1.service"
+import { defaultDb } from "@/services/_shared/db"
+import { NotFoundError } from "@/services/_shared/errors"
 import type { V1WriteInput } from "./v1-handlers"
 import { V1Reply } from "./v1-route"
 
@@ -65,6 +83,65 @@ export async function declareScopeOp({ projectId, params, body, serviceActor }: 
   const result = await declareScope(projectId, await maskClaimId(projectId, params.claimId), declareScopeSchema.parse(body), serviceActor)
   // Other people's claims on confidential PBIs are not shown as overlaps.
   return { data: { ...result, overlaps: await withoutConfidentialItems(result.overlaps, (o) => o.pbi.id) } }
+}
+
+/**
+ * N7 start_work (MCP; docs/integration/gitstation-operations-plan.md §3): claim the PBI / task (409 TASK_CLAIMED
+ * stops here, nothing else is written), declare the scope when given (checked BEFORE the claim, so a bad scope
+ * claims nothing), then answer what the session needs to start: the claim, the overlap warnings from the three
+ * sources (declared scopes, other MRs' changed files, predicted conflicts), the PBI with its acceptance criteria
+ * (ids PBI-12/AC-2), the development copy (branch suggestion, repositories, the PBI's MRs as last synced) and the
+ * next commands as data. Kanflow calls no GitStation API and creates no branch or MR.
+ */
+export async function startWorkOp({ projectId, body, serviceActor }: V1WriteInput) {
+  const parsed = startWorkSchema.parse(body)
+  if (parsed.scope !== undefined) normalizedScopeOrThrow({ scope: parsed.scope })
+  const target = {
+    ...(parsed.pbi !== undefined ? { pbi: await maskPbiRef(projectId, parsed.pbi) } : {}),
+    ...(parsed.taskId !== undefined ? { taskId: await maskTaskId(parsed.taskId) } : {}),
+  }
+  // The PBI first (a confidential or missing one answers 404 before anything is written).
+  let pbiRef = target.pbi
+  if (pbiRef === undefined) {
+    const task = await findTask(defaultDb, projectId, target.taskId ?? "")
+    if (!task) throw new NotFoundError("Task not found")
+    pbiRef = task.pbItemId
+  }
+  const pbi = (await getPbi(projectId, pbiRef)).data
+  const development = await pbiDevelopment(projectId, pbi)
+  // The branch is recorded on the claim: the one given, else the one the session is told to create.
+  const branch = parsed.branch ?? development.branchSuggestion
+  const claimed = await claimWork(projectId, { ...target, sessionId: parsed.sessionId, branch, ...(parsed.takeover !== undefined ? { takeover: parsed.takeover } : {}) }, serviceActor)
+  let claim = claimed.claim
+  let overlaps: { overlaps: ScopeOverlapDto[]; overlapsTruncated?: true } = { overlaps: [] }
+  let mergeRequestWarnings
+  if (parsed.scope !== undefined) {
+    const declared = await declareScope(projectId, claim.id, { scope: parsed.scope }, serviceActor)
+    claim = { ...claim, scope: declared.scope }
+    // Other people's claims on confidential PBIs are not shown as overlaps.
+    overlaps = { overlaps: await withoutConfidentialItems(declared.overlaps, (o) => o.pbi.id), ...(declared.overlapsTruncated ? { overlapsTruncated: true as const } : {}) }
+    mergeRequestWarnings = declared.mergeRequests
+  } else {
+    mergeRequestWarnings = claimMrWarnings({ backlogItemId: claim.pbi.id, branch, scope: claim.scope }, await readMrContext(projectId), true)
+  }
+  const criteria = pbi.acceptanceCriteriaItems.map((c) => c.id)
+  const hasOpenMr = development.mergeRequests.some((m) => m.state === "opened" || m.state === "locked")
+  return new V1Reply(
+    {
+      data: {
+        claim,
+        created: claimed.created,
+        takenOver: claimed.takenOver,
+        superseded: claimed.superseded,
+        ...overlaps,
+        mergeRequestWarnings,
+        pbi,
+        development: { ...development, branch },
+        nextCommands: startCommands({ provider: development.provider, branch, pbiKey: development.pbiKey, criteria, sessionId: parsed.sessionId, hasOpenMr }),
+      },
+    },
+    claimed.created ? 201 : 200,
+  )
 }
 
 /** Open claims of the project (read); session ids only on the viewer's own claims. */

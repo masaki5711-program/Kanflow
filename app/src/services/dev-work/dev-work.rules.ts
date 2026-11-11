@@ -18,6 +18,7 @@
  *   refreshed, never duplicated), so it never blocks itself.
  */
 
+import type { ClaimMrWarnings } from "./dev-work.mr-overlap"
 import { SCOPE_KINDS, sortScope, type ScopeEntry } from "./dev-work.scope"
 
 export const DEFAULT_CLAIM_STALE_HOURS = 4
@@ -156,6 +157,8 @@ export interface ClaimDto {
   stale: boolean
   /** 触る範囲 (W4): the declared files / modules (empty = none declared). */
   scope: ScopeEntry[]
+  /** N6 (active claims, list answers): other open MRs changing files of the scope, predicted conflicts; absent = none. */
+  mergeRequests?: ClaimMrWarnings
 }
 
 /** Who holds a target (body of 409 TASK_CLAIMED: `holders`). */
@@ -237,6 +240,8 @@ export interface BoardClaimDto {
    * Filled by the service (dev-work.service listBoardClaims); no session ids.
    */
   overlaps: BoardOverlapDto[]
+  /** N6 (active claims): other open MRs changing files of the scope, predicted conflicts; absent = none. */
+  mergeRequests?: ClaimMrWarnings
 }
 
 /** Entries of a claim's scope sent to the screens. */

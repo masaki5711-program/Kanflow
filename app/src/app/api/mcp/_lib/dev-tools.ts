@@ -12,6 +12,7 @@ import {
   listClaimsOp,
   postProgressOp,
   releaseClaimOp,
+  startWorkOp,
 } from "@/app/api/v1/_lib/v1-dev-handlers"
 import { CREATE_NOTE, DATA_NOTICE, definedOnly, guard, mcpWrite, pbiIdIn, pbiScope, projectScope, toolOk } from "./tool-kit"
 
@@ -73,6 +74,43 @@ export function registerDevTools(server: McpServer, principal: ApiPrincipal): vo
         const scope = await targetScope(projectId, { pbi, taskId })
         const body = definedOnly({ pbi: pbi === undefined ? undefined : await pbiIdIn(scope.projectId, pbi), taskId, sessionId, branch, takeover })
         return mcpWrite(principal, { tool: "claim_work", scope, action: "dev.write", body, params: {}, op: claimWorkOp })
+      }),
+  )
+
+  server.registerTool(
+    "start_work",
+    {
+      description: describe(
+        "Start on a PBI or one sprint task in ONE call (scope dev:write, team members): claim_work, then declare_scope when `scope` is given, and the answer has everything to begin. " +
+          "Same rules as claim_work: TASK_CLAIMED (409, `holders`) means someone else works on it — stop and tell the user; nothing was written. A bad scope (SCOPE_INVALID / SCOPE_TOO_LARGE) is refused before anything is claimed. " +
+          "The answer: `claim` (keep its id for heartbeats, declare_scope, release_claim); `overlaps` (other people's declared scopes sharing files — intent); " +
+          "`mergeRequestWarnings` — `mergeRequestOverlaps` (other open MRs that ALREADY change files of your scope — fact; `complete: false` = their file list was cut short), `predictedConflicts` (GitStation's trial merge predicts your PBI's MR conflicts with another MR), `predictionUnchecked` (not scanned completely: NOT 'no conflict'), `changedPathsPending` (open MRs whose files the sync has not read yet); " +
+          "`pbi` (text and acceptance criteria with ids PBI-12/AC-2); `development` (branch to use, repositories, the PBI's MRs with why they cannot merge and the checks, as last synced — `readAt`; ask GitStation with your own token for the latest); " +
+          "`nextCommands` (git / gstn commands as DATA — run them yourself with the user's own tokens; Kanflow creates no branch or MR). " +
+          "Every warning is a warning, never a refusal: when there is any, STOP and show it to the user (who, which files, which MR) and agree on the plan before editing those files. " +
+          "MR descriptions carry only keys (PBI-12, PBI-12/AC-2) and `Kanflow-Session: <sessionId>` — never copy the PBI's text. Never approve or merge.",
+      ),
+      inputSchema: {
+        pbi: pbiArg.optional(),
+        taskId: id.optional().describe("A sprint task id (from get_sprint_tasks / my_tasks / get_pbi)."),
+        sessionId: devSessionId.describe("Your session id (e.g. the Claude Code session id); 1-100 visible ASCII characters."),
+        branch: devBranch.optional().describe("The branch you will work on; default: the PBI's branch name suggestion."),
+        takeover: z.boolean().optional().describe("End your own other sessions' active claims on the target (never another user's)."),
+        scope: z
+          .array(z.object({ kind: z.enum(SCOPE_KINDS), value: z.string().min(1).max(1000) }))
+          .max(SCOPE_RAW_ENTRIES_MAX)
+          .optional()
+          .describe("The files / modules you plan to touch (same entries as declare_scope). Give it when you know it: the MR warnings compare against it."),
+        projectId: optionalProjectId,
+      },
+      annotations: IDEMPOTENT_WRITE,
+    },
+    ({ pbi, taskId, sessionId, branch, takeover, scope, projectId }) =>
+      guard("start_work", async () => {
+        if ((pbi === undefined) === (taskId === undefined)) throw new ValidationError("Give exactly one of pbi and taskId", {}, "VALIDATION")
+        const target = await targetScope(projectId, { pbi, taskId })
+        const body = definedOnly({ pbi: pbi === undefined ? undefined : await pbiIdIn(target.projectId, pbi), taskId, sessionId, branch, takeover, scope })
+        return mcpWrite(principal, { tool: "start_work", scope: target, action: "dev.write", body, params: {}, op: startWorkOp })
       }),
   )
 

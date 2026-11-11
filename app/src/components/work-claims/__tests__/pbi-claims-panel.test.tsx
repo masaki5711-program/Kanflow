@@ -177,3 +177,38 @@ describe("PBI 担当中 panel", () => {
     expect(screen.getByText("!7 also changes 1 files outside the declared scope: {count}$&.ts")).toBeInTheDocument()
   })
 })
+
+describe("N6: other merge requests against the declared scope (synthetic)", () => {
+  const WARNINGS = {
+    mergeRequestOverlaps: [{ ref: "9", title: "x", url: "https://gitstation.example.test/mr/9", repository: "app", pbis: [7], count: 2, paths: ["app/a.ts", "app/b.ts"], complete: false }],
+    predictedConflicts: [
+      { ref: "4", url: "https://gitstation.example.test/mr/4", peer: { ref: "9", url: null, pbis: [7] }, files: 3 },
+      { ref: "4", url: "javascript:alert(1)", peer: null, files: 1 },
+    ],
+    predictionUnchecked: ["5"],
+    changedPathsPending: 2,
+  }
+
+  it("shows the MR that already changes files of the scope, the predicted conflicts and what is not checked yet", async () => {
+    claims = [c({ mergeRequests: WARNINGS })]
+    renderPanel()
+    const overlap = await screen.findByText(/!9 \(PBI-7\) already changes files in this scope \(2\): app\/a\.ts, app\/b\.ts/)
+    expect(overlap.textContent).toContain("(only part of !9's changed files could be read)")
+    // The sentence is not a link; a short link after it names where it goes and that it opens a new tab.
+    expect(overlap.closest("a")).toBeNull()
+    expect(screen.getByRole("link", { name: "Open !9 (new tab)" })).toHaveAttribute("href", "https://gitstation.example.test/mr/9")
+    expect(screen.getByText("!4 is predicted to conflict with !9 (PBI-7) (files: 3)")).toBeInTheDocument()
+    // A peer this view may not name; a non-https URL gets no link.
+    expect(screen.getByText("!4 is predicted to conflict with another merge request (files: 1)")).toBeInTheDocument()
+    expect(screen.getAllByRole("link", { name: "Open !4 (new tab)" })).toHaveLength(1)
+    expect(screen.getByText("The conflict prediction for !5 is not complete yet (a conflict is still possible)")).toBeInTheDocument()
+    expect(screen.getByText("Merge requests whose changed files are not read yet: 2 (checked at the next sync)")).toBeInTheDocument()
+  })
+
+  it("not on a stale claim", async () => {
+    claims = [c({ stale: true, staleAt: at(-60_000), mergeRequests: WARNINGS })]
+    renderPanel()
+    await screen.findByRole("region", { name: t.workClaimPanelTitle })
+    expect(screen.queryByText(/already changes/)).toBeNull()
+  })
+})

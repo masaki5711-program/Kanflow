@@ -38,6 +38,11 @@ vi.mock("@/services/api-tokens/api-tokens.repository")
 vi.mock("@/services/sprint-backlog/sprint-backlog.service")
 vi.mock("@/services/comments/comments.service")
 vi.mock("@/services/dev-work/dev-work.service")
+// N7: get_pbi's development copy reads Git links only (no PBI text); stubbed here.
+vi.mock("@/services/dev-work/dev-work.start", () => ({
+  pbiDevelopment: vi.fn(async () => ({ enabled: false, provider: null, pbiKey: "PBI-1", branchSuggestion: "feature/PBI-1", repositories: [], mergeRequests: [], readAt: null })),
+  startCommands: vi.fn(() => []),
+}))
 
 const repo = await import("@/services/api-tokens/api-tokens.repository")
 const sprintBacklog = await import("@/services/sprint-backlog/sprint-backlog.service")

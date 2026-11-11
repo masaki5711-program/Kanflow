@@ -23,6 +23,11 @@ vi.mock("@/services/comments/comments.service")
 vi.mock("@/services/acceptance-criteria/acceptance-criteria.service")
 vi.mock("@/services/sprints/sprints.service")
 vi.mock("@/services/dev-work/dev-work.service")
+// N7: get_pbi's development copy reads Git links only (no PBI text); stubbed here.
+vi.mock("@/services/dev-work/dev-work.start", () => ({
+  pbiDevelopment: vi.fn(async () => ({ enabled: false, provider: null, pbiKey: "PBI-1", branchSuggestion: "feature/PBI-1", repositories: [], mergeRequests: [], readAt: null })),
+  startCommands: vi.fn(() => []),
+}))
 
 const fixture = await import("@/services/api-v1/__tests__/confidential-fixture")
 const { leaksSecret } = fixture

@@ -68,6 +68,9 @@ beforeEach(() => {
   vi.mocked(repo.lockOpenClaim).mockResolvedValue(1)
   vi.mocked(repo.findActiveScopedClaims).mockResolvedValue([])
   vi.mocked(repo.findOutsideScopeLinks).mockResolvedValue([])
+  // N6: no open MR known to the Git sync unless a test says so.
+  vi.mocked(repo.findOpenMrLinksForOverlap).mockResolvedValue([])
+  vi.mocked(repo.findOpenMrLinksWithoutPaths).mockResolvedValue([])
   svc.resetClaimSettingsWarning()
 })
 
@@ -356,7 +359,8 @@ describe("declareScope (触る範囲, W4)", () => {
   it("replaces the whole scope under the claim's row lock (READ COMMITTED) and answers it normalized", async () => {
     const out = await svc.declareScope("p1", "c1", { scope: [{ kind: "path", value: "./app/src/" }, { kind: "module", value: "core" }, { kind: "path", value: "app/src" }] }, ACTOR, NOW)
     const want = [{ kind: "module", value: "core" }, { kind: "path", value: "app/src" }]
-    expect(out).toEqual({ scope: want, overlaps: [] })
+    // N6: no open MR changes these files, no prediction → no MR warnings.
+    expect(out).toEqual({ scope: want, overlaps: [], mergeRequests: null })
     expect(db.withTransaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: "ReadCommitted" })
     expect(repo.lockOpenClaim).toHaveBeenCalledWith(TX, "c1", NOW)
     expect(repo.replaceScope).toHaveBeenCalledWith(TX, "c1", want)
@@ -387,8 +391,26 @@ describe("declareScope (触る範囲, W4)", () => {
   })
 
   it("[] clears the scope", async () => {
-    expect(await svc.declareScope("p1", "c1", { scope: [] }, ACTOR, NOW)).toEqual({ scope: [], overlaps: [] })
+    expect(await svc.declareScope("p1", "c1", { scope: [] }, ACTOR, NOW)).toEqual({ scope: [], overlaps: [], mergeRequests: null })
     expect(repo.replaceScope).toHaveBeenCalledWith(TX, "c1", [])
+  })
+
+  it("N6: the MR data failing to load never fails the declaration — the answer says the MR check is unavailable (logged)", async () => {
+    vi.mocked(repo.findOpenMrLinksForOverlap).mockRejectedValue(new Error("db down"))
+    const out = await svc.declareScope("p1", "c1", { scope: [{ kind: "path", value: "app/src" }] }, ACTOR, NOW)
+    expect(repo.replaceScope).toHaveBeenCalled()
+    expect(out.mergeRequests).toMatchObject({ mergeRequestOverlaps: [], mergeRequestsUnavailable: true })
+    expect(log.warn).toHaveBeenCalledWith("merge request warnings not read", expect.objectContaining({ projectId: "p1" }))
+  })
+
+  it("N6: pending MRs count only other PBIs' MRs (and leave out confidential ones on token surfaces)", async () => {
+    vi.mocked(repo.findOpenMrLinksWithoutPaths).mockResolvedValue([
+      { repositoryId: "r", ref: "1", backlogItemId: "b1", backlogItem: { confidential: false } },
+      { repositoryId: "r", ref: "2", backlogItemId: "b9", backlogItem: { confidential: false } },
+      { repositoryId: "r", ref: "3", backlogItemId: "b8", backlogItem: { confidential: true } },
+    ])
+    const out = await svc.declareScope("p1", "c1", { scope: [{ kind: "path", value: "app/src" }] }, ACTOR, NOW)
+    expect(out.mergeRequests?.changedPathsPending).toBe(1)
   })
 
   it.each([

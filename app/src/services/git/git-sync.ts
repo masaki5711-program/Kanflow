@@ -11,6 +11,7 @@ import { writeReleases } from "./git-release-sync"
 import { allMergeRequestsMerged, linksFromBranch, linksFromCommit, linksFromMergeRequest, mergeRequestFields, type LinkDraft } from "./git-links"
 import { checkMergeRequestScopes, type ScopeCheckCandidate } from "./git-scope-check"
 import { refreshMergeStates, type MergeStateCandidate } from "./git-merge-state"
+import { refreshChangedPaths } from "./git-changed-paths"
 
 /**
  * Polling sync of one repository: merge requests and commits changed since the
@@ -169,11 +170,16 @@ export async function writeRead(repo: SyncRepositoryRow, integration: SyncIntegr
   // 触る範囲 (W4): open MRs read in this sync (and links due a recheck after a scope change) vs the
   // declared scope of the PBI's active claims — a warning on the link (never blocks). Skipped
   // like the pipelines when the MR listing failed.
-  const scoped = mrFailed ? 0 : await checkMergeRequestScopes(source, { id: repo.id, projectId: repo.projectId }, scopeCandidates(mrDrafts, pbiIds, read.freshMrRefs), now)
+  // N6: the files each open merge request changes, for the overlap warning against other people's declared scope
+  // (read only while the project has a scoped claim). Its reads are reused by the scope check below.
+  const paths = mrFailed ? null : await refreshChangedPaths(source, { id: repo.id, projectId: repo.projectId }, mergeStateCandidates(mrDrafts, pbiIds, read.freshMrRefs), now)
+  const scoped = mrFailed
+    ? 0
+    : await checkMergeRequestScopes(source, { id: repo.id, projectId: repo.projectId }, scopeCandidates(mrDrafts, pbiIds, read.freshMrRefs), now, { known: paths?.read })
   // N4 / N5: why open merge requests cannot merge and their predicted conflicts (GitStation only; a display). Skipped
   // like the scope check when the merge request listing failed.
   const mergeStates = mrFailed ? 0 : await refreshMergeStates(source, repo.id, mergeStateCandidates(mrDrafts, pbiIds, read.freshMrRefs), now)
-  const changed = linkChanges + declared + scoped + mergeStates
+  const changed = linkChanges + declared + scoped + mergeStates + (paths?.changed ?? 0)
   // `branches` is null when that listing failed: then nothing is marked gone.
   const gone = read.branches ? await markGoneBranches(repo.id, read.branches, branchDrafts, pbiIds, now) : 0
   const releases = await syncReleasesSafely(source, repo, now)

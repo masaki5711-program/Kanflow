@@ -29,7 +29,7 @@ export const CONFIDENTIAL_MECHANISMS = [
   "mask:task-id", // a task under a confidential PBI is a missing task
   "mask:claim-id", // a claim on a confidential PBI is a missing claim
   "mask:comment-target", // comment threads of a confidential PBI (or its tasks) are missing
-  "filter:claims", // claim lists and scope overlaps drop claims on confidential PBIs
+  "filter:claims", // claim lists and scope overlaps drop claims on confidential PBIs (and N6 MR warnings their MRs)
   "filter:sprint-answer", // a sprint answer drops the tasks of confidential PBIs
   "schema:no-flag", // a token cannot set or clear the flag
 ] as const
@@ -73,6 +73,8 @@ export const MCP_TOOL_COVERAGE: Readonly<Record<string, Coverage>> = {
   post_daily_scrum: independent("a daily scrum note is the caller's own text"),
   // development (dev:write)
   claim_work: by("read:locate", "mask:pbi-ref", "mask:task-id"),
+  // N7: claim_work + declare_scope; the answer's PBI goes through findPbi, MR warnings drop confidential PBIs' MRs.
+  start_work: by("read:locate", "read:pbi", "mask:pbi-ref", "mask:task-id", "filter:claims"),
   release_claim: by("mask:claim-id"),
   declare_scope: by("mask:claim-id", "filter:claims"),
   list_claims: by("mask:pbi-ref", "mask:task-id", "filter:claims"),

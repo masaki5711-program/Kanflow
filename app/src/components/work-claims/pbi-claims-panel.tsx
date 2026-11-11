@@ -6,9 +6,9 @@ import { fillTemplate } from "@/lib/fill-template"
 import { formatDateTime, formatRelative } from "@/lib/format-date"
 import { apiFetch, useApiMutation } from "@/hooks"
 import { Button, cn, useConfirm } from "@/components/ui"
-import { claimState, overlapsOf, type ScreenClaim, type ScreenOutsideScope } from "./claim-view"
+import { claimState, mrWarningsOf, overlapsOf, type ScreenClaim, type ScreenOutsideScope } from "./claim-view"
 import { projectFeatures } from "@/lib/project-features"
-import { AiMarker, BranchName, ClaimAvatar, ClaimStateBadge, OverlapWarning, ScopeLine, usePathList, useShowBranch, WarningLine } from "./claim-parts"
+import { AiMarker, BranchName, ClaimAvatar, ClaimStateBadge, MrWarningLines, OverlapWarning, ScopeLine, usePathList, useShowBranch, WarningLine } from "./claim-parts"
 import { useNow, useWorkClaims } from "./use-work-claims"
 
 interface Props {
@@ -74,6 +74,7 @@ function ClaimRow({ projectId, claim, now, showBranch, canModerate, onReleased }
   const { t, language } = useLanguage()
   const confirm = useConfirm()
   const state = claimState(claim, now)
+  const mrWarnings = mrWarningsOf(claim)
   const release = useApiMutation(
     () => apiFetch(`/api/projects/${projectId}/dev/claims/${encodeURIComponent(claim.id)}/release`, { method: "POST" }),
     { toastOnSuccess: t.workClaimReleased, toastOnError: () => t.workClaimReleaseFailed, onSuccess: onReleased },
@@ -104,6 +105,7 @@ function ClaimRow({ projectId, claim, now, showBranch, canModerate, onReleased }
         {showBranch && claim.branch && <BranchName branch={claim.branch} />}
         {showBranch && claim.scope && <ScopeLine scope={claim.scope} scopeCount={claim.scopeCount} />}
         {overlapsOf(claim).map((o) => <OverlapWarning key={o.claimId} overlap={o} />)}
+        {showBranch && mrWarnings && <MrWarningLines warnings={mrWarnings} />}
         <dl className="flex flex-wrap gap-x-3 text-caption text-fg-muted">
           <div className="flex gap-1">
             <dt>{t.workClaimSince}:</dt>

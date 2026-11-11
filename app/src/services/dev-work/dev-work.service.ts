@@ -38,6 +38,7 @@ import { ConflictError, ForbiddenError, isUniqueViolation, NotFoundError, Status
 import { notify } from "@/services/_shared/notifications"
 import { createComment } from "@/services/comments/comments.service"
 import * as repo from "./dev-work.repository"
+import { isEmptyWarnings, mrWarnings, type ClaimMrWarnings, type MrLinkForOverlap } from "./dev-work.mr-overlap"
 import { normalizeScope, scopeOverlaps, type ScopeEntry } from "./dev-work.scope"
 import {
   canTakeOver,
@@ -323,6 +324,89 @@ const SCOPE_REFUSAL_TEXT: Record<string, string> = {
   too_long: "is longer than 300 characters",
 }
 
+/**
+ * N6: what the Git sync knows about the project's open merge requests, read once per answer (2 queries): the links
+ * with changed files or a conflict prediction, and the open MRs with no file list yet. `unavailable`: the read failed
+ * (logged) — the answer goes on without MR warnings and says so; the warnings never decide whether a claim, a scope
+ * or a list succeeds.
+ */
+export interface MrContext {
+  links: MrLinkForOverlap[]
+  /** More open MR links than one check reads (repo.OVERLAP_LINKS_LIMIT): the warnings may be incomplete. */
+  truncated: boolean
+  /** Open MRs whose changed files the sync has not read yet (read while someone has a declared scope), with their PBI. */
+  pending: { key: string; backlogItemId: string; confidential: boolean }[]
+  unavailable?: true
+}
+
+const NO_MR_CONTEXT: MrContext = { links: [], truncated: false, pending: [], unavailable: true }
+
+export async function readMrContext(projectId: string): Promise<MrContext> {
+  let rows: Awaited<ReturnType<typeof repo.findOpenMrLinksForOverlap>>
+  let pendingRows: Awaited<ReturnType<typeof repo.findOpenMrLinksWithoutPaths>>
+  try {
+    ;[rows, pendingRows] = await Promise.all([repo.findOpenMrLinksForOverlap(defaultDb, projectId), repo.findOpenMrLinksWithoutPaths(defaultDb, projectId)])
+  } catch (err) {
+    log.warn("merge request warnings not read", { projectId, error: err instanceof Error ? err.message : String(err) })
+    return NO_MR_CONTEXT
+  }
+  const truncated = rows.length > repo.OVERLAP_LINKS_LIMIT || pendingRows.length > repo.OVERLAP_LINKS_LIMIT
+  if (truncated) log.warn("too many open merge requests for a complete overlap check", { projectId, limit: repo.OVERLAP_LINKS_LIMIT })
+  const pending = pendingRows.slice(0, repo.OVERLAP_LINKS_LIMIT).map((r) => ({ key: `${r.repositoryId}\n${r.ref}`, backlogItemId: r.backlogItemId, confidential: r.backlogItem.confidential }))
+  const links = rows.slice(0, repo.OVERLAP_LINKS_LIMIT).map((r) => ({
+    repositoryId: r.repositoryId,
+    repository: r.repository.name,
+    ref: r.ref,
+    title: r.title,
+    url: r.url,
+    author: r.author,
+    sourceBranch: r.sourceBranch,
+    backlogItemId: r.backlogItemId,
+    pbiDisplayId: r.backlogItem.displayId,
+    confidential: r.backlogItem.confidential,
+    changedPaths: r.changedPaths,
+    changedPathsComplete: r.changedPathsComplete,
+    conflictPrediction: r.conflictPrediction,
+    mergeStatusAt: r.mergeStatusAt,
+  }))
+  return { links, truncated, pending }
+}
+
+/** Pure: other PBIs' open MRs (confidential ones left out on token surfaces) whose files are not read yet. */
+function pendingFor(claim: { backlogItemId: string }, context: MrContext, hideConfidential: boolean): number {
+  const own = new Set(context.pending.filter((p) => p.backlogItemId === claim.backlogItemId).map((p) => p.key))
+  const hidden = new Set(hideConfidential ? context.pending.filter((p) => p.confidential).map((p) => p.key) : [])
+  return new Set(context.pending.filter((p) => !own.has(p.key) && !hidden.has(p.key)).map((p) => p.key)).size
+}
+
+
+/** A declared scope normalized (dev-work.scope), or 400 SCOPE_INVALID / SCOPE_TOO_LARGE naming the first bad entry. */
+export function normalizedScopeOrThrow(input: DeclareScopeInput): ScopeEntry[] {
+  const normalized = normalizeScope(input.scope)
+  if (normalized.ok) return normalized.scope
+  if (normalized.reason === "too_many") {
+    throw new ValidationError("Too many scope entries (at most 200 distinct ones per claim); declare directories or modules instead", {}, "SCOPE_TOO_LARGE")
+  }
+  throw new ValidationError(`scope[${normalized.index}] ${SCOPE_REFUSAL_TEXT[normalized.reason] ?? "is not usable"}`, {}, "SCOPE_INVALID")
+}
+
+/** N6: the warnings of one claim from a read context; null when there is nothing to say. */
+export function claimMrWarnings(
+  claim: { backlogItemId: string; branch: string | null; scope: readonly ScopeEntry[] },
+  context: MrContext,
+  hideConfidential: boolean,
+): ClaimMrWarnings | null {
+  const warnings = mrWarnings(claim, context.links, hideConfidential)
+  const pending = claim.scope.length > 0 ? pendingFor(claim, context, hideConfidential) : 0
+  if (isEmptyWarnings(warnings) && pending === 0 && !context.unavailable) return null
+  return {
+    ...warnings,
+    ...(context.truncated ? { mergeRequestsTruncated: true as const } : {}),
+    ...(pending > 0 ? { changedPathsPending: pending } : {}),
+    ...(context.unavailable ? { mergeRequestsUnavailable: true as const } : {}),
+  }
+}
+
 export interface DeclareScopeResult {
   /** The stored scope, normalized and sorted. */
   scope: ScopeEntry[]
@@ -330,6 +414,8 @@ export interface DeclareScopeResult {
   overlaps: ScopeOverlapDto[]
   /** More active claims with a scope than one check reads (repo.SCOPED_CLAIMS_LIMIT): the list may be incomplete. */
   overlapsTruncated?: true
+  /** N6: other open MRs changing files of the scope, and predicted conflicts of the PBI's MRs (null = none). */
+  mergeRequests: ClaimMrWarnings | null
 }
 
 /** Other active claims of the project with a scope (bounded; `truncated` when more exist — logged). */
@@ -357,13 +443,7 @@ export async function declareScope(
   actor: Actor,
   now: Date = new Date(),
 ): Promise<DeclareScopeResult> {
-  const normalized = normalizeScope(input.scope)
-  if (!normalized.ok) {
-    if (normalized.reason === "too_many") {
-      throw new ValidationError("Too many scope entries (at most 200 distinct ones per claim); declare directories or modules instead", {}, "SCOPE_TOO_LARGE")
-    }
-    throw new ValidationError(`scope[${normalized.index}] ${SCOPE_REFUSAL_TEXT[normalized.reason] ?? "is not usable"}`, {}, "SCOPE_INVALID")
-  }
+  const normalized = { scope: normalizedScopeOrThrow(input) }
   const { staleHours: hours } = settings()
   const first = await reloadClaim(defaultDb, projectId, claimId)
   if (first.userId !== actor.userId) throw new ForbiddenError("Only the user who made the claim can declare its scope", {}, "FORBIDDEN")
@@ -371,12 +451,14 @@ export async function declareScope(
     if ((await repo.lockOpenClaim(tx, claimId, now)) === 0) throw releasedError()
     await repo.replaceScope(tx, claimId, normalized.scope)
   }, CLAIM_TX)
-  const others = await activeScopedClaims(projectId, staleBefore(now, hours))
+  const [others, context] = await Promise.all([activeScopedClaims(projectId, staleBefore(now, hours)), readMrContext(projectId)])
   const overlaps = scopeOverlaps(claimId, normalized.scope, withScope(others.rows), now, hours)
   return {
     scope: normalized.scope,
     overlaps: overlaps.map((o) => toScopeOverlapDto(o.claim.row, o.paths)),
     ...(others.truncated ? { overlapsTruncated: true as const } : {}),
+    // A token surface (MCP, /api/v1): MRs of confidential PBIs are not named (D-5).
+    mergeRequests: claimMrWarnings({ backlogItemId: first.backlogItemId, branch: first.branch, scope: normalized.scope }, context, true),
   }
 }
 
@@ -392,8 +474,15 @@ export async function listClaims(projectId: string, query: ListClaimsQuery, view
   if (query.taskId !== undefined) filter.taskId = query.taskId
   const rows = await repo.findOpenClaims(defaultDb, projectId, staleBefore(now, CLAIM_LIST_LOOKBACK_HOURS), filter, options.hideConfidential === true)
   const truncated = rows.length > repo.CLAIM_LIST_LIMIT
+  const shown = rows.slice(0, repo.CLAIM_LIST_LIMIT)
+  // N6: MR warnings on the active claims (one read of the project's open MRs, only when there is an active claim).
+  const context = shown.some((r) => isClaimActive(r, now, hours)) ? await readMrContext(projectId) : null
   return {
-    data: rows.slice(0, repo.CLAIM_LIST_LIMIT).map((r) => toClaimDto(r, now, hours, viewerId)),
+    data: shown.map((r) => {
+      const dto = toClaimDto(r, now, hours, viewerId)
+      const warnings = context && dto.active ? claimMrWarnings({ backlogItemId: r.backlogItemId, branch: r.branch, scope: dto.scope }, context, options.hideConfidential === true) : null
+      return warnings ? { ...dto, mergeRequests: warnings } : dto
+    }),
     staleAfterHours: hours,
     ...(truncated ? { truncated: true, limit: repo.CLAIM_LIST_LIMIT } : {}),
   }
@@ -442,17 +531,31 @@ async function currentOutsideScopeLinks(pbiId: string, rows: readonly ClaimRow[]
   return links.filter((l) => l.scopeCheckedAt !== null && l.scopeCheckedAt.getTime() >= since)
 }
 
-/** W4: overlap warnings on the active claims of a screen (one extra read, only when one of them declared a scope). */
+/**
+ * W4 + N6: overlap warnings on the active claims of a screen — other claims' scopes (one extra read, only when one of
+ * them declared a scope) and the project's open MRs (one read, only when there is an active claim). Screens show MRs
+ * of confidential PBIs to the project's members (as the 開発 panel does).
+ */
 async function withOverlaps(projectId: string, rows: readonly ClaimRow[], dtos: BoardClaimDto[], now: Date, hours: number): Promise<BoardClaimDto[]> {
-  const scoped = rows.filter((r) => isClaimActive(r, now, hours) && (r.scopes?.length ?? 0) > 0)
-  if (scoped.length === 0) return dtos
-  const others = withScope((await activeScopedClaims(projectId, staleBefore(now, hours))).rows)
-  const byId = new Map(scoped.map((r) => [r.id, r]))
+  const active = rows.filter((r) => isClaimActive(r, now, hours))
+  if (active.length === 0) return dtos
+  const scoped = active.filter((r) => (r.scopes?.length ?? 0) > 0)
+  const [others, context] = await Promise.all([
+    scoped.length > 0 ? activeScopedClaims(projectId, staleBefore(now, hours)).then((o) => withScope(o.rows)) : Promise.resolve([]),
+    readMrContext(projectId),
+  ])
+  const byId = new Map(active.map((r) => [r.id, r]))
   return dtos.map((dto) => {
     const row = byId.get(dto.id)
     if (!row) return dto
-    const overlaps = scopeOverlaps(row.id, scopeOf(row), others, now, hours)
-    return overlaps.length === 0 ? dto : { ...dto, overlaps: overlaps.map((o) => toBoardOverlapDto(o.claim.row, o.paths)) }
+    const scope = scopeOf(row)
+    const overlaps = scope.length > 0 ? scopeOverlaps(row.id, scope, others, now, hours) : []
+    const warnings = claimMrWarnings({ backlogItemId: row.backlogItemId, branch: row.branch, scope }, context, false)
+    return {
+      ...dto,
+      ...(overlaps.length > 0 ? { overlaps: overlaps.map((o) => toBoardOverlapDto(o.claim.row, o.paths)) } : {}),
+      ...(warnings ? { mergeRequests: warnings } : {}),
+    }
   })
 }
 

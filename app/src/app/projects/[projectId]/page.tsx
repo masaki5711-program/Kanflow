@@ -100,6 +100,8 @@ export default async function ProjectDashboard({
   ])
   // 承認を待っている MR: only where the project reads GitStation and the policy gives git.approve (the route checks again).
   const showMrApprovals = !!gitIntegration?.enabled && gitIntegration.provider === "gitstation" && can(actor, "git.approve")
+  // N10 自分の MR で止まっているもの: only GitStation reports why a merge request is blocked.
+  const showMyBlockedMrs = !!gitIntegration?.enabled && gitIntegration.provider === "gitstation"
 
   // Both-language text for the project, its goals, the active sprint, my tasks and the due list.
   const [projectI18n, goalI18n, sprintI18n, taskI18n, pbI18n, dueI18n] = await Promise.all([
@@ -175,6 +177,7 @@ export default async function ProjectDashboard({
       canUseAi={can(actor, "ai.use")}
       isProjectMember={!!membership}
       showMrApprovals={showMrApprovals}
+      showMyBlockedMrs={showMyBlockedMrs}
       activeSprint={
         activeSprint
           ? {

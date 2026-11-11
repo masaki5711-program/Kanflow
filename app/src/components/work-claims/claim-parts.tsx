@@ -6,7 +6,8 @@ import { fillTemplate } from "@/lib/fill-template"
 import { formatRelative } from "@/lib/format-date"
 import { Badge, cn, type BadgeTone } from "@/components/ui"
 import { AlertTriangle, Bot, GitBranch } from "lucide-react"
-import { claimState, initials, shownPaths, type ClaimState, type ScreenClaim, type ScreenOverlap, type ScreenScopeEntry } from "./claim-view"
+import type { ReactNode } from "react"
+import { claimState, initials, shownPaths, type ClaimState, type ScreenClaim, type ScreenMrWarnings, type ScreenOverlap, type ScreenScopeEntry } from "./claim-view"
 
 /** Branches are developer detail: shown only in software projects. */
 export function useShowBranch(): boolean {
@@ -130,6 +131,72 @@ export function OverlapWarning({ overlap, className }: { overlap: ScreenOverlap;
   const pathList = usePathList()
   const text = fillTemplate(t.workClaimOverlap, { name: overlap.user.name, paths: pathList(overlap.paths, overlap.pathCount) })
   return <WarningLine text={text} className={className} data-claim-overlap={overlap.claimId} />
+}
+
+/**
+ * A warning about an MR, then a short link that names its purpose ("!9 を開く（新しいタブ）") — the sentence itself is
+ * not a link (a whole warning as a link name says nothing about where it goes). No link for a non-https URL (the
+ * sync stores https only).
+ */
+function MrWarning({ url, mrRef, children }: { url: string | null; mrRef: string; children: ReactNode }) {
+  const { t } = useLanguage()
+  return (
+    <div className="space-y-0.5">
+      {children}
+      {url && /^https:\/\//i.test(url) && (
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="ml-5 inline-block rounded-sm text-caption font-medium text-primary-strong underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        >
+          {fillTemplate(t.workClaimMrOpen, { mr: `!${mrRef}` })}
+        </a>
+      )}
+    </div>
+  )
+}
+
+/**
+ * N6: what the Git sync knows against a claim — other open MRs that already change files of its scope (fact), the
+ * PBI's MRs predicted to conflict (GitStation's trial merge), and what is not checked yet. Warnings only.
+ */
+export function MrWarningLines({ warnings }: { warnings: ScreenMrWarnings }) {
+  const { t } = useLanguage()
+  const pathList = usePathList()
+  const pbiList = (pbis: readonly number[]) => (pbis.length > 0 ? fillTemplate(t.workClaimMrOverlapPbis, { pbis: pbis.map((n) => `PBI-${n}`).join(t.workClaimPathSeparator) }) : "")
+  return (
+    <div className="space-y-0.5" data-claim-mr-warnings="">
+      {warnings.mergeRequestOverlaps.map((o) => {
+        const text = fillTemplate(t.workClaimMrOverlap, { mr: `!${o.ref}`, pbis: pbiList(o.pbis), count: o.count, paths: pathList(o.paths, o.count) })
+        const full = o.complete ? text : `${text} ${fillTemplate(t.workClaimMrOverlapPartial, { mr: `!${o.ref}` })}`
+        return (
+          <MrWarning key={`o-${o.repository}-${o.ref}`} url={o.url} mrRef={o.ref}>
+            <WarningLine text={full} data-claim-mr-overlap={o.ref} />
+          </MrWarning>
+        )
+      })}
+      {warnings.predictedConflicts.map((c, i) => {
+        const text = c.peer
+          ? fillTemplate(t.workClaimMrPredicted, { mr: `!${c.ref}`, peer: `!${c.peer.ref}${pbiList(c.peer.pbis)}`, files: c.files })
+          : fillTemplate(t.workClaimMrPredictedHidden, { mr: `!${c.ref}`, files: c.files })
+        return (
+          <MrWarning key={`p-${c.ref}-${c.peer?.ref ?? i}`} url={c.url} mrRef={c.ref}>
+            <WarningLine text={text} data-claim-mr-predicted={c.ref} />
+          </MrWarning>
+        )
+      })}
+      {warnings.predictionUnchecked.length > 0 && (
+        <p className="text-caption text-fg-muted" data-claim-mr-unchecked="">
+          {fillTemplate(t.workClaimMrPredictionUnchecked, { mrs: warnings.predictionUnchecked.map((r) => `!${r}`).join(t.workClaimPathSeparator) })}
+        </p>
+      )}
+      {warnings.mergeRequestsUnavailable === true && <p className="text-caption text-fg-muted" data-claim-mr-unavailable="">{t.workClaimMrUnavailable}</p>}
+      {(warnings.changedPathsPending ?? 0) > 0 && (
+        <p className="text-caption text-fg-subtle" data-claim-mr-pending="">{fillTemplate(t.workClaimMrPathsPending, { count: warnings.changedPathsPending ?? 0 })}</p>
+      )}
+    </div>
+  )
 }
 
 /** The declared scope of a claim as one line (modules and paths as written). */
