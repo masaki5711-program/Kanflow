@@ -27,7 +27,8 @@ import { FILL_COLOR } from "@/lib/board/palette"
 import { panBy, toScreen, toSheet, wheelZoom, zoomAt, type Viewport } from "@/lib/board/viewport"
 import { useLanguage } from "@/lib/language-context"
 import { cn, VisuallyHidden } from "@/components/ui"
-import { ElementView, TEXT_PADDING, TEXT_SIZE, textColor } from "./element-view"
+import { describable, describeElement, selectionAnnouncement, stepSelection } from "./describe"
+import { ElementView, lineEndsOf, TEXT_PADDING, TEXT_SIZE, textColor } from "./element-view"
 import { DEFAULT_LINE_LENGTH, isBoxTool, type BoardEditorController } from "./use-board-editor"
 
 /** How close (screen pixels) the pointer has to be to pick an element / a handle. */
@@ -90,6 +91,9 @@ export function BoardCanvas({ editor, label }: BoardCanvasProps) {
   const { elements, viewport, selection, tool, readOnly, editingId, reportCanvasSize, setViewport } = editor
   const rootRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<Drag | null>(null)
+  /** The pointer that started the drag: a second finger or a pen does not end or steer it. */
+  const pointerRef = useRef<number | null>(null)
+  const contentsId = useId()
   const [preview, setPreview] = useState<Patch | null>(null)
   const [marquee, setMarquee] = useState<Rect | null>(null)
   const [ghost, setGhost] = useState<KnownElement | null>(null)
@@ -99,6 +103,9 @@ export function BoardCanvas({ editor, label }: BoardCanvasProps) {
 
   const shown = useMemo(() => withPatch(elements, preview), [elements, preview])
   const ordered = useMemo(() => sortByZ(shown), [shown])
+  /** What can be selected, back to front: the order of ] / [ and of the contents list. */
+  const listed = useMemo(() => describable(sortByZ(elements)), [elements])
+  const order = useMemo(() => listed.map((el) => el.id), [listed])
   const editing = editingId ? shown[editingId] : undefined
 
   // The canvas size: the first report fits the view, later ones keep the zoom buttons centred.
@@ -145,6 +152,7 @@ export function BoardCanvas({ editor, label }: BoardCanvasProps) {
 
   function endDrag() {
     dragRef.current = null
+    pointerRef.current = null
     setPreview(null)
     setMarquee(null)
     setGhost(null)
@@ -158,6 +166,7 @@ export function BoardCanvas({ editor, label }: BoardCanvasProps) {
     const { screen, sheet } = pointOf(e)
     const start = (drag: Drag) => {
       dragRef.current = drag
+      pointerRef.current = e.pointerId
       // Not in every environment (old browsers, jsdom); the drag also works while the pointer stays inside.
       if (typeof e.currentTarget.setPointerCapture === "function") e.currentTarget.setPointerCapture(e.pointerId)
     }
@@ -206,7 +215,7 @@ export function BoardCanvas({ editor, label }: BoardCanvasProps) {
 
   function onPointerMove(e: React.PointerEvent<HTMLDivElement>) {
     const drag = dragRef.current
-    if (!drag) return
+    if (!drag || e.pointerId !== pointerRef.current) return
     const { screen, sheet } = pointOf(e)
     switch (drag.kind) {
       case "pan": {
@@ -248,7 +257,7 @@ export function BoardCanvas({ editor, label }: BoardCanvasProps) {
 
   function onPointerUp(e: React.PointerEvent<HTMLDivElement>) {
     const drag = dragRef.current
-    if (!drag) return
+    if (!drag || e.pointerId !== pointerRef.current) return
     const { sheet } = pointOf(e)
     if (typeof e.currentTarget.releasePointerCapture === "function" && e.currentTarget.hasPointerCapture?.(e.pointerId)) {
       e.currentTarget.releasePointerCapture(e.pointerId)
@@ -303,6 +312,13 @@ export function BoardCanvas({ editor, label }: BoardCanvasProps) {
       return
     }
     if (e.altKey) return
+    // ] / [ : the next / previous element, one at a time (also read-only: selecting is how its text is read out).
+    if (!e.ctrlKey && !e.metaKey && (e.key === "]" || e.key === "[")) {
+      const next = stepSelection(order, selection, e.key === "]")
+      if (next !== null) editor.select([next])
+      e.preventDefault()
+      return
+    }
     if (e.ctrlKey || e.metaKey) {
       const key = e.key.toLowerCase()
       if (key === "a") editor.selectAll()
@@ -350,9 +366,34 @@ export function BoardCanvas({ editor, label }: BoardCanvasProps) {
   const showChrome = !readOnly && tool === "select" && !editing
   const cursor = panning ? "grabbing" : spaceDown || readOnly ? "grab" : tool !== "select" ? "crosshair" : "default"
   const grid = GRID * viewport.zoom
-  const statusText = selection.length === 0 ? t.wbSelectionNone : t.wbSelectionCount.replace("{count}", String(selection.length))
+  const singleIndex = selection.length === 1 ? order.indexOf(selection[0]) : -1
+  const statusText =
+    selection.length === 0
+      ? t.wbSelectionNone
+      : singleIndex >= 0
+        ? selectionAnnouncement(shown[selection[0]], singleIndex + 1, order.length, t)
+        : t.wbSelectionCount.replace("{count}", String(selection.length))
+  // A marquee drag changes the selection on every move: nothing is announced until the drag ends (an emptied live
+  // region is not read out; the final selection is, once).
+  const announced = marquee ? "" : statusText
 
   return (
+    <>
+    {/* The sheet in words, outside the application role so a screen reader can browse it (WCAG 1.1.1 / 1.3.1). */}
+    <VisuallyHidden>
+      <section aria-labelledby={contentsId} data-testid="board-contents">
+        <h2 id={contentsId}>{t.wbSheetContents.replace("{count}", String(listed.length))}</h2>
+        {listed.length === 0 ? (
+          <p>{t.wbContentsEmpty}</p>
+        ) : (
+          <ul>
+            {listed.map((el) => (
+              <li key={el.id}>{describeElement(el, elements, t)}</li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </VisuallyHidden>
     <div
       ref={rootRef}
       role="application"
@@ -372,7 +413,9 @@ export function BoardCanvas({ editor, label }: BoardCanvasProps) {
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
-      onPointerCancel={endDrag}
+      onPointerCancel={(e) => {
+        if (e.pointerId === pointerRef.current) endDrag()
+      }}
       onMouseDown={(e) => {
         // The middle button pans; without this the browser starts its own auto-scroll.
         if (e.button === 1) e.preventDefault()
@@ -386,16 +429,16 @@ export function BoardCanvas({ editor, label }: BoardCanvasProps) {
     >
       <VisuallyHidden>
         <span id={helpId}>{readOnly ? t.wbCanvasHelpReadOnly : t.wbCanvasHelp}</span>
-        <span role="status">{statusText}</span>
+        <span role="status">{announced}</span>
       </VisuallyHidden>
       <svg className="absolute inset-0 h-full w-full">
         <g transform={`translate(${viewport.x} ${viewport.y}) scale(${viewport.zoom})`}>
           {ordered.map((el) => (
-            <ElementView key={el.id} el={el} elements={shown} hideText={el.id === editingId} />
+            <ElementView key={el.id} el={el} ends={lineEndsOf(el, shown)} hideText={el.id === editingId} />
           ))}
           {ghost && (
             <g opacity={0.6}>
-              <ElementView el={ghost} elements={shown} />
+              <ElementView el={ghost} ends={lineEndsOf(ghost, shown)} />
             </g>
           )}
         </g>
@@ -455,6 +498,7 @@ export function BoardCanvas({ editor, label }: BoardCanvasProps) {
         />
       )}
     </div>
+    </>
   )
 }
 

@@ -166,6 +166,11 @@ export function countLiveElements(db: Db, sheetId: string) {
   return db.boardElement.count({ where: { sheetId, deleted: false } })
 }
 
+/** Every stored row of a sheet, tombstones included. */
+export function countElements(db: Db, sheetId: string) {
+  return db.boardElement.count({ where: { sheetId } })
+}
+
 export interface ElementRowInput {
   elementId: string
   version: number

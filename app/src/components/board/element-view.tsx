@@ -1,3 +1,4 @@
+import { memo } from "react"
 import { resolveLine, type ElementMap, type Point } from "@/lib/board/geometry"
 import { isBox, isLine, type BoardElement, type BoxElement } from "@/lib/board/model"
 import { FILL_COLOR, STROKE_COLOR } from "@/lib/board/palette"
@@ -25,18 +26,43 @@ export function textColor(el: BoxElement): string {
   return el.type === "text" ? STROKE_COLOR[el.stroke] : "var(--color-fg)"
 }
 
+/** A line's two ends, resolved against the boxes they are attached to. */
+export interface LineEnds {
+  a: Point
+  b: Point
+}
+
+/** The ends of a line element (undefined for anything else): what ElementView needs from the rest of the sheet. */
+export function lineEndsOf(el: BoardElement, elements: ElementMap): LineEnds | undefined {
+  return isLine(el) ? resolveLine(el, elements) : undefined
+}
+
 interface ElementViewProps {
   el: BoardElement
-  /** The sheet's elements (a line needs the boxes it is attached to). */
-  elements: ElementMap
+  /** A line's resolved ends (only lines: a box needs nothing but itself). */
+  ends?: LineEnds
   /** The text is being edited in the overlay: do not draw it twice. */
   hideText?: boolean
 }
 
-/** One element as SVG, in sheet coordinates. Types this build does not know are not drawn. */
-export function ElementView({ el, elements, hideText }: ElementViewProps) {
+const samePoint = (p: Point, q: Point) => p.x === q.x && p.y === q.y
+const sameEnds = (p?: LineEnds, q?: LineEnds) => p === q || (!!p && !!q && samePoint(p.a, q.a) && samePoint(p.b, q.b))
+
+/**
+ * One element as SVG, in sheet coordinates. Types this build does not know are not drawn. Memoized: during a drag
+ * only the moved elements (new objects) and the lines whose ends moved are drawn again, not the whole sheet.
+ */
+export const ElementView = memo(
+  function ElementView({ el, ends, hideText }: ElementViewProps) {
+    return <ElementShape el={el} ends={ends} hideText={hideText} />
+  },
+  (prev, next) => prev.el === next.el && prev.hideText === next.hideText && sameEnds(prev.ends, next.ends),
+)
+
+function ElementShape({ el, ends, hideText }: ElementViewProps) {
   if (isLine(el)) {
-    const { a, b } = resolveLine(el, elements)
+    if (!ends) return null
+    const { a, b } = ends
     const stroke = STROKE_COLOR[el.stroke]
     const head = el.type === "arrow" ? arrowHeadPoints(a, b) : []
     return (

@@ -73,7 +73,7 @@ describe("autosave", () => {
     expect(statuses).toContain("failed")
   })
 
-  it("stays failed while the user keeps editing, and saves the new change too", async () => {
+  it("stays failed while the user keeps editing; the new change waits for the retry (no request per edit during an outage)", async () => {
     const { change, world, autosave } = setup()
     world.fail = new Error("network")
     change()
@@ -81,8 +81,15 @@ describe("autosave", () => {
     expect(autosave.status()).toBe("failed")
     world.fail = null
     change()
+    change()
     expect(autosave.status()).toBe("failed")
     await vi.advanceTimersByTimeAsync(300)
+    // The edits did not cut the 1 s retry wait short…
+    expect(world.saves).toBe(1)
+    expect(autosave.status()).toBe("failed")
+    // …and the retry sends them.
+    await vi.advanceTimersByTimeAsync(700)
+    expect(world.saves).toBe(2)
     expect(autosave.status()).toBe("saved")
   })
 

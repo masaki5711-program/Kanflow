@@ -183,6 +183,8 @@ export const API_ERROR_CODES = [
   "BOARD_SHEET_FULL",
   /** One write request is larger than the server accepts (the editor sends less per request). */
   "BOARD_WRITE_TOO_LARGE",
+  /** An element's version jumps further than one client could edit it (refused: it would lock the element). */
+  "BOARD_VERSION_JUMP",
   // Dates / glossary / translation
   "INVALID_DATE",
   "GLOSSARY_SAME_LOCALE",

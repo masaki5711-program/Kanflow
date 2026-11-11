@@ -149,6 +149,48 @@ describe.skipIf(!enabled)("boards on a real database (KANFLOW_DB_TESTS=1)", () =
     expect(sheets.map((s) => s.sortOrder)).toEqual(Array.from({ length: BOARD_LIMITS.sheetsPerBoard }, (_, i) => i))
   })
 
+  it("element writes and sheet changes at the same time never deadlock (lock order board → sheet)", async () => {
+    const board = await svc.createBoard(projectId, { title: "lock order" }, actor)
+    const sheetId = board.sheets[0].id
+    const work = Array.from({ length: 12 }, (_, i) =>
+      i % 2 === 0
+        ? svc.writeElements(projectId, board.id, sheetId, { elements: [{ id: `el-lock-${String(i).padStart(4, "0")}`, version: 1, deleted: false, data: rect(i) }] }, actor)
+        : svc.renameSheet(projectId, board.id, sheetId, { name: `renamed ${i}` }),
+    )
+    const results = await Promise.allSettled(work)
+    expect(results.filter((r) => r.status === "rejected")).toEqual([])
+    expect(await prisma.boardElement.count({ where: { sheetId } })).toBe(6)
+  })
+
+  it("a version that jumps too far is refused (it would lock the element for everyone); one step at a time is fine", async () => {
+    const { MAX_VERSION_STEP } = await import("@/lib/board/merge")
+    const board = await svc.createBoard(projectId, { title: "version jump" }, actor)
+    const sheetId = board.sheets[0].id
+    await svc.writeElements(projectId, board.id, sheetId, { elements: [{ id: "el-jump01", version: 1, deleted: false, data: rect(1) }] }, actor)
+    await expect(
+      svc.writeElements(projectId, board.id, sheetId, { elements: [{ id: "el-jump01", version: 2 + MAX_VERSION_STEP, deleted: false, data: rect(2) }] }, actor),
+    ).rejects.toMatchObject({ code: "BOARD_VERSION_JUMP" })
+    await expect(svc.writeElements(projectId, board.id, sheetId, { elements: [{ id: "el-jump01", version: 2, deleted: false, data: rect(2) }] }, actor)).resolves.toMatchObject({ applied: 1 })
+  })
+
+  it("deleting an element the server never saw leaves a tombstone: its late create stays gone", async () => {
+    const board = await svc.createBoard(projectId, { title: "late create" }, actor)
+    const sheetId = board.sheets[0].id
+    await svc.writeElements(projectId, board.id, sheetId, { elements: [{ id: "el-late01", version: 2, deleted: true }] }, actor)
+    const late = await svc.writeElements(projectId, board.id, sheetId, { elements: [{ id: "el-late01", version: 1, deleted: false, data: rect(1) }] }, actor)
+    expect(late.applied).toBe(0)
+    expect(await prisma.boardElement.findFirstOrThrow({ where: { sheetId, elementId: "el-late01" } })).toMatchObject({ deleted: true, version: 2 })
+  })
+
+  it("tombstones count against a sheet's stored rows (create-then-delete cannot grow the table without end)", async () => {
+    const { BOARD_LIMITS } = await import("@/lib/board/limits")
+    const board = await svc.createBoard(projectId, { title: "tombstones" }, actor)
+    const sheetId = board.sheets[0].id
+    const rows = Array.from({ length: BOARD_LIMITS.rowsPerSheet }, (_, i) => ({ sheetId, elementId: `el-t${String(i).padStart(6, "0")}`, version: 1, deleted: true, data: {}, rev: 1 }))
+    await prisma.boardElement.createMany({ data: rows })
+    await expect(svc.writeElements(projectId, board.id, sheetId, { elements: [{ id: "el-new0001", version: 1, deleted: false, data: rect(1) }] }, actor)).rejects.toMatchObject({ code: "BOARD_SHEET_FULL" })
+  })
+
   it("trash keeps the content, restore returns it, the purge removes board, sheets and elements", async () => {
     const board = await svc.createBoard(projectId, { title: "trash" }, actor)
     const sheetId = board.sheets[0].id

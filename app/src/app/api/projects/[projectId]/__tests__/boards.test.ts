@@ -392,7 +392,8 @@ describe("elements: write only what changed, the higher version stays", () => {
       { id: "el-000001", version: 1, data: rect(10) },
       { id: "el-000002", version: 1, deleted: true },
     ]
-    expect((await write(created.id, sheetId, body)).body).toEqual({ rev: 1, applied: 1, stale: [] })
+    // The delete of an element never stored is kept as a tombstone too (its create may still be on its way).
+    expect((await write(created.id, sheetId, body)).body).toEqual({ rev: 1, applied: 2, stale: [] })
     expect((await write(created.id, sheetId, body)).body).toEqual({ rev: 1, applied: 0, stale: [] })
     expect((await readSheet(created.id, sheetId)).body).toMatchObject({ rev: 1 })
   })

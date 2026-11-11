@@ -228,6 +228,10 @@ export const fakeBoardsRepository = {
     return [...rowsOf(sheetId).values()].filter((e) => !e.deleted).length
   },
 
+  async countElements(_db: unknown, sheetId: string) {
+    return rowsOf(sheetId).size
+  },
+
   async replaceElements(_db: unknown, sheetId: string, rows: readonly ElementRowInput[]) {
     const stored = rowsOf(sheetId)
     for (const row of rows) stored.delete(row.elementId)

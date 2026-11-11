@@ -1,6 +1,6 @@
 import type { Prisma } from "@/generated/prisma/client"
 import { BOARD_LIMITS } from "@/lib/board/limits"
-import { planMerge, type ExistingElement } from "@/lib/board/merge"
+import { MAX_VERSION_STEP, planMerge, type ExistingElement } from "@/lib/board/merge"
 import type { StoredElement } from "@/lib/board/model"
 import type { Actor } from "@/services/_shared/actor"
 import { defaultDb, withTransaction, type Db } from "@/services/_shared/db"
@@ -311,13 +311,19 @@ export async function readElements(projectId: string, boardId: string, sheetId: 
 export async function writeElements(projectId: string, boardId: string, sheetId: string, input: WriteElementsInput, actor: Actor): Promise<WriteResultDto> {
   return withTransaction(
     async (tx) => {
-      await liveBoard(tx, projectId, boardId)
+      // Lock order board → sheet, like every change of the sheet list (rename / delete / duplicate): the other order
+      // deadlocks against them, since the write touches the board too. Writes to one board are serialized by it.
+      await lockedBoard(tx, projectId, boardId)
       const sheet = await repo.lockSheet(tx, boardId, sheetId)
       if (!sheet) throw new NotFoundError("Sheet not found")
 
       const rows = await repo.findElementsByIds(tx, sheetId, input.elements.map((e) => e.id))
       const stored = new Map(rows.map((r) => [r.elementId, r]))
-      const plan = planMerge(stored as ReadonlyMap<string, ExistingElement>, input.elements)
+      const existing = new Map<string, ExistingElement>(rows.map((r) => [r.elementId, { version: r.version, deleted: r.deleted, data: r.data }]))
+      const plan = planMerge(existing, input.elements)
+      if (plan.refused.length > 0) {
+        throw new ValidationError("An element version jumps too far", { ids: plan.refused.slice(0, 20), maxStep: MAX_VERSION_STEP }, "BOARD_VERSION_JUMP")
+      }
       const stale = plan.stale.flatMap((id) => {
         const row = stored.get(id)
         return row ? [storedElement(row)] : []
@@ -328,6 +334,13 @@ export async function writeElements(projectId: string, boardId: string, sheetId:
         const live = await repo.countLiveElements(tx, sheetId)
         if (live + plan.liveDelta > BOARD_LIMITS.elementsPerSheet) {
           throw new ConflictError("The sheet is full", { limit: BOARD_LIMITS.elementsPerSheet }, "BOARD_SHEET_FULL")
+        }
+      }
+      // Tombstones count too (create-then-delete would otherwise grow the table and every delta read without end).
+      if (plan.newRows > 0) {
+        const all = await repo.countElements(tx, sheetId)
+        if (all + plan.newRows > BOARD_LIMITS.rowsPerSheet) {
+          throw new ConflictError("The sheet is full", { limit: BOARD_LIMITS.rowsPerSheet, counts: "stored rows incl. deleted elements" }, "BOARD_SHEET_FULL")
         }
       }
 

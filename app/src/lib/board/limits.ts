@@ -8,6 +8,8 @@ export const BOARD_LIMITS = {
   sheetsPerBoard: 30,
   /** Live elements per sheet (plan §6: a large sheet stays fast up to a few thousand elements). */
   elementsPerSheet: 5000,
+  /** Stored rows per sheet, deleted elements (tombstones) included — until B3 compacts them. */
+  rowsPerSheet: 10_000,
   /** Elements in one write request; the editor sends more in several requests. */
   elementsPerWrite: 500,
   /** Body of one write request, in bytes. */

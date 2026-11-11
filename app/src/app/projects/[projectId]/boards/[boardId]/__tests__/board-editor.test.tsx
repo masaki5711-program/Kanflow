@@ -83,6 +83,14 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+/** The editor's save state (visible text, plus the regions a screen reader hears). */
+const saveRegion = () => document.querySelector("[data-save-status]") as HTMLElement
+async function expectSaved() {
+  await waitFor(() => expect(saveRegion()).toHaveAttribute("data-save-status", "saved"))
+  // "Saved" is announced politely, once the save is done.
+  expect(within(saveRegion()).getByRole("status")).toHaveTextContent(t.wbSaveSaved)
+}
+
 describe("ボードの編集画面: キャンバス (plan 10 B1)", () => {
   it("draws a rectangle with a drag and saves only that element", async () => {
     const user = userEvent.setup()
@@ -106,7 +114,7 @@ describe("ボードの編集画面: キャンバス (plan 10 B1)", () => {
     const [first] = writes(fetchMock)
     expect(first).toHaveLength(1)
     expect(first[0]).toMatchObject({ version: 1, data: { type: "rect", x: 100, y: 80, w: 200, h: 120 } })
-    expect(await screen.findByText(t.wbSaveSaved)).toBeInTheDocument()
+    await expectSaved()
 
     // A second shape: the request carries the new one only.
     await user.click(screen.getByRole("button", { name: t.wbToolEllipse }))
@@ -210,7 +218,7 @@ describe("ボードの編集画面: キャンバス (plan 10 B1)", () => {
 
     fail = false
     await user.click(screen.getByRole("button", { name: t.wbSaveRetry }))
-    expect(await screen.findByText(t.wbSaveSaved)).toBeInTheDocument()
+    await expectSaved()
     expect(screen.queryByRole("button", { name: t.wbSaveRetry })).not.toBeInTheDocument()
     // The retry sends the same element again.
     expect(writes(fetchMock).at(-1)?.[0].id).toBe(failedWrite[0].id)
@@ -228,7 +236,8 @@ describe("ボードの編集画面: キャンバス (plan 10 B1)", () => {
     await user.click(screen.getByRole("button", { name: t.wbToolRect }))
     drag(canvas, [100, 80], [300, 200])
     expect(await screen.findByText(t.wbSaveFailed)).toBeInTheDocument()
-    expect(screen.getByText(/シートの図形数が上限です（合成）/)).toBeInTheDocument()
+    // Read out at once (role=alert), with the server's reason.
+    expect(within(saveRegion()).getByRole("alert")).toHaveTextContent(/シートの図形数が上限です（合成）/)
     expect(screen.queryByText(new RegExp(t.wbSaveFailedHint))).not.toBeInTheDocument()
   })
 
@@ -271,6 +280,66 @@ describe("ボードの編集画面: キャンバス (plan 10 B1)", () => {
     expect(within(toolbar).getByRole("button", { name: t.wbZoomReset.replace("{percent}", "100") })).toBeInTheDocument()
     await user.click(within(toolbar).getByRole("button", { name: t.wbZoomIn }))
     expect(within(toolbar).queryByRole("button", { name: t.wbZoomReset.replace("{percent}", "100") })).not.toBeInTheDocument()
+  })
+})
+
+describe("ホワイトボード: without pictures and with the keyboard (B1 review)", () => {
+  const stored = [
+    { id: "box-aaaa1", version: 1, data: { type: "sticky", x: 0, y: 0, w: 100, h: 80, z: 1, text: "議題（合成）", fill: "amber", stroke: "ink" } },
+    { id: "box-bbbb2", version: 1, data: { type: "rect", x: 300, y: 0, w: 100, h: 80, z: 2, text: "", fill: "white", stroke: "ink" } },
+    {
+      id: "line-ccc3",
+      version: 1,
+      data: { type: "arrow", z: 3, stroke: "ink", start: { x: 100, y: 40, attach: "box-aaaa1" }, end: { x: 300, y: 40, attach: "box-bbbb2" } },
+    },
+  ]
+
+  it("lists the sheet's contents in words, outside the canvas (a line names the boxes it connects)", async () => {
+    stubFetch([boardRoute(), elementsOf("s1", stored), savesOf("s1")])
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" />)
+    await canvasOf("全体図")
+    const list = screen.getByTestId("board-contents")
+    expect(within(list).getByRole("heading", { name: t.wbSheetContents.replace("{count}", "3") })).toBeInTheDocument()
+    expect(within(list).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+      `${t.wbToolSticky}: 議題（合成）`,
+      `${t.wbToolRect} (${t.wbNoText})`,
+      t.wbLineBetween.replace("{kind}", t.wbToolArrow).replace("{from}", "議題（合成）").replace("{to}", t.wbToolRect),
+    ])
+    expect(list.closest("[role=application]")).toBeNull()
+  })
+
+  it("] and [ select the shapes one by one and say which one it is", async () => {
+    stubFetch([boardRoute(), elementsOf("s1", stored), savesOf("s1")])
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" />)
+    const canvas = await canvasOf("全体図")
+    canvas.focus()
+    fireEvent.keyDown(canvas, { key: "]" })
+    expect(canvas.querySelector("[data-selected-id]")?.getAttribute("data-selected-id")).toBe("box-aaaa1")
+    expect(within(canvas).getByRole("status")).toHaveTextContent(
+      t.wbSelectedOne.replace("{kind}", t.wbToolSticky).replace("{text}", "議題（合成）").replace("{n}", "1").replace("{total}", "3"),
+    )
+    fireEvent.keyDown(canvas, { key: "]" })
+    expect(within(canvas).getByRole("status")).toHaveTextContent(t.wbSelectedOneNoText.replace("{kind}", t.wbToolRect).replace("{n}", "2").replace("{total}", "3"))
+    fireEvent.keyDown(canvas, { key: "[" })
+    fireEvent.keyDown(canvas, { key: "[" })
+    // Wraps around to the last one.
+    expect(within(canvas).getByRole("status")).toHaveTextContent(t.wbSelectedOneNoText.replace("{kind}", t.wbToolArrow).replace("{n}", "3").replace("{total}", "3"))
+  })
+
+  it("a second pointer does not end the first one's drag", async () => {
+    stubFetch([boardRoute(), elementsOf("s1"), savesOf("s1")])
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" />)
+    const canvas = await canvasOf("全体図")
+    fireEvent.click(screen.getByRole("button", { name: t.wbToolRect }))
+    fireEvent.pointerDown(canvas, { button: 0, pointerId: 1, clientX: 100, clientY: 80 })
+    fireEvent.pointerMove(canvas, { pointerId: 1, clientX: 300, clientY: 200 })
+    fireEvent.pointerUp(canvas, { button: 0, pointerId: 2, clientX: 120, clientY: 90 })
+    // Still drawing: only the preview (ghost) is there, nothing was placed.
+    const placed = () => canvas.querySelectorAll('[data-element-type="rect"]:not([data-element-id="ghost-element"])')
+    expect(placed()).toHaveLength(0)
+    expect(canvas.querySelector('[data-element-id="ghost-element"]')).not.toBeNull()
+    fireEvent.pointerUp(canvas, { button: 0, pointerId: 1, clientX: 300, clientY: 200 })
+    expect(placed()).toHaveLength(1)
   })
 })
 

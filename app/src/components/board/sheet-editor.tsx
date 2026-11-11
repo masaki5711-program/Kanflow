@@ -4,7 +4,7 @@ import { useImperativeHandle, type Ref, type RefObject } from "react"
 import { AlertTriangle, Check } from "lucide-react"
 import type { KnownElement } from "@/lib/board/model"
 import { useLanguage } from "@/lib/language-context"
-import { Button, EmptyState, Spinner, cn } from "@/components/ui"
+import { Button, EmptyState, Spinner, VisuallyHidden, cn } from "@/components/ui"
 import type { BoardSheetDto } from "./board-api"
 import { BoardCanvas } from "./board-canvas"
 import { BoardToolbar } from "./board-toolbar"
@@ -80,7 +80,12 @@ function SaveState({ doc }: { doc: SheetDocument }) {
     doc.saveStatus === "saved" ? t.wbSaveSaved : doc.saveStatus === "saving" ? t.wbSaveSaving : failed ? t.wbSaveFailed : t.wbSavePending
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-2" data-save-status={doc.saveStatus}>
-      <p role="status" className={cn("flex min-w-0 flex-wrap items-center gap-1.5 text-caption", failed ? "font-semibold text-danger-strong" : "text-fg-muted")}>
+      {/* Read out only what matters: "saved" politely, a failure at once — not every pending / saving step while drawing. */}
+      <VisuallyHidden>
+        <span role="status">{doc.saveStatus === "saved" ? t.wbSaveSaved : ""}</span>
+        <span role="alert">{failed ? [t.wbSaveFailed, doc.saveError].filter(Boolean).join(" ") : ""}</span>
+      </VisuallyHidden>
+      <p aria-hidden="true" className={cn("flex min-w-0 flex-wrap items-center gap-1.5 text-caption", failed ? "font-semibold text-danger-strong" : "text-fg-muted")}>
         {failed ? (
           <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden />
         ) : doc.saveStatus === "saved" ? (

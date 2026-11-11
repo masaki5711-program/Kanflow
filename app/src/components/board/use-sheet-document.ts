@@ -45,9 +45,12 @@ export interface SheetDocument {
   flush: () => Promise<boolean>
 }
 
-/** A request the server refused for good: trying the same bytes again cannot help. */
+/**
+ * A request the server refused for good: trying the same bytes again cannot help. Not 401 / 403 (a session that
+ * ran out can be signed in again in another tab: the retry then succeeds), nor 408 / 429 (try later).
+ */
 function isRefusal(error: unknown): boolean {
-  return isApiError(error) && error.status >= 400 && error.status < 500 && error.status !== 408 && error.status !== 429
+  return isApiError(error) && error.status >= 400 && error.status < 500 && ![401, 403, 408, 429].includes(error.status)
 }
 
 /**

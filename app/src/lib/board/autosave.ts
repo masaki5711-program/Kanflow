@@ -120,6 +120,9 @@ export function createAutosave(options: AutosaveOptions): Autosave {
   return {
     changed() {
       if (disposed || inFlight) return
+      // While a failed save waits for its retry, a change does not cut the wait short (the backoff would be lost
+      // during an outage); the retry sends this change too. A refused save has no retry: the change is sent.
+      if (status === "failed" && timer !== null) return
       if (status !== "failed") setStatus("pending")
       schedule(debounceMs)
     },
