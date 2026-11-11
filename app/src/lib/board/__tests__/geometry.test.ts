@@ -1,0 +1,236 @@
+import { describe, expect, it } from "vitest"
+import {
+  anchorPoint,
+  boundsOf,
+  boxAt,
+  distanceToSegment,
+  elementBounds,
+  elementsInRect,
+  hitBoxHandle,
+  hitLineHandle,
+  hitTest,
+  rectFromPoints,
+  resizeRect,
+  resolveLine,
+  sortByZ,
+  type ElementMap,
+} from "../geometry"
+import type { BoxElement, LineElement } from "../model"
+import { fitViewport, panBy, stepZoom, toScreen, toSheet, wheelZoom, zoomAt, MAX_ZOOM, MIN_ZOOM } from "../viewport"
+
+function box(id: string, x: number, y: number, w: number, h: number, extra: Partial<BoxElement> = {}): BoxElement {
+  return { id, type: "rect", x, y, w, h, z: 1, text: "", fill: "white", stroke: "ink", ...extra }
+}
+
+function line(id: string, start: LineElement["start"], end: LineElement["end"], extra: Partial<LineElement> = {}): LineElement {
+  return { id, type: "arrow", z: 5, start, end, stroke: "ink", ...extra }
+}
+
+function map(...els: Array<BoxElement | LineElement>): ElementMap {
+  return Object.fromEntries(els.map((el) => [el.id, el]))
+}
+
+describe("anchorPoint", () => {
+  it("meets a rectangle on the side facing the other end", () => {
+    const b = box("a", 0, 0, 100, 50)
+    expect(anchorPoint(b, { x: 300, y: 25 })).toEqual({ x: 100, y: 25 })
+    expect(anchorPoint(b, { x: 50, y: -100 })).toEqual({ x: 50, y: 0 })
+    expect(anchorPoint(b, { x: -50, y: 25 })).toEqual({ x: 0, y: 25 })
+  })
+
+  it("meets an ellipse on its outline", () => {
+    const e = box("a", 0, 0, 100, 50, { type: "ellipse" })
+    const right = anchorPoint(e, { x: 500, y: 25 })
+    expect(right.x).toBeCloseTo(100)
+    expect(right.y).toBeCloseTo(25)
+    const diagonal = anchorPoint(e, { x: 150, y: 75 })
+    // On the ellipse: ((x-50)/50)^2 + ((y-25)/25)^2 = 1
+    expect(((diagonal.x - 50) / 50) ** 2 + ((diagonal.y - 25) / 25) ** 2).toBeCloseTo(1)
+  })
+
+  it("is the centre when the other end is the centre", () => {
+    expect(anchorPoint(box("a", 0, 0, 100, 50), { x: 50, y: 25 })).toEqual({ x: 50, y: 25 })
+  })
+})
+
+describe("resolveLine (arrow attachment)", () => {
+  it("draws a free line between its stored points", () => {
+    const l = line("l", { x: 1, y: 2 }, { x: 30, y: 40 })
+    expect(resolveLine(l, map(l))).toEqual({ a: { x: 1, y: 2 }, b: { x: 30, y: 40 } })
+  })
+
+  it("puts an attached end on the box outline, facing the other end", () => {
+    const a = box("a", 0, 0, 100, 100)
+    const l = line("l", { x: 50, y: 50, attach: "a" }, { x: 300, y: 50 })
+    expect(resolveLine(l, map(a, l))).toEqual({ a: { x: 100, y: 50 }, b: { x: 300, y: 50 } })
+  })
+
+  it("follows the box when it moves, without the line changing", () => {
+    const l = line("l", { x: 50, y: 50, attach: "a" }, { x: 300, y: 250 })
+    const moved = box("a", 0, 200, 100, 100)
+    expect(resolveLine(l, map(moved, l)).a).toEqual({ x: 100, y: 250 })
+  })
+
+  it("connects two boxes outline to outline", () => {
+    const a = box("a", 0, 0, 100, 100)
+    const b = box("b", 300, 0, 100, 100)
+    const l = line("l", { x: 0, y: 0, attach: "a" }, { x: 0, y: 0, attach: "b" })
+    expect(resolveLine(l, map(a, b, l))).toEqual({ a: { x: 100, y: 50 }, b: { x: 300, y: 50 } })
+  })
+
+  it("falls back to the stored point when the box is gone", () => {
+    const l = line("l", { x: 7, y: 8, attach: "gone" }, { x: 30, y: 40 })
+    expect(resolveLine(l, map(l)).a).toEqual({ x: 7, y: 8 })
+  })
+})
+
+describe("bounds and order", () => {
+  it("bounds of a box, a line and a selection", () => {
+    const a = box("a", 10, 10, 100, 50)
+    const l = line("l", { x: 200, y: 300 }, { x: 150, y: 20 })
+    const els = map(a, l)
+    expect(elementBounds(a, els)).toEqual({ x: 10, y: 10, w: 100, h: 50 })
+    expect(elementBounds(l, els)).toEqual({ x: 150, y: 20, w: 50, h: 280 })
+    expect(boundsOf(["a", "l"], els)).toEqual({ x: 10, y: 10, w: 190, h: 290 })
+    expect(boundsOf([], els)).toBeNull()
+    expect(boundsOf(["missing"], els)).toBeNull()
+  })
+
+  it("sorts back to front by z, then id", () => {
+    const els = map(box("b", 0, 0, 1, 1, { z: 2 }), box("a", 0, 0, 1, 1, { z: 2 }), box("c", 0, 0, 1, 1, { z: 1 }))
+    expect(sortByZ(els).map((el) => el.id)).toEqual(["c", "a", "b"])
+  })
+
+  it("rectFromPoints normalises a drag in any direction", () => {
+    expect(rectFromPoints({ x: 50, y: 60 }, { x: 10, y: 20 })).toEqual({ x: 10, y: 20, w: 40, h: 40 })
+  })
+})
+
+describe("hitTest", () => {
+  it("picks the front-most element under the point", () => {
+    const back = box("back", 0, 0, 100, 100, { z: 1 })
+    const front = box("front", 50, 50, 100, 100, { z: 2 })
+    const els = map(back, front)
+    expect(hitTest(els, { x: 75, y: 75 }, 2)).toBe("front")
+    expect(hitTest(els, { x: 10, y: 10 }, 2)).toBe("back")
+    expect(hitTest(els, { x: 500, y: 500 }, 2)).toBeNull()
+  })
+
+  it("hits an ellipse inside its outline only", () => {
+    const e = box("e", 0, 0, 100, 100, { type: "ellipse" })
+    expect(hitTest(map(e), { x: 50, y: 50 }, 0)).toBe("e")
+    expect(hitTest(map(e), { x: 3, y: 3 }, 0)).toBeNull()
+  })
+
+  it("hits a line within the tolerance", () => {
+    const l = line("l", { x: 0, y: 0 }, { x: 100, y: 0 })
+    expect(hitTest(map(l), { x: 50, y: 4 }, 5)).toBe("l")
+    expect(hitTest(map(l), { x: 50, y: 9 }, 5)).toBeNull()
+    expect(distanceToSegment({ x: -3, y: 4 }, { x: 0, y: 0 }, { x: 100, y: 0 })).toBe(5)
+  })
+
+  it("picks an empty frame by its outline, so what is inside stays reachable", () => {
+    const frame = box("frame", 0, 0, 200, 200, { fill: "none", z: 9 })
+    const inner = box("inner", 50, 50, 20, 20, { z: 1 })
+    const els = map(frame, inner)
+    expect(hitTest(els, { x: 60, y: 60 }, 3)).toBe("inner")
+    expect(hitTest(els, { x: 120, y: 120 }, 3)).toBeNull()
+    expect(hitTest(els, { x: 1, y: 100 }, 3)).toBe("frame")
+    // With text in it, the whole frame is clickable.
+    expect(hitTest(map({ ...frame, text: "a" }), { x: 120, y: 120 }, 3)).toBe("frame")
+  })
+
+  it("boxAt finds the box a line end is dropped on, skipping lines and excluded ids", () => {
+    const a = box("a", 0, 0, 100, 100, { fill: "none" })
+    const l = line("l", { x: 0, y: 0 }, { x: 100, y: 100 })
+    const els = map(a, l)
+    expect(boxAt(els, { x: 50, y: 50 })).toBe("a")
+    expect(boxAt(els, { x: 50, y: 50 }, ["a"])).toBeNull()
+    expect(boxAt(els, { x: 150, y: 50 })).toBeNull()
+  })
+
+  it("elementsInRect returns what the rubber band touches", () => {
+    const a = box("a", 0, 0, 50, 50)
+    const b = box("b", 200, 200, 50, 50)
+    const l = line("l", { x: 60, y: 60 }, { x: 80, y: 80 })
+    expect(elementsInRect(map(a, b, l), { x: 40, y: 40, w: 50, h: 50 }).sort()).toEqual(["a", "l"])
+  })
+})
+
+describe("resize handles", () => {
+  const rect = { x: 10, y: 20, w: 100, h: 50 }
+
+  it("finds the handle under the point", () => {
+    expect(hitBoxHandle(rect, { x: 11, y: 21 }, 4)).toBe("nw")
+    expect(hitBoxHandle(rect, { x: 110, y: 70 }, 4)).toBe("se")
+    expect(hitBoxHandle(rect, { x: 60, y: 20 }, 4)).toBe("n")
+    expect(hitBoxHandle(rect, { x: 60, y: 45 }, 4)).toBeNull()
+  })
+
+  it("resizes from each side, keeping the opposite side", () => {
+    expect(resizeRect(rect, "se", 20, 10)).toEqual({ x: 10, y: 20, w: 120, h: 60 })
+    expect(resizeRect(rect, "nw", 20, 10)).toEqual({ x: 30, y: 30, w: 80, h: 40 })
+    expect(resizeRect(rect, "e", 15, 999)).toEqual({ x: 10, y: 20, w: 115, h: 50 })
+    expect(resizeRect(rect, "n", 999, -10)).toEqual({ x: 10, y: 10, w: 100, h: 60 })
+  })
+
+  it("never gets smaller than the minimum and never flips", () => {
+    expect(resizeRect(rect, "se", -500, -500)).toEqual({ x: 10, y: 20, w: 8, h: 8 })
+    expect(resizeRect(rect, "nw", 500, 500)).toEqual({ x: 102, y: 62, w: 8, h: 8 })
+  })
+
+  it("finds the ends of a line", () => {
+    const l = line("l", { x: 0, y: 0 }, { x: 100, y: 0 })
+    expect(hitLineHandle(l, map(l), { x: 2, y: 1 }, 5)).toBe("start")
+    expect(hitLineHandle(l, map(l), { x: 99, y: 1 }, 5)).toBe("end")
+    expect(hitLineHandle(l, map(l), { x: 50, y: 0 }, 5)).toBeNull()
+  })
+})
+
+describe("viewport", () => {
+  it("converts between screen and sheet", () => {
+    const v = { x: 100, y: 50, zoom: 2 }
+    expect(toSheet(v, { x: 300, y: 250 })).toEqual({ x: 100, y: 100 })
+    expect(toScreen(v, { x: 100, y: 100 })).toEqual({ x: 300, y: 250 })
+  })
+
+  it("pans", () => {
+    expect(panBy({ x: 1, y: 2, zoom: 1 }, 10, -5)).toEqual({ x: 11, y: -3, zoom: 1 })
+  })
+
+  it("zooms around the pointer: the sheet point under it does not move", () => {
+    const v = { x: 40, y: 30, zoom: 1 }
+    const anchor = { x: 200, y: 100 }
+    const before = toSheet(v, anchor)
+    const next = zoomAt(v, anchor, 2.5)
+    expect(next.zoom).toBe(2.5)
+    const after = toSheet(next, anchor)
+    expect(after.x).toBeCloseTo(before.x)
+    expect(after.y).toBeCloseTo(before.y)
+  })
+
+  it("keeps the zoom inside its limits", () => {
+    expect(zoomAt({ x: 0, y: 0, zoom: 1 }, { x: 0, y: 0 }, 99).zoom).toBe(MAX_ZOOM)
+    expect(zoomAt({ x: 0, y: 0, zoom: 1 }, { x: 0, y: 0 }, 0).zoom).toBe(MIN_ZOOM)
+    expect(wheelZoom(1, -100000)).toBeLessThanOrEqual(MAX_ZOOM)
+    expect(wheelZoom(1, 100)).toBeLessThan(1)
+    expect(wheelZoom(1, -100)).toBeGreaterThan(1)
+  })
+
+  it("steps through the zoom levels", () => {
+    expect(stepZoom(1, 1)).toBe(1.25)
+    expect(stepZoom(1, -1)).toBe(0.75)
+    expect(stepZoom(1.1, 1)).toBe(1.25)
+    expect(stepZoom(MAX_ZOOM, 1)).toBe(MAX_ZOOM)
+    expect(stepZoom(MIN_ZOOM, -1)).toBe(MIN_ZOOM)
+  })
+
+  it("fits the drawing into the canvas, never above 100 %", () => {
+    const small = fitViewport({ x: 0, y: 0, w: 100, h: 100 }, { width: 800, height: 600 })
+    expect(small).toEqual({ zoom: 1, x: 350, y: 250 })
+    const large = fitViewport({ x: 0, y: 0, w: 2000, h: 1000 }, { width: 800, height: 600 }, 0)
+    expect(large.zoom).toBeCloseTo(0.4)
+    expect(toScreen(large, { x: 1000, y: 500 })).toEqual({ x: 400, y: 300 })
+    expect(fitViewport(null, { width: 800, height: 600 })).toEqual({ x: 0, y: 0, zoom: 1 })
+  })
+})
