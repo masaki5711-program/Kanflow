@@ -120,6 +120,7 @@ vi.mock("@/services/activity/activity.service", () => h.inertModule("activity.se
 vi.mock("@/services/comments/comments.service", () => h.inertModule("comments.service"))
 vi.mock("@/services/reactions/reactions.service", () => h.inertModule("reactions.service"))
 vi.mock("@/services/trash/trash.service", () => h.inertModule("trash.service"))
+vi.mock("@/services/boards/boards.service", () => h.inertModule("boards.service"))
 vi.mock("@/services/chat-threads/chat-threads.service", () => h.inertModule("chat-threads.service"))
 vi.mock("@/services/ai-jobs/ai-jobs.service", () => h.inertModule("ai-jobs.service"))
 vi.mock("@/services/surveillance-settings/surveillance-settings.service", () => h.inertModule("surveillance-settings.service"))
@@ -328,6 +329,14 @@ const ROUTES: RouteCase[] = [
   { file: "trash/route.ts", load: () => import("@/app/api/projects/[projectId]/trash/route"), params: {} },
   { file: "trash/[entityType]/[id]/route.ts", load: () => import("@/app/api/projects/[projectId]/trash/[entityType]/[id]/route"), params: { entityType: "backlog_item", id: "pbi-1" } },
   { file: "trash/[entityType]/[id]/restore/route.ts", load: () => import("@/app/api/projects/[projectId]/trash/[entityType]/[id]/restore/route"), params: { entityType: "backlog_item", id: "pbi-1" } },
+  { file: "boards/route.ts", load: () => import("@/app/api/projects/[projectId]/boards/route"), params: {} },
+  { file: "boards/[boardId]/route.ts", load: () => import("@/app/api/projects/[projectId]/boards/[boardId]/route"), params: { boardId: "board-1" } },
+  { file: "boards/[boardId]/restore/route.ts", load: () => import("@/app/api/projects/[projectId]/boards/[boardId]/restore/route"), params: { boardId: "board-1" } },
+  { file: "boards/[boardId]/sheets/route.ts", load: () => import("@/app/api/projects/[projectId]/boards/[boardId]/sheets/route"), params: { boardId: "board-1" } },
+  { file: "boards/[boardId]/sheets/order/route.ts", load: () => import("@/app/api/projects/[projectId]/boards/[boardId]/sheets/order/route"), params: { boardId: "board-1" } },
+  { file: "boards/[boardId]/sheets/[sheetId]/route.ts", load: () => import("@/app/api/projects/[projectId]/boards/[boardId]/sheets/[sheetId]/route"), params: { boardId: "board-1", sheetId: "sheet-1" } },
+  { file: "boards/[boardId]/sheets/[sheetId]/duplicate/route.ts", load: () => import("@/app/api/projects/[projectId]/boards/[boardId]/sheets/[sheetId]/duplicate/route"), params: { boardId: "board-1", sheetId: "sheet-1" } },
+  { file: "boards/[boardId]/sheets/[sheetId]/elements/route.ts", load: () => import("@/app/api/projects/[projectId]/boards/[boardId]/sheets/[sheetId]/elements/route"), params: { boardId: "board-1", sheetId: "sheet-1" } },
   { file: "velocity/route.ts", load: () => import("@/app/api/projects/[projectId]/velocity/route"), params: {} },
 ]
 

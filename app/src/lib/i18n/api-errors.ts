@@ -139,6 +139,11 @@ export interface ApiErrorsTranslations {
   apiErrImprovementTooManyRollouts: string
   apiErrImprovementTooManyChecks: string
   apiErrMilestoneLimitReached: string
+  apiErrBoardLimitReached: string
+  apiErrBoardSheetLimitReached: string
+  apiErrBoardLastSheet: string
+  apiErrBoardSheetFull: string
+  apiErrBoardWriteTooLarge: string
   apiErrInvalidDate: string
   apiErrGlossarySameLocale: string
   apiErrTranslationFailed: string
@@ -313,6 +318,11 @@ export const API_ERROR_MESSAGE_KEYS: Readonly<Record<ApiErrorCode, ApiErrorMessa
   IMPROVEMENT_TOO_MANY_ROLLOUTS: "apiErrImprovementTooManyRollouts",
   IMPROVEMENT_TOO_MANY_CHECKS: "apiErrImprovementTooManyChecks",
   MILESTONE_LIMIT_REACHED: "apiErrMilestoneLimitReached",
+  BOARD_LIMIT_REACHED: "apiErrBoardLimitReached",
+  BOARD_SHEET_LIMIT_REACHED: "apiErrBoardSheetLimitReached",
+  BOARD_LAST_SHEET: "apiErrBoardLastSheet",
+  BOARD_SHEET_FULL: "apiErrBoardSheetFull",
+  BOARD_WRITE_TOO_LARGE: "apiErrBoardWriteTooLarge",
   INVALID_DATE: "apiErrInvalidDate",
   GLOSSARY_SAME_LOCALE: "apiErrGlossarySameLocale",
   TRANSLATION_FAILED: "apiErrTranslationFailed",
@@ -494,6 +504,11 @@ export const ja: ApiErrorsTranslations = {
   apiErrImprovementTooManyRollouts: "横展開先が多すぎます",
   apiErrImprovementTooManyChecks: "定着確認が多すぎます",
   apiErrMilestoneLimitReached: "これ以上追加できません（件数の上限です）",
+  apiErrBoardLimitReached: "ボードをこれ以上作れません（件数の上限です）。使わないボードを削除してください",
+  apiErrBoardSheetLimitReached: "シートをこれ以上追加できません（件数の上限です）",
+  apiErrBoardLastSheet: "最後のシートは削除できません",
+  apiErrBoardSheetFull: "このシートにはこれ以上置けません（図形の数の上限です）。新しいシートを使ってください",
+  apiErrBoardWriteTooLarge: "一度に保存できる量を超えました",
   apiErrInvalidDate: "日付が不正です",
   apiErrGlossarySameLocale: "翻訳元と翻訳先の言語は別にしてください",
   apiErrTranslationFailed: "翻訳に失敗しました",
@@ -669,6 +684,11 @@ export const en: ApiErrorsTranslations = {
   apiErrImprovementTooManyRollouts: "Too many rollout targets",
   apiErrImprovementTooManyChecks: "Too many sustainment checks",
   apiErrMilestoneLimitReached: "Cannot add more (the limit has been reached)",
+  apiErrBoardLimitReached: "Cannot create more boards (the limit has been reached). Delete boards you no longer use",
+  apiErrBoardSheetLimitReached: "Cannot add more sheets (the limit has been reached)",
+  apiErrBoardLastSheet: "The last sheet cannot be deleted",
+  apiErrBoardSheetFull: "This sheet cannot hold more shapes (the limit has been reached). Use a new sheet",
+  apiErrBoardWriteTooLarge: "Too much to save at once",
   apiErrInvalidDate: "Invalid date",
   apiErrGlossarySameLocale: "Source and target languages must differ",
   apiErrTranslationFailed: "Translation failed",
@@ -844,6 +864,11 @@ export const id: ApiErrorsTranslations = {
   apiErrImprovementTooManyRollouts: "Terlalu banyak tujuan penerapan",
   apiErrImprovementTooManyChecks: "Terlalu banyak pengecekan",
   apiErrMilestoneLimitReached: "Tidak dapat menambah lagi (batas jumlah tercapai)",
+  apiErrBoardLimitReached: "Tidak dapat membuat papan lagi (batas jumlah tercapai). Hapus papan yang tidak dipakai",
+  apiErrBoardSheetLimitReached: "Tidak dapat menambah lembar lagi (batas jumlah tercapai)",
+  apiErrBoardLastSheet: "Lembar terakhir tidak dapat dihapus",
+  apiErrBoardSheetFull: "Lembar ini tidak dapat memuat bentuk lagi (batas jumlah tercapai). Gunakan lembar baru",
+  apiErrBoardWriteTooLarge: "Terlalu banyak untuk disimpan sekaligus",
   apiErrInvalidDate: "Tanggal tidak valid",
   apiErrGlossarySameLocale: "Bahasa sumber dan bahasa tujuan harus berbeda",
   apiErrTranslationFailed: "Terjemahan gagal",

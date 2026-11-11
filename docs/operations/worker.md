@@ -358,6 +358,10 @@ is its own transaction; a failing row is logged (`purge-trash: row failed`) and 
 next day. At most 500 rows per type are purged per run (`per-run cap reached` in the log; the
 rest goes the next day). The run stops between rows on worker shutdown.
 
+Boards (ボード, `docs/plan/10-board.md`) go last, the same way: a board deleted by a PO / SM sits in
+the board list's trash (`/projects/<id>/boards`, not in `/projects/<id>/trash`) and is removed
+with its sheets and elements (`purgeBoard`) once it is older than `PURGE_TRASH_AFTER_DAYS`.
+
 ## Troubleshooting
 
 | Symptom | Check |

@@ -1,7 +1,7 @@
 /**
  * Daily trash purge (worker job): permanently deletes projects, PBIs,
- * Icebox items and master-plan items that have been in the trash longer than
- * PURGE_TRASH_AFTER_DAYS (default 30).
+ * Icebox items, master-plan items and boards (ボード) that have been in the
+ * trash longer than PURGE_TRASH_AFTER_DAYS (default 30).
  *
  * Every row goes through the same hard-delete path as "delete permanently"
  * in the UI (purgeProject / purgeBacklogItem / purgeIceboxItem /
@@ -14,6 +14,8 @@ import { prisma } from "@/lib/prisma"
 import { purgeCutoff } from "@/services/_shared/soft-delete"
 import { findExpiredTrashedBacklogItems } from "@/services/backlog/backlog.repository"
 import { purgeBacklogItem } from "@/services/backlog/backlog.service"
+import { findExpiredTrashedBoards } from "@/services/boards/boards.repository"
+import { purgeBoard } from "@/services/boards/boards.service"
 import { findExpiredTrashedIceboxItems } from "@/services/icebox/icebox.repository"
 import { purgeIceboxItem } from "@/services/icebox/icebox.service"
 import { findExpiredTrashedPlanItems } from "@/services/plan/plan.repository"
@@ -40,11 +42,11 @@ export interface RunPurgeTrashOptions {
 export interface PurgeTrashResult {
   status: "done" | "aborted"
   cutoff: string
-  purged: { projects: number; backlogItems: number; iceboxItems: number; planItems: number }
+  purged: { projects: number; backlogItems: number; iceboxItems: number; planItems: number; boards: number }
   failed: number
 }
 
-type EntityName = "project" | "backlog_item" | "icebox_item" | "plan_item"
+type EntityName = "project" | "backlog_item" | "icebox_item" | "plan_item" | "board"
 
 interface Pass<Row> {
   entity: EntityName
@@ -89,7 +91,7 @@ export async function runPurgeTrash(opts: RunPurgeTrashOptions): Promise<PurgeTr
   const result: PurgeTrashResult = {
     status: "done",
     cutoff: cutoff.toISOString(),
-    purged: { projects: 0, backlogItems: 0, iceboxItems: 0, planItems: 0 },
+    purged: { projects: 0, backlogItems: 0, iceboxItems: 0, planItems: 0, boards: 0 },
     failed: 0,
   }
   const passes: Array<{ key: keyof PurgeTrashResult["purged"]; run: () => Promise<PassOutcome> }> = [
@@ -123,6 +125,11 @@ export async function runPurgeTrash(opts: RunPurgeTrashOptions): Promise<PurgeTr
           cutoff,
           opts
         ),
+    },
+    {
+      key: "boards",
+      run: () =>
+        runPass({ entity: "board", find: (c) => findExpiredTrashedBoards(prisma, c, take), purge: (r) => purgeBoard(r.projectId, r.id) }, cutoff, opts),
     },
   ]
 
