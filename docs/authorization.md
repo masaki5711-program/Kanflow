@@ -69,6 +69,9 @@ System admins skip the membership lookup; every request (admins included) does o
 | `ai.draftPbi` | Y | Y | Y | - | - |
 | `trash.manage` | Y | Y | Y | - | - |
 | `trash.purge` | Y | Y | - | - | - |
+| `board.read` | Y | Y | Y | Y | Y |
+| `board.write` | Y | Y | Y | Y | - |
+| `board.manage` | Y | Y | Y | - | - |
 | `comment.write` | Y | Y | Y | Y | - |
 | `comment.moderate` | Y | Y | - | - | - |
 | `surveillance.configure` | Y | Y | - | - | - |
@@ -222,6 +225,14 @@ Paths are relative to `/api/projects/[projectId]`.
 | `/trash` | trash.manage | | | |
 | `/trash/[entityType]/[id]/restore` | | trash.manage | | |
 | `/trash/[entityType]/[id]` | | | | trash.purge |
+| `/boards` (ボード: the project's drawing boards; `?trashed=1` lists the deleted ones) | board.read; `?trashed=1`: board.manage | board.write (409 `BOARD_LIMIT_REACHED` at 200 boards) | | |
+| `/boards/[boardId]` (a board of another project, or one in the trash: 404) | board.read | | PATCH: board.write (rename) | board.manage (to the board trash; purged by the trash job) |
+| `/boards/[boardId]/restore` | | board.manage | | |
+| `/boards/[boardId]/sheets` | | board.write (409 `BOARD_SHEET_LIMIT_REACHED` at 30 sheets) | | |
+| `/boards/[boardId]/sheets/order` | | | PUT: board.write (the full list of the board's sheet ids) | |
+| `/boards/[boardId]/sheets/[sheetId]` | | | PATCH: board.write (rename) | board.write (permanent, with the sheet's elements; 409 `BOARD_LAST_SHEET`) |
+| `/boards/[boardId]/sheets/[sheetId]/duplicate` | | board.write | | |
+| `/boards/[boardId]/sheets/[sheetId]/elements` (`?since=<rev>`: only what was written after that sheet revision) | board.read | board.write (changed elements only, ≤ 500 per request and ≤ 2 MB: 413 `BOARD_WRITE_TOO_LARGE`; per element the higher `version` stays; 409 `BOARD_SHEET_FULL` at 5,000 elements) | | |
 | `/comments` | project.view | comment.write | | |
 | `/comments/counts` | project.view | | | |
 | `/comments/[commentId]` | | | PATCH: comment.write + author only (403) | comment.write + author, or comment.moderate (403) |

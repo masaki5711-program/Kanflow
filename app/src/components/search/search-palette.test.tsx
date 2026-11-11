@@ -210,6 +210,7 @@ describe("palette-commands", () => {
     const langs = cmds.flatMap((c) => (c.action.kind === "language" ? [c.action.language] : []))
     expect(langs).toEqual(["ja", "id"])
     expect(filterCommands(cmds, "GO TO B").map((c) => c.label)).toEqual(["Go to B", `Go to ${t.burndownPageTitle}`])
+    expect(filterCommands(cmds, "go to white").map((c) => c.label)).toEqual([`Go to ${t.wbTitle}`])
     expect(filterCommands(cmds, "  ")).toHaveLength(cmds.length)
   })
 

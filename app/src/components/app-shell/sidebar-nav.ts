@@ -11,6 +11,7 @@ import {
   Map as MapIcon,
   MessageSquare,
   MessagesSquare,
+  PenTool,
   Rocket,
   Settings,
   Trash2,
@@ -69,7 +70,7 @@ export function buildSidebarTalk(projectId: string, t: Translations): SidebarNav
 /**
  * Sidebar information architecture, four collapsible sections below the
  * pinned dashboard (buildSidebarHome):
- * 実行 (IceBox → backlog → sprints, the flow of an idea) → 計画 (schedule) → 振り返り・AI → 管理.
+ * 実行 (IceBox → backlog → sprints, the flow of an idea) → 計画 (schedule, and the ボード drawing boards) → 振り返り・AI → 管理.
  * The trash, team settings and AI chat entries are permission-gated; the Git
  * entry appears only for projects with the Git integration switched on.
  */
@@ -115,6 +116,7 @@ export function buildSidebarGroups(
         { href: `${base}/gantt`, label: t.ganttTitle, description: t.navDescGantt, Icon: ChartGantt },
         { href: `${base}/calendar`, label: t.calendarTitle, description: t.navDescCalendar, Icon: CalendarDays },
         { href: `${base}/releases`, label: pt.navReleases, description: pt.navReleasesDesc, Icon: Rocket },
+        { href: `${base}/boards`, label: t.wbTitle, description: t.wbNavDesc, Icon: PenTool },
       ],
     },
     {

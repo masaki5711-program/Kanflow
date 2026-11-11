@@ -25,6 +25,7 @@ import * as guide from "./guide"
 import * as settings from "./settings"
 import * as apiErrors from "./api-errors"
 import * as trash from "./trash"
+import * as boards from "./boards"
 import * as comments from "./comments"
 import * as search from "./search"
 import * as notifications from "./notifications"
@@ -93,6 +94,7 @@ export interface Translations
     settings.SettingsTranslations,
     apiErrors.ApiErrorsTranslations,
     trash.TrashTranslations,
+    boards.BoardsTranslations,
     comments.CommentsTranslations,
     search.SearchTranslations,
     notifications.NotificationsTranslations,
@@ -155,6 +157,7 @@ export const domains = {
   "settings": settings,
   "api-errors": apiErrors,
   "trash": trash,
+  "boards": boards,
   "comments": comments,
   "search": search,
   "notifications": notifications,
@@ -217,6 +220,7 @@ const ja: Translations = {
   ...settings.ja,
   ...apiErrors.ja,
   ...trash.ja,
+  ...boards.ja,
   ...comments.ja,
   ...search.ja,
   ...notifications.ja,
@@ -279,6 +283,7 @@ const en: Translations = {
   ...settings.en,
   ...apiErrors.en,
   ...trash.en,
+  ...boards.en,
   ...comments.en,
   ...search.en,
   ...notifications.en,
@@ -341,6 +346,7 @@ const id: Translations = {
   ...settings.id,
   ...apiErrors.id,
   ...trash.id,
+  ...boards.id,
   ...comments.id,
   ...search.id,
   ...notifications.id,

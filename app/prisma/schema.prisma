@@ -673,6 +673,9 @@ model Project {
   budgetLines       BudgetLine[]
   milestoneMetrics  MilestoneMetric[]
 
+  /// ボード (drawing boards, docs/plan/10-board.md).
+  boards            Board[]
+
   @@index([deletedAt])
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "Project_name_trgm_idx")
 }
@@ -2662,4 +2665,68 @@ model PlanEstimateParamApproval {
   @@unique([lineage, endedAt], map: "plan_estimate_param_approval_one_active_key")
   @@index([lineage, approvedAt(sort: Desc)])
   @@map("plan_estimate_param_approval")
+}
+
+/// ボード (docs/plan/10-board.md): a free drawing board of a project. Any number per project, every project type.
+/// Deleting moves it to the project trash (deletedAt; purged after the trash retention). The content never leaves
+/// Kanflow: not returned through MCP, not sent to GitStation or to the background LLM jobs, not in the activity log.
+model Board {
+  id          String       @id @default(cuid())
+  projectId   String
+  title       String       @db.VarChar(120)
+  sortOrder   Int          @default(0)
+  /// Plain User ids (no FK, like Project.deletedById): the board outlives the account.
+  createdById String?
+  deletedAt   DateTime?
+  deletedById String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sheets      BoardSheet[]
+
+  @@index([projectId, deletedAt])
+  @@map("board")
+}
+
+/// One sheet (tab) of a board. A board always keeps at least one.
+model BoardSheet {
+  id        String         @id @default(cuid())
+  boardId   String
+  name      String         @db.VarChar(60)
+  sortOrder Int            @default(0)
+  /// Change counter: +1 on every accepted element write. `GET …/elements?since=<rev>` returns what changed after it.
+  rev       Int            @default(0)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  board     Board          @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  elements  BoardElement[]
+
+  @@index([boardId, sortOrder])
+  @@map("board_sheet")
+}
+
+/// One drawn element = one row, so two people changing different elements never overwrite each other.
+/// `data` is the element as the client wrote it ({ type, … }); the server validates the known types and keeps
+/// unknown ones untouched (a newer client's image / table / link needs no migration).
+model BoardElement {
+  id          String     @id @default(cuid())
+  sheetId     String
+  /// Client-generated id, unique within the sheet.
+  elementId   String     @db.VarChar(40)
+  /// Per-element counter set by the writer; the server keeps the higher one (lib/board/merge.ts).
+  version     Int
+  data        Json
+  /// Tombstone: the element was deleted (kept so that a delta read can tell other clients).
+  deleted     Boolean    @default(false)
+  /// The sheet's `rev` at which this row was last written.
+  rev         Int
+  /// Plain User id (no FK).
+  updatedById String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  sheet       BoardSheet @relation(fields: [sheetId], references: [id], onDelete: Cascade)
+
+  @@unique([sheetId, elementId])
+  @@index([sheetId, rev])
+  @@map("board_element")
 }

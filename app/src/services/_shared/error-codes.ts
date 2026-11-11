@@ -174,6 +174,17 @@ export const API_ERROR_CODES = [
   "IMPROVEMENT_TOO_MANY_CHECKS",
   // マイルストーン・検収ボード (general)
   "MILESTONE_LIMIT_REACHED",
+  // ボード (drawing boards, docs/plan/10-board.md)
+  "BOARD_LIMIT_REACHED",
+  "BOARD_SHEET_LIMIT_REACHED",
+  /** A board always keeps at least one sheet. */
+  "BOARD_LAST_SHEET",
+  /** The write would put more live elements on the sheet than it may hold. */
+  "BOARD_SHEET_FULL",
+  /** One write request is larger than the server accepts (the editor sends less per request). */
+  "BOARD_WRITE_TOO_LARGE",
+  /** An element's version jumps further than one client could edit it (refused: it would lock the element). */
+  "BOARD_VERSION_JUMP",
   // Dates / glossary / translation
   "INVALID_DATE",
   "GLOSSARY_SAME_LOCALE",

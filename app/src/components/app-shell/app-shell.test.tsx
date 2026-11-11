@@ -108,7 +108,7 @@ describe("sidebar-nav", () => {
     const paths = groups.map((g) => g.items.map((i) => i.href.replace("/projects/p9", "") || "/"))
     expect(paths).toEqual([
       ["/icebox", "/backlog", "/sprints", "/burndown"],
-      ["/plan", "/gantt", "/calendar", "/releases"],
+      ["/plan", "/gantt", "/calendar", "/releases", "/boards"],
       ["/report", "/chat"],
       ["/settings", "/trash", "/guide"],
     ])

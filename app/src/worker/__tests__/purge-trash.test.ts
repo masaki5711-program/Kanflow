@@ -9,6 +9,8 @@ const m = vi.hoisted(() => ({
   purgeIceboxItem: vi.fn(),
   findExpiredTrashedPlanItems: vi.fn(),
   purgePlanItem: vi.fn(),
+  findExpiredTrashedBoards: vi.fn(),
+  purgeBoard: vi.fn(),
 }))
 
 vi.mock("@/lib/prisma", () => ({ prisma: { __db: true } }))
@@ -20,6 +22,8 @@ vi.mock("@/services/backlog/backlog.service", () => ({ purgeBacklogItem: m.purge
 vi.mock("@/services/icebox/icebox.service", () => ({ purgeIceboxItem: m.purgeIceboxItem }))
 vi.mock("@/services/plan/plan.repository", () => ({ findExpiredTrashedPlanItems: m.findExpiredTrashedPlanItems }))
 vi.mock("@/services/plan/plan.trash", () => ({ purgePlanItem: m.purgePlanItem }))
+vi.mock("@/services/boards/boards.repository", () => ({ findExpiredTrashedBoards: m.findExpiredTrashedBoards }))
+vi.mock("@/services/boards/boards.service", () => ({ purgeBoard: m.purgeBoard }))
 
 const { runPurgeTrash, PURGE_TRASH_MAX_PER_TYPE } = await import("@/worker/jobs/purge-trash")
 
@@ -36,6 +40,8 @@ beforeEach(() => {
   m.purgeIceboxItem.mockResolvedValue(undefined)
   m.findExpiredTrashedPlanItems.mockResolvedValue([])
   m.purgePlanItem.mockResolvedValue(undefined)
+  m.findExpiredTrashedBoards.mockResolvedValue([])
+  m.purgeBoard.mockResolvedValue(undefined)
 })
 
 describe("runPurgeTrash", () => {
@@ -44,6 +50,7 @@ describe("runPurgeTrash", () => {
     m.findExpiredTrashedBacklogItems.mockResolvedValue([{ id: "b1", projectId: "p1" }])
     m.findExpiredTrashedIceboxItems.mockResolvedValue([{ id: "i1", projectId: "p1" }])
     m.findExpiredTrashedPlanItems.mockResolvedValue([{ id: "pl1", projectId: "p1" }])
+    m.findExpiredTrashedBoards.mockResolvedValue([{ id: "bd1", projectId: "p1" }])
 
     const r = await runPurgeTrash({ retentionDays: 30, now: () => NOW, log })
 
@@ -56,10 +63,12 @@ describe("runPurgeTrash", () => {
     expect(m.purgeIceboxItem).toHaveBeenCalledWith("p1", "i1", null)
     expect(m.findExpiredTrashedPlanItems).toHaveBeenCalledWith({ __db: true }, cutoff, PURGE_TRASH_MAX_PER_TYPE)
     expect(m.purgePlanItem).toHaveBeenCalledWith("p1", "pl1", null)
+    expect(m.findExpiredTrashedBoards).toHaveBeenCalledWith({ __db: true }, cutoff, PURGE_TRASH_MAX_PER_TYPE)
+    expect(m.purgeBoard).toHaveBeenCalledWith("p1", "bd1")
     expect(r).toEqual({
       status: "done",
       cutoff: cutoff.toISOString(),
-      purged: { projects: 1, backlogItems: 1, iceboxItems: 1, planItems: 1 },
+      purged: { projects: 1, backlogItems: 1, iceboxItems: 1, planItems: 1, boards: 1 },
       failed: 0,
     })
   })
@@ -70,8 +79,9 @@ describe("runPurgeTrash", () => {
     m.findExpiredTrashedBacklogItems.mockImplementation(async () => (order.push("pbis"), []))
     m.findExpiredTrashedIceboxItems.mockImplementation(async () => (order.push("icebox"), []))
     m.findExpiredTrashedPlanItems.mockImplementation(async () => (order.push("plan"), []))
+    m.findExpiredTrashedBoards.mockImplementation(async () => (order.push("boards"), []))
     await runPurgeTrash({ retentionDays: 30, now: () => NOW, log })
-    expect(order).toEqual(["projects", "pbis", "icebox", "plan"])
+    expect(order).toEqual(["projects", "pbis", "icebox", "plan", "boards"])
   })
 
   it("keeps going when one row fails and reports it", async () => {
