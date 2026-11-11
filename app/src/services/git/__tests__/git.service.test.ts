@@ -797,6 +797,46 @@ describe("getPbiGitPanel", () => {
   })
 })
 
+describe("N4 / N5: merge state read model", () => {
+  const at = new Date("2026-10-01T00:00:00.000Z")
+
+  it("toMergeStateDto: nothing before it was read; malformed stored JSON is dropped, never thrown", () => {
+    expect(svc.toMergeStateDto({ mergeBlockers: null, mergeable: null, conflictPrediction: null, mergeStatusAt: null })).toBeNull()
+    expect(
+      svc.toMergeStateDto({
+        mergeBlockers: [{ reason: "draft", detail: null }, { reason: 3 }, "x"],
+        mergeable: false,
+        conflictPrediction: { status: "scanned", peers: [{ iid: 4, outcome: "conflict", files: 2 }, { iid: "x" }] },
+        mergeStatusAt: at,
+      }),
+    ).toEqual({
+      mergeable: false,
+      blockers: [{ reason: "draft", detail: null }],
+      conflicts: { status: "scanned", stale: false, scannedAt: null, peers: [{ iid: 4, draft: false, outcome: "conflict", files: 2, truncated: false }] },
+      checkedAt: at.toISOString(),
+    })
+    expect(svc.toMergeStateDto({ mergeBlockers: "nope", mergeable: true, conflictPrediction: [], mergeStatusAt: at })).toMatchObject({ blockers: [], conflicts: null })
+  })
+
+  it("mergeFlags: blocked = at least one reason; conflicts = a predicted conflict (a failed trial merge is not one)", () => {
+    expect(svc.mergeFlags({ mergeBlockers: [{ reason: "draft" }], conflictPrediction: null, mergeStatusAt: at })).toEqual({ blocked: true, conflicts: false })
+    expect(svc.mergeFlags({ mergeBlockers: [], conflictPrediction: { status: "scanned", peers: [{ iid: 2, outcome: "failed" }] }, mergeStatusAt: at })).toEqual({ blocked: false, conflicts: false })
+    expect(svc.mergeFlags({ mergeBlockers: [], conflictPrediction: { status: "scanned", peers: [{ iid: 2, outcome: "conflict" }] }, mergeStatusAt: at })).toEqual({ blocked: false, conflicts: true })
+    // Not read: nothing is claimed.
+    expect(svc.mergeFlags({ mergeBlockers: [{ reason: "draft" }], conflictPrediction: null, mergeStatusAt: null })).toEqual({ blocked: false, conflicts: false })
+  })
+
+  it("summarize counts blocked and conflicting OPEN merge requests only", () => {
+    const base = { kind: "mr", pipeline: null, occurredAt: "2026-10-01T00:00:00.000Z" }
+    const s = svc.summarize([
+      { ...base, state: "opened", blocked: true, conflicts: true },
+      { ...base, state: "locked", blocked: true },
+      { ...base, state: "merged", blocked: true, conflicts: true },
+    ])
+    expect(s).toMatchObject({ openMrs: 2, blockedMrs: 2, conflictMrs: 1 })
+  })
+})
+
 describe("summarize", () => {
   const link = (over: Partial<{ kind: string; state: string | null; pipeline: string | null; occurredAt: string }>) => ({
     kind: "mr",
@@ -808,7 +848,7 @@ describe("summarize", () => {
 
   it("counts open and merged MRs, and branches, separately", () => {
     const result = svc.summarize([link({ state: "opened" }), link({ state: "merged" }), link({ kind: "branch" })])
-    expect(result).toEqual({ openMrs: 1, mergedMrs: 1, branches: 1, pipeline: null })
+    expect(result).toEqual({ openMrs: 1, mergedMrs: 1, branches: 1, pipeline: null, blockedMrs: 0, conflictMrs: 0 })
   })
 
   it("treats 'locked' as open", () => {
@@ -871,8 +911,8 @@ describe("getGitSummaries", () => {
       { backlogItemId: "b2", kind: "mr", state: "merged", pipeline: null, occurredAt: new Date("2026-01-01T00:00:00Z") },
     ])
     const { summaries } = await svc.getGitSummaries(PROJECT_ID, ["b1", "b2"])
-    expect(summaries.b1).toEqual({ openMrs: 1, mergedMrs: 0, branches: 1, pipeline: null })
-    expect(summaries.b2).toEqual({ openMrs: 0, mergedMrs: 1, branches: 0, pipeline: null })
+    expect(summaries.b1).toEqual({ openMrs: 1, mergedMrs: 0, branches: 1, pipeline: null, blockedMrs: 0, conflictMrs: 0 })
+    expect(summaries.b2).toEqual({ openMrs: 0, mergedMrs: 1, branches: 0, pipeline: null, blockedMrs: 0, conflictMrs: 0 })
   })
 
   it("the card badge ignores links of deleted branches (goneAt set)", async () => {

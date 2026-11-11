@@ -36,9 +36,9 @@ describe("git-format", () => {
 
   it("badge text and activity check", () => {
     expect(hasGitActivity(undefined)).toBe(false)
-    expect(hasGitActivity({ openMrs: 0, mergedMrs: 0, branches: 0, pipeline: "success" })).toBe(false)
-    expect(badgeLabel({ openMrs: 2, mergedMrs: 0, branches: 0, pipeline: "failed" }, ja)).toBe("マージリクエスト 2 件オープン、パイプライン: 失敗")
-    expect(badgeLabel({ openMrs: 0, mergedMrs: 0, branches: 1, pipeline: null }, ja)).toBe("ブランチ 1 件")
+    expect(hasGitActivity({ openMrs: 0, mergedMrs: 0, branches: 0, pipeline: "success", blockedMrs: 0, conflictMrs: 0 })).toBe(false)
+    expect(badgeLabel({ openMrs: 2, mergedMrs: 0, branches: 0, pipeline: "failed", blockedMrs: 0, conflictMrs: 0 }, ja)).toBe("マージリクエスト 2 件オープン、パイプライン: 失敗")
+    expect(badgeLabel({ openMrs: 0, mergedMrs: 0, branches: 1, pipeline: null, blockedMrs: 0, conflictMrs: 0 }, ja)).toBe("ブランチ 1 件")
   })
 
   it("parses responses defensively", () => {
@@ -50,7 +50,7 @@ describe("git-format", () => {
     ])
     expect(toSummaries({ enabled: true, summaries: { a: { openMrs: "2" }, b: null } })).toEqual({
       enabled: true,
-      summaries: { a: { openMrs: 0, mergedMrs: 0, branches: 0, pipeline: null } },
+      summaries: { a: { openMrs: 0, mergedMrs: 0, branches: 0, pipeline: null, blockedMrs: 0, conflictMrs: 0 } },
     })
     expect(toSummaries({ error: "x" })).toEqual({ enabled: false, summaries: {} })
   })

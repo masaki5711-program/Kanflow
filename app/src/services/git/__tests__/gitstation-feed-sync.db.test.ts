@@ -539,6 +539,61 @@ describe.skipIf(!enabled)("GitStation feed sync on a real database (KANFLOW_DB_T
     }
   })
 
+  it("N4 / N5: an open MR's blockers and predicted conflicts are stored (counts, never paths) and reach the panel and the card", async () => {
+    await started()
+    station.mergeRequest("merge_request.opened", 1, { project: "app/portal", title: "Login (PBI-1)" }, station.workItem("PBI-1", ids.projectA))
+    station.setMergeStatus(1, [{ reason: "approvals_missing", detail: "rule=default required=2 counted=1" }], "app/portal")
+    station.setConflicts(1, { status: "scanned", peers: [{ iid: 7, paths: ["secret/plan.md", "app/a.ts"] }] }, "app/portal")
+    await sync()
+    const row = await prisma.gitLink.findFirstOrThrow({ where: { repositoryId: ids.repoA1, kind: "mr", ref: "1" } })
+    expect(row).toMatchObject({ mergeable: false, mergeStatusAt: NOW, mergeBlockers: [{ reason: "approvals_missing", detail: "rule=default required=2 counted=1" }] })
+    expect(row.conflictPrediction).toMatchObject({ status: "scanned", peers: [{ iid: 7, files: 2, outcome: "conflict" }] })
+    expect(JSON.stringify(row.conflictPrediction)).not.toContain("secret/plan.md")
+
+    const panel = await service.getPbiGitPanel(ids.projectA, ids.pbiA)
+    expect(panel.links?.find((l) => l.kind === "mr")?.merge).toMatchObject({ blockers: [{ reason: "approvals_missing" }], conflicts: { peers: [{ iid: 7, files: 2 }] } })
+    const { summaries } = await service.getGitSummaries(ids.projectA, [ids.pbiA])
+    expect(summaries[ids.pbiA]).toMatchObject({ openMrs: 1, blockedMrs: 1, conflictMrs: 1 })
+
+    // Closed: nothing blocks it any more — the stored state is cleared, without a call.
+    station.mergeRequest("merge_request.closed", 1, { project: "app/portal" }, station.workItem("PBI-1", ids.projectA))
+    station.requests.length = 0
+    await sync()
+    expect(await prisma.gitLink.findFirstOrThrow({ where: { repositoryId: ids.repoA1, kind: "mr", ref: "1" } })).toMatchObject({ mergeStatusAt: null, mergeBlockers: null, conflictPrediction: null, mergeable: null })
+    expect(station.requests.some((r) => r.includes("/merge-requests/1/status"))).toBe(false)
+  })
+
+  it("N5: a push on the other side re-reads a stored prediction (GitStation sends no event when it clears)", async () => {
+    await started()
+    const portal = "app/portal"
+    station.mergeRequest("merge_request.opened", 2, { project: portal, title: "Form (PBI-1)", source_branch: "feature/PBI-1-form" }, station.workItem("PBI-1", ids.projectA))
+    station.mergeRequest("merge_request.opened", 3, { project: portal, title: "Login (PBI-1)", source_branch: "feature/PBI-1-login" }, station.workItem("PBI-1", ids.projectA))
+    station.setConflicts(2, { status: "scanned", peers: [{ iid: 3, paths: ["a"] }] }, portal)
+    station.setConflicts(3, { status: "scanned", peers: [{ iid: 2, paths: ["a"] }] }, portal)
+    await sync()
+    expect((await prisma.gitLink.findFirstOrThrow({ where: { repositoryId: ids.repoA1, ref: "2" } })).conflictPrediction).toMatchObject({ peers: [{ iid: 3 }] })
+    // !3 is rebased: the conflict is gone on both sides, but only !3 has an event.
+    station.setConflicts(2, { status: "scanned", peers: [] }, portal)
+    station.setConflicts(3, { status: "scanned", peers: [] }, portal)
+    station.mergeRequest("merge_request.pushed", 3, { project: portal }, station.workItem("PBI-1", ids.projectA))
+    await sync()
+    expect((await prisma.gitLink.findFirstOrThrow({ where: { repositoryId: ids.repoA1, ref: "2" } })).conflictPrediction).toMatchObject({ peers: [] })
+  })
+
+  it("N4: a status that cannot be read clears what was stored (an old answer is never shown as current)", async () => {
+    await started()
+    station.mergeRequest("merge_request.opened", 1, { project: "app/portal", title: "Login (PBI-1)" }, station.workItem("PBI-1", ids.projectA))
+    station.setMergeStatus(1, [{ reason: "draft" }], "app/portal")
+    await sync()
+    const where = { repositoryId: ids.repoA1, kind: "mr", ref: "1" }
+    expect((await prisma.gitLink.findFirstOrThrow({ where })).mergeStatusAt).toEqual(NOW)
+    station.mergeRequest("merge_request.updated", 1, { project: "app/portal" }, station.workItem("PBI-1", ids.projectA))
+    station.fail(`/projects/${station.projectId("app/portal")}/merge-requests/1/status`, 403, { error_code: "FG-AUTHZ-0001" }, undefined, 5)
+    const results = await sync()
+    expect(results.every((r) => r.ok)).toBe(true)
+    expect(await prisma.gitLink.findFirstOrThrow({ where })).toMatchObject({ mergeStatusAt: null, mergeBlockers: null })
+  })
+
   it("permanent failures skip, transient ones hold; re-reads back off exponentially up to a day", async () => {
     const { GitStationError } = await import("@/lib/git/gitstation-client")
     const { NotBoundError } = await import("../gitstation-source")
