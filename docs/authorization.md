@@ -69,6 +69,9 @@ System admins skip the membership lookup; every request (admins included) does o
 | `ai.draftPbi` | Y | Y | Y | - | - |
 | `trash.manage` | Y | Y | Y | - | - |
 | `trash.purge` | Y | Y | - | - | - |
+| `board.read` | Y | Y | Y | Y | Y |
+| `board.write` | Y | Y | Y | Y | - |
+| `board.manage` | Y | Y | Y | - | - |
 | `comment.write` | Y | Y | Y | Y | - |
 | `comment.moderate` | Y | Y | - | - | - |
 | `surveillance.configure` | Y | Y | - | - | - |

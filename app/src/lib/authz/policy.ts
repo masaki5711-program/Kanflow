@@ -73,6 +73,12 @@ export const PROJECT_ACTIONS = [
   "trash.manage",
   /** Permanently delete (purge) a trashed PBI / Icebox item before the retention period ends. */
   "trash.purge",
+  /** ボード (drawing boards): list the project's boards and open one (sheets and elements). */
+  "board.read",
+  /** Create and rename boards; add / rename / reorder / duplicate / delete sheets; write elements. */
+  "board.write",
+  /** Move a board to the trash and restore it. */
+  "board.manage",
   /** Post comments on PBIs / sprint tasks / Icebox items; edit and delete one's own. */
   "comment.write",
   /** Delete anyone's comment (moderation). */
@@ -174,6 +180,9 @@ const POLICY: Readonly<Record<ProjectAction, readonly Grantee[]>> = {
   "ai.draftPbi": PO_SM,
   "trash.manage": PO_SM,
   "trash.purge": PO,
+  "board.read": ["member", "section_manager"],
+  "board.write": MEMBER,
+  "board.manage": PO_SM,
   "comment.write": MEMBER,
   "comment.moderate": PO,
   "surveillance.configure": PO,
