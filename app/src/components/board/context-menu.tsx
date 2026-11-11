@@ -50,6 +50,8 @@ export interface ContextMenuActions {
   comment?: () => void
   linkPbi?: () => void
   createPbi?: () => void
+  /** The AI's three PBI drafts from the shape and its surroundings (arrows, frame, group, comments). */
+  pbiDrafts?: () => void
   openPbi?: () => void
   aiSummarize?: () => void
   aiGroup?: () => void
@@ -88,16 +90,17 @@ export function contextMenuEntries(editor: BoardEditorController, t: Translation
     return entries
   }
 
+  const add = (type: DrawBoxType, label: string): MenuEntry => item(`add-${type}`, label, <Plus className={ICON} />, () => editor.addAt(type, at))
+  const addHere: MenuEntry = {
+    kind: "submenu",
+    key: "add",
+    label: t.wbAddHere,
+    icon: <Plus className={ICON} />,
+    items: [add("sticky", t.wbToolSticky), add("rect", t.wbToolRect), add("ellipse", t.wbToolEllipse), add("text", t.wbToolText), add("frame", t.wbToolFrame), add("table", t.wbToolTable)],
+  }
   if (selected.length === 0) {
-    const add = (type: DrawBoxType, label: string): MenuEntry => item(`add-${type}`, label, <Plus className={ICON} />, () => editor.addAt(type, at))
     entries.push(item("paste", t.wbPaste, <ClipboardPaste className={ICON} />, editor.paste, { shortcut: "Ctrl+V" }))
-    entries.push({
-      kind: "submenu",
-      key: "add",
-      label: t.wbAddHere,
-      icon: <Plus className={ICON} />,
-      items: [add("sticky", t.wbToolSticky), add("rect", t.wbToolRect), add("ellipse", t.wbToolEllipse), add("text", t.wbToolText), add("frame", t.wbToolFrame), add("table", t.wbToolTable)],
-    })
+    entries.push(addHere)
     entries.push(sep("s1"))
     entries.push(item("select-all", t.wbSelectAll, null, editor.selectAll, { shortcut: "Ctrl+A" }))
     entries.push(item("fit", t.wbZoomFit, null, editor.zoomFit))
@@ -111,6 +114,8 @@ export function contextMenuEntries(editor: BoardEditorController, t: Translation
     else if (one.type === "frame") {
       entries.push(item("edit-body", t.wbBodyEditLabel, <Pencil className={ICON} />, () => editor.startBodyEditing(one.id), { shortcut: "Enter" }))
       entries.push(item("edit-title", t.wbEditTitle, <Pencil className={ICON} />, () => editor.startEditing(one.id), { shortcut: "F2" }))
+      // A frame holds things: something new can be put in it where it was right-clicked.
+      entries.push(addHere)
     } else if (one.type === "table") {
       const cell = editor.activeCell?.id === one.id ? editor.activeCell : { row: 0, col: 0 }
       entries.push(item("edit", t.wbEditText, <Pencil className={ICON} />, () => editor.startCellEditing(one.id, cell.row, cell.col), { shortcut: "Enter" }))
@@ -210,6 +215,7 @@ export function contextMenuEntries(editor: BoardEditorController, t: Translation
   if (one && isBox(one) && actions.createPbi && one.type !== "table" && one.type !== "image" && one.type !== "timer") {
     entries.push(item("pbi-create", t.wbPbiCreate, <BookmarkPlus className={ICON} />, actions.createPbi, { disabled: !!one.locked || !one.text.trim() }))
   }
+  if (one && isBox(one) && actions.pbiDrafts) entries.push(item("pbi-drafts", t.wbPbiDrafts, <Sparkles className={ICON} />, actions.pbiDrafts, { disabled: !!one.locked }))
   if (one && actions.comment) entries.push(item("comment", t.wbComment, <MessageSquare className={ICON} />, actions.comment))
   entries.push(item("link", t.wbLink, <Link className={ICON} />, actions.editLink, { disabled: locked }))
   entries.push(item("lock", locked ? t.wbUnlock : t.wbLock, locked ? <LockOpen className={ICON} /> : <Lock className={ICON} />, () => editor.setLocked(!locked)))

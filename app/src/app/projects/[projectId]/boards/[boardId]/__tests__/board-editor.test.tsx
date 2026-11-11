@@ -961,3 +961,47 @@ describe("ホワイトボード B7: menus with the keyboard and the pointer", ()
     expect(within(menu).getByRole("menuitem", { name: t.wbAddHere })).toHaveFocus()
   })
 })
+
+describe("ホワイトボード B7: PBI drafts from a shape and its surroundings", () => {
+  it("right-click → AI drafts: three drafts from the shape; one becomes a PBI linked to the shape", async () => {
+    const user = userEvent.setup()
+    const draft = (n: number) => ({ initiative: `方針${n}（合成）`, epic: "段取り", userStory: `作業者として${n}をしたい。`, acceptanceCriteria: "- 条件", workloadScore: 3, rationale: `案${n}` })
+    const fetchMock = stubFetch([
+      boardRoute(),
+      elementsOf("s1", [{ id: "el-stored-1", version: 1, deleted: false, data: { type: "sticky", x: 50, y: 50, w: 100, h: 100, z: 1, text: "部品を手元化（合成）", fill: "amber", stroke: "ink" } }]),
+      savesOf("s1"),
+      { match: `${BOARD_URL}/sheets/s1/presence`, method: "POST", respond: () => jsonResponse({ viewers: [] }) },
+      { match: `${BOARD_URL}/comments`, respond: () => jsonResponse({ comments: [] }) },
+      { match: `${BOARD_URL}/ai/pbi-drafts`, method: "POST", respond: () => jsonResponse({ drafts: [draft(1), draft(2), draft(3)] }) },
+      { match: "/api/projects/p1/backlog", method: "POST", respond: () => jsonResponse({ id: "pbi-new", displayId: 42 }, 201) },
+      { match: /\/boards\/b1\/pbis\?ids=/, respond: () => jsonResponse({ items: [] }) },
+    ])
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox canDraftPbi />)
+    const canvas = await canvasOf("全体図")
+    fireEvent.contextMenu(canvas, { clientX: 100, clientY: 100 })
+    await user.click(await screen.findByRole("menuitem", { name: t.wbPbiDrafts }))
+    const body = await waitFor(() => {
+      const call = fetchMock.mock.calls.find(([input]) => String(input) === `${BOARD_URL}/ai/pbi-drafts`)
+      expect(call).toBeDefined()
+      return JSON.parse(String(call?.[1]?.body))
+    })
+    expect(body).toEqual({ sheetId: "s1", elementId: "el-stored-1", lang: "ja" })
+    const picks = await screen.findAllByRole("button", { name: t.wbPbiDraftUse })
+    expect(picks).toHaveLength(3)
+    // Each draft can also go to IceBox, as for IceBox drafts.
+    expect(screen.getAllByRole("button", { name: t.aiAddDraftToIcebox })).toHaveLength(3)
+    await waitFor(() => expect(picks[1]).toBeEnabled())
+    await user.click(picks[1])
+    await waitFor(() => expect(requests(fetchMock, "POST", "/api/projects/p1/backlog")).toEqual([{ initiative: "方針2（合成）", epic: "段取り", userStory: "作業者として2をしたい。", acceptanceCriteria: "- 条件", workloadScore: 3 }]))
+    await waitFor(() => expect(writes(fetchMock).flat().some((w) => (w.data as { pbiId?: string } | undefined)?.pbiId === "pbi-new")).toBe(true))
+  })
+
+  it("without the right to draft PBIs the menu does not offer it", async () => {
+    stubFetch([boardRoute(), elementsOf("s1", [{ id: "el-stored-1", version: 1, deleted: false, data: { type: "sticky", x: 50, y: 50, w: 100, h: 100, z: 1, text: "合成", fill: "amber", stroke: "ink" } }]), savesOf("s1")])
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
+    const canvas = await canvasOf("全体図")
+    fireEvent.contextMenu(canvas, { clientX: 100, clientY: 100 })
+    await screen.findByRole("menu", { name: t.wbContextMenu })
+    expect(screen.queryByRole("menuitem", { name: t.wbPbiDrafts })).not.toBeInTheDocument()
+  })
+})

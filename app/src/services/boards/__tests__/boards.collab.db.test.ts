@@ -124,6 +124,34 @@ describe.skipIf(!enabled)("White Board collaboration on a real database (KANFLOW
     await expect(collab.createComment(projectId, board.id, { sheetId: other.sheets[0].id, elementId: null, body: "x" }, alice)).rejects.toThrow()
   })
 
+  it("PBI drafts read the shape's surroundings from the stored sheet: arrows, frame and open comments", async () => {
+    const board = await svc.createBoard(projectId, { title: "下書き（合成）" }, alice)
+    const sheetId = board.sheets[0].id
+    const frame = { type: "frame", x: 0, y: 0, w: 600, h: 400, z: 0, text: "Try（合成）", fill: "none", stroke: "gray" }
+    await svc.writeElements(
+      projectId,
+      board.id,
+      sheetId,
+      {
+        elements: [
+          { id: "el-frame-001", version: 1, deleted: false, data: frame },
+          { id: "el-cause-001", version: 1, deleted: false, data: rect(700, { text: "手待ちが多い（合成）" }) },
+          { id: "el-idea-0001", version: 1, deleted: false, data: rect(20, { y: 40, text: "部品を手元化（合成）" }) },
+          { id: "el-arrow-001", version: 1, deleted: false, data: { type: "arrow", z: 2, stroke: "ink", start: { x: 700, y: 30, attach: "el-cause-001" }, end: { x: 120, y: 70, attach: "el-idea-0001" }, label: "原因" } },
+        ],
+      },
+      alice,
+    )
+    await collab.createComment(projectId, board.id, { sheetId, elementId: "el-idea-0001", body: "効果を測る（合成）" }, alice)
+    const lines = ((await collab.shapeDraftSource(projectId, board.id, sheetId, "el-idea-0001")) ?? []).join("\n")
+    expect(lines).toContain("部品を手元化（合成）")
+    expect(lines).toContain("見出し: Try（合成）")
+    expect(lines).toContain("- 手待ちが多い（合成）（矢印の文字: 原因）")
+    expect(lines).toContain("- 効果を測る（合成）")
+    await expect(collab.shapeDraftSource(projectId, board.id, sheetId, "el-missing-1")).rejects.toThrow()
+    await expect(collab.shapeDraftSource(`${tag}-other`, board.id, sheetId, "el-idea-0001")).rejects.toThrow()
+  })
+
   it("PBIs: a box's item is read live; the item's detail finds the boards that stand for it", async () => {
     const item = await prisma.productBacklogItem.create({ data: { projectId, displayId: 7, userStory: "合成ストーリー\n2 行目", status: "ready" } })
     const board = await svc.createBoard(projectId, { title: "PBI 連携（合成）" }, alice)

@@ -10,6 +10,8 @@ import { notify } from "@/services/_shared/notifications"
 import { findMentionCandidates } from "@/services/comments/comments.repository"
 import * as repo from "./boards.repository"
 import { parseGroups } from "@/lib/board/ai-groups"
+import { elementFromData, type BoardElement } from "@/lib/board/model"
+import { shapeContext, shapeContextLines } from "@/lib/board/pbi-context"
 import * as collab from "./boards.collab.repository"
 import type { AiAssistInput, CreateCommentInput, PresenceInput, SaveVersionInput } from "./boards.collab.schemas"
 
@@ -343,6 +345,30 @@ export async function searchPbis(projectId: string, query: string): Promise<{ it
 export async function boardsOfPbi(projectId: string, pbiId: string): Promise<{ links: LinkedBoardDto[] }> {
   const rows = await collab.findElementsOfPbi(defaultDb, projectId, pbiId, 20)
   return { links: rows.map((r) => ({ boardId: r.sheet.board.id, boardTitle: r.sheet.board.title, sheetId: r.sheet.id, sheetName: r.sheet.name, elementId: r.elementId })) }
+}
+
+// ---------------------------------------------------------------------------
+// PBI drafts from a shape
+// ---------------------------------------------------------------------------
+
+/**
+ * The source section of a PBI-draft prompt for one shape: its text and its surroundings on the sheet as stored
+ * (arrows, frame, group, same frame, open comments). Null when the shape has no words at all.
+ */
+export async function shapeDraftSource(projectId: string, boardId: string, sheetId: string, elementId: string): Promise<string[] | null> {
+  const board = await repo.findBoard(defaultDb, projectId, boardId)
+  if (!board || board.deletedAt !== null) throw new NotFoundError("Board not found")
+  const sheet = board.sheets.find((s) => s.id === sheetId)
+  if (!sheet) throw new NotFoundError("Sheet not found")
+  const elements: Record<string, BoardElement> = {}
+  for (const row of await repo.findLiveElements(defaultDb, sheetId)) elements[row.elementId] = elementFromData(row.elementId, row.data)
+  if (!elements[elementId]) throw new NotFoundError("Element not found")
+  const comments = (await collab.listComments(defaultDb, boardId, BOARD_LIMITS.commentsPerBoard))
+    .filter((c) => c.sheetId === sheetId)
+    .map((c) => ({ elementId: c.elementId, body: c.body, resolved: c.resolvedAt !== null }))
+  const context = shapeContext(elements, elementId, comments)
+  if (!context || !context.text) return null
+  return shapeContextLines(context, board.title, sheet.name)
 }
 
 // ---------------------------------------------------------------------------

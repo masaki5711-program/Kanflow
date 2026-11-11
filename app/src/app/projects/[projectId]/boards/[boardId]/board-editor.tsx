@@ -22,12 +22,14 @@ interface Props {
   userId: string
   /** May add IceBox items (sticky notes can be sent there). */
   canAddToIcebox: boolean
+  /** May have the AI draft PBIs (from a shape and its surroundings), as from an IceBox item. */
+  canDraftPbi?: boolean
 }
 
 type Dialog = { kind: "rename"; sheet: BoardSheetDto } | { kind: "duplicate"; sheet: BoardSheetDto }
 
 /** The board editor page: title, the open sheet's editor and the sheet tabs at the bottom. */
-export function BoardEditor({ projectId, boardId, userId, canAddToIcebox }: Props) {
+export function BoardEditor({ projectId, boardId, userId, canAddToIcebox, canDraftPbi = false }: Props) {
   const { t } = useLanguage()
   const confirm = useConfirm()
   const toast = useToast()
@@ -272,6 +274,7 @@ export function BoardEditor({ projectId, boardId, userId, canAddToIcebox }: Prop
               clipboard={clipboard}
               userId={userId}
               canAddToIcebox={canAddToIcebox}
+              canDraftPbi={canDraftPbi}
               onSearch={openSearch}
               focus={focus?.sheetId === active.id ? focus : null}
               canManage={board.permissions.canManage}

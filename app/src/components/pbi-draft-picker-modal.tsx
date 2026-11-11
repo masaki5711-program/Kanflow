@@ -17,9 +17,14 @@ export interface PbiDraft {
 
 interface Props {
   projectId: string
-  iceboxItemId: string
+  /** The IceBox item the drafts are made from (its route), unless `source` names another. */
+  iceboxItemId?: string
+  /** Another source of drafts (a White Board shape): the route and the body to send (the language is added). */
+  source?: { url: string; body: Record<string, unknown> }
   onClose: () => void
   onPick: (draft: PbiDraft) => void
+  /** The pick button's text (default: use this draft). */
+  pickLabel?: string
   /** Called after a draft is saved as a new Icebox item (parent refetches its list). */
   onAddedToIcebox?: () => void
 }
@@ -95,25 +100,25 @@ function viewToDraft(v: DraftView): PbiDraft {
  * starts on mount (render it with `key={iceboxItemId}`) and is aborted when
  * the dialog closes.
  */
-function useDraftStream(projectId: string, iceboxItemId: string) {
+function useDraftStream(url: string, body: Record<string, unknown>) {
   const { t, language } = useLanguage()
   const [drafts, setDrafts] = useState<DraftView[]>([])
   const [done, setDone] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // Language/labels at the time the dialog opened; a later UI language switch
   // must not restart (and discard) a running generation.
-  const startRef = useRef({ language, aiFailed: t.aiFailed })
+  const startRef = useRef({ language, aiFailed: t.aiFailed, body })
 
   useEffect(() => {
     const ac = new AbortController()
-    const { language: lang, aiFailed } = startRef.current
+    const { language: lang, aiFailed, body: extra } = startRef.current
     emitActivity()
     ;(async () => {
       try {
-        const res = await fetch(`/api/projects/${projectId}/icebox/${iceboxItemId}/ai/generate-pbi-draft`, {
+        const res = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ lang }),
+          body: JSON.stringify({ ...extra, lang }),
           signal: ac.signal,
         })
         if (!res.ok) {
@@ -142,15 +147,16 @@ function useDraftStream(projectId: string, iceboxItemId: string) {
       }
     })()
     return () => ac.abort()
-  }, [projectId, iceboxItemId])
+  }, [url])
 
   return { drafts, done, error }
 }
 
-export function PbiDraftPickerModal({ projectId, iceboxItemId, onClose, onPick, onAddedToIcebox }: Props) {
+export function PbiDraftPickerModal({ projectId, iceboxItemId, source, onClose, onPick, pickLabel, onAddedToIcebox }: Props) {
   const { t } = useLanguage()
   const toast = useToast()
-  const { drafts, done, error } = useDraftStream(projectId, iceboxItemId)
+  const url = source?.url ?? `/api/projects/${projectId}/icebox/${iceboxItemId}/ai/generate-pbi-draft`
+  const { drafts, done, error } = useDraftStream(url, source?.body ?? {})
   // One PBI is picked from the 3 drafts, but the runner-up ideas are often
   // worth keeping — each card can also be saved back as a new Icebox item.
   const [addedToIcebox, setAddedToIcebox] = useState<number[]>([])
@@ -221,6 +227,7 @@ export function PbiDraftPickerModal({ projectId, iceboxItemId, onClose, onPick, 
                 view={d}
                 canPick={done && d !== null && d.closed}
                 onPick={() => d && onPick(viewToDraft(d))}
+                pickLabel={pickLabel ?? t.aiUseThisDraft}
                 iceboxLabel={
                   addedToIcebox.includes(i) ? t.aiDraftAddedToIcebox : t.aiAddDraftToIcebox
                 }
@@ -248,6 +255,7 @@ function GeneratingDots() {
 }
 
 interface CardProps {
+  pickLabel: string
   index: number
   view: DraftView | null
   canPick: boolean
@@ -258,7 +266,7 @@ interface CardProps {
   onAddToIcebox: () => void
 }
 
-function DraftCard({ index, view, canPick, onPick, iceboxLabel, iceboxBusy, iceboxDisabled, onAddToIcebox }: CardProps) {
+function DraftCard({ index, view, canPick, onPick, pickLabel, iceboxLabel, iceboxBusy, iceboxDisabled, onAddToIcebox }: CardProps) {
   const { t, pt } = useLanguage()
   const empty = view === null
   const streaming = view !== null && !view.closed
@@ -317,7 +325,7 @@ function DraftCard({ index, view, canPick, onPick, iceboxLabel, iceboxBusy, iceb
       </p>
 
       <Button size="sm" onClick={onPick} disabled={!canPick} className="mt-2">
-        {t.aiUseThisDraft}
+        {pickLabel}
       </Button>
       <Button
         variant="secondary"

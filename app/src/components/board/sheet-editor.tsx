@@ -4,6 +4,8 @@ import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState,
 import type { PaperSize } from "@/lib/board/pdf"
 import { contextMenuEntries, type ContextMenuActions } from "./context-menu"
 import { HelpDialog } from "./help-dialog"
+import { PbiDraftPickerModal, type PbiDraft } from "@/components/pbi-draft-picker-modal"
+import { pbiPatch } from "@/lib/board/ops"
 import { CommentsPanel } from "./comments-panel"
 import { HistoryDialog } from "./history-dialog"
 import { PbiLinkDialog } from "./pbi-link-dialog"
@@ -47,6 +49,8 @@ interface SheetEditorProps {
   focus?: { id: string; nonce: number } | null
   /** May delete anyone's comment (board.manage). */
   canManage?: boolean
+  /** May have the AI draft PBIs from a shape and its surroundings (ai.draftPbi). */
+  canDraftPbi?: boolean
   /** Open the comments beside the canvas from the start (a notification's link). */
   openComments?: boolean
   ref?: Ref<SheetEditorHandle>
@@ -68,7 +72,7 @@ function safeName(text: string): string {
 }
 
 /** The editor of one sheet: toolbars, save state and canvas. Mount it with `key={sheet.id}`. */
-export function SheetEditor({ projectId, boardId, boardTitle, sheet, canWrite, canManage = false, clipboard, userId, canAddToIcebox, onSearch, focus, openComments = false, ref }: SheetEditorProps) {
+export function SheetEditor({ projectId, boardId, boardTitle, sheet, canWrite, canManage = false, canDraftPbi = false, clipboard, userId, canAddToIcebox, onSearch, focus, openComments = false, ref }: SheetEditorProps) {
   const { t, language } = useLanguage()
   const toast = useToast()
   const doc = useSheetDocument(projectId, boardId, sheet.id, canWrite)
@@ -79,6 +83,8 @@ export function SheetEditor({ projectId, boardId, boardTitle, sheet, canWrite, c
   const [historyOpen, setHistoryOpen] = useState(false)
   const [commentsOpen, setCommentsOpen] = useState(openComments)
   const [pbiOpen, setPbiOpen] = useState(false)
+  /** The shape the AI is drafting PBIs from (the three-draft picker is open). */
+  const [draftFor, setDraftFor] = useState<string | null>(null)
   const pbi = usePbiInfo(projectId, boardId, doc.elements, { missing: t.wbPbiMissing, confidential: t.wbPbiConfidential })
   const pbiInfo = pbi.info
   const comments = useBoardComments(projectId, boardId)
@@ -201,6 +207,41 @@ export function SheetEditor({ projectId, boardId, boardTitle, sheet, canWrite, c
     }
   }
 
+  /** The AI's three PBI drafts for a shape: the sheet is saved first, so the drafts read what is on it now. */
+  async function draftPbis(elementId: string) {
+    if (busy) return
+    // The drafts read the stored sheet: if it cannot be saved now, they would read an older one.
+    if (!(await doc.flush())) {
+      toast.error(t.wbSaveFailed)
+      return
+    }
+    setDraftFor(elementId)
+  }
+
+  /** The picked draft becomes a PBI, linked to the shape it was drafted from. */
+  async function createFromDraft(elementId: string, draft: PbiDraft) {
+    setBusy(true)
+    try {
+      const created = await apiFetch<{ id: string; displayId: number }>(`/api/projects/${projectId}/backlog`, {
+        method: "POST",
+        json: { initiative: draft.initiative, epic: draft.epic, userStory: draft.userStory, acceptanceCriteria: draft.acceptanceCriteria, workloadScore: draft.workloadScore },
+      })
+      const link = pbiPatch(doc.elements, elementId, created.id)
+      setDraftFor(null)
+      if (Object.keys(link).length === 0) {
+        // Locked or deleted meanwhile: the PBI exists, it just could not be linked.
+        toast.error(t.wbPbiCreatedNotLinked.replace("{n}", String(created.displayId)))
+        return
+      }
+      editor.commit(link)
+      toast.success(t.wbPbiCreated.replace("{n}", String(created.displayId)))
+    } catch (error) {
+      toast.error(error instanceof Error && error.message ? error.message : t.wbPbiCreateFailed)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   /** A new backlog item from the selected box's text, linked to the box. */
   async function createPbi() {
     const box = editor.selection.length === 1 ? doc.elements[editor.selection[0]] : undefined
@@ -287,6 +328,10 @@ export function SheetEditor({ projectId, boardId, boardTitle, sheet, canWrite, c
     comment: () => setCommentsOpen(true),
     linkPbi: () => setPbiOpen(true),
     createPbi: () => void createPbi(),
+    pbiDrafts:
+      canDraftPbi && canWrite && isBox(selectedBox) && selectedBox.text.trim() && !["table", "image", "timer"].includes(selectedBox.type)
+        ? () => void draftPbis(selectedBox.id)
+        : undefined,
     openPbi: linkedPbi ? () => window.open(`/projects/${encodeURIComponent(projectId)}/backlog?pbi=${encodeURIComponent(linkedPbi)}`, "_blank", "noopener,noreferrer") : undefined,
     aiSummarize: notes.texts.length >= 2 ? () => void aiAssist("summarize") : undefined,
     aiGroup: notes.texts.length >= 2 ? () => void aiAssist("group") : undefined,
@@ -397,6 +442,16 @@ export function SheetEditor({ projectId, boardId, boardTitle, sheet, canWrite, c
           />
         )}
         {helpOpen && <HelpDialog onClose={() => setHelpOpen(false)} />}
+        {draftFor && (
+          <PbiDraftPickerModal
+            key={draftFor}
+            projectId={projectId}
+            source={{ url: `/api/projects/${projectId}/boards/${boardId}/ai/pbi-drafts`, body: { sheetId: sheet.id, elementId: draftFor } }}
+            pickLabel={t.wbPbiDraftUse}
+            onPick={(draft) => void createFromDraft(draftFor, draft)}
+            onClose={() => setDraftFor(null)}
+          />
+        )}
         {historyOpen && <HistoryDialog projectId={projectId} boardId={boardId} sheetId={sheet.id} canWrite={canWrite} onRestored={doc.reload} onClose={() => setHistoryOpen(false)} />}
         {pbiOpen && (
           <PbiLinkDialog

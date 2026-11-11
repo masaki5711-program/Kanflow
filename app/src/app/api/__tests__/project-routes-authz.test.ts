@@ -346,6 +346,7 @@ const ROUTES: RouteCase[] = [
   { file: "boards/[boardId]/comments/route.ts", load: () => import("@/app/api/projects/[projectId]/boards/[boardId]/comments/route"), params: { boardId: "board-1" } },
   { file: "boards/[boardId]/comments/[commentId]/route.ts", load: () => import("@/app/api/projects/[projectId]/boards/[boardId]/comments/[commentId]/route"), params: { boardId: "board-1", commentId: "c-1" } },
   { file: "boards/[boardId]/pbis/route.ts", load: () => import("@/app/api/projects/[projectId]/boards/[boardId]/pbis/route"), params: { boardId: "board-1" } },
+  { file: "boards/[boardId]/ai/pbi-drafts/route.ts", load: () => import("@/app/api/projects/[projectId]/boards/[boardId]/ai/pbi-drafts/route"), params: { boardId: "board-1" } },
   { file: "boards/[boardId]/ai/route.ts", load: () => import("@/app/api/projects/[projectId]/boards/[boardId]/ai/route"), params: { boardId: "board-1" } },
   { file: "backlog/[itemId]/boards/route.ts", load: () => import("@/app/api/projects/[projectId]/backlog/[itemId]/boards/route"), params: { itemId: "item-1" } },
   { file: "velocity/route.ts", load: () => import("@/app/api/projects/[projectId]/velocity/route"), params: {} },

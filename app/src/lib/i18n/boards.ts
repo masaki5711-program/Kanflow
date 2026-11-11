@@ -413,6 +413,9 @@ export interface BoardsTranslations {
   wbTimerDoneStatus: string
   wbHistoryViewOf: string
   wbHistoryRestoreOf: string
+  wbPbiDrafts: string
+  wbPbiDraftUse: string
+  wbPbiCreatedNotLinked: string
   wbMindChild: string
   wbMindSibling: string
   wbMindLayout: string
@@ -845,6 +848,9 @@ export const ja: BoardsTranslations = {
   wbTimerDoneStatus: "タイマーの時間になりました",
   wbHistoryViewOf: "{name} を見る",
   wbHistoryRestoreOf: "{name} に戻す",
+  wbPbiDrafts: "AI で PBI 候補を 3 案作る（つながり・枠・コメントも読む）",
+  wbPbiDraftUse: "この案で PBI を作ってつなぐ",
+  wbPbiCreatedNotLinked: "PBI #{n} を作りましたが、図形がロック中か削除されたためつなげませんでした",
   wbMindChild: "子を追加（Insert）",
   wbMindSibling: "兄弟を追加（Enter）",
   wbMindLayout: "マインドマップを整列",
@@ -1275,6 +1281,9 @@ export const en: BoardsTranslations = {
   wbTimerDoneStatus: "The timer is up",
   wbHistoryViewOf: "View {name}",
   wbHistoryRestoreOf: "Restore {name}",
+  wbPbiDrafts: "AI: 3 PBI drafts (reads arrows, frame, comments)",
+  wbPbiDraftUse: "Create this PBI and link it",
+  wbPbiCreatedNotLinked: "Created PBI #{n}, but the shape is locked or gone, so it was not linked",
   wbMindChild: "Add a child (Insert)",
   wbMindSibling: "Add a sibling (Enter)",
   wbMindLayout: "Tidy the mind map",
@@ -1705,6 +1714,9 @@ export const id: BoardsTranslations = {
   wbTimerDoneStatus: "Waktu pengatur waktu habis",
   wbHistoryViewOf: "Lihat {name}",
   wbHistoryRestoreOf: "Pulihkan {name}",
+  wbPbiDrafts: "AI: 3 draf PBI (membaca panah, bingkai, komentar)",
+  wbPbiDraftUse: "Buat PBI ini dan tautkan",
+  wbPbiCreatedNotLinked: "PBI #{n} dibuat, tetapi bentuknya terkunci atau terhapus sehingga tidak ditautkan",
   wbMindChild: "Tambah anak (Insert)",
   wbMindSibling: "Tambah saudara (Enter)",
   wbMindLayout: "Rapikan peta pikiran",
