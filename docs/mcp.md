@@ -113,6 +113,7 @@ Lists that are cut at a limit say so with `truncated: true` and `limit`.
 | `post_daily_scrum` | `daily:write`, members | `sprintId`, `date`, `content` |
 | `list_claims` | read | open work claims of a project (`pbi`, `taskId` filters); stale ones flagged `stale: true`; each with its declared `scope` |
 | `claim_work` | `dev:write`, members | `pbi` **or** `taskId`, `sessionId`, `branch?`, `takeover?` — 作業の宣言; repeat as heartbeat |
+| `start_work` | `dev:write`, members | `pbi` **or** `taskId`, `sessionId`, `branch?`, `takeover?`, `scope?` — `claim_work` + `declare_scope` in one call (N7); answers the claim, the overlap warnings (`overlaps`, `mergeRequestWarnings`), the PBI with its acceptance criteria, `development` (branch, repositories, the PBI's MRs as last synced) and `nextCommands` (data; Kanflow runs nothing) |
 | `declare_scope` | `dev:write`; the claim's own user only | `claimId`, `projectId`, `scope: [{ kind: "path" \| "module", value }]` — 触る範囲 (W4), replaces the whole set; answers `overlaps` with other active claims (a warning) |
 | `release_claim` | `dev:write`; the claim's user, or PO / SM / admin for anyone's | `claimId`, `projectId` |
 | `post_progress` | `dev:write`, members | `entityType` (`pbi` / `sprint_task`), `entityId`, `body` — a comment marked "via MCP (AI)" |
@@ -193,6 +194,31 @@ them (split the files, change the order, coordinate) instead of proceeding
 silently. The same warning appears on the Kanflow board cards and the PBI
 「担当中」 panel, and the Git sync flags open MRs that change files outside the
 declared scope (PBI panel, one line).
+
+**Other merge requests (N6)** — `declare_scope`, `start_work` and `list_claims`
+also answer `mergeRequests` / `mergeRequestWarnings`, three sources kept apart:
+`overlaps` (other claims' declared scopes — intent), `mergeRequestOverlaps`
+(another open MR of another PBI ALREADY changes files of the scope — fact; the
+sync stores each open MR's changed files while the project has a scoped claim;
+`complete: false` = its list was cut short) and `predictedConflicts`
+(GitStation's trial merge predicts the PBI's MR conflicts with another MR).
+`predictionUnchecked` names MRs whose prediction is not complete — **not** "no
+conflict"; `changedPathsPending` counts open MRs whose files the sync has not
+read yet. All warnings, never a refusal. MRs linked to a confidential PBI are
+not named in token answers (a conflict with one says only "another MR").
+
+**Starting work (`start_work`, N7)** — one call does `claim_work` (409
+`TASK_CLAIMED` stops it: nothing else is written) and, with `scope`,
+`declare_scope` (a bad scope is refused before anything is claimed). The answer
+adds the PBI (acceptance criteria ids `PBI-12/AC-2`), `development` (the branch
+— given, else the PBI's suggestion, recorded on the claim — the repositories and
+the PBI's MRs with why they cannot merge, as of `readAt`) and `nextCommands`:
+`git switch -c`, `git push -u`, `gstn mr create --draft` (or `glab` for a GitLab
+project) with a description of keys only (`Refs: PBI-12, PBI-12/AC-1` and
+`Kanflow-Session: <sessionId>`) — never the PBI's text. The commands are data:
+the session runs them with the user's own tokens (a GitStation token issued as
+`is_agent`, which cannot approve or merge); Kanflow calls no GitStation API and
+creates no branch or MR. `get_pbi` answers the same `development` block.
 
 `post_progress` is auto-deduplicated like the other create tools (2 minutes, or
 24 h with `idempotencyKey`). `link_merge_request` is naturally idempotent

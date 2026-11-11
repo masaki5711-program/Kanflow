@@ -33,6 +33,21 @@ export interface WorkClaimsTranslations {
   workClaimScope: string
   workClaimOutsideScope: string
   workClaimPathSeparator: string
+  /** N6: another open MR already changes files of this claim's scope ({pbis} = "（PBI-7）" or ""). */
+  workClaimMrOverlap: string
+  workClaimMrOverlapPbis: string
+  /** Its file list was cut short: more files may overlap. */
+  workClaimMrOverlapPartial: string
+  /** N6: GitStation predicts this PBI's MR conflicts with another MR. */
+  workClaimMrPredicted: string
+  /** …with an MR this view does not name. */
+  workClaimMrPredictedHidden: string
+  workClaimMrPredictionUnchecked: string
+  workClaimMrPathsPending: string
+  /** The link after an MR warning (opens GitStation in a new tab). */
+  workClaimMrOpen: string
+  /** The MR data could not be read this time: no warning does not mean none. */
+  workClaimMrUnavailable: string
 }
 
 export const ja: WorkClaimsTranslations = {
@@ -64,6 +79,15 @@ export const ja: WorkClaimsTranslations = {
   workClaimScope: "触る範囲",
   workClaimOutsideScope: "{mr} は、宣言した範囲の外のファイルも変えています（{count} 件）: {paths}",
   workClaimPathSeparator: "、",
+  workClaimMrOverlap: "{mr}{pbis} が、この範囲のファイルを変えています（{count} 件）: {paths}",
+  workClaimMrOverlapPbis: "（{pbis}）",
+  workClaimMrOverlapPartial: "（{mr} の変更ファイルは途中までしか読めていません）",
+  workClaimMrPredicted: "{mr} は {peer} と衝突する見込みです（{files} ファイル）",
+  workClaimMrPredictedHidden: "{mr} は別の MR と衝突する見込みです（{files} ファイル）",
+  workClaimMrPredictionUnchecked: "{mrs} の衝突の予測は、まだ確かめきれていません（衝突しないとは限りません）",
+  workClaimMrPathsPending: "変更ファイルをまだ読んでいない MR が {count} 件あります（次の同期で確かめます）",
+  workClaimMrOpen: "{mr} を開く（新しいタブ）",
+  workClaimMrUnavailable: "ほかの MR との重なりを今は確かめられませんでした",
 }
 
 export const en: WorkClaimsTranslations = {
@@ -95,6 +119,15 @@ export const en: WorkClaimsTranslations = {
   workClaimScope: "Touched scope",
   workClaimOutsideScope: "{mr} also changes {count} files outside the declared scope: {paths}",
   workClaimPathSeparator: ", ",
+  workClaimMrOverlap: "{mr}{pbis} already changes files in this scope ({count}): {paths}",
+  workClaimMrOverlapPbis: " ({pbis})",
+  workClaimMrOverlapPartial: "(only part of {mr}'s changed files could be read)",
+  workClaimMrPredicted: "{mr} is predicted to conflict with {peer} (files: {files})",
+  workClaimMrPredictedHidden: "{mr} is predicted to conflict with another merge request (files: {files})",
+  workClaimMrPredictionUnchecked: "The conflict prediction for {mrs} is not complete yet (a conflict is still possible)",
+  workClaimMrPathsPending: "Merge requests whose changed files are not read yet: {count} (checked at the next sync)",
+  workClaimMrOpen: "Open {mr} (new tab)",
+  workClaimMrUnavailable: "Overlaps with other merge requests could not be checked right now",
 }
 
 export const id: WorkClaimsTranslations = {
@@ -126,4 +159,13 @@ export const id: WorkClaimsTranslations = {
   workClaimScope: "Cakupan yang diubah",
   workClaimOutsideScope: "{mr} juga mengubah {count} file di luar cakupan yang dinyatakan: {paths}",
   workClaimPathSeparator: ", ",
+  workClaimMrOverlap: "{mr}{pbis} sudah mengubah {count} file dalam cakupan ini: {paths}",
+  workClaimMrOverlapPbis: " ({pbis})",
+  workClaimMrOverlapPartial: "(hanya sebagian file yang diubah {mr} yang terbaca)",
+  workClaimMrPredicted: "{mr} diperkirakan berkonflik dengan {peer} ({files} file)",
+  workClaimMrPredictedHidden: "{mr} diperkirakan berkonflik dengan merge request lain ({files} file)",
+  workClaimMrPredictionUnchecked: "Prediksi konflik untuk {mrs} belum lengkap (konflik masih mungkin terjadi)",
+  workClaimMrPathsPending: "File yang diubah oleh {count} merge request belum dibaca (diperiksa pada sinkronisasi berikutnya)",
+  workClaimMrOpen: "Buka {mr} (tab baru)",
+  workClaimMrUnavailable: "Tumpang tindih dengan merge request lain tidak dapat diperiksa saat ini",
 }

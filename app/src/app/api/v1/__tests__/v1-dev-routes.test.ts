@@ -103,7 +103,7 @@ beforeEach(() => {
   vi.mocked(dev.postProgress).mockResolvedValue({ id: "cm1", via: "api" } as never)
   vi.mocked(dev.linkMergeRequest).mockResolvedValue({ link: { id: "l1", ref: "7", declared: true }, created: true } as never)
   vi.mocked(dev.listClaims).mockResolvedValue({ data: [CLAIM], staleAfterHours: 4 } as never)
-  vi.mocked(dev.declareScope).mockResolvedValue({ scope: [{ kind: "path", value: "app/src" }], overlaps: [] })
+  vi.mocked(dev.declareScope).mockResolvedValue({ scope: [{ kind: "path", value: "app/src" }], overlaps: [], mergeRequests: null })
 })
 
 describe("scope dev:write ∩ project role", () => {
@@ -218,10 +218,10 @@ describe("触る範囲 (PUT /dev/claims/:claimId/scope, W4)", () => {
 
   it("200 with the stored scope and the overlaps (no session ids); the service gets the claim id and the token owner", async () => {
     const overlaps = [{ claimId: "c2", user: { id: "u2", name: "Dev Two" }, branch: "feat/y", pbi: { id: "b2", displayId: 13 }, task: null, paths: ["app/src/x.ts"] }]
-    vi.mocked(dev.declareScope).mockResolvedValue({ scope: [{ kind: "path", value: "app/src" }], overlaps })
+    vi.mocked(dev.declareScope).mockResolvedValue({ scope: [{ kind: "path", value: "app/src" }], overlaps, mergeRequests: null })
     const res = await put({ scope: [{ kind: "path", value: "./app/src/" }] })
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ data: { scope: [{ kind: "path", value: "app/src" }], overlaps } })
+    expect(await res.json()).toEqual({ data: { scope: [{ kind: "path", value: "app/src" }], overlaps, mergeRequests: null } })
     expect(dev.declareScope).toHaveBeenCalledWith("p1", "c1", { scope: [{ kind: "path", value: "./app/src/" }] }, API_ACTOR)
   })
 

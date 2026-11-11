@@ -62,6 +62,8 @@ const samePaths = (a: unknown, b: readonly string[]) => Array.isArray(a) && a.le
 
 export interface ScopeCheckOptions {
   budgetMs?: number
+  /** N6: changed files this sync already read (git-changed-paths), by MR — not read again (null = that read failed). */
+  known?: ReadonlyMap<string, DevChangedPaths | null>
   /** Milliseconds clock (tests). */
   clock?: () => number
 }
@@ -121,6 +123,8 @@ export async function checkMergeRequestScopes(
     const changed = new Map<string, DevChangedPaths | null>()
     let budgetLogged = false
     for (const c of queue) {
+      const known = options.known?.get(c.ref)
+      if (!changed.has(c.ref) && known !== undefined) changed.set(c.ref, known)
       if (!changed.has(c.ref)) {
         if (refs.size >= MAX_SCOPE_CHECKS || clock() >= deadline) {
           if (!budgetLogged) log.info("git scope check bounded", { repositoryId, queued: queue.length, checked: refs.size, timeBudgetReached: clock() >= deadline })

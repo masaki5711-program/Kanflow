@@ -35,6 +35,11 @@ vi.mock("@/services/comments/comments.service")
 vi.mock("@/services/icebox/icebox.service")
 vi.mock("@/services/daily-scrums/daily-scrums.service")
 vi.mock("@/services/acceptance-criteria/acceptance-criteria.service")
+// N7: get_pbi's development copy (git data) is tested in dev-work.mr-overlap.db.test.ts.
+vi.mock("@/services/dev-work/dev-work.start", () => ({
+  pbiDevelopment: vi.fn(async () => ({ enabled: false, provider: null, pbiKey: "PBI-12", branchSuggestion: "feature/PBI-12", repositories: [], mergeRequests: [], readAt: null })),
+  startCommands: vi.fn(() => []),
+}))
 
 const repo = await import("@/services/api-tokens/api-tokens.repository")
 const v1 = await import("@/services/api-v1/api-v1.service")
@@ -81,6 +86,7 @@ const WRITE_TOOLS = [
   "post_daily_scrum",
   // Development (dev:write, K5) — mcp-dev-tools.test.ts
   "claim_work",
+  "start_work",
   "declare_scope",
   "release_claim",
   "post_progress",
@@ -427,7 +433,7 @@ describe("PBI references", () => {
     const r = await callTool("get_pbi", { pbi: "PBI-12", projectId: "p1" })
     expect(v1.getPbi).toHaveBeenCalledWith("p1", "PBI-12")
     expect(v1.locateEntity).not.toHaveBeenCalled()
-    expect(r.payload.data).toMatchObject({ id: "b1", acceptanceCriteria: "AC", projectId: "p1", comments: [{ id: "c1" }] })
+    expect(r.payload.data).toMatchObject({ id: "b1", acceptanceCriteria: "AC", projectId: "p1", comments: [{ id: "c1" }], development: { branchSuggestion: "feature/PBI-12" } })
     expect(comments.listComments).toHaveBeenCalledWith("p1", expect.objectContaining({ entityType: "pbi", entityId: "b1" }), { userId: "u1", canModerate: true })
   })
 

@@ -41,6 +41,7 @@ import {
   updateTaskOp,
   v1UpdatePbiSchema,
 } from "@/app/api/v1/_lib/v1-handlers"
+import { pbiDevelopment } from "@/services/dev-work/dev-work.start"
 import { registerDevTools } from "./dev-tools"
 import { registerFeedbackTools } from "./feedback-tools"
 import { registerPlanTools } from "./plan-tools"
@@ -152,7 +153,10 @@ export function registerKanflowTools(server: McpServer, principal: ApiPrincipal)
   server.registerTool(
     "get_pbi",
     {
-      description: describe("One PBI with its acceptance criteria, its sprint tasks and the first page of its comment thread."),
+      description: describe(
+        "One PBI with its acceptance criteria, its sprint tasks and the first page of its comment thread. " +
+          "`development` (when the project reads Git): the branch name suggestion, the project's repositories, and the PBI's merge requests with their state, why an open one cannot merge, its predicted conflicts and pipeline — Kanflow's copy as of `readAt` (ask GitStation with your own token for the latest). To start work, use start_work.",
+      ),
       inputSchema: { pbi: pbiRef, projectId: optionalProjectId },
       annotations: READ,
     },
@@ -160,8 +164,8 @@ export function registerKanflowTools(server: McpServer, principal: ApiPrincipal)
       guard("get_pbi", async () => {
         const scope = await pbiScope(principal, projectId, pbi)
         const { data } = await getPbi(scope.projectId, pbi)
-        const comments = await listCommentsOp(scope.projectId, scope.actor, { entityType: "pbi", entityId: data.id })
-        return toolOk({ data: { ...data, projectId: scope.projectId, comments: comments.data, commentsNextCursor: comments.nextCursor } })
+        const [comments, development] = await Promise.all([listCommentsOp(scope.projectId, scope.actor, { entityType: "pbi", entityId: data.id }), pbiDevelopment(scope.projectId, data)])
+        return toolOk({ data: { ...data, projectId: scope.projectId, comments: comments.data, commentsNextCursor: comments.nextCursor, development } })
       })
   )
 

@@ -22,6 +22,24 @@ export interface ScreenClaim {
   scopeCount?: number
   /** Other active claims whose scope overlaps this one (W4 warning). Absent = none. */
   overlaps?: ScreenOverlap[]
+  /** N6: other open MRs changing files of the scope, predicted conflicts of the PBI's MRs. Absent = none. */
+  mergeRequests?: ScreenMrWarnings
+}
+
+/** N6 (services/dev-work ClaimMrWarnings): what the Git sync knows against this claim. */
+export interface ScreenMrWarnings {
+  mergeRequestOverlaps: { ref: string; title: string; url: string; repository: string; pbis: number[]; count: number; paths: string[]; complete: boolean }[]
+  predictedConflicts: { ref: string; url: string; peer: { ref: string; url: string | null; pbis: number[] } | null; files: number }[]
+  predictionUnchecked: string[]
+  changedPathsPending?: number
+  mergeRequestsUnavailable?: boolean
+}
+
+/** The MR warnings a panel row shows: active claims only, and only well-formed lists. */
+export function mrWarningsOf(claim: Pick<ScreenClaim, "stale" | "mergeRequests">): ScreenMrWarnings | null {
+  const w = claim.mergeRequests
+  if (claim.stale || !w || !Array.isArray(w.mergeRequestOverlaps) || !Array.isArray(w.predictedConflicts) || !Array.isArray(w.predictionUnchecked)) return null
+  return w
 }
 
 export interface ScreenScopeEntry {

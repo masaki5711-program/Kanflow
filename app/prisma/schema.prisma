@@ -1872,6 +1872,14 @@ model GitLink {
   /// peers: [{ iid, draft, outcome, files, truncated }] } (at most 50 peers). Only the other MR's number and how many
   /// files would conflict — never the paths (GitStation does not withhold confidential paths there). null = not read.
   conflictPrediction Json?
+  /// MR links only (N6): the files the open MR changes, as the source listed them at changedPathsAt — a JSON array of
+  /// repository-relative paths (at most 300; files withheld from the service account are never named). Compared with
+  /// the declared scope of other people's work claims (a warning). Null = not read (closed MR, or not read yet).
+  changedPaths      Json?
+  /// MR links only (N6): false = the listing was cut short or withheld files (paths beyond it were not compared).
+  changedPathsComplete Boolean?
+  /// MR links only (N6): when changedPaths was read; read again once the MR changed after it (occurredAt is later).
+  changedPathsAt    DateTime?
   /// MR links only (plan 12 E1, filled once GitStation G1 reports them): number of versions, lines added / removed.
   /// Null = not reported (never 0 for unknown).
   versionCount      Int?

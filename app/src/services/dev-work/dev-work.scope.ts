@@ -226,6 +226,6 @@ export function outsideScope(changedPaths: readonly string[], scope: readonly Sc
 }
 
 /** An entry covers a changed FILE when the file lies under it (a deeper declared path does not cover its parent). */
-function coversPath(entry: ScopeEntry, path: string): boolean {
+export function coversPath(entry: ScopeEntry, path: string): boolean {
   return entry.kind === "path" ? isUnder(path, entry.value) : pathInModule(path, entry.value)
 }

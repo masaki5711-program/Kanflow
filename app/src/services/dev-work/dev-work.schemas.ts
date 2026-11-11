@@ -77,6 +77,22 @@ export const SCOPE_RAW_ENTRIES_MAX = 1000
 /** PUT /dev/claims/:claimId/scope — the claim's whole 触る範囲 (replaces the previous one; [] clears it). */
 export const declareScopeSchema = z.object({ scope: z.array(scopeEntrySchema).max(SCOPE_RAW_ENTRIES_MAX) })
 
+/**
+ * N7 start_work (MCP) — claim_work, then (with `scope`) declare_scope, in one call; the answer adds the PBI, the
+ * development copy and the next commands. `branch` defaults to the PBI's branch name suggestion.
+ */
+export const startWorkSchema = z
+  .object({
+    pbi: devPbiRef.optional(),
+    taskId: taskId.optional(),
+    sessionId: devSessionId,
+    branch: devBranch.optional(),
+    takeover: z.boolean().optional(),
+    scope: z.array(scopeEntrySchema).max(SCOPE_RAW_ENTRIES_MAX).optional(),
+  })
+  .refine((v) => (v.pbi === undefined) !== (v.taskId === undefined), { message: "Give exactly one of pbi and taskId", path: ["pbi"] })
+
+export type StartWorkInput = z.infer<typeof startWorkSchema>
 export type DeclareScopeInput = z.infer<typeof declareScopeSchema>
 export type ClaimWorkInput = z.infer<typeof claimWorkSchema>
 export type HeartbeatClaimInput = z.infer<typeof heartbeatClaimSchema>

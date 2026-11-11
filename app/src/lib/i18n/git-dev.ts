@@ -63,6 +63,11 @@ export interface GitDevTranslations {
   gitDevApproveNoEmployee: string
   /** Dashboard (自分のタスク): open merge requests the user could approve now. */
   gitDevAwaitingTitle: string
+  /** N10 (自分のタスク): the user's open merge requests that cannot merge yet or are predicted to conflict. */
+  gitDevMyBlockedTitle: string
+  /** Why the MR is listed as the user's: on the branch of their work claim / they are its author. */
+  gitDevMyBlockedByBranch: string
+  gitDevMyBlockedByAuthor: string
   gitDevConfirmGroup: string
   gitDevConfirmHelp: string
   gitDevConfirmOpen: string
@@ -133,6 +138,9 @@ export const ja: GitDevTranslations = {
   gitDevApproveStateFailed: "承認の状態を読み込めませんでした",
   gitDevApproveNoEmployee: "社員番号が未登録のため、ここから MR を承認できません（管理者に登録を依頼してください）",
   gitDevAwaitingTitle: "承認を待っている MR",
+  gitDevMyBlockedTitle: "自分の MR で止まっているもの",
+  gitDevMyBlockedByBranch: "作業の宣言のブランチ {branch}",
+  gitDevMyBlockedByAuthor: "自分が作成",
   gitDevConfirmGroup: "!{iid} の GitStation での確認",
   gitDevConfirmHelp: "GitStation の画面で MR の内容を確かめてボタンを押し、ここに戻って「確認しました」を押してください（10 分で期限切れ）。",
   gitDevConfirmOpen: "GitStation で確認する",
@@ -203,6 +211,9 @@ export const en: GitDevTranslations = {
   gitDevApproveStateFailed: "Could not load the approval state",
   gitDevApproveNoEmployee: "Your employee number is not registered, so you cannot approve merge requests here (ask an administrator to register it)",
   gitDevAwaitingTitle: "Merge requests awaiting your approval",
+  gitDevMyBlockedTitle: "Your merge requests that are stuck",
+  gitDevMyBlockedByBranch: "Branch of your work claim: {branch}",
+  gitDevMyBlockedByAuthor: "You opened it",
   gitDevConfirmGroup: "Confirming !{iid} in GitStation",
   gitDevConfirmHelp: "Check the merge request on the GitStation page and press its button, then come back and press \"I confirmed\" (expires in 10 minutes).",
   gitDevConfirmOpen: "Confirm in GitStation",
@@ -273,6 +284,9 @@ export const id: GitDevTranslations = {
   gitDevApproveStateFailed: "Tidak dapat memuat status persetujuan",
   gitDevApproveNoEmployee: "Nomor karyawan Anda belum terdaftar, sehingga Anda tidak dapat menyetujui merge request di sini (minta administrator untuk mendaftarkannya)",
   gitDevAwaitingTitle: "Merge request yang menunggu persetujuan Anda",
+  gitDevMyBlockedTitle: "Merge request Anda yang tertahan",
+  gitDevMyBlockedByBranch: "Branch klaim kerja Anda: {branch}",
+  gitDevMyBlockedByAuthor: "Anda yang membuatnya",
   gitDevConfirmGroup: "Konfirmasi !{iid} di GitStation",
   gitDevConfirmHelp: "Periksa merge request di halaman GitStation dan tekan tombolnya, lalu kembali dan tekan \"Sudah saya konfirmasi\" (kedaluwarsa dalam 10 menit).",
   gitDevConfirmOpen: "Konfirmasi di GitStation",
