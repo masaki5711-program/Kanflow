@@ -173,16 +173,11 @@ export interface BoardsTranslations {
   wbPastedTable: string
   wbTemplates: string
   wbTemplateKpt: string
-  wbTemplateSwot: string
   wbTemplateMinutes: string
   wbTemplateReport: string
   wbTplKeep: string
   wbTplProblem: string
   wbTplTry: string
-  wbTplStrengths: string
-  wbTplWeaknesses: string
-  wbTplOpportunities: string
-  wbTplThreats: string
   wbTplMinutesTitle: string
   wbTplMinutesMeta: string
   wbTplAgenda: string
@@ -193,6 +188,33 @@ export interface BoardsTranslations {
   wbTplProgress: string
   wbTplIssues: string
   wbTplNext: string
+  wbTemplateZeva: string
+  wbTplZevaCurrent: string
+  wbTplZevaFuture: string
+  wbTplZevaResult: string
+  wbTplZevaCause: string
+  wbTplZeva1: string
+  wbTplZeva1Hint: string
+  wbTplZeva2: string
+  wbTplZeva2Hint: string
+  wbTplZeva3: string
+  wbTplZeva3Hint: string
+  wbTplZeva4: string
+  wbTplZeva4Hint: string
+  wbTplZevaLoop: string
+  wbUnderline: string
+  wbGroup: string
+  wbUngroup: string
+  wbGrouped: string
+  wbTableColNarrow: string
+  wbTableColWiden: string
+  wbTableRowShorter: string
+  wbTableRowTaller: string
+  wbTableResizeHint: string
+  wbBodyEditLabel: string
+  wbFullscreen: string
+  wbFullscreenExit: string
+  wbFormatTooLarge: string
   wbMindChild: string
   wbMindSibling: string
   wbMindLayout: string
@@ -300,7 +322,7 @@ export const ja: BoardsTranslations = {
   wbZoomReset: "{percent}%（100%に戻す）",
   wbCanvasLabel: "作図キャンバス: {sheet}",
   wbCanvasHelp:
-    "ツールを選んでEnterキーを押すと中央に図形を置きます。矢印キーで選択した図形を移動、Enterキーでテキストを編集、Deleteキーで削除、Ctrl+Zで元に戻します。] と [ キーで図形を一つずつ選べます。図形を選んで文字を打つとそのまま書き込めます（F2 でも編集）。Insert キーで右につながる図形（マインドマップ）を、Alt+矢印キーで選んだ図形の大きさを変えます。Ctrl+Enter で図形のリンクを開きます。",
+    "ツールを選んでEnterキーを押すと中央に図形を置きます。矢印キーで選択した図形を移動、Enterキーでテキストを編集、Deleteキーで削除、Ctrl+Zで元に戻します。] と [ キーで図形を一つずつ選べます。図形を選んで文字を打つとそのまま書き込めます（F2 でも編集）。Insert キーで右につながる図形（マインドマップ）を、Alt+矢印キーで選んだ図形の大きさを変えます。Ctrl+Enter で図形のリンクを開きます。 Ctrl+G でグループ化、Ctrl+Shift+G で解除します。",
   wbCanvasHelpReadOnly: "このホワイトボードは閲覧のみです。スペースキーを押しながらドラッグ、またはスクロールで表示位置を動かせます。",
   wbTextEditLabel: "テキストを編集",
   wbSelectionCount: "{count} 個を選択中",
@@ -385,26 +407,48 @@ export const ja: BoardsTranslations = {
   wbPastedTable: "表を貼り付けました（{rows} 行 × {cols} 列）",
   wbTemplates: "ひな形",
   wbTemplateKpt: "KPT（ふりかえり）",
-  wbTemplateSwot: "SWOT",
   wbTemplateMinutes: "議事メモ",
   wbTemplateReport: "報告（1 枚）",
   wbTplKeep: "Keep（続けること）",
   wbTplProblem: "Problem（困ったこと）",
   wbTplTry: "Try（次に試すこと）",
-  wbTplStrengths: "強み（Strengths）",
-  wbTplWeaknesses: "弱み（Weaknesses）",
-  wbTplOpportunities: "機会（Opportunities）",
-  wbTplThreats: "脅威（Threats）",
   wbTplMinutesTitle: "議事メモ",
   wbTplMinutesMeta: "日時：\n参加者：\n目的：",
   wbTplAgenda: "議題",
   wbTplDecisions: "決まったこと",
   wbTplActions: "やること（担当・期限）",
   wbTplReportTitle: "報告",
-  wbTplSummary: "要約",
-  wbTplProgress: "進み具合",
-  wbTplIssues: "課題・相談",
+  wbTplSummary: "背景／目的",
+  wbTplProgress: "報告課題",
+  wbTplIssues: "結論",
   wbTplNext: "次の予定",
+  wbTemplateZeva: "ZEVA 4つの箱",
+  wbTplZevaCurrent: "現状",
+  wbTplZevaFuture: "ありたい姿",
+  wbTplZevaResult: "結果系",
+  wbTplZevaCause: "要因系",
+  wbTplZeva1: "① 現状の値",
+  wbTplZeva1Hint: "OEE・CT・人員・不良率・V.Score・価値作業比率など数値で。理論値に対するロスを見える化する",
+  wbTplZeva2: "② 現状のやり方",
+  wbTplZeva2Hint: "なぜ①の結果なのか。4M（7要因）の視点で弱点・バラツキ要因を書く",
+  wbTplZeva3: "③ 新たなやり方",
+  wbTplZeva3Hint: "②の弱点を克服する改善策。理論値から考え、ECRS などで有効な理由を示す",
+  wbTplZeva4: "④ 目標の値",
+  wbTplZeva4Hint: "③で削減できるロスを積み上げた論理的な目標（例：人員−1、CT−20%）",
+  wbTplZevaLoop: "②→③→④→①との比較 を何度も往復し、仮説と検証で改善シナリオの精度を高める",
+  wbUnderline: "下線",
+  wbGroup: "グループ化 (Ctrl+G)",
+  wbUngroup: "グループ解除 (Ctrl+Shift+G)",
+  wbGrouped: "グループ",
+  wbTableColNarrow: "列の幅を狭く",
+  wbTableColWiden: "列の幅を広く",
+  wbTableRowShorter: "行の高さを低く",
+  wbTableRowTaller: "行の高さを高く",
+  wbTableResizeHint: "表の罫線をドラッグすると列の幅・行の高さを変えられます",
+  wbBodyEditLabel: "本文を編集",
+  wbFullscreen: "全画面表示",
+  wbFullscreenExit: "全画面表示を終了",
+  wbFormatTooLarge: "書式の情報が多すぎるため、文字だけを保存しました（書式は保存されていません）",
   wbMindChild: "子を追加（Insert）",
   wbMindSibling: "兄弟を追加（Enter）",
   wbMindLayout: "マインドマップを整列",
@@ -417,7 +461,7 @@ export const ja: BoardsTranslations = {
   wbConnectHint: "線の端を図形に近づけると、辺の中央につながります",
   wbToIceboxPartial: "{count} 件は追加しましたが、残りは追加できませんでした",
   wbLinkOpenNewTab: "リンクを開く（新しいタブ）: {url}",
-  wbTextEditHint: "Esc か Ctrl+Enter で編集を終えます",
+  wbTextEditHint: "Esc か Ctrl+Enter で編集を終えます。文字を範囲選択すると、その部分だけ書式（大きさ・太字・斜体・下線・色・フォント）を変えられます（Ctrl+B / Ctrl+I / Ctrl+U）",
   wbRemotePaused: "ほかの人の変更を読み込めていません（表示が古いかもしれません）。接続を確かめています…",
   wbSheetsLabel: "シート",
   wbSheetAdd: "シートを追加",
@@ -510,7 +554,7 @@ export const en: BoardsTranslations = {
   wbZoomReset: "{percent}% (reset to 100%)",
   wbCanvasLabel: "Drawing canvas: {sheet}",
   wbCanvasHelp:
-    "Pick a tool and press Enter to place a shape in the centre. Arrow keys move the selected shapes, Enter edits the text, Delete removes them and Ctrl+Z undoes. ] and [ step through the shapes one by one. Type with a shape selected to write into it (F2 edits too). Insert adds a connected shape to the right (mind map); Alt+arrow keys resize the selected shape. Ctrl+Enter opens a shape's link.",
+    "Pick a tool and press Enter to place a shape in the centre. Arrow keys move the selected shapes, Enter edits the text, Delete removes them and Ctrl+Z undoes. ] and [ step through the shapes one by one. Type with a shape selected to write into it (F2 edits too). Insert adds a connected shape to the right (mind map); Alt+arrow keys resize the selected shape. Ctrl+Enter opens a shape's link. Ctrl+G groups the selected shapes, Ctrl+Shift+G ungroups them.",
   wbCanvasHelpReadOnly: "This White Board is view only. Hold the space bar and drag, or scroll, to move around.",
   wbTextEditLabel: "Edit text",
   wbSelectionCount: "{count} selected",
@@ -595,26 +639,48 @@ export const en: BoardsTranslations = {
   wbPastedTable: "Table pasted: {rows} × {cols} (rows × columns)",
   wbTemplates: "Templates",
   wbTemplateKpt: "KPT (retrospective)",
-  wbTemplateSwot: "SWOT",
   wbTemplateMinutes: "Meeting notes",
   wbTemplateReport: "One-page report",
   wbTplKeep: "Keep",
   wbTplProblem: "Problem",
   wbTplTry: "Try",
-  wbTplStrengths: "Strengths",
-  wbTplWeaknesses: "Weaknesses",
-  wbTplOpportunities: "Opportunities",
-  wbTplThreats: "Threats",
   wbTplMinutesTitle: "Meeting notes",
   wbTplMinutesMeta: "Date:\nAttendees:\nPurpose:",
   wbTplAgenda: "Agenda",
   wbTplDecisions: "Decisions",
   wbTplActions: "Actions (who, by when)",
   wbTplReportTitle: "Report",
-  wbTplSummary: "Summary",
-  wbTplProgress: "Progress",
-  wbTplIssues: "Issues / questions",
+  wbTplSummary: "Background / purpose",
+  wbTplProgress: "Issues to report",
+  wbTplIssues: "Conclusion",
   wbTplNext: "Next steps",
+  wbTemplateZeva: "ZEVA four boxes",
+  wbTplZevaCurrent: "Current",
+  wbTplZevaFuture: "Desired future",
+  wbTplZevaResult: "Result",
+  wbTplZevaCause: "Cause",
+  wbTplZeva1: "① Current value",
+  wbTplZeva1Hint: "Numbers: OEE, CT, headcount, defects, V.Score, value ratio… Make the loss against the theoretical value visible",
+  wbTplZeva2: "② Current way",
+  wbTplZeva2Hint: "Why is ① the result? Weak points and causes of variation by 4M (7 factors)",
+  wbTplZeva3: "③ New way",
+  wbTplZeva3Hint: "Countermeasures that overcome ②, reasoned from the theoretical value and justified with ECRS",
+  wbTplZeva4: "④ Target value",
+  wbTplZeva4Hint: "A logical target built by stacking the losses removed in ③ (e.g. −1 person, −20% CT)",
+  wbTplZevaLoop: "Loop ② → ③ → ④ → compare with ① repeatedly; refine the scenario with hypothesis and verification",
+  wbUnderline: "Underline",
+  wbGroup: "Group (Ctrl+G)",
+  wbUngroup: "Ungroup (Ctrl+Shift+G)",
+  wbGrouped: "grouped",
+  wbTableColNarrow: "Narrower column",
+  wbTableColWiden: "Wider column",
+  wbTableRowShorter: "Shorter row",
+  wbTableRowTaller: "Taller row",
+  wbTableResizeHint: "Drag a table's ruling to change a column's width or a row's height",
+  wbBodyEditLabel: "Edit body text",
+  wbFullscreen: "Full screen",
+  wbFullscreenExit: "Exit full screen",
+  wbFormatTooLarge: "The formatting was too large to store: only the text was saved (without its formatting)",
   wbMindChild: "Add a child (Insert)",
   wbMindSibling: "Add a sibling (Enter)",
   wbMindLayout: "Tidy the mind map",
@@ -627,7 +693,7 @@ export const en: BoardsTranslations = {
   wbConnectHint: "Bring a line end near a shape to connect it to the middle of a side",
   wbToIceboxPartial: "Added {count}, but the rest could not be added",
   wbLinkOpenNewTab: "Open link (new tab): {url}",
-  wbTextEditHint: "Press Esc or Ctrl+Enter to finish editing",
+  wbTextEditHint: "Press Esc or Ctrl+Enter to finish editing. Select characters to format just them (size, bold, italic, underline, colour, font; Ctrl+B / Ctrl+I / Ctrl+U)",
   wbRemotePaused: "Changes from others cannot be loaded right now (the sheet may be out of date). Retrying…",
   wbSheetsLabel: "Sheets",
   wbSheetAdd: "Add sheet",
@@ -720,7 +786,7 @@ export const id: BoardsTranslations = {
   wbZoomReset: "{percent}% (kembali ke 100%)",
   wbCanvasLabel: "Kanvas gambar: {sheet}",
   wbCanvasHelp:
-    "Pilih alat lalu tekan Enter untuk menaruh bentuk di tengah. Tombol panah memindahkan bentuk yang dipilih, Enter mengedit teks, Delete menghapus, dan Ctrl+Z mengurungkan. ] dan [ memilih bentuk satu per satu. Ketik saat bentuk dipilih untuk menulis di dalamnya (F2 juga mengedit). Insert menambah bentuk terhubung di kanan (peta pikiran); Alt+tombol panah mengubah ukuran bentuk yang dipilih. Ctrl+Enter membuka tautan bentuk.",
+    "Pilih alat lalu tekan Enter untuk menaruh bentuk di tengah. Tombol panah memindahkan bentuk yang dipilih, Enter mengedit teks, Delete menghapus, dan Ctrl+Z mengurungkan. ] dan [ memilih bentuk satu per satu. Ketik saat bentuk dipilih untuk menulis di dalamnya (F2 juga mengedit). Insert menambah bentuk terhubung di kanan (peta pikiran); Alt+tombol panah mengubah ukuran bentuk yang dipilih. Ctrl+Enter membuka tautan bentuk. Ctrl+G mengelompokkan bentuk yang dipilih, Ctrl+Shift+G memisahkannya.",
   wbCanvasHelpReadOnly: "White Board ini hanya dapat dilihat. Tahan tombol spasi sambil menyeret, atau gulir, untuk berpindah.",
   wbTextEditLabel: "Edit teks",
   wbSelectionCount: "{count} dipilih",
@@ -805,26 +871,48 @@ export const id: BoardsTranslations = {
   wbPastedTable: "Tabel ditempel: {rows} × {cols} (baris × kolom)",
   wbTemplates: "Templat",
   wbTemplateKpt: "KPT (retrospeksi)",
-  wbTemplateSwot: "SWOT",
   wbTemplateMinutes: "Notulen rapat",
   wbTemplateReport: "Laporan satu halaman",
   wbTplKeep: "Keep (pertahankan)",
   wbTplProblem: "Problem (masalah)",
   wbTplTry: "Try (coba berikutnya)",
-  wbTplStrengths: "Kekuatan (Strengths)",
-  wbTplWeaknesses: "Kelemahan (Weaknesses)",
-  wbTplOpportunities: "Peluang (Opportunities)",
-  wbTplThreats: "Ancaman (Threats)",
   wbTplMinutesTitle: "Notulen rapat",
   wbTplMinutesMeta: "Waktu:\nPeserta:\nTujuan:",
   wbTplAgenda: "Agenda",
   wbTplDecisions: "Keputusan",
   wbTplActions: "Tindakan (siapa, kapan)",
   wbTplReportTitle: "Laporan",
-  wbTplSummary: "Ringkasan",
-  wbTplProgress: "Kemajuan",
-  wbTplIssues: "Masalah / pertanyaan",
+  wbTplSummary: "Latar belakang / tujuan",
+  wbTplProgress: "Masalah yang dilaporkan",
+  wbTplIssues: "Kesimpulan",
   wbTplNext: "Langkah berikutnya",
+  wbTemplateZeva: "Empat kotak ZEVA",
+  wbTplZevaCurrent: "Saat ini",
+  wbTplZevaFuture: "Kondisi yang diinginkan",
+  wbTplZevaResult: "Hasil",
+  wbTplZevaCause: "Penyebab",
+  wbTplZeva1: "① Nilai saat ini",
+  wbTplZeva1Hint: "Angka: OEE, CT, jumlah orang, cacat, V.Score, rasio nilai… Tampakkan kerugian terhadap nilai teoretis",
+  wbTplZeva2: "② Cara saat ini",
+  wbTplZeva2Hint: "Mengapa hasil ①? Kelemahan dan penyebab variasi per 4M (7 faktor)",
+  wbTplZeva3: "③ Cara baru",
+  wbTplZeva3Hint: "Solusi yang mengatasi ②, berangkat dari nilai teoretis dan dijelaskan dengan ECRS",
+  wbTplZeva4: "④ Nilai target",
+  wbTplZeva4Hint: "Target logis dari penumpukan kerugian yang dihapus di ③ (mis. −1 orang, −20% CT)",
+  wbTplZevaLoop: "Ulangi ② → ③ → ④ → bandingkan dengan ① berkali-kali; pertajam skenario dengan hipotesis dan verifikasi",
+  wbUnderline: "Garis bawah",
+  wbGroup: "Kelompokkan (Ctrl+G)",
+  wbUngroup: "Pisahkan kelompok (Ctrl+Shift+G)",
+  wbGrouped: "dikelompokkan",
+  wbTableColNarrow: "Kolom lebih sempit",
+  wbTableColWiden: "Kolom lebih lebar",
+  wbTableRowShorter: "Baris lebih pendek",
+  wbTableRowTaller: "Baris lebih tinggi",
+  wbTableResizeHint: "Seret garis tabel untuk mengubah lebar kolom atau tinggi baris",
+  wbBodyEditLabel: "Edit teks isi",
+  wbFullscreen: "Layar penuh",
+  wbFullscreenExit: "Keluar dari layar penuh",
+  wbFormatTooLarge: "Format terlalu besar untuk disimpan: hanya teksnya yang disimpan (tanpa format)",
   wbMindChild: "Tambah anak (Insert)",
   wbMindSibling: "Tambah saudara (Enter)",
   wbMindLayout: "Rapikan peta pikiran",
@@ -837,7 +925,7 @@ export const id: BoardsTranslations = {
   wbConnectHint: "Dekatkan ujung garis ke bentuk untuk menghubungkannya ke tengah sisi",
   wbToIceboxPartial: "{count} ditambahkan, tetapi sisanya tidak dapat ditambahkan",
   wbLinkOpenNewTab: "Buka tautan (tab baru): {url}",
-  wbTextEditHint: "Tekan Esc atau Ctrl+Enter untuk selesai mengedit",
+  wbTextEditHint: "Tekan Esc atau Ctrl+Enter untuk selesai mengedit. Pilih karakter untuk memformat bagian itu saja (ukuran, tebal, miring, garis bawah, warna, font; Ctrl+B / Ctrl+I / Ctrl+U)",
   wbRemotePaused: "Perubahan orang lain belum dapat dimuat (lembar mungkin tidak terbaru). Mencoba lagi…",
   wbSheetsLabel: "Lembar",
   wbSheetAdd: "Tambah lembar",

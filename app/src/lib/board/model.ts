@@ -57,6 +57,7 @@ export interface BoxStyle {
   fontFamily?: FontFamily
   bold?: boolean
   italic?: boolean
+  underline?: boolean
   /** Colour of the text; default: the outline colour for `text`, the foreground colour otherwise. */
   textColor?: StrokeKey
   align?: HAlign
@@ -72,7 +73,30 @@ export interface ElementExtras {
   link?: string
   /** A locked element is selected but never moved, resized, restyled or deleted until it is unlocked. */
   locked?: boolean
+  /** Elements sharing a group id are selected, moved and copied together (Ctrl+G). */
+  groupId?: string
 }
+
+/**
+ * A stretch of text with its own format (a part of a box's text set in bold, larger, in another colour …). A mark
+ * that is absent takes the box's own setting; `false` turns a box-wide setting off for the stretch.
+ */
+export interface TextRun {
+  text: string
+  bold?: boolean
+  italic?: boolean
+  underline?: boolean
+  fontSize?: number
+  fontFamily?: FontFamily
+  color?: StrokeKey
+}
+
+/**
+ * Formatted text is stored twice: the plain `text` (what search, copy and the screen reader use, and what an older
+ * build shows) and the runs. Runs whose texts do not add up to the plain text are ignored (someone edited the
+ * plain text with a build that did not know the runs).
+ */
+export type TextRuns = TextRun[]
 
 /** rect / ellipse / text / sticky / image / table / frame: a box, most with text inside. */
 export interface BoxElement extends BoxStyle, ElementExtras {
@@ -86,6 +110,13 @@ export interface BoxElement extends BoxStyle, ElementExtras {
   z: number
   /** The text inside; a frame's title. */
   text: string
+  /** Format of parts of `text` (absent: all of it in the box's format). */
+  runs?: TextRuns
+  /** `frame`: the text written in the frame's body (below its title), and its format. */
+  body?: string
+  bodyRuns?: TextRuns
+  /** `frame`: a hint shown in the body while it is empty (templates say what goes there). Never printed. */
+  hint?: string
   fill: FillKey
   /** Outline colour; for `text` the colour of the text. */
   stroke: StrokeKey
@@ -93,6 +124,8 @@ export interface BoxElement extends BoxStyle, ElementExtras {
   fileId?: string
   /** `table`: the cells, row by row (every row as long as `colWidths`). */
   cells?: string[][]
+  /** `table`: the format of parts of cells, in the cells' shape (null: the cell is in the table's format). */
+  cellRuns?: (TextRuns | null)[][]
   /** `table`: column widths / row heights in sheet units (their sums are w / h). */
   colWidths?: number[]
   rowHeights?: number[]
@@ -176,13 +209,29 @@ const link = z.string().max(BOARD_LIMITS.linkLength).refine(isHttpUrl, "link mus
 const extras = {
   link: link.optional(),
   locked: z.boolean().optional(),
+  groupId: elementId.optional(),
 }
 
+const fontSize = z.number().min(BOARD_LIMITS.fontSizeMin).max(BOARD_LIMITS.fontSizeMax)
+
+// Strict: a run carries its marks and nothing else (up to 400 runs per text, so no room for anything extra).
+const textRun = z.strictObject({
+  text: z.string().max(BOARD_LIMITS.textLength),
+  bold: z.boolean().optional(),
+  italic: z.boolean().optional(),
+  underline: z.boolean().optional(),
+  fontSize: fontSize.optional(),
+  fontFamily: z.enum(FONT_FAMILIES).optional(),
+  color: z.enum(STROKE_KEYS).optional(),
+})
+const textRuns = z.array(textRun).max(BOARD_LIMITS.runsPerText)
+
 const boxStyle = {
-  fontSize: z.number().min(BOARD_LIMITS.fontSizeMin).max(BOARD_LIMITS.fontSizeMax).optional(),
+  fontSize: fontSize.optional(),
   fontFamily: z.enum(FONT_FAMILIES).optional(),
   bold: z.boolean().optional(),
   italic: z.boolean().optional(),
+  underline: z.boolean().optional(),
   textColor: z.enum(STROKE_KEYS).optional(),
   align: z.enum(H_ALIGNS).optional(),
   valign: z.enum(V_ALIGNS).optional(),
@@ -197,6 +246,7 @@ const boxBase = {
   h: boxSize,
   z: zOrder,
   text: z.string().max(BOARD_LIMITS.textLength),
+  runs: textRuns.optional(),
   fill: z.enum(FILL_KEYS),
   stroke: z.enum(STROKE_KEYS),
   ...boxStyle,
@@ -218,6 +268,10 @@ const tableSchema = z
     cells: z.array(z.array(z.string().max(BOARD_LIMITS.tableCellLength)).min(1).max(BOARD_LIMITS.tableCols)).min(1).max(BOARD_LIMITS.tableRows),
     colWidths: z.array(cellSize).min(1).max(BOARD_LIMITS.tableCols),
     rowHeights: z.array(cellSize).min(1).max(BOARD_LIMITS.tableRows),
+    cellRuns: z
+      .array(z.array(z.array(textRun).max(BOARD_LIMITS.runsPerText).nullable()).max(BOARD_LIMITS.tableCols))
+      .max(BOARD_LIMITS.tableRows)
+      .optional(),
   })
   .refine((t) => t.rowHeights.length === t.cells.length && t.cells.every((row) => row.length === t.colWidths.length), "table shape does not match")
 
@@ -253,7 +307,13 @@ export const ELEMENT_DATA_SCHEMAS = {
   sticky: z.looseObject({ type: z.literal("sticky"), ...boxBase, voters: z.array(z.string().min(1).max(64)).max(BOARD_LIMITS.votersPerSticky).optional() }),
   image: z.looseObject({ type: z.literal("image"), ...boxBase, fileId }),
   table: tableSchema,
-  frame: boxSchema("frame"),
+  frame: z.looseObject({
+    type: z.literal("frame"),
+    ...boxBase,
+    body: z.string().max(BOARD_LIMITS.textLength).optional(),
+    bodyRuns: textRuns.optional(),
+    hint: z.string().max(BOARD_LIMITS.hintLength).optional(),
+  }),
   line: lineSchema("line"),
   arrow: lineSchema("arrow"),
 } as const

@@ -41,6 +41,10 @@ export const BOARD_LIMITS = {
   tableCellMin: 8,
   tableJsonChars: 256 * 1024,
   votersPerSticky: 200,
+  /** Formatted stretches of one text (a box's text, a frame's body, a cell). */
+  runsPerText: 400,
+  /** A frame's hint (what a template says goes in it). */
+  hintLength: 500,
   /** Images: bytes per file, files per board. */
   imageBytes: 10 * 1024 * 1024,
   imagesPerBoard: 300,

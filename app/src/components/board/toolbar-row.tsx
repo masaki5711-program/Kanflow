@@ -39,13 +39,15 @@ interface ToolbarRowProps {
   label: string
   groups: ToolbarGroup[]
   testId?: string
+  /** A pointer click does not move the focus (the text being edited keeps its caret and selection). */
+  keepFocus?: boolean
 }
 
 /**
  * One toolbar (WAI-ARIA toolbar pattern): a single tab stop, ← / → / Home / End move between the buttons, so the
  * canvas stays a Tab or two away. Groups are separated by a rule and named for screen readers.
  */
-export function ToolbarRow({ label, groups, testId }: ToolbarRowProps) {
+export function ToolbarRow({ label, groups, testId, keepFocus }: ToolbarRowProps) {
   const [activeKey, setActiveKey] = useState<string | null>(null)
 
   // Exactly one button is in the tab order: the last one used while it can still be used, else the first.
@@ -88,6 +90,7 @@ export function ToolbarRow({ label, groups, testId }: ToolbarRowProps) {
               aria-pressed={item.pressed}
               disabled={item.disabled}
               tabIndex={item.key === tabStop ? 0 : -1}
+              onMouseDown={keepFocus ? (e) => e.preventDefault() : undefined}
               onClick={item.onClick}
               className={cn(
                 "inline-flex h-8 shrink-0 items-center justify-center rounded-ui-sm text-caption font-medium text-fg-muted",

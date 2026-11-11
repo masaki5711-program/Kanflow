@@ -1,8 +1,9 @@
 import { createContext, memo, useContext, type CSSProperties } from "react"
 import { FRAME_TITLE_HEIGHT, lineGeometry, type ElementMap, type LineGeometry, type Point } from "@/lib/board/geometry"
-import { isBox, isHttpUrl, isLine, type BoardElement, type BoxElement, type LineElement } from "@/lib/board/model"
+import { isBox, isHttpUrl, isLine, type BoardElement, type BoxElement, type LineElement, type StrokeKey, type TextRuns } from "@/lib/board/model"
 import { FILL_COLOR, STROKE_COLOR } from "@/lib/board/palette"
-import { ALIGN_ITEMS, boxOutline, dashArray, FONT_STACK, JUSTIFY, lineStyle, TEXT_PADDING as PADDING, textStyle } from "@/lib/board/style"
+import { runsFor, type RunMarks } from "@/lib/board/rich"
+import { ALIGN_ITEMS, baseMarks, boxOutline, dashArray, FONT_STACK, JUSTIFY, lineStyle, TEXT_PADDING as PADDING, textStyle, type TextSlot } from "@/lib/board/style"
 
 /** Outline width and text size in sheet units (they scale with the zoom). Kept for callers of the B1 names. */
 export const STROKE_WIDTH = 2
@@ -40,17 +41,51 @@ export function textColor(el: BoxElement): string {
 }
 
 /** The CSS of a box's text: the same in the drawing and in the editing overlay (zoom = the overlay's scale). */
-export function textCss(el: BoxElement, zoom = 1): CSSProperties {
+export function textCss(el: BoxElement, zoom = 1, slot: TextSlot = { kind: "text" }): CSSProperties {
   const s = textStyle(el)
+  const base = baseMarks(el, slot)
   return {
     color: textColor(el),
     fontSize: s.fontSize * zoom,
     fontFamily: FONT_STACK[s.fontFamily],
-    fontWeight: s.bold ? 700 : 400,
+    fontWeight: base.bold ? 700 : 400,
     fontStyle: s.italic ? "italic" : "normal",
+    textDecoration: s.underline ? "underline" : undefined,
     textAlign: s.align,
     lineHeight: 1.4,
   }
+}
+
+/** CSS colour of a palette key or the theme foreground. */
+function colorCss(color: StrokeKey | "fg"): string {
+  return color === "fg" ? "var(--color-fg)" : STROKE_COLOR[color]
+}
+
+/** The CSS of one run: only what it sets itself (the rest comes from the box around it). */
+export function runCss(run: RunMarks, zoom = 1): CSSProperties {
+  const css: CSSProperties = {}
+  if (run.bold !== undefined) css.fontWeight = run.bold ? 700 : 400
+  if (run.italic !== undefined) css.fontStyle = run.italic ? "italic" : "normal"
+  if (run.underline !== undefined) css.textDecoration = run.underline ? "underline" : "none"
+  if (run.fontSize !== undefined) css.fontSize = run.fontSize * zoom
+  if (run.fontFamily !== undefined) css.fontFamily = FONT_STACK[run.fontFamily]
+  if (run.color !== undefined) css.color = colorCss(run.color)
+  return css
+}
+
+/** A text with its runs (plain when it has none that fit it). */
+function RichText({ text, runs }: { text: string; runs: TextRuns | null | undefined }) {
+  const fitting = runsFor(text, runs)
+  if (!fitting) return <>{text}</>
+  return (
+    <>
+      {fitting.map((run, i) => (
+        <span key={i} style={runCss(run)} data-run="">
+          {run.text}
+        </span>
+      ))}
+    </>
+  )
 }
 
 /** The geometry ElementView needs from the rest of the sheet: a line's route (boxes need nothing but themselves). */
@@ -64,6 +99,8 @@ interface ElementViewProps {
   ends?: LineGeometry
   /** The text is being edited in the overlay: do not draw it twice. */
   hideText?: boolean
+  /** A frame's body is being edited. */
+  hideBody?: boolean
   /** A table cell being edited ("row:col"). */
   hideCell?: string | null
 }
@@ -75,12 +112,13 @@ const sameRoute = (p?: LineGeometry, q?: LineGeometry) => p === q || (!!p && !!q
  * only the moved elements (new objects) and the lines whose route moved are drawn again, not the whole sheet.
  */
 export const ElementView = memo(
-  function ElementView({ el, ends, hideText, hideCell }: ElementViewProps) {
+  function ElementView({ el, ends, hideText, hideBody, hideCell }: ElementViewProps) {
     if (isLine(el)) return ends ? <LineShape el={el} geometry={ends} hideText={hideText} /> : null
     if (!isBox(el)) return null
-    return <BoxShape el={el} hideText={hideText} hideCell={hideCell ?? null} />
+    return <BoxShape el={el} hideText={hideText} hideBody={hideBody} hideCell={hideCell ?? null} />
   },
-  (prev, next) => prev.el === next.el && prev.hideText === next.hideText && prev.hideCell === next.hideCell && sameRoute(prev.ends, next.ends),
+  (prev, next) =>
+    prev.el === next.el && prev.hideText === next.hideText && prev.hideBody === next.hideBody && prev.hideCell === next.hideCell && sameRoute(prev.ends, next.ends),
 )
 
 function LineShape({ el, geometry, hideText }: { el: LineElement; geometry: LineGeometry; hideText?: boolean }) {
@@ -115,7 +153,7 @@ function LineLabel({ text, at, color }: { text: string; at: Point; color: string
   )
 }
 
-function BoxShape({ el, hideText, hideCell }: { el: BoxElement; hideText?: boolean; hideCell: string | null }) {
+function BoxShape({ el, hideText, hideBody, hideCell }: { el: BoxElement; hideText?: boolean; hideBody?: boolean; hideCell: string | null }) {
   const fill = FILL_COLOR[el.fill]
   const stroke = STROKE_COLOR[el.stroke]
   const outline = boxOutline(el)
@@ -130,7 +168,7 @@ function BoxShape({ el, hideText, hideCell }: { el: BoxElement; hideText?: boole
       ) : el.type === "table" ? (
         <TableShape el={el} hideCell={hideCell} />
       ) : el.type === "frame" ? (
-        <FrameShape el={el} hideText={hideText} />
+        <FrameShape el={el} hideText={hideText} hideBody={hideBody} />
       ) : el.type === "sticky" ? (
         <rect x={el.x} y={el.y} width={el.w} height={el.h} rx={2} style={{ fill, stroke: shapeStroke }} {...strokeProps} strokeOpacity={0.6} />
       ) : (
@@ -151,7 +189,9 @@ function BoxText({ el }: { el: BoxElement }) {
         className="flex h-full w-full overflow-hidden whitespace-pre-wrap [overflow-wrap:anywhere]"
         style={{ ...textCss(el), justifyContent: JUSTIFY[s.align], alignItems: ALIGN_ITEMS[s.valign], padding: TEXT_PADDING }}
       >
-        <span className="min-w-0">{el.text}</span>
+        <span className="min-w-0">
+          <RichText text={el.text} runs={el.runs} />
+        </span>
       </div>
     </foreignObject>
   )
@@ -194,9 +234,9 @@ function TableShape({ el, hideCell }: { el: BoxElement; hideCell: string | null 
                 <td
                   key={j}
                   className="overflow-hidden whitespace-pre-wrap [overflow-wrap:anywhere]"
-                  style={{ ...css, border, padding: "2px 6px", verticalAlign: s.valign === "middle" ? "middle" : s.valign, fontWeight: i === 0 && s.bold ? 700 : css.fontWeight }}
+                  style={{ ...css, border, padding: "2px 6px", verticalAlign: s.valign === "middle" ? "middle" : s.valign, fontWeight: i === 0 && s.bold ? 700 : 400 }}
                 >
-                  {hideCell === `${i}:${j}` ? "" : cell}
+                  {hideCell === `${i}:${j}` ? "" : <RichText text={cell} runs={el.cellRuns?.[i]?.[j]} />}
                 </td>
               ))}
             </tr>
@@ -207,18 +247,44 @@ function TableShape({ el, hideCell }: { el: BoxElement; hideCell: string | null 
   )
 }
 
-function FrameShape({ el, hideText }: { el: BoxElement; hideText?: boolean }) {
+/** Where a frame's body text sits (below the title bar). */
+export function frameBodyRect(el: BoxElement): { x: number; y: number; w: number; h: number } {
+  return { x: el.x, y: el.y + FRAME_TITLE_HEIGHT, w: el.w, h: Math.max(1, el.h - FRAME_TITLE_HEIGHT) }
+}
+
+function FrameShape({ el, hideText, hideBody }: { el: BoxElement; hideText?: boolean; hideBody?: boolean }) {
   const outline = boxOutline(el)
   const stroke = STROKE_COLOR[el.stroke]
+  const s = textStyle(el)
+  const body = frameBodyRect(el)
+  const bodyText = el.body ?? ""
   return (
     <>
       <rect x={el.x} y={el.y} width={el.w} height={el.h} rx={6} style={{ fill: FILL_COLOR[el.fill], stroke }} strokeWidth={Math.max(1, outline.width)} strokeDasharray={dashArray(outline.dash, Math.max(1, outline.width))} />
       <rect x={el.x} y={el.y} width={el.w} height={FRAME_TITLE_HEIGHT} rx={6} style={{ fill: "var(--color-surface-sunken)" }} opacity={0.9} />
       {!hideText && (
         <foreignObject x={el.x} y={el.y} width={el.w} height={FRAME_TITLE_HEIGHT} className="pointer-events-none">
-          <div className="truncate px-2" style={{ ...textCss(el), textAlign: "left", lineHeight: `${FRAME_TITLE_HEIGHT}px`, fontSize: Math.min(textStyle(el).fontSize, 20) }}>
+          <div className="truncate px-2" style={{ ...textCss(el), textAlign: "left", lineHeight: `${FRAME_TITLE_HEIGHT}px`, fontSize: Math.min(s.fontSize, 20) }}>
             {el.text}
           </div>
+        </foreignObject>
+      )}
+      {!hideBody && (bodyText !== "" || el.hint) && (
+        <foreignObject x={body.x} y={body.y} width={body.w} height={body.h} className="pointer-events-none" data-frame-body="">
+          {bodyText !== "" ? (
+            <div
+              className="flex h-full w-full overflow-hidden whitespace-pre-wrap [overflow-wrap:anywhere]"
+              style={{ ...textCss(el, 1, { kind: "body" }), justifyContent: JUSTIFY[s.align], alignItems: ALIGN_ITEMS[s.valign], padding: PADDING }}
+            >
+              <span className="min-w-0">
+                <RichText text={bodyText} runs={el.bodyRuns} />
+              </span>
+            </div>
+          ) : (
+            <div className="h-full w-full overflow-hidden whitespace-pre-wrap [overflow-wrap:anywhere] text-fg-muted" style={{ fontFamily: FONT_STACK.sans, fontSize: 13, lineHeight: 1.5, padding: PADDING }} data-frame-hint="">
+              {el.hint}
+            </div>
+          )}
         </foreignObject>
       )}
     </>

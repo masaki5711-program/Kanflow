@@ -21,8 +21,13 @@ import {
   BetweenVerticalEnd,
   BetweenVerticalStart,
   Bold,
+  ChevronsDownUp,
+  ChevronsLeftRight,
+  ChevronsRightLeft,
+  ChevronsUpDown,
   Columns2,
   CornerDownRight,
+  Group,
   Italic,
   Link,
   ListTree,
@@ -36,18 +41,21 @@ import {
   TextAlignEnd,
   TextAlignStart,
   ThumbsUp,
+  Underline,
+  Ungroup,
   Workflow,
 } from "lucide-react"
 import { BOARD_LIMITS } from "@/lib/board/limits"
 import { mindParent } from "@/lib/board/mindmap"
 import { STROKE_KEYS, isBox, isKnown, isLine, type Dash, type FontFamily, type HAlign, type LineRoute, type VAlign } from "@/lib/board/model"
 import { STROKE_COLOR } from "@/lib/board/palette"
-import { BOX_STROKE_WIDTHS, boxOutline, dashArray, FONT_SIZES, FONT_STACK, LINE_WIDTHS, lineStyle, textStyle } from "@/lib/board/style"
+import { BOX_STROKE_WIDTHS, boxOutline, dashArray, FONT_STACK, LINE_WIDTHS, lineStyle, stepFontSize, textStyle } from "@/lib/board/style"
 import type { Translations } from "@/lib/i18n"
 import { useLanguage } from "@/lib/language-context"
 import { colorName, shared } from "./board-toolbar"
+import { FORMAT_BAR_ATTR } from "./rich-editor"
 import { Swatch, ToolbarRow, type ToolbarGroup, type ToolbarItem } from "./toolbar-row"
-import type { BoardEditorController } from "./use-board-editor"
+import { TABLE_TRACK_STEP, type BoardEditorController } from "./use-board-editor"
 
 const ICON = "h-4 w-4"
 
@@ -87,11 +95,7 @@ const ROUTES: { value: LineRoute; label: keyof Translations; icon: React.ReactNo
   { value: "curve", label: "wbRouteCurve", icon: <Spline className={ICON} /> },
 ]
 
-/** The next / previous offered text size from `size`. */
-export function stepFontSize(size: number, direction: 1 | -1): number {
-  if (direction > 0) return FONT_SIZES.find((s) => s > size) ?? BOARD_LIMITS.fontSizeMax
-  return [...FONT_SIZES].reverse().find((s) => s < size) ?? BOARD_LIMITS.fontSizeMin
-}
+export { stepFontSize }
 
 interface FormatBarProps {
   editor: BoardEditorController
@@ -114,10 +118,15 @@ export function FormatBar({ editor, onEditLink }: FormatBarProps) {
   const lines = selected.filter(isLine)
   const textBoxes = boxes.filter((b) => b.type !== "image")
   const styles = textBoxes.map(textStyle)
-  const fontSize = shared(styles.map((s) => s.fontSize))
+  // While characters of a text are selected, the buttons show (and set) their format, not the shape's.
+  const marks = editor.richMarks
+  const fontSize = marks ? marks.fontSize : shared(styles.map((s) => s.fontSize))
   const family = shared(styles.map((s) => s.fontFamily))
-  const bold = styles.length > 0 && styles.every((s) => s.bold)
-  const italic = styles.length > 0 && styles.every((s) => s.italic)
+  const bold = marks ? marks.bold : styles.length > 0 && styles.every((s) => s.bold)
+  const italic = marks ? marks.italic : styles.length > 0 && styles.every((s) => s.italic)
+  const underline = marks ? marks.underline : styles.length > 0 && styles.every((s) => s.underline)
+  const editing = editor.editing !== null
+  const grouped = selected.some((el) => !!el.groupId)
   const align = shared(styles.map((s) => s.align))
   const valign = shared(styles.map((s) => s.valign))
   const textColor = shared(styles.map((s) => s.color))
@@ -141,20 +150,22 @@ export function FormatBar({ editor, onEditLink }: FormatBarProps) {
       key: "text",
       label: t.wbFormatLabel,
       items: [
-        { key: "font-down", label: `${t.wbFontSize} −`, content: <AArrowDown className={ICON} />, onClick: () => editor.format({ fontSize: stepFontSize(size, -1) }), disabled: size <= BOARD_LIMITS.fontSizeMin },
-        { key: "font-size", label: `${t.wbFontSize}: ${fontSize ?? "—"}`, content: <span className="tabular-nums">{fontSize ?? "—"}</span>, onClick: () => editor.format({ fontSize: 14 }), wide: true },
-        { key: "font-up", label: `${t.wbFontSize} +`, content: <AArrowUp className={ICON} />, onClick: () => editor.format({ fontSize: stepFontSize(size, 1) }), disabled: size >= BOARD_LIMITS.fontSizeMax },
+        // While a text is edited, these act on the selected characters (when some are selected).
+        { key: "font-down", label: `${t.wbFontSize} −`, content: <AArrowDown className={ICON} />, onClick: () => editor.textFormat({ sizeStep: -1 }, { fontSize: stepFontSize(size, -1) }), disabled: size <= BOARD_LIMITS.fontSizeMin && !editing },
+        { key: "font-size", label: `${t.wbFontSize}: ${fontSize ?? "—"}`, content: <span className="tabular-nums">{fontSize ?? "—"}</span>, onClick: () => editor.textFormat({ fontSize: 14 }, { fontSize: 14 }), wide: true },
+        { key: "font-up", label: `${t.wbFontSize} +`, content: <AArrowUp className={ICON} />, onClick: () => editor.textFormat({ sizeStep: 1 }, { fontSize: stepFontSize(size, 1) }), disabled: size >= BOARD_LIMITS.fontSizeMax && !editing },
         ...(["sans", "serif", "mono"] as const).map(
           (f): ToolbarItem => ({
             key: `family-${f}`,
             label: `${t.wbFontFamily}: ${String(t[FAMILY_LABEL[f]])}`,
             content: <span style={{ fontFamily: FONT_STACK[f], fontSize: 15 }}>{f === "mono" ? "M" : "あ"}</span>,
-            onClick: () => editor.format({ fontFamily: f }),
+            onClick: () => editor.textFormat({ fontFamily: f }, { fontFamily: f }),
             pressed: family === f,
           }),
         ),
-        { key: "bold", label: t.wbBold, content: <Bold className={ICON} />, onClick: () => editor.format({ bold: !bold }), pressed: bold },
-        { key: "italic", label: t.wbItalic, content: <Italic className={ICON} />, onClick: () => editor.format({ italic: !italic }), pressed: italic },
+        { key: "bold", label: t.wbBold, content: <Bold className={ICON} />, onClick: () => editor.textFormat({ toggle: "bold" }, { bold: !bold }), pressed: bold },
+        { key: "italic", label: t.wbItalic, content: <Italic className={ICON} />, onClick: () => editor.textFormat({ toggle: "italic" }, { italic: !italic }), pressed: italic },
+        { key: "underline", label: t.wbUnderline, content: <Underline className={ICON} />, onClick: () => editor.textFormat({ toggle: "underline" }, { underline: !underline }), pressed: underline },
         ...ALIGN.map((a): ToolbarItem => ({ key: `align-${a.value}`, label: String(t[a.label]), content: a.icon, onClick: () => editor.format({ align: a.value }), pressed: align === a.value })),
         ...VALIGN.map((a): ToolbarItem => ({ key: `valign-${a.value}`, label: String(t[a.label]), content: a.icon, onClick: () => editor.format({ valign: a.value }), pressed: valign === a.value })),
       ],
@@ -171,7 +182,7 @@ export function FormatBar({ editor, onEditLink }: FormatBarProps) {
             <Swatch color={STROKE_COLOR[key]} />
           </span>
         ),
-        onClick: () => editor.format({ textColor: key }),
+        onClick: () => editor.textFormat({ color: key }, { textColor: key }),
         pressed: textColor === key,
       })),
     })
@@ -225,6 +236,8 @@ export function FormatBar({ editor, onEditLink }: FormatBarProps) {
   if (table) {
     const rows = table.cells?.length ?? 0
     const cols = table.cells?.[0]?.length ?? 0
+    const colWidth = table.colWidths?.[editor.activeCell?.col ?? 0] ?? 0
+    const rowHeight = table.rowHeights?.[editor.activeCell?.row ?? 0] ?? 0
     groups.push({
       key: "table",
       label: t.wbTableLabel,
@@ -235,10 +248,16 @@ export function FormatBar({ editor, onEditLink }: FormatBarProps) {
         { key: "col-left", label: t.wbTableColLeft, content: <BetweenVerticalStart className={ICON} />, onClick: () => editor.tableEdit("col-left"), disabled: cols >= BOARD_LIMITS.tableCols },
         { key: "col-right", label: t.wbTableColRight, content: <BetweenVerticalEnd className={ICON} />, onClick: () => editor.tableEdit("col-right"), disabled: cols >= BOARD_LIMITS.tableCols },
         { key: "col-delete", label: t.wbTableColDelete, content: <Columns2 className={ICON} />, onClick: () => editor.tableEdit("col-delete"), disabled: cols <= 1 },
+        { key: "col-narrow", label: t.wbTableColNarrow, content: <ChevronsRightLeft className={ICON} />, onClick: () => editor.tableTrack("col", -TABLE_TRACK_STEP), disabled: colWidth <= BOARD_LIMITS.tableCellMin },
+        { key: "col-widen", label: t.wbTableColWiden, content: <ChevronsLeftRight className={ICON} />, onClick: () => editor.tableTrack("col", TABLE_TRACK_STEP) },
+        { key: "row-shorter", label: t.wbTableRowShorter, content: <ChevronsDownUp className={ICON} />, onClick: () => editor.tableTrack("row", -TABLE_TRACK_STEP), disabled: rowHeight <= BOARD_LIMITS.tableCellMin },
+        { key: "row-taller", label: t.wbTableRowTaller, content: <ChevronsUpDown className={ICON} />, onClick: () => editor.tableTrack("row", TABLE_TRACK_STEP) },
       ],
     })
   }
   const misc: ToolbarItem[] = [
+    { key: "group", label: t.wbGroup, content: <Group className={ICON} />, onClick: editor.group, disabled: selected.length < 2 },
+    { key: "ungroup", label: t.wbUngroup, content: <Ungroup className={ICON} />, onClick: editor.ungroup, disabled: !grouped },
     { key: "lock", label: locked ? t.wbUnlock : t.wbLock, content: locked ? <LockOpen className={ICON} /> : <Lock className={ICON} />, onClick: () => editor.setLocked(!locked), pressed: locked },
     { key: "link", label: t.wbLink, content: <Link className={ICON} />, onClick: onEditLink, disabled: locked, pressed: selected.some((el) => !!el.link) },
   ]
@@ -251,8 +270,19 @@ export function FormatBar({ editor, onEditLink }: FormatBarProps) {
   groups.push({ key: "misc", items: misc })
 
   return (
-    <div className="border-b border-border bg-surface px-2 py-1">
-      <ToolbarRow label={t.wbFormatLabel} groups={groups} testId="board-format-bar" />
+    <div
+      className="border-b border-border bg-surface px-2 py-1"
+      {...{ [FORMAT_BAR_ATTR]: "" }}
+      onKeyDown={(e) => {
+        // Reached from the text being edited with the keyboard: Esc ends that edit here too.
+        if (e.key === "Escape" && editing) {
+          e.preventDefault()
+          editor.endTextEdit()
+        }
+      }}
+    >
+      {/* keepFocus: a click keeps the caret and the selected characters of the text being edited. */}
+      <ToolbarRow label={t.wbFormatLabel} groups={groups} testId="board-format-bar" keepFocus />
     </div>
   )
 }

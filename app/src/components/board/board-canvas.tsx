@@ -5,9 +5,11 @@ import { flushSync } from "react-dom"
 import type { Patch } from "@/lib/board/doc"
 import {
   boxHandlePoints,
+  boundsOf,
   boxRect,
   BOX_HANDLES,
   elementBounds,
+  FRAME_TITLE_HEIGHT,
   elementsInRect,
   hitBoxHandle,
   hitLineHandle,
@@ -24,15 +26,34 @@ import {
   type Rect,
   type SnapTarget,
 } from "@/lib/board/geometry"
-import { isBox, isHttpUrl, isKnown, isLine, SIDES, type BoardElement, type BoxElement, type KnownElement, type LineType } from "@/lib/board/model"
-import { cellAt, cellRect, CLICK_SLOP, lineEndPatch, movePatch, newBox, newBoxRect, newLine, resizePatch, snap, snapMove, withFrameContents } from "@/lib/board/ops"
+import { BOARD_LIMITS } from "@/lib/board/limits"
+import { isBox, isHttpUrl, isKnown, isLine, SIDES, type BoardElement, type BoxElement, type KnownElement, type LineType, type TextRuns } from "@/lib/board/model"
+import {
+  cellAt,
+  cellRect,
+  CLICK_SLOP,
+  expandGroups,
+  lineEndPatch,
+  movePatch,
+  newBox,
+  newBoxRect,
+  newLine,
+  resizePatch,
+  slotContent,
+  snap,
+  snapMove,
+  tableBorderAt,
+  tableTrackPatch,
+  withFrameContents,
+} from "@/lib/board/ops"
 import { FILL_COLOR } from "@/lib/board/palette"
-import { textStyle } from "@/lib/board/style"
+import { baseMarks, textStyle, type TextSlot } from "@/lib/board/style"
 import { panBy, toScreen, toSheet, wheelZoom, zoomAt, type Viewport } from "@/lib/board/viewport"
 import { useLanguage } from "@/lib/language-context"
 import { cn, VisuallyHidden } from "@/components/ui"
 import { describable, describeElement, selectionAnnouncement, stepSelection } from "./describe"
-import { ElementView, lineEndsOf, TEXT_PADDING, textCss } from "./element-view"
+import { ElementView, frameBodyRect, lineEndsOf, TEXT_PADDING, textCss } from "./element-view"
+import { RichTextOverlay, type RichController, type SelectionMarks } from "./rich-editor"
 import { DEFAULT_LINE_LENGTH, isBoxTool, type BoardEditorController, type DrawBoxType, type EditTarget } from "./use-board-editor"
 
 /** How close (screen pixels) the pointer has to be to pick an element / a handle. */
@@ -53,6 +74,7 @@ type Drag =
   | { kind: "marquee"; start: Point; base: readonly string[] }
   | { kind: "create-box"; type: DrawBoxType; start: Point }
   | { kind: "create-line"; type: LineType; start: Point; target: SnapTarget | null }
+  | { kind: "table-border"; id: string; axis: "col" | "row"; index: number; size: number; start: Point }
 
 const HANDLE_CURSOR: Record<BoxHandle, string> = {
   nw: "nwse-resize",
@@ -80,6 +102,19 @@ function screenRect(viewport: Viewport, rect: Rect): Rect {
   const p = toScreen(viewport, { x: rect.x, y: rect.y })
   return { x: p.x, y: p.y, w: rect.w * viewport.zoom, h: rect.h * viewport.zoom }
 }
+
+/** The front-most frame whose area holds the point (its body is written into by double-clicking there). */
+function frameAt(elements: ElementMap, p: Point): BoxElement | null {
+  const ordered = sortByZ(elements)
+  for (let i = ordered.length - 1; i >= 0; i--) {
+    const el = ordered[i]
+    if (isBox(el) && el.type === "frame" && p.x >= el.x && p.x <= el.x + el.w && p.y >= el.y && p.y <= el.y + el.h) return el
+  }
+  return null
+}
+
+/** How close (screen pixels) the pointer has to be to a table's ruling to drag it. */
+const BORDER_TOLERANCE = 4
 
 /** A key that types a character (not a shortcut, not a navigation key). */
 function typesText(e: React.KeyboardEvent): boolean {
@@ -115,6 +150,8 @@ export function BoardCanvas({ editor, label }: BoardCanvasProps) {
   const [snapHint, setSnapHint] = useState<SnapTarget | null>(null)
   const [spaceDown, setSpaceDown] = useState(false)
   const [panning, setPanning] = useState(false)
+  /** The pointer is over a ruling of the selected table: it can be dragged. */
+  const [borderHover, setBorderHover] = useState<"col" | "row" | null>(null)
   const helpId = useId()
 
   const shown = useMemo(() => withPatch(elements, preview), [elements, preview])
@@ -195,8 +232,17 @@ export function BoardCanvas({ editor, label }: BoardCanvasProps) {
     return true
   }
 
+  /** The ruling of the one selected table under the pointer (the row / column it sizes). */
+  function borderAt(sheet: Point) {
+    if (readOnly || tool !== "select" || selection.length !== 1) return null
+    const el = elements[selection[0]]
+    if (!isBox(el) || el.type !== "table" || el.locked) return null
+    const border = tableBorderAt(el, sheet, BORDER_TOLERANCE / viewport.zoom)
+    return border ? { id: el.id, ...border } : null
+  }
+
   function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
-    if (dragRef.current || (e.target as HTMLElement).closest("textarea,a")) return
+    if (dragRef.current || (e.target as HTMLElement).closest("textarea,a,[contenteditable]")) return
     // The keyboard commands follow the pointer: the canvas has the focus from the first click.
     rootRef.current?.focus({ preventScroll: true })
     const { screen, sheet } = pointOf(e)
@@ -227,6 +273,12 @@ export function BoardCanvas({ editor, label }: BoardCanvasProps) {
       const handleReach = HANDLE_TOLERANCE / viewport.zoom
       if (isBox(el) && !el.locked) {
         const handle = hitBoxHandle(boxRect(el), sheet, handleReach)
+        // A ruling inside a table wins over the outer handles (on a small table they lie close together).
+        const border = borderAt(sheet)
+        const tracks = border ? (border.axis === "col" ? el.colWidths : el.rowHeights) : undefined
+        if (border && (!handle || border.index < (tracks?.length ?? 0) - 1)) {
+          return start({ kind: "table-border", id: border.id, axis: border.axis, index: border.index, size: border.start, start: sheet })
+        }
         if (handle) return start({ kind: "resize", id: el.id, handle, start: sheet })
       } else if (isLine(el) && !el.locked) {
         const which = hitLineHandle(el, elements, sheet, handleReach)
@@ -246,12 +298,14 @@ export function BoardCanvas({ editor, label }: BoardCanvasProps) {
       return start({ kind: "marquee", start: sheet, base: e.shiftKey ? selection : [] })
     }
     let ids: readonly string[] = selection
+    // A group is picked, added and taken away as a whole.
+    const picked = expandGroups(elements, [hit])
     if (e.shiftKey) {
-      ids = selection.includes(hit) ? selection.filter((id) => id !== hit) : [...selection, hit]
+      ids = selection.includes(hit) ? selection.filter((id) => !picked.includes(id)) : [...new Set([...selection, ...picked])]
       editor.select(ids)
       if (!ids.includes(hit)) return
     } else if (!selection.includes(hit)) {
-      ids = [hit]
+      ids = picked
       editor.select(ids)
     }
     // A click in a table picks the cell the row / column buttons act on.
@@ -274,6 +328,8 @@ export function BoardCanvas({ editor, label }: BoardCanvasProps) {
         const target = snapTarget(elements, sheet, reach)
         setSnapHint((prev) => (prev?.id === target?.id && prev?.side === target?.side ? prev : target))
       }
+      const border = borderAt(sheet)
+      setBorderHover(border ? border.axis : null)
       return
     }
     if (e.pointerId !== pointerRef.current) return
@@ -297,6 +353,9 @@ export function BoardCanvas({ editor, label }: BoardCanvasProps) {
       }
       case "resize":
         setPreview(resizePatch(elements, drag.id, drag.handle, sheet.x - drag.start.x, sheet.y - drag.start.y, keepRatio(drag.id, e.shiftKey)))
+        break
+      case "table-border":
+        setPreview(tableTrackPatch(elements, drag.id, drag.axis, drag.index, drag.size + (drag.axis === "col" ? sheet.x - drag.start.x : sheet.y - drag.start.y)))
         break
       case "line-end": {
         const end = lineEndAt(sheet, [drag.id])
@@ -346,6 +405,9 @@ export function BoardCanvas({ editor, label }: BoardCanvasProps) {
       case "resize":
         editor.commit(resizePatch(elements, drag.id, drag.handle, sheet.x - drag.start.x, sheet.y - drag.start.y, keepRatio(drag.id, e.shiftKey)))
         break
+      case "table-border":
+        editor.commit(tableTrackPatch(elements, drag.id, drag.axis, drag.index, drag.size + (drag.axis === "col" ? sheet.x - drag.start.x : sheet.y - drag.start.y)))
+        break
       case "line-end": {
         const end = lineEndAt(sheet, [drag.id])
         editor.commit(lineEndPatch(elements, drag.id, drag.which, end.point, end.attach, end.side))
@@ -376,13 +438,19 @@ export function BoardCanvas({ editor, label }: BoardCanvasProps) {
     if (readOnly || tool !== "select" || (e.target as HTMLElement).closest("textarea,a")) return
     const { sheet } = pointOf(e)
     const hit = hitTest(elements, sheet, HIT_TOLERANCE / viewport.zoom)
-    if (hit === null) return
+    if (hit === null) {
+      // Inside a frame, away from what lies in it: write in the frame's body.
+      const frame = frameAt(elements, sheet)
+      if (frame) editor.startBodyEditing(frame.id)
+      return
+    }
     const el = elements[hit]
     if (isLine(el)) editor.startLabelEditing(hit)
     else if (isBox(el) && el.type === "table") {
       const cell = cellAt(el, sheet)
       if (cell) editor.startCellEditing(hit, cell.row, cell.col)
-    } else editor.startEditing(hit)
+    } else if (isBox(el) && el.type === "frame" && sheet.y > el.y + FRAME_TITLE_HEIGHT) editor.startBodyEditing(hit)
+    else editor.startEditing(hit)
   }
 
   /** Starts editing the selected element because a character was typed: the character goes into the text. */
@@ -395,6 +463,7 @@ export function BoardCanvas({ editor, label }: BoardCanvasProps) {
       const cell = activeCell?.id === id ? activeCell : { row: 0, col: 0 }
       flushSync(() => editor.startCellEditing(id, cell.row, cell.col))
     } else if (el.type === "image") return false
+    else if (el.type === "frame") flushSync(() => editor.startBodyEditing(id, true))
     else flushSync(() => editor.startEditing(id, true))
     return true
   }
@@ -444,6 +513,7 @@ export function BoardCanvas({ editor, label }: BoardCanvasProps) {
       else if (key === "z") (e.shiftKey ? editor.redo : editor.undo)()
       else if (key === "y") editor.redo()
       else if (key === "d") editor.duplicate()
+      else if (key === "g") (e.shiftKey ? editor.ungroup : editor.group)()
       else return
       e.preventDefault()
       return
@@ -473,15 +543,20 @@ export function BoardCanvas({ editor, label }: BoardCanvasProps) {
         if (!one || !isBox(elements[one])) return
         editor.mindChild()
         break
-      case "F2":
-        if (one && !typeInto(one)) return
+      case "F2": {
+        // F2 on a frame edits its title (typing and Enter write in its body).
+        const el = one ? elements[one] : undefined
+        if (one && isBox(el) && el.type === "frame" && !el.locked) editor.startEditing(one)
+        else if (one && !typeInto(one)) return
         break
+      }
       case "Enter":
         if (tool !== "select") editor.placeAtCenter()
         else if (one && !editor.mindSibling()) {
           const el = elements[one]
           if (isLine(el)) editor.startLabelEditing(one)
           else if (isBox(el) && el.type === "table") editor.startCellEditing(one, activeCell?.id === one ? activeCell.row : 0, activeCell?.id === one ? activeCell.col : 0)
+          else if (isBox(el) && el.type === "frame") editor.startBodyEditing(one)
           else editor.startEditing(one)
         }
         break
@@ -512,7 +587,20 @@ export function BoardCanvas({ editor, label }: BoardCanvasProps) {
 
   const single = selection.length === 1 ? shown[selection[0]] : undefined
   const showChrome = !readOnly && tool === "select" && !editing
-  const cursor = panning ? "grabbing" : spaceDown || readOnly ? "grab" : tool !== "select" ? "crosshair" : "default"
+  const cursor = panning
+    ? "grabbing"
+    : spaceDown || readOnly
+      ? "grab"
+      : tool !== "select"
+        ? "crosshair"
+        : borderHover === "col"
+          ? "col-resize"
+          : borderHover === "row"
+            ? "row-resize"
+            : "default"
+  // Groups among the selection: each is outlined as one.
+  const groupBounds = showChrome ? selectedGroups(selection, shown) : []
+  const tableSelected = isBox(single) && single.type === "table" && !single.locked && !readOnly && !editing
   const dots = GRID * viewport.zoom
   const singleIndex = selection.length === 1 ? order.indexOf(selection[0]) : -1
   const statusText =
@@ -603,7 +691,8 @@ export function BoardCanvas({ editor, label }: BoardCanvasProps) {
                 key={el.id}
                 el={el}
                 ends={lineEndsOf(el, shown)}
-                hideText={editing?.id === el.id && editing.kind !== "cell"}
+                hideText={editing?.id === el.id && (editing.kind === "text" || editing.kind === "label")}
+                hideBody={editing?.id === el.id && editing.kind === "body"}
                 hideCell={editing?.kind === "cell" && editing.id === el.id ? `${editing.row}:${editing.col}` : null}
               />
             ))}
@@ -616,6 +705,9 @@ export function BoardCanvas({ editor, label }: BoardCanvasProps) {
           {isBox(hintBox) && snapHint && <SnapMarkers box={hintBox} active={snapHint.side} viewport={viewport} />}
           {showChrome && (
             <g data-testid="board-selection">
+              {groupBounds.map(({ id, rect }) => (
+                <rect key={`group-${id}`} data-group-id={id} {...rectProps(screenRect(viewport, rect))} fill="none" style={{ stroke: "var(--color-primary)" }} strokeWidth={1} strokeDasharray="2 3" />
+              ))}
               {selection.map((id) => {
                 const el = shown[id]
                 const bounds = el ? elementBounds(el, shown) : null
@@ -687,7 +779,35 @@ export function BoardCanvas({ editor, label }: BoardCanvasProps) {
             {t.wbConnectHint}
           </p>
         )}
-        {editing && isKnown(editingEl) && (
+        {tableSelected && (
+          <p aria-hidden="true" className="pointer-events-none absolute bottom-2 left-1/2 max-w-[90%] -translate-x-1/2 rounded-ui-sm bg-surface px-2 py-1 text-caption text-fg-muted shadow-sm ring-1 ring-border">
+            {t.wbTableResizeHint}
+          </p>
+        )}
+        {editing && isBox(editingEl) && richSlot(editing, editingEl) && (
+          <RichOverlay
+            key={`${editing.kind}:${editing.id}:${editing.kind === "cell" ? `${editing.row}:${editing.col}` : ""}`}
+            target={editing}
+            el={editingEl}
+            slot={richSlot(editing, editingEl) as TextSlot}
+            viewport={viewport}
+            hint={t.wbTextEditHint}
+            label={
+              editing.kind === "cell"
+                ? t.wbCellEditLabel.replace("{row}", String(editing.row + 1)).replace("{col}", String(editing.col + 1))
+                : editing.kind === "body"
+                  ? t.wbBodyEditLabel
+                  : t.wbTextEditLabel
+            }
+            register={editor.registerRich}
+            onMarks={editor.setRichMarks}
+            onDone={(text, runs, refocus) => {
+              editor.finishEditing(text, runs)
+              if (refocus) rootRef.current?.focus({ preventScroll: true })
+            }}
+          />
+        )}
+        {editing && isKnown(editingEl) && !(isBox(editingEl) && richSlot(editing, editingEl)) && (
           <TextOverlay
             key={`${editing.kind}:${editing.id}:${editing.kind === "cell" ? `${editing.row}:${editing.col}` : ""}`}
             target={editing}
@@ -715,6 +835,21 @@ export function BoardCanvas({ editor, label }: BoardCanvasProps) {
 
 function rectProps(r: Rect) {
   return { x: r.x, y: r.y, width: r.w, height: r.h }
+}
+
+/** The groups the selection holds, with the area each covers (sheet units). */
+function selectedGroups(selection: readonly string[], elements: ElementMap): { id: string; rect: Rect }[] {
+  const groups = new Map<string, string[]>()
+  for (const id of selection) {
+    const el = elements[id]
+    if (isKnown(el) && el.groupId) groups.set(el.groupId, [...(groups.get(el.groupId) ?? []), id])
+  }
+  const out: { id: string; rect: Rect }[] = []
+  for (const [id, members] of groups) {
+    const bounds = boundsOf(members, elements)
+    if (bounds) out.push({ id, rect: { x: bounds.x - 6, y: bounds.y - 6, w: bounds.w + 12, h: bounds.h + 12 } })
+  }
+  return out
 }
 
 /** The four side midpoints of the shape a line end would connect to; the one it snaps to is filled. */
@@ -761,6 +896,57 @@ function MarqueeRect({ rect }: { rect: Rect }) {
       style={{ fill: "var(--color-primary)", stroke: "var(--color-primary)" }}
       fillOpacity={0.08}
       strokeWidth={1}
+    />
+  )
+}
+
+/** The formatted text an edit target writes (null: a plain edit — a line's label, a frame's title). */
+function richSlot(target: EditTarget, el: BoxElement): TextSlot | null {
+  if (target.kind === "cell") return { kind: "cell", row: target.row, col: target.col }
+  if (target.kind === "body") return { kind: "body" }
+  if (target.kind === "text" && el.type !== "frame") return { kind: "text" }
+  return null
+}
+
+interface RichOverlayProps {
+  target: EditTarget
+  el: BoxElement
+  slot: TextSlot
+  viewport: Viewport
+  label: string
+  hint: string
+  register: (controller: RichController | null) => void
+  onMarks: (marks: SelectionMarks | null) => void
+  onDone: (text: string, runs: TextRuns | null, refocus: boolean) => void
+}
+
+/** The formatted-text editor placed over a box's text, a frame's body or a table cell. */
+function RichOverlay({ target, el, slot, viewport, label, hint, register, onMarks, onDone }: RichOverlayProps) {
+  const area = slot.kind === "cell" ? cellRect(el, slot.row, slot.col) : slot.kind === "body" ? frameBodyRect(el) : boxRect(el)
+  if (!area) return null
+  const base = baseMarks(el, slot)
+  // Readable however far the view is zoomed out (the drawn text keeps its real size).
+  const scale = Math.max(viewport.zoom, 12 / Math.max(1, base.fontSize))
+  const content = slotContent(el, slot)
+  const css = textCss(el, scale, slot)
+  const background = slot.kind !== "cell" && el.fill !== "none" ? FILL_COLOR[el.fill] : "var(--color-surface)"
+  return (
+    <RichTextOverlay
+      rect={screenRect(viewport, area)}
+      css={{ ...css, textAlign: slot.kind === "cell" ? "left" : textStyle(el).align }}
+      scale={scale}
+      base={base}
+      text={content.text}
+      runs={content.runs}
+      background={background}
+      padding={(slot.kind === "cell" ? 2 : TEXT_PADDING) * viewport.zoom}
+      label={label}
+      hint={hint}
+      maxLength={slot.kind === "cell" ? BOARD_LIMITS.tableCellLength : BOARD_LIMITS.textLength}
+      typing={(target.kind === "text" || target.kind === "body") && target.typing}
+      register={register}
+      onMarks={onMarks}
+      onDone={onDone}
     />
   )
 }
