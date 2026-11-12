@@ -308,20 +308,24 @@ export function FormatBar({ editor, onEditLink }: FormatBarProps) {
   }
   groups.push({ key: "misc", items: misc })
 
+  // Floats over the top of the canvas instead of taking a row above it: selecting a shape must not move the
+  // board under the pointer. Only the bar itself catches the pointer; the strip around it reaches the canvas.
   return (
-    <div
-      className="border-b border-border bg-surface px-2 py-1"
-      {...{ [FORMAT_BAR_ATTR]: "" }}
-      onKeyDown={(e) => {
-        // Reached from the text being edited with the keyboard: Esc ends that edit here too.
-        if (e.key === "Escape" && editing) {
-          e.preventDefault()
-          editor.endTextEdit()
-        }
-      }}
-    >
-      {/* keepFocus: a click keeps the caret and the selected characters of the text being edited. */}
-      <ToolbarRow label={t.wbFormatLabel} groups={groups} testId="board-format-bar" keepFocus />
+    <div className="pointer-events-none absolute inset-x-2 top-2 z-20 flex justify-center">
+      <div
+        className="pointer-events-auto max-w-full rounded-ui-md border border-border bg-surface px-2 py-1 shadow-ui-md"
+        {...{ [FORMAT_BAR_ATTR]: "" }}
+        onKeyDown={(e) => {
+          // Reached from the text being edited with the keyboard: Esc ends that edit here too.
+          if (e.key === "Escape" && editing) {
+            e.preventDefault()
+            editor.endTextEdit()
+          }
+        }}
+      >
+        {/* keepFocus: a click keeps the caret and the selected characters of the text being edited. */}
+        <ToolbarRow label={t.wbFormatLabel} groups={groups} testId="board-format-bar" keepFocus />
+      </div>
     </div>
   )
 }

@@ -366,7 +366,6 @@ export function SheetEditor({ projectId, boardId, boardTitle, sheet, canWrite, c
             {canWrite && <SaveState doc={doc} />}
           </div>
         </div>
-        <FormatBar editor={editor} onEditLink={() => setLinkOpen(true)} />
         <VisuallyHidden>
           {/* A new node per update: each one is announced (re-setting the same text is not). */}
           <span key={doc.remoteUpdates} role="status">
@@ -381,6 +380,7 @@ export function SheetEditor({ projectId, boardId, boardTitle, sheet, canWrite, c
         )}
         <div className="flex min-h-0 flex-1">
         <div className="relative min-h-0 min-w-0 flex-1">
+          <FormatBar editor={editor} onEditLink={() => setLinkOpen(true)} />
           <BoardCanvas
             editor={editor}
             label={t.wbCanvasLabel.replace("{sheet}", sheet.name)}
