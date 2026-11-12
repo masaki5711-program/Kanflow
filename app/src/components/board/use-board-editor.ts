@@ -7,7 +7,7 @@ import { boundsOf, sortByZ, type ElementMap, type Point, type Rect } from "@/lib
 import { newElementId } from "@/lib/board/ids"
 import { BOARD_LIMITS } from "@/lib/board/limits"
 import { mindChildPatch, mindLayoutPatch, mindParent, mindSiblingPatch } from "@/lib/board/mindmap"
-import { isBox, isKnown, isLine, type BoxType, type FillKey, type KnownElement, type LineType, type StrokeKey, type TextRuns } from "@/lib/board/model"
+import { isBox, isKnown, isLine, type BoxType, type FillKey, type KnownElement, type LineRoute, type LineType, type StrokeKey, type TextRuns } from "@/lib/board/model"
 import {
   alignPatch,
   bodyPatch,
@@ -66,11 +66,22 @@ export type { LineEndInput } from "@/lib/board/ops"
 
 /** A box type drawn by dragging (an image comes from a file; library shapes and timers are placed from menus). */
 export type DrawBoxType = Exclude<BoxType, "image" | "shape" | "timer">
-export type Tool = "select" | DrawBoxType | LineType
-export const TOOLS: readonly Tool[] = ["select", "rect", "ellipse", "line", "arrow", "text", "sticky", "frame", "table"]
+/** A tool that draws a line: the line types, and the elbow line (right-angled turns, e.g. organisation charts). */
+export type LineTool = LineType | "elbow"
+export type Tool = "select" | DrawBoxType | LineTool
+export const TOOLS: readonly Tool[] = ["select", "rect", "ellipse", "line", "arrow", "elbow", "text", "sticky", "frame", "table"]
+
+export function isLineTool(tool: Tool): tool is LineTool {
+  return tool === "line" || tool === "arrow" || tool === "elbow"
+}
 
 export function isBoxTool(tool: Tool): tool is DrawBoxType {
-  return tool !== "select" && tool !== "line" && tool !== "arrow"
+  return tool !== "select" && !isLineTool(tool)
+}
+
+/** What a line tool draws: the elbow tool draws a plain line routed with right angles (arrow heads can be added). */
+export function lineToolSpec(tool: LineTool): { type: LineType; route?: LineRoute } {
+  return tool === "elbow" ? { type: "line", route: "elbow" } : { type: tool }
 }
 
 export interface CanvasSize {
@@ -176,11 +187,13 @@ export interface BoardEditorController {
   setActiveCell: (cell: ActiveCell | null) => void
   commit: (patch: Patch) => void
   addBox: (type: DrawBoxType, rect: Rect) => void
-  addLine: (type: LineType, start: LineEndInput, end: LineEndInput) => void
+  addLine: (type: LineType, start: LineEndInput, end: LineEndInput, route?: LineRoute) => void
   /** Keyboard way to draw: the active tool's shape in the middle of the view. */
   placeAtCenter: () => void
   deleteSelection: () => void
   duplicate: () => void
+  /** Copies the elements, shifted by `offset` (a Ctrl / ⌘ + drag); the copies become the selection. */
+  duplicateBy: (ids: readonly string[], offset: Point) => void
   copy: () => void
   cut: () => void
   paste: () => void
@@ -341,17 +354,22 @@ export function useBoardEditor(doc: SheetDocument, readOnly: boolean, clipboardR
     if (type === "text" || type === "sticky") setEditing({ kind: "text", id, typing: false })
   }
 
-  function addLine(type: LineType, start: LineEndInput, end: LineEndInput) {
+  function addLine(type: LineType, start: LineEndInput, end: LineEndInput, route?: LineRoute) {
     if (readOnly) return
     const id = newElementId()
-    doc.commit({ [id]: newLine(type, start, end, id, nextZ(elements)) })
+    const line = newLine(type, start, end, id, nextZ(elements))
+    doc.commit({ [id]: route && route !== "straight" ? { ...line, route } : line })
     setSelected([id])
     setTool("select")
   }
 
   function paste(clip: readonly KnownElement[], steps: number) {
+    pasteAt(clip, { x: PASTE_OFFSET.x * steps, y: PASTE_OFFSET.y * steps })
+  }
+
+  function pasteAt(clip: readonly KnownElement[], offset: Point) {
     if (readOnly || clip.length === 0) return
-    const { patch, ids } = pastePatch(elements, clip, newElementId, { x: PASTE_OFFSET.x * steps, y: PASTE_OFFSET.y * steps })
+    const { patch, ids } = pastePatch(elements, clip, newElementId, offset)
     doc.commit(patch)
     setSelected(ids)
   }
@@ -545,11 +563,13 @@ export function useBoardEditor(doc: SheetDocument, readOnly: boolean, clipboardR
         addBox(tool, { x: c.x - size.w / 2, y: c.y - size.h / 2, w: size.w, h: size.h })
       } else {
         const half = DEFAULT_LINE_LENGTH / 2
-        addLine(tool, { point: { x: c.x - half, y: c.y }, attach: null }, { point: { x: c.x + half, y: c.y }, attach: null })
+        const spec = lineToolSpec(tool)
+        addLine(spec.type, { point: { x: c.x - half, y: c.y }, attach: null }, { point: { x: c.x + half, y: c.y }, attach: null }, spec.route)
       }
     },
     deleteSelection,
     duplicate: () => paste(copyElements(elements, selection), 1),
+    duplicateBy: (ids, offset) => pasteAt(copyElements(elements, ids), offset),
     copy,
     cut: () => {
       if (readOnly) return

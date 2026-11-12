@@ -118,18 +118,25 @@ describe("resize and line ends", () => {
 })
 
 describe("delete", () => {
-  it("detaches the arrows of a deleted box where they were drawn; undo re-attaches them", () => {
+  it("deletes the arrows connected to a deleted box with it; undo brings both back", () => {
     const els = map(box("a", 0, 0), box("b", 300, 0), arrow("l", { x: 0, y: 0, attach: "a" }, { x: 0, y: 0, attach: "b" }))
     const patch = deletePatch(els, ["a"])
-    expect(patch.a).toBeNull()
-    expect(patch.l).toMatchObject({ start: { x: 100, y: 50 }, end: { x: 0, y: 0, attach: "b" } })
-    expect((patch.l as LineElement).start.attach).toBeUndefined()
+    expect(patch).toEqual({ a: null, l: null })
 
     let state = initialState({ elements: els, versions: { a: 1, b: 1, l: 1 } })
     state = commit(state, patch)
     expect(state.doc.elements.a).toBeUndefined()
+    expect(state.doc.elements.l).toBeUndefined()
     state = undo(state)
     expect(state.doc.elements).toEqual(els)
+  })
+
+  it("a locked arrow of a deleted box stays, detached where it was drawn", () => {
+    const els = map(box("a", 0, 0), box("b", 300, 0), { ...arrow("l", { x: 0, y: 0, attach: "a" }, { x: 0, y: 0, attach: "b" }), locked: true })
+    const patch = deletePatch(els, ["a"])
+    expect(patch.a).toBeNull()
+    expect(patch.l).toMatchObject({ start: { x: 100, y: 50 }, end: { x: 0, y: 0, attach: "b" } })
+    expect((patch.l as LineElement).start.attach).toBeUndefined()
   })
 
   it("deleting the arrow with its box needs no detaching", () => {

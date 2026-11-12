@@ -177,6 +177,36 @@ describe("ボードの編集画面: キャンバス (plan 10 B1)", () => {
     expect(writes(fetchMock)[1][0]).toMatchObject({ id: "el-stored-1", data: { x: 100, y: 81 } })
   })
 
+  it("Ctrl + drag places a copy where it is dropped; the original stays; Ctrl+Enter opens a link", async () => {
+    const stored = { id: "el-stored-1", version: 1, deleted: false, data: { type: "rect", x: 50, y: 50, w: 100, h: 60, z: 1, text: "", fill: "white", stroke: "ink", link: "https://example.invalid/synthetic" } }
+    const fetchMock = stubFetch([boardRoute(), elementsOf("s1", [stored]), savesOf("s1")])
+    const open = vi.fn()
+    vi.stubGlobal("open", open)
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
+    const canvas = await canvasOf("全体図")
+
+    fireEvent.pointerDown(canvas, { button: 0, pointerId: 1, clientX: 100, clientY: 80, ctrlKey: true })
+    fireEvent.pointerMove(canvas, { pointerId: 1, clientX: 140, clientY: 110, ctrlKey: true })
+    // While dragging: the original and the copy are both shown.
+    expect(shapes(canvas, "rect")).toHaveLength(2)
+    fireEvent.pointerUp(canvas, { button: 0, pointerId: 1, clientX: 140, clientY: 110, ctrlKey: true })
+
+    expect(shapes(canvas, "rect")).toHaveLength(2)
+    await waitFor(() => expect(writes(fetchMock)).toHaveLength(1))
+    const [copy] = writes(fetchMock)[0]
+    expect(copy.id).not.toBe("el-stored-1")
+    expect(copy).toMatchObject({ version: 1, data: { type: "rect", x: 90, y: 80, w: 100, h: 60 } })
+    expect(open).not.toHaveBeenCalled()
+    // The copy is the selection.
+    expect(canvas.querySelector(`[data-selected-id="${copy.id}"]`)).not.toBeNull()
+
+    // The original's link: select it, Ctrl+Enter.
+    drag(canvas, [60, 60], [60, 60])
+    fireEvent.keyDown(canvas, { key: "Enter", ctrlKey: true })
+    expect(open).toHaveBeenCalledWith("https://example.invalid/synthetic", "_blank", "noopener,noreferrer")
+    expect(writes(fetchMock)).toHaveLength(1)
+  })
+
   it("a sticky note opens for typing; the text is saved when the edit ends", async () => {
     const user = userEvent.setup()
     const fetchMock = stubFetch([boardRoute(), elementsOf("s1"), savesOf("s1")])
@@ -510,24 +540,82 @@ describe("ボードの編集画面: シート (plan 10 B1)", () => {
 describe("ホワイトボード B2: connections, typing, format and paste", () => {
   const RECT = { id: "el-stored-1", version: 1, deleted: false, data: { type: "rect", x: 50, y: 50, w: 100, h: 60, z: 1, text: "", fill: "white", stroke: "ink" } }
 
-  it("a line end brought near a shape connects to the middle of its nearest side, and the midpoints are shown", async () => {
+  it("a line end brought near a shape connects to its nearest place (side middle, halfway or corner); the places are shown", async () => {
     const user = userEvent.setup()
     const fetchMock = stubFetch([boardRoute(), elementsOf("s1", [RECT]), savesOf("s1")])
     renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
     const canvas = await canvasOf("全体図")
     await user.click(screen.getByRole("button", { name: t.wbToolArrow }))
-    // Near the right side (not on its middle): the end goes to the middle of that side.
-    fireEvent.pointerDown(canvas, { button: 0, pointerId: 1, clientX: 158, clientY: 62 })
+    // Near the right side, close to its middle: the end goes to the middle of that side.
+    fireEvent.pointerDown(canvas, { button: 0, pointerId: 1, clientX: 158, clientY: 78 })
     fireEvent.pointerMove(canvas, { pointerId: 1, clientX: 400, clientY: 300 })
     const markers = screen.getByTestId("board-snap")
     expect(markers).toHaveAttribute("data-snap-side", "e")
-    expect(markers.querySelectorAll("circle")).toHaveLength(4)
+    // A rectangle: 4 corners + 4 side middles + 8 halfway points.
+    expect(markers.querySelectorAll("circle")).toHaveLength(16)
     fireEvent.pointerUp(canvas, { button: 0, pointerId: 1, clientX: 400, clientY: 300 })
     await waitFor(() => expect(writes(fetchMock)).toHaveLength(1))
     const line = writes(fetchMock)[0][0].data as unknown as { start: unknown; end: unknown }
     expect(line.start).toEqual({ x: 150, y: 80, attach: "el-stored-1", side: "e" })
     expect(line.end).toEqual({ x: 400, y: 300 })
     expect(screen.queryByTestId("board-snap")).not.toBeInTheDocument()
+
+    // Near the top right corner: the end sits on the corner (stored as the end of the top side).
+    await user.click(screen.getByRole("button", { name: t.wbToolArrow }))
+    fireEvent.pointerDown(canvas, { button: 0, pointerId: 2, clientX: 400, clientY: 20 })
+    fireEvent.pointerUp(canvas, { button: 0, pointerId: 2, clientX: 152, clientY: 46 })
+    await waitFor(() => expect(writes(fetchMock)).toHaveLength(2))
+    const corner = writes(fetchMock)[1][0].data as unknown as { end: unknown }
+    expect(corner.end).toEqual({ x: 150, y: 50, attach: "el-stored-1", side: "n", at: 1 })
+  })
+
+  it("the elbow line tool draws a line with right-angled turns", async () => {
+    const user = userEvent.setup()
+    const fetchMock = stubFetch([boardRoute(), elementsOf("s1"), savesOf("s1")])
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
+    const canvas = await canvasOf("全体図")
+    await user.click(screen.getByRole("button", { name: t.wbToolElbow }))
+    drag(canvas, [100, 100], [300, 220])
+    await waitFor(() => expect(writes(fetchMock)).toHaveLength(1))
+    expect(writes(fetchMock)[0][0].data).toMatchObject({ type: "line", route: "elbow" })
+    // Drawn with turns: more than one segment.
+    const path = canvas.querySelector('[data-element-type="line"] path')
+    expect((path?.getAttribute("d") ?? "").match(/L/g)?.length ?? 0).toBeGreaterThan(1)
+  })
+
+  it("Alt + drag moves and resizes by whole grid steps", async () => {
+    const fetchMock = stubFetch([boardRoute(), elementsOf("s1", [RECT]), savesOf("s1")])
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
+    const canvas = await canvasOf("全体図")
+    // Move by (+37, +11): the top-left corner (87, 61) lands on the nearest grid point (24): (96, 72).
+    fireEvent.pointerDown(canvas, { button: 0, pointerId: 1, clientX: 100, clientY: 80, altKey: true })
+    fireEvent.pointerMove(canvas, { pointerId: 1, clientX: 137, clientY: 91, altKey: true })
+    fireEvent.pointerUp(canvas, { button: 0, pointerId: 1, clientX: 137, clientY: 91, altKey: true })
+    await waitFor(() => expect(writes(fetchMock)).toHaveLength(1))
+    expect(writes(fetchMock)[0][0]).toMatchObject({ data: { x: 96, y: 72, w: 100, h: 60 } })
+    // The bottom-right handle (196, 132) dragged by (+30, +5): the corner (226, 137) lands on the grid (216, 144).
+    fireEvent.pointerDown(canvas, { button: 0, pointerId: 2, clientX: 196, clientY: 132, altKey: true })
+    fireEvent.pointerMove(canvas, { pointerId: 2, clientX: 226, clientY: 137, altKey: true })
+    fireEvent.pointerUp(canvas, { button: 0, pointerId: 2, clientX: 226, clientY: 137, altKey: true })
+    await waitFor(() => expect(writes(fetchMock)).toHaveLength(2))
+    expect(writes(fetchMock)[1][0]).toMatchObject({ data: { x: 96, y: 72, w: 120, h: 72 } })
+  })
+
+  it("Ctrl + click adds shapes to the selection and takes them out again", async () => {
+    const OTHER = { ...RECT, id: "el-stored-2", data: { ...RECT.data, x: 300, y: 50 } }
+    stubFetch([boardRoute(), elementsOf("s1", [RECT, OTHER]), savesOf("s1")])
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
+    const canvas = await canvasOf("全体図")
+    const click = (x: number, y: number, ctrlKey: boolean) => {
+      fireEvent.pointerDown(canvas, { button: 0, pointerId: 1, clientX: x, clientY: y, ctrlKey })
+      fireEvent.pointerUp(canvas, { button: 0, pointerId: 1, clientX: x, clientY: y, ctrlKey })
+    }
+    const selected = () => Array.from(canvas.querySelectorAll("[data-selected-id]")).map((n) => n.getAttribute("data-selected-id"))
+    click(100, 80, false)
+    click(350, 80, true)
+    expect(selected().sort()).toEqual(["el-stored-1", "el-stored-2"])
+    click(100, 80, true)
+    expect(selected()).toEqual(["el-stored-2"])
   })
 
   it("typing with a shape selected writes into it", async () => {

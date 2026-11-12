@@ -76,17 +76,67 @@ export const SIDE_DIR: Readonly<Record<Side, Point>> = { n: { x: 0, y: -1 }, e: 
 
 /** The middle of one side of a box (for an ellipse: its top / right / bottom / left point — the same place). */
 export function sidePoint(box: BoxElement, side: Side): Point {
+  return anchorPoint(box, side, 0.5)
+}
+
+/** Angle (degrees, y down) of the middle of each side on an ellipse. */
+const SIDE_ANGLE: Readonly<Record<Side, number>> = { n: -90, e: 0, s: 90, w: 180 }
+
+/**
+ * A point on the outline of a box: `at` (0–1) along `side` — n / s left → right, e / w top → bottom. On an
+ * ellipse a side spans a quarter of the outline (0 / 1 are the 45° points between the sides).
+ */
+export function anchorPoint(box: BoxElement, side: Side, at = 0.5): Point {
   const { x, y, w, h } = box
+  const t = Math.max(0, Math.min(1, at))
+  if (box.type === "ellipse") {
+    // n and e turn clockwise as `at` grows, s and w the other way (their `at` runs left → right / top → bottom).
+    const turn = side === "n" || side === "e" ? (t - 0.5) * 90 : (0.5 - t) * 90
+    const angle = ((SIDE_ANGLE[side] + turn) * Math.PI) / 180
+    return { x: x + w / 2 + (w / 2) * Math.cos(angle), y: y + h / 2 + (h / 2) * Math.sin(angle) }
+  }
   switch (side) {
     case "n":
-      return { x: x + w / 2, y }
+      return { x: x + w * t, y }
     case "e":
-      return { x: x + w, y: y + h / 2 }
+      return { x: x + w, y: y + h * t }
     case "s":
-      return { x: x + w / 2, y: y + h }
+      return { x: x + w * t, y: y + h }
     case "w":
-      return { x, y: y + h / 2 }
+      return { x, y: y + h * t }
   }
+}
+
+/** A place a line end can attach to on a box. */
+export interface Anchor {
+  side: Side
+  at: number
+}
+
+/**
+ * The places a line end can attach to: on an ellipse every 45°; on a rectangle-like box (rect, sticky note, text,
+ * image, table, timer) the corners, the side middles and the points halfway between them; on a library shape
+ * (whose outline need not reach its corners) the side middles only. A corner is listed once per side it belongs to.
+ */
+export function anchorsOf(box: BoxElement): Anchor[] {
+  const ats = box.type === "ellipse" ? [0, 0.5, 1] : box.type === "shape" ? [0.5] : [0, 0.25, 0.5, 0.75, 1]
+  return SIDES.flatMap((side) => ats.map((at) => ({ side, at })))
+}
+
+/** The attach place closest to the point; at a corner, the side that faces the point (the line leaves that way). */
+export function nearestAnchor(box: BoxElement, p: Point): Anchor {
+  const facing = facingSide(box, p)
+  let best: Anchor = { side: facing, at: 0.5 }
+  let bestDistance = Infinity
+  for (const anchor of anchorsOf(box)) {
+    const q = anchorPoint(box, anchor.side, anchor.at)
+    const distance = Math.hypot(p.x - q.x, p.y - q.y)
+    if (distance < bestDistance - 0.01 || (Math.abs(distance - bestDistance) <= 0.01 && anchor.side === facing)) {
+      best = anchor
+      bestDistance = Math.min(distance, bestDistance)
+    }
+  }
+  return best
 }
 
 /** The side that faces `toward` (measured against the box's own proportions, so a wide box still uses its ends). */
@@ -137,7 +187,8 @@ export function resolveEnds(line: LineElement, elements: ElementMap): { a: Resol
   const endRef = endBox ? rectCenter(boxRect(endBox)) : { x: line.end.x, y: line.end.y }
   const resolve = (end: LineEnd, box: BoxElement | null, other: Point): ResolvedEnd => {
     if (!box) return { point: { x: end.x, y: end.y }, dir: null }
-    const side = end.side ?? facingSide(box, other)
+    if (end.side) return { point: anchorPoint(box, end.side, end.at ?? 0.5), dir: SIDE_DIR[end.side] }
+    const side = facingSide(box, other)
     return { point: sidePoint(box, side), dir: SIDE_DIR[side] }
   }
   return { a: resolve(line.start, startBox, endRef), b: resolve(line.end, endBox, startRef) }
@@ -369,10 +420,12 @@ export function boxAt(elements: ElementMap, p: Point, exclude: readonly string[]
   return null
 }
 
-/** Where a line end near a box snaps to: that box and the side whose middle is closest. */
+/** Where a line end near a box snaps to: that box and its attach place closest to the pointer. */
 export interface SnapTarget {
   id: string
   side: Side
+  /** Along the side (0–1, 0.5 = the middle). */
+  at: number
   point: Point
 }
 
@@ -380,8 +433,8 @@ export function snapTarget(elements: ElementMap, p: Point, reach: number, exclud
   const id = boxAt(elements, p, exclude, reach)
   const box = id ? elements[id] : undefined
   if (!id || !isBox(box)) return null
-  const side = nearestSide(box, p)
-  return { id, side, point: sidePoint(box, side) }
+  const { side, at } = nearestAnchor(box, p)
+  return { id, side, at, point: anchorPoint(box, side, at) }
 }
 
 /** Rubber band: every drawn element whose bounds touch the rectangle, back to front. */

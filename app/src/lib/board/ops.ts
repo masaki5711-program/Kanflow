@@ -159,17 +159,23 @@ export function newImage(fileId: string, natural: { width: number; height: numbe
   return { ...newBox("image", { x: center.x - w / 2, y: center.y - h / 2, w, h }, id, z), fileId }
 }
 
-/** The end of a line where it is drawn; attached ends name the box and the side whose middle they sit on. */
-export function lineEnd(point: Point, attach: string | null, side: Side | null = null): LineEnd {
-  const at = { x: coord(point.x), y: coord(point.y) }
-  if (!attach) return at
-  return side ? { ...at, attach, side } : { ...at, attach }
+/**
+ * The end of a line where it is drawn; attached ends name the box, the side and where along it they sit (`along`
+ * 0–1, stored only when it is not the middle).
+ */
+export function lineEnd(point: Point, attach: string | null, side: Side | null = null, along: number | null = null): LineEnd {
+  const drawn = { x: coord(point.x), y: coord(point.y) }
+  if (!attach) return drawn
+  if (!side) return { ...drawn, attach }
+  return along !== null && along !== 0.5 ? { ...drawn, attach, side, at: Math.max(0, Math.min(1, along)) } : { ...drawn, attach, side }
 }
 
 export interface LineEndInput {
   point: Point
   attach: string | null
   side?: Side | null
+  /** Along the side (0–1; absent = the middle). */
+  at?: number | null
 }
 
 export function newLine(type: LineType, start: LineEndInput, end: LineEndInput, id: string, z: number, stroke: StrokeKey = "ink"): LineElement {
@@ -177,8 +183,8 @@ export function newLine(type: LineType, start: LineEndInput, end: LineEndInput, 
     id,
     type,
     z,
-    start: lineEnd(start.point, start.attach, start.side ?? null),
-    end: lineEnd(end.point, end.attach, end.side ?? null),
+    start: lineEnd(start.point, start.attach, start.side ?? null, start.at ?? null),
+    end: lineEnd(end.point, end.attach, end.side ?? null, end.at ?? null),
     stroke,
   }
 }
@@ -296,11 +302,11 @@ export function resizePatch(elements: ElementMap, id: string, handle: BoxHandle,
 }
 
 /** Puts one end of a line at `point`, attached to the box `attach` on `side` (null = free). */
-export function lineEndPatch(elements: ElementMap, id: string, which: LineHandle, point: Point, attach: string | null, side: Side | null = null): Patch {
+export function lineEndPatch(elements: ElementMap, id: string, which: LineHandle, point: Point, attach: string | null, side: Side | null = null, along: number | null = null): Patch {
   const el = elements[id]
   if (!isLine(el) || el.locked) return {}
   const target = attach && attach !== id && isBox(elements[attach]) ? attach : null
-  return { [id]: { ...el, [which]: lineEnd(point, target, target ? side : null) } }
+  return { [id]: { ...el, [which]: lineEnd(point, target, target ? side : null, target ? along : null) } }
 }
 
 // ---------------------------------------------------------------------------
@@ -308,13 +314,19 @@ export function lineEndPatch(elements: ElementMap, id: string, which: LineHandle
 // ---------------------------------------------------------------------------
 
 /**
- * Deletes the elements (locked ones stay). Lines that stay but were attached to a deleted box are detached at
- * the point where they were drawn, so they do not jump (and undo re-attaches them: they are part of the same patch).
+ * Deletes the elements (locked ones stay). The lines connected to a deleted box go with it (a mind-map child
+ * takes its branch line along; undo brings both back: they are part of the same patch). A locked line stays,
+ * detached at the point where it was drawn so it does not jump.
  */
 export function deletePatch(elements: ElementMap, ids: readonly string[]): Patch {
   const patch: Record<string, BoardElement | null> = {}
   const removed = new Set(unlocked(elements, ids))
   if (removed.size === 0) return patch
+  const boxesGone = [...removed].filter((id) => isBox(elements[id]))
+  for (const el of Object.values(elements)) {
+    if (!isLine(el) || el.locked || removed.has(el.id)) continue
+    if ((el.start.attach && boxesGone.includes(el.start.attach)) || (el.end.attach && boxesGone.includes(el.end.attach))) removed.add(el.id)
+  }
   for (const id of removed) patch[id] = null
   // A group left with one member is no group any more.
   const left = new Map<string, KnownElement[]>()
@@ -390,7 +402,7 @@ export function pastePatch(elements: ElementMap, clip: readonly KnownElement[], 
   const ids: string[] = []
   const moveEnd = (end: LineEnd): LineEnd => {
     const attach = end.attach ? (idMap.get(end.attach) ?? null) : null
-    return lineEnd({ x: end.x + offset.x, y: end.y + offset.y }, attach, attach ? (end.side ?? null) : null)
+    return lineEnd({ x: end.x + offset.x, y: end.y + offset.y }, attach, attach ? (end.side ?? null) : null, attach ? (end.at ?? null) : null)
   }
   const regroup = <T extends KnownElement>(el: T): T => {
     const next = { ...el }
