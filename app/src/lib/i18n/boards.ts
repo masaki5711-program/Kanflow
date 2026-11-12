@@ -345,6 +345,7 @@ export interface BoardsTranslations {
   wbHelp15: string
   wbHelp16: string
   wbHelp17: string
+  wbHelp18: string
   wbAlignGuides: string
   wbPbiLink: string
   wbPbiCreate: string
@@ -780,6 +781,7 @@ export const ja: BoardsTranslations = {
   wbHelp15: "] / [\t図形を 1 つずつ選ぶ",
   wbHelp16: "Ctrl+F\t全シートの文字を検索",
   wbHelp17: "?\tこの操作ガイドを開く",
+  wbHelp18: "Ctrl+ドラッグ\t図形をコピーして置く（元の図形はそのまま。リンクのある図形は Ctrl+クリックで開く）",
   wbAlignGuides: "整列ガイド",
   wbPbiLink: "PBI とつなぐ…",
   wbPbiCreate: "この内容で PBI を作る",
@@ -1213,6 +1215,7 @@ export const en: BoardsTranslations = {
   wbHelp15: "] / [\tSelect the shapes one by one",
   wbHelp16: "Ctrl+F\tSearch the text of every sheet",
   wbHelp17: "?\tOpen this guide",
+  wbHelp18: "Ctrl + drag\tPlace a copy of the shapes (the originals stay; Ctrl + click opens a shape's link)",
   wbAlignGuides: "Alignment guides",
   wbPbiLink: "Link to a PBI…",
   wbPbiCreate: "Create a PBI from this",
@@ -1646,6 +1649,7 @@ export const id: BoardsTranslations = {
   wbHelp15: "] / [\tPilih bentuk satu per satu",
   wbHelp16: "Ctrl+F\tCari teks di semua lembar",
   wbHelp17: "?\tBuka panduan ini",
+  wbHelp18: "Ctrl + seret\tTaruh salinan bentuk (aslinya tetap; Ctrl + klik membuka tautan bentuk)",
   wbAlignGuides: "Garis bantu perataan",
   wbPbiLink: "Hubungkan ke PBI…",
   wbPbiCreate: "Buat PBI dari ini",

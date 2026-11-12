@@ -181,6 +181,8 @@ export interface BoardEditorController {
   placeAtCenter: () => void
   deleteSelection: () => void
   duplicate: () => void
+  /** Copies the elements, shifted by `offset` (a Ctrl / ⌘ + drag); the copies become the selection. */
+  duplicateBy: (ids: readonly string[], offset: Point) => void
   copy: () => void
   cut: () => void
   paste: () => void
@@ -350,8 +352,12 @@ export function useBoardEditor(doc: SheetDocument, readOnly: boolean, clipboardR
   }
 
   function paste(clip: readonly KnownElement[], steps: number) {
+    pasteAt(clip, { x: PASTE_OFFSET.x * steps, y: PASTE_OFFSET.y * steps })
+  }
+
+  function pasteAt(clip: readonly KnownElement[], offset: Point) {
     if (readOnly || clip.length === 0) return
-    const { patch, ids } = pastePatch(elements, clip, newElementId, { x: PASTE_OFFSET.x * steps, y: PASTE_OFFSET.y * steps })
+    const { patch, ids } = pastePatch(elements, clip, newElementId, offset)
     doc.commit(patch)
     setSelected(ids)
   }
@@ -550,6 +556,7 @@ export function useBoardEditor(doc: SheetDocument, readOnly: boolean, clipboardR
     },
     deleteSelection,
     duplicate: () => paste(copyElements(elements, selection), 1),
+    duplicateBy: (ids, offset) => pasteAt(copyElements(elements, ids), offset),
     copy,
     cut: () => {
       if (readOnly) return

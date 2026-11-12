@@ -32,12 +32,14 @@ import {
   cellAt,
   cellRect,
   CLICK_SLOP,
+  copyElements,
   expandGroups,
   lineEndPatch,
   movePatch,
   newBox,
   newBoxRect,
   newLine,
+  pastePatch,
   resizePatch,
   slotContent,
   snap,
@@ -70,7 +72,8 @@ const GHOST_ID = "ghost-element"
 
 type Drag =
   | { kind: "pan"; last: Point }
-  | { kind: "move"; start: Point; ids: readonly string[]; moved: boolean; last?: Point }
+  /** `link`: a Ctrl / ⌘ press on a linked element — it opens the link if the pointer comes up without moving. */
+  | { kind: "move"; start: Point; ids: readonly string[]; moved: boolean; last?: Point; link?: string }
   | { kind: "resize"; id: string; handle: BoxHandle; start: Point }
   | { kind: "line-end"; id: string; which: LineHandle }
   | { kind: "marquee"; start: Point; base: readonly string[] }
@@ -165,6 +168,8 @@ export function BoardCanvas({ editor, label, menuFor, onSearch, onHelp, others =
   const [snapHint, setSnapHint] = useState<SnapTarget | null>(null)
   const [spaceDown, setSpaceDown] = useState(false)
   const [panning, setPanning] = useState(false)
+  /** A move drag with Ctrl / ⌘ held: dropping makes copies (the originals stay). */
+  const [copying, setCopying] = useState(false)
   /** The pointer is over a ruling of the selected table: it can be dragged. */
   const [borderHover, setBorderHover] = useState<"col" | "row" | null>(null)
   /** The lines the dragged shapes line up with. */
@@ -233,6 +238,7 @@ export function BoardCanvas({ editor, label, menuFor, onSearch, onHelp, others =
     setGhost(null)
     setSnapHint(null)
     setPanning(false)
+    setCopying(false)
     setGuides([])
   }
 
@@ -275,6 +281,18 @@ export function BoardCanvas({ editor, label, menuFor, onSearch, onHelp, others =
     const target = snapTarget(elements, sheet, reach, exclude)
     if (target) return { point: target.point, attach: target.id, side: target.side, target }
     return { point: onGrid(sheet), attach: null, side: null, target: null }
+  }
+
+  function hasLink(id: string): boolean {
+    const el = elements[id]
+    const link = isKnown(el) ? el.link : undefined
+    return !!link && isHttpUrl(link)
+  }
+
+  /** What a Ctrl / ⌘ + drag shows: copies of the dragged elements at `offset`, under preview-only ids. */
+  function copyPreview(ids: readonly string[], offset: Point): Patch {
+    let n = 0
+    return pastePatch(elements, copyElements(elements, ids), () => `${GHOST_ID}-copy-${n++}`, offset).patch
   }
 
   function openLink(id: string): boolean {
@@ -341,8 +359,13 @@ export function BoardCanvas({ editor, label, menuFor, onSearch, onHelp, others =
     }
 
     const hit = hitTest(elements, sheet, HIT_TOLERANCE / viewport.zoom)
-    // Ctrl / ⌘ + click follows the element's link (also on a view-only board).
-    if (hit !== null && (e.ctrlKey || e.metaKey) && openLink(hit)) return
+    // Ctrl / ⌘ + click follows the element's link (also on a view-only board). Where the board can be changed,
+    // Ctrl / ⌘ + drag copies instead: the link opens only when the pointer comes up without moving.
+    const linkHit = hit !== null && (e.ctrlKey || e.metaKey) && hasLink(hit) ? hit : undefined
+    if (linkHit !== undefined && readOnly) {
+      openLink(linkHit)
+      return
+    }
     if (readOnly) {
       editor.select(hit === null ? [] : [hit])
       return
@@ -369,7 +392,7 @@ export function BoardCanvas({ editor, label, menuFor, onSearch, onHelp, others =
       editor.setActiveCell(cell ? { id: hit, ...cell } : null)
     }
     // A frame carries what lies inside it.
-    start({ kind: "move", start: sheet, ids: withFrameContents(elements, ids), moved: false })
+    start({ kind: "move", start: sheet, ids: withFrameContents(elements, ids), moved: false, link: linkHit })
   }
 
   function onPointerMove(e: React.PointerEvent<HTMLDivElement>) {
@@ -405,7 +428,10 @@ export function BoardCanvas({ editor, label, menuFor, onSearch, onHelp, others =
         const d = e.altKey ? { x: dx, y: dy } : dragMove(drag.ids, dx, dy)
         if (e.altKey) setGuides([])
         drag.last = d
-        setPreview(movePatch(elements, drag.ids, d.x, d.y))
+        // Ctrl / ⌘ held: the copies follow the pointer and the originals stay where they are.
+        const copy = e.ctrlKey || e.metaKey
+        setCopying(copy)
+        setPreview(copy ? copyPreview(drag.ids, d) : movePatch(elements, drag.ids, d.x, d.y))
         break
       }
       case "resize":
@@ -454,8 +480,11 @@ export function BoardCanvas({ editor, label, menuFor, onSearch, onHelp, others =
     }
     switch (drag.kind) {
       case "move":
-        // The move as last shown (lined up / on the grid).
-        if (drag.moved && drag.last) editor.commit(movePatch(elements, drag.ids, drag.last.x, drag.last.y))
+        // The move as last shown (lined up / on the grid); with Ctrl / ⌘ held at the drop, copies placed there.
+        if (drag.moved && drag.last) {
+          if (e.ctrlKey || e.metaKey) editor.duplicateBy(drag.ids, drag.last)
+          else editor.commit(movePatch(elements, drag.ids, drag.last.x, drag.last.y))
+        } else if (!drag.moved && drag.link !== undefined) openLink(drag.link)
         break
       case "resize":
         editor.commit(resizePatch(elements, drag.id, drag.handle, sheet.x - drag.start.x, sheet.y - drag.start.y, keepRatio(drag.id, e.shiftKey)))
@@ -670,6 +699,8 @@ export function BoardCanvas({ editor, label, menuFor, onSearch, onHelp, others =
   const showChrome = !readOnly && tool === "select" && !editing
   const cursor = panning
     ? "grabbing"
+    : copying
+      ? "copy"
     : spaceDown || readOnly
       ? "grab"
       : tool !== "select"

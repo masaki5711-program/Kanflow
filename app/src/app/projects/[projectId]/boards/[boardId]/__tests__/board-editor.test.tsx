@@ -177,6 +177,36 @@ describe("ボードの編集画面: キャンバス (plan 10 B1)", () => {
     expect(writes(fetchMock)[1][0]).toMatchObject({ id: "el-stored-1", data: { x: 100, y: 81 } })
   })
 
+  it("Ctrl + drag places a copy where it is dropped; the original stays; Ctrl + click still opens a link", async () => {
+    const stored = { id: "el-stored-1", version: 1, deleted: false, data: { type: "rect", x: 50, y: 50, w: 100, h: 60, z: 1, text: "", fill: "white", stroke: "ink", link: "https://example.invalid/synthetic" } }
+    const fetchMock = stubFetch([boardRoute(), elementsOf("s1", [stored]), savesOf("s1")])
+    const open = vi.fn()
+    vi.stubGlobal("open", open)
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
+    const canvas = await canvasOf("全体図")
+
+    fireEvent.pointerDown(canvas, { button: 0, pointerId: 1, clientX: 100, clientY: 80, ctrlKey: true })
+    fireEvent.pointerMove(canvas, { pointerId: 1, clientX: 140, clientY: 110, ctrlKey: true })
+    // While dragging: the original and the copy are both shown.
+    expect(shapes(canvas, "rect")).toHaveLength(2)
+    fireEvent.pointerUp(canvas, { button: 0, pointerId: 1, clientX: 140, clientY: 110, ctrlKey: true })
+
+    expect(shapes(canvas, "rect")).toHaveLength(2)
+    await waitFor(() => expect(writes(fetchMock)).toHaveLength(1))
+    const [copy] = writes(fetchMock)[0]
+    expect(copy.id).not.toBe("el-stored-1")
+    expect(copy).toMatchObject({ version: 1, data: { type: "rect", x: 90, y: 80, w: 100, h: 60 } })
+    expect(open).not.toHaveBeenCalled()
+    // The copy is the selection.
+    expect(canvas.querySelector(`[data-selected-id="${copy.id}"]`)).not.toBeNull()
+
+    // A Ctrl + click without moving opens the original's link.
+    fireEvent.pointerDown(canvas, { button: 0, pointerId: 2, clientX: 60, clientY: 60, ctrlKey: true })
+    fireEvent.pointerUp(canvas, { button: 0, pointerId: 2, clientX: 60, clientY: 60, ctrlKey: true })
+    expect(open).toHaveBeenCalledWith("https://example.invalid/synthetic", "_blank", "noopener,noreferrer")
+    expect(writes(fetchMock)).toHaveLength(1)
+  })
+
   it("a sticky note opens for typing; the text is saved when the edit ends", async () => {
     const user = userEvent.setup()
     const fetchMock = stubFetch([boardRoute(), elementsOf("s1"), savesOf("s1")])
