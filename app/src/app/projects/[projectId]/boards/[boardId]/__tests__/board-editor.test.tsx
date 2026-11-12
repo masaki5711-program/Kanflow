@@ -575,6 +575,20 @@ describe("ホワイトボード B2: connections, typing, format and paste", () =
     expect(last.bold).toBe(true)
   })
 
+  it("the format bar floats over the canvas: selecting a shape does not move the board", async () => {
+    stubFetch([boardRoute(), elementsOf("s1", [RECT]), savesOf("s1")])
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
+    const canvas = await canvasOf("全体図")
+    const area = canvas.parentElement
+    const before = area?.parentElement?.children.length
+    drag(canvas, [100, 80], [100, 80])
+    const bar = screen.getByRole("toolbar", { name: t.wbFormatLabel })
+    // Inside the canvas' own positioned area (an overlay), not a new row in the column above it.
+    expect(area?.contains(bar)).toBe(true)
+    expect(area?.parentElement?.children.length).toBe(before)
+    expect(bar.closest(".absolute")).not.toBeNull()
+  })
+
   it("a spreadsheet range pasted on the canvas becomes a table", async () => {
     const fetchMock = stubFetch([boardRoute(), elementsOf("s1"), savesOf("s1")])
     renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
