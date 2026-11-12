@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { applyPatch, commit, initialState, undo, EMPTY_DOC } from "../doc"
-import { resolveLine, type ElementMap } from "../geometry"
+import { anchorPoint, resolveLine, type ElementMap } from "../geometry"
 import { BOARD_LIMITS } from "../limits"
 import { elementDataProblem, elementToData, type BoxElement, type LineElement } from "../model"
 import {
@@ -15,6 +15,7 @@ import {
   pastePatch,
   reorderPatch,
   resizePatch,
+  rotatePatch,
   stylePatch,
   textPatch,
   DEFAULT_BOX_SIZE,
@@ -114,6 +115,32 @@ describe("resize and line ends", () => {
     const els = map(arrow("l", { x: 0, y: 0 }, { x: 1, y: 1 }), arrow("m", { x: 0, y: 0 }, { x: 1, y: 1 }))
     expect((lineEndPatch(els, "l", "end", { x: 9, y: 9 }, "m").l as LineElement).end).toEqual({ x: 9, y: 9 })
     expect((lineEndPatch(els, "l", "end", { x: 9, y: 9 }, "l").l as LineElement).end).toEqual({ x: 9, y: 9 })
+  })
+})
+
+describe("rotate", () => {
+  it("turns boxes to an angle or by an angle, normalized; 0° drops the field; frames, tables and locked boxes stay", () => {
+    const els = map(box("a", 0, 0), box("b", 200, 0, { rotation: 350 }), box("f", 400, 0, { type: "frame" }), box("l", 600, 0, { locked: true }))
+    const turned = rotatePatch(els, ["a", "b", "f", "l"], 20, true)
+    expect(Object.keys(turned).sort()).toEqual(["a", "b"])
+    expect((turned.a as BoxElement).rotation).toBe(20)
+    expect((turned.b as BoxElement).rotation).toBe(10)
+    const reset = rotatePatch(els, ["b"], 0)
+    expect("rotation" in (reset.b as BoxElement)).toBe(false)
+    expect(rotatePatch(els, ["a"], -45).a).toMatchObject({ rotation: 315 })
+  })
+
+  it("resizing a turned box keeps the side opposite the handle where it is drawn", () => {
+    const turned = { ...box("r", 0, 0), w: 100, h: 50, rotation: 90 }
+    const els = map(turned)
+    const westBefore = anchorPoint(turned, "w")
+    // Turned 90°, the box's own right side faces down: dragging the e handle down by 20 widens it by 20.
+    const next = resizePatch(els, "r", "e", 0, 20).r as BoxElement
+    expect(next.w).toBe(120)
+    expect(next.h).toBe(50)
+    const westAfter = anchorPoint(next, "w")
+    expect(westAfter.x).toBeCloseTo(westBefore.x)
+    expect(westAfter.y).toBeCloseTo(westBefore.y)
   })
 })
 

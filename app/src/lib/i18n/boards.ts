@@ -348,6 +348,11 @@ export interface BoardsTranslations {
   wbHelp17: string
   wbHelp18: string
   wbHelp19: string
+  wbHelp20: string
+  wbRotateLabel: string
+  wbRotateLeft: string
+  wbRotateRight: string
+  wbRotateReset: string
   wbAlignGuides: string
   wbPbiLink: string
   wbPbiCreate: string
@@ -786,6 +791,11 @@ export const ja: BoardsTranslations = {
   wbHelp17: "?\tこの操作ガイドを開く",
   wbHelp18: "Ctrl+クリック / Ctrl+ドラッグ\t図形を選択に加える・外す（Shift でも同じ）/ 選んだ図形をコピーして置く（元の図形はそのまま）。リンクは Ctrl+Enter で開く",
   wbHelp19: "Alt+ドラッグ\t図形の移動・大きさの変更をグリッド（点の間隔）単位で",
+  wbHelp20: "図形の上の丸をドラッグ\t回転する（Alt を押しながらで 45° ずつ）。書式バーで 15° ずつ回す・0° に戻す",
+  wbRotateLabel: "回転",
+  wbRotateLeft: "左に 15° 回す",
+  wbRotateRight: "右に 15° 回す",
+  wbRotateReset: "角度 {deg}°（押すと 0° に戻す）",
   wbAlignGuides: "整列ガイド",
   wbPbiLink: "PBI とつなぐ…",
   wbPbiCreate: "この内容で PBI を作る",
@@ -1222,6 +1232,11 @@ export const en: BoardsTranslations = {
   wbHelp17: "?\tOpen this guide",
   wbHelp18: "Ctrl + click / Ctrl + drag\tAdd a shape to the selection or take it out (Shift does too) / place a copy of the selected shapes (the originals stay). Ctrl+Enter opens a link",
   wbHelp19: "Alt + drag\tMove or resize shapes by whole grid steps (the dots)",
+  wbHelp20: "Drag the knob above a shape\tTurn it (hold Alt: by 45°). The format bar turns by 15° and back to 0°",
+  wbRotateLabel: "Rotate",
+  wbRotateLeft: "Turn left by 15°",
+  wbRotateRight: "Turn right by 15°",
+  wbRotateReset: "Angle {deg}° (press for 0°)",
   wbAlignGuides: "Alignment guides",
   wbPbiLink: "Link to a PBI…",
   wbPbiCreate: "Create a PBI from this",
@@ -1658,6 +1673,11 @@ export const id: BoardsTranslations = {
   wbHelp17: "?\tBuka panduan ini",
   wbHelp18: "Ctrl + klik / Ctrl + seret\tTambahkan bentuk ke pilihan atau keluarkan (Shift juga) / taruh salinan bentuk yang dipilih (aslinya tetap). Ctrl+Enter membuka tautan",
   wbHelp19: "Alt + seret\tGeser atau ubah ukuran bentuk per langkah kisi (titik-titik)",
+  wbHelp20: "Seret tombol bulat di atas bentuk\tPutar (tahan Alt: per 45°). Bilah format memutar per 15° dan kembali ke 0°",
+  wbRotateLabel: "Putar",
+  wbRotateLeft: "Putar ke kiri 15°",
+  wbRotateRight: "Putar ke kanan 15°",
+  wbRotateReset: "Sudut {deg}° (tekan untuk 0°)",
   wbAlignGuides: "Garis bantu perataan",
   wbPbiLink: "Hubungkan ke PBI…",
   wbPbiCreate: "Buat PBI dari ini",

@@ -18,7 +18,13 @@ import {
   rectFromPoints,
   anchorPoint,
   anchorsOf,
+  boxCorners,
+  canRotate,
+  rectCenter,
+  rotationOf,
   snapTarget,
+  toLocal,
+  toWorld,
   sortByZ,
   type BoxHandle,
   type ElementMap,
@@ -42,6 +48,7 @@ import {
   newLine,
   pastePatch,
   resizePatch,
+  rotatePatch,
   slotContent,
   snap,
   snapMove,
@@ -71,6 +78,23 @@ const SNAP_REACH = 16
 const GRID = 24
 const GHOST_ID = "ghost-element"
 
+/** How far the turn handle sits above a box (screen pixels). */
+const ROTATE_HANDLE_GAP = 28
+
+/** Where the turn handle of a box is drawn (sheet units); null for a box that cannot turn. */
+function rotateHandlePoint(el: BoxElement, zoom: number): Point | null {
+  if (!canRotate(el)) return null
+  return toWorld(el, { x: el.x + el.w / 2, y: el.y - ROTATE_HANDLE_GAP / zoom })
+}
+
+/** The turn the pointer asks for: 0° with the pointer straight above the centre; Alt steps by 45°. */
+function angleAt(center: Point, p: Point, alt: boolean): number {
+  const raw = (Math.atan2(p.y - center.y, p.x - center.x) * 180) / Math.PI + 90
+  const step = alt ? 45 : 1
+  const snapped = Math.round(raw / step) * step
+  return ((snapped % 360) + 360) % 360
+}
+
 /** A drawn line with the route its tool gives (the ghost while drawing an elbow line shows the turns). */
 function withRoute(line: LineElement, route: LineRoute | undefined): LineElement {
   return route && route !== "straight" ? { ...line, route } : line
@@ -81,6 +105,7 @@ type Drag =
   /** `unpick`: a Ctrl / ⌘ press on a selected shape — taken out of the selection if the pointer comes up unmoved. */
   | { kind: "move"; start: Point; ids: readonly string[]; moved: boolean; last?: Point; unpick?: readonly string[] }
   | { kind: "resize"; id: string; handle: BoxHandle; start: Point }
+  | { kind: "rotate"; id: string; center: Point }
   | { kind: "line-end"; id: string; which: LineHandle }
   | { kind: "marquee"; start: Point; base: readonly string[] }
   | { kind: "create-box"; type: DrawBoxType; start: Point }
@@ -176,6 +201,8 @@ export function BoardCanvas({ editor, label, menuFor, onSearch, onHelp, others =
   const [panning, setPanning] = useState(false)
   /** A move drag with Ctrl / ⌘ held: dropping makes copies (the originals stay). */
   const [copying, setCopying] = useState(false)
+  /** The box being turned with its handle (its angle is shown). */
+  const [turning, setTurning] = useState<string | null>(null)
   /** The pointer is over a ruling of the selected table: it can be dragged. */
   const [borderHover, setBorderHover] = useState<"col" | "row" | null>(null)
   /** The lines the dragged shapes line up with. */
@@ -245,6 +272,7 @@ export function BoardCanvas({ editor, label, menuFor, onSearch, onHelp, others =
     setSnapHint(null)
     setPanning(false)
     setCopying(false)
+    setTurning(null)
     setGuides([])
   }
 
@@ -255,7 +283,8 @@ export function BoardCanvas({ editor, label, menuFor, onSearch, onHelp, others =
   /** A resize drag; with Alt held, the dragged edges land on the grid. */
   function resizeDelta(id: string, handle: BoxHandle, dx: number, dy: number, alt: boolean): Point {
     const el = elements[id]
-    if (!alt || !isBox(el)) return { x: dx, y: dy }
+    // A turned box's edges do not run along the grid: Alt has nothing to line up there.
+    if (!alt || !isBox(el) || rotationOf(el) !== 0) return { x: dx, y: dy }
     let x = dx
     let y = dy
     if (handle.includes("e")) x = snap(el.x + el.w + dx, gridStep) - (el.x + el.w)
@@ -360,7 +389,12 @@ export function BoardCanvas({ editor, label, menuFor, onSearch, onHelp, others =
       const el = elements[selection[0]]
       const handleReach = HANDLE_TOLERANCE / viewport.zoom
       if (isBox(el) && !el.locked) {
-        const handle = hitBoxHandle(boxRect(el), sheet, handleReach)
+        // The turn handle above the box (sticks out the furthest: tried first).
+        const knob = rotateHandlePoint(el, viewport.zoom)
+        if (knob && Math.hypot(sheet.x - knob.x, sheet.y - knob.y) <= handleReach) {
+          return start({ kind: "rotate", id: el.id, center: rectCenter(boxRect(el)) })
+        }
+        const handle = hitBoxHandle(boxRect(el), toLocal(el, sheet), handleReach)
         // A ruling inside a table wins over the outer handles (on a small table they lie close together).
         const border = borderAt(sheet)
         const tracks = border ? (border.axis === "col" ? el.colWidths : el.rowHeights) : undefined
@@ -461,6 +495,10 @@ export function BoardCanvas({ editor, label, menuFor, onSearch, onHelp, others =
         setPreview(resizePatch(elements, drag.id, drag.handle, d.x, d.y, keepRatio(drag.id, e.shiftKey)))
         break
       }
+      case "rotate":
+        setTurning(drag.id)
+        setPreview(rotatePatch(elements, [drag.id], angleAt(drag.center, sheet, e.altKey)))
+        break
       case "table-border":
         setPreview(tableTrackPatch(elements, drag.id, drag.axis, drag.index, drag.size + (drag.axis === "col" ? sheet.x - drag.start.x : sheet.y - drag.start.y)))
         break
@@ -516,6 +554,11 @@ export function BoardCanvas({ editor, label, menuFor, onSearch, onHelp, others =
       case "resize": {
         const d = resizeDelta(drag.id, drag.handle, sheet.x - drag.start.x, sheet.y - drag.start.y, e.altKey)
         editor.commit(resizePatch(elements, drag.id, drag.handle, d.x, d.y, keepRatio(drag.id, e.shiftKey)))
+        break
+      }
+      case "rotate": {
+        const patch = rotatePatch(elements, [drag.id], angleAt(drag.center, sheet, e.altKey))
+        if (Object.keys(patch).length > 0) editor.commit(patch)
         break
       }
       case "table-border":
@@ -856,9 +899,15 @@ export function BoardCanvas({ editor, label, menuFor, onSearch, onHelp, others =
                 const bounds = el ? elementBounds(el, shown) : null
                 if (!bounds || isLine(el)) return null
                 const r = screenRect(viewport, bounds)
+                // A turned box is outlined along its own edges.
+                const corners = isBox(el) && rotationOf(el) !== 0 ? boxCorners(el).map((p) => toScreen(viewport, p)) : null
                 return (
                   <g key={id}>
-                    <rect data-selected-id={id} x={r.x} y={r.y} width={r.w} height={r.h} fill="none" style={{ stroke: "var(--color-primary)" }} strokeWidth={2} strokeDasharray="5 3" />
+                    {corners ? (
+                      <polygon data-selected-id={id} points={corners.map((p) => `${p.x},${p.y}`).join(" ")} fill="none" style={{ stroke: "var(--color-primary)" }} strokeWidth={2} strokeDasharray="5 3" />
+                    ) : (
+                      <rect data-selected-id={id} x={r.x} y={r.y} width={r.w} height={r.h} fill="none" style={{ stroke: "var(--color-primary)" }} strokeWidth={2} strokeDasharray="5 3" />
+                    )}
                     {isKnown(el) && el.locked && <LockMark at={{ x: r.x + r.w, y: r.y }} label={t.wbLocked} />}
                   </g>
                 )
@@ -876,10 +925,11 @@ export function BoardCanvas({ editor, label, menuFor, onSearch, onHelp, others =
               {activeCellRect && (
                 <rect data-active-cell="" {...rectProps(screenRect(viewport, activeCellRect))} fill="none" style={{ stroke: "var(--color-primary)" }} strokeWidth={2} />
               )}
+              {isBox(single) && !single.locked && <RotateHandle box={single} viewport={viewport} showAngle={turning === single.id} />}
               {isBox(single) &&
                 !single.locked &&
                 BOX_HANDLES.map((handle) => {
-                  const p = toScreen(viewport, boxHandlePoints(boxRect(single))[handle])
+                  const p = toScreen(viewport, toWorld(single, boxHandlePoints(boxRect(single))[handle]))
                   return (
                     <rect
                       key={handle}
@@ -1056,6 +1106,26 @@ function selectedGroups(selection: readonly string[], elements: ElementMap): { i
   return out
 }
 
+/** The turn handle: a knob above the box on a short stem; while turning, the angle beside it. */
+function RotateHandle({ box, viewport, showAngle }: { box: BoxElement; viewport: Viewport; showAngle: boolean }) {
+  const knob = rotateHandlePoint(box, viewport.zoom)
+  if (!knob) return null
+  const k = toScreen(viewport, knob)
+  const top = toScreen(viewport, toWorld(box, { x: box.x + box.w / 2, y: box.y }))
+  const angle = rotationOf(box)
+  return (
+    <g data-rotate-handle={box.id} data-rotation={angle}>
+      <line x1={top.x} y1={top.y} x2={k.x} y2={k.y} style={{ stroke: "var(--color-primary)" }} strokeWidth={1.5} className="pointer-events-none" />
+      <circle cx={k.x} cy={k.y} r={HANDLE_SIZE / 2 + 2} style={{ fill: "var(--color-surface)", stroke: "var(--color-primary)", cursor: "grab" }} strokeWidth={1.5} />
+      {showAngle && (
+        <text x={k.x + 12} y={k.y + 4} className="pointer-events-none text-caption tabular-nums" style={{ fill: "var(--color-primary)", paintOrder: "stroke", stroke: "var(--color-surface)", strokeWidth: 3 }}>
+          {`${angle}°`}
+        </text>
+      )}
+    </g>
+  )
+}
+
 /**
  * The places of the shape a line end can connect to (side middles a little larger, corners once); the one it
  * snaps to is filled.
@@ -1147,6 +1217,8 @@ function RichOverlay({ target, el, slot, viewport, label, hint, register, onMark
   return (
     <RichTextOverlay
       rect={screenRect(viewport, area)}
+      rotation={rotationOf(el)}
+      pivot={toScreen(viewport, rectCenter(boxRect(el)))}
       css={{ ...css, textAlign: slot.kind === "cell" ? "left" : textStyle(el).align }}
       scale={scale}
       base={base}

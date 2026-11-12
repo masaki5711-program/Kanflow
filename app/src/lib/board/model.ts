@@ -114,6 +114,8 @@ export interface BoxElement extends BoxStyle, ElementExtras {
   z: number
   /** The text inside; a frame's title. */
   text: string
+  /** Turned clockwise about its centre, in degrees (absent: upright). Frames and tables are never turned. */
+  rotation?: number
   /** Format of parts of `text` (absent: all of it in the box's format). */
   runs?: TextRuns
   /** `frame`: the text written in the frame's body (below its title), and its format. */
@@ -267,6 +269,7 @@ const boxBase = {
   h: boxSize,
   z: zOrder,
   text: z.string().max(BOARD_LIMITS.textLength),
+  rotation: z.number().min(-360).max(360).optional(),
   runs: textRuns.optional(),
   pbiId: z.string().regex(/^[A-Za-z0-9_-]{1,40}$/).optional(),
   fill: z.enum(FILL_KEYS),
