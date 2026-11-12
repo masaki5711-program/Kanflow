@@ -601,6 +601,32 @@ describe("ホワイトボード B2: connections, typing, format and paste", () =
     expect(writes(fetchMock)[1][0]).toMatchObject({ data: { x: 96, y: 72, w: 120, h: 72 } })
   })
 
+  it("the turn handle rotates the shape (Alt: by 45°); the format bar turns by 15° and back to 0°", async () => {
+    const user = userEvent.setup()
+    const fetchMock = stubFetch([boardRoute(), elementsOf("s1", [RECT]), savesOf("s1")])
+    renderWithProviders(<BoardEditor projectId="p1" boardId="b1" userId="u-synthetic-1" canAddToIcebox />)
+    const canvas = await canvasOf("全体図")
+    drag(canvas, [100, 80], [100, 80])
+    // The rect is (50, 50, 100, 60): centre (100, 80), the knob 28 px above the top middle.
+    expect(canvas.querySelector('[data-rotate-handle="el-stored-1"]')).not.toBeNull()
+    fireEvent.pointerDown(canvas, { button: 0, pointerId: 2, clientX: 100, clientY: 22, altKey: true })
+    // Pointer right of the centre, a little above: about 80.5°, Alt makes it 90°.
+    fireEvent.pointerMove(canvas, { pointerId: 2, clientX: 160, clientY: 70, altKey: true })
+    expect(canvas.querySelector('[data-rotate-handle="el-stored-1"]')).toHaveAttribute("data-rotation", "90")
+    fireEvent.pointerUp(canvas, { button: 0, pointerId: 2, clientX: 160, clientY: 70, altKey: true })
+    await waitFor(() => expect(writes(fetchMock)).toHaveLength(1))
+    expect(writes(fetchMock)[0][0]).toMatchObject({ id: "el-stored-1", data: { rotation: 90, x: 50, y: 50, w: 100, h: 60 } })
+    expect(canvas.querySelector('[data-element-id="el-stored-1"]')).toHaveAttribute("transform", "rotate(90 100 80)")
+
+    const bar = screen.getByRole("toolbar", { name: t.wbFormatLabel })
+    await user.click(within(bar).getByRole("button", { name: t.wbRotateRight }))
+    await waitFor(() => expect(writes(fetchMock)).toHaveLength(2))
+    expect(writes(fetchMock)[1][0]).toMatchObject({ data: { rotation: 105 } })
+    await user.click(within(bar).getByRole("button", { name: t.wbRotateReset.replace("{deg}", "105") }))
+    await waitFor(() => expect(writes(fetchMock)).toHaveLength(3))
+    expect((writes(fetchMock)[2][0].data as { rotation?: number }).rotation).toBeUndefined()
+  })
+
   it("Ctrl + click adds shapes to the selection and takes them out again", async () => {
     const OTHER = { ...RECT, id: "el-stored-2", data: { ...RECT.data, x: 300, y: 50 } }
     stubFetch([boardRoute(), elementsOf("s1", [RECT, OTHER]), savesOf("s1")])

@@ -1,7 +1,7 @@
 import { createContext, memo, useContext, useEffect, useState, type CSSProperties } from "react"
 import { timerLeft } from "@/lib/board/ops"
 import { shapePath, shapeTextRect } from "@/lib/board/shapes"
-import { FRAME_TITLE_HEIGHT, lineGeometry, type ElementMap, type LineGeometry, type Point } from "@/lib/board/geometry"
+import { FRAME_TITLE_HEIGHT, lineGeometry, rotationOf, type ElementMap, type LineGeometry, type Point } from "@/lib/board/geometry"
 import { isBox, isHttpUrl, isLine, type BoardElement, type BoxElement, type LineElement, type StrokeKey, type TextRuns } from "@/lib/board/model"
 import { FILL_COLOR, STROKE_COLOR } from "@/lib/board/palette"
 import { runsFor, type RunMarks } from "@/lib/board/rich"
@@ -182,8 +182,9 @@ function BoxShape({ el, hideText, hideBody, hideCell }: { el: BoxElement; hideTe
   const outline = boxOutline(el)
   const strokeProps = { strokeWidth: outline.width, strokeDasharray: dashArray(outline.dash, outline.width) }
   const shapeStroke = outline.width > 0 ? stroke : "none"
+  const turn = rotationOf(el)
   return (
-    <g data-element-id={el.id} data-element-type={el.type}>
+    <g data-element-id={el.id} data-element-type={el.type} transform={turn !== 0 ? `rotate(${turn} ${el.x + el.w / 2} ${el.y + el.h / 2})` : undefined}>
       {el.type === "ellipse" ? (
         <ellipse cx={el.x + el.w / 2} cy={el.y + el.h / 2} rx={el.w / 2} ry={el.h / 2} style={{ fill, stroke: shapeStroke }} {...strokeProps} />
       ) : el.type === "image" ? (

@@ -31,6 +31,54 @@ export function rectCenter(r: Rect): Point {
   return { x: r.x + r.w / 2, y: r.y + r.h / 2 }
 }
 
+// ---------------------------------------------------------------------------
+// Rotation: a box turns about its centre; x / y / w / h stay those of the upright box
+// ---------------------------------------------------------------------------
+
+/** A frame holds other shapes and a table has cells: both stay upright. */
+export function canRotate(el: BoxElement): boolean {
+  return el.type !== "frame" && el.type !== "table"
+}
+
+/** The box's turn in degrees, clockwise, normalized to [0, 360) (0 for a box that cannot turn). */
+export function rotationOf(el: BoxElement): number {
+  if (!canRotate(el) || !el.rotation) return 0
+  const r = el.rotation % 360
+  return r < 0 ? r + 360 : r
+}
+
+/** `p` turned by `deg` (clockwise on screen, y down) about `c`. */
+export function rotateAround(p: Point, c: Point, deg: number): Point {
+  if (deg === 0) return p
+  const a = (deg * Math.PI) / 180
+  const cos = Math.cos(a)
+  const sin = Math.sin(a)
+  const dx = p.x - c.x
+  const dy = p.y - c.y
+  return { x: c.x + dx * cos - dy * sin, y: c.y + dx * sin + dy * cos }
+}
+
+/** A sheet point in the box's own (upright) frame. */
+export function toLocal(box: BoxElement, p: Point): Point {
+  return rotateAround(p, rectCenter(boxRect(box)), -rotationOf(box))
+}
+
+/** A point of the upright box where it is drawn on the sheet. */
+export function toWorld(box: BoxElement, p: Point): Point {
+  return rotateAround(p, rectCenter(boxRect(box)), rotationOf(box))
+}
+
+/** The four corners as drawn (nw, ne, se, sw). */
+export function boxCorners(box: BoxElement): Point[] {
+  const { x, y, w, h } = box
+  return [
+    { x, y },
+    { x: x + w, y },
+    { x: x + w, y: y + h },
+    { x, y: y + h },
+  ].map((p) => toWorld(box, p))
+}
+
 export function rectFromPoints(a: Point, b: Point): Rect {
   return { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(a.x - b.x), h: Math.abs(a.y - b.y) }
 }
@@ -87,6 +135,11 @@ const SIDE_ANGLE: Readonly<Record<Side, number>> = { n: -90, e: 0, s: 90, w: 180
  * ellipse a side spans a quarter of the outline (0 / 1 are the 45° points between the sides).
  */
 export function anchorPoint(box: BoxElement, side: Side, at = 0.5): Point {
+  return toWorld(box, uprightAnchor(box, side, at))
+}
+
+/** The anchor on the upright box (before its turn). */
+function uprightAnchor(box: BoxElement, side: Side, at: number): Point {
   const { x, y, w, h } = box
   const t = Math.max(0, Math.min(1, at))
   if (box.type === "ellipse") {
@@ -105,6 +158,13 @@ export function anchorPoint(box: BoxElement, side: Side, at = 0.5): Point {
     case "w":
       return { x, y: y + h * t }
   }
+}
+
+/** The outward direction of a side as drawn, along the nearest axis (elbow and curve routes leave that way). */
+function sideDir(box: BoxElement, side: Side): Point {
+  const d = rotateAround(SIDE_DIR[side], { x: 0, y: 0 }, rotationOf(box))
+  if (Math.abs(d.x) >= Math.abs(d.y)) return { x: d.x >= 0 ? 1 : -1, y: 0 }
+  return { x: 0, y: d.y >= 0 ? 1 : -1 }
 }
 
 /** A place a line end can attach to on a box. */
@@ -140,7 +200,8 @@ export function nearestAnchor(box: BoxElement, p: Point): Anchor {
 }
 
 /** The side that faces `toward` (measured against the box's own proportions, so a wide box still uses its ends). */
-export function facingSide(box: BoxElement, toward: Point): Side {
+export function facingSide(box: BoxElement, sheetPoint: Point): Side {
+  const toward = toLocal(box, sheetPoint)
   const c = rectCenter(boxRect(box))
   const dx = (toward.x - c.x) / Math.max(box.w / 2, 1)
   const dy = (toward.y - c.y) / Math.max(box.h / 2, 1)
@@ -187,9 +248,9 @@ export function resolveEnds(line: LineElement, elements: ElementMap): { a: Resol
   const endRef = endBox ? rectCenter(boxRect(endBox)) : { x: line.end.x, y: line.end.y }
   const resolve = (end: LineEnd, box: BoxElement | null, other: Point): ResolvedEnd => {
     if (!box) return { point: { x: end.x, y: end.y }, dir: null }
-    if (end.side) return { point: anchorPoint(box, end.side, end.at ?? 0.5), dir: SIDE_DIR[end.side] }
+    if (end.side) return { point: anchorPoint(box, end.side, end.at ?? 0.5), dir: sideDir(box, end.side) }
     const side = facingSide(box, other)
-    return { point: sidePoint(box, side), dir: SIDE_DIR[side] }
+    return { point: sidePoint(box, side), dir: sideDir(box, side) }
   }
   return { a: resolve(line.start, startBox, endRef), b: resolve(line.end, endBox, startRef) }
 }
@@ -335,7 +396,7 @@ function boundsOfPoints(points: readonly Point[]): Rect {
 
 /** Bounding rectangle of a drawn element; null for a type this build does not draw. */
 export function elementBounds(el: BoardElement, elements: ElementMap): Rect | null {
-  if (isBox(el)) return boxRect(el)
+  if (isBox(el)) return rotationOf(el) === 0 ? boxRect(el) : boundsOfPoints(boxCorners(el))
   if (isLine(el)) return boundsOfPoints(lineGeometry(el, elements).points)
   return null
 }
@@ -368,6 +429,8 @@ export function hitsElement(el: BoardElement, p: Point, tolerance: number, eleme
     return !!el.label && Math.abs(p.x - geometry.mid.x) <= Math.max(24, el.label.length * 4) && Math.abs(p.y - geometry.mid.y) <= 12
   }
   if (!isBox(el)) return false
+  // A turned box is tested in its own upright frame.
+  p = toLocal(el, p)
   const rect = boxRect(el)
   if (el.type === "ellipse") {
     const c = rectCenter(rect)
@@ -415,7 +478,7 @@ export function boxAt(elements: ElementMap, p: Point, exclude: readonly string[]
   const ordered = sortByZ(elements)
   for (let i = ordered.length - 1; i >= 0; i--) {
     const el = ordered[i]
-    if (isBox(el) && el.type !== "frame" && !exclude.includes(el.id) && pointInRect(p, boxRect(el), reach)) return el.id
+    if (isBox(el) && el.type !== "frame" && !exclude.includes(el.id) && pointInRect(toLocal(el, p), boxRect(el), reach)) return el.id
   }
   return null
 }

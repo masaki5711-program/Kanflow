@@ -42,6 +42,7 @@ import {
   LockOpen,
   Minus,
   Network,
+  RotateCw,
   Rows3,
   Spline,
   TextAlignCenter,
@@ -52,6 +53,7 @@ import {
   Ungroup,
   Workflow,
 } from "lucide-react"
+import { canRotate, rotationOf } from "@/lib/board/geometry"
 import { BOARD_LIMITS } from "@/lib/board/limits"
 import { mindParent } from "@/lib/board/mindmap"
 import { STROKE_KEYS, isBox, isKnown, isLine, type Dash, type FontFamily, type HAlign, type LineRoute, type VAlign } from "@/lib/board/model"
@@ -279,6 +281,28 @@ export function FormatBar({ editor, onEditLink }: FormatBarProps) {
         { key: "budget-less", label: t.wbVoteBudgetLess, content: <ThumbsDown className={ICON} />, onClick: () => editor.timer({ kind: "budget", votes: budget <= 1 ? null : budget - 1 }), disabled: budget === 0 },
         { key: "budget", label: budget ? t.wbVoteBudget.replace("{n}", String(budget)) : t.wbVoteBudgetNone, content: <span className="tabular-nums">{budget || "—"}</span>, onClick: () => {}, wide: true },
         { key: "budget-more", label: t.wbVoteBudgetMore, content: <ThumbsUp className={ICON} />, onClick: () => editor.timer({ kind: "budget", votes: budget + 1 }), disabled: budget >= BOARD_LIMITS.voteBudgetMax },
+      ],
+    })
+  }
+  const turnable = boxes.filter((b) => canRotate(b))
+  if (turnable.length > 0) {
+    const angle = shared(turnable.map((b) => rotationOf(b)))
+    const shown = angle === null ? "—" : String(angle)
+    const turnLocked = turnable.every((b) => b.locked)
+    groups.push({
+      key: "rotate",
+      label: t.wbRotateLabel,
+      items: [
+        { key: "rotate-left", label: t.wbRotateLeft, content: <RotateCcw className={ICON} />, onClick: () => editor.rotateSelection(-15, true), disabled: turnLocked },
+        {
+          key: "rotate-reset",
+          label: t.wbRotateReset.replace("{deg}", shown),
+          content: <span className="tabular-nums">{angle === null ? "—" : `${angle}°`}</span>,
+          onClick: () => editor.rotateSelection(0, false),
+          disabled: turnLocked,
+          wide: true,
+        },
+        { key: "rotate-right", label: t.wbRotateRight, content: <RotateCw className={ICON} />, onClick: () => editor.rotateSelection(15, true), disabled: turnLocked },
       ],
     })
   }

@@ -3,6 +3,8 @@ import {
   anchorPoint,
   anchorsOf,
   nearestAnchor,
+  hitsElement,
+  rotationOf,
   boundsOf,
   boxAt,
   distanceToSegment,
@@ -92,6 +94,24 @@ describe("side midpoints (where lines attach)", () => {
     expect(sw.x).toBeCloseTo(50 - 50 * Math.SQRT1_2)
     expect(sw.y).toBeCloseTo(50 + 50 * Math.SQRT1_2)
     expect(anchorsOf(box("d", 0, 0, 80, 80, { type: "shape" }))).toHaveLength(4)
+  })
+
+  it("a turned box: its attach places, hit test and bounds turn with it", () => {
+    const turned = box("r", 0, 0, 100, 50, { rotation: 90 })
+    // Centre (50, 25); the top middle (50, 0) turned 90° clockwise lands right of the centre.
+    const n = anchorPoint(turned, "n")
+    expect(n.x).toBeCloseTo(75)
+    expect(n.y).toBeCloseTo(25)
+    // Upright it reaches x 0–100; turned, y -25–75 and x 25–75.
+    expect(hitsElement(turned, { x: 50, y: 70 }, 0, map(turned))).toBe(true)
+    expect(hitsElement(turned, { x: 5, y: 25 }, 0, map(turned))).toBe(false)
+    const bounds = elementBounds(turned, map(turned)) as { x: number; y: number; w: number; h: number }
+    expect(bounds.x).toBeCloseTo(25)
+    expect(bounds.y).toBeCloseTo(-25)
+    expect(bounds.w).toBeCloseTo(50)
+    expect(bounds.h).toBeCloseTo(100)
+    // A frame never turns.
+    expect(rotationOf(box("f", 0, 0, 100, 50, { type: "frame", rotation: 45 }))).toBe(0)
   })
 
   it("an attached end with a place along its side is drawn there", () => {

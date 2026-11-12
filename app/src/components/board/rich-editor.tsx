@@ -212,6 +212,10 @@ export function runsAfter(runs: readonly TextRun[], start: number, end: number, 
 interface RichTextOverlayProps {
   /** Screen rectangle of the area. */
   rect: { x: number; y: number; w: number; h: number }
+  /** The box's turn in degrees (the editor turns with it about the box's centre). */
+  rotation?: number
+  /** The box's centre on screen: what the editor turns about. */
+  pivot?: { x: number; y: number }
   /** The text's own CSS (font, size, colour, alignment) at the overlay's scale. */
   css: CSSProperties
   /** How runs are drawn: sheet units × scale. */
@@ -247,7 +251,7 @@ function marksOfRange(runs: readonly TextRun[], start: number, end: number, base
  * bar, Ctrl+B / I / U, Ctrl+] / [ for the size). Esc or Ctrl+Enter ends, so does leaving it (the format bar does not
  * count as leaving). Only plain text comes in by paste.
  */
-export function RichTextOverlay({ rect, css, scale, base, text, runs, background, padding, label, hint, maxLength, typing, register, onMarks, onDone }: RichTextOverlayProps) {
+export function RichTextOverlay({ rect, rotation = 0, pivot, css, scale, base, text, runs, background, padding, label, hint, maxLength, typing, register, onMarks, onDone }: RichTextOverlayProps) {
   const ref = useRef<HTMLDivElement>(null)
   const doneRef = useRef(false)
   /** The focus went to the format bar (keyboard): the edit stays open until something else is used. */
@@ -431,6 +435,8 @@ export function RichTextOverlay({ rect, css, scale, base, text, runs, background
           ...css,
           left: rect.x,
           top: rect.y,
+          transform: rotation !== 0 ? `rotate(${rotation}deg)` : undefined,
+          transformOrigin: rotation !== 0 && pivot ? `${pivot.x - rect.x}px ${pivot.y - rect.y}px` : undefined,
           width: Math.max(rect.w, 40),
           minHeight: Math.max(rect.h, 24),
           padding,

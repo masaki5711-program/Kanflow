@@ -35,6 +35,7 @@ import {
   PASTE_OFFSET,
   pastePatch,
   reorderPatch,
+  rotatePatch,
   stylePatch,
   tablePatch,
   textPatch,
@@ -194,6 +195,8 @@ export interface BoardEditorController {
   duplicate: () => void
   /** Copies the elements, shifted by `offset` (a Ctrl / ⌘ + drag); the copies become the selection. */
   duplicateBy: (ids: readonly string[], offset: Point) => void
+  /** Turns the selected boxes to `deg`, or by `deg` when `relative` (frames and tables stay upright). */
+  rotateSelection: (deg: number, relative: boolean) => void
   copy: () => void
   cut: () => void
   paste: () => void
@@ -570,6 +573,11 @@ export function useBoardEditor(doc: SheetDocument, readOnly: boolean, clipboardR
     deleteSelection,
     duplicate: () => paste(copyElements(elements, selection), 1),
     duplicateBy: (ids, offset) => pasteAt(copyElements(elements, ids), offset),
+    rotateSelection: (deg, relative) => {
+      if (readOnly) return
+      const patch = rotatePatch(elements, selection, deg, relative)
+      if (Object.keys(patch).length > 0) doc.commit(patch)
+    },
     copy,
     cut: () => {
       if (readOnly) return

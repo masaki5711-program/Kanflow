@@ -1,5 +1,5 @@
 import type { Patch } from "./doc"
-import { attachedBox, boxRect, resizeRect, resolveLine, sortByZ, type BoxHandle, type ElementMap, type LineHandle, type Point, type Rect } from "./geometry"
+import { attachedBox, boxRect, canRotate, rectCenter, resizeRect, resolveLine, rotateAround, rotationOf, sortByZ, toWorld, type BoxHandle, type ElementMap, type LineHandle, type Point, type Rect } from "./geometry"
 import { BOARD_LIMITS } from "./limits"
 import { normalizeRuns, runsFor, runsText, truncateRuns } from "./rich"
 import { SHAPE_SIZE, type ShapeKind } from "./shapes"
@@ -284,9 +284,12 @@ function scaleTable(el: BoxElement, w: number, h: number): BoxElement {
 }
 
 /** Resizes one box by dragging a handle by (dx, dy). `keepRatio` (Shift, images) keeps its proportions. */
-export function resizePatch(elements: ElementMap, id: string, handle: BoxHandle, dx: number, dy: number, keepRatio = false): Patch {
+export function resizePatch(elements: ElementMap, id: string, handle: BoxHandle, sheetDx: number, sheetDy: number, keepRatio = false): Patch {
   const el = elements[id]
   if (!isBox(el) || el.locked) return {}
+  // A turned box is resized in its own upright frame: the pointer's move is turned back first.
+  const turn = rotationOf(el)
+  const { x: dx, y: dy } = rotateAround({ x: sheetDx, y: sheetDy }, { x: 0, y: 0 }, -turn)
   let rect = resizeRect(boxRect(el), handle, dx, dy)
   if (keepRatio && el.w > 0 && el.h > 0) {
     const ratio = el.w / el.h
@@ -297,8 +300,31 @@ export function resizePatch(elements: ElementMap, id: string, handle: BoxHandle,
     const y = handle.includes("n") ? el.y + el.h - h : handle === "e" || handle === "w" ? el.y + (el.h - h) / 2 : el.y
     rect = { x, y, w, h }
   }
+  if (turn !== 0) {
+    // Keep the side opposite the handle where it is drawn: the new centre is the upright one turned about the old.
+    const center = toWorld(el, rectCenter(rect))
+    rect = { ...rect, x: center.x - rect.w / 2, y: center.y - rect.h / 2 }
+  }
   const moved = { ...el, x: coord(rect.x), y: coord(rect.y) }
   return { [id]: el.type === "table" ? scaleTable(moved, size(rect.w), size(rect.h)) : { ...moved, w: size(rect.w), h: size(rect.h) } }
+}
+
+/** Turns the boxes that can turn (not locked) to `deg` (absolute) or by `deg` (relative), normalized to [0, 360). */
+export function rotatePatch(elements: ElementMap, ids: readonly string[], deg: number, relative = false): Patch {
+  const patch: Record<string, BoardElement> = {}
+  for (const id of unlocked(elements, ids)) {
+    const el = elements[id]
+    if (!isBox(el) || !canRotate(el)) continue
+    let next = Math.round(((relative ? rotationOf(el) + deg : deg) % 360) * 10) / 10
+    if (next < 0) next += 360
+    if (next >= 360) next -= 360
+    if (next === rotationOf(el)) continue
+    const turned: BoxElement = { ...el }
+    if (next === 0) delete turned.rotation
+    else turned.rotation = next
+    patch[id] = turned
+  }
+  return patch
 }
 
 /** Puts one end of a line at `point`, attached to the box `attach` on `side` (null = free). */
