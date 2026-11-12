@@ -47,7 +47,7 @@ export type Dash = (typeof DASHES)[number]
 export const LINE_ROUTES = ["straight", "elbow", "curve"] as const
 export type LineRoute = (typeof LINE_ROUTES)[number]
 
-/** The middle of each side of a box: where a line end attaches. */
+/** The sides of a box a line end attaches to (with a place along the side: LineEnd.at). */
 export const SIDES = ["n", "e", "s", "w"] as const
 export type Side = (typeof SIDES)[number]
 
@@ -154,8 +154,13 @@ export interface LineEnd {
   x: number
   y: number
   attach?: string | null
-  /** The side of the attached box whose middle the end sits on; absent = the side facing the other end. */
+  /** The side of the attached box the end sits on; absent = the middle of the side facing the other end. */
   side?: Side | null
+  /**
+   * Where along that side (0–1; n / s run left → right, e / w top → bottom; absent = 0.5, the middle). 0 and 1
+   * are the corners; on an ellipse the side spans a quarter of the outline, so 0 / 1 are the 45° points.
+   */
+  at?: number | null
 }
 
 export interface LineElement extends ElementExtras {
@@ -297,6 +302,7 @@ const lineEndSchema = z.looseObject({
   y: coordinate,
   attach: elementId.nullable().optional(),
   side: z.enum(SIDES).nullable().optional(),
+  at: z.number().min(0).max(1).nullable().optional(),
 })
 
 function lineSchema<T extends LineType>(type: T) {

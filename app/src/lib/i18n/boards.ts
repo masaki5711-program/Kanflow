@@ -56,6 +56,7 @@ export interface BoardsTranslations {
   wbToolEllipse: string
   wbToolLine: string
   wbToolArrow: string
+  wbToolElbow: string
   wbToolText: string
   wbToolSticky: string
   wbUndo: string
@@ -346,6 +347,7 @@ export interface BoardsTranslations {
   wbHelp16: string
   wbHelp17: string
   wbHelp18: string
+  wbHelp19: string
   wbAlignGuides: string
   wbPbiLink: string
   wbPbiCreate: string
@@ -495,6 +497,7 @@ export const ja: BoardsTranslations = {
   wbToolEllipse: "楕円",
   wbToolLine: "線",
   wbToolArrow: "矢印",
+  wbToolElbow: "折れ線",
   wbToolText: "テキスト",
   wbToolSticky: "付箋",
   wbUndo: "元に戻す",
@@ -781,7 +784,8 @@ export const ja: BoardsTranslations = {
   wbHelp15: "] / [\t図形を 1 つずつ選ぶ",
   wbHelp16: "Ctrl+F\t全シートの文字を検索",
   wbHelp17: "?\tこの操作ガイドを開く",
-  wbHelp18: "Ctrl+ドラッグ\t図形をコピーして置く（元の図形はそのまま。リンクのある図形は Ctrl+クリックで開く）",
+  wbHelp18: "Ctrl+クリック / Ctrl+ドラッグ\t図形を選択に加える・外す（Shift でも同じ）/ 選んだ図形をコピーして置く（元の図形はそのまま）。リンクは Ctrl+Enter で開く",
+  wbHelp19: "Alt+ドラッグ\t図形の移動・大きさの変更をグリッド（点の間隔）単位で",
   wbAlignGuides: "整列ガイド",
   wbPbiLink: "PBI とつなぐ…",
   wbPbiCreate: "この内容で PBI を作る",
@@ -929,6 +933,7 @@ export const en: BoardsTranslations = {
   wbToolEllipse: "Ellipse",
   wbToolLine: "Line",
   wbToolArrow: "Arrow",
+  wbToolElbow: "Elbow line",
   wbToolText: "Text",
   wbToolSticky: "Sticky note",
   wbUndo: "Undo",
@@ -1215,7 +1220,8 @@ export const en: BoardsTranslations = {
   wbHelp15: "] / [\tSelect the shapes one by one",
   wbHelp16: "Ctrl+F\tSearch the text of every sheet",
   wbHelp17: "?\tOpen this guide",
-  wbHelp18: "Ctrl + drag\tPlace a copy of the shapes (the originals stay; Ctrl + click opens a shape's link)",
+  wbHelp18: "Ctrl + click / Ctrl + drag\tAdd a shape to the selection or take it out (Shift does too) / place a copy of the selected shapes (the originals stay). Ctrl+Enter opens a link",
+  wbHelp19: "Alt + drag\tMove or resize shapes by whole grid steps (the dots)",
   wbAlignGuides: "Alignment guides",
   wbPbiLink: "Link to a PBI…",
   wbPbiCreate: "Create a PBI from this",
@@ -1363,6 +1369,7 @@ export const id: BoardsTranslations = {
   wbToolEllipse: "Elips",
   wbToolLine: "Garis",
   wbToolArrow: "Panah",
+  wbToolElbow: "Garis siku",
   wbToolText: "Teks",
   wbToolSticky: "Catatan tempel",
   wbUndo: "Urungkan",
@@ -1649,7 +1656,8 @@ export const id: BoardsTranslations = {
   wbHelp15: "] / [\tPilih bentuk satu per satu",
   wbHelp16: "Ctrl+F\tCari teks di semua lembar",
   wbHelp17: "?\tBuka panduan ini",
-  wbHelp18: "Ctrl + seret\tTaruh salinan bentuk (aslinya tetap; Ctrl + klik membuka tautan bentuk)",
+  wbHelp18: "Ctrl + klik / Ctrl + seret\tTambahkan bentuk ke pilihan atau keluarkan (Shift juga) / taruh salinan bentuk yang dipilih (aslinya tetap). Ctrl+Enter membuka tautan",
+  wbHelp19: "Alt + seret\tGeser atau ubah ukuran bentuk per langkah kisi (titik-titik)",
   wbAlignGuides: "Garis bantu perataan",
   wbPbiLink: "Hubungkan ke PBI…",
   wbPbiCreate: "Buat PBI dari ini",

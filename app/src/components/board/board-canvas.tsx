@@ -16,7 +16,8 @@ import {
   hitTest,
   lineGeometry,
   rectFromPoints,
-  sidePoint,
+  anchorPoint,
+  anchorsOf,
   snapTarget,
   sortByZ,
   type BoxHandle,
@@ -27,7 +28,7 @@ import {
   type SnapTarget,
 } from "@/lib/board/geometry"
 import { BOARD_LIMITS } from "@/lib/board/limits"
-import { isBox, isHttpUrl, isKnown, isLine, SIDES, type BoardElement, type BoxElement, type KnownElement, type LineType, type TextRuns } from "@/lib/board/model"
+import { isBox, isHttpUrl, isKnown, isLine, type BoardElement, type LineElement, type LineRoute, type BoxElement, type KnownElement, type LineType, type TextRuns } from "@/lib/board/model"
 import {
   cellAt,
   cellRect,
@@ -58,7 +59,7 @@ import { ElementView, frameBodyRect, lineEndsOf, TEXT_PADDING, textArea, textCss
 import { BoardMenu, type MenuEntry } from "./board-menu"
 import { RichTextOverlay, type RichController, type SelectionMarks } from "./rich-editor"
 import { guidedMove, type Guide } from "@/lib/board/guides"
-import { DEFAULT_LINE_LENGTH, isBoxTool, type BoardEditorController, type DrawBoxType, type EditTarget } from "./use-board-editor"
+import { DEFAULT_LINE_LENGTH, isBoxTool, isLineTool, lineToolSpec, type BoardEditorController, type DrawBoxType, type EditTarget } from "./use-board-editor"
 
 /** How close (screen pixels) the pointer has to be to pick an element / a handle. */
 const HIT_TOLERANCE = 6
@@ -70,15 +71,20 @@ const SNAP_REACH = 16
 const GRID = 24
 const GHOST_ID = "ghost-element"
 
+/** A drawn line with the route its tool gives (the ghost while drawing an elbow line shows the turns). */
+function withRoute(line: LineElement, route: LineRoute | undefined): LineElement {
+  return route && route !== "straight" ? { ...line, route } : line
+}
+
 type Drag =
   | { kind: "pan"; last: Point }
-  /** `link`: a Ctrl / ⌘ press on a linked element — it opens the link if the pointer comes up without moving. */
-  | { kind: "move"; start: Point; ids: readonly string[]; moved: boolean; last?: Point; link?: string }
+  /** `unpick`: a Ctrl / ⌘ press on a selected shape — taken out of the selection if the pointer comes up unmoved. */
+  | { kind: "move"; start: Point; ids: readonly string[]; moved: boolean; last?: Point; unpick?: readonly string[] }
   | { kind: "resize"; id: string; handle: BoxHandle; start: Point }
   | { kind: "line-end"; id: string; which: LineHandle }
   | { kind: "marquee"; start: Point; base: readonly string[] }
   | { kind: "create-box"; type: DrawBoxType; start: Point }
-  | { kind: "create-line"; type: LineType; start: Point; target: SnapTarget | null }
+  | { kind: "create-line"; type: LineType; route?: LineRoute; start: Point; target: SnapTarget | null }
   | { kind: "table-border"; id: string; axis: "col" | "row"; index: number; size: number; start: Point }
 
 const HANDLE_CURSOR: Record<BoxHandle, string> = {
@@ -243,6 +249,22 @@ export function BoardCanvas({ editor, label, menuFor, onSearch, onHelp, others =
   }
 
   /** The move of a drag: on the grid when snapping, else lined up with the shapes nearby. */
+  /** The grid of Alt + drag: the "snap to the grid" spacing when it is on, else the dots' spacing (the same). */
+  const gridStep = grid > 0 ? grid : GRID
+
+  /** A resize drag; with Alt held, the dragged edges land on the grid. */
+  function resizeDelta(id: string, handle: BoxHandle, dx: number, dy: number, alt: boolean): Point {
+    const el = elements[id]
+    if (!alt || !isBox(el)) return { x: dx, y: dy }
+    let x = dx
+    let y = dy
+    if (handle.includes("e")) x = snap(el.x + el.w + dx, gridStep) - (el.x + el.w)
+    else if (handle.includes("w")) x = snap(el.x + dx, gridStep) - el.x
+    if (handle.includes("s")) y = snap(el.y + el.h + dy, gridStep) - (el.y + el.h)
+    else if (handle.includes("n")) y = snap(el.y + dy, gridStep) - el.y
+    return { x, y }
+  }
+
   function dragMove(ids: readonly string[], dx: number, dy: number): Point {
     if (grid > 0) return snapMove(elements, ids, dx, dy, grid)
     const guided = guidedMove(elements, ids, dx, dy, GUIDE_REACH / viewport.zoom)
@@ -277,16 +299,10 @@ export function BoardCanvas({ editor, label, menuFor, onSearch, onHelp, others =
   }
 
   /** The end of a line at the pointer: the side midpoint of a shape within reach, or the (grid) point itself. */
-  function lineEndAt(sheet: Point, exclude: readonly string[]): { point: Point; attach: string | null; side: SnapTarget["side"] | null; target: SnapTarget | null } {
+  function lineEndAt(sheet: Point, exclude: readonly string[]): { point: Point; attach: string | null; side: SnapTarget["side"] | null; at: number | null; target: SnapTarget | null } {
     const target = snapTarget(elements, sheet, reach, exclude)
-    if (target) return { point: target.point, attach: target.id, side: target.side, target }
-    return { point: onGrid(sheet), attach: null, side: null, target: null }
-  }
-
-  function hasLink(id: string): boolean {
-    const el = elements[id]
-    const link = isKnown(el) ? el.link : undefined
-    return !!link && isHttpUrl(link)
+    if (target) return { point: target.point, attach: target.id, side: target.side, at: target.at, target }
+    return { point: onGrid(sheet), attach: null, side: null, at: null, target: null }
   }
 
   /** What a Ctrl / ⌘ + drag shows: copies of the dragged elements at `offset`, under preview-only ids. */
@@ -336,7 +352,7 @@ export function BoardCanvas({ editor, label, menuFor, onSearch, onHelp, others =
       if (isBoxTool(tool)) return start({ kind: "create-box", type: tool, start: onGrid(sheet) })
       const end = lineEndAt(sheet, [])
       setSnapHint(end.target)
-      return start({ kind: "create-line", type: tool, start: end.point, target: end.target })
+      return start({ kind: "create-line", ...lineToolSpec(tool), start: end.point, target: end.target })
     }
 
     // The handles of the one selected element come first: they stick out of it.
@@ -359,28 +375,34 @@ export function BoardCanvas({ editor, label, menuFor, onSearch, onHelp, others =
     }
 
     const hit = hitTest(elements, sheet, HIT_TOLERANCE / viewport.zoom)
-    // Ctrl / ⌘ + click follows the element's link (also on a view-only board). Where the board can be changed,
-    // Ctrl / ⌘ + drag copies instead: the link opens only when the pointer comes up without moving.
-    const linkHit = hit !== null && (e.ctrlKey || e.metaKey) && hasLink(hit) ? hit : undefined
-    if (linkHit !== undefined && readOnly) {
-      openLink(linkHit)
-      return
-    }
+    const ctrl = e.ctrlKey || e.metaKey
+    // On a view-only board Ctrl / ⌘ + click follows the element's link. Where the board can be changed, Ctrl / ⌘
+    // picks several shapes (like Shift) and Ctrl / ⌘ + drag copies; the link opens with Ctrl+Enter or the menu.
+    if (hit !== null && readOnly && ctrl && openLink(hit)) return
     if (readOnly) {
       editor.select(hit === null ? [] : [hit])
       return
     }
+    const additive = e.shiftKey || ctrl
     if (hit === null) {
-      if (!e.shiftKey) editor.select([])
-      return start({ kind: "marquee", start: sheet, base: e.shiftKey ? selection : [] })
+      if (!additive) editor.select([])
+      return start({ kind: "marquee", start: sheet, base: additive ? selection : [] })
     }
     let ids: readonly string[] = selection
+    // Ctrl / ⌘ on a selected shape: taken out of the selection on a click, kept when the drag copies the selection.
+    let unpick: readonly string[] | undefined
     // A group is picked, added and taken away as a whole.
     const picked = expandGroups(elements, [hit])
     if (e.shiftKey) {
       ids = selection.includes(hit) ? selection.filter((id) => !picked.includes(id)) : [...new Set([...selection, ...picked])]
       editor.select(ids)
       if (!ids.includes(hit)) return
+    } else if (ctrl) {
+      if (selection.includes(hit)) unpick = picked
+      else {
+        ids = [...new Set([...selection, ...picked])]
+        editor.select(ids)
+      }
     } else if (!selection.includes(hit)) {
       ids = picked
       editor.select(ids)
@@ -392,7 +414,7 @@ export function BoardCanvas({ editor, label, menuFor, onSearch, onHelp, others =
       editor.setActiveCell(cell ? { id: hit, ...cell } : null)
     }
     // A frame carries what lies inside it.
-    start({ kind: "move", start: sheet, ids: withFrameContents(elements, ids), moved: false, link: linkHit })
+    start({ kind: "move", start: sheet, ids: withFrameContents(elements, ids), moved: false, unpick })
   }
 
   function onPointerMove(e: React.PointerEvent<HTMLDivElement>) {
@@ -401,9 +423,9 @@ export function BoardCanvas({ editor, label, menuFor, onSearch, onHelp, others =
     const drag = dragRef.current
     if (!drag) {
       // With a line tool, the shape under the pointer shows where a line would connect.
-      if (!readOnly && (tool === "line" || tool === "arrow")) {
+      if (!readOnly && isLineTool(tool)) {
         const target = snapTarget(elements, sheet, reach)
-        setSnapHint((prev) => (prev?.id === target?.id && prev?.side === target?.side ? prev : target))
+        setSnapHint((prev) => (prev?.id === target?.id && prev?.side === target?.side && prev?.at === target?.at ? prev : target))
       }
       const border = borderAt(sheet)
       setBorderHover(border ? border.axis : null)
@@ -424,8 +446,8 @@ export function BoardCanvas({ editor, label, menuFor, onSearch, onHelp, others =
         // A click that wobbles a little is a click, not a move.
         if (!drag.moved && Math.hypot(dx, dy) * viewport.zoom < CLICK_SLOP) break
         drag.moved = true
-        // Alt held: no lining up (free placement).
-        const d = e.altKey ? { x: dx, y: dy } : dragMove(drag.ids, dx, dy)
+        // Alt held: by whole grid steps (the dots on the canvas), without the lining-up guides.
+        const d = e.altKey ? snapMove(elements, drag.ids, dx, dy, gridStep) : dragMove(drag.ids, dx, dy)
         if (e.altKey) setGuides([])
         drag.last = d
         // Ctrl / ⌘ held: the copies follow the pointer and the originals stay where they are.
@@ -434,16 +456,18 @@ export function BoardCanvas({ editor, label, menuFor, onSearch, onHelp, others =
         setPreview(copy ? copyPreview(drag.ids, d) : movePatch(elements, drag.ids, d.x, d.y))
         break
       }
-      case "resize":
-        setPreview(resizePatch(elements, drag.id, drag.handle, sheet.x - drag.start.x, sheet.y - drag.start.y, keepRatio(drag.id, e.shiftKey)))
+      case "resize": {
+        const d = resizeDelta(drag.id, drag.handle, sheet.x - drag.start.x, sheet.y - drag.start.y, e.altKey)
+        setPreview(resizePatch(elements, drag.id, drag.handle, d.x, d.y, keepRatio(drag.id, e.shiftKey)))
         break
+      }
       case "table-border":
         setPreview(tableTrackPatch(elements, drag.id, drag.axis, drag.index, drag.size + (drag.axis === "col" ? sheet.x - drag.start.x : sheet.y - drag.start.y)))
         break
       case "line-end": {
         const end = lineEndAt(sheet, [drag.id])
         setSnapHint(end.target)
-        setPreview(lineEndPatch(elements, drag.id, drag.which, end.point, end.attach, end.side))
+        setPreview(lineEndPatch(elements, drag.id, drag.which, end.point, end.attach, end.side, end.at))
         break
       }
       case "marquee": {
@@ -458,8 +482,8 @@ export function BoardCanvas({ editor, label, menuFor, onSearch, onHelp, others =
       case "create-line": {
         const end = lineEndAt(sheet, drag.target ? [drag.target.id] : [])
         setSnapHint(end.target ?? drag.target)
-        const startEnd = { point: drag.start, attach: drag.target?.id ?? null, side: drag.target?.side ?? null }
-        setGhost(newLine(drag.type, startEnd, { point: end.point, attach: end.attach, side: end.side }, GHOST_ID, 0))
+        const startEnd = { point: drag.start, attach: drag.target?.id ?? null, side: drag.target?.side ?? null, at: drag.target?.at ?? null }
+        setGhost(withRoute(newLine(drag.type, startEnd, { point: end.point, attach: end.attach, side: end.side, at: end.at }, GHOST_ID, 0), drag.route))
         break
       }
     }
@@ -484,17 +508,22 @@ export function BoardCanvas({ editor, label, menuFor, onSearch, onHelp, others =
         if (drag.moved && drag.last) {
           if (e.ctrlKey || e.metaKey) editor.duplicateBy(drag.ids, drag.last)
           else editor.commit(movePatch(elements, drag.ids, drag.last.x, drag.last.y))
-        } else if (!drag.moved && drag.link !== undefined) openLink(drag.link)
+        } else if (!drag.moved && drag.unpick) {
+          const out = drag.unpick
+          editor.select(selection.filter((id) => !out.includes(id)))
+        }
         break
-      case "resize":
-        editor.commit(resizePatch(elements, drag.id, drag.handle, sheet.x - drag.start.x, sheet.y - drag.start.y, keepRatio(drag.id, e.shiftKey)))
+      case "resize": {
+        const d = resizeDelta(drag.id, drag.handle, sheet.x - drag.start.x, sheet.y - drag.start.y, e.altKey)
+        editor.commit(resizePatch(elements, drag.id, drag.handle, d.x, d.y, keepRatio(drag.id, e.shiftKey)))
         break
+      }
       case "table-border":
         editor.commit(tableTrackPatch(elements, drag.id, drag.axis, drag.index, drag.size + (drag.axis === "col" ? sheet.x - drag.start.x : sheet.y - drag.start.y)))
         break
       case "line-end": {
         const end = lineEndAt(sheet, [drag.id])
-        editor.commit(lineEndPatch(elements, drag.id, drag.which, end.point, end.attach, end.side))
+        editor.commit(lineEndPatch(elements, drag.id, drag.which, end.point, end.attach, end.side, end.at))
         break
       }
       case "create-box":
@@ -503,11 +532,12 @@ export function BoardCanvas({ editor, label, menuFor, onSearch, onHelp, others =
       case "create-line": {
         const dragged = Math.hypot(sheet.x - drag.start.x, sheet.y - drag.start.y) * viewport.zoom >= CLICK_SLOP
         const startTarget = drag.target
-        const end = dragged ? lineEndAt(sheet, startTarget ? [startTarget.id] : []) : { point: { x: drag.start.x + DEFAULT_LINE_LENGTH, y: drag.start.y }, attach: null, side: null }
+        const end = dragged ? lineEndAt(sheet, startTarget ? [startTarget.id] : []) : { point: { x: drag.start.x + DEFAULT_LINE_LENGTH, y: drag.start.y }, attach: null, side: null, at: null }
         editor.addLine(
           drag.type,
-          { point: drag.start, attach: startTarget?.id ?? null, side: startTarget?.side ?? null },
-          { point: end.point, attach: end.attach, side: end.side },
+          { point: drag.start, attach: startTarget?.id ?? null, side: startTarget?.side ?? null, at: startTarget?.at ?? null },
+          { point: end.point, attach: end.attach, side: end.side, at: end.at },
+          drag.route,
         )
         break
       }
@@ -815,7 +845,7 @@ export function BoardCanvas({ editor, label, menuFor, onSearch, onHelp, others =
               </g>
             )}
           </g>
-          {isBox(hintBox) && snapHint && <SnapMarkers box={hintBox} active={snapHint.side} viewport={viewport} />}
+          {isBox(hintBox) && snapHint && <SnapMarkers box={hintBox} active={snapHint} viewport={viewport} />}
           {showChrome && (
             <g data-testid="board-selection">
               {groupBounds.map(({ id, rect }) => (
@@ -944,7 +974,7 @@ export function BoardCanvas({ editor, label, menuFor, onSearch, onHelp, others =
             return <line key={i} data-guide={g.axis} x1={a.x} y1={a.y} x2={b.x} y2={b.y} style={{ stroke: "var(--color-danger)" }} strokeWidth={1} strokeDasharray="4 3" className="pointer-events-none" />
           })}
         </svg>
-        {!readOnly && (tool === "line" || tool === "arrow") && (
+        {!readOnly && isLineTool(tool) && (
           <p aria-hidden="true" className="pointer-events-none absolute bottom-2 left-1/2 max-w-[90%] -translate-x-1/2 rounded-ui-sm bg-surface px-2 py-1 text-caption text-fg-muted shadow-sm ring-1 ring-border">
             {t.wbConnectHint}
           </p>
@@ -1026,25 +1056,35 @@ function selectedGroups(selection: readonly string[], elements: ElementMap): { i
   return out
 }
 
-/** The four side midpoints of the shape a line end would connect to; the one it snaps to is filled. */
-function SnapMarkers({ box, active, viewport }: { box: BoxElement; active: string; viewport: Viewport }) {
+/**
+ * The places of the shape a line end can connect to (side middles a little larger, corners once); the one it
+ * snaps to is filled.
+ */
+function SnapMarkers({ box, active, viewport }: { box: BoxElement; active: SnapTarget; viewport: Viewport }) {
+  const seen = new Set<string>()
+  const markers: { key: string; side: string; at: number; p: Point; on: boolean }[] = []
+  for (const { side, at } of anchorsOf(box)) {
+    const q = anchorPoint(box, side, at)
+    const key = `${Math.round(q.x * 10)}:${Math.round(q.y * 10)}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    const on = Math.abs(q.x - active.point.x) < 0.01 && Math.abs(q.y - active.point.y) < 0.01
+    markers.push({ key, side, at, p: toScreen(viewport, q), on })
+  }
   return (
-    <g data-testid="board-snap" data-snap-id={box.id} data-snap-side={active} className="pointer-events-none">
-      {SIDES.map((side) => {
-        const p = toScreen(viewport, sidePoint(box, side))
-        const on = side === active
-        return (
-          <circle
-            key={side}
-            data-side={side}
-            cx={p.x}
-            cy={p.y}
-            r={on ? 6 : 4}
-            style={{ fill: on ? "var(--color-primary)" : "var(--color-surface)", stroke: "var(--color-primary)" }}
-            strokeWidth={1.5}
-          />
-        )
-      })}
+    <g data-testid="board-snap" data-snap-id={box.id} data-snap-side={active.side} data-snap-at={active.at} className="pointer-events-none">
+      {markers.map(({ key, side, at, p, on }) => (
+        <circle
+          key={key}
+          data-side={at === 0.5 ? side : undefined}
+          data-anchor={`${side}:${at}`}
+          cx={p.x}
+          cy={p.y}
+          r={on ? 6 : at === 0.5 ? 4 : 3}
+          style={{ fill: on ? "var(--color-primary)" : "var(--color-surface)", stroke: "var(--color-primary)" }}
+          strokeWidth={1.5}
+        />
+      ))}
     </g>
   )
 }

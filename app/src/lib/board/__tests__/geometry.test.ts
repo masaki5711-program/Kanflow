@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest"
 import {
+  anchorPoint,
+  anchorsOf,
+  nearestAnchor,
   boundsOf,
   boxAt,
   distanceToSegment,
@@ -56,13 +59,45 @@ describe("side midpoints (where lines attach)", () => {
     expect(nearestSide(b, { x: 48, y: 3 })).toBe("n")
   })
 
-  it("snapTarget snaps a nearby point to the nearest side midpoint, skipping frames and excluded ids", () => {
+  it("snapTarget snaps a nearby point to the nearest attach place, skipping frames and excluded ids", () => {
     const frame = box("f", -500, -500, 2000, 2000, { type: "frame", z: 0 })
     const els = map(frame, b)
-    expect(snapTarget(els, { x: 108, y: 10 }, 12)).toEqual({ id: "a", side: "e", point: { x: 100, y: 25 } })
-    expect(snapTarget(els, { x: 50, y: 49 }, 12)).toEqual({ id: "a", side: "s", point: { x: 50, y: 50 } })
+    expect(snapTarget(els, { x: 108, y: 10 }, 12)).toEqual({ id: "a", side: "e", at: 0.25, point: { x: 100, y: 12.5 } })
+    expect(snapTarget(els, { x: 50, y: 49 }, 12)).toEqual({ id: "a", side: "s", at: 0.5, point: { x: 50, y: 50 } })
     expect(snapTarget(els, { x: 140, y: 10 }, 12)).toBeNull()
     expect(snapTarget(els, { x: 108, y: 10 }, 12, ["a"])).toBeNull()
+  })
+
+  it("a rectangle offers its corners, side middles and the points halfway between (16 places)", () => {
+    const places = new Set(anchorsOf(b).map((a) => JSON.stringify(anchorPoint(b, a.side, a.at))))
+    expect(places.size).toBe(16)
+    expect(anchorPoint(b, "n", 0.25)).toEqual({ x: 25, y: 0 })
+    expect(anchorPoint(b, "e", 1)).toEqual({ x: 100, y: 50 })
+    // At a corner the side facing the point wins (the line leaves that way).
+    expect(nearestAnchor(b, { x: 104, y: -10 })).toEqual({ side: "n", at: 1 })
+    expect(nearestAnchor(b, { x: 120, y: -2 })).toEqual({ side: "e", at: 0 })
+  })
+
+  it("an ellipse offers a place every 45°; a library shape its side middles only", () => {
+    const e = box("e", 0, 0, 100, 100, { type: "ellipse" })
+    const key = (p: { x: number; y: number }) => `${Math.round(p.x * 10)}:${Math.round(p.y * 10)}`
+    const places = new Set(anchorsOf(e).map((a) => key(anchorPoint(e, a.side, a.at))))
+    expect(places.size).toBe(8)
+    const ne = anchorPoint(e, "n", 1)
+    expect(ne.x).toBeCloseTo(50 + 50 * Math.SQRT1_2)
+    expect(ne.y).toBeCloseTo(50 - 50 * Math.SQRT1_2)
+    // The same 45° point from the side next to it.
+    expect(anchorPoint(e, "e", 0).x).toBeCloseTo(ne.x)
+    const sw = anchorPoint(e, "s", 0)
+    expect(sw.x).toBeCloseTo(50 - 50 * Math.SQRT1_2)
+    expect(sw.y).toBeCloseTo(50 + 50 * Math.SQRT1_2)
+    expect(anchorsOf(box("d", 0, 0, 80, 80, { type: "shape" }))).toHaveLength(4)
+  })
+
+  it("an attached end with a place along its side is drawn there", () => {
+    const target = box("t", 200, 0, 100, 50)
+    const l = line("l", { x: 0, y: 0, attach: "a", side: "e", at: 0 }, { x: 0, y: 0, attach: "t", side: "w", at: 0.75 })
+    expect(resolveLine(l, map(b, target, l))).toEqual({ a: { x: 100, y: 0 }, b: { x: 200, y: 37.5 } })
   })
 })
 

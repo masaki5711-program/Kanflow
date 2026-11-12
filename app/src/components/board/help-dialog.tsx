@@ -23,6 +23,7 @@ const ROWS: (keyof Translations)[] = [
   "wbHelp16",
   "wbHelp17",
   "wbHelp18",
+  "wbHelp19",
 ]
 
 /** The White Board's mouse and keyboard operations at a glance (`?` or the toolbar's guide button). */

@@ -136,12 +136,12 @@ describe("B6 ops: groups", () => {
     const patch = deletePatch(els, ["box-0001"])
     expect(patch["box-0001"]).toBeNull()
     expect((patch["box-0002"] as BoxElement).groupId).toBeUndefined()
-    // The member left is a line attached to the deleted box: it is detached and leaves the group.
+    // The member left is a line attached to the deleted box: it goes with the box.
     const line = { ...newLine("line", { point: { x: 100, y: 30 }, attach: "box-0001", side: "e" }, { point: { x: 300, y: 30 }, attach: null }, "lin-0001", 2), groupId: "grp-0001" }
-    const both = deletePatch(map(box("box-0001", 0, { groupId: "grp-0001" }), line), ["box-0001"])
-    const kept = both["lin-0001"] as { groupId?: string; start: { attach?: string } }
-    expect(kept.groupId).toBeUndefined()
-    expect(kept.start.attach).toBeUndefined()
+    const both = deletePatch(map(box("box-0001", 0, { groupId: "grp-0001" }), box("box-0003", 400, { groupId: "grp-0001" }), line), ["box-0001"])
+    expect(both["lin-0001"]).toBeNull()
+    // …and the one member then left is in no group.
+    expect((both["box-0003"] as BoxElement).groupId).toBeUndefined()
   })
 
   it("a pasted group is a new group; a lone member pasted is in none", () => {
