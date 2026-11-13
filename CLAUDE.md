@@ -42,17 +42,18 @@ agent model (edge, PFE, Tier-2, ZEVA-Engine) do not apply to Kanflow.
    `git worktree add D:/APP/Claudecode_Agent_Ver2.0/apps/kanflow-<name> -b <type>/L4-NOPBI-<topic> feat/L4-NOPBI-kanflow-v2`
    (the agent-model workspace, which ignores `apps/*`; decided by the user 2026-11-11 — never inside the production
    folder). Older worktrees at `D:/APP/Kanflow-<name>` stay where they are until they land.
-2. **The K1 lineage (PostgreSQL) does not enter `main`** before the K2 cutover
-   (runbook + human approval): production auto-deploy would run PG code against
-   the MySQL URL. Every v2 branch descends from K1.
+2. **v2 never goes to the old v1 project.** `main` of the v2 GitLab project
+   `kanflow_ver2` is the v2 line. The old project (remote `origin`) auto-deploys
+   its `main` to the v1 layout: push no v2 branch or tag there.
 3. **Synthetic data only in tests.** Test PG: `ops/test-env/compose.yml`
    (127.0.0.1:25434, `kanflow_dev`; the v2 line uses `scrum_tool_v2` +
    `scrum_tool_v2_shadow`). DB tests run only with `KANFLOW_DB_TESTS=1` and the
    `app/.env` values exported (see `.github/workflows/ci.yml`). A branch with its own
    migrations uses its own database in that container (e.g. `scrum_tool_k3`).
    Anything using production data (K2 rehearsal) needs the user's approval.
-4. **Push only after the user says so.** Remotes: `origin` (internal GitLab,
-   MR flow), `github`. Commit author `Masaki Fujikawa
+4. **Push only after the user says so.** v2 pushes go to the GitLab project
+   `.../appications/kanflow_ver2.git` by URL (the branch, `main` and the
+   `v2-prod-*` tags) and to `github`; `origin` is the old v1 project. Commit author `Masaki Fujikawa
    <masaki.fujikawa@music.yamaha.com>`, passed per commit
    (`git -c user.name=… -c user.email=…`); never edit the shared repo config
    (it also governs the production checkout).
