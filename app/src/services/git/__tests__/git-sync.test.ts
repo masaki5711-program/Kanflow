@@ -1055,6 +1055,7 @@ describe("syncRepository — full success: links, pipelines, gone branches, auto
       state: null,
       pipeline: "success",
       author: "a",
+      authorEmployeeNumber: null,
       sourceBranch: null,
       occurredAt: new Date(NOW),
       mergedAt: null,

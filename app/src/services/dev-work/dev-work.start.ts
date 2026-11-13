@@ -23,6 +23,10 @@ export interface PbiDevelopmentDto {
   /** "gitstation" | "gitlab" (the project reads its development data from one source). */
   provider: string | null
   pbiKey: string
+  /**
+   * The branch of the PBI's newest open MR when it has one (the work continues there; `mergeRequests` names its
+   * repository), else a new name.
+   */
   branchSuggestion: string
   repositories: { id: string; name: string; webUrl: string; path: string; syncedAt: string | null }[]
   mergeRequests: {
@@ -65,6 +69,19 @@ export function tokenMergeState(merge: GitMergeStateDto | null): GitMergeStateDt
   }
 }
 
+/**
+ * Pure: the branch of the PBI's newest open merge request (`links` newest change first), or null. The work goes on
+ * there: a new branch with the generic name would not be the MR's, so "my blocked MRs" (claim branch = MR branch)
+ * and the claim itself would miss the MR.
+ */
+export function openMrBranch(links: readonly { state: string | null; sourceBranch: string | null }[]): string | null {
+  for (const l of links) {
+    const branch = l.sourceBranch?.trim()
+    if (OPEN.includes(l.state ?? "") && branch) return branch
+  }
+  return null
+}
+
 /** The PBI's development data (the PBI is a live PBI of the project the caller may see — checked by the caller). */
 export async function pbiDevelopment(projectId: string, pbi: { id: string; displayId: number; initiative: string | null; epic: string | null }): Promise<PbiDevelopmentDto> {
   const base = { pbiKey: pbiKey(pbi.displayId), branchSuggestion: suggestBranchName(pbi.displayId, pbi.initiative ?? pbi.epic) }
@@ -103,6 +120,7 @@ export async function pbiDevelopment(projectId: string, pbi: { id: string; displ
     enabled: true,
     provider: integration.provider,
     ...base,
+    branchSuggestion: openMrBranch(links) ?? base.branchSuggestion,
     repositories: repositories.map((r) => ({ id: r.id, name: r.name, webUrl: r.webUrl, path: r.repoPath, syncedAt: r.syncedAt?.toISOString() ?? null })),
     mergeRequests: links.map((l) => ({
       repository: l.repository.name,
@@ -131,13 +149,28 @@ export interface StartCommand {
 /** Quote one shell argument (POSIX single quotes; the values are Kanflow's own ids and keys, but never trust them). */
 const quote = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`
 
-/** Pure: the commands to start on a branch and open a draft MR (no MR when the PBI already has an open one). */
-export function startCommands(input: { provider: string | null; branch: string; pbiKey: string; criteria: readonly string[]; sessionId: string; hasOpenMr: boolean }): StartCommand[] {
+/**
+ * Pure: the commands to start on a branch and open a draft MR (no MR when the PBI already has an open one).
+ * `existingBranchRepository`: the branch is an open MR's in that repository (Kanflow's name for it) — switched to
+ * there, not created. A project may have several repositories: the note names the one the commands are for.
+ */
+export function startCommands(input: { provider: string | null; branch: string; pbiKey: string; criteria: readonly string[]; sessionId: string; hasOpenMr: boolean; existingBranchRepository?: string }): StartCommand[] {
   const b = quote(input.branch)
-  const out: StartCommand[] = [
-    { step: "branch", command: `git switch -c ${b}`, note: "Create the branch locally (GitStation has no branch API; Kanflow creates nothing)." },
-    { step: "push", command: `git push -u origin ${b}`, note: "After the first commit." },
-  ]
+  const out: StartCommand[] = input.existingBranchRepository !== undefined
+    ? [
+        {
+          step: "branch",
+          command: `git switch ${b}`,
+          // The name is people's data and the note is read by an AI session: one quoted, inert line (no control
+          // characters, quotes or backticks).
+          note: `The open MR's branch in the repository ${JSON.stringify(input.existingBranchRepository.replace(/[\x00-\x1f\x7f`"\\\s]+/g, " ").trim().slice(0, 100))}: continue there, in a clone of that repository (run \`git fetch origin\` first if the clone does not have it yet).`,
+        },
+        { step: "push", command: `git push origin ${b}`, note: "After the next commit: it updates the open MR." },
+      ]
+    : [
+        { step: "branch", command: `git switch -c ${b}`, note: "Create the branch locally (GitStation has no branch API; Kanflow creates nothing)." },
+        { step: "push", command: `git push -u origin ${b}`, note: "After the first commit." },
+      ]
   if (input.hasOpenMr) return out
   const refs = [input.pbiKey, ...input.criteria].join(", ")
   // The session id goes into a command only when it cannot break any shell's quoting (POSIX, PowerShell, cmd).

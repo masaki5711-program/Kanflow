@@ -9,10 +9,10 @@ import { toMergeStateDto, type GitMergeStateDto } from "./git.service"
  * predicted to conflict, with why and who acts next (the PBI panel's view). From Kanflow's copy (the Git sync): no
  * GitStation call when the dashboard opens.
  *
- * "Mine" — GitStation's merge request names its author by display name / username only (Kanflow keeps no GitStation
- * user id), so an MR is the user's when either holds:
+ * "Mine" — Kanflow keeps no GitStation user id, so an MR is the user's when either holds:
  * - `branch`: its source branch is the branch of one of the user's work claims in the project (heartbeat within 7 days);
- * - `author`: its author is exactly (ignoring case) the user's name or employee number.
+ * - `author`: its author is exactly (ignoring case) the user's name or employee number, or the author's employee
+ *   number GitStation's development status named (authorEmployeeNumber) is the user's.
  * Neither is proof of identity (a namesake's MR, or one on a branch someone else also claimed, may appear); it only
  * decides what this list shows to the user themselves, inside a project they are a member of. The branch is checked
  * first.
@@ -54,11 +54,20 @@ export function needsAction(merge: GitMergeStateDto | null): merge is GitMergeSt
   return merge !== null && (merge.blockers.length > 0 || (merge.conflicts?.peers.some((p) => p.outcome === "conflict") ?? false))
 }
 
-/** Pure: why an MR is the user's, or null. */
-export function mineBy(link: { sourceBranch: string | null; author: string | null }, branches: ReadonlySet<string>, names: readonly string[]): "branch" | "author" | null {
+/**
+ * Pure: why an MR is the user's, or null. `employeeNumber`: the user's (lower-case), matched against the author's
+ * employee number GitStation named (authorEmployeeNumber) — counted as `author` too.
+ */
+export function mineBy(
+  link: { sourceBranch: string | null; author: string | null; authorEmployeeNumber?: string | null },
+  branches: ReadonlySet<string>,
+  names: readonly string[],
+  employeeNumber: string | null = null,
+): "branch" | "author" | null {
   if (link.sourceBranch && branches.has(link.sourceBranch)) return "branch"
   const author = link.author?.trim().toLowerCase()
   if (author && names.some((n) => n === author)) return "author"
+  if (employeeNumber && link.authorEmployeeNumber?.trim().toLowerCase() === employeeNumber) return "author"
   return null
 }
 
@@ -76,6 +85,7 @@ export async function getMyBlockedMrs(projectId: string, userId: string, now: Da
   ])
   const branches = new Set(claims.flatMap((c) => (c.branch ? [c.branch] : [])))
   const names = [user?.name, user?.employeeNumber].flatMap((n) => (n && n.trim() ? [n.trim().toLowerCase()] : []))
+  const employeeNumber = user?.employeeNumber?.trim().toLowerCase() || null
   if (branches.size === 0 && names.length === 0) return { enabled: true, items: [] }
   const links = await prisma.gitLink.findMany({
     where: {
@@ -87,6 +97,7 @@ export async function getMyBlockedMrs(projectId: string, userId: string, now: Da
       OR: [
         ...(branches.size > 0 ? [{ sourceBranch: { in: [...branches] } }] : []),
         ...(names.length > 0 ? [{ author: { in: names, mode: "insensitive" as const } }] : []),
+        ...(employeeNumber ? [{ authorEmployeeNumber: { equals: employeeNumber, mode: "insensitive" as const } }] : []),
       ],
     },
     select: {
@@ -96,6 +107,7 @@ export async function getMyBlockedMrs(projectId: string, userId: string, now: Da
       url: true,
       sourceBranch: true,
       author: true,
+      authorEmployeeNumber: true,
       mergeBlockers: true,
       mergeable: true,
       conflictPrediction: true,
@@ -112,7 +124,7 @@ export async function getMyBlockedMrs(projectId: string, userId: string, now: Da
   const items: MyBlockedMrItem[] = []
   for (const l of links) {
     const merge = toMergeStateDto(l)
-    const mine = mineBy(l, branches, names)
+    const mine = mineBy(l, branches, names, employeeNumber)
     // One row per MR (an MR linked to two PBIs shows once, under the first).
     const key = `${l.repositoryId}\n${l.ref}`
     if (!mine || !needsAction(merge) || seen.has(key)) continue

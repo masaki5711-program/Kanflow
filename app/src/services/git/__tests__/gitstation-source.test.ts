@@ -287,6 +287,18 @@ describe("GitStation restart", () => {
     expect(Date.parse(changes.mergeRequests[0].mergedAt!)).toBeGreaterThan(Date.parse(merged.occurred_at) - 120_000)
   })
 
+  it("a re-read names the author (with the employee number) and the merger when the development status does", async () => {
+    const station = createFakeGitStation({ devStatusPeople: true })
+    station.mergeRequest("merge_request.opened", 1)
+    station.mergeRequest("merge_request.merged", 1)
+    station.mergeRequest("merge_request.opened", 2, { title: "Logout (PBI-2)" }, station.workItem("PBI-2"))
+    station.prune()
+    const changes = await sourceOn(station).readChanges(fresh(), NOW)
+    const byRef = Object.fromEntries(changes.mergeRequests.map((m) => [m.ref, m]))
+    expect(byRef["1"]).toMatchObject({ state: "merged", author: "dev1", authorEmployeeNumber: "SYN0005", mergedBy: "lead1" })
+    expect(byRef["2"]).toMatchObject({ state: "opened", author: "dev1", authorEmployeeNumber: "SYN0005", mergedBy: null })
+  })
+
   it("pages the development status (next_cursor) and takes each merge request once, whatever the number of its work items", async () => {
     const station = createFakeGitStation({ devStatusPageSize: 2 })
     for (let n = 1; n <= 5; n++) station.mergeRequest("merge_request.opened", n, { title: `MR ${n} (PBI-${n})` }, station.workItem(`PBI-${n}`))
@@ -772,6 +784,13 @@ describe("GitStation messages", () => {
       for (const t of [ja, en, id]) expect(t[key!].length).toBeGreaterThan(10)
       expect(ja[key!]).toBe(info.message)
     }
+  })
+
+  it("a 403 from GitStation's CSRF check (FG-AUTH-0016) says so, not 'the service account may not read this'", async () => {
+    const { STATION_CSRF_REFUSED_MESSAGE, STATION_FORBIDDEN_MESSAGE } = await import("@/lib/git/sync-messages")
+    const source = sourceOn(createFakeGitStation())
+    expect(source.describeError(new GitStationError("forbidden", "x", 403, { errorCode: "FG-AUTH-0016" })).message).toBe(STATION_CSRF_REFUSED_MESSAGE)
+    expect(source.describeError(new GitStationError("forbidden", "x", 403, { errorCode: "FG-AUTHZ-0001" })).message).toBe(STATION_FORBIDDEN_MESSAGE)
   })
 
   it("the acceptance check's stored messages are shown in the viewer's language too (ja / en / id)", async () => {

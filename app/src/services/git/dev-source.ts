@@ -27,6 +27,11 @@ export interface DevMergeRequest {
   url: string
   sourceBranch: string
   author: string | null
+  /**
+   * N10: the author's employee number, if the source names it (null / absent = unknown: the stored value is kept).
+   * Decides "my blocked MRs"; never shown.
+   */
+  authorEmployeeNumber?: string | null
   updatedAt: string
   mergedAt: string | null
   /** When the MR was opened, if the source knows (null / absent = unknown: the stored value is kept). */

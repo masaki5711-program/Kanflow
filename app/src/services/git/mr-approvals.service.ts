@@ -1,7 +1,7 @@
 import type { Prisma } from "@/generated/prisma/client"
 import { prisma } from "@/lib/prisma"
 import { logger } from "@/lib/logger"
-import { GitStationError, isEmployeeNumber, isObjectId, type ActAsTrial, type ApprovalIntent, type GitStationClient } from "@/lib/git/gitstation-client"
+import { CSRF_REFUSED, GitStationError, isEmployeeNumber, isObjectId, type ActAsTrial, type ApprovalIntent, type GitStationClient } from "@/lib/git/gitstation-client"
 import { pbiKey } from "@/lib/git/pbi-keys"
 import { ForbiddenError, NotFoundError, StatusError, ValidationError } from "@/services/_shared"
 import { assertClaimedBySamePerson, claimAttempt, discardClaim, employeeNumberOf, finishAfterWrite, finishAttempt, lockAttempt, MR_INTENTS, openAttempt, statusError as err } from "./act-as-attempts"
@@ -126,9 +126,12 @@ function toServiceError(e: unknown, context: Record<string, unknown>): Error {
       return err(409, "GIT_APPROVAL_STALE", "MR が更新されました")
     case "FG-AUTH-0002":
     case "FG-REPO-0005":
+    case CSRF_REFUSED: // GitStation's CSRF check took the server call for a browser's: its setup, not GitStation down
       return err(409, "GIT_APPROVAL_CONFIG", "連携の設定の問題で承認できません")
   }
   if (e.kind === "auth" || e.kind === "host_not_allowed") return err(409, "GIT_APPROVAL_CONFIG", "連携の設定の問題で承認できません")
+  // Any other refusal is a refusal, never "GitStation could not be reached".
+  if (e.kind === "forbidden") return err(403, "GIT_APPROVAL_NOT_ALLOWED", "この MR を承認する権限がありません")
   if (e.kind === "not_found") return err(404, "NOT_FOUND", "MR が見つかりません")
   return err(502, "UPSTREAM_FAILED", "GitStation に接続できませんでした")
 }

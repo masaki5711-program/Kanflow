@@ -1,5 +1,6 @@
 import {
   createGitStationClient,
+  CSRF_REFUSED,
   GitStationError,
   isObjectId,
   MAX_CURSOR_LENGTH,
@@ -13,6 +14,7 @@ import {
 import {
   CURSOR_INVALID_MESSAGE,
   STATION_AUTH_MESSAGE,
+  STATION_CSRF_REFUSED_MESSAGE,
   STATION_FORBIDDEN_MESSAGE,
   STATION_GONE_MESSAGE,
   STATION_HOST_NOT_ALLOWED_MESSAGE,
@@ -672,9 +674,10 @@ function projectsNamed(e: GitStationEvent): Set<string> {
 /**
  * A merge request as Kanflow records it. `mergedAt`: the merged event's time when this read saw it, or the
  * development status's `merged_at` on a re-read (`updated_at` stands in only when neither is known). Once a merge
- * time is stored it is kept (git-sync writeLinks). The development status names no author: null = unknown (the
- * stored author is kept). `mergedBy`: the merged event's actor when this read saw that event — GitStation names
- * the merger nowhere else, so a re-read passes null (unknown: the stored name is kept).
+ * time is stored it is kept (git-sync writeLinks). An author / merger the source does not name is null = unknown
+ * (the stored one is kept): the MR API names the author, the development status names both (with the author's
+ * employee number under the user_employee_number scope) since GitStation added them; an older GitStation, neither.
+ * `mergedBy`: the merged event's actor when this read saw that event, else the development status's merged_by.
  */
 function toRecord(mr: GitStationMergeRequest, links: StationLinks, mergedAt: string | null, mergedBy: string | null = null): DevMergeRequest | null {
   const state = kanflowState(mr.state)
@@ -685,14 +688,21 @@ function toRecord(mr: GitStationMergeRequest, links: StationLinks, mergedAt: str
     state,
     url: links(mr.project_id, "pull", String(mr.iid)),
     sourceBranch: mr.source_branch,
-    author: mr.author?.display_name ?? mr.author?.username ?? null,
+    author: personName(mr.author),
+    authorEmployeeNumber: mr.author?.employee_number ?? null,
     updatedAt: mr.updated_at,
     mergedAt: state === "merged" ? mergedAt : null,
     openedAt: mr.created_at,
     targetBranch: mr.target_branch ?? null,
-    mergedBy: state === "merged" ? mergedBy : null,
+    // The merged event's actor, else the development status's merged_by (a re-read names it since GitStation added it).
+    mergedBy: state === "merged" ? (mergedBy ?? personName(mr.merged_by)) : null,
     headSha: headShaOf(mr.head_sha),
   }
+}
+
+/** A person a merge request names, for display: display name, else username; null when it names neither. */
+function personName(p: GitStationMergeRequest["author"]): string | null {
+  return p?.display_name?.trim() || p?.username?.trim() || null
 }
 
 /**
@@ -901,7 +911,7 @@ export function gitStationErrorMessage(err: unknown): string {
     case "auth":
       return STATION_AUTH_MESSAGE
     case "forbidden":
-      return STATION_FORBIDDEN_MESSAGE
+      return err.detail.errorCode === CSRF_REFUSED ? STATION_CSRF_REFUSED_MESSAGE : STATION_FORBIDDEN_MESSAGE
     case "not_found":
       return STATION_NOT_FOUND_MESSAGE
     case "cursor_invalid":

@@ -61,7 +61,11 @@ const ALLOWED_QUERY: Record<string, string[]> = {
 }
 
 /** `origin`: the address this GitStation answers at (a test file with its own address shares no feed with the others). */
-export function createFakeGitStation(options: { pageSize?: number; devStatusPageSize?: number; origin?: string } = {}) {
+/**
+ * `devStatusPeople`: the development status names author / merged_by (with employee numbers) as GitStation does
+ * since they were added; without it the older shape (neither) is served.
+ */
+export function createFakeGitStation(options: { pageSize?: number; devStatusPageSize?: number; origin?: string; devStatusPeople?: boolean } = {}) {
   const origin = options.origin ?? STATION
   const pageSize = options.pageSize ?? 500
   const devStatusPageSize = options.devStatusPageSize ?? 100
@@ -295,6 +299,12 @@ export function createFakeGitStation(options: { pageSize?: number; devStatusPage
               checks: [],
               checks_state: "none",
               link: { source: "auto", linked_at: mr.created_at },
+              ...(options.devStatusPeople
+                ? {
+                    author: { id: 5, username: "dev1", employee_number: "SYN0005" },
+                    merged_by: mr.state === "merged" ? { id: 6, username: "lead1", employee_number: "SYN0006" } : null,
+                  }
+                : {}),
             })),
           merge_requests_truncated: false,
         })),

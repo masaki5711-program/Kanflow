@@ -16,6 +16,8 @@ export interface LinkDraft {
   state: string | null
   pipeline: string | null
   author: string | null
+  /** MR only (N10): the author's employee number; null = unknown (writers keep the stored value then). */
+  authorEmployeeNumber: string | null
   sourceBranch: string | null
   occurredAt: Date
   mergedAt: Date | null
@@ -49,6 +51,7 @@ export function mergeRequestFields(mr: DevMergeRequest, now: Date): Omit<LinkDra
     url: safeUrl(mr.url),
     state: cut(mr.state, 16) || null,
     author: cut(mr.author, 191) || null,
+    authorEmployeeNumber: cut(mr.authorEmployeeNumber, 64).trim() || null,
     sourceBranch: cut(mr.sourceBranch, 255) || null,
     occurredAt: date(mr.updatedAt, now),
     mergedAt: mr.mergedAt ? date(mr.mergedAt, now) : null,
@@ -95,6 +98,7 @@ export function linksFromBranch(branch: DevBranch, now: Date): LinkDraft[] {
     state: null,
     pipeline: null,
     author: cut(branch.headAuthor, 191) || null,
+    authorEmployeeNumber: null,
     sourceBranch: cut(branch.name, 255),
     occurredAt: date(branch.headCommittedAt, now),
     mergedAt: null,
@@ -116,6 +120,7 @@ export function linksFromCommit(commit: DevCommit, now: Date): LinkDraft[] {
     state: null,
     pipeline: null,
     author: cut(commit.author, 191) || null,
+    authorEmployeeNumber: null,
     sourceBranch: null,
     occurredAt: date(commit.committedAt, now),
     mergedAt: null,

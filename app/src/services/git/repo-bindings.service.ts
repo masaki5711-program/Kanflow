@@ -4,6 +4,7 @@ import { open } from "@/lib/secret-box"
 import { stationAllowedHosts } from "@/lib/git/repo-url"
 import { getRateLimiter, type RateLimiter } from "@/lib/rate-limit"
 import {
+  CSRF_REFUSED,
   GitStationError,
   isBindableKanflowProjectId,
   isEmployeeNumber,
@@ -175,9 +176,12 @@ function toServiceError(e: unknown, context: Record<string, unknown>): Error {
     case "FG-INT-0016":
       return err(409, "GIT_BINDING_CONFLICT", "GitStation の結びつけの規則で断られました")
     case "FG-AUTH-0002":
+    case CSRF_REFUSED: // GitStation's CSRF check took the server call for a browser's: its setup, not GitStation down
       return err(409, "GIT_BINDING_CONFIG", "連携の設定の問題で結びつけを変更できません")
   }
   if (e.kind === "auth" || e.kind === "host_not_allowed") return err(409, "GIT_BINDING_CONFIG", "連携の設定の問題で結びつけを変更できません")
+  // Any other refusal is a refusal, never "GitStation could not be reached".
+  if (e.kind === "forbidden") return err(403, "GIT_BINDING_NOT_ALLOWED", "このリポジトリを結びつける権限がありません")
   if (e.kind === "not_found") return err(404, "NOT_FOUND", "見つかりません")
   return err(502, "UPSTREAM_FAILED", "GitStation に接続できませんでした")
 }

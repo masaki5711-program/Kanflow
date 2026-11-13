@@ -184,6 +184,27 @@ describe.skipIf(!enabled)("MR approvals through GitStation act-as on a real data
     expect(writes()).toHaveLength(0)
   })
 
+  it("GitStation's CSRF refusal (403 FG-AUTH-0016) is a setup problem, not 'GitStation unreachable'", async () => {
+    const started = await service.startMrApproval(ids.project, ids.alice, { linkId: ids.link1, intent: "approve" }, deps())
+    station.press(started.confirmUrl, ALICE)
+    const real = station.fetchImpl
+    const csrf: typeof fetch = async (input, init) =>
+      /\/approve$/.test(String(input)) ? new Response(JSON.stringify({ error_code: "FG-AUTH-0016", message: "synthetic" }), { status: 403, headers: { "content-type": "application/json" } }) : real(input, init)
+    const csrfDeps = { ...deps(), clientFactory: (o: { apiBase: string; token: string; integrationId: string }) => createGitStationClient({ ...o, fetchImpl: csrf, sleep: async () => undefined }) }
+    expect(await codeOf(service.completeMrApproval(ids.project, ids.alice, started.attemptId, csrfDeps))).toBe("GIT_APPROVAL_CONFIG")
+    expect(station.approvers(1)).toEqual([])
+  })
+
+  it("a 403 under a code Kanflow does not know is a refusal (NOT_ALLOWED), not 'GitStation unreachable' or a setup problem", async () => {
+    const started = await service.startMrApproval(ids.project, ids.alice, { linkId: ids.link1, intent: "approve" }, deps())
+    station.press(started.confirmUrl, ALICE)
+    const real = station.fetchImpl
+    const refused: typeof fetch = async (input, init) =>
+      /\/approve$/.test(String(input)) ? new Response(JSON.stringify({ error_code: "FG-SYN-9999" }), { status: 403, headers: { "content-type": "application/json" } }) : real(input, init)
+    const refusedDeps = { ...deps(), clientFactory: (o: { apiBase: string; token: string; integrationId: string }) => createGitStationClient({ ...o, fetchImpl: refused, sleep: async () => undefined }) }
+    expect(await codeOf(service.completeMrApproval(ids.project, ids.alice, started.attemptId, refusedDeps))).toBe("GIT_APPROVAL_NOT_ALLOWED")
+  })
+
   it("a lock left by a crashed request is taken over after CLAIM_LOCK_MS (and only then)", async () => {
     const started = await service.startMrApproval(ids.project, ids.alice, { linkId: ids.link1, intent: "approve" }, deps())
     station.press(started.confirmUrl, ALICE)

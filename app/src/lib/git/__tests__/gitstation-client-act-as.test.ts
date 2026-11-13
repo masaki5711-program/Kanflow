@@ -84,6 +84,14 @@ describe("GitStation client: dev-status listing (I1d)", () => {
     expect(Object.fromEntries(calls[0].url.searchParams)).toEqual({ limit: "100", state: "all" })
   })
 
+  it("reads author / merged_by when GitStation names them; an employee number of the wrong shape is dropped", async () => {
+    const people = { ...mr, author: { id: 1, username: "dora", employee_number: "SYN1005" }, merged_by: { id: 2, username: "alice", display_name: "Alice", employee_number: "SYN 1001; x" } }
+    const { c } = client(() => json(200, page({ work_items: [{ provider: "kanflow", project_id: "p1", ref: "PBI-1", merge_requests: [people], merge_requests_truncated: false }] })))
+    const [got] = (await c.devStatusPage(null)).mergeRequests
+    expect(got.author).toEqual({ username: "dora", display_name: null, employee_number: "SYN1005" })
+    expect(got.merged_by).toEqual({ username: "alice", display_name: "Alice" })
+  })
+
   it("sends the next page's cursor back unchanged and refuses a page that says has_more without one", async () => {
     const { c, calls } = client(() => json(200, page({ next_cursor: "opaque/next", has_more: true })))
     expect((await c.devStatusPage("prev")).nextCursor).toBe("opaque/next")

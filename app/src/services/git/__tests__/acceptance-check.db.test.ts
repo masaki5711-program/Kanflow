@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
-import { ACCEPTANCE_COMMIT_MISSING_MESSAGE, ACCEPTANCE_REPORT_REFUSED_MESSAGE, STATION_NOT_BOUND_MESSAGE, STATION_UNAVAILABLE_MESSAGE } from "@/lib/git/sync-messages"
+import { ACCEPTANCE_COMMIT_MISSING_MESSAGE, ACCEPTANCE_REPORT_REFUSED_MESSAGE, STATION_CSRF_REFUSED_MESSAGE, STATION_NOT_BOUND_MESSAGE, STATION_UNAVAILABLE_MESSAGE } from "@/lib/git/sync-messages"
 import { createFakeGitStation, INTEGRATION, oid, REPO, TOKEN, type FakeGitStation } from "./fake-gitstation"
 
 /** What the services log: an operator learns of a failure nobody is shown from these lines only. */
@@ -379,6 +379,13 @@ describe.skipIf(!enabled)("acceptance check on a real database (KANFLOW_DB_TESTS
     quiet()
     expect(await tick(3)).toEqual({ ...NOTHING, unchanged: 1 })
     expect(station.requests).toEqual([])
+  })
+
+  it("a report refused by GitStation's CSRF check (403 FG-AUTH-0016) names that cause, not the check grants", async () => {
+    await open(1, ids.ready)
+    station.fail(`/projects/${stationProject()}/commits/`, 403, { error_code: "FG-AUTH-0016" })
+    expect(await tick(0)).toEqual({ ...NOTHING, failed: 1 })
+    expect(await rows()).toEqual([expect.objectContaining({ lastError: STATION_CSRF_REFUSED_MESSAGE, retryAt: at(60), repositoryWide: true })])
   })
 
   it("a refused report (403: namespace not granted) is stored, shown in the Git settings, and makes the whole repository wait PERMANENT_RETRY_MS — one refusal, not one per merge request and tick", async () => {
