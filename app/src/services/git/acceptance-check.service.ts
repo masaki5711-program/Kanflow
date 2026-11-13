@@ -2,7 +2,7 @@ import { createHash } from "node:crypto"
 import type { GitAcceptanceReport, Prisma } from "@/generated/prisma/client"
 import { prisma } from "@/lib/prisma"
 import { logger } from "@/lib/logger"
-import { GitStationError, isObjectId, type GitStationClient, type GitStationErrorKind } from "@/lib/git/gitstation-client"
+import { CSRF_REFUSED, GitStationError, isObjectId, type GitStationClient, type GitStationErrorKind } from "@/lib/git/gitstation-client"
 import { ACCEPTANCE_COMMIT_MISSING_MESSAGE, ACCEPTANCE_REPORT_REFUSED_MESSAGE } from "@/lib/git/sync-messages"
 import { OPEN_SPRINT_STATUSES } from "@/services/api-v1/api-v1.repository"
 import { ACCEPTANCE_NO_FAILURE, acceptanceCheckInEffect, evaluateAcceptance, type AcceptanceSwitch, type AcceptanceVerdict } from "./acceptance-check-rules"
@@ -321,7 +321,8 @@ function describeCallFailure(stage: Stage, err: GitStationError): FailureInfo {
   // 404 on the report: the commit read a moment ago is not reachable (FG-REPO-0023) — the head is read again next time.
   if (stage === "report" && err.kind === "not_found") return { message: ACCEPTANCE_COMMIT_MISSING_MESSAGE, permanent: false, repositoryWide: false, log: logged }
   // 403 on the report: the check namespace is not granted to the service account, or it is below Developer (FG-AUTH-0003).
-  if (stage === "report" && err.kind === "forbidden") return { message: ACCEPTANCE_REPORT_REFUSED_MESSAGE, permanent: true, repositoryWide: true, log: logged }
+  // GitStation's CSRF refusal (FG-AUTH-0016) is not about grants: the general text names it (gitStationErrorMessage).
+  if (stage === "report" && err.kind === "forbidden" && err.detail.errorCode !== CSRF_REFUSED) return { message: ACCEPTANCE_REPORT_REFUSED_MESSAGE, permanent: true, repositoryWide: true, log: logged }
   return { message: gitStationErrorMessage(err), permanent: isPermanentFailure(err), repositoryWide: REPOSITORY_WIDE_KINDS.has(err.kind), log: logged }
 }
 

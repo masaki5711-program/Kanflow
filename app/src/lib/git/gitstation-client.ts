@@ -30,6 +30,12 @@ export type GitStationErrorKind =
   | "act_as_target_invalid" // the person cannot be named in Forge-Act-As (no / malformed employee number)
   | "http"
 
+/**
+ * 403 error code of GitStation's CSRF check: it took a server call for a browser's (a `Sec-Fetch-*` header without a
+ * matching Origin). A setting or version of GitStation to fix, not a permission the service account lacks.
+ */
+export const CSRF_REFUSED = "FG-AUTH-0016"
+
 export const GONE_REASONS = ["retention", "epoch_mismatch", "ahead_of_head", "visible_set_changed"] as const
 export type GoneReason = (typeof GONE_REASONS)[number]
 
@@ -78,6 +84,13 @@ export interface GitStationFeedPage {
   hasMore: boolean
 }
 
+/** A person a merge request names (author / merger), names and — when GitStation sends it — the employee number. */
+export interface GitStationPerson {
+  username?: string | null
+  display_name?: string | null
+  employee_number?: string | null
+}
+
 /** A merge request as `/projects/{id}/merge-requests[/{iid}]` returns it (MergeRequestBody). */
 export interface GitStationMergeRequest {
   project_id: number
@@ -88,7 +101,10 @@ export interface GitStationMergeRequest {
   draft?: boolean
   source_branch: string
   target_branch?: string
-  author?: { username?: string | null; display_name?: string | null } | null
+  /** `employee_number`: dev-status only, and only with the user_employee_number scope. */
+  author?: GitStationPerson | null
+  /** Who merged it (dev-status only; null while open or when the source does not say). */
+  merged_by?: GitStationPerson | null
   created_at: string
   updated_at: string
   closed_at?: string | null
@@ -101,7 +117,7 @@ export interface GitStationMergeRequest {
 export interface GitStationDevStatusPage {
   /** The feed position of the FIRST page (the same on every page): reading the feed from it misses nothing. */
   feedCursor: string
-  /** Merge requests of the page's work items, as the MR API shapes them (author unknown: null). Each once. */
+  /** Merge requests of the page's work items, as the MR API shapes them (plus merged_by; author / merger null = not named). Each once. */
   mergeRequests: GitStationMergeRequest[]
   /** Items of an unexpected shape (not returned). */
   skipped: number
@@ -353,10 +369,18 @@ function parseActor(v: unknown): GitStationActor | null {
   return { kind: v.kind, user }
 }
 
+/** A person of the expected shape (names; the employee number only when it is one), else null. */
+function parsePerson(v: unknown): GitStationPerson | null {
+  if (!isObject(v)) return null
+  const person: GitStationPerson = { username: str(v.username) ? v.username : null, display_name: str(v.display_name) ? v.display_name : null }
+  if (isEmployeeNumber(v.employee_number)) person.employee_number = v.employee_number
+  return person
+}
+
 /** A merge request of the expected shape, else null (a listing skips it, a detail read refuses it). */
 function parseMergeRequest(v: unknown): GitStationMergeRequest | null {
   if (!isObject(v) || !isId(v.project_id) || !isId(v.iid) || !str(v.title) || !str(v.state) || !str(v.source_branch) || !str(v.created_at) || !str(v.updated_at)) return null
-  const author = isObject(v.author) ? { username: str(v.author.username) ? v.author.username : null, display_name: str(v.author.display_name) ? v.author.display_name : null } : null
+  const author = parsePerson(v.author)
   return {
     project_id: v.project_id,
     iid: v.iid,
@@ -429,10 +453,11 @@ function parseRepositoryBinding(v: unknown): GitStationRepositoryBinding | null 
 /** A dev-status merge request (`merge_requests[]`) in the MR API's shape, else null. */
 function parseDevStatusMergeRequest(v: unknown): GitStationMergeRequest | null {
   if (!isObject(v) || !isObject(v.project)) return null
-  const mr = parseMergeRequest({ ...v, project_id: v.project.id, author: null })
+  const mr = parseMergeRequest({ ...v, project_id: v.project.id })
   if (!mr) return null
   // A merge time that is not a date is unknown (updated_at stands in), never stored as garbage.
-  return { ...mr, merged_at: str(v.merged_at) && !Number.isNaN(Date.parse(v.merged_at)) ? v.merged_at : null }
+  // author / merged_by: GitStation names them since dev-status got them; an older one sends neither (unknown).
+  return { ...mr, merged_at: str(v.merged_at) && !Number.isNaN(Date.parse(v.merged_at)) ? v.merged_at : null, merged_by: parsePerson(v.merged_by) }
 }
 
 /** A completed check run as Kanflow reports it (the conclusions Kanflow uses; `summary` is plain text). */

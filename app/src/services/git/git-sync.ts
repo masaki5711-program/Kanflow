@@ -317,6 +317,7 @@ const LINK_SELECT = {
   state: true,
   pipeline: true,
   author: true,
+  authorEmployeeNumber: true,
   sourceBranch: true,
   occurredAt: true,
   mergedAt: true,
@@ -374,6 +375,8 @@ async function writeLinks(projectId: string, repositoryId: string, drafts: reado
       // An unknown author keeps the stored one (GitStation's development status names none). For every source:
       // a GitLab MR / branch / commit always names its author, so null there means "not read", never "gone".
       author: d.author ?? (before?.author as string | null | undefined) ?? null,
+      // N10: the same for the author's employee number (only GitStation's development status names it).
+      authorEmployeeNumber: d.authorEmployeeNumber ?? (before?.authorEmployeeNumber as string | null | undefined) ?? null,
       sourceBranch: d.sourceBranch,
       occurredAt: d.occurredAt,
       mergedAt: mergedAtToStore(before, d),
@@ -450,6 +453,7 @@ async function refreshDeclaredLinks(
     const fields = mergeRequestFields(mr, now)
     const data = {
       ...fields,
+      authorEmployeeNumber: fields.authorEmployeeNumber ?? row.authorEmployeeNumber,
       openedAt: fields.openedAt ?? row.openedAt,
       targetBranch: fields.targetBranch ?? row.targetBranch,
       mergedBy: fields.mergedBy ?? row.mergedBy,

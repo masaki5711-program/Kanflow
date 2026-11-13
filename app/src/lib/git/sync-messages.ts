@@ -43,6 +43,13 @@ export const STATION_AUTH_MESSAGE = "GitStation がトークンを拒否しま�
 /** GitStation answered 403 to a read. */
 export const STATION_FORBIDDEN_MESSAGE = "連携のサービスアカウントに、このリポジトリを読む権限がありません。GitStation で連携にリポジトリを結び付けてください。"
 
+/**
+ * GitStation answered 403 FG-AUTH-0016: it took Kanflow's server call for a browser's and refused it for a missing or
+ * wrong Origin (its CSRF check). Not a missing permission: GitStation's side has to exempt token calls.
+ */
+export const STATION_CSRF_REFUSED_MESSAGE =
+  "GitStation が Kanflow からの要求をブラウザからの要求とみなして拒否しました（FG-AUTH-0016）。GitStation の管理者に、トークン付きの要求を CSRF の検査から外す版・設定になっているか確認を依頼してください。"
+
 /** GitStation answered 404 to a read. */
 export const STATION_NOT_FOUND_MESSAGE = "リポジトリか連携が GitStation に見つからないか、この連携からは見えません。URL と連携 ID を確認してください。"
 
@@ -104,6 +111,7 @@ export type SyncMessageKey =
   | "gitSyncStationNoIntegration"
   | "gitSyncStationAuth"
   | "gitSyncStationForbidden"
+  | "gitSyncStationCsrfRefused"
   | "gitSyncStationNotFound"
   | "gitSyncStationGone"
   | "gitSyncStationRateLimited"
@@ -128,6 +136,7 @@ const KEYS: ReadonlyMap<string, SyncMessageKey> = new Map<string, SyncMessageKey
   [STATION_MISSING_INTEGRATION_MESSAGE, "gitSyncStationNoIntegration"],
   [STATION_AUTH_MESSAGE, "gitSyncStationAuth"],
   [STATION_FORBIDDEN_MESSAGE, "gitSyncStationForbidden"],
+  [STATION_CSRF_REFUSED_MESSAGE, "gitSyncStationCsrfRefused"],
   [STATION_NOT_FOUND_MESSAGE, "gitSyncStationNotFound"],
   [STATION_GONE_MESSAGE, "gitSyncStationGone"],
   [STATION_RATE_LIMITED_MESSAGE, "gitSyncStationRateLimited"],

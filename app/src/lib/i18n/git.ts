@@ -20,6 +20,7 @@ export interface GitTranslations {
   gitSyncStationNoIntegration: string
   gitSyncStationAuth: string
   gitSyncStationForbidden: string
+  gitSyncStationCsrfRefused: string
   gitSyncStationNotFound: string
   gitSyncStationGone: string
   gitSyncStationRateLimited: string
@@ -198,6 +199,7 @@ export const ja: GitTranslations = {
   gitSyncStationNoIntegration: "GitStation の連携 ID が設定されていません。チーム設定の Git 連携で入れてください。",
   gitSyncStationAuth: "GitStation がトークンを拒否しました（無効または期限切れ）。連携のサービスアカウントの新しいトークンを設定してください。",
   gitSyncStationForbidden: "連携のサービスアカウントに、このリポジトリを読む権限がありません。GitStation で連携にリポジトリを結び付けてください。",
+  gitSyncStationCsrfRefused: "GitStation が Kanflow からの要求をブラウザからの要求とみなして拒否しました（FG-AUTH-0016）。GitStation の管理者に、トークン付きの要求を CSRF の検査から外す版・設定になっているか確認を依頼してください。",
   gitSyncStationNotFound: "リポジトリか連携が GitStation に見つからないか、この連携からは見えません。URL と連携 ID を確認してください。",
   gitSyncStationGone: "GitStation のイベントの履歴の位置が無効になりました。状態を取り直します（次回の同期）。",
   gitSyncStationRateLimited: "GitStation の利用制限に達しました。次回の同期で再試行します。",
@@ -382,6 +384,7 @@ export const en: GitTranslations = {
   gitSyncStationNoIntegration: "The GitStation integration ID is not set. Enter it under Git integration in the project's Settings.",
   gitSyncStationAuth: "GitStation rejected the token (invalid or expired). Set a new token of the integration's service account.",
   gitSyncStationForbidden: "The integration's service account is not allowed to read this repository. Bind the repository to the integration in GitStation.",
+  gitSyncStationCsrfRefused: "GitStation took Kanflow's request for a browser's and refused it (FG-AUTH-0016). Ask the GitStation administrator to confirm that its version and settings exempt token requests from the CSRF check.",
   gitSyncStationNotFound: "The repository or the integration was not found in GitStation, or this integration cannot see it. Check the URL and the integration ID.",
   gitSyncStationGone: "The position in GitStation's event history is no longer valid. The state is re-read at the next sync.",
   gitSyncStationRateLimited: "GitStation's rate limit was reached. The next sync tries again.",
@@ -566,6 +569,7 @@ export const id: GitTranslations = {
   gitSyncStationNoIntegration: "ID integrasi GitStation belum diatur. Isi di bagian integrasi Git pada Pengaturan proyek.",
   gitSyncStationAuth: "GitStation menolak token (tidak valid atau kedaluwarsa). Atur token baru dari akun layanan integrasi.",
   gitSyncStationForbidden: "Akun layanan integrasi tidak berhak membaca repositori ini. Ikat repositori ke integrasi di GitStation.",
+  gitSyncStationCsrfRefused: "GitStation menganggap permintaan Kanflow sebagai permintaan dari browser dan menolaknya (FG-AUTH-0016). Minta administrator GitStation memastikan versi dan pengaturannya mengecualikan permintaan bertoken dari pemeriksaan CSRF.",
   gitSyncStationNotFound: "Repositori atau integrasi tidak ditemukan di GitStation, atau tidak terlihat dari integrasi ini. Periksa URL dan ID integrasi.",
   gitSyncStationGone: "Posisi riwayat peristiwa GitStation tidak berlaku lagi. Statusnya dibaca ulang pada sinkronisasi berikutnya.",
   gitSyncStationRateLimited: "Batas penggunaan GitStation tercapai. Sinkronisasi berikutnya mencoba lagi.",

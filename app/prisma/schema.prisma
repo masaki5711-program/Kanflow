@@ -1854,6 +1854,10 @@ model GitLink {
   /// MR links only (N11): display name of who merged it, as the source reported (GitStation: the actor of the
   /// merged event; GitLab: merge_user). Null = unknown (merged before this was recorded, or merged by the system).
   mergedBy          String?            @db.VarChar(191)
+  /// MR links only (N10): the employee number of the MR's author, as GitStation's development status named it (only
+  /// with the user_employee_number scope). Decides "my blocked MRs" against User.employeeNumber (ignoring case) —
+  /// never shown. Null = unknown (GitLab, an older GitStation, no scope, or the author has none).
+  authorEmployeeNumber String?         @db.VarChar(64)
   /// MR links only (N2): the commit at the head of the MR's source branch as last read (40 or 64 lower-case hex);
   /// null = not read yet. GitStation's check.completed names a commit only: this finds its merge request.
   headSha           String?            @db.VarChar(64)
